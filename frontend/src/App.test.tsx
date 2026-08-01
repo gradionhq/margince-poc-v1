@@ -344,7 +344,6 @@ describe("onboarding gate", () => {
                   id: "p1",
                   label: "Everyday agent",
                   scopes: ["read"],
-                  granted: ["read"],
                   expires_at: "2027-01-01T00:00:00Z",
                 },
               ],

@@ -10795,16 +10795,15 @@ export interface components {
             expires_at: string;
         };
         /**
-         * @description One passport the signed-in human may lend to the requesting client. `granted` is
-         *     `scopes` intersected with what the client requested — it is what this connection
-         *     would actually receive, and may be narrower than `scopes`.
+         * @description One passport the signed-in human may lend to the requesting client. `scopes` is both
+         *     what the passport carries and what a connection lending it receives: the client's
+         *     request does not narrow the grant, so there is no second, smaller set beside it.
          */
         ConsentPassportOption: {
             /** Format: uuid */
             id: string;
             label: string;
             scopes: ("read" | "draft" | "write" | "send" | "enrich")[];
-            granted: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** Format: date-time */
             expires_at: string;
         };
@@ -10816,6 +10815,10 @@ export interface components {
          */
         ConsentRequest: {
             client_name: string;
+            /**
+             * @description The scopes the client named on the authorize URL. Informational only — the grant is
+             *     the lent passport's own scopes, so this neither widens nor narrows it.
+             */
             requested: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** @description The client asked to stay connected without asking again (offline_access). */
             offline: boolean;
