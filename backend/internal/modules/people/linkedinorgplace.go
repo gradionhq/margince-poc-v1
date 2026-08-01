@@ -18,6 +18,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -113,10 +115,23 @@ func (c orgCandidate) reachableBy(member ids.UUID) bool {
 // between: attaching a colleague's network to the wrong account is a worse
 // answer than attaching it to none.
 func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]orgCandidate, error) {
-	rows, err := tx.Query(ctx, `
+	// The caller's org row scope, because this pass now runs under the ghost
+	// OWNER's own authority: an account outside their scope must not become a
+	// placement, or a reach count reports an account they may not read.
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
+	if err != nil {
+		return nil, err
+	}
+	visible := sqlAlwaysVisible
+	if scope != "" {
+		visible = scope
+	}
+	rows, err := tx.Query(ctx, storekit.SQLf(`
 		SELECT o.id, o.display_name, o.visibility = 'owner',
 		       coalesce(o.owner_id, '00000000-0000-0000-0000-000000000000'::uuid)
-		  FROM organization o WHERE o.archived_at IS NULL`)
+		  FROM organization o WHERE o.archived_at IS NULL AND (%s)`, visible), args...)
 	if err != nil {
 		return nil, fmt.Errorf("people: reading accounts for LinkedIn placement: %w", err)
 	}

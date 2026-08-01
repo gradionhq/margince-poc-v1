@@ -45,6 +45,13 @@ const fieldPersonID = "person_id"
 // cannot drift.
 const (
 	matchConfirmed = "confirmed"
+	// socialLinkedIn is the person_social platform key. Named because the
+	// write, the removal and both audit payloads say it, and four literals are
+	// four places for a typo to orphan a handle.
+	socialLinkedIn = "linkedin"
+	// auditKeySocial names the changed-field group both the write and the
+	// removal report, so a consumer reading field history sees one key.
+	auditKeySocial = "social"
 	matchRejected  = "rejected"
 )
 

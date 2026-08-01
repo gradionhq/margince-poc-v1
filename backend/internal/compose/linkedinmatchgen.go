@@ -87,7 +87,7 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 		// both match arms already require archived_at IS NULL, so an archive
 		// needs no reaction, and a merge arrives as an update on the target.
 		case "person.created", "person.updated", "person.merged", "person.restored":
-			return g.matchPerson(ctx, env.Entity.ID)
+			return g.matchPerson(ctx, env.WorkspaceID, env.Entity.ID)
 		}
 	case matchEntityOrganization:
 		switch env.Type {
@@ -102,17 +102,28 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 	return nil
 }
 
-func (g *LinkedInMatchGen) matchPerson(ctx context.Context, person ids.UUID) error {
-	matched, err := g.store.MatchLinkedInConnectionsForPerson(ctx, person)
-	if err != nil {
-		return err
-	}
-	if matched.Confirmed+matched.Suggested > 0 {
-		g.log.InfoContext(ctx, "linkedin match: a contact met their ghost",
-			"person", person.String(),
-			"confirmed", matched.Confirmed, "suggested", matched.Suggested)
-	}
-	return nil
+// matchPerson re-runs the match for ONE contact, once per member with ghosts,
+// each under their OWN authority.
+//
+// Per owner for the same reason the workspace pass is: the system actor is
+// unbounded, so a single pass would match every member's ghosts against a
+// contact none of them may be able to see, and report it back through
+// match_status. Scoping to one person bounds the COST; it does not bound who
+// is told.
+func (g *LinkedInMatchGen) matchPerson(ctx context.Context, workspace, person ids.UUID) error {
+	return forEachGhostOwner(ctx, g.pool, g.authority, workspace,
+		func(ownerCtx context.Context, owner ids.UUID) error {
+			matched, err := g.store.MatchLinkedInConnectionsForPerson(ownerCtx, person)
+			if err != nil {
+				return err
+			}
+			if matched.Confirmed+matched.Suggested > 0 {
+				g.log.InfoContext(ownerCtx, "linkedin match: a contact met their ghost",
+					"person", person.String(), "owner", owner.String(),
+					"confirmed", matched.Confirmed, "suggested", matched.Suggested)
+			}
+			return nil
+		})
 }
 
 // matchWorkspace re-runs the match for every member with undecided ghosts, each

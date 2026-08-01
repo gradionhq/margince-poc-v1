@@ -173,7 +173,10 @@ func (h Handlers) ConfirmLinkedInMatch(w http.ResponseWriter, r *http.Request, i
 	// The body is OPTIONAL — an empty request accepts the matcher's own
 	// suggestion, which is the common case and should not require a payload.
 	var body crmcontracts.ConfirmLinkedInMatchRequest
-	if r.ContentLength > 0 && !httperr.Decode(w, r, &body) {
+	// ContentLength is -1 on a chunked request, so testing for > 0 silently
+	// dropped the caller's person_id and confirmed the matcher's guess instead.
+	// Anything other than a declared-empty body is decoded.
+	if r.ContentLength != 0 && !httperr.Decode(w, r, &body) {
 		return
 	}
 	var person ids.UUID

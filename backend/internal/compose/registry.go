@@ -91,7 +91,8 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// caller's deals the coverage rules flag. All 🟢 — they name people, they
 	// change nothing.
 	agents.RegisterNetworkTools(registry, whoKnowsLister(pool), coverageReader(pool),
-		introPathLister(pool), atRiskLister(pool))
+		nativeOnlyIntroPath(sorMode, introPathLister(pool)),
+		nativeOnlyAtRisk(sorMode, atRiskLister(pool)))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that

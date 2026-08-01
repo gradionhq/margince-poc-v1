@@ -1994,7 +1994,7 @@ export const de = {
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
   "ob.conv.linkedin.why":
-    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nnten \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
+    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nntest \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
   "ob.conv.linkedin.ask":
     "Das Verbinden kostet eine Autorisierung. Ich lese deine Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
   "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",

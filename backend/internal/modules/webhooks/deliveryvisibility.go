@@ -63,6 +63,7 @@ import (
 // how large their network is, but would learn both from the fan-out.
 var selfOnlyEvents = map[string]struct{}{
 	"linkedin_account.changed":  {},
+	"linkedin_match.decided":    {},
 	"linkedin_network.imported": {},
 }
 

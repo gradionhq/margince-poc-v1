@@ -9128,8 +9128,14 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         ContextEntityRef: {
-            /** @enum {string} */
-            type: "person" | "organization" | "deal" | "lead" | "activity";
+            /**
+             * @description `user` is a workspace MEMBER, not a record — it appears only in the
+             *     `who_knows` section, where the item is a colleague who interacts with the
+             *     anchor contact. It carries the member's display name as `summary` and
+             *     routes nowhere: a client renders it as a name, not as a link to a record.
+             * @enum {string}
+             */
+            type: "person" | "organization" | "deal" | "lead" | "activity" | "user";
             /** Format: uuid */
             id: string;
         };

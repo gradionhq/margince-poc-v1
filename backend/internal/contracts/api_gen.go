@@ -2074,6 +2074,7 @@ const (
 	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
 	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
 	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+	ContextEntityRefTypeUser         ContextEntityRefType = "user"
 )
 
 // Valid indicates whether the value is a known member of the ContextEntityRefType enum.
@@ -2088,6 +2089,8 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeOrganization:
 		return true
 	case ContextEntityRefTypePerson:
+		return true
+	case ContextEntityRefTypeUser:
 		return true
 	default:
 		return false
@@ -9157,11 +9160,19 @@ type ConsentRequestRequested string
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
-	Id   openapi_types.UUID   `json:"id"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Type `user` is a workspace MEMBER, not a record — it appears only in the
+	// `who_knows` section, where the item is a colleague who interacts with the
+	// anchor contact. It carries the member's display name as `summary` and
+	// routes nowhere: a client renders it as a name, not as a link to a record.
 	Type ContextEntityRefType `json:"type"`
 }
 
-// ContextEntityRefType defines model for ContextEntityRef.Type.
+// ContextEntityRefType `user` is a workspace MEMBER, not a record — it appears only in the
+// `who_knows` section, where the item is a colleague who interacts with the
+// anchor contact. It carries the member's display name as `summary` and
+// routes nowhere: a client renders it as a name, not as a link to a record.
 type ContextEntityRefType string
 
 // ContextEvidence defines model for ContextEvidence.

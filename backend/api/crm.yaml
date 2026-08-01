@@ -12775,7 +12775,14 @@ components:
       type: object
       required: [type, id]
       properties:
-        type: { type: string, enum: [person, organization, deal, lead, activity] }
+        type:
+          type: string
+          enum: [person, organization, deal, lead, activity, user]
+          description: |
+            `user` is a workspace MEMBER, not a record — it appears only in the
+            `who_knows` section, where the item is a colleague who interacts with the
+            anchor contact. It carries the member's display name as `summary` and
+            routes nowhere: a client renders it as a name, not as a link to a record.
         id:   { type: string, format: uuid }
     ContextEvidence:
       type: object

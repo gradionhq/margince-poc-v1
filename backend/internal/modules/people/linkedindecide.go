@@ -222,8 +222,8 @@ func writeLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID 
 	}
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO person_social (workspace_id, person_id, platform, handle)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'linkedin', $2)
-		ON CONFLICT (workspace_id, person_id, platform) DO NOTHING`, personID, *handle)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $3, $2)
+		ON CONFLICT (workspace_id, person_id, platform) DO NOTHING`, personID, *handle, socialLinkedIn)
 	if err != nil {
 		return false, fmt.Errorf("people: writing a confirmed contact's LinkedIn handle: %w", err)
 	}
@@ -265,14 +265,29 @@ func clearLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID 
 	}
 	tag, err := tx.Exec(ctx, `
 		DELETE FROM person_social
-		 WHERE person_id = $1 AND platform = 'linkedin' AND handle = $2`, personID, *handle)
+		 WHERE person_id = $1 AND platform = $3 AND handle = $2`, personID, *handle, socialLinkedIn)
 	if err != nil {
 		return fmt.Errorf("people: removing a withdrawn LinkedIn handle: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	return touchPerson(ctx, tx, personID)
+	if err := touchPerson(ctx, tx, personID); err != nil {
+		return err
+	}
+	// A removal changes the contact exactly as a write does, so it takes the
+	// same audit row and the same person.updated. Without them a projection
+	// keeps serving a handle the record no longer carries, and field history
+	// shows the value arriving and never leaving.
+	auditID, err := storekit.Audit(ctx, tx, "update", entityPerson, personID,
+		map[string]any{auditKeySocial: []string{socialLinkedIn}}, nil)
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, personID,
+		crmcontracts.PublicEventPersonUpdated{
+			ChangedFields: map[string]any{auditKeySocial: []string{socialLinkedIn}},
+		})
 }
 
 // touchPerson bumps the person row so the aggregate's version moves with its
@@ -336,12 +351,12 @@ func auditMatchDecision(ctx context.Context, tx pgx.Tx, id, personID ids.UUID, v
 		return nil
 	}
 	personAudit, err := storekit.Audit(ctx, tx, "update", entityPerson, personID,
-		nil, map[string]any{"social": []string{"linkedin"}})
+		nil, map[string]any{auditKeySocial: []string{socialLinkedIn}})
 	if err != nil {
 		return err
 	}
 	return storekit.EmitEvent(ctx, tx, personAudit, personID,
 		crmcontracts.PublicEventPersonUpdated{
-			ChangedFields: map[string]any{"social": []string{"linkedin"}},
+			ChangedFields: map[string]any{auditKeySocial: []string{socialLinkedIn}},
 		})
 }
