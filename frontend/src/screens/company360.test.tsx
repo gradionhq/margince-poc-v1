@@ -767,3 +767,97 @@ describe("company view — an open task can be acted on", () => {
     expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
   });
 });
+
+// The page said "nobody here is your champion" and gave the reader nowhere to
+// say who is: the roles live on relationship rows written from the deal
+// screen. The warning was true, unactionable and permanent.
+describe("company view — naming the buying committee", () => {
+  it("offers to record a role on the contact, against an open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [
+            { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+          ],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+
+    const set = await screen.findByRole("button", { name: "Set role" });
+    await userEvent.click(set);
+
+    // The two words are defined where they are being chosen, once.
+    expect(
+      screen.getByText(/argues for you when you are not in the room/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: /What is Christian Hagemeyer/ }),
+    ).toBeTruthy();
+  });
+
+  // A role belongs to a DEAL. With nothing open there is nothing to be a
+  // champion of, and offering the verb would invite a write that has no
+  // subject.
+  it("offers nothing when the account has no open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      }),
+    );
+    renderCompany();
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+});

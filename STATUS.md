@@ -54,6 +54,54 @@ one.** The spec already says what to do with the overflow: surface it. When
 workspace's tag vocabulary is over its governed cap, not a silent create that
 may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
 
+## Shipped 2026-08-01 — the account brief, and why so few companies had a logo
+
+On `feat/company-page-clarity` (PR #356), after the founder's review.
+
+**The brief leads the page.** `GET /organizations/{id}/brief` had a full
+implementation and no client. It now has one, with the half that was missing:
+`orgbrief.Input` carried the relationship only, so the brief could not say what
+the company IS. It now also carries the curated profile statements, read
+through the caller's own gates. Those statements are QUOTED, not summarized —
+they are already prose a human accepted, so a model adds paraphrase risk for
+nothing, and quoting them leaves the prompt untouched. That last part matters:
+changing the summarize prompt invalidates the AI certification records for
+three providers and needs a paid re-certification run
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion` catches it).
+
+The profile card folded into a disclosure — it is the evidence for two
+sentences now, not the headline. MeetingBrief and `accountread.ts` are retired:
+their lines said what the brief says, which is the "one fact, twice" item
+above. What only they did lives on inside the brief card (suggestions, the
+first-visit note, the withheld-sections caveat, the since-last-visit count).
+
+**Buyer roles can be set from the account.** The People card offers "Set role"
+per contact against an open deal, writing the `deal_stakeholder` relationship,
+and defines champion and economic buyer where they are being chosen. The
+warning stopped being a dead end: "No champion is named on the open deal yet —
+set one on the contact who is."
+
+**Logos: measured, not guessed.** 96 of 162 imported companies have one. Of
+the 66 without, 36 had a site read that FAILED having read zero pages. The
+logo comes out of the page the deep read already fetched, so no page means no
+mark. Probing all 37 failed seeds: 19 answer on another host or scheme, 18 are
+genuinely gone. A domain became a seed as `https://<domain>` and nothing else,
+so the crawl now walks the site's other spellings (www or apex, then http)
+before concluding a company has no website. A robots refusal is never retried
+under another host.
+
+Second logo finding: `og:image` was ranked FIRST among candidates, so a
+square-ish hero photo or product shot was taken on sight and the site's own
+apple-touch-icon was never asked for. Declared icons now lead. Wide sharing
+banners were already screened by shape; square ones needed the ordering.
+
+Still open from this arc: `POST /brief` and `POST /ask` are per-click model
+calls with no per-user rate limit. The workspace AI budget bounds the spend and
+the refresh button disables while pending, so this is a refinement rather than
+a hole. Agent-authored change rows lose their passport and evidence chips in
+the timeline (both survive in the full history). The merged timeline can page
+changes but not activities, which the 360 serves as one bounded page.
+
 ## Open defect — field history shows the site-read draft's internals
 
 On a company, the Changes view lists `facts`, `fields`, `source_url`,

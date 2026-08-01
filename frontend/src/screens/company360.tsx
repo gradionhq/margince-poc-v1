@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
@@ -295,9 +296,13 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   const truncated = Boolean(view?.people?.page.has_more);
   const dealsReadable =
     Boolean(view?.deals) && view != null && !omitted(view, "deals");
-  const openDealIds = new Set(
-    dealsReadable ? (view?.deals?.data ?? []).map((deal) => deal.deal_id) : [],
-  );
+  const openDeals: OpenDeal[] = dealsReadable
+    ? (view?.deals?.data ?? []).map((deal) => ({
+        id: deal.deal_id,
+        name: deal.name,
+      }))
+    : [];
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
   // Every way the committee picture can be partial, in one flag. An empty
   // `contacts` means "nobody" only when the section was actually READ: a
   // people section the grants withheld, or one this response never carried,
@@ -332,7 +337,11 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
       )}
       <ul className="co-list">
         {contacts.map((contact) => (
-          <ContactRow key={contact.person_id} contact={contact} />
+          <ContactRow
+            key={contact.person_id}
+            contact={contact}
+            openDeals={openDeals}
+          />
         ))}
       </ul>
       {contacts.length === 1 && !truncated && (
@@ -365,7 +374,151 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   );
 }
 
-function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
+// OpenDeal is the slice of an open deal a role can be attached to.
+type OpenDeal = { id: string; name: string };
+
+// The stakeholder roles offered here. `role` is free text on the wire until
+// DEAL-EXT-5 mints the enum upstream, so this list is the UI's own vocabulary
+// — the five the spec names, in the order a rep thinks of them.
+const ASSIGNABLE_ROLES = [
+  "champion",
+  "economic_buyer",
+  "influencer",
+  "blocker",
+  "user",
+] as const;
+
+/**
+ * SetRoleAction records who this person is on a deal.
+ *
+ * The page told a reader "nobody here is your champion" and gave them nowhere
+ * to say who is: the roles live on `relationship` rows written from the deal
+ * screen, which is a different page and a different task. So the warning was
+ * true, unactionable, and permanent.
+ *
+ * The role is recorded HUMAN-set, never inferred. Every CRM surveyed keeps
+ * buyer roles human-tagged — AI may suggest one, but a champion nobody named
+ * is a guess about a relationship, and the whole committee reading is built
+ * on top of it.
+ */
+function SetRoleAction({
+  contact,
+  openDeals,
+}: Readonly<{ contact: Contact; openDeals: readonly OpenDeal[] }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [dealId, setDealId] = useState("");
+  const [role, setRole] = useState<string>(ASSIGNABLE_ROLES[0]);
+  const titleId = useId();
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/relationships", {
+        body: {
+          kind: "deal_stakeholder",
+          person_id: contact.person_id,
+          deal_id: dealId,
+          role,
+          is_current_primary: false,
+          source: "manual",
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: async () => {
+      setOpen(false);
+      // The committee reading, the missing-role warning and the row's own
+      // chips all come off the 360, so the account is re-read rather than
+      // patched in place.
+      await queryClient.invalidateQueries({ queryKey: ["org360"] });
+    },
+  });
+
+  // A role belongs to a deal. With no open deal there is nothing to be a
+  // champion OF, and the card already says so in its own words.
+  if (openDeals.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        small
+        onClick={() => {
+          setDealId(openDeals[0].id);
+          setOpen(true);
+        }}
+      >
+        {t("co.role.set")}
+      </Button>
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId}>
+        <h2 id={titleId} className="t-h2 modal-title">
+          {t("co.role.setOn", { name: contact.full_name })}
+        </h2>
+        {/* What the two words mean, once, where they are being chosen. The
+            page used them as though everyone shares one definition. */}
+        <p className="t-caption">{t("co.role.explain")}</p>
+        <div className="form-stack">
+          <label className="field">
+            <span className="t-label">{t("co.role.onDeal")}</span>
+            <select
+              className="input"
+              value={dealId}
+              onChange={(event) => setDealId(event.target.value)}
+            >
+              {openDeals.map((deal) => (
+                <option key={deal.id} value={deal.id}>
+                  {deal.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="t-label">{t("co.role.role")}</span>
+            <select
+              className="input"
+              value={role}
+              onChange={(event) => setRole(event.target.value)}
+            >
+              {ASSIGNABLE_ROLES.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {dealRoleLabel(candidate, t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {save.isError && (
+            <p className="t-caption form-error">{save.error.message}</p>
+          )}
+          <div className="form-actions">
+            <Button
+              variant="primary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending || dealId === ""}
+            >
+              {t("record.save")}
+            </Button>
+            <Button onClick={() => setOpen(false)}>{t("fab.close")}</Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function ContactRow({
+  contact,
+  openDeals,
+}: Readonly<{
+  contact: Contact;
+  // The open deals a role can be recorded against. A role belongs to a DEAL,
+  // not to a person: this contact may be the champion on the renewal and
+  // nobody on the new business.
+  openDeals: readonly OpenDeal[];
+}>) {
   const t = useT();
   const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
   const reach = reachOf(contact);
@@ -389,6 +542,10 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
           <Badge key={role}>{dealRoleLabel(role, t)}</Badge>
         ))}
         <ConsentChip consent={contact.consent} />
+        {/* The page said "nobody here is your champion" and gave no way to
+            say who is: the roles are set on the deal screen, which is a
+            different page and a different task. */}
+        <SetRoleAction contact={contact} openDeals={openDeals} />
       </span>
     </li>
   );
