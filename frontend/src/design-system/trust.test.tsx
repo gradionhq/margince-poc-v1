@@ -106,4 +106,39 @@ describe("ProvenanceTag", () => {
       "provenance-human",
     );
   });
+
+  // "typed by you" over a colleague's entry is a false statement about who to
+  // ask, and it used to be what an UNATTRIBUTED row said too — the two cases a
+  // reader most needs kept apart both read as their own handiwork.
+  it("names another person rather than claiming the reader typed it", () => {
+    render(
+      <ProvenanceTag
+        provenance={{ kind: "human", self: false, userId: "u-2" }}
+        renderUser={(id) => <span>Christian ({id})</span>}
+      />,
+    );
+    expect(screen.getByText(/Christian \(u-2\)/)).toBeTruthy();
+    expect(screen.queryByText("typed by you")).toBeNull();
+  });
+
+  it("says a person entered it when it cannot say which person", () => {
+    render(<ProvenanceTag provenance={{ kind: "human", self: false }} />);
+    expect(screen.getByText("typed by a person")).toBeTruthy();
+  });
+
+  it("reads an unrecorded source as unknown, not as the reader", () => {
+    render(<ProvenanceTag provenance={{ kind: "unknown" }} />);
+    expect(screen.getByText("source not recorded").className).toContain(
+      "provenance-unknown",
+    );
+  });
+
+  it("names the connector a record was imported through", () => {
+    render(
+      <ProvenanceTag provenance={{ kind: "connector", connector: "gmail" }} />,
+    );
+    expect(screen.getByText("via gmail").className).toContain(
+      "provenance-agent",
+    );
+  });
 });

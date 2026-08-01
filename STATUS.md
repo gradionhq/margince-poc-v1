@@ -162,7 +162,7 @@ visible from a test.
    contact 56 days ago, nothing scheduled, no open deal, nothing won. All true,
    none actionable. A brief should say what to do about the account; the rules
    currently only say what it lacks.
-5. **The profile card is a new wall.** Ten fields, every value a full
+5. **The profile card is a new wall.** Sixteen fields, every value a full
    paragraph, all underlined so everything reads as a link. The facts wall was
    collapsed and then rebuilt out of profile fields. Closed on PR #356: the
    card folded into a disclosure under the account brief, which quotes the two

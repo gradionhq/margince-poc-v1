@@ -4,6 +4,7 @@
 package privacy
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -233,5 +234,40 @@ func TestDiffWithholdsTheWritingPipelinesOwnBookkeeping(t *testing.T) {
 			got = append(got, entry.Field)
 		}
 		t.Fatalf("fields = %v, want the record's own field alone", got)
+	}
+}
+
+// A create names every column it wrote, nulls included. Projecting those as
+// changes told the reader a field had been created and then cleared, about a
+// field nobody ever filled.
+func TestDiffSaysNothingAboutAFieldThatWasNeverFilled(t *testing.T) {
+	row := fhRow("human", nil, map[string]any{
+		"full_name": "Dana Buyer",
+		"email":     nil,
+		"company":   nil,
+	})
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 || entries[0].Field != "full_name" {
+		got := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			got = append(got, entry.Field)
+		}
+		t.Fatalf("fields = %v, want the one field the create actually filled", got)
+	}
+}
+
+// jsonb numbers decoded as float64 lose the low bits past 2^53, so a stored
+// id or amount came back as a DIFFERENT number than the record holds.
+func TestDiffRendersALargeNumberExactly(t *testing.T) {
+	row := fhRow("human",
+		map[string]any{"external_id": json.Number("9007199254740993")},
+		map[string]any{"external_id": json.Number("9007199254740995")},
+	)
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %+v, want one", entries)
+	}
+	if got := *entries[0].NewValue; got != "9007199254740995" {
+		t.Errorf("new value = %s, want the stored number unchanged", got)
 	}
 }

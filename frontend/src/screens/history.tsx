@@ -217,14 +217,28 @@ export function useFieldHistory(
 // settings.tsx's AuditLogRow), so no actor ever renders a blank attribution;
 // the passport/evidence chips layer on top only when the change carries them.
 function ChangeWho({ change }: Readonly<{ change: FieldHistoryEntry }>) {
-  const evidence = toEvidence(change.evidence);
   const viewerId = useViewerId();
   return (
     <span className="who">
       <ProvenanceTag provenance={provenanceOfEntry(change, viewerId)} />
+      <ChangeGrounding change={change} />
+    </span>
+  );
+}
+
+// What makes an agent's change checkable: the passport it acted under and the
+// evidence it cited. Both surfaces that render a change row use this one, so
+// neither can quietly stop showing them.
+function ChangeGrounding({ change }: Readonly<{ change: FieldHistoryEntry }>) {
+  const evidence = toEvidence(change.evidence);
+  if (!change.passport_id && !evidence) {
+    return null;
+  }
+  return (
+    <>
       {change.passport_id && <PassportChip id={change.passport_id} />}
       {evidence && <EvidenceChip evidence={evidence} />}
-    </span>
+    </>
   );
 }
 
@@ -416,6 +430,11 @@ export function changeTimeline(
     title: label(change.field),
     atIso: change.changed_at,
     provenance: provenanceOfEntry(change, viewerUserId),
+    // The grounding travels with the row. An agent's change is only checkable
+    // through the passport that made it and the evidence it cited, and moving
+    // these rows into the account timeline had left both behind in the
+    // per-field view — the reader kept the claim and lost the proof.
+    via: <ChangeGrounding change={change} />,
     detail: (
       <FieldDiff
         oldValue={change.old_value ?? null}

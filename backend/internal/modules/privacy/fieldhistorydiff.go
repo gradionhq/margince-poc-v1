@@ -103,6 +103,13 @@ func diffAuditRowFields(row auditDiffRow, mask entityFieldMask, fieldFilter *str
 		}
 		beforeVal, inBefore := before[key]
 		afterVal, inAfter := after[key]
+		// A create names every column it wrote, including the ones it wrote as
+		// null. Both sides then render as absent, and the row reads "created →
+		// cleared" about a field nobody ever filled — a lead captured without
+		// an email produced one of those per empty column.
+		if beforeVal == nil && afterVal == nil {
+			continue
+		}
 		switch {
 		case inAfter && (!inBefore || !reflect.DeepEqual(beforeVal, afterVal)):
 			entries = append(entries, makeFieldHistoryEntry(row, key, stringifyFieldValue(beforeVal), stringifyFieldValue(afterVal)))

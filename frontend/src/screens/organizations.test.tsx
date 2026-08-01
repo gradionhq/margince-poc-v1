@@ -1931,3 +1931,45 @@ describe("companyEditFields — the owner select never offers what it cannot sav
     expect(ownerField(false)?.required).toBeFalsy();
   });
 });
+
+// The filter belongs to the account being read, not to the session: the route
+// swaps one company for another without unmounting, so a reader who checked
+// Changes once met Changes on every account afterwards.
+describe("CompanyScreen — the timeline filter does not follow you", () => {
+  it("returns to Activities when another company is opened", async () => {
+    stubFetch(async (url) =>
+      /\/organizations\/o-\d$/.test(new URL(url).pathname)
+        ? jsonResponse(org)
+        : emptyPage(),
+    );
+    // One QueryClient across both renders, with BOTH records already cached:
+    // that is what keeps the record component mounted across the swap, and a
+    // cold second record would unmount it and reset the filter for free.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["organization", "o-1"], org);
+    client.setQueryData(["organization", "o-2"], { ...org, id: "o-2" });
+    const page = (id: string) => (
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <CompanyScreen id={id} />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = rtlRender(page("o-1"));
+
+    const pressed = (name: string) =>
+      screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+    await waitFor(() => expect(pressed("Changes")).toBe("true"));
+
+    rerender(page("o-2"));
+
+    await waitFor(() => expect(pressed("Activities")).toBe("true"));
+  });
+});

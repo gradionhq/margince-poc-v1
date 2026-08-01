@@ -305,9 +305,9 @@ export function FieldDiff({
 }: Readonly<{ oldValue: string | null; newValue: string | null }>) {
   const t = useT();
   return (
-    // A div, not a span: the long-value side below is a `section`, which is
-    // flow content and invalid inside phrasing content. The row still reads as
-    // one line — `.field-diff` is inline-flex.
+    // A div, not a span: the long-value side below is a focusable scroll
+    // container, which is flow content and invalid inside phrasing content.
+    // The row still reads as one line — `.field-diff` is inline-flex.
     <div className="field-diff">
       {oldValue === null ? (
         <span className="field-diff-empty">{t("history.created")}</span>
@@ -334,9 +334,9 @@ export function FieldDiff({
 
 // One side of a diff. A stored value can be a whole jsonb document, so the
 // side is capped and scrolls — and a scroll container that is not focusable is
-// a region a keyboard reader cannot reach at all. Long values therefore get a
-// named, tab-reachable region; short ones stay plain text, because a tab stop
-// on every diff in a history is its own obstacle.
+// content a keyboard reader cannot reach at all. Long values therefore get a
+// named, tab-reachable container; short ones stay plain text, because a tab
+// stop on every diff in a history is its own obstacle.
 const DIFF_SCROLLS_ABOVE = 160;
 
 function DiffSide({
@@ -348,19 +348,26 @@ function DiffSide({
     return <span className={className}>{value}</span>;
   }
   return (
-    // A `section` with an accessible name IS a region — the semantic element,
-    // not a span wearing the role. The tab stop is what makes the scrolled-out
-    // part reachable at all: WCAG 2.1.1 requires a scrollable region to be
+    // The tab stop is the point: WCAG 2.1.1 requires a scrollable region to be
     // operable by keyboard, and without it the text below the fold cannot be
     // reached by anyone not using a mouse.
-    <section
+    //
+    // A div rather than a named `section`, because a named section IS a
+    // landmark — and one history can hold dozens of long diffs, which would
+    // put dozens of regions in a screen reader's landmark list and bury the
+    // page's real ones. The label still names this control; it just does not
+    // claim to be a division of the page.
+    <div
       className={`${className} field-diff-long`}
-      aria-label={label}
       // biome-ignore lint/a11y/noNoninteractiveTabindex: the tab stop is what makes the scrolled-out text reachable at all
       tabIndex={0}
     >
+      {/* Named for a screen reader without an aria-label, which on a named
+          `section` made every long diff a LANDMARK — one history holds dozens,
+          and they would bury the page's real landmarks in the list. */}
+      <span className="sr-only">{label}</span>
       {value}
-    </section>
+    </div>
   );
 }
 

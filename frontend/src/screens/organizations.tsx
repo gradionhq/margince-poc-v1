@@ -1742,6 +1742,16 @@ function useChronologySlots({
 } {
   const t = useT();
   const [filter, setFilter] = useState<TimelineFilter>("activities");
+  // The filter belongs to the account being read, not to the session. When
+  // both records are already cached the route swaps one company for another
+  // without ever unmounting this component, so a reader who checked Changes
+  // once met Changes on every account they opened afterwards.
+  const [filterFor, setFilterFor] = useState(org.id);
+  if (filterFor !== org.id) {
+    setFilterFor(org.id);
+    setFilter("activities");
+  }
+
   const history = useAccountChronology({
     orgId: org.id,
     filter,

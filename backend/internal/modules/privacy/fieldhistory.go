@@ -4,6 +4,7 @@
 package privacy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -354,11 +355,19 @@ func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter
 	return out, len(out), rows.Err()
 }
 
+// unmarshalJSONBMap decodes one audit image.
+//
+// UseNumber, because the default decode turns every JSON number into a
+// float64: an id or an amount past 2^53 comes back rounded, and the reader is
+// then shown a number the record never held. json.Number keeps the lexeme the
+// writer stored, and the renderer prints it back verbatim.
 func unmarshalJSONBMap(raw []byte, dst *map[string]any) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	return json.Unmarshal(raw, dst)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(dst)
 }
 
 // hasFollowingAuditRow answers whether any projectable audit row for the
