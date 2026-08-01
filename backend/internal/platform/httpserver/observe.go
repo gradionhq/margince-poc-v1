@@ -145,6 +145,12 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+// Unwrap exposes the wrapped writer so http.NewResponseController can reach
+// the real connection: SSE streams and long-running tool calls need
+// SetWriteDeadline and Flush, and an embedded-only wrapper silently swallows
+// both.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
 // ReadyCheck is one named dependency probe for /readyz.
 type ReadyCheck struct {
 	Name  string

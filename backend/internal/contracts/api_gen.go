@@ -1986,6 +1986,87 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
+// Defines values for ConsentPassportOptionGranted.
+const (
+	ConsentPassportOptionGrantedDraft  ConsentPassportOptionGranted = "draft"
+	ConsentPassportOptionGrantedEnrich ConsentPassportOptionGranted = "enrich"
+	ConsentPassportOptionGrantedRead   ConsentPassportOptionGranted = "read"
+	ConsentPassportOptionGrantedSend   ConsentPassportOptionGranted = "send"
+	ConsentPassportOptionGrantedWrite  ConsentPassportOptionGranted = "write"
+)
+
+// Valid indicates whether the value is a known member of the ConsentPassportOptionGranted enum.
+func (e ConsentPassportOptionGranted) Valid() bool {
+	switch e {
+	case ConsentPassportOptionGrantedDraft:
+		return true
+	case ConsentPassportOptionGrantedEnrich:
+		return true
+	case ConsentPassportOptionGrantedRead:
+		return true
+	case ConsentPassportOptionGrantedSend:
+		return true
+	case ConsentPassportOptionGrantedWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConsentPassportOptionScopes.
+const (
+	ConsentPassportOptionScopesDraft  ConsentPassportOptionScopes = "draft"
+	ConsentPassportOptionScopesEnrich ConsentPassportOptionScopes = "enrich"
+	ConsentPassportOptionScopesRead   ConsentPassportOptionScopes = "read"
+	ConsentPassportOptionScopesSend   ConsentPassportOptionScopes = "send"
+	ConsentPassportOptionScopesWrite  ConsentPassportOptionScopes = "write"
+)
+
+// Valid indicates whether the value is a known member of the ConsentPassportOptionScopes enum.
+func (e ConsentPassportOptionScopes) Valid() bool {
+	switch e {
+	case ConsentPassportOptionScopesDraft:
+		return true
+	case ConsentPassportOptionScopesEnrich:
+		return true
+	case ConsentPassportOptionScopesRead:
+		return true
+	case ConsentPassportOptionScopesSend:
+		return true
+	case ConsentPassportOptionScopesWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConsentRequestRequested.
+const (
+	ConsentRequestRequestedDraft  ConsentRequestRequested = "draft"
+	ConsentRequestRequestedEnrich ConsentRequestRequested = "enrich"
+	ConsentRequestRequestedRead   ConsentRequestRequested = "read"
+	ConsentRequestRequestedSend   ConsentRequestRequested = "send"
+	ConsentRequestRequestedWrite  ConsentRequestRequested = "write"
+)
+
+// Valid indicates whether the value is a known member of the ConsentRequestRequested enum.
+func (e ConsentRequestRequested) Valid() bool {
+	switch e {
+	case ConsentRequestRequestedDraft:
+		return true
+	case ConsentRequestRequestedEnrich:
+		return true
+	case ConsentRequestRequestedRead:
+		return true
+	case ConsentRequestRequestedSend:
+		return true
+	case ConsentRequestRequestedWrite:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContextEntityRefType.
 const (
 	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
@@ -7427,22 +7508,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -9027,6 +9108,23 @@ type ConsentEventActorType string
 // ConsentEventNewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 type ConsentEventNewState string
 
+// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `granted` is
+// `scopes` intersected with what the client requested — it is what this connection
+// would actually receive, and may be narrower than `scopes`.
+type ConsentPassportOption struct {
+	ExpiresAt time.Time                      `json:"expires_at"`
+	Granted   []ConsentPassportOptionGranted `json:"granted"`
+	Id        openapi_types.UUID             `json:"id"`
+	Label     string                         `json:"label"`
+	Scopes    []ConsentPassportOptionScopes  `json:"scopes"`
+}
+
+// ConsentPassportOptionGranted defines model for ConsentPassportOption.Granted.
+type ConsentPassportOptionGranted string
+
+// ConsentPassportOptionScopes defines model for ConsentPassportOption.Scopes.
+type ConsentPassportOptionScopes string
+
 // ConsentPurpose defines model for ConsentPurpose.
 type ConsentPurpose struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -9040,6 +9138,22 @@ type ConsentPurpose struct {
 	RequiresDoubleOptIn *bool              `json:"requires_double_opt_in,omitempty"`
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
 }
+
+// ConsentRequest What the consent screen renders. The client name is resolved from the database, never
+// from the request URL, so no caller can put words on a consent screen. The consent
+// nonce is NOT here: it reaches the screen in the redirect fragment, because the
+// consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+type ConsentRequest struct {
+	ClientName string `json:"client_name"`
+
+	// Offline The client asked to stay connected without asking again (offline_access).
+	Offline   bool                      `json:"offline"`
+	Passports []ConsentPassportOption   `json:"passports"`
+	Requested []ConsentRequestRequested `json:"requested"`
+}
+
+// ConsentRequestRequested defines model for ConsentRequest.Requested.
+type ConsentRequestRequested string
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
@@ -14828,6 +14942,14 @@ type ImportLinkedInConnectionsMultipartBody struct {
 type GetMyLinkedInReachParams struct {
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetConsentRequestParams defines parameters for GetConsentRequest.
+type GetConsentRequestParams struct {
+	ClientId string `form:"client_id" json:"client_id"`
+
+	// Scope The space-delimited scopes the client requested, including offline_access if asked.
+	Scope string `form:"scope" json:"scope"`
 }
 
 // ListOfferTemplatesParams defines parameters for ListOfferTemplates.
@@ -22986,6 +23108,9 @@ type ServerInterface interface {
 	// Which accounts your imported network reaches.
 	// (GET /me/linkedin-reach)
 	GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams)
+	// What the OAuth consent screen renders for one pending authorization.
+	// (GET /oauth/consent-request)
+	GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams)
 	// List offer templates (branded DE/EN PDF layouts), newest first.
 	// (GET /offer-templates)
 	ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams)
@@ -24273,6 +24398,12 @@ func (_ Unimplemented) RejectLinkedInMatch(w http.ResponseWriter, r *http.Reques
 // Which accounts your imported network reaches.
 // (GET /me/linkedin-reach)
 func (_ Unimplemented) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the OAuth consent screen renders for one pending authorization.
+// (GET /oauth/consent-request)
+func (_ Unimplemented) GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30977,6 +31108,58 @@ func (siw *ServerInterfaceWrapper) GetMyLinkedInReach(w http.ResponseWriter, r *
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMyLinkedInReach(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConsentRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetConsentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetConsentRequestParams
+
+	// ------------- Required query parameter "client_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "client_id", r.URL.Query(), &params.ClientId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "client_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "client_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConsentRequest(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39805,6 +39988,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me/linkedin-reach", wrapper.GetMyLinkedInReach)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/oauth/consent-request", wrapper.GetConsentRequest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/offer-templates", wrapper.ListOfferTemplates)

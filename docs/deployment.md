@@ -92,12 +92,37 @@ two agree. (The example config's default differs, so change it to match.)
 
 ## Routing
 
-The api owns `/v1`, `/healthz`, `/readyz`, `/metrics`; the web image serves the
-SPA on `/` (port 8080). The SPA calls the API **same-origin** at
-`location.origin + "/v1"`, so put a reverse proxy / ingress in front that routes
-those API paths to the api service and everything else to the web service, both
-under one host. There is no build-time API base — the same web image works for
-any domain.
+Both services sit behind one reverse proxy / ingress, under **one host**:
+
+| path | service |
+| --- | --- |
+| `/v1`, `/healthz`, `/readyz`, `/metrics` | api |
+| `/webhooks/gmail`, `/webhooks/hubspot` | api (present only with that connector configured) |
+| `/oauth/`, `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and its `/mcp`-suffixed form) | api (present only with the MCP connector declared) |
+| everything else, `/` included | web (the SPA, port 8080) |
+
+Route the OAuth metadata documents by those exact paths, not by a
+`/.well-known/*` prefix: they are the only things the api serves under
+`/.well-known`, and a prefix rule takes `/.well-known/acme-challenge/…` away
+from whatever answers your certificate challenges. The webhook row is the api's
+because the caller is the provider, not a browser: each handler verifies its own
+push, so the SPA cannot stand in for it.
+
+One host, not two, because three things cross the split:
+
+- The SPA calls the API **same-origin** at `location.origin + "/v1"`. There is no
+  build-time API base — the same web image works for any domain.
+- An MCP client discovers this installation at `/.well-known/oauth-*` and
+  connects at `/mcp` on that same origin: RFC 9728 discovery is a chain rooted in
+  the resource server's own 401, which a split origin breaks. It must be the host
+  `--public-base-url` names.
+- The consent flow crosses the two services in both directions. `GET
+  /oauth/authorize` (api) redirects the human's browser to `/#/oauth-consent`
+  (web); that screen reads `/v1/oauth/consent-request` and posts the decision
+  back to `/oauth/authorize` (api). An ingress that serves `/` from somewhere
+  else than `/oauth/authorize`, or that routes `/oauth` to the web service, 404s
+  the human in the middle of approving a connection — and only there, since the
+  client's own handshake never touches the SPA.
 
 ## Health checks
 

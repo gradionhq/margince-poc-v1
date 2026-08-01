@@ -25,6 +25,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
@@ -34,6 +35,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import {
   AutonomyDot,
@@ -228,6 +230,7 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.settings")} />
+      <ResumeConnectBanner />
       <div className="set-grid">
         <nav className="set-nav" aria-label={t("settings.navAria")}>
           {SETTINGS_GROUPS.map((group) => {
@@ -488,9 +491,7 @@ function PassportCard() {
                       once at mint) — masked reads as "withheld", not absent. */}
                   <span className="t-label">{t("settings.token")}</span>
                   <FieldGuard mode="masked" />
-                  {passport.scopes.map((scope) => (
-                    <Badge key={scope}>{scope}</Badge>
-                  ))}
+                  <ScopeChips scopes={passport.scopes} />
                   <span className="t-small">
                     {t("settings.created", {
                       date: formatDate(
@@ -574,29 +575,36 @@ function AgentToolsCard() {
       return data;
     },
   });
-  const selected = passports.data?.data.find((p) => p.id === passportId);
-  const grantedScopes = new Set(selected?.scopes ?? []);
+  const lendable = (passports.data?.data ?? []).filter(
+    (p) => p.revoked_at == null,
+  );
+  // The filter follows the selector: a passport revoked while it was the
+  // chosen scope drops out of the options, and the <select> then shows "all
+  // passports" — so the inventory must read as unfiltered too, rather than
+  // stay quietly scoped to a credential no longer on offer.
+  const scopeId = lendable.some((p) => p.id === passportId) ? passportId : "";
+  const grantedScopes = new Set(
+    lendable.find((p) => p.id === scopeId)?.scopes ?? [],
+  );
 
   return (
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("tools.title")} sub={t("tools.sub")} />
       {passports.data && passports.data.data.length > 0 && (
-        <select
-          className="input"
-          aria-label={t("tools.scopeAll")}
-          value={passportId}
-          onChange={(event) => setPassportId(event.target.value)}
-          style={{ marginBottom: 10 }}
-        >
-          <option value="">{t("tools.scopeAll")}</option>
-          {passports.data.data
-            .filter((p) => p.revoked_at == null)
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {t("tools.scopedTo", { label: p.label })}
-              </option>
-            ))}
-        </select>
+        <div className="tool-scope-filter">
+          <PassportSelect
+            options={lendable.map((p) => ({
+              id: p.id,
+              label: t("tools.scopedTo", { label: p.label }),
+              scopes: p.scopes,
+            }))}
+            value={scopeId}
+            onChange={setPassportId}
+            allowEmpty
+            emptyLabel={t("tools.scopeAll")}
+            ariaLabel={t("tools.scopeAll")}
+          />
+        </div>
       )}
       <QueryGate query={tools} empty={(data) => data.data.length === 0}>
         {(data) => (
@@ -611,7 +619,7 @@ function AgentToolsCard() {
           >
             {data.data.map((tool) => {
               const reachable =
-                !passportId ||
+                !scopeId ||
                 tool.required_scope == null ||
                 grantedScopes.has(tool.required_scope);
               return (

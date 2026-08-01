@@ -10,53 +10,55 @@ import (
 	"net/http"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
 
 // OAuthServerMetadata is the RFC 8414 discovery document. The issuer is
-// the serving host — one issuer per workspace subdomain in production.
-func OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
+// the serving host — one issuer per workspace subdomain in production. A
+// method on Handlers (not a package func) because the sibling protected-
+// resource document needs the handlers' injected config.
+func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	issuer := requestIssuer(r)
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"issuer":                                issuer,
-		"authorization_endpoint":                issuer + "/oauth/authorize",
-		"token_endpoint":                        issuer + "/oauth/token",
-		"registration_endpoint":                 issuer + "/oauth/register",
-		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code"},
-		"code_challenge_methods_supported":      []string{"S256"},
+		"issuer":                 issuer,
+		"authorization_endpoint": issuer + authorizePath,
+		"token_endpoint":         issuer + "/oauth/token",
+		"registration_endpoint":  issuer + "/oauth/register",
+		// RFC 7009: a client that cannot see this here will never call it —
+		// it hands back a credential and ends the connection on its own
+		// initiative, not on a server-side hint.
+		"revocation_endpoint":      issuer + "/oauth/revoke",
+		"response_types_supported": []string{oauthResponseTypeCode},
+		// refresh_token is advertised because a client that cannot see it
+		// here will not present one: it asks for offline_access, stores the
+		// token it gets, and never renews with it.
+		"grant_types_supported":                 []string{"authorization_code", oauthRefreshToken},
+		"code_challenge_methods_supported":      []string{pkceMethodS256},
 		"token_endpoint_auth_methods_supported": []string{"none"},
-		"scopes_supported":                      []string{"read", "draft", "write", "send", "enrich"},
+		// offline_access is listed so Claude appends it when it wants a
+		// refresh token (§5.2) — it is a session-lifetime marker, never a
+		// passport scope, so the exchange records it as the grant's
+		// refresh_allowed and strips it from the scopes (oauth_token.go).
+		"scopes_supported": oauthScopesSupported,
 	})
 }
 
-// ProtectedResourceMetadata is the RFC 9728 document: the resource
-// names its authorization server so a generic MCP client can discover
-// the handshake.
-func ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
-	issuer := requestIssuer(r)
+// ProtectedResourceMetadata is the RFC 9728 document a generic MCP client
+// reads to find the authorization server for a given resource. The
+// resource field is the canonical MCP URL itself (h.mcpResource),
+// injected at boot from --public-base-url — Anthropic's clients require
+// it to match the MCP server URL exactly as the user enters it,
+// including the path, so it can never be the bare request origin.
+func (h Handlers) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"resource":                 issuer,
-		"authorization_servers":    []string{issuer},
+		oauthParamResource:         h.mcpResource,
+		"authorization_servers":    []string{requestIssuer(r)},
 		"bearer_methods_supported": []string{"header"},
 	})
 }
 
-// requestIssuer reconstructs the externally visible origin. TLS
-// terminates ahead of the chassis in production, so the forwarded
-// proto wins when present.
-func requestIssuer(r *http.Request) string {
-	// Only the two legitimate values are honored; anything else in the
-	// forwarded header is attacker noise. Host itself must be sanitized
-	// by the fronting proxy — the metadata documents say so.
-	scheme := "https"
-	switch r.Header.Get("X-Forwarded-Proto") {
-	case "https":
-	case "http":
-		scheme = "http"
-	default:
-		if r.TLS == nil {
-			scheme = "http"
-		}
-	}
-	return scheme + "://" + r.Host
-}
+// requestIssuer reconstructs the externally visible origin, delegating to
+// the one implementation in platform/httpserver so identity and compose
+// share it rather than each carrying its own copy of the
+// X-Forwarded-Proto handling.
+func requestIssuer(r *http.Request) string { return httpserver.RequestOrigin(r) }

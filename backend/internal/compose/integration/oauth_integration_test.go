@@ -16,42 +16,42 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
-	"os"
-	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/modules/agents"
-	"github.com/gradionhq/margince/backend/internal/modules/approvals"
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 )
 
 type oauthEnv struct {
-	*env
+	*connectorEnv
 	clientID string
 	verifier string
 }
 
 const oauthRedirect = "https://client.example/cb"
 
+// setupOAuth arranges a registered public client on the connector harness.
+// The authorization server is part of the connector's gated route group
+// (mcp_transport_integration_test.go), so this suite runs with the gate ON:
+// an installation that never declared the connector serves no /oauth/ at all,
+// which is the property that suite asserts.
 func setupOAuth(t *testing.T) *oauthEnv {
 	t.Helper()
-	e := setup(t)
-	e.slug = "oauth-e2e"
-	bootstrapWorkspaceSession(t, e, "OAuth E2E", "granter@fable.test", "Admin")
+	return setupOAuthWith(t)
+}
+
+// setupOAuthWith is setupOAuth plus whatever else one test needs wired, so
+// setupOAuth stays the plain deployment posture this suite mostly asserts
+// against — the same split setupConnector/setupConnectorWith makes.
+func setupOAuthWith(t *testing.T, extra ...compose.Option) *oauthEnv {
+	t.Helper()
+	e := setupConnectorWith(t, extra...)
 
 	var registered struct {
 		ClientID string `json:"client_id"`
@@ -62,7 +62,7 @@ func setupOAuth(t *testing.T) *oauthEnv {
 		t.Fatalf("DCR → %d %+v", status, registered)
 	}
 	return &oauthEnv{
-		env: e, clientID: registered.ClientID,
+		connectorEnv: e, clientID: registered.ClientID,
 		verifier: strings.Repeat("night-verifier-", 4),
 	} // 60 chars, RFC 7636 range
 }
@@ -72,11 +72,10 @@ func (o *oauthEnv) challenge() string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// authorize drives the consent flow: GET renders the approval form (a
-// GET must never mint a code — OAuth CSRF), the nonce-bound POST is
-// the consent, and the redirect carries the code.
-func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
-	t.Helper()
+// authorizeQuery is the baseline authorize request, overridable per field
+// by the caller — the one place the query parameters are assembled, so
+// authorize and authorizeRaw can never drift against each other.
+func (o *oauthEnv) authorizeQuery(extra url.Values) url.Values {
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {o.clientID},
@@ -89,7 +88,15 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	for k, vs := range extra {
 		q[k] = vs
 	}
-	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
+	return q
+}
+
+// authorizeRaw issues one GET /oauth/authorize and returns the status and
+// body verbatim, for a caller asserting on a refusal — authorize's fatal
+// "want 200" check would abort the test before the assertion runs.
+func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,21 +104,59 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
 	closeBody(t, resp)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("consent form → %d %s", resp.StatusCode, body)
-	}
-	nonce := regexp.MustCompile(`name="consent" value="([^"]+)"`).FindSubmatch(body)
-	if nonce == nil {
-		t.Fatalf("consent form carries no nonce: %s", body)
-	}
+	return resp.StatusCode, string(body)
+}
 
+// consentFragment reads the authorize redirect's fragment parameters — the
+// hand-off the SPA consent screen parses, the consent nonce among them. A
+// fragment is never transmitted to a server, which is why the nonce rides
+// there: the cookie holding its counterpart is Path=/oauth/authorize, so no
+// endpoint the screen can call ever receives it.
+func consentFragment(t *testing.T, location string) url.Values {
+	t.Helper()
+	_, fragment, found := strings.Cut(location, "#/oauth-consent?")
+	if !found {
+		t.Fatalf("authorize did not redirect to the consent screen: %q", location)
+	}
+	params, err := url.ParseQuery(fragment)
+	if err != nil {
+		t.Fatalf("parsing the consent fragment %q: %v", fragment, err)
+	}
+	return params
+}
+
+// armConsent drives the authorize GET and returns the form the consent screen
+// must POST back — the request's own parameters plus the nonce the redirect
+// armed. A GET mints nothing (it must never: OAuth CSRF), so this is only half
+// the flow.
+func (o *oauthEnv) armConsent(t *testing.T, extra url.Values) url.Values {
+	t.Helper()
+	status, location, body, _ := o.authorizeNoFollow(t, extra)
+	if status != http.StatusFound {
+		t.Fatalf("consent redirect → %d %s", status, body)
+	}
+	nonce := consentFragment(t, location).Get("consent")
+	if nonce == "" {
+		t.Fatalf("the consent redirect carries no nonce: %q", location)
+	}
 	form := url.Values{}
-	for k, vs := range q {
+	for k, vs := range o.authorizeQuery(extra) {
 		form[k] = vs
 	}
-	form.Set("consent", string(nonce[1]))
+	form.Set("consent", nonce)
+	return form
+}
+
+// postConsent posts one consent decision with redirects DISABLED, so the
+// redirect toward the client — or the refusal that replaces it — is the
+// assertion target rather than whatever it points at.
+func (o *oauthEnv) postConsent(t *testing.T, form url.Values) (status int, location, body string) {
+	t.Helper()
 	post, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -119,20 +164,61 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	defer func() { o.client.CheckRedirect = nil }()
-	resp, err = o.client.Do(post)
+	resp, err := o.client.Do(post)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeBody(t, resp)
-	if resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("consent POST → %d %s", resp.StatusCode, body)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the consent POST's body: %v", err)
 	}
-	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil || location.Query().Get("code") == "" || location.Query().Get("state") != "night-state" {
-		t.Fatalf("redirect malformed: %q", resp.Header.Get("Location"))
+	return resp.StatusCode, resp.Header.Get("Location"), string(raw)
+}
+
+// requestedScopes is the passport vocabulary a scope parameter names, which is
+// what a passport minted to be LENT against that request has to carry. It
+// mirrors the server's own parse: offline_access asks for the connection's
+// lifetime rather than authority over a record, so it is never a passport
+// scope, and a request naming no access scope at all defaults to read exactly
+// as identity's parseOAuthScopes does.
+func requestedScopes(scope string) []string {
+	var scopes []string
+	for _, sc := range strings.Fields(scope) {
+		if sc != "offline_access" {
+			scopes = append(scopes, sc)
+		}
 	}
-	return location.Query().Get("code")
+	if len(scopes) == 0 {
+		return []string{"read"}
+	}
+	return scopes
+}
+
+// authorize drives the whole consent flow the way a human does: the GET hands
+// the browser to the consent screen, the human LENDS one of their own
+// passports, and the nonce-bound POST is the consent whose redirect carries the
+// code.
+//
+// The lent passport carries exactly the scopes this request asked for, so the
+// intersection the connection receives is the request itself: a caller here is
+// asserting about the request it made, with the lend contributing no narrowing
+// of its own. A test whose subject IS the narrowing mints a passport that
+// differs from the request and lends it through approveWithPassport.
+func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
+	t.Helper()
+	form := o.armConsent(t, extra)
+	form.Set("passport_id", o.mintPassport(t, "lent to the night agent", requestedScopes(form.Get("scope"))))
+
+	status, location, body := o.postConsent(t, form)
+	if status != http.StatusFound {
+		t.Fatalf("consent POST → %d %s", status, body)
+	}
+	granted, err := url.Parse(location)
+	if err != nil || granted.Query().Get("code") == "" || granted.Query().Get("state") != "night-state" {
+		t.Fatalf("redirect malformed: %q", location)
+	}
+	return granted.Query().Get("code")
 }
 
 // closeBody closes a response body and fails the test on a dirty close —
@@ -144,7 +230,8 @@ func closeBody(t *testing.T, resp *http.Response) {
 	}
 }
 
-// exchange drives POST /oauth/token and returns status + parsed body.
+// exchange drives POST /oauth/token for the authorization-code grant and
+// returns status + parsed body.
 func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any) {
 	t.Helper()
 	base := url.Values{
@@ -156,7 +243,15 @@ func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any)
 	for k, vs := range form {
 		base[k] = vs
 	}
-	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(base.Encode()))
+	return o.postToken(t, base)
+}
+
+// postToken posts one form to the token endpoint — the single spelling of
+// that exchange, so the code grant and the refresh grant cannot drift apart
+// in how the suite drives them.
+func (o *oauthEnv) postToken(t *testing.T, form url.Values) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,18 +320,27 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 		"redirect_uri": {oauthRedirect}, "scope": {"read"},
 		"code_challenge": {o.challenge()}, "code_challenge_method": {"S256"},
 	}
-	// GET answers the form, never a redirect carrying a code.
+	// GET answers with the consent screen, never a redirect carrying a code.
 	req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
+	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := o.client.Do(req)
+	o.client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeBody(t, resp)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Location") != "" {
-		t.Fatalf("GET authorize → %d %q, want the consent form, never a code", resp.StatusCode, resp.Header.Get("Location"))
+	location := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusFound || !strings.HasPrefix(location, "/#/oauth-consent?") {
+		t.Fatalf("GET authorize → %d %q, want the consent screen, never a code", resp.StatusCode, location)
 	}
-	// A consent POST without the armed nonce (the cross-site forgery
-	// shape) is refused.
+	// The redirect goes to the screen, not toward the client — and there is
+	// nothing to carry there yet: a GET mints no code.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
+	// A consent POST without the armed nonce mints nothing. It is sent back to
+	// the consent screen rather than refused with a body, because the ordinary
+	// cause is a human whose nonce expired — the refusal itself, and its
+	// mint-nothing consequence, are TestAStaleConsentNonceComesBackToTheScreen's
+	// subject; here it is only the absence of a code that matters.
 	form := url.Values{}
 	for k, vs := range q {
 		form[k] = vs
@@ -244,15 +348,21 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	form.Set("consent", "forged")
 	post, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err = o.client.Do(post)
+	o.client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeBody(t, resp)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("forged consent POST → %d, want 403", resp.StatusCode)
+	if location := resp.Header.Get("Location"); strings.Contains(location, "code=") {
+		t.Fatalf("forged consent POST → %q, which carries a code", location)
 	}
-	// A browser-stamped cross-site POST is refused outright.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
+
+	// A browser-stamped cross-site POST is refused OUTRIGHT — no redirect, not
+	// even to the consent screen. This is not a human who took too long: the
+	// initiator was another site, so there is nobody to send back to a screen.
 	post2, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post2.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -263,6 +373,9 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	closeBody(t, resp)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-site consent POST → %d, want 403", resp.StatusCode)
+	}
+	if location := resp.Header.Get("Location"); location != "" {
+		t.Fatalf("cross-site consent POST redirected to %q; an attack is refused, not sent to a screen", location)
 	}
 }
 
@@ -302,162 +415,63 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 		}
 	}
 
-	// RFC 8707: a code bound to one resource refuses another audience.
-	code := o.authorize(t, url.Values{"resource": {"https://mcp.margince.example"}})
+	// RFC 8707: a code bound to the canonical resource refuses another
+	// audience at redemption — authorize only ever accepts the
+	// canonical value itself (TestAuthorizeRefusesAForeignResourceBeforeMintingACode
+	// covers the foreign-audience refusal at authorize).
+	code := o.authorize(t, url.Values{"resource": {o.origin + "/mcp"}})
 	if status, body := o.exchange(t, url.Values{"code": {code}, "resource": {"https://other.example"}}); status != http.StatusBadRequest || body["error"] != "invalid_target" {
 		t.Fatalf("audience mismatch → %d %v, want invalid_target", status, body)
 	}
-}
 
-func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
-	o := setupOAuth(t)
-
-	code := o.authorize(t, nil)
-	_, body := o.exchange(t, url.Values{"code": {code}})
-	agentBearer := map[string]string{"Authorization": "Bearer " + body["access_token"].(string)}
-
-	var person struct {
-		ID string `json:"id"`
-	}
-	if status := o.call(t, "POST", "/v1/people", anyMap{"full_name": "JWS Target"}, nil, &person); status != http.StatusCreated {
-		t.Fatalf("create person → %d", status)
-	}
-	var problem struct {
-		Detail string `json:"detail"`
-	}
-	if status := o.call(t, "DELETE", "/v1/people/"+person.ID, nil, agentBearer, &problem); status != http.StatusForbidden {
-		t.Fatalf("agent archive → %d, want staged 403", status)
-	}
-	approvalID := extractStagedApprovalID(t, problem.Detail)
-
-	var approved struct {
-		ApprovalToken *string `json:"approval_token"`
-	}
-	if status := o.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, &approved); status != http.StatusOK {
-		t.Fatalf("approve → %d", status)
-	}
-	if approved.ApprovalToken == nil || strings.Count(*approved.ApprovalToken, ".") != 2 {
-		t.Fatalf("approve response lacks a compact JWS: %+v", approved.ApprovalToken)
-	}
-
-	pool, err := database.NewPool(context.Background(), envDSN(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	var wsRaw string
-	if err := o.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, o.slug).Scan(&wsRaw); err != nil {
-		t.Fatal(err)
-	}
-	wsID, err := ids.Parse(wsRaw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wsCtx := principal.WithWorkspaceID(context.Background(), wsID)
-
-	svc := approvals.NewService(pool)
-	claims, err := svc.VerifyApprovalToken(wsCtx, *approved.ApprovalToken)
-	if err != nil {
-		t.Fatalf("verify: %v", err)
-	}
-	if claims.ApprovalID.String() != approvalID || claims.Kind != "archive_record" ||
-		claims.TargetID == nil || claims.DiffHash == "" || claims.PassportID == nil {
-		t.Fatalf("claims not effect-bound: %+v", claims)
-	}
-
-	// One flipped payload byte is fatal.
-	parts := strings.Split(*approved.ApprovalToken, ".")
-	tampered := parts[0] + "." + flipLastChar(parts[1]) + "." + parts[2]
-	if _, err := svc.VerifyApprovalToken(wsCtx, tampered); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
-		t.Fatalf("tampered token → %v, want ErrApprovalTokenInvalid", err)
+	// The canonical check is unconditional: a code minted with NO resource
+	// at authorize (the accepted older-client path, stored NULL) must still
+	// refuse a foreign resource presented only at redemption — the
+	// canonical comparison must not depend on a stored value existing.
+	nullResourceCode := o.authorize(t, nil)
+	if status, body := o.exchange(t, url.Values{"code": {nullResourceCode}, "resource": {"https://attacker.example/mcp"}}); status != http.StatusBadRequest || body["error"] != "invalid_target" {
+		t.Fatalf("foreign resource against a NULL-bound code → %d %v, want invalid_target", status, body)
 	}
 }
 
-func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
+// TestAuthorizeRefusesAForeignResourceBeforeMintingACode proves the RFC 8707
+// audience is validated against the configured canonical resource before any
+// code exists — a refused audience must mint nothing.
+func TestAuthorizeRefusesAForeignResourceBeforeMintingACode(t *testing.T) {
 	o := setupOAuth(t)
-	code := o.authorize(t, nil)
-	_, body := o.exchange(t, url.Values{"code": {code}})
-	token := body["access_token"].(string)
-
-	pool, err := database.NewPool(context.Background(), envDSN(t))
-	if err != nil {
-		t.Fatal(err)
+	status, body := o.authorizeRaw(t, url.Values{"resource": {"https://attacker.example/mcp"}})
+	if status != http.StatusBadRequest || !strings.Contains(body, "invalid_target") {
+		t.Fatalf("authorize with a foreign resource → %d %s, want 400 invalid_target", status, body)
 	}
-	t.Cleanup(pool.Close)
-	authSvc := identity.NewService(pool)
-	registry := compose.NewRegistry(pool, compose.SendPath{})
-	authenticate := func(r *http.Request) (context.Context, error) {
-		wsID, err := authSvc.InstallationWorkspace(r.Context())
-		if err != nil {
-			return nil, err
-		}
-		ctx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
-		agent, err := authSvc.AuthenticateAgent(ctx, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if err != nil {
-			return nil, err
-		}
-		return principal.WithCorrelationID(principal.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
-	}
-	hosted := httptest.NewServer(agents.NewHTTPHandler(registry, authenticate, "margince-crm", "test"))
-	t.Cleanup(hosted.Close)
-
-	rpc := func(bearer, payload string) (int, string) {
-		req, _ := http.NewRequest(http.MethodPost, hosted.URL, strings.NewReader(payload))
-		req.Header.Set("Authorization", "Bearer "+bearer)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer closeBody(t, resp)
-		raw, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(raw)
-	}
-
-	status, out := rpc(token, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	if status != http.StatusOK || !strings.Contains(out, `"search_records"`) {
-		t.Fatalf("hosted tools/list → %d %s", status, out)
-	}
-	status, out = rpc(token, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_record","arguments":{"record_type":"person","fields":{"full_name":"Hosted Agent Person"}}}}`))
-	if status != http.StatusOK || !strings.Contains(out, "Hosted Agent Person") {
-		t.Fatalf("hosted tools/call → %d %s", status, out)
-	}
-
-	// Revocation binds between two calls: kill the passport via the
-	// session surface, the next hosted call answers 401 + RFC 9728.
-	var passportID string
+	var codes int
 	if err := o.owner.QueryRow(context.Background(),
-		`SELECT id FROM passport ORDER BY created_at DESC LIMIT 1`).Scan(&passportID); err != nil {
+		`SELECT count(*) FROM oauth_authorization_code`).Scan(&codes); err != nil {
 		t.Fatal(err)
 	}
-	if status := o.call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {
-		t.Fatalf("revoke → %d", status)
-	}
-	req, _ := http.NewRequest(http.MethodPost, hosted.URL, strings.NewReader(`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`))
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer closeBody(t, resp)
-	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(resp.Header.Get("WWW-Authenticate"), "oauth-protected-resource") {
-		t.Fatalf("revoked bearer → %d %q, want 401 + RFC 9728 pointer", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
+	if codes != 0 {
+		t.Fatalf("codes = %d, want 0: a refused audience must mint nothing", codes)
 	}
 }
 
-func envDSN(t *testing.T) string {
+// assertOwnerCount asserts the SIZE of a row set on the owner pool, which
+// QueryRow alone cannot: it silently takes the first of several rows, so
+// "exactly one grant" has to be counted, not scanned.
+//
+//craft:ignore naked-any pgx query arguments are untyped by the driver's own signature
+func assertOwnerCount(t *testing.T, o *oauthEnv, want int, query string, args ...any) {
 	t.Helper()
-	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if dsn == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set")
+	var got int
+	if err := o.owner.QueryRow(context.Background(), query, args...).Scan(&got); err != nil {
+		t.Fatalf("counting rows for %s: %v", query, err)
 	}
-	return dsn
+	if got != want {
+		t.Fatalf("%s = %d, want %d", query, got, want)
+	}
 }
 
-func flipLastChar(s string) string {
-	last := s[len(s)-1]
-	replacement := byte('A')
-	if last == 'A' {
-		replacement = 'B'
-	}
-	return s[:len(s)-1] + string(replacement)
+// sha256Hex is how every bearer credential in this schema is stored — the
+// test derives the expected hash rather than trusting the row it reads.
+func sha256Hex(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }

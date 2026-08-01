@@ -104,6 +104,17 @@ type Server struct {
 	// endpoint.
 	overlayWebhook http.Handler
 
+	// mcpConnectorEnabled is the remote-connector deployment gate, set by
+	// WithMCPConnector from the deployment file. It governs the connector as
+	// ONE group — transport, authorization server, both discovery documents —
+	// and routes.go, where the group is mounted, carries why.
+	mcpConnectorEnabled bool
+
+	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
+	// admits — derived by WithMCPResource from the configured
+	// --public-base-url, never from a request header a caller controls.
+	mcpAllowedOrigin string
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.
@@ -256,7 +267,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	srv.applySendPath(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
-	mux := operationalMux(srv, pool, log, authH, api)
+	// ONE identity.Service for the whole process: contractAPI's admission
+	// gate and the connector's authenticate closure share this instance, so
+	// they share its singleton cache and its clock.
+	mux := operationalMux(srv, pool, log, identitySvc, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }

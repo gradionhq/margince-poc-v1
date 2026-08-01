@@ -416,6 +416,39 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /oauth/consent-request:
+    get:
+      tags: [Identity]
+      operationId: getConsentRequest
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: What the OAuth consent screen renders for one pending authorization.
+      description: |
+        Session-authenticated. Resolves the requesting client from the database and lists the
+        passports the signed-in human may lend to it: their own, unrevoked, unexpired, not
+        already bound to a connection, and overlapping the requested scopes. Human-only — an
+        agent must never read or drive a consent screen.
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: true
+          description: The space-delimited scopes the client requested, including offline_access if asked.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The consent screen's contents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------- /people ----------------------------------
   /people:
     get:
@@ -14604,6 +14637,42 @@ components:
         on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
         expires_at:   { type: string, format: date-time }
 
+    ConsentPassportOption:
+      type: object
+      description: |
+        One passport the signed-in human may lend to the requesting client. `granted` is
+        `scopes` intersected with what the client requested — it is what this connection
+        would actually receive, and may be narrower than `scopes`.
+      required: [id, label, scopes, granted, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        scopes:
+          type: array
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+        granted:
+          type: array
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+        expires_at: { type: string, format: date-time }
+    ConsentRequest:
+      type: object
+      description: |
+        What the consent screen renders. The client name is resolved from the database, never
+        from the request URL, so no caller can put words on a consent screen. The consent
+        nonce is NOT here: it reaches the screen in the redirect fragment, because the
+        consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+      required: [client_name, requested, offline, passports]
+      properties:
+        client_name: { type: string }
+        requested:
+          type: array
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+        offline:
+          type: boolean
+          description: The client asked to stay connected without asking again (offline_access).
+        passports:
+          type: array
+          items: { $ref: '#/components/schemas/ConsentPassportOption' }
     PassportSummary:
       type: object
       description: Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.

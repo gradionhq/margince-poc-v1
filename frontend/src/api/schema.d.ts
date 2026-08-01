@@ -215,6 +215,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/consent-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the OAuth consent screen renders for one pending authorization.
+         * @description Session-authenticated. Resolves the requesting client from the database and lists the
+         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, not
+         *     already bound to a connection, and overlapping the requested scopes. Human-only — an
+         *     agent must never read or drive a consent screen.
+         */
+        get: operations["getConsentRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people": {
         parameters: {
             query?: never;
@@ -11044,6 +11067,33 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
+        /**
+         * @description One passport the signed-in human may lend to the requesting client. `granted` is
+         *     `scopes` intersected with what the client requested — it is what this connection
+         *     would actually receive, and may be narrower than `scopes`.
+         */
+        ConsentPassportOption: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            scopes: ("read" | "draft" | "write" | "send" | "enrich")[];
+            granted: ("read" | "draft" | "write" | "send" | "enrich")[];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        /**
+         * @description What the consent screen renders. The client name is resolved from the database, never
+         *     from the request URL, so no caller can put words on a consent screen. The consent
+         *     nonce is NOT here: it reaches the screen in the redirect fragment, because the
+         *     consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+         */
+        ConsentRequest: {
+            client_name: string;
+            requested: ("read" | "draft" | "write" | "send" | "enrich")[];
+            /** @description The client asked to stay connected without asking again (offline_access). */
+            offline: boolean;
+            passports: components["schemas"]["ConsentPassportOption"][];
+        };
         /** @description Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token. */
         PassportSummary: {
             /** Format: uuid */
@@ -11795,6 +11845,34 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getConsentRequest: {
+        parameters: {
+            query: {
+                client_id: string;
+                /** @description The space-delimited scopes the client requested, including offline_access if asked. */
+                scope: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The consent screen's contents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listPeople: {

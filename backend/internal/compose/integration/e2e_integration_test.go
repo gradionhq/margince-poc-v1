@@ -57,6 +57,16 @@ func setup(t *testing.T) *env {
 // migrate-and-boot ceremony every other suite in this package shares.
 func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	t.Helper()
+	return setupWithOriginOptions(t, func(string) []compose.Option { return opts })
+}
+
+// setupWithOriginOptions is setupWithOptions for a suite whose wiring must
+// name the harness's OWN origin — the RFC 8414/9728 discovery documents carry
+// absolute URLs, and a suite asserting what a real client dereferences cannot
+// hardcode a port the OS assigns. The listener is opened before the handler is
+// composed, so the origin is known without booting twice.
+func setupWithOriginOptions(t *testing.T, opts func(origin string) []compose.Option) *env {
+	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
 	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
 	if ownerDSN == "" || appDSN == "" {
@@ -97,11 +107,16 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	if err != nil {
 		t.Fatalf("jobs.NewInserter: %v", err)
 	}
+	// Unstarted, so the listener's port is known before the handler is
+	// composed: StartTLS below serves the same handler NewTLSServer would.
+	ts := httptest.NewUnstartedServer(nil)
+	origin := "https://" + ts.Listener.Addr().String()
 	allOpts := append([]compose.Option{
 		compose.WithPublicBaseURL("https://mail.example.test"),
 		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
-	}, opts...)
-	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...))
+	}, opts(origin)...)
+	ts.Config.Handler = compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...)
+	ts.StartTLS()
 	t.Cleanup(ts.Close)
 
 	jar, err := cookiejar.New(nil)
