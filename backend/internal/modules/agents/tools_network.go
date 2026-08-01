@@ -69,17 +69,69 @@ type CoverageRisk struct {
 	Summary   string     `json:"summary"`
 	PersonIDs []ids.UUID `json:"person_ids,omitempty"`
 	UserIDs   []ids.UUID `json:"user_ids,omitempty"`
+	// DaysSinceTouch is set on going-cold and absent elsewhere. A pointer
+	// rather than a plain int because a zero would read as "touched today" on
+	// every finding that says nothing about recency.
+	DaysSinceTouch *int `json:"days_since_touch,omitempty"`
 }
+
+// IntroRoute is one warm way into an account: a colleague, the contact they
+// know there, and how well.
+type IntroRoute struct {
+	UserID      ids.UUID `json:"user_id"`
+	DisplayName string   `json:"display_name"`
+	// PersonID and PersonName are the CONTACT the route goes through. An intro
+	// suggestion that named only the colleague would leave a rep to ask "an
+	// intro to whom" — the pair is the answer, not the colleague alone.
+	PersonID        ids.UUID `json:"person_id"`
+	PersonName      string   `json:"person_name"`
+	Strength        *int     `json:"strength,omitempty"`
+	StrengthBucket  string   `json:"strength_bucket"`
+	Interactions90d int      `json:"interactions_90d"`
+}
+
+// IntroPathLister answers "who here can get me into this account", warmest
+// route first. Compose implements it as the fixed two-hop join ADR-0021 pins:
+// colleague → contact (the interaction projection) → account (employment).
+type IntroPathLister func(ctx context.Context, orgID ids.UUID) ([]IntroRoute, error)
+
+// AtRiskDeal is one deal the coverage rules have something to say about.
+type AtRiskDeal struct {
+	DealID ids.UUID       `json:"deal_id"`
+	Name   string         `json:"name"`
+	Risks  []CoverageRisk `json:"risks"`
+}
+
+// AtRiskReport is the whole answer, INCLUDING how far the scan reached.
+//
+// DealsScanned and Truncated are not decoration. The scan is capped, and a
+// capped answer presented as a complete one is how a model comes to tell a
+// sales lead their pipeline is clean when it looked at a quarter of it.
+type AtRiskReport struct {
+	Deals        []AtRiskDeal `json:"deals"`
+	DealsScanned int          `json:"deals_scanned"`
+	Truncated    bool         `json:"truncated"`
+}
+
+// AtRiskLister answers "which of my relationships are in trouble" over the
+// caller's own open deals, under their row scope.
+type AtRiskLister func(ctx context.Context) (AtRiskReport, error)
 
 // RegisterNetworkTools wires the relationship-graph intents. A seam that is
 // absent registers no tool: a surface that cannot ground its answer does not
 // pretend to.
-func RegisterNetworkTools(r *Registry, whoKnows WhoKnowsLister, coverage CoverageReader) {
+func RegisterNetworkTools(r *Registry, whoKnows WhoKnowsLister, coverage CoverageReader, intro IntroPathLister, atRisk AtRiskLister) {
 	if whoKnows != nil {
 		r.Register(whoKnowsTool{list: whoKnows})
 	}
 	if coverage != nil {
 		r.Register(accountCoverageTool{read: coverage})
+	}
+	if intro != nil {
+		r.Register(introPathTool{list: intro})
+	}
+	if atRisk != nil {
+		r.Register(atRiskTool{list: atRisk})
 	}
 }
 
@@ -160,4 +212,78 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 		return nil, err
 	}
 	return json.Marshal(answer)
+}
+
+// --- intro_path_to (🟢 read) ---
+
+type introPathTool struct{ list IntroPathLister }
+
+func (t introPathTool) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "intro_path_to", Version: toolVersionV1,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
+		OpenAPIOp: "getOrganizationGraph",
+		InputSchema: schema(`{"type":"object","properties":{
+			"organization_id":{"type":"string","format":"uuid","description":"The account to find a warm route into"}},
+			"required":["organization_id"],"additionalProperties":false}`),
+		OutputSchema: schema(`{"type":"object"}`),
+	}
+}
+
+func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args struct {
+		OrganizationID string `json:"organization_id"`
+	}
+	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	orgID, err := ids.Parse(args.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	routes, err := t.list(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if routes == nil {
+		// An empty LIST, not a null: "nobody here has a way in" is the answer
+		// that says the account is cold, and it is a useful one. A model handed
+		// null reads it as "unknown" and hedges.
+		routes = []IntroRoute{}
+	}
+	return json.Marshal(map[string]any{
+		"organization_id": orgID, "routes": routes,
+	})
+}
+
+// --- at_risk_relationships (🟢 read) ---
+
+type atRiskTool struct{ list AtRiskLister }
+
+func (t atRiskTool) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "at_risk_relationships", Version: toolVersionV1,
+		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
+		OpenAPIOp: "listDeals + getDealCoverage",
+		// No arguments. The question is about the caller's own book, and the
+		// row scope already decides what that is — an owner or team filter here
+		// would be a second, weaker spelling of the same rule.
+		InputSchema:  schema(`{"type":"object","properties":{},"additionalProperties":false}`),
+		OutputSchema: schema(`{"type":"object"}`),
+	}
+}
+
+func (t atRiskTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args struct{}
+	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	report, err := t.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if report.Deals == nil {
+		report.Deals = []AtRiskDeal{}
+	}
+	return json.Marshal(report)
 }

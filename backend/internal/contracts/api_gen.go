@@ -9593,10 +9593,15 @@ type DealCoverage struct {
 // DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
 // explain the flag rather than assert it.
 type DealCoverageRisk struct {
-	Kind      DealCoverageRiskKind  `json:"kind"`
-	PersonIds *[]openapi_types.UUID `json:"person_ids,omitempty"`
-	Summary   string                `json:"summary"`
-	UserIds   *[]openapi_types.UUID `json:"user_ids,omitempty"`
+	// DaysSinceTouch Days since the deal's last captured touch, on `going_cold` only; null on every
+	// other kind. It carries the number rather than a second `kind`, so the 30-day and
+	// 60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+	// 61 days cannot appear on one surface and not the other.
+	DaysSinceTouch *int                  `json:"days_since_touch,omitempty"`
+	Kind           DealCoverageRiskKind  `json:"kind"`
+	PersonIds      *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary        string                `json:"summary"`
+	UserIds        *[]openapi_types.UUID `json:"user_ids,omitempty"`
 }
 
 // DealCoverageRiskKind defines model for DealCoverageRisk.Kind.

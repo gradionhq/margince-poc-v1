@@ -7006,6 +7006,13 @@ export interface components {
             summary: string;
             person_ids?: string[];
             user_ids?: string[];
+            /**
+             * @description Days since the deal's last captured touch, on `going_cold` only; null on every
+             *     other kind. It carries the number rather than a second `kind`, so the 30-day and
+             *     60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+             *     61 days cannot appear on one surface and not the other.
+             */
+            days_since_touch?: number | null;
         };
         DealCoverage: {
             /** Format: uuid */

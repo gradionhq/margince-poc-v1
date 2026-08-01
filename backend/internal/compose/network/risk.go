@@ -19,6 +19,7 @@ package network
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -62,6 +63,13 @@ const (
 	ourSideMinInteractions = 5
 )
 
+// goingColdDays is REPORT-PARAM-2's lower window. The rule ships ONE threshold
+// and reports the actual day count beside it, rather than two flags: the 60-day
+// view the reporting screen offers is the same finding filtered on
+// DaysSinceTouch, and emitting a separate kind for it would let a deal at 61
+// days appear on one surface and not the other.
+const goingColdDays = 30
+
 // Risk is one finding, carrying the evidence that produced it. A risk without
 // evidence is an opinion, and the surfaces that render these are required to
 // let a human drill into why (REPORT-AC-3).
@@ -81,8 +89,21 @@ type Risk struct {
 // DealCoverage is the whole picture for one deal: who sits on it, who is
 // actually engaged, which of our people carry it, and what is wrong.
 type DealCoverage struct {
-	DealID       ids.UUID
-	Stakeholders []deals.DealStakeholder
+	DealID ids.UUID
+	// Status is the deal's own status. Going-cold is an in-pipeline rule, and
+	// the distinction is not pedantry: a won deal silent for forty days has
+	// been delivered, and flagging it would train a rep to ignore the flag.
+	Status string
+	// LastTouchAt is the deal's last captured touch, falling back to its
+	// creation. Zero only when the facts were never gathered — the fold reads
+	// that as "do not judge", so a hand-built fixture cannot accidentally
+	// assert a cold deal it never described.
+	LastTouchAt time.Time
+	// DepartedPersonIDs are the stakeholders whose employment at the account
+	// has ended. Gathered rather than folded because it takes a second read,
+	// and carried as ids so the fold stays pure.
+	DepartedPersonIDs []ids.UUID
+	Stakeholders      []deals.DealStakeholder
 	// OurSide is the colleagues with recorded interaction with the deal's
 	// stakeholders, warmest first.
 	OurSide []ColleagueEdge
@@ -105,6 +126,12 @@ type ColleagueEdge struct {
 func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Time) (DealCoverage, error) {
 	out := DealCoverage{DealID: dealID.UUID}
 
+	facts, err := readDealFacts(ctx, tx, dealID)
+	if err != nil {
+		return out, err
+	}
+	out.Status, out.LastTouchAt = facts.status, facts.lastTouchAt
+
 	stakeholders, err := deals.Stakeholders(ctx, tx, dealID, now)
 	if err != nil {
 		return out, err
@@ -114,6 +141,10 @@ func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Tim
 	people := make([]ids.UUID, 0, len(stakeholders))
 	for _, s := range stakeholders {
 		people = append(people, s.PersonID)
+	}
+	out.DepartedPersonIDs, err = readDeparted(ctx, tx, facts.organizationID, people, now)
+	if err != nil {
+		return out, err
 	}
 	edges, err := search.EdgesForPeople(ctx, tx, people)
 	if err != nil {
@@ -131,7 +162,7 @@ func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Tim
 		})
 	}
 
-	out.Risks = foldRisks(out)
+	out.Risks = foldRisks(out, now)
 	return out, nil
 }
 
@@ -139,12 +170,10 @@ func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Tim
 // Pure so it can be tested against hand-built inputs with no database — the
 // gather/fold split every detector in this codebase uses.
 //
-// It takes no clock because none of the rules here needs one: engagement and
-// recency were already resolved during the gather, against a single instant.
-// The going-cold detector will need one when it lands, and it can take it
-// then — carrying an unused parameter now would only advertise a capability
-// this fold does not have.
-func foldRisks(c DealCoverage) []Risk {
+// The clock is the SAME instant the gather ran against, passed in rather than
+// read here: going-cold compares a stored timestamp to now, and a fold that
+// called time.Now() could not be asserted on without sleeping.
+func foldRisks(c DealCoverage, now time.Time) []Risk {
 	var risks []Risk
 
 	// REPORT-PARAM-1, verbatim: distinct_engaged_contacts < 2.
@@ -175,8 +204,79 @@ func foldRisks(c DealCoverage) []Risk {
 			Summary: "no engaged champion — nobody inside the account is carrying this",
 		})
 	}
+
+	// Who has left, and REPORT-PARAM-2's silence. Both are appended last so a
+	// deal's structural findings read before its temporal ones.
+	risks = append(risks, departureRisks(c)...)
+	if r, found := goingCold(c, now); found {
+		risks = append(risks, r)
+	}
 	return risks
 }
+
+// departureRisks splits the stakeholders who have left into the two findings
+// the contract distinguishes.
+//
+// Two kinds rather than one, because they are different sentences to a rep. A
+// champion leaving means the argument for the deal left the building; another
+// seat leaving means a name on the list is now wrong. Collapsing them would
+// make the milder case shout and the severe one whisper.
+func departureRisks(c DealCoverage) []Risk {
+	departed := make(map[ids.UUID]bool, len(c.DepartedPersonIDs))
+	for _, id := range c.DepartedPersonIDs {
+		departed[id] = true
+	}
+	var champions, others []ids.UUID
+	// Driven off the stakeholder list, not off the departed set, so the
+	// findings come out in the deal's own seat order and two reads of an
+	// unchanged deal render identically.
+	for _, s := range c.Stakeholders {
+		if !departed[s.PersonID] {
+			continue
+		}
+		if s.Role == roleChampion {
+			champions = append(champions, s.PersonID)
+			continue
+		}
+		others = append(others, s.PersonID)
+	}
+	var out []Risk
+	if len(champions) > 0 {
+		out = append(out, Risk{
+			Kind: RiskChampionLeft, DealID: c.DealID, PersonIDs: champions,
+			Summary: "the champion has left the account — the person arguing for this deal no longer works there",
+		})
+	}
+	if len(others) > 0 {
+		out = append(out, Risk{
+			Kind: RiskStakeholderLeft, DealID: c.DealID, PersonIDs: others,
+			Summary: "a stakeholder has left the account — the seat is still on the deal, the relationship is not",
+		})
+	}
+	return out
+}
+
+// goingCold is REPORT-PARAM-2 over the deal's last captured touch.
+//
+// A zero LastTouchAt means the facts were never gathered, not that the deal
+// has been silent since the epoch — the difference between "we did not look"
+// and "nobody has spoken" is the whole finding, and reading the first as the
+// second would flag every deal in a fixture that never described one.
+func goingCold(c DealCoverage, now time.Time) (Risk, bool) {
+	if c.Status != dealStatusOpen || c.LastTouchAt.IsZero() {
+		return Risk{}, false
+	}
+	days := int(now.Sub(c.LastTouchAt).Hours() / hoursPerDay)
+	if days < goingColdDays {
+		return Risk{}, false
+	}
+	return Risk{
+		Kind: RiskGoingCold, DealID: c.DealID, DaysSinceTouch: days,
+		Summary: fmt.Sprintf("no captured touch for %d days — the deal is open and nobody is talking", days),
+	}, true
+}
+
+const hoursPerDay = 24
 
 // reportThreadingFloor is REPORT-PARAM-1's value, named rather than inline so
 // the constant a support conversation quotes is the constant compared against.

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -141,6 +142,23 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		sections = append(sections, graphSection{name: "profile", items: []graphItem{{
 			entityType: anchorType, id: anchorID, summary: title,
 		}}})
+
+		// Who on our team knows this contact (ADR-0078). Without this the
+		// projection is invisible to the assistant: a rep can see the answer
+		// on the person page while the model answering "who should introduce
+		// me" has no access to it at all, and confidently says nobody.
+		//
+		// Person anchors only. An organization's or a deal's colleagues are a
+		// join across its contacts, which is a compose read — and a module
+		// never imports a sibling to make one.
+		if anchorType == string(datasource.EntityPerson) {
+			knows, err := whoKnowsSection(ctx, tx, anchorID, maxItems, now)
+			if err != nil {
+				return err
+			}
+			sections = append(sections, knows)
+		}
+
 		if !walkable {
 			return nil
 		}
@@ -221,6 +239,76 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 	sortAndTrim(&touches, maxItems)
 	sortAndTrim(&openTasks, maxItems)
 	return touches, openTasks, activityIDs, nil
+}
+
+// whoKnowsSection reads the colleagues who interact with this contact, warmest
+// first, as context items a model can quote.
+//
+// Over-fetch, rank, THEN cap — the same order the HTTP surface takes and for
+// the same reason: warmth is computed at read, so capping in SQL would cap by
+// last contact and evict the colleague who has worked the account for a year
+// in favour of whoever sent the most recent one-line reply.
+//
+// The anchor's own visibility was already established above, and EdgesForPerson
+// re-gates on the person grant, so a contact the caller cannot read never
+// reaches this and its colleagues are never named.
+func whoKnowsSection(ctx context.Context, tx pgx.Tx, personID ids.UUID, maxItems int, now time.Time) (graphSection, error) {
+	section := graphSection{name: "who_knows"}
+	edges, err := EdgesForPerson(ctx, tx, personID, graphExpansionLimit)
+	if err != nil {
+		return section, err
+	}
+	SortByStrength(edges, now)
+	if len(edges) > maxItems {
+		edges = edges[:maxItems]
+	}
+	names, err := memberNames(ctx, tx, edges)
+	if err != nil {
+		return section, err
+	}
+	for _, e := range edges {
+		score := e.StrengthOf(now)
+		section.items = append(section.items, graphItem{
+			entityType: "user", id: e.UserID,
+			// The band and the count travel WITH the name. A bare list of
+			// colleagues cannot be ranked by whoever reads it next, and a model
+			// handed one picks the first.
+			summary: fmt.Sprintf("%s — %s relationship, %d interactions in the last %d days",
+				names[e.UserID], score.Bucket, e.Count90d, relstrength.WindowDays),
+			// Already ranked by warmth; the section is emitted in that order and
+			// sortAndTrim is deliberately not applied, because these items carry
+			// no §10.7.2 rank score and a zero would reorder them by id.
+		})
+	}
+	return section, nil
+}
+
+// memberNames resolves the display names of the colleagues on a set of edges.
+// The roster is readable by any authenticated member, so naming a colleague on
+// a contact the caller can already open discloses nothing new.
+func memberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[ids.UUID]string, error) {
+	out := map[ids.UUID]string{}
+	if len(edges) == 0 {
+		return out, nil
+	}
+	users := make([]ids.UUID, 0, len(edges))
+	for _, e := range edges {
+		users = append(users, e.UserID)
+	}
+	rows, err := tx.Query(ctx, `SELECT id, display_name FROM app_user WHERE id = ANY($1)`, users)
+	if err != nil {
+		return nil, fmt.Errorf("search: naming the colleagues who know a contact: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id ids.UUID
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
 }
 
 // graphHop names one hop-2 target type: the entity, the activity_link

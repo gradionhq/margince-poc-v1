@@ -72,17 +72,26 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
+	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
+	// refused before either read runs; the risk decorator sits inside it and
+	// adds the coverage findings a deal anchor would otherwise assemble
+	// without.
 	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
-		mode:  sorMode,
-		inner: search.NewRetriever(search.NewStore(pool), nil),
+		mode: sorMode,
+		inner: riskAwareRetriever{
+			pool:  pool,
+			inner: search.NewRetriever(search.NewStore(pool), nil),
+		},
 	})
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
 	// The relationship-graph reads (ADR-0078): who here knows this contact,
-	// and how a deal is covered. Both 🟢 — they name people, they change
-	// nothing.
-	agents.RegisterNetworkTools(registry, whoKnowsLister(pool), coverageReader(pool))
+	// how a deal is covered, who can get us into an account, and which of the
+	// caller's deals the coverage rules flag. All 🟢 — they name people, they
+	// change nothing.
+	agents.RegisterNetworkTools(registry, whoKnowsLister(pool), coverageReader(pool),
+		introPathLister(pool), atRiskLister(pool))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that

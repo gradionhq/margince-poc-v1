@@ -129,10 +129,27 @@ func toAgentCoverage(c network.DealCoverage, names map[ids.UUID]string) agents.D
 		}
 		out.OurSide = append(out.OurSide, colleague)
 	}
-	for _, r := range c.Risks {
-		out.Risks = append(out.Risks, agents.CoverageRisk{
+	out.Risks = toAgentRisks(c.Risks)
+	return out
+}
+
+// toAgentRisks maps the findings onto the tool shape. Spelled once because two
+// tools return risks — the coverage read and the at-risk sweep — and a second
+// copy would be a second place for the day-count rule below to be wrong.
+func toAgentRisks(risks []network.Risk) []agents.CoverageRisk {
+	out := make([]agents.CoverageRisk, 0, len(risks))
+	for _, r := range risks {
+		risk := agents.CoverageRisk{
 			Kind: r.Kind, Summary: r.Summary, PersonIDs: r.PersonIDs, UserIDs: r.UserIDs,
-		})
+		}
+		// Only going-cold carries a day count; a zero on the others would read
+		// as "touched today", which is the opposite of what a departure finding
+		// says about recency.
+		if r.Kind == network.RiskGoingCold {
+			days := r.DaysSinceTouch
+			risk.DaysSinceTouch = &days
+		}
+		out = append(out, risk)
 	}
 	return out
 }
