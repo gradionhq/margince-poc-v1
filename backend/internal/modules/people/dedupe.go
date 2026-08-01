@@ -209,10 +209,15 @@ func exactPersonByEmail(ctx context.Context, tx pgx.Tx, emails []string) (ids.Pe
 
 // personCandidateRow is one row of the restricted candidate set.
 type personCandidateRow struct {
-	id        ids.PersonID
-	fullName  string
-	orgID     *ids.OrganizationID
-	orgDomain *string
+	id       ids.PersonID
+	fullName string
+	orgID    *ids.OrganizationID
+	// orgDomain is a domain the incumbent's EMPLOYER is registered under;
+	// mailDomain is one their own address sits on. Both say "these two work at
+	// the same place", and the second says it while the employer is still an
+	// open question — which is where a captured counterparty starts.
+	orgDomain  *string
+	mailDomain *string
 }
 
 // fuzzyPerson is PO-F-1 tier 2. The candidate set is restricted to
@@ -221,7 +226,10 @@ type personCandidateRow struct {
 // of walking the workspace.
 func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, p.full_name, r.organization_id, od.domain
+		SELECT p.id, p.full_name, r.organization_id, od.domain,
+		       (SELECT split_part(pe.email, '@', 2) FROM person_email pe
+		         WHERE pe.person_id = p.id AND pe.is_primary
+		         LIMIT 1)
 		  FROM person p
 		  LEFT JOIN relationship r
 		    ON r.person_id = p.id AND r.kind = 'employment'
@@ -240,7 +248,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 	best := PersonResolution{Decision: DecisionNoMatch}
 	for rows.Next() {
 		var row personCandidateRow
-		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain); err != nil {
+		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain, &row.mailDomain); err != nil {
 			return PersonResolution{}, fmt.Errorf("scan person candidate: %w", err)
 		}
 		confidence := personConfidence(c, row)
@@ -268,13 +276,24 @@ func personConfidence(c PersonCandidate, row personCandidateRow) float64 {
 		dedupeOrgDomainWeight*orgMatch(c, row)
 }
 
-// orgMatch is PO-F-1's employer agreement term, most-specific first: a
-// shared employer row beats a shared email domain.
+// orgMatch is PO-F-1's employer agreement term, most-specific first: a shared
+// employer row beats a shared company domain, which beats two addresses simply
+// sitting on the same domain.
+//
+// That last rung is what keeps the term alive for a captured counterparty.
+// Capture creates the person and withholds the company until a site read judges
+// the domain, so for the whole time that question is open there is no employer
+// row and no organization_domain to agree about — and two colleagues at a new
+// customer would stop meeting at the fuzzy tier just when their records are
+// newest and most likely to be twins.
 func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if c.CurrentPrimaryOrgID != nil && row.orgID != nil && *c.CurrentPrimaryOrgID == *row.orgID {
 		return 1.0
 	}
 	if row.orgDomain != nil && candidateSharesDomain(c, *row.orgDomain) {
+		return 0.8
+	}
+	if row.mailDomain != nil && candidateSharesDomain(c, *row.mailDomain) {
 		return 0.8
 	}
 	return 0.0

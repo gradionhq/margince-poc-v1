@@ -147,8 +147,11 @@ func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
 	if status.People != 3 {
 		t.Fatalf("people = %d, want 3 — the two free-mail senders and the attested recipient, and nothing else", status.People)
 	}
+	// The company column counts domains this run QUEUED for a verdict, not
+	// companies it created — capture creates none. Free mail is answered by its
+	// own domain and asks nothing; the corporate domain is the one question.
 	if status.Organizations != 1 {
-		t.Fatalf("organizations = %d, want 1 — free mail derives no company, the corporate domain does", status.Organizations)
+		t.Fatalf("company questions = %d, want 1 — free mail asks nothing, the corporate domain does", status.Organizations)
 	}
 
 	// The persisted columns are the proof the run counted at page-commit time
@@ -156,7 +159,7 @@ func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
 	// read these, and a live query could never serve them.
 	people, orgs := readBackfillYieldColumns(t, e, run.ID)
 	if people != 3 || orgs != 1 {
-		t.Fatalf("stored people_created=%d organizations_created=%d, want 3/1", people, orgs)
+		t.Fatalf("stored people_created=%d company questions=%d, want 3/1", people, orgs)
 	}
 }
 
@@ -211,7 +214,7 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 		t.Fatalf("mid-page people = %d, want 2 — the free-mail sender and the attested recipient, before the page committed", midPagePeople)
 	}
 	if midPageOrganizations != 1 {
-		t.Fatalf("mid-page organizations = %d, want 1 — the corporate domain, before the page committed", midPageOrganizations)
+		t.Fatalf("mid-page company questions = %d, want 1 — the corporate domain, before the page committed", midPageOrganizations)
 	}
 
 	status, err := registry.BackfillStatus(grantCtx, "gmail", rep)
@@ -307,7 +310,7 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 	// message tally.
 	people, orgs := readBackfillYieldColumns(t, e, run.ID)
 	if people != 2 || orgs != 1 {
-		t.Fatalf("after the transient fault people_created=%d organizations_created=%d, want 2/1 — the rows exist and no retry will count them", people, orgs)
+		t.Fatalf("after the transient fault people_created=%d company questions=%d, want 2/1 — the work happened and no retry will count it again", people, orgs)
 	}
 
 	// The retry replays both messages, mints nothing, and must not inflate the

@@ -48,7 +48,13 @@ CREATE TABLE organization_domain_disposition (
   -- The dossier that answered, and the organization a 'company' verdict made.
   -- Both nullable and both SET NULL on delete: the verdict outlives its
   -- evidence, and an archived organization must not drag the answer with it.
-  site_read_id    uuid NULL REFERENCES site_read(id) ON DELETE SET NULL,
+  -- Both carry workspace_id in the reference (the composite-FK convention,
+  -- 0019) so a cross-workspace target is rejected by the database rather than
+  -- by whichever query happens to remember to check.
+  site_read_id    uuid NULL,
+  CONSTRAINT organization_domain_disposition_site_read_fkey
+    FOREIGN KEY (workspace_id, site_read_id)
+    REFERENCES site_read (workspace_id, id) ON DELETE SET NULL,
   organization_id uuid NULL,
   CONSTRAINT organization_domain_disposition_org_fkey
     FOREIGN KEY (workspace_id, organization_id)

@@ -279,8 +279,13 @@ var rowScopedFKDecisions = map[string]string{
 	"comms_outbound.activity_id":          "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
 	"consent_event.person_id":             "child row: written through the person's own gated paths",
 	"organization_domain.organization_id": "child row: written through the organization's own gated paths",
-	"person_email.person_id":              "child row: written through the person's own gated paths",
-	"person_phone.person_id":              "child row: written through the person's own gated paths",
+	// The disposition NAMES the organization its own verdict created, in the
+	// same transaction that created it. There is no client-supplied reference
+	// to gate: nothing outside the triage resolve ever writes this column, and
+	// no human surface reads the row.
+	"organization_domain_disposition.organization_id": "server-derived: set only by ResolveDomainTriage, to the organization that same transaction created or adopted through the gated dedupe chokepoint",
+	"person_email.person_id":                          "child row: written through the person's own gated paths",
+	"person_phone.person_id":                          "child row: written through the person's own gated paths",
 	// telegram-oa design §6.4: the channel-aware ensure contract creates the
 	// Person (owner_id NULL) and this identity satellite in the same
 	// transaction, from the inbound message's own channel principal —

@@ -322,14 +322,14 @@ func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T)
 
 // The enrich-on-capture condition (ADR-0072/A118 §9): mail from a company the
 // workspace ALREADY has must not re-trigger enrichment. That is the half worth
-// holding, because mail from known companies is most mail and re-asking on each
-// message would spend the day's reads on companies nobody learned anything new
-// about — so the trigger keys on the ensure having CREATED the organization.
+// holding, because a domain the workspace has already decided about must not
+// re-ask on every message — that would spend the day's reads re-answering a
+// settled question.
 //
-// The other half — that a NEW company DOES queue a read — is not observable
-// here and this test does not claim it. Starting a read needs an ambient River
+// The other half — that a NEW domain DOES queue a read — is not observable here
+// and this test does not claim it. Starting a read needs an ambient River
 // client; no test process binds one, so the attempt fails and its budget slot is
-// refunded, leaving the same counter a company that never triggered would. Every
+// refunded, leaving the same counter a domain that never triggered would. Every
 // production capture runs inside a River job, so the condition is exercised
 // there and nowhere a test can watch it.
 func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
@@ -342,22 +342,23 @@ func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
 		email(captureOwner, "", "cto@newco.example", "out1@myco.example", ""))
 	sync(t, email("cto@newco.example", "CTO", captureOwner, "in1@newco.example", ""))
 
+	// The corresponded-with sender becomes a PERSON, and their domain becomes
+	// one open company question — not a company invented from the domain label.
+	if n := countRows(t, e, `SELECT count(*) FROM organization`); n != 0 {
+		t.Fatalf("%d organizations from an unjudged domain, want 0", n)
+	}
 	if n := countRows(t, e, `
-		SELECT count(*) FROM organization o
-		JOIN organization_domain d ON d.organization_id = o.id
-		WHERE d.domain = 'newco.example'`); n != 1 {
-		t.Fatalf("%d organizations for the corresponded-with company, want 1", n)
+		SELECT count(*) FROM organization_domain_disposition
+		WHERE domain = 'newco.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d open company questions for newco.example, want exactly 1", n)
 	}
 
-	// A second message from the same company resolves onto the organization that
-	// already exists, so the ensure reports no creation and the trigger never
-	// runs — no second organization, and nothing spent.
+	// A second message from the same company lands on the question that is
+	// already open — one row, one crawl, however many colleagues write in.
 	sync(t, email("sales@newco.example", "Sales", captureOwner, "in2@newco.example", ""))
 	if n := countRows(t, e, `
-		SELECT count(*) FROM organization o
-		JOIN organization_domain d ON d.organization_id = o.id
-		WHERE d.domain = 'newco.example'`); n != 1 {
-		t.Fatalf("%d organizations after a second message, want the one that existed", n)
+		SELECT count(*) FROM organization_domain_disposition WHERE domain = 'newco.example'`); n != 1 {
+		t.Fatalf("%d questions after a second message, want the one that was already open", n)
 	}
 	if n := countRows(t, e, `
 		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget`); n != 0 {

@@ -48,19 +48,24 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
 			t.Fatalf("%d persons for alice, want exactly 1", n)
 		}
-		// The org is named from the domain's registrable label ("Acme"), not
-		// the raw eSLD, and marked name_source='domain' so a later enrichment
-		// may overwrite it (ADR-0072/A118).
-		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'Acme' AND name_source = 'domain'`); n != 1 {
-			t.Fatalf("%d organizations named 'Acme' with name_source='domain', want exactly 1", n)
+		// NO company is derived from the domain. Capture withholds one until a
+		// site read says the domain deserves it — inventing "Acme" from
+		// acme.example is exactly what produced junk named after people.
+		if n := countRows(t, e, `SELECT count(*) FROM organization`); n != 0 {
+			t.Fatalf("%d organizations from an unjudged domain, want 0", n)
 		}
-		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'acme.example'`); n != 0 {
-			t.Fatal("the raw eSLD must no longer be used as the display name")
+		// What capture DOES record is the question, once, for the domain.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM organization_domain_disposition
+			WHERE domain = 'acme.example' AND status = 'pending'`); n != 1 {
+			t.Fatalf("%d open company questions for acme.example, want exactly 1", n)
 		}
+		// No company means no employment edge yet; the verdict plants them for
+		// everyone waiting when it lands.
 		if n := countRows(t, e, `
 			SELECT count(*) FROM relationship r JOIN person_email pe ON pe.person_id = r.person_id
-			WHERE r.kind = 'employment' AND r.is_current_primary AND pe.email = 'alice@acme.example'`); n != 1 {
-			t.Fatalf("%d employment edges, want exactly 1", n)
+			WHERE r.kind = 'employment' AND r.is_current_primary AND pe.email = 'alice@acme.example'`); n != 0 {
+			t.Fatalf("%d employment edges before a company exists, want 0", n)
 		}
 		// Person-only links, and only from the point alice became a
 		// counterparty: the FIRST message deferred — she was a stranger when it

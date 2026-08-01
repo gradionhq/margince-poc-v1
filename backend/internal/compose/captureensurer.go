@@ -89,7 +89,7 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 	if res.TriagePending {
 		p.triage.domainPending(ctx, res.TriageDomain)
 	}
-	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
+	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, CompanyQueued: res.TriagePending}, nil
 }
 
 // EnsureChannelCounterparty is the same adaptation for an inbound channel

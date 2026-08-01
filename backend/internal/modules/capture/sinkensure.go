@@ -38,8 +38,13 @@ type CounterpartyEnsurer interface {
 // its own pages; without them the run can only guess from a clock window, and a
 // guess credits it with every other connection's captures.
 type EnsureOutcome struct {
-	PersonCreated       bool
-	OrganizationCreated bool
+	PersonCreated bool
+	// CompanyQueued reports that this counterparty's domain was put in the
+	// queue for an organization verdict. Capture no longer creates companies
+	// itself — it withholds one until a site read says the domain deserves it —
+	// so counting creations here would report zero for every run and hide the
+	// work it actually did.
+	CompanyQueued bool
 }
 
 // EnsureRequest names one captured message's counterparty for the resolver.

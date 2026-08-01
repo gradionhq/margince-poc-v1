@@ -86,8 +86,16 @@ func TestVerdictRealCreatesTheCounterpartyCaptureWithheld(t *testing.T) {
 		 WHERE pe.email = 'ada@realco.example'`); n != 1 {
 		t.Fatalf("%d persons created for a real verdict, want 1", n)
 	}
-	if n := countIn(t, e, `SELECT count(*) FROM organization WHERE display_name = 'Realco'`); n != 1 {
-		t.Fatalf("%d organizations created, want 1 — a real verdict creates what capture withheld", n)
+	// A `real` verdict admits the PERSON. Whether they have an employer is a
+	// separate question with its own evidence, so the verdict opens it rather
+	// than inventing "Realco" from the domain.
+	if n := countIn(t, e, `SELECT count(*) FROM organization`); n != 0 {
+		t.Fatalf("%d organizations from a verdict, want 0 — the company question is answered by a site read", n)
+	}
+	if n := countIn(t, e, `
+		SELECT count(*) FROM organization_domain_disposition
+		 WHERE domain = 'realco.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d open company questions for realco.example, want exactly 1", n)
 	}
 	// The mail was never the thing in doubt: a real verdict leaves it visible.
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID); n != 1 {
