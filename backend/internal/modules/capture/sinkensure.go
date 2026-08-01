@@ -192,19 +192,12 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	}
 	decision.create = decision.create || alreadyKnown
 
-	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
-	// company — gmail.com is not an organization whatever else is true of it.
-	// Its domain already says what it is, so it is not the ambiguous class.
-	//
-	// The workspace's own additions and carve-outs are read on THIS transaction,
-	// not cached at composition time: an admin who corrects a wrong baseline
-	// entry means the very next message, and a cache would make them wait
-	// without saying so.
-	consumerMail, err := MatcherTx(ctx, tx)
+	// T3 free-mail (CAP-PARAM-5).
+	consumer, err := consumerMailSender(ctx, tx, cp.Domain)
 	if err != nil {
 		return counterpartyDecision{}, err
 	}
-	if consumerMail.IsConsumer(cp.Domain) {
+	if consumer {
 		decision.create, decision.suppressOrg = true, true
 	}
 
@@ -212,6 +205,23 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		return counterpartyDecision{}, s.deferAmbiguous(ctx, tx, rec, row)
 	}
 	return decision, nil
+}
+
+// consumerMailSender answers T3: is this sender a personal mailbox rather than
+// somebody at a company? gmail.com is not an organization whatever else is true
+// of it, so its domain already says what it is and it is not the ambiguous
+// class — the person is created and the company suppressed.
+//
+// The workspace's own additions and carve-outs are read on the CALLER's
+// transaction, not cached at composition time: an admin correcting a wrong
+// baseline entry means the very next message, and a cache would make them wait
+// without saying so.
+func consumerMailSender(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
+	consumerMail, err := MatcherTx(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	return consumerMail.IsConsumer(domain), nil
 }
 
 // deferAmbiguous is T4: a first-time sender nothing about this address yet calls
