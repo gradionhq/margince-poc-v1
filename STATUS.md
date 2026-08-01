@@ -54,6 +54,34 @@ one.** The spec already says what to do with the overflow: surface it. When
 workspace's tag vocabulary is over its governed cap, not a silent create that
 may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
 
+## Open defect — field history shows the site-read draft's internals
+
+On a company, the Changes view lists `facts`, `fields`, `source_url`,
+`draft_version`, `site_read_id` and `human_fields`. Those are columns of the
+site-read draft, not of the company: the enrich pipeline writes its audit rows
+under `entity_type='organization'`, so the field-history projection reports
+them as changes to the record. A salesperson has no use for `draft_version`
+going to 28, and one `facts` value on ScaleCommerce runs past ten thousand
+characters.
+
+Three related things WERE fixed on `feat/company-page-clarity` (PR #356) and
+are not this item: the values printed Go's own `map[...]` syntax; the rows
+collided on React keys because one audit row projects one entry per field and
+they all carry the audit id; and a diff side could push the whole history off
+the screen.
+
+What is left is which entity those audit rows belong to. Re-keying them is a
+data-model question — the erasure cascade and the retention evaluator both key
+on `entity_type` — so it wants an upstream decision, not a patch in the
+projection. The privacy `entityFieldMask` is the wrong lever: it means "hidden
+exactly as the live value is hidden", and these fields are not withheld, just
+uninteresting.
+
+Founder asked on 2026-08-01 whether field history is something an end user
+should see and whether it is valuable. For a human edit it is (Industry:
+Automotive → Manufacturing reads exactly right). For a machine-written draft
+it is not, and that is what most accounts show today.
+
 ## Open — what the company page still gets wrong, seen in the browser
 
 Read on a real account (Habyt, 2026-07-31, `make dev`). The layout problem the
@@ -61,10 +89,10 @@ rework set out to fix IS fixed: three calm columns, email bodies readable,
 disclosures holding the detail. What is left is judgment, and none of it is
 visible from a test.
 
-1. **The header pulse is still cryptic.** It reads `0 · via billing_apac of 1
-   contact`. This is the line the founder called out before the rework
-   ("2 · via X of 3 contacts"); only its plural was fixed. A bare score with no
-   label opens the record.
+1. ~~**The header pulse is still cryptic.**~~ FIXED on
+   `feat/company-page-clarity` (PR #356): the line names the strongest contact
+   first and labels the score ("Strongest contact X — of 3 people here
+   (relationship 41/100)"), with the scale explained on hover.
 2. **One fact, twice, on one screen.** The brief says "billing_apac is your
    only way into this account" and the People card says "One contact only — the
    account is single-threaded". Card soup returning in a new place.
@@ -77,7 +105,10 @@ visible from a test.
    currently only say what it lacks.
 5. **The profile card is a new wall.** Ten fields, every value a full
    paragraph, all underlined so everything reads as a link. The facts wall was
-   collapsed and then rebuilt out of profile fields.
+   collapsed and then rebuilt out of profile fields. Still open — the plan is
+   to fold it under the account brief once that card lands.
+
+Items 2, 3 and 4 are still open and are the substance of the brief work below.
 
 ## Open — the reindex banner is ops jargon on every page
 
@@ -89,6 +120,63 @@ occupies the most prominent slot on the page for a reader who cannot act on it.
 
 Founder asked what it was on 2026-07-31; the answer was "search index status,
 admin only". Moving it into Settings is a small change nobody has taken.
+
+## Decided 2026-08-01 — the account brief is the answer to the profile wall
+
+Founder review of the company page, 2026-08-01. The verdict on the profile
+card was that its value is doubtful: sixteen scraped fields, every value a
+paragraph. What he asked for instead: on opening a company, one AI-written
+summary in plain language — first what matters about this account for us
+(facts, history, connections, deals), then what the company itself is — with
+the detail expandable underneath.
+
+That is the card the orphaned `GET /organizations/{id}/brief` should become,
+so the open decision below resolves to "make it worth a card", not "retire the
+endpoint". Two changes are needed:
+
+- `orgbrief.Input` carries no profile at all (name, industry, size band,
+  strength, contacts, deals, tasks, recent activity). The "about the company"
+  half needs `organization_profile_field` and `organization_fact` in the
+  input, and a prompt that writes two sections rather than one.
+- The brief is written in English regardless of the reader's locale, which is
+  the same defect the suggestion reasons have.
+
+Caching was raised and settled: the founder asked for "cached for 24h", and
+was shown that `org_brief` already invalidates on a fingerprint over the
+assembled input. He chose to keep the fingerprint — it is never stale after
+new mail lands, and costs nothing on a quiet account. No TTL.
+
+Two other decisions from the same review:
+- **History**: merge field changes into the timeline as a filter (Attio /
+  Twenty pattern), retire the History tab, keep the audit spine behind the
+  header's overflow menu. Shipped in PR #356.
+- **Champion / economic buyer**: the roles stay human-set, and the People card
+  gets an inline way to set them plus a one-sentence definition of each. Every
+  CRM surveyed keeps buyer roles human-tagged; AI may suggest, never assert.
+  An AI suggestion is deferred — it needs an ai-operational-spec task that
+  does not exist, and DEAL-EXT-5 (the role enum) is still unminted upstream.
+
+## Answered 2026-08-01 — account owner and "who brought us this" are both standard
+
+Founder asked whether the HubSpot-style account owner is something we invented,
+and whether a "via" field (who referred this company, and do they earn
+commission) is worth making standard.
+
+**Owner is universal.** Salesforce Account Owner, HubSpot's owner property
+(defaults to record creator, reassignable through a searchable user picker),
+Pipedrive, Copper, Attio and folk all carry it, and it drives routing and quota
+rollups. Margince already stores `organization.owner_id` and the quotas module
+already depends on it; what was missing was a label on the page and any way to
+change it. Both shipped in PR #356.
+
+**Referral is standard too, but in the partner layer.** Core CRMs carry a
+plain "lead source" dropdown; the person-plus-commission form lives in partner
+tooling (Salesforce PRM deal registration, PartnerStack). Margince is further
+along than either: `relationship.kind` already includes `referred_by`, and the
+partner extension already carries `margin_tier`. So the shape is a typed
+`referred_by` edge from the organization or deal to a person or partner, with
+commission resolved through the partner's margin tier at deal-won time — NOT a
+free-text field. Nothing wires those two together yet; raised below.
 
 ## Open decision — the organization brief endpoint has no client
 
@@ -1262,6 +1350,46 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     mode, so no caller sets `req.Tools`; the native adapters currently reject a
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
+
+## Upstream spec raises owed from 2026-08-01
+
+From the founder's company-page review. Nothing edited in the spec repo —
+raises only.
+
+1. **The account brief has no spec chapter at all.** `compose/orgbrief`, the
+   `org_brief` table, `GET|POST /organizations/{id}/brief`, `POST
+   /organizations/{id}/ask` and its three prepared questions are all
+   build-side. The per-viewer, input-fingerprinted cache is also a different
+   mechanism from the shared `hash(workspace, task, model, inputs)` result
+   cache that `ai-operational-spec.md` §6 pins, and the relationship between
+   the two is undefined. Now that the brief is the company page's answer to
+   the profile wall, it needs a chapter rather than a note.
+2. **"Prospect" means three things.** It is the default
+   `organization.classification`, informal prose for a lead, and the name of
+   an external persona (PERSONA-PAT). The glossary splits person/organization
+   from Contact/Company but says nothing here, and the build shipped the enum
+   value raw to the screen because no copy rule existed. Wanted: a terminology
+   rule plus display copy for the nine classification values.
+3. **Nobody is specified to assign `champion` / `economic_buyer`.**
+   DEAL-AC-11 asserts the roles are "drawn from captured email/meeting
+   participants", but no AI task, formula or capture rule anywhere produces
+   them, and the build sets them manually only. DEAL-EXT-5 (turning `role`
+   into a CHECK-constrained enum) is still an unminted contract extension.
+4. **Referral attribution and commission are not joined up.**
+   `relationship.kind` already carries `referred_by` and the partner extension
+   already carries `margin_tier`, but nothing connects a referral edge to a
+   won deal's margin. Wanted: whether `referred_by` on an organization or deal
+   is the sanctioned way to record who brought the account, and how commission
+   resolves at won time.
+5. **Which entity the site-read draft audits under.** See the field-history
+   defect above: draft columns are written under
+   `entity_type='organization'`, so they surface as changes to the company.
+   Re-keying touches the erasure cascade and the retention evaluator.
+6. **No layout is prescribed for a record detail page.**
+   `web-design-system.md` names "the Record View with a provenance-stamped
+   timeline" and stops. AC-company-1..12 is a screen transcription, not a
+   layout spec, and it still lists a History tab this build has now retired in
+   favour of a timeline filter.
 
 ## Upstream spec raises owed from 2026-07-31
 
