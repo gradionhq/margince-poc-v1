@@ -53,8 +53,8 @@
   align-items: center;
   padding: var(--space-2) var(--space-4);
   border: 1px solid var(--borderSubtle);
-  border-radius: var(--radius-2);
-  background: var(--surfaceRaised);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
   color: var(--textContent);
   font: 500 0.875rem / 1.2 var(--f-body);
   cursor: pointer;
@@ -64,10 +64,14 @@
   border-color: var(--borderStrong);
 }
 
-.li-import-picker input[type="file"]:focus-visible + .li-import-button,
-.li-import-button:focus-visible {
-  outline: 2px solid var(--focusRing);
+/* The input is what receives focus, and it sits BEFORE the label in the DOM —
+   so the ring is driven by :has() on the wrapper rather than a sibling
+   combinator pointing the wrong way. A label is not focusable, so styling it
+   directly never fires either. */
+.li-import-picker:has(input[type="file"]:focus-visible) .li-import-button {
+  outline: 2px solid transparent;
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
 }
 
 /* Four counts as four columns, each a label above its number, so the eye
@@ -84,8 +88,8 @@
   gap: var(--space-1);
   padding: var(--space-3);
   border: 1px solid var(--borderSubtle);
-  border-radius: var(--radius-2);
-  background: var(--surfaceSunken, var(--surfaceRaised));
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
 }
 
 .li-import-result dt {
@@ -121,15 +125,16 @@
   width: 100%;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--borderSubtle);
-  border-radius: var(--radius-2);
-  background: var(--surfaceRaised);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
   color: var(--textContent);
   font: 400 0.875rem / 1.5 var(--f-body);
 }
 
 .li-import-field input:focus-visible {
-  outline: 2px solid var(--focusRing);
-  outline-offset: 1px;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
 }
 
 .li-import-profile p {

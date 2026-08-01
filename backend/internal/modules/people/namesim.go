@@ -30,12 +30,18 @@ var legalSuffixes = map[string]bool{
 	"inc": true, "llc": true, "ltd": true, "gmbh": true, "ag": true,
 	"sa": true, "sas": true, "bv": true, "oy": true, "plc": true,
 	"co": true, "corp": true, "kg": true, "ug": true,
-	// The connective inside a compound legal form. "GmbH & Co. KG" is ONE
-	// form, and without this the strip halts on the ampersand and leaves
-	// "basecom gmbh &" as the key — which matches no account, because nobody
-	// stores a customer under that name.
-	"&": true, "und": true, "and": true,
 }
+
+// legalConnectives join the halves of a COMPOUND legal form: "GmbH & Co. KG"
+// is one form, and a strip that halted on the ampersand left "basecom gmbh &"
+// as the key — a name no account is stored under.
+//
+// They are NOT suffixes in their own right, and treating them as such was
+// wrong: it collapsed "Research and" to "research" and "Miller und" to
+// "miller", so two unrelated accounts could meet at the same key. A connective
+// is consumed only when a real suffix has already been stripped and another
+// one follows it — which is exactly the compound case and nothing else.
+var legalConnectives = map[string]bool{"&": true, "und": true, "and": true}
 
 // normalizeName casefolds and unaccents (PO-PARAM-JW-2). Both sides of
 // every comparison run through it, so the metric stays internally
@@ -65,10 +71,19 @@ func normalizeName(s string) string {
 // empty key.
 func NormalizeOrgName(s string) string {
 	fields := strings.Fields(normalizeName(strings.ReplaceAll(s, ",", " ")))
+	strippedOne := false
 	for len(fields) > 1 {
 		last := strings.Trim(fields[len(fields)-1], ".")
-		if !legalSuffixes[last] {
-			break
+		switch {
+		case legalSuffixes[last]:
+			strippedOne = true
+		case legalConnectives[last] && strippedOne && len(fields) > 2 &&
+			legalSuffixes[strings.Trim(fields[len(fields)-2], ".")]:
+			// A connective BETWEEN two legal forms — the "GmbH & Co. KG"
+			// case. Consumed only here, so a company whose name simply ends
+			// in "and" keeps it.
+		default:
+			return strings.Join(fields, " ")
 		}
 		fields = fields[:len(fields)-1]
 	}

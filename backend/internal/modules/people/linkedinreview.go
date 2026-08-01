@@ -96,6 +96,13 @@ func (s *Store) ListMyLinkedInConnections(ctx context.Context, in ListMyLinkedIn
 	if !ok || actor.UserID == ids.Nil {
 		return nil, storekit.Page{}, apperrors.ErrPermissionDenied
 	}
+	// The payload names the contacts a suggestion points at, so it takes the
+	// person read grant as well as the row scope. Scope decides WHICH records a
+	// reader reaches; the object grant decides whether they read people at all,
+	// and a reader denied the second must not reach the first through here.
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, storekit.Page{}, err
+	}
 	if in.MatchStatus != nil && !validMatchStatus(*in.MatchStatus) {
 		return nil, storekit.Page{}, &DedupeInputError{
 			Field: "match_status",

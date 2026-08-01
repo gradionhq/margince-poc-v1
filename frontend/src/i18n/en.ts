@@ -602,6 +602,8 @@ export const en = {
   "linkedinReview.confirm": "Yes, that is them",
   "linkedinReview.reject": "Not them",
   "linkedinReview.hiddenContact": "A contact you cannot see",
+  "linkedinReview.more":
+    "More suggestions are waiting — decide these and the next set appears.",
   "linkedinReach.title": "Where your network reaches",
   "linkedinReach.sub":
     "Accounts on file where you already know somebody, most connections first.",

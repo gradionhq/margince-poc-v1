@@ -118,11 +118,16 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
               <Badge tone={COLLEAGUE_TONE[colleague.strength_bucket]}>
                 {t(`network.bucket.${colleague.strength_bucket}`)}
               </Badge>
-              <span className="t-caption">
-                {t("network.interactions", {
-                  count: colleague.interactions_90d,
-                })}
-              </span>
+              {/* A `none` band carries NO count, for the same reason it
+                  carries no score: never spoken and spoken-then-cold are
+                  different facts, and a zero renders them identically. */}
+              {colleague.strength_bucket !== "none" && (
+                <span className="t-caption">
+                  {t("network.interactions", {
+                    count: colleague.interactions_90d,
+                  })}
+                </span>
+              )}
               <span className="t-caption">
                 {colleague.last_at
                   ? formatDateTime(colleague.last_at, locale, "Europe/Berlin")

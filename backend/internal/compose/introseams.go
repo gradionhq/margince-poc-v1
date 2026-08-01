@@ -68,6 +68,14 @@ func introPathLister(pool *pgxpool.Pool) agents.IntroPathLister {
 			if err := auth.EnsureVisibleLive(ctx, tx, "organization", orgID); err != nil {
 				return err
 			}
+			// The person grant, taken BEFORE the read rather than inferred from
+			// whether it returned anything. Without it an account with no
+			// visible contacts and an account this caller may not read people
+			// at all answer identically — and the difference between those two
+			// is itself a fact about the account.
+			if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+				return err
+			}
 			contacts, err := accountContacts(ctx, tx, orgID)
 			if err != nil {
 				return err

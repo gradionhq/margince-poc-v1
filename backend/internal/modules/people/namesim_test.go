@@ -132,3 +132,26 @@ func TestNormalizeOrgNameNeverStripsAwayTheWholeName(t *testing.T) {
 		}
 	}
 }
+
+func TestAConnectiveIsOnlyStrippedInsideACompoundLegalForm(t *testing.T) {
+	// "GmbH & Co. KG" is ONE legal form, so the whole tail goes and the key is
+	// the company's actual name.
+	if got := NormalizeOrgName("SIMIO GmbH & Co. KG"); got != "simio" {
+		t.Errorf("NormalizeOrgName(compound legal form) = %q, want %q", got, "simio")
+	}
+	// But a connective is not a suffix in its own right. Collapsing these would
+	// let two unrelated accounts meet at one key, and PO-PARAM-1 strips legal
+	// forms, not English and German words.
+	for name, want := range map[string]string{
+		"Research and":         "research and",
+		"Miller und":           "miller und",
+		"Smith and Sons":       "smith and sons",
+		"Ben and Jerry's":      "ben and jerry's",
+		"Acme GmbH":            "acme",
+		"Basecom GmbH & Co KG": "basecom",
+	} {
+		if got := NormalizeOrgName(name); got != want {
+			t.Errorf("NormalizeOrgName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

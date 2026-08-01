@@ -34,19 +34,33 @@ type LinkedInConnection = components["schemas"]["LinkedInConnection"];
 type LinkedInReach = components["schemas"]["LinkedInReachResponse"];
 
 const SUGGESTED_KEY = ["linkedin-connections", "suggested"] as const;
+
+// SUGGESTION_PAGE is one screenful of decisions. Deciding is one row at a time
+// and each decision refetches, so the page empties as it is worked through —
+// the remainder is reachable without a pager, and the note below says it is
+// there rather than letting a full page read as the whole queue.
+const SUGGESTION_PAGE = 50;
 const REACH_KEY = ["linkedin-reach"] as const;
 
 function useSuggestedMatches() {
   return useQuery({
     queryKey: SUGGESTED_KEY,
-    queryFn: async (): Promise<LinkedInConnection[]> => {
+    queryFn: async (): Promise<{
+      rows: LinkedInConnection[];
+      more: boolean;
+    }> => {
       const { data, error } = await api.GET("/me/linkedin-connections", {
-        params: { query: { match_status: "suggested" } },
+        params: {
+          query: { match_status: "suggested", limit: SUGGESTION_PAGE },
+        },
       });
       if (error) {
         throw new Error(problemMessage(error));
       }
-      return data.data;
+      // has_more travels with the rows. A queue that showed its first page and
+      // said nothing looked complete, so the rest could never be decided and
+      // the "everything is decided" state could never honestly appear.
+      return { rows: data.data, more: data.page.has_more };
     },
   });
 }
@@ -85,7 +99,7 @@ export function LinkedInReviewCard() {
   const confirm = useDecideMatch("confirm");
   const reject = useDecideMatch("reject");
   const deciding = confirm.isPending || reject.isPending;
-  const rows = query.data ?? [];
+  const rows = query.data?.rows ?? [];
 
   return (
     <section className="card li-review">
@@ -152,6 +166,9 @@ export function LinkedInReviewCard() {
             </li>
           ))}
         </ul>
+      )}
+      {query.data?.more && (
+        <p className="co-muted">{t("linkedinReview.more")}</p>
       )}
     </section>
   );
