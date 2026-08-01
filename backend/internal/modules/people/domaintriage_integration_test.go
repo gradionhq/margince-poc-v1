@@ -228,3 +228,75 @@ func TestResolvingADomainNobodyAskedAboutIsRefused(t *testing.T) {
 		t.Fatal("resolving a domain with no open question must refuse, not create")
 	}
 }
+
+func TestListDueDomainsOffersOnlyTheQuestionsWorthAsking(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	// Four domains in four states. Only the first is worth a crawl.
+	e.openTriage(ctx, t, "a@waiting.test", "A Person", "waiting.test")
+	e.openTriage(ctx, t, "b@inflight.test", "B Person", "inflight.test")
+	e.openTriage(ctx, t, "c@settled.test", "C Person", "settled.test")
+	e.openTriage(ctx, t, "d@exhausted.test", "D Person", "exhausted.test")
+
+	// inflight.test already has a read running: queueing a second would spend a
+	// second slot of the day's budget on one crawl.
+	e.startTriageRead(ctx, t, "inflight.test")
+	// settled.test has its answer.
+	settledRead := e.startTriageRead(ctx, t, "settled.test")
+	if _, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
+		Domain: "settled.test", Status: DomainPersonal, Source: DomainSourceSiteRead,
+		Evidence: "a personal page", ReadID: settledRead,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// exhausted.test used every attempt without an answer. A site that will not
+	// load must not be re-crawled forever.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE organization_domain_disposition
+			   SET attempts = $1, next_attempt_at = now() - interval '1 day'
+			 WHERE domain = 'exhausted.test'`, domainTriageMaxAttempts)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	due, err := e.store.ListDueDomains(ctx, 50)
+	if err != nil {
+		t.Fatalf("ListDueDomains: %v", err)
+	}
+	if len(due) != 1 || due[0].Domain != "waiting.test" {
+		t.Fatalf("due = %+v, want only waiting.test", due)
+	}
+	if due[0].OwnerID != e.rep {
+		t.Errorf("due owner = %s, want the human whose connection surfaced it (%s)", due[0].OwnerID, e.rep)
+	}
+}
+
+func TestMarkTriageQueuedSpendsAnAttemptAndBacksOff(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	e.openTriage(ctx, t, "a@backoff.test", "A Person", "backoff.test")
+
+	if err := e.store.MarkTriageQueued(ctx, "backoff.test"); err != nil {
+		t.Fatalf("MarkTriageQueued: %v", err)
+	}
+
+	var attempts int
+	var due bool
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT attempts, next_attempt_at <= now() FROM organization_domain_disposition
+			WHERE domain = 'backoff.test'`).Scan(&attempts, &due)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 1 {
+		t.Errorf("attempts = %d, want 1 spent", attempts)
+	}
+	// A worker that dies without answering costs a delay, never a hot loop.
+	if due {
+		t.Error("the domain is due again immediately — the backoff did not arm")
+	}
+}
