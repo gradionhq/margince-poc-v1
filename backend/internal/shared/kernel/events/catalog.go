@@ -264,6 +264,14 @@ func Groups() []Group {
 		// rebuild must not be able to stall embedding freshness, and the two
 		// have unrelated failure modes.
 		{Name: "cg:graph-edge", Streams: forEntities(activityStreamEntity, personStreamEntity)},
+		// The LinkedIn ghost matcher (ADR-0078 §8b). Its own group rather than
+		// a second handler on cg:graph-edge: that consumer lives in the search
+		// module and this call belongs to people, and a module never reaches
+		// into a sibling. It listens on the person and organization streams —
+		// a contact appearing is a chance to attach a ghost, and so is an
+		// account appearing, because employer resolution is what most ghosts
+		// are waiting on.
+		{Name: "cg:linkedin-match", Streams: forEntities(personStreamEntity, organizationStreamEntity)},
 		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
 		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},

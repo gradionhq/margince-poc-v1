@@ -123,7 +123,11 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// The interaction-edge projection (ADR-0078): activity events move an
 		// edge, person events (merge, archive, restore) move every edge to
 		// that contact.
-		"cg:graph-edge":      {"gw:events:crm:activity", "gw:events:crm:person"},
+		"cg:graph-edge": {"gw:events:crm:activity", "gw:events:crm:person"},
+		// The LinkedIn ghost matcher (ADR-0078 §8b): a contact appearing is a
+		// chance to attach a ghost, and so is an account appearing — employer
+		// resolution is what most unmatched ghosts are waiting on.
+		"cg:linkedin-match":  {"gw:events:crm:organization", "gw:events:crm:person"},
 		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
 		"cg:workflows":       all,
 		"cg:capture":         {"gw:events:crm:capture"},
@@ -135,7 +139,7 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, and the ADR-0078 graph-edge projection", len(groups), len(want))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, and the two ADR-0078 consumers (graph-edge projection, LinkedIn matcher)", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {

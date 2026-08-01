@@ -14,12 +14,14 @@ package compose
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -234,5 +236,62 @@ func TestCoverageNamesItsColleaguesForTheAgent(t *testing.T) {
 	}
 	if len(answer.Stakeholders) != 1 {
 		t.Errorf("coverage listed %d seats, want 1", len(answer.Stakeholders))
+	}
+}
+
+// The case that made this consumer necessary: a rep types a contact in by hand,
+// months after the LinkedIn export was uploaded, and the ghost attaches without
+// anybody running an import or clicking a button.
+//
+// The trigger is the EVENT, not the writer. Every path that creates a person
+// emits person.created because the write shape puts it in the outbox, so manual
+// entry, mail capture, a site read and a merge all reach this consumer without
+// any of them knowing it exists — and a writer added tomorrow is covered the
+// day it emits its first event.
+func TestAContactAddedLaterMeetsTheGhostThatWasWaiting(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	// The export lands first, on a workspace that knows nobody.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep1)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the ghost: %v", err)
+	}
+
+	// Months later a rep adds the contact by hand.
+	person, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
+		FullName: "Dana Buyer", Source: "manual",
+		Emails: []people.PersonEmailInput{{Email: "dana@acme.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("creating the contact: %v", err)
+	}
+
+	// The consumer reacts to the event that create emitted.
+	matcher := NewLinkedInMatchGen(e.People, slog.New(slog.DiscardHandler))
+	if err := matcher.HandleEvent(context.Background(),
+		envelopeFor(e.WS, "person.created", "person", ids.UUID(person.Id))); err != nil {
+		t.Fatalf("handling person.created: %v", err)
+	}
+
+	var status string
+	var matched *ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT match_status, matched_person_id FROM linkedin_connection
+			  WHERE normalized_name = 'dana buyer'`).Scan(&status, &matched)
+	}); err != nil {
+		t.Fatalf("reading the ghost back: %v", err)
+	}
+	if status != "confirmed" || matched == nil || *matched != ids.UUID(person.Id) {
+		t.Errorf("the ghost is %q → %v, want confirmed → %s — a contact added by "+
+			"hand must meet the connection that was already waiting for them",
+			status, matched, person.Id)
 	}
 }
