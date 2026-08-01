@@ -316,7 +316,9 @@ the removed one; routing the event to the existing fold fixed both).
 2. Relink invalidation: the participant row is repointed before the event
    fires, so the consumer cannot name the displaced pair and the old edge
    survives to the nightly rebuild. Needs the additive `relinked_from`
-   reference (a public-event contract change).
+   reference (a public-event contract change). The repoint itself is now
+   correct — it takes the displaced ids from the delete rather than inferring
+   them — but the event still cannot carry them.
 3. Person merge does not repoint `activity_participant`; the consumer drops the
    source edge assuming it did, and the nightly rebuild can recreate an edge to
    the archived source because the fold does not check person liveness.
@@ -327,6 +329,11 @@ the removed one; routing the event to the existing fold fixed both).
 6. A refreshed LinkedIn export never tombstones connections absent from it.
 7. `at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
    not built.
+8. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
+   (07-01..07-14 and 07-01..07-31) while now needing a `current_date` row so the
+   budget block does not zero at a month boundary. Both hold today because the
+   live date is outside those windows; they break when it is not. The fix is to
+   day-scope the assertions, and it belongs with whoever owns that test.
 
 **Verification.** `make check-backend` green. Integration lane matches the
 `origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
