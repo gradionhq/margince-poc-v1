@@ -25,6 +25,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
   Badge,
   Button,
@@ -224,6 +225,7 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.settings")} />
+      <ResumeConnectBanner />
       <div className="set-grid">
         <nav className="set-nav" aria-label={t("settings.navAria")}>
           {SETTINGS_GROUPS.map((group) => {
