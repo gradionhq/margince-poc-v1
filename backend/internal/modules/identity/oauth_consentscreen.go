@@ -51,8 +51,8 @@ const (
 // whatever transported it — the GET's query, the POST's form — so a refusal can
 // echo a request it has not validated without inventing fields for it.
 var authorizeScreenParams = []string{
-	"response_type", oauthParamClientID, "redirect_uri", "scope",
-	"code_challenge", "code_challenge_method", oauthParamResource, "state",
+	oauthParamResponseType, oauthParamClientID, oauthParamRedirectURI, oauthParamScope,
+	oauthParamCodeChallenge, oauthParamCodeChallengeMethod, oauthParamResource, oauthParamState,
 }
 
 // consentScreenParams copies one authorize request onto the fragment the screen
@@ -81,10 +81,10 @@ func consentScreenParams(src url.Values) url.Values {
 // POST must present both.
 func consentHandoffParams(req authorizeRequest, nonce string) url.Values {
 	return url.Values{
-		"response_type": {oauthResponseTypeCode}, oauthParamClientID: {req.ClientID},
-		"redirect_uri": {req.RedirectURI}, "scope": {formScope(req)},
-		"code_challenge": {req.CodeChallenge}, "code_challenge_method": {"S256"},
-		oauthParamResource: {req.Resource}, "state": {req.State},
+		oauthParamResponseType: {oauthResponseTypeCode}, oauthParamClientID: {req.ClientID},
+		oauthParamRedirectURI: {req.RedirectURI}, oauthParamScope: {formScope(req)},
+		oauthParamCodeChallenge: {req.CodeChallenge}, oauthParamCodeChallengeMethod: {pkceMethodS256},
+		oauthParamResource: {req.Resource}, oauthParamState: {req.State},
 		"consent": {nonce},
 	}
 }

@@ -21,7 +21,7 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	issuer := requestIssuer(r)
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
 		"issuer":                 issuer,
-		"authorization_endpoint": issuer + "/oauth/authorize",
+		"authorization_endpoint": issuer + authorizePath,
 		"token_endpoint":         issuer + "/oauth/token",
 		"registration_endpoint":  issuer + "/oauth/register",
 		// RFC 7009: a client that cannot see this here will never call it —
@@ -33,7 +33,7 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		// here will not present one: it asks for offline_access, stores the
 		// token it gets, and never renews with it.
 		"grant_types_supported":                 []string{"authorization_code", oauthRefreshToken},
-		"code_challenge_methods_supported":      []string{"S256"},
+		"code_challenge_methods_supported":      []string{pkceMethodS256},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		// offline_access is listed so Claude appends it when it wants a
 		// refresh token (§5.2) — it is a session-lifetime marker, never a

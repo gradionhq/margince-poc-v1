@@ -49,8 +49,8 @@ const authCodeTTL = 5 * time.Minute
 func (h Handlers) OAuthRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/register", h.oauthRegister)
-	mux.HandleFunc("GET /oauth/authorize", h.oauthConsentRedirect)
-	mux.HandleFunc("POST /oauth/authorize", h.oauthAuthorize)
+	mux.HandleFunc("GET "+authorizePath, h.oauthConsentRedirect)
+	mux.HandleFunc("POST "+authorizePath, h.oauthAuthorize)
 	mux.HandleFunc("POST /oauth/token", h.oauthToken)
 	mux.HandleFunc("POST /oauth/revoke", h.oauthRevoke)
 	return mux
@@ -117,6 +117,15 @@ func (h Handlers) oauthRegister(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// authorizePath is the consent endpoint. Four things have to agree on it and
+// each would break differently if they drifted: the two routes above, the
+// consent cookie's Path (below — the cookie is scoped to exactly this endpoint,
+// which is what keeps the nonce off every route the SPA can call), the
+// middleware predicate that admits the GET without a session (isConsentEntry,
+// middleware.go), and the authorization_endpoint discovery advertises
+// (oauth_discovery.go), which a client follows before any of this runs.
+const authorizePath = "/oauth/authorize"
+
 // consentCookie carries the double-submit nonce that binds the consent
 // POST to the browser that saw the consent screen. SameSite=Strict
 // means a cross-site attacker can neither read nor ride it.
@@ -138,26 +147,26 @@ type authorizeRequest struct {
 // response type, mandatory PKCE S256, scopes, known client, registered
 // redirect. No code exists until the human approves.
 func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeRequest, string, string) {
-	if q.Get("response_type") != oauthResponseTypeCode {
+	if q.Get(oauthParamResponseType) != oauthResponseTypeCode {
 		return authorizeRequest{}, "unsupported_response_type", "only response_type=code"
 	}
 	// S256 is mandatory (OAuth 2.1): no challenge and the downgrade to
 	// plain are both refused before any code exists.
-	if q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) < 43 {
+	if q.Get(oauthParamCodeChallengeMethod) != pkceMethodS256 || len(q.Get(oauthParamCodeChallenge)) < 43 {
 		return authorizeRequest{}, "invalid_request", "PKCE S256 code_challenge is required"
 	}
-	scopes, offline, err := parseOAuthScopes(q.Get("scope"))
+	scopes, offline, err := parseOAuthScopes(q.Get(oauthParamScope))
 	if err != nil {
 		return authorizeRequest{}, "invalid_scope", err.Error()
 	}
 	req := authorizeRequest{
 		ClientID:      q.Get(oauthParamClientID),
-		RedirectURI:   q.Get("redirect_uri"),
+		RedirectURI:   q.Get(oauthParamRedirectURI),
 		Scopes:        scopes,
 		Offline:       offline,
-		CodeChallenge: q.Get("code_challenge"),
+		CodeChallenge: q.Get(oauthParamCodeChallenge),
 		Resource:      q.Get(oauthParamResource),
-		State:         q.Get("state"),
+		State:         q.Get(oauthParamState),
 	}
 	// RFC 8707: a present audience must name this installation's MCP
 	// endpoint, checked before any code exists — a refused audience must
@@ -241,7 +250,7 @@ func (h Handlers) oauthConsentRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: consentCookie, Value: nonce, Path: "/oauth/authorize",
+		Name: consentCookie, Value: nonce, Path: authorizePath,
 		MaxAge: 300, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 
@@ -281,7 +290,7 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
-		Name: consentCookie, Value: "", Path: "/oauth/authorize", MaxAge: -1,
+		Name: consentCookie, Value: "", Path: authorizePath, MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 

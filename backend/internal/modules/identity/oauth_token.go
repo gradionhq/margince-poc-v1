@@ -95,7 +95,7 @@ func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 	issued, refresh, err := h.svc.rotateRefreshToken(r.Context(), refreshRequest{
 		Token:             r.PostForm.Get(oauthRefreshToken),
 		ClientID:          r.PostForm.Get(oauthParamClientID),
-		Scopes:            strings.Fields(r.PostForm.Get("scope")),
+		Scopes:            strings.Fields(r.PostForm.Get(oauthParamScope)),
 		Resource:          r.PostForm.Get(oauthParamResource),
 		CanonicalResource: h.mcpResource,
 		AccessTokenTTL:    h.accessTokenTTL(),
@@ -123,10 +123,10 @@ func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 // or a connector that renews stops finding the fields it found at connect.
 func writeTokenResponse(w http.ResponseWriter, issued IssuedPassport, refresh string) {
 	response := map[string]any{
-		"access_token": issued.Token,
-		"token_type":   "Bearer",
-		"expires_in":   int(time.Until(issued.ExpiresAt).Seconds()),
-		"scope":        strings.Join(issued.Scopes, " "),
+		"access_token":  issued.Token,
+		"token_type":    "Bearer",
+		"expires_in":    int(time.Until(issued.ExpiresAt).Seconds()),
+		oauthParamScope: strings.Join(issued.Scopes, " "),
 	}
 	// A refresh token is answered only when the grant allows one: a client
 	// that never asked for offline_access must not be handed a long-lived
@@ -238,7 +238,7 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	if err != nil {
 		return redeemedCode{}, err
 	}
-	if r.PostForm.Get(oauthParamClientID) != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
+	if r.PostForm.Get(oauthParamClientID) != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get(oauthParamRedirectURI)) {
 		return redeemedCode{}, errGrantMismatch
 	}
 	if !audienceMatches(r.PostForm.Get(oauthParamResource), h.mcpResource, out.Resource) {

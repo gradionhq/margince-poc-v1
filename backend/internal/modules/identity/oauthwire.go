@@ -10,13 +10,33 @@ package identity
 // the human has already consented, which is the worst possible moment to fail.
 
 const (
-	// oauthParamClientID and oauthParamResource are RFC 6749 / RFC 8707
-	// request parameters: the names this server READS off a query or form and
-	// writes back into a redirect. The audit trail names the same two values
-	// under its own keys (auditField*, passport.go) — an audit payload is not
-	// this wire, and neither vocabulary may rename the other by accident.
-	oauthParamClientID = "client_id"
-	oauthParamResource = "resource"
+	// The RFC 6749 / RFC 7636 / RFC 8707 request parameters: the names this
+	// server READS off a query or form, and writes back into the redirect that
+	// carries an authorization request onward to the consent screen. Every one of
+	// them is read in one place and written in another, which is exactly why they
+	// are named — a parameter parsed under one spelling and echoed under another
+	// strands the round trip in the middle.
+	//
+	// oauthParamScope doubles as the token response's own `scope` member (RFC 6749
+	// §5.1) and oauthParamState as the response parameter a client correlates by
+	// (§4.1.2): the spec uses one word for the request and the answer, and so does
+	// this server. The audit trail is where that stops — it names client_id,
+	// resource and scopes under its own keys (auditField*, passport.go), because
+	// an audit payload is not this wire and neither vocabulary may rename the
+	// other by accident.
+	oauthParamClientID            = "client_id"
+	oauthParamResource            = "resource"
+	oauthParamScope               = "scope"
+	oauthParamState               = "state"
+	oauthParamRedirectURI         = "redirect_uri"
+	oauthParamResponseType        = "response_type"
+	oauthParamCodeChallenge       = "code_challenge"
+	oauthParamCodeChallengeMethod = "code_challenge_method"
+	// pkceMethodS256 is the ONLY code_challenge_method this server accepts, and
+	// the one it advertises. A VALUE, not a parameter name: OAuth 2.1 removed
+	// `plain`, so the check that refuses the downgrade and the discovery document
+	// that promises the algorithm have to name the same one thing.
+	pkceMethodS256 = "S256"
 	// oauthResponseTypeCode is the ONLY response_type this server serves
 	// (authorization code + PKCE); there is no implicit flow to widen to.
 	oauthResponseTypeCode = "code"

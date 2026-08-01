@@ -59,7 +59,7 @@ var publicRequests = map[string]map[string]bool{
 // lends the signed-in human's own authority, and the method test is what keeps
 // this asymmetry off it.
 func isConsentEntry(r *http.Request) bool {
-	return r.Method == http.MethodGet && r.URL.Path == "/oauth/authorize"
+	return r.Method == http.MethodGet && r.URL.Path == authorizePath
 }
 
 func isPublicRequest(r *http.Request) bool {

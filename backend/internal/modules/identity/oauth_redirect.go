@@ -100,7 +100,7 @@ func redirectToClient(w http.ResponseWriter, r *http.Request, req authorizeReque
 // scheme, host and path only, so for a loopback client the presented URI's
 // query is never validated and a preset response parameter is reachable by
 // whoever composes the authorize request.
-var responseParams = []string{"code", oauthParamError, "error_description", "error_uri", "state"}
+var responseParams = []string{"code", oauthParamError, "error_description", "error_uri", oauthParamState}
 
 // clientResponseURI is the absolute Location one authorization response is
 // delivered at: the client's redirect_uri carrying our answer, its own query
@@ -131,7 +131,7 @@ func clientResponseURI(req authorizeRequest, answer url.Values) (string, error) 
 	// An absent state means NO state parameter, not an empty one: a client that
 	// sent none must not be handed one to compare against.
 	if req.State != "" {
-		params.Set("state", req.State)
+		params.Set(oauthParamState, req.State)
 	}
 	location.RawQuery = params.Encode()
 	// validRedirectURI refuses a fragment at registration; the same rule holds
