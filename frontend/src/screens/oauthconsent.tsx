@@ -17,8 +17,8 @@ import { useLocale, useT } from "../i18n";
 import { problemMessage, QueryGate, useMe } from "./common";
 
 // The human hands an agent their own authority here — the one screen where
-// that decision is made, since the server renders no HTML any more
-// (refactor(oauth): hand the consent screen to the SPA). GET /oauth/authorize
+// that decision is made, and the only one: the api serves no HTML, so there is
+// no other surface a consent decision can be taken on. GET /oauth/authorize
 // arms a single-use nonce, sets an HttpOnly Path=/oauth/authorize cookie
 // carrying its counterpart, and 302s to `/#/oauth-consent?…&consent=<nonce>`.
 // The nonce is deliberately absent from the consent-request endpoint's

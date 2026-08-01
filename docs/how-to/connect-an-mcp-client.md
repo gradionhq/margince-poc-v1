@@ -43,7 +43,9 @@ claude mcp add --transport http margince http://localhost:8080/mcp
 For a deployment, use `<public-base-url>/mcp`. The first call answers `401`
 with an RFC 9728 `WWW-Authenticate` pointer at
 `/.well-known/oauth-protected-resource`; the client follows it, registers
-itself (DCR), and opens the consent screen.
+itself (DCR), and opens the consent screen. If nobody is signed in to Margince
+in that browser, the sign-in screen comes first and the consent screen follows
+it — the pending request survives the sign-in.
 
 The consent screen does not grant a client whatever it asked for. It asks the
 signed-in human to **lend one of their own existing agent passports** — the
