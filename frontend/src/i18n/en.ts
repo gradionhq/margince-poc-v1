@@ -2680,13 +2680,16 @@ export const en = {
   "consent.reentering": "Reconnecting…",
   "consent.backToApp": "Back to Margince",
   "consent.staleTitle": "This request has expired",
+  // No {client}: this card renders without the consent-request fetch, so the
+  // client's name is not available to name here.
   "consent.staleBody":
-    "The connection request is no longer valid. Go back to {client} and start connecting again — reloading this page will not help.",
+    "The connection request is no longer valid. Go back to the app you were connecting and start again — reloading this page will not help.",
   "consent.unlendableTitle": "That passport can no longer be lent",
   "consent.unlendableBody":
     "The passport you chose for {client} was revoked, expired, or is already bound to another connection. Choose a different one below.",
   "consent.invalidTitle": "This connection request could not be completed",
-  "consent.invalidBody": "Go back to {client} and start connecting again.",
+  "consent.invalidBody":
+    "This installation will not authorise the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
   "consent.requestedNotGranted":
     "{client} asked for more than this passport can grant:",
   "consent.unnamedPassport": "Unnamed passport ({id})",

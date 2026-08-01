@@ -2702,14 +2702,14 @@ export const de = {
   "consent.backToApp": "Zurück zu Margince",
   "consent.staleTitle": "Diese Anfrage ist abgelaufen",
   "consent.staleBody":
-    "Die Verbindungsanfrage ist nicht mehr gültig. Geh zurück zu {client} und starte die Verbindung erneut — ein Neuladen dieser Seite hilft nicht.",
+    "Die Verbindungsanfrage ist nicht mehr gültig. Geh zurück zur App, die du verbinden wolltest, und starte erneut — ein Neuladen dieser Seite hilft nicht.",
   "consent.unlendableTitle": "Dieser Passport kann nicht mehr verliehen werden",
   "consent.unlendableBody":
     "Der für {client} gewählte Passport wurde widerrufen, ist abgelaufen oder bereits an eine andere Verbindung gebunden. Wähle unten einen anderen aus.",
   "consent.invalidTitle":
     "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
   "consent.invalidBody":
-    "Geh zurück zu {client} und starte die Verbindung erneut.",
+    "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
   "consent.requestedNotGranted":
     "{client} hat mehr angefordert, als dieser Passport gewähren kann:",
   "consent.unnamedPassport": "Unbenannter Passport ({id})",

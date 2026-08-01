@@ -14,6 +14,7 @@ import { Button, Card, EmptyState } from "../design-system/atoms";
 import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { formatDate } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage, QueryGate, useMe } from "./common";
 
 // The human hands an agent their own authority here — the one screen where
@@ -26,6 +27,13 @@ import { problemMessage, QueryGate, useMe } from "./common";
 // fragment instead and POSTed back — the POST proves possession of both
 // halves. Every one of these params must ride the POST unchanged, because
 // the server re-validates the whole request against what the GET armed.
+//
+// A refused POST comes back here with `error=<marker>`, and whether the nonce
+// comes back with it is the server's statement about what is left to do: a
+// refusal the human's next choice fixes (unlendable_passport) keeps the armed
+// pair alive and returns the nonce, so this screen can offer the choice again;
+// a terminal one hands back the request alone. Hence the rule this screen
+// keeps: a submittable form is rendered only where a nonce is actually held.
 const AUTHORIZE_PARAMS = [
   "response_type",
   "client_id",
@@ -96,15 +104,21 @@ function passportLabel(
 // the client, not on this screen — so it gets the one thing every other
 // state here already has: a way out of a rail-less screen that would
 // otherwise be a dead end.
+//
+// It takes message KEYS rather than a server-supplied client name, because it
+// has to render without the consent-request fetch: the likeliest cause of
+// invalid_request is a client that went unknown, disabled or deleted, which is
+// exactly what makes that fetch 404. Copy that named the client would either
+// print an empty name or force this state behind data it cannot have.
 function ConsentErrorCard({
-  title,
-  body,
-}: Readonly<{ title: string; body: string }>) {
+  titleKey,
+  bodyKey,
+}: Readonly<{ titleKey: MessageKey; bodyKey: MessageKey }>) {
   const t = useT();
   return (
     <Card>
-      <h1>{title}</h1>
-      <p>{body}</p>
+      <h1>{t(titleKey)}</h1>
+      <p>{t(bodyKey)}</p>
       <Button variant="ghost" onClick={() => navigate({ screen: "home" })}>
         {t("consent.backToApp")}
       </Button>
@@ -145,6 +159,11 @@ function ConsentGuide({
 // The ordinary path: a passport list to lend from. Its own component (rather
 // than an inline branch) so it can hold the one hook the I9 stash-clearing
 // fix needs — a plain function called mid-render cannot.
+//
+// `consent` is a real nonce here, never "": OAuthConsent renders this only past
+// its own no-nonce guard. That is what makes the two forms below honest — a
+// selector whose submission the double-submit check must refuse is a worse
+// answer than no selector at all, because it looks actionable.
 function ConsentSelector({
   data,
   params,
@@ -295,10 +314,11 @@ export function OAuthConsent() {
 
   const query = useQuery({
     queryKey: ["oauth-consent-request", clientId, scope],
-    // No point fetching a passport list for a render that's about to
-    // navigate away (the no-nonce, no-error re-entry case below) — nothing
-    // reads `query` until that branch has already returned.
-    enabled: Boolean(consent) || Boolean(errorCode),
+    // Only a render that can actually offer the human a decision needs the
+    // passport list, and that is exactly the render holding a nonce. The
+    // states below without one — the re-entry detour and the terminal
+    // refusals — return before this query is ever read.
+    enabled: Boolean(consent),
     queryFn: async () => {
       const { data, error } = await api.GET("/oauth/consent-request", {
         params: { query: { client_id: clientId, scope } },
@@ -343,26 +363,44 @@ export function OAuthConsent() {
     );
   }
 
+  // The refusals nothing on this screen can act on, rendered BEFORE the
+  // consent-request fetch because neither needs it — and invalid_request most
+  // often cannot have it: its likeliest cause is a client that went unknown,
+  // disabled or deleted, which makes that same fetch 404. Behind the gate, the
+  // one sentence that tells the human what to do became "couldn't load this
+  // view" with a Retry button that retries the wrong thing.
+  if (errorCode === "invalid_request") {
+    return (
+      <div className="wrap narrow">
+        <ConsentErrorCard
+          titleKey="consent.invalidTitle"
+          bodyKey="consent.invalidBody"
+        />
+      </div>
+    );
+  }
+  // stale_consent says outright that the request is spent — and ANY arrival
+  // without a nonce is the same fact, whatever marker it carries: the POST
+  // requires cookie and body to agree, so a selector rendered here could only
+  // offer a submission the server must refuse. The recoverable refusal
+  // (unlendable_passport) carries its nonce back precisely so it never lands
+  // here, and the empty-passport guide already sets the standard: a state with
+  // no working action presents none.
+  if (errorCode === "stale_consent" || !consent) {
+    return (
+      <div className="wrap narrow">
+        <ConsentErrorCard
+          titleKey="consent.staleTitle"
+          bodyKey="consent.staleBody"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="wrap narrow">
       <QueryGate query={query}>
         {(data) => {
-          if (errorCode === "stale_consent") {
-            return (
-              <ConsentErrorCard
-                title={t("consent.staleTitle")}
-                body={t("consent.staleBody", { client: data.client_name })}
-              />
-            );
-          }
-          if (errorCode === "invalid_request") {
-            return (
-              <ConsentErrorCard
-                title={t("consent.invalidTitle")}
-                body={t("consent.invalidBody", { client: data.client_name })}
-              />
-            );
-          }
           if (data.passports.length === 0) {
             return (
               <ConsentGuide clientName={data.client_name} params={params} />
