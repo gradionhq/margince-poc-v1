@@ -59,6 +59,7 @@ import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { DealCoverageCard } from "./network";
 import { activityTimeline } from "./people";
 import { ShareAction } from "./share";
 
@@ -1470,6 +1471,10 @@ function DealOverviewPane({
         </nav>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
+      {/* Above the stakeholder list on purpose: the findings are ABOUT those
+          seats, and a rep who read the list first has already formed the
+          impression the flags exist to correct. */}
+      <DealCoverageCard id={deal.id} />
       {/* Stakeholders are a relationship read the mirror does not serve. In
           overlay show the honest unavailable state (never any cached native
           rows), matching the timeline and offers panels. */}

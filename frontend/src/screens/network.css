@@ -1,0 +1,48 @@
+/* The two relationship-graph cards (ADR-0078).
+
+   Both are lists whose rows carry a name, a band and two numbers. Rendered as
+   plain rows rather than a table: there are at most ten of them, and a table
+   header would cost more vertical space than the rows it labels. */
+
+.net-colleagues,
+.net-risks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.net-colleagues li,
+.net-risks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The name leads and takes the slack, so the band and counts stay right-aligned
+   against each other and can be compared down the column. */
+.net-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  color: var(--textContent);
+  font: 500 0.875rem / 1.4 var(--f-body);
+  overflow-wrap: anywhere;
+}
+
+/* The reason a flag fired. It wraps onto its own line on a narrow card rather
+   than truncating: a risk a rep cannot read the reason for is a red dot. */
+.net-risk-why {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--textMuted);
+  font: 400 0.8125rem / 1.5 var(--f-body);
+}
+
+.net-risk-days {
+  color: var(--textMuted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}

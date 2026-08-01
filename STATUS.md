@@ -203,6 +203,64 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-01 (the graph's last third, branch `feat/linkedin-onboarding-and-matching`)
+
+**The three risk rules that were named but never fired now fire, and the graph
+is visible to the assistant and on screen.** Ten commits, unpushed. This closes
+carry-forward item 7 above.
+
+**What shipped**
+
+- **`going_cold`, `champion_left`, `stakeholder_left`** in
+  `compose/network/risk.go`. They were `Kind` constants with no detector behind
+  them, which is worse than being absent: a surface listing the kinds it can
+  show tells a rep those checks are running. Going-cold is REPORT-PARAM-2 over
+  `coalesce(last_activity_at, created_at)`, gated on an OPEN deal, carrying the
+  day count so the 30-day and 60-day views are one finding filtered rather than
+  two kinds that can disagree at 61 days.
+- **The departure rules demand evidence of a departure**, not the absence of an
+  employment row: an ended employment at the account AND no live one
+  (`compose/network/coveragefacts.go`). Most stakeholders have no employment row
+  at all, so the naive reading would flag nearly every deal in a young
+  workspace. A promotion recorded as end-then-start correctly raises nothing.
+- **`days_since_touch`** added to `DealCoverageRisk` in `crm.yaml`, sent ONLY on
+  going-cold — a zero elsewhere would read as "touched today".
+- **The assistant can see the graph.** A person anchor's `AssembleContext` now
+  carries a `who_knows` section (`modules/search/graph.go`); a deal anchor
+  carries `network_risks` through `riskAwareRetriever` in
+  `compose/riskretriever.go`, decorating the retriever rather than widening the
+  port, because the risk rules join deals and people and a module never imports
+  a sibling. Before this, a rep could see who knows a contact on the person page
+  while the model answering "who should introduce me" said nobody.
+- **Two tools**: `intro_path_to` (the fixed two-hop join ADR-0021 pins —
+  colleague → contact → account, no depth parameter) and
+  `at_risk_relationships`, which reports `deals_scanned` and `truncated` rather
+  than presenting a capped sweep as a clean pipeline.
+- **Both endpoints now render.** `GET /people/{id}/network` and
+  `GET /deals/{id}/coverage` had shipped with no frontend consumer at all.
+  `frontend/src/screens/network.tsx` adds the who-knows-them card to the person
+  overview and the coverage card to the deal overview, above the stakeholder
+  list because the findings are about those seats.
+
+**One triage item dropped, and why.** "depth=2 on `GET /organizations/{id}/graph`"
+was on my own list and is wrong: the shipped contract says "One hop, and only
+one" and explains the cost argument, and ADR-0078 puts variable-depth
+path-finding in trigger-(b) territory. The ADR's actual ask — optional `hops`
+and `strength` on the node/edge schemas — is half-satisfied (`strength` is
+there; `hops` would be a constant 1 on a one-hop read). No work owed.
+
+**Verification.** `make check` green (backend + frontend). Integration lane:
+`OK: integration passed with 0 skips`. `make frontend-e2e`: 61 passed — it
+caught the overlay panel-count assertion, which now expects 4 on the person 360
+and 5 on the deal 360, since both new cards are native-only. Four new
+integration tests cover the departure SQL and the going-cold window against a
+real database.
+
+**Still open in this area:** carry-forward items 1–6 and 8–10 above are
+untouched. Item 4 (our-side concentration counting a group email once per
+stakeholder) now also affects nothing new — the departure and going-cold rules
+do not read interaction counts.
+
 ## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
 
 **"Who on our team knows this contact" is now a stored fact, and the company
@@ -327,8 +385,9 @@ the removed one; routing the event to the existing fold fixed both).
 5. `matched_org_id` is only recomputed on upload and never cleared, so org
    rename/archive/merge leaves reach counts stale or misattached.
 6. A refreshed LinkedIn export never tombstones connections absent from it.
-7. `at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
-   not built.
+7. ~~`at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
+   not built.~~ **Closed 2026-08-01** on `feat/linkedin-onboarding-and-matching`
+   — see the session pickup below.
 8. **Spec raise owed (PO-PARAM-1).** `legalSuffixes` gained `&`/`und`/`and` so
    the strip crosses a compound German legal form ("GmbH & Co. KG"). The
    parameter is spec-pinned; this implements the stated intent rather than

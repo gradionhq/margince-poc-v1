@@ -2210,6 +2210,27 @@ export const en = {
   "strength.inout": "{in} in · {out} out (90d)",
   "strength.computedFrom": "Computed from {count} activities",
 
+  // The relationship-graph cards (ADR-0078). The colleague bands are PO-F-3b's
+  // own vocabulary and deliberately differ from the workspace-wide card's:
+  // the two measure different things and must not read as comparable.
+  "network.title": "Who here knows them",
+  "network.empty": "Nobody here has recorded contact with this person yet.",
+  "network.interactions": "{count} interactions (90 days)",
+  "network.neverSpoken": "No recorded contact",
+  "network.bucket.none": "No contact",
+  "network.bucket.weak": "Weak",
+  "network.bucket.moderate": "Moderate",
+  "network.bucket.strong": "Strong",
+  "coverage.title": "Coverage",
+  "coverage.clear": "Nothing flagged — this deal passes every coverage check.",
+  "coverage.daysSinceTouch": "{days} days",
+  "coverage.risk.single_threaded_theirs": "Single-threaded",
+  "coverage.risk.single_threaded_ours": "Carried by one colleague",
+  "coverage.risk.coverage_gap": "No engaged champion",
+  "coverage.risk.champion_left": "Champion has left",
+  "coverage.risk.stakeholder_left": "Stakeholder has left",
+  "coverage.risk.going_cold": "Going cold",
+
   "cf.title": "Custom fields",
   "cf.formSection": "Custom fields",
   "cf.subtitle":

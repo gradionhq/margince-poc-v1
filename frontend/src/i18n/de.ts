@@ -2221,6 +2221,29 @@ export const de = {
   "strength.inout": "{in} eingehend · {out} ausgehend (90 Tage)",
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
 
+  // Die Beziehungsgraph-Karten (ADR-0078). Die Kollegen-Stufen sind die von
+  // PO-F-3b und unterscheiden sich bewusst von denen der arbeitsbereichsweiten
+  // Karte: beide messen Verschiedenes und dürfen nicht vergleichbar wirken.
+  "network.title": "Wer kennt diese Person bei uns",
+  "network.empty":
+    "Niemand hier hat bisher erfassten Kontakt zu dieser Person.",
+  "network.interactions": "{count} Interaktionen (90 Tage)",
+  "network.neverSpoken": "Kein erfasster Kontakt",
+  "network.bucket.none": "Kein Kontakt",
+  "network.bucket.weak": "Schwach",
+  "network.bucket.moderate": "Mittel",
+  "network.bucket.strong": "Stark",
+  "coverage.title": "Abdeckung",
+  "coverage.clear":
+    "Nichts markiert — dieser Deal besteht alle Abdeckungsprüfungen.",
+  "coverage.daysSinceTouch": "{days} Tage",
+  "coverage.risk.single_threaded_theirs": "Nur ein Kontakt",
+  "coverage.risk.single_threaded_ours": "Von einer Person getragen",
+  "coverage.risk.coverage_gap": "Kein engagierter Fürsprecher",
+  "coverage.risk.champion_left": "Fürsprecher hat gekündigt",
+  "coverage.risk.stakeholder_left": "Stakeholder hat gekündigt",
+  "coverage.risk.going_cold": "Wird kalt",
+
   "cf.title": "Benutzerdefinierte Felder",
   "cf.formSection": "Benutzerdefinierte Felder",
   "cf.subtitle":
