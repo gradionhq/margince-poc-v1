@@ -246,6 +246,9 @@ func TestDiffSaysNothingAboutAFieldThatWasNeverFilled(t *testing.T) {
 		"email":     nil,
 		"company":   nil,
 	})
+	// A CREATE row, which is where this happens: the write names every column
+	// it filled and every one it did not.
+	row.action = "create"
 	entries := diffAuditRowFields(row, nil, nil)
 	if len(entries) != 1 || entries[0].Field != "full_name" {
 		got := make([]string, 0, len(entries))

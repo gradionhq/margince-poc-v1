@@ -74,8 +74,12 @@ func NewService(pool *pgxpool.Pool, view Assembler, profile ProfileReader, lane 
 	return &Service{pool: pool, view: view, profile: profile, lane: lane, routingVersion: routingVersion, now: now}
 }
 
-// assemble reads both halves the brief is written from: how the account
-// stands with us, and what the company is.
+// assemble reads what a brief or an answer is written from: how the account
+// stands with us, and — for the brief only — what the company is.
+//
+// withProfile is false for the prepared questions. None of the three answers
+// from the company description, and the model never sees it either way, so
+// reading it there would be one gated query per question for nothing.
 //
 // A profile read that fails fails the whole brief. An account with no site
 // read answers with no rows, so the empty case never arrives here as an
@@ -83,13 +87,13 @@ func NewService(pool *pgxpool.Pool, view Assembler, profile ProfileReader, lane 
 // company has no description" writes a brief that silently lost its second
 // half AND caches it, so the next reader sees the same gap with nothing to
 // say it was ever there. The reader gets one honest failure instead.
-func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID) (Input, error) {
+func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID, withProfile bool) (Input, error) {
 	view, err := s.view.Assemble(ctx, orgID)
 	if err != nil {
 		return Input{}, err
 	}
 	in := FromView(view)
-	if s.profile != nil {
+	if withProfile && s.profile != nil {
 		fields, profileErr := s.profile.ListOrganizationProfileFields(ctx, orgID)
 		if profileErr != nil {
 			return Input{}, fmt.Errorf("read the company profile for the brief: %w", profileErr)
@@ -114,7 +118,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	// The gates that matter run HERE, in the caller's own composite read: a
 	// brief can only be written from what this caller may see, and an
 	// account they cannot read refuses before any cache is consulted.
-	in, err := s.assemble(ctx, orgID)
+	in, err := s.assemble(ctx, orgID, true)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
@@ -168,7 +172,7 @@ func (s *Service) Ask(
 	// The gates that matter run HERE, in the caller's own composite read: an
 	// answer can only be written from what this caller may see, and an account
 	// they cannot read refuses before a single word is written.
-	in, err := s.assemble(ctx, orgID)
+	in, err := s.assemble(ctx, orgID, false)
 	if err != nil {
 		return crmcontracts.OrganizationAnswer{}, err
 	}

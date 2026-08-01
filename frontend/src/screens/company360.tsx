@@ -545,7 +545,13 @@ function ContactRow({
   writable: boolean;
 }>) {
   const t = useT();
-  const roles = contact.deal_roles.filter((entry) => entry.role);
+  // Only roles on the deals this card is showing. `deal_roles` carries a
+  // contact's role on CLOSED deals too, and a champion badge read off a deal
+  // that was lost last year describes a pipeline that no longer exists.
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
+  const roles = contact.deal_roles.filter(
+    (entry) => entry.role && openDealIds.has(entry.deal_id),
+  );
   // Which deal a role is on only matters when there is more than one to
   // confuse: a person can be champion on the renewal and nobody on the new
   // business, and two identical badges would say neither.

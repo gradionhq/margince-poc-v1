@@ -90,8 +90,8 @@ export function mergeChronology<Row>(
     return { rows: all, truncated: false };
   }
   const rows = all.filter((row) => instant(row) > floor);
-  return {
-    rows,
-    truncated: rows.length < all.length || feeds.some((f) => f.hasMore),
-  };
+  // A floor exists only because some feed reported more, so the merged view is
+  // short of the account's history by construction — whether or not this cut
+  // dropped any loaded row.
+  return { rows, truncated: true };
 }

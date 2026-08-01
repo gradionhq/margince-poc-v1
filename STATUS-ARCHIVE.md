@@ -21,6 +21,136 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-01 — the company page: what it says, and the logo that was never fetched
+
+Shipped on PR #356 (`feat/company-page-clarity`). The open items this work
+left behind stay in [STATUS.md](STATUS.md).
+
+### The account brief, and why so few companies had a logo
+
+On `feat/company-page-clarity` (PR #356), after the founder's review.
+
+**The brief leads the page.** `GET /organizations/{id}/brief` had a full
+implementation and no client. It now has one, with the half that was missing:
+`orgbrief.Input` carried the relationship only, so the brief could not say what
+the company IS. It now also carries the curated profile statements, read
+through the caller's own gates. Those statements are QUOTED, not summarized —
+they are already prose a human accepted, so a model adds paraphrase risk for
+nothing, and quoting them leaves the prompt untouched. That last part matters:
+changing the summarize prompt invalidates the AI certification records for
+three providers and needs a paid re-certification run
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion` catches it).
+
+The profile card folded into a disclosure — it is the evidence for two
+sentences now, not the headline. MeetingBrief and `accountread.ts` are retired:
+their lines said what the brief says, which is the "one fact, twice" item
+above. What only they did lives on inside the brief card (suggestions, the
+first-visit note, the withheld-sections caveat, the since-last-visit count).
+
+**Buyer roles can be set from the account.** The People card offers "Set role"
+per contact against an open deal, writing the `deal_stakeholder` relationship,
+and defines champion and economic buyer where they are being chosen. The
+warning stopped being a dead end: "No champion is named on the open deal yet —
+set one on the contact who is."
+
+**Logos: measured, not guessed.** 96 of 162 imported companies have one. Of
+the 66 without, 36 had a site read that FAILED having read zero pages. The
+logo comes out of the page the deep read already fetched, so no page means no
+mark. Probing every failed seed on the machine — 37, one more than those 36,
+because a company whose read failed can still carry a logo from an earlier
+one — 19 answer on another host or scheme and 18 are genuinely gone. A domain became a seed as `https://<domain>` and nothing else,
+so the crawl now walks the site's other spellings (www or apex, then http)
+before concluding a company has no website. A robots refusal is never retried
+under another host.
+
+Second logo finding: `og:image` was ranked FIRST among candidates, so a
+square-ish hero photo or product shot was taken on sight and the site's own
+apple-touch-icon was never asked for. Declared icons now lead. Wide sharing
+banners were already screened by shape; square ones needed the ordering.
+
+Still open from this arc: `POST /brief` and `POST /ask` are per-click model
+calls with no per-user rate limit. The workspace AI budget bounds the spend and
+the refresh button disables while pending, so this is a refinement rather than
+a hole. Agent-authored change rows lose their passport and evidence chips in
+the timeline (both survive in the full history). The merged timeline can page
+changes but not activities, which the 360 serves as one bounded page — the
+Activities filter now SAYS the list is cut, but offers no way to read further
+back. Captured email bodies still land in timeline rows at full length; the
+plan's item to collapse them to subject plus a two-line snippet was not done.
+
+### Decided — the account brief is the answer to the profile wall
+
+Founder review of the company page, 2026-08-01. The verdict on the profile
+card was that its value is doubtful: sixteen scraped fields, every value a
+paragraph. What he asked for instead: on opening a company, one AI-written
+summary in plain language — first what matters about this account for us
+(facts, history, connections, deals), then what the company itself is — with
+the detail expandable underneath.
+
+That is the card the orphaned `GET /organizations/{id}/brief` should become,
+so the open decision below resolves to "make it worth a card", not "retire the
+endpoint". Two changes are needed:
+
+- `orgbrief.Input` carries no profile at all (name, industry, size band,
+  strength, contacts, deals, tasks, recent activity). The "about the company"
+  half needs `organization_profile_field` and `organization_fact` in the
+  input, and a prompt that writes two sections rather than one.
+- The brief is written in English regardless of the reader's locale, which is
+  the same defect the suggestion reasons have.
+
+Caching was raised and settled: the founder asked for "cached for 24h", and
+was shown that `org_brief` already invalidates on a fingerprint over the
+assembled input. He chose to keep the fingerprint — it is never stale after
+new mail lands, and costs nothing on a quiet account. No TTL.
+
+Two other decisions from the same review:
+- **History**: merge field changes into the timeline as a filter (Attio /
+  Twenty pattern), retire the History tab, keep the audit spine behind the
+  header's overflow menu. Shipped in PR #356.
+- **Champion / economic buyer**: the roles stay human-set, and the People card
+  gets an inline way to set them plus a one-sentence definition of each. Every
+  CRM surveyed keeps buyer roles human-tagged; AI may suggest, never assert.
+  An AI suggestion is deferred — it needs an ai-operational-spec task that
+  does not exist, and DEAL-EXT-5 (the role enum) is still unminted upstream.
+
+### Answered — account owner and "who brought us this" are both standard
+
+Founder asked whether the HubSpot-style account owner is something we invented,
+and whether a "via" field (who referred this company, and do they earn
+commission) is worth making standard.
+
+**Owner is universal.** Salesforce Account Owner, HubSpot's owner property
+(defaults to record creator, reassignable through a searchable user picker),
+Pipedrive, Copper, Attio and folk all carry it, and it drives routing and quota
+rollups. Margince already stores `organization.owner_id` and the quotas module
+already depends on it; what was missing was a label on the page and any way to
+change it. Both shipped in PR #356.
+
+**Referral is standard too, but in the partner layer.** Core CRMs carry a
+plain "lead source" dropdown; the person-plus-commission form lives in partner
+tooling (Salesforce PRM deal registration, PartnerStack). Margince is further
+along than either: `relationship.kind` already includes `referred_by`, and the
+partner extension already carries `margin_tier`. So the shape is a typed
+`referred_by` edge from the organization or deal to a person or partner, with
+commission resolved through the partner's margin tier at deal-won time — NOT a
+free-text field. Nothing wires those two together yet; raised below.
+
+### Settled — the organization brief endpoint has a client again
+
+For a while `GET /organizations/{id}/brief` was read by nothing. Its card had
+been taken off the company page because what it produced restated the screen:
+on a live account its two sentences were "you currently have three contacts
+recorded for this account" and "there is one open task due on August 1, 2026",
+both of which the reader could already see, under a heading that promised a
+reading of the account. The open question was whether to make it worth a card
+or retire it.
+
+Made worth a card, on PR #356: it leads the company page as the AccountBrief,
+and it answers a named question — where we stand with this account, then what
+the company is, the second half quoted from approved profile statements rather
+than written. See "Decided — the account brief is the answer to the profile wall" above
+for what that decided and what it still owes upstream.
+
 ## Landed arcs
 
 **The company page's second pass — PRs #351 and #352 (2026-07-31).** #351
