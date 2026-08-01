@@ -58,9 +58,9 @@ func (s *Store) WithConsumerMail(read ConsumerMailReader) *Store {
 	return s
 }
 
-// freemail builds the matcher for this transaction, or the bare baseline when
-// no reader was wired.
-func (s *Store) freemail(ctx context.Context, tx pgx.Tx) (*freemail.Matcher, error) {
+// consumerMailMatcher builds the matcher for this transaction, or the bare
+// baseline when no reader was wired.
+func (s *Store) consumerMailMatcher(ctx context.Context, tx pgx.Tx) (*freemail.Matcher, error) {
 	if s.consumerMail == nil {
 		return freemail.New(nil, nil), nil
 	}

@@ -35,9 +35,12 @@ const (
 	// company that is emphatically not the sender's employer (live.fr is
 	// Microsoft's), so it must not become their organization either.
 	DomainProvider = "provider"
-	// DomainNoSite — nothing reachable to judge and no name that explains the
-	// domain. The organization was created on the pre-triage terms; the row
-	// records that the question was already asked.
+	// DomainNoSite — nothing identified a company. Whether one nonetheless
+	// EXISTS depends on which path got here, and organization_id says which: a
+	// site that could not be read falls to the sender's name and creates the
+	// company when that name does not explain the domain, while a landing page
+	// the classifier read as parked creates nothing. Both are settled, and both
+	// mean the same thing for the next message — stop asking.
 	DomainNoSite = "no_site"
 )
 
@@ -54,6 +57,11 @@ const (
 const (
 	domainTriageMaxAttempts = 2
 	domainTriageBackoff     = 7 * 24 * time.Hour
+	// triageReadStaleAfter is when a dossier that still claims to be running
+	// stops being believed. Comfortably past any real crawl — the worker's own
+	// job timeout is minutes — so it only ever catches a read whose terminal
+	// write never landed.
+	triageReadStaleAfter = 6 * time.Hour
 )
 
 // DomainDisposition is one domain's standing verdict.
@@ -69,18 +77,23 @@ type DomainDisposition struct {
 // Settled reports whether the question is answered — anything but pending.
 func (d DomainDisposition) Settled() bool { return d.Status != "" && d.Status != DomainPending }
 
-// DueDomain is one domain the sweep should triage: the registrable domain and
-// the human who owns whatever it turns out to create.
+// DueDomain is one domain the sweep should triage. The domain is all the sweep
+// needs: the human who will own whatever the verdict creates is read from the
+// disposition row at that point, not carried here.
 type DueDomain struct {
-	Domain  string
-	OwnerID ids.UUID
+	Domain string
 }
 
 // readDispositionTx reads a domain's verdict on the caller's transaction and
-// LOCKS it. The lock is load-bearing: the triage worker's resolve locks the
-// same row, so an ensure racing a verdict either commits before it (and the
-// resolve's employment-edge query sees the person) or waits and reads the
-// settled answer. Without it both could conclude "no organization yet".
+// LOCKS it, so two ensures cannot both open the same question and the verdict
+// cannot be written while one is deciding what to do about it.
+//
+// What the lock does NOT do is order an ensure against a verdict completely: the
+// ensure runs its organization dedupe BEFORE it gets here, so a resolve that
+// commits in between plants its employment edges without seeing that ensure's
+// still-uncommitted person. That person ends up with the company but no edge
+// until their next message, which the ensure then attaches — self-healing, and
+// cheaper than holding the lock across the dedupe for every captured message.
 //
 // Reports ok=false when the domain has never been asked about.
 func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDisposition, bool, error) {
@@ -114,15 +127,21 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 //
 // Idempotent by construction — two senders arriving on the same new domain both
 // land on the one row, and neither disturbs an answer that already exists.
-func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) error {
-	if _, err := tx.Exec(ctx, `
+//
+// It reports whether THIS call opened the question. Only the opener is worth a
+// crawl and worth counting: a hundred messages from one unjudged domain are one
+// question, and treating each as new would enqueue a hundred reads and report a
+// hundred companies on the backfill that produced one.
+func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) (bool, error) {
+	tag, err := tx.Exec(ctx, `
 		INSERT INTO organization_domain_disposition (workspace_id, domain, status, owner_id)
 		VALUES ($1, $2, 'pending', $3)
 		ON CONFLICT (workspace_id, domain) DO NOTHING`,
-		workspaceID(ctx), domain, ownerID); err != nil {
-		return fmt.Errorf("people: opening the disposition question for %s: %w", domain, err)
+		workspaceID(ctx), domain, ownerID)
+	if err != nil {
+		return false, fmt.Errorf("people: opening the disposition question for %s: %w", domain, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }
 
 // ListDueDomains returns domains still owed a verdict whose next attempt is due
@@ -134,27 +153,37 @@ func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, err
 	var out []DueDomain
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT d.domain, d.owner_id
+			SELECT d.domain
 			FROM organization_domain_disposition d
 			WHERE d.status = 'pending'
+			  -- A domain nobody is accountable for may not mint rows, so it is
+			  -- not worth a crawl either (ResolveDomainTriage stamps the org's
+			  -- owner from this column).
 			  AND d.owner_id IS NOT NULL
 			  AND d.next_attempt_at IS NOT NULL
 			  AND d.next_attempt_at <= now()
 			  AND d.attempts < $1
+			  -- A read genuinely in flight excludes its domain, so the sweep
+			  -- cannot double-spend the budget on a crawl already running. A
+			  -- read STUCK in flight must not: if the write recording its
+			  -- outcome failed, the row says 'running' for ever, and an
+			  -- unbounded exclusion would strand the domain with no verdict and
+			  -- nothing left able to give it one.
 			  AND NOT EXISTS (
 				SELECT 1 FROM site_read sr
 				WHERE sr.target_kind = 'domain_triage'
 				  AND sr.seed_url = $2 || d.domain
-				  AND sr.status IN ('queued', 'deferred', 'running'))
+				  AND sr.status IN ('queued', 'deferred', 'running')
+				  AND sr.updated_at > now() - make_interval(secs => $4))
 			ORDER BY d.created_at
-			LIMIT $3`, domainTriageMaxAttempts, TriageSeedScheme, limit)
+			LIMIT $3`, domainTriageMaxAttempts, TriageSeedScheme, limit, triageReadStaleAfter.Seconds())
 		if err != nil {
 			return fmt.Errorf("people: listing domains due for triage: %w", err)
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var d DueDomain
-			if err := rows.Scan(&d.Domain, &d.OwnerID); err != nil {
+			if err := rows.Scan(&d.Domain); err != nil {
 				return fmt.Errorf("people: scanning a domain due for triage: %w", err)
 			}
 			out = append(out, d)
@@ -192,6 +221,42 @@ func MarkTriageQueuedTx(ctx context.Context, tx pgx.Tx, domain string) error {
 	return nil
 }
 
+// ExhaustedDomains returns domains still pending that have used every attempt
+// and are due. They must be SETTLED, not dropped: ListDueDomains stops offering
+// them, so a question left open here is one no crawl will ever answer and no
+// later message will re-ask — a person permanently without a company, and
+// nothing on the row to say why.
+func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, error) {
+	var out []DueDomain
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT domain FROM organization_domain_disposition
+			WHERE status = 'pending'
+			  AND owner_id IS NOT NULL
+			  AND next_attempt_at IS NOT NULL
+			  AND next_attempt_at <= now()
+			  AND attempts >= $1
+			ORDER BY created_at
+			LIMIT $2`, domainTriageMaxAttempts, limit)
+		if err != nil {
+			return fmt.Errorf("people: listing domains that ran out of triage attempts: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var d DueDomain
+			if err := rows.Scan(&d.Domain); err != nil {
+				return fmt.Errorf("people: scanning an exhausted domain: %w", err)
+			}
+			out = append(out, d)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PersonsOnDomain lists the live people the workspace records at a mail domain
 // — the subjects of the sender-name heuristic, and the employees a company
 // verdict plants edges for. Subdomain addresses count: someone at
@@ -204,7 +269,10 @@ func PersonsOnDomain(ctx context.Context, tx pgx.Tx, domain string) ([]DomainPer
 		WHERE p.archived_at IS NULL
 		  AND p.merged_into_id IS NULL
 		  AND (split_part(pe.email, '@', 2) = $1
-		       OR split_part(pe.email, '@', 2) LIKE '%.' || $1)`, domain)
+		       -- A literal suffix compare, never LIKE: the domain reaches here
+		       -- from a forgeable header, and '%' in a LIKE pattern would match
+		       -- every address in the workspace.
+		       OR right(split_part(pe.email, '@', 2), length($1) + 1) = '.' || $1)`, domain)
 	if err != nil {
 		return nil, fmt.Errorf("people: listing the people on %s: %w", domain, err)
 	}

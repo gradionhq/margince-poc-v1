@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -293,11 +294,30 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if row.orgDomain != nil && candidateSharesDomain(c, *row.orgDomain) {
 		return 0.8
 	}
-	if row.mailDomain != nil && candidateSharesDomain(c, *row.mailDomain) {
+	if row.mailDomain != nil && sharedEmployerDomain(c, *row.mailDomain) {
 		return 0.8
 	}
 	return 0.0
 }
+
+// sharedEmployerDomain reports whether two addresses sitting on the same mail
+// domain says anything about a shared EMPLOYER. On a consumer mailbox provider
+// it says nothing at all — two people at gmail.com share a mail host, not a
+// job — and scoring it would put every same-named pair of private addresses in
+// the review queue, which is exactly where "same domain" carries least signal.
+//
+// The shipped baseline decides, not the workspace's own list: this runs inside
+// the dedupe ladder, which has no workspace matcher to hand and is reached from
+// paths that never built one. The overlay only ever adds providers the baseline
+// missed, so consulting the baseline alone can leave noise in, never take a real
+// employer agreement away.
+func sharedEmployerDomain(c PersonCandidate, domain string) bool {
+	return candidateSharesDomain(c, domain) && !consumerMailBaseline.IsConsumer(domain)
+}
+
+// consumerMailBaseline is the shipped list with no workspace overlay; see
+// sharedEmployerDomain for why the overlay is deliberately not consulted.
+var consumerMailBaseline = freemail.New(nil, nil)
 
 // candidateSharesDomain reports whether any candidate email sits on an
 // organization domain the incumbent is mapped to.

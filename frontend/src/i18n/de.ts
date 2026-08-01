@@ -1689,7 +1689,7 @@ export const de = {
   "backfill.countCaptured": "Erfasst",
   "backfill.statEmails": "E-Mails erfasst",
   "backfill.statPeople": "Personen",
-  "backfill.statCompanies": "Firmen",
+  "backfill.statCompanies": "Firmen zu prüfen",
   "backfill.errorNote":
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",

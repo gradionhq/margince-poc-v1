@@ -16,7 +16,6 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -53,9 +52,11 @@ func (w *siteDeepReadWorker) runTriage(ctx context.Context, args SiteDeepReadArg
 
 	seed, err := w.crawler.ReadSeed(ctx, claim.SeedURL)
 	if err != nil {
-		// Nothing to read. The domain may still be a real company with a broken
-		// site, so the decision falls to the sender's own name.
-		return w.resolveUnreachable(ctx, args, domain, err)
+		// Nothing to read — a genuine failure. The domain may still be a real
+		// company with a broken site, so the decision falls to the sender's name.
+		w.log.WarnContext(ctx, "domain triage: the seed page could not be read",
+			"read", args.SiteReadID.String(), "domain", domain, "err", err)
+		return w.resolveUnreachable(ctx, args, domain, siteReadWireStatusFailed, triageWarningNothingRead)
 	}
 
 	verdict, err := w.classifySeed(ctx, seed)
@@ -73,7 +74,7 @@ func (w *siteDeepReadWorker) runTriage(ctx context.Context, args SiteDeepReadArg
 		// The whole point of classifying first: one page read, no crawl, no
 		// extraction, no company invented.
 		return w.settleTriage(ctx, args, domain, triageStatusFor(verdict.Kind),
-			people.DomainSourceSiteRead, triageEvidence(verdict), siteReadStatusCancelled, nil)
+			people.DomainSourceSiteRead, triageEvidence(verdict), siteReadWireStatusCancelled, triageWarningNotACompany, nil)
 	}
 
 	return w.readAndResolveTriage(ctx, args, claim, domain)
@@ -90,12 +91,8 @@ func (w *siteDeepReadWorker) triageWithoutLooking(ctx context.Context, args Site
 		return w.fail(ctx, args.SiteReadID,
 			fmt.Errorf("site deep read %s: %q is not a triageable seed", args.SiteReadID, claim.SeedURL))
 	}
-	return w.resolveUnreachable(ctx, args, domain, errNoSiteReadAllowed)
+	return w.resolveUnreachable(ctx, args, domain, siteReadWireStatusCancelled, triageWarningNotAllowed)
 }
-
-// errNoSiteReadAllowed marks the not-permitted-to-look case, distinct from a
-// site that was tried and could not be reached.
-var errNoSiteReadAllowed = errors.New("this worker may not read sites")
 
 // readAndResolveTriage runs the full read for a domain the seed page did not
 // rule out, and decides on what it actually found.
@@ -110,7 +107,9 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 		if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, err); deferred {
 			return deferErr
 		}
-		return w.resolveUnreachable(ctx, args, domain, err)
+		w.log.WarnContext(ctx, "domain triage: the crawl failed",
+			"read", args.SiteReadID.String(), "domain", domain, "err", err)
+		return w.resolveUnreachable(ctx, args, domain, siteReadWireStatusFailed, triageWarningNothingRead)
 	}
 	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
 		return deferErr
@@ -122,9 +121,9 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 
 	stated := statedCompanyName(fields, extraction.merged.entities)
 	if stated == "" && len(extraction.merged.entities) == 0 {
-		// The site read, and said nothing that identifies a company. That is
-		// not evidence of a company; fall back to the name test.
-		return w.resolveUnreachable(ctx, args, domain, nil)
+		// The site read fine and identified nobody. Nothing went wrong, so this
+		// is not a failure — it is an answer the crawl could not supply.
+		return w.resolveUnreachable(ctx, args, domain, siteReadWireStatusCancelled, triageWarningNoCompany)
 	}
 
 	status := siteReadWireStatusDone
@@ -132,7 +131,7 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 		status = siteReadWireStatusPartial
 	}
 	return w.settleTriage(ctx, args, domain, people.DomainCompany, people.DomainSourceSiteRead,
-		triageCompanyEvidence(stated, len(extraction.merged.entities)), status,
+		triageCompanyEvidence(stated, len(extraction.merged.entities)), status, "",
 		&triagePayload{
 			DossierName: stated,
 			SeedURL:     claim.SeedURL,
@@ -143,16 +142,18 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 		})
 }
 
-// resolveUnreachable decides a domain whose site could not be read, or which
-// read and identified nobody. The name test itself runs inside the store's
-// verdict transaction, against the very people a company answer would employ.
-func (w *siteDeepReadWorker) resolveUnreachable(ctx context.Context, args SiteDeepReadArgs, domain string, cause error) error {
-	evidence := "no site could be read, and the verdict fell to the sender's own name"
-	if cause == nil {
-		evidence = "the site named no company, and the verdict fell to the sender's own name"
-	}
+// resolveUnreachable settles a domain the site could not answer for. The name
+// test itself runs inside the store's verdict transaction, against the very
+// people a company answer would employ.
+//
+// Only ONE of its three callers is a failure. A crawl that ran and named nobody
+// worked exactly as designed, and a worker forbidden to look was obeying an
+// operator — recording either as `failed` would send somebody investigating a
+// read that did what it was told. Each caller therefore names its own terminal
+// status and the sentence that goes on the dossier.
+func (w *siteDeepReadWorker) resolveUnreachable(ctx context.Context, args SiteDeepReadArgs, domain, status, warning string) error {
 	res, err := w.people.ResolveUnreadableDomainTriage(ctx, people.ResolveDomainTriageInput{
-		Domain: domain, Evidence: evidence, ReadID: args.SiteReadID,
+		Domain: domain, Evidence: warning, ReadID: args.SiteReadID,
 		SeedURL: people.TriageSeedURL(domain),
 	})
 	if err != nil {
@@ -160,8 +161,8 @@ func (w *siteDeepReadWorker) resolveUnreachable(ctx context.Context, args SiteDe
 			fmt.Errorf("site deep read %s: settling the unreadable domain %s: %w", args.SiteReadID, domain, err))
 	}
 	w.log.InfoContext(ctx, "domain triage settled without a site", "domain", domain,
-		"organization_created", res.OrgCreated, "employment_edges", res.EdgesPlanted, "cause", cause)
-	return w.finishTriageRead(ctx, args, siteReadStatusFailed, nil)
+		"organization_created", res.OrgCreated, "employment_edges", res.EdgesPlanted, "why", warning)
+	return w.finishTriageRead(ctx, args, status, warning, nil)
 }
 
 // triagePayload is what a company verdict has to hand to the resolve: the name
@@ -179,7 +180,7 @@ type triagePayload struct {
 // first because it is what the ensure ladder reads: a dossier marked done
 // beside an unanswered question would leave every later message from the domain
 // re-asking it.
-func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepReadArgs, domain, status, source, evidence, readStatus string, payload *triagePayload) error {
+func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepReadArgs, domain, status, source, evidence, readStatus, warning string, payload *triagePayload) error {
 	in := people.ResolveDomainTriageInput{
 		Domain: domain, Status: status, Source: source, Evidence: evidence, ReadID: args.SiteReadID,
 	}
@@ -196,7 +197,7 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 	if payload == nil || res.OrganizationID == nil {
 		// Nothing was created, so there is nothing to stage people onto and no
 		// dossier to report against a company.
-		return w.finishTriageRead(ctx, args, readStatus, payload)
+		return w.finishTriageRead(ctx, args, readStatus, warning, payload)
 	}
 	// Site people stage as leads onto the organization the verdict just made —
 	// strangers stay staged (NEVER-8), exactly as on the auto-enrich lane.
@@ -207,19 +208,18 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 				"read", args.SiteReadID.String(), "err", err)
 		}
 	}
-	return w.finishTriageRead(ctx, args, readStatus, payload)
+	return w.finishTriageRead(ctx, args, readStatus, warning, payload)
 }
 
-// finishTriageRead records the dossier's terminal state. An aborted read is
-// 'cancelled' with a status code naming why: nothing went wrong with it, the
-// site simply answered the question before the crawl was worth running, and a
-// failure is something to investigate while this is not.
-func (w *siteDeepReadWorker) finishTriageRead(ctx context.Context, args SiteDeepReadArgs, status string, payload *triagePayload) error {
+// finishTriageRead records the dossier's terminal state and the sentence that
+// explains it, so a human reading the row learns why it ended without going to
+// the logs.
+func (w *siteDeepReadWorker) finishTriageRead(ctx context.Context, args SiteDeepReadArgs, status, warning string, payload *triagePayload) error {
 	tctx, cancel := terminalCtx(ctx)
 	defer cancel()
 	in := people.FinishSiteReadInput{Status: status}
-	if status == siteReadStatusCancelled {
-		in.Warnings = []string{triageWarningNotACompany}
+	if warning != "" {
+		in.Warnings = []string{warning}
 	}
 	if payload != nil {
 		in.Pages = siteReadPages(payload.Crawl.Pages)
@@ -237,14 +237,13 @@ func (w *siteDeepReadWorker) finishTriageRead(ctx context.Context, args SiteDeep
 	return nil
 }
 
-// The terminal statuses a triage read reports, and the warning a stopped one
-// carries. 'cancelled' is right for an aborted read: nothing went wrong with
-// it, the site answered the question before the crawl was worth running, and a
-// failure is something to investigate while this is not.
+// The warnings a stopped triage read carries, so the dossier itself says why it
+// ended rather than leaving the reason in a log line.
 const (
-	siteReadStatusCancelled  = "cancelled"
-	siteReadStatusFailed     = "failed"
 	triageWarningNotACompany = "This site says the domain does not belong to a company, so the read stopped after its landing page."
+	triageWarningNothingRead = "No site could be read for this domain, so the company question was answered from what the workspace already knew."
+	triageWarningNoCompany   = "The site was read and named no company, so the question was answered from what the workspace already knew."
+	triageWarningNotAllowed  = "Automatic enrichment is off, so the company question was answered without reading the site."
 )
 
 // classifySeed runs the one classification call over the landing page.

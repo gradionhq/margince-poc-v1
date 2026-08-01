@@ -121,6 +121,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/auth/capabilities":                                          {Op: "getAuthCapabilities", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/automations/{id}/runs":                                      {Op: "listAutomationRuns", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/availability":                                               {Op: "getAvailability", Access: "tool", Tool: "check_availability", RecordType: "", Tier: "auto_execute"},
+	"GET /v1/capture/consumer-mail-domains":                              {Op: "listConsumerMailDomains", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/channel-connections":                                        {Op: "listChannelConnections", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/company":                                                    {Op: "getCompany", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/company/context":                                            {Op: "getCompanyContext", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

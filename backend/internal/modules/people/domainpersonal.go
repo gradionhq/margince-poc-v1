@@ -82,15 +82,15 @@ func personExplainsLabel(label string, p DomainPerson) bool {
 // by itself.
 func personLabelCandidates(p DomainPerson) []string {
 	parts := strings.Fields(nameWithoutAffiliation(p.FullName))
-	if len(parts) == 0 {
+	// A one-word name is not a person's name, it is a label — `"Acme"
+	// <info@acme.example>` is how a company signs its own mail. Matching it
+	// against the domain would read the company's own name as a human's and
+	// refuse the company its record.
+	if len(parts) < 2 {
 		return nil
 	}
 	first, last := parts[0], parts[len(parts)-1]
-	out := []string{last, first + last}
-	if len(parts) == 1 {
-		return out
-	}
-	out = append(out, last+first)
+	out := []string{last, first + last, last + first}
 	if local := normalizeName(strings.Join(strings.FieldsFunc(p.EmailLocal, isNameSeparator), "")); local != "" {
 		// richard@richardnguyen.me against "Phu Nguyen": the address carries
 		// the given name the header does not.

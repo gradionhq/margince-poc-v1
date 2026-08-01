@@ -177,6 +177,27 @@ const triageSweepPageSize = 50
 // whose retry is due gets its read queued, under the same daily cap. It is what
 // makes the trigger allowed to be best-effort.
 func (w *captureAutoEnrichSweepWorker) sweepDomainTriage(ctx context.Context, dailyCap int) error {
+	// First, close the questions no crawl will ever answer. A domain that used
+	// every attempt drops out of the due scan below, so leaving it pending
+	// would strand its people without a company and without a reason on the
+	// row. It is settled from what the workspace already knows, exactly as a
+	// worker forbidden to look would settle it.
+	exhausted, err := w.people.ExhaustedDomains(ctx, triageSweepPageSize)
+	if err != nil {
+		return err
+	}
+	for _, domain := range exhausted {
+		if _, err := w.people.ResolveUnreadableDomainTriage(ctx, people.ResolveDomainTriageInput{
+			Domain:  domain.Domain,
+			SeedURL: people.TriageSeedURL(domain.Domain),
+			Evidence: "every attempt to read this site failed, so the question was answered " +
+				"from what the workspace already knew",
+		}); err != nil {
+			w.log.WarnContext(ctx, "domain triage: could not settle an exhausted domain",
+				"domain", domain.Domain, "err", err)
+		}
+	}
+
 	due, err := w.people.ListDueDomains(ctx, triageSweepPageSize)
 	if err != nil {
 		return err

@@ -41,7 +41,7 @@ func TestDomainLooksPersonalExplainsTheDomainsThatStartedThis(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "an accented surname matches the domain it accents",
+			name:    "a transliterated surname does not match the accented name",
 			label:   "mueller",
 			persons: []DomainPerson{{FullName: "Christian Müller", EmailLocal: "cm"}},
 			// "mueller" is a TRANSLITERATION of Müller, not an unaccenting of

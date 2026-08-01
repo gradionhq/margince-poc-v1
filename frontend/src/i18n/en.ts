@@ -1659,7 +1659,9 @@ export const en = {
   "backfill.countCaptured": "Captured",
   "backfill.statEmails": "Emails captured",
   "backfill.statPeople": "People",
-  "backfill.statCompanies": "Companies",
+  // The count is domains this run raised a company question for, not
+  // companies created — a domain becomes one only if its site says so.
+  "backfill.statCompanies": "Companies to check",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",

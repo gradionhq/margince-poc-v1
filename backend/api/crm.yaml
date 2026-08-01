@@ -4770,12 +4770,17 @@ paths:
       tags: [Capture]
       operationId: listConsumerMailDomains
       security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
       summary: The workspace's own consumer-mail domain list (CAP-PARAM-5).
       description: |
         The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
         Mail from a consumer domain still creates the person; what it never creates is a
-        company. Every role may read the list; only admin/ops may change it. Governed by the
-        `capture_settings` RBAC object.
+        company. Every human role may read the list; only admin/ops may change it. Governed by
+        the `capture_settings` RBAC object.
+
+        Human-only, like the personal-mail exclusion list it replaces: the list names the domains
+        this installation corresponds with and which of them it treats as consumer mail, which is
+        capture posture rather than record data, and no agent task needs it.
       responses:
         '200':
           description: The workspace's list entries.

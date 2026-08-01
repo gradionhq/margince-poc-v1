@@ -122,3 +122,42 @@ func TestBaselineSanitizesTheVendoredDataset(t *testing.T) {
 		}
 	}
 }
+
+func TestHostnameRefusesWhatAForgedHeaderCanCarry(t *testing.T) {
+	// net/mail accepts far more than DNS does: every string below parses as the
+	// domain half of a From: address. Each one used to reach a SQL LIKE pattern,
+	// a crawl seed, and an organization_domain row.
+	forged := []string{
+		"%",          // in a LIKE pattern this matched every address on file
+		"%.com",      //
+		"_.com",      // LIKE's single-character wildcard
+		"a'b.com",    //
+		"-acme.com",  // a label may not start with a hyphen
+		"acme-.com",  // nor end with one
+		"acme",       // no dot: not a mail domain
+		"acme..com",  // an empty label
+		"acme.com/x", //
+		"acme com",   //
+		"",           //
+	}
+	for _, domain := range forged {
+		if got, ok := Hostname(domain); ok {
+			t.Errorf("Hostname(%q) = %q, true — a forged domain must never become a key", domain, got)
+		}
+	}
+
+	// Real domains still pass, in the registrable form the matcher keys on.
+	for domain, want := range map[string]string{
+		"herpertz.net":      "herpertz.net",
+		"MAIL.GMX.NET":      "gmx.net",
+		"news.acme.co.uk":   "acme.co.uk",
+		"xn--mll-hoa.email": "xn--mll-hoa.email",
+		"müll.email":        "xn--mll-hoa.email",
+		"a-1.example":       "a-1.example",
+	} {
+		got, ok := Hostname(domain)
+		if !ok || got != want {
+			t.Errorf("Hostname(%q) = %q,%v, want %q,true", domain, got, ok, want)
+		}
+	}
+}

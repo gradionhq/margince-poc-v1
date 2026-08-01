@@ -144,10 +144,6 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 
 	var out FreemailDomain
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		actor, err := storekit.CapturedBy(ctx)
-		if err != nil {
-			return err
-		}
 		var before *string
 		if err := tx.QueryRow(ctx,
 			`SELECT kind FROM capture_freemail_domain WHERE domain = $1`, base).Scan(&before); err != nil &&
@@ -173,7 +169,7 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 			beforeImage = map[string]any{auditKeyDomain: base, auditKeyKind: *before}
 		}
 		_, auditErr := storekit.Audit(ctx, tx, "update", freemailDomainObject, out.ID,
-			beforeImage, map[string]any{auditKeyDomain: base, auditKeyKind: kind, "by": actor})
+			beforeImage, map[string]any{auditKeyDomain: base, auditKeyKind: kind})
 		return auditErr
 	})
 	if err != nil {

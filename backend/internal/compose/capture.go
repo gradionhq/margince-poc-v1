@@ -95,8 +95,16 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 }
 
 // CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
-// compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
+// compose suppression config the Sink gates read (CAP-PARAM-6, ADR-0072).
+//
+// Every role that boots with a config file goes through here, which is why the
+// stale-key warnings are reported here: a setting that is still accepted but no
+// longer acts must say so once, at boot, or an operator goes on believing the
+// file governs something it does not.
 func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
+	for _, warning := range c.Warnings() {
+		log.Warn("capture configuration: " + warning)
+	}
 	return CaptureConfig{
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
@@ -128,7 +136,8 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 }
 
 // newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
-// merge-stager and the counterparty auto-create resolver attached. Every capture path shares this spelling: the connector
+// merge-stager and the counterparty auto-create resolver attached. Every
+// capture path shares this spelling: the connector
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {

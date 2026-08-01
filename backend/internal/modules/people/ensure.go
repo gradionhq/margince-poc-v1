@@ -85,8 +85,11 @@ type EnsureCounterpartyResult struct {
 	OrgCreated     bool
 	DedupeRecorded bool
 
-	// TriagePending reports that this domain's organization question was left
-	// open, and TriageDomain names the domain to ask about. The ensure only
+	// TriagePending reports that this ensure OPENED a domain's organization
+	// question, and TriageDomain names the domain to ask about. A later message
+	// that merely finds the question still open reports nothing: it is the same
+	// question, it needs no second crawl, and counting it again would report a
+	// hundred companies for the one domain a backfill actually met. The ensure only
 	// RECORDS the question — enqueueing the crawl that answers it belongs to
 	// compose, after this transaction commits, so a queue outage can never cost
 	// the message that raised it. The sweep re-finds anything a missed trigger
@@ -229,7 +232,14 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	if err := auth.Require(ctx, entityOrganization, principal.ActionCreate); err != nil {
 		return err
 	}
-	base := freemail.Registrable(in.Domain)
+	// A From: header is forgeable and net/mail parses far more loosely than DNS
+	// allows, so a counterparty "domain" may be any atext string — `jane@%`
+	// parses. Nothing that is not a hostname may become a company, a crawl seed,
+	// or a key in a query: the person still lands, with no employer.
+	base, ok := freemail.Hostname(in.Domain)
+	if !ok {
+		return nil
+	}
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain, base}})
 	if err != nil {
 		return err
@@ -241,6 +251,12 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	}
 	orgID := match.OrganizationID
 	res.OrganizationID = &orgID
+	// A human put a company on this domain. That overrides whatever a crawl
+	// concluded — including a refusal — and the ledger records it as theirs, so
+	// the next message stops re-asking and the trail says who overruled what.
+	if err := adoptDispositionForOrg(ctx, tx, base, orgID); err != nil {
+		return err
+	}
 
 	// The employment edge: only when the person has no current primary
 	// employer — capture suggests, it never reassigns someone's company
@@ -259,6 +275,26 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	return nil
 }
 
+// adoptDispositionForOrg settles a domain onto the organization that already
+// exists for it. It is the one thing that reverses a triage refusal: a wrong
+// `personal` verdict is otherwise permanent, and the only correction available
+// to a human is to create the company themselves — which this makes stick.
+//
+// A no-op for a domain nobody ever asked about, so the ordinary case of mail
+// arriving at a long-known company writes nothing.
+func adoptDispositionForOrg(ctx context.Context, tx pgx.Tx, domain string, orgID ids.OrganizationID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_domain_disposition
+		   SET status = $2, source = $3, organization_id = $4,
+		       evidence = 'a human put a company on this domain',
+		       next_attempt_at = NULL, updated_at = now()
+		 WHERE domain = $1 AND (status <> $2 OR organization_id IS DISTINCT FROM $4)`,
+		domain, DomainCompany, DomainSourceHuman, orgID); err != nil {
+		return fmt.Errorf("people: recording that a human settled %s: %w", domain, err)
+	}
+	return nil
+}
+
 // deferOrgToTriage handles a domain with no organization behind it yet: decide
 // whether the question is even worth asking, and if it is, open it.
 //
@@ -271,11 +307,15 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 	// settle. The sink's tier ladder usually catches it first; this repeats the
 	// check because the verdict engine and the review-queue accept reach this
 	// same chokepoint without passing through that ladder.
-	consumerMail, err := s.freemail(ctx, tx)
+	// Consumer mail is answered by the domain itself and needs no crawl to
+	// settle. The sink's tier ladder usually catches it first; this repeats the
+	// check because the verdict engine and the review-queue accept reach this
+	// same chokepoint without passing through that ladder.
+	consumerMail, err := s.consumerMailMatcher(ctx, tx)
 	if err != nil {
 		return err
 	}
-	if in.SuppressOrg || consumerMail.IsConsumer(base) {
+	if consumerMail.IsConsumer(base) {
 		return nil
 	}
 	prior, known, err := readDispositionTx(ctx, tx, base)
@@ -283,19 +323,23 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 		return err
 	}
 	if known && prior.Settled() {
-		// personal, provider, no_site — all answered, all "no company from this
-		// domain". A 'company' verdict cannot reach here: the dedupe above
-		// would have found the organization it named.
+		// Answered — so nothing more to ask, whatever the answer was. A
+		// 'company' verdict cannot reach here at all: the dedupe above would
+		// have found the organization it named. Neither can the no_site variant
+		// that DID create one, for the same reason; what reaches here is a
+		// refusal, or a no_site that created nothing.
 		return nil
 	}
 	if known {
-		res.TriagePending, res.TriageDomain = true, base
+		// The question is open and somebody already asked it — the crawl is
+		// coming, or the sweep will re-ask. Nothing further from this message.
 		return nil
 	}
-	if err := recordPendingDispositionTx(ctx, tx, base, in.OwnerID); err != nil {
+	opened, err := recordPendingDispositionTx(ctx, tx, base, in.OwnerID)
+	if err != nil {
 		return err
 	}
-	res.TriagePending, res.TriageDomain = true, base
+	res.TriagePending, res.TriageDomain = opened, base
 	return nil
 }
 

@@ -81,6 +81,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/overlay:SetManualUserMap":              "same: only usermapservice.go calls it, behind requireUserMapAdmin",
 	"internal/modules/overlay:UpsertAssoc":                   "the same sweep's edge write, from backfill",
 	"internal/modules/overlay:UpsertUserMap":                 "the per-entry write SeedUserMap and the visibility recompute drive; same two paths, no independent entry",
+	"internal/modules/people:ExhaustedDomains":               "triage sweep (compose/capturedomaintriage.go) under the system principal: reads domains whose crawl attempts are spent so the sweep can settle them rather than strand them; no record, no human actor",
 	"internal/modules/people:GetMyLinkedInAccount":           "self-only: reads the CALLER's own linkedin_account row, keyed on the authenticated principal's user id, and there is no path here to another member's; an object grant would be the wrong question because a member needs no permission to see their own profile",
 	"internal/modules/people:ListDueDomains":                 "triage sweep (compose/capturedomaintriage.go) under the system principal: reads domains still owed an organization verdict, no record and no human actor — the twin of capture:ListDueOrgs",
 	"internal/modules/people:MarkTriageQueued":               "triage sweep bookkeeping for a domain it just enqueued a crawl for; arms the retry cursor, touches no record",

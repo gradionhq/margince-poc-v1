@@ -43,6 +43,51 @@ func Registrable(domain string) string {
 	return base
 }
 
+// Hostname returns the registrable form of a domain only when the input is a
+// syntactically valid hostname, reporting false otherwise.
+//
+// Mail domains arrive from a From: header, which is forgeable and which
+// net/mail parses far more loosely than DNS allows: `jane@%` parses, and `%` is
+// a legal RFC 5322 atext character. A domain that reaches SQL, a crawl seed, or
+// an organization_domain row without passing here is a string an outsider
+// chose — and one of those uses put it in a LIKE pattern, where `%` matched
+// every address in the workspace.
+//
+// This is the gate; callers that only need normalization keep using Registrable.
+func Hostname(domain string) (string, bool) {
+	base := Registrable(domain)
+	if base == "" || len(base) > maxHostnameLen || !strings.Contains(base, ".") {
+		return "", false
+	}
+	for _, label := range strings.Split(base, ".") {
+		if !validHostnameLabel(label) {
+			return "", false
+		}
+	}
+	return base, true
+}
+
+// maxHostnameLen is the DNS limit on a presentation-format name.
+const maxHostnameLen = 253
+
+// validHostnameLabel accepts one DNS label: letters, digits and inner hyphens,
+// 1..63 characters. Registrable has already lowercased and punycoded, so this
+// judges ASCII only and a Unicode domain is judged by its xn-- form.
+func validHostnameLabel(label string) bool {
+	if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+		return false
+	}
+	for i := 0; i < len(label); i++ {
+		c := label[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // normalize lowercases, trims, drops the root dot, and folds Unicode labels to
 // punycode. The IDNA conversion is the lookup profile deliberately: a domain
 // that fails it is returned as-is rather than dropped, because this is also the

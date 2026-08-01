@@ -20,14 +20,40 @@ import (
 
 // openTriage puts a domain in the state the ensure ladder leaves it: the person
 // exists, the organization question is open, and no company row was invented.
+//
+// Only the FIRST sender on a domain reports TriagePending — the question is
+// opened once and one crawl answers it, however many colleagues write in.
 func (e *dedupeEnv) openTriage(ctx context.Context, t *testing.T, email, display, domain string) EnsureCounterpartyResult {
 	t.Helper()
 	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, email, display, domain))
 	if err != nil {
 		t.Fatalf("ensure %s: %v", email, err)
 	}
-	if !res.TriagePending {
-		t.Fatalf("ensure %s = %+v, want the triage question opened", email, res)
+	if res.OrgCreated || res.OrganizationID != nil {
+		t.Fatalf("ensure %s = %+v, want NO company from an unjudged domain", email, res)
+	}
+	var open int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FROM organization_domain_disposition
+			WHERE domain = $1 AND status = 'pending'`, domain).Scan(&open)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if open != 1 {
+		t.Fatalf("%d open questions for %s after ensuring %s, want exactly 1", open, domain, email)
+	}
+	return res
+}
+
+// openTriageFirst is openTriage for the sender that OPENS the question, and
+// additionally asserts that it was this ensure that opened it — the signal the
+// trigger and the backfill counter both key on.
+func (e *dedupeEnv) openTriageFirst(ctx context.Context, t *testing.T, email, display, domain string) EnsureCounterpartyResult {
+	t.Helper()
+	res := e.openTriage(ctx, t, email, display, domain)
+	if !res.TriagePending || res.TriageDomain != domain {
+		t.Fatalf("ensure %s = %+v, want the triage question reported as opened", email, res)
 	}
 	return res
 }
@@ -48,8 +74,11 @@ func TestCompanyVerdictCreatesTheOrganizationAndWiresEveryoneWaitingOnIt(t *test
 
 	// Two colleagues wrote in while the question was open. Both have people
 	// rows and neither has an employer.
-	first := e.openTriage(ctx, t, "manuel@basecom.test", "Manuel Wortmann", "basecom.test")
+	first := e.openTriageFirst(ctx, t, "manuel@basecom.test", "Manuel Wortmann", "basecom.test")
 	second := e.openTriage(ctx, t, "petra@basecom.test", "Petra Klein", "basecom.test")
+	if second.TriagePending {
+		t.Fatal("the second sender on a domain must not re-open a question that is already open")
+	}
 
 	readID := e.startTriageRead(ctx, t, "basecom.test")
 	res, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
@@ -125,7 +154,7 @@ func TestPersonalVerdictRefusesTheCompanyForGood(t *testing.T) {
 	ctx := e.as()
 
 	// The case that started this: a man's own domain, carrying his name.
-	e.openTriage(ctx, t, "sebastian@herpertz.test", "Sebastian Herpertz", "herpertz.test")
+	e.openTriageFirst(ctx, t, "sebastian@herpertz.test", "Sebastian Herpertz", "herpertz.test")
 	readID := e.startTriageRead(ctx, t, "herpertz.test")
 
 	if _, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
@@ -178,7 +207,7 @@ func TestCompanyVerdictAdoptsAnOrganizationAHumanCreatedMidTriage(t *testing.T) 
 	e := setupDedupe(t)
 	ctx := e.as()
 
-	e.openTriage(ctx, t, "ceo@midtriage.test", "Some One", "midtriage.test")
+	e.openTriageFirst(ctx, t, "ceo@midtriage.test", "Some One", "midtriage.test")
 	readID := e.startTriageRead(ctx, t, "midtriage.test")
 
 	// While the crawl ran, a human typed the company in.
@@ -234,10 +263,10 @@ func TestListDueDomainsOffersOnlyTheQuestionsWorthAsking(t *testing.T) {
 	ctx := e.as()
 
 	// Four domains in four states. Only the first is worth a crawl.
-	e.openTriage(ctx, t, "a@waiting.test", "A Person", "waiting.test")
-	e.openTriage(ctx, t, "b@inflight.test", "B Person", "inflight.test")
-	e.openTriage(ctx, t, "c@settled.test", "C Person", "settled.test")
-	e.openTriage(ctx, t, "d@exhausted.test", "D Person", "exhausted.test")
+	e.openTriageFirst(ctx, t, "a@waiting.test", "A Person", "waiting.test")
+	e.openTriageFirst(ctx, t, "b@inflight.test", "B Person", "inflight.test")
+	e.openTriageFirst(ctx, t, "c@settled.test", "C Person", "settled.test")
+	e.openTriageFirst(ctx, t, "d@exhausted.test", "D Person", "exhausted.test")
 
 	// inflight.test already has a read running: queueing a second would spend a
 	// second slot of the day's budget on one crawl.
@@ -269,15 +298,12 @@ func TestListDueDomainsOffersOnlyTheQuestionsWorthAsking(t *testing.T) {
 	if len(due) != 1 || due[0].Domain != "waiting.test" {
 		t.Fatalf("due = %+v, want only waiting.test", due)
 	}
-	if due[0].OwnerID != e.rep {
-		t.Errorf("due owner = %s, want the human whose connection surfaced it (%s)", due[0].OwnerID, e.rep)
-	}
 }
 
 func TestMarkTriageQueuedSpendsAnAttemptAndBacksOff(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
-	e.openTriage(ctx, t, "a@backoff.test", "A Person", "backoff.test")
+	e.openTriageFirst(ctx, t, "a@backoff.test", "A Person", "backoff.test")
 
 	if err := e.store.MarkTriageQueued(ctx, "backoff.test"); err != nil {
 		t.Fatalf("MarkTriageQueued: %v", err)

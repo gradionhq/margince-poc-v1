@@ -244,7 +244,8 @@ func plantDomainEmployment(ctx context.Context, tx pgx.Tx, domain string, orgID 
 			SELECT 1 FROM person_email pe
 			WHERE pe.person_id = p.id
 			  AND (split_part(pe.email, '@', 2) = $5
-			       OR split_part(pe.email, '@', 2) LIKE '%.' || $5))
+			       -- A literal suffix compare, never LIKE — see PersonsOnDomain.
+			       OR right(split_part(pe.email, '@', 2), length($5) + 1) = '.' || $5))
 		  AND NOT EXISTS (
 			SELECT 1 FROM relationship r
 			WHERE r.kind = 'employment' AND r.person_id = p.id
@@ -271,8 +272,14 @@ func bindTriageDossier(ctx context.Context, tx pgx.Tx, readID ids.UUID, orgID id
 	return nil
 }
 
-// settleDisposition writes the answer and closes the retry cursor, so the
-// domain drops out of the sweep's due scan for good.
+// settleDisposition writes the answer and closes the retry cursor, so the domain
+// drops out of the sweep's due scan for good.
+//
+// Guarded on `status = 'pending'`: a verdict answers an OPEN question. A late
+// duplicate — a re-queued job, a sweep racing a trigger — must not overwrite the
+// answer that already landed, and must never undo a human who settled it by
+// hand (adoptDispositionForOrg, which is deliberately not guarded because
+// overriding is its whole job).
 func settleDisposition(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInput, orgID *ids.OrganizationID) error {
 	var readID *ids.UUID
 	if !in.ReadID.IsZero() {
@@ -283,7 +290,7 @@ func settleDisposition(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInp
 		   SET status = $2, source = $3, evidence = NULLIF($4, ''),
 		       organization_id = $5, site_read_id = $6,
 		       next_attempt_at = NULL, updated_at = now()
-		 WHERE domain = $1`,
+		 WHERE domain = $1 AND status = 'pending'`,
 		in.Domain, in.Status, in.Source, in.Evidence, orgID, readID); err != nil {
 		return fmt.Errorf("people: settling the disposition of %s: %w", in.Domain, err)
 	}

@@ -25,10 +25,13 @@ import (
 )
 
 const (
-	siteReadStatusDeferred    = "deferred"
-	siteReadWireStatusDone    = "done"
-	siteReadWireStatusFailed  = "failed"
-	siteReadWireStatusPartial = "partial"
+	siteReadStatusDeferred = "deferred"
+	siteReadWireStatusDone = "done"
+	// A read that ended without a fault: stopped by a decision rather than by
+	// something going wrong. A failure is something to investigate; this is not.
+	siteReadWireStatusCancelled = "cancelled"
+	siteReadWireStatusFailed    = "failed"
+	siteReadWireStatusPartial   = "partial"
 )
 
 func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Request) {

@@ -26,9 +26,11 @@ CREATE TABLE organization_domain_disposition (
   -- provider — a mailbox or hosting vendor. The site belongs to a real company
   --            (live.fr is Microsoft's) which is emphatically NOT the sender's
   --            employer, so it must not become their organization either.
-  -- no_site  — nothing reachable to judge, and the sender's name does not
-  --            explain the domain. The organization was created on the old
-  --            terms; the row records that the question was already asked.
+  -- no_site  — nothing identified a company. organization_id says whether one
+  --            exists anyway: an unreadable site falls back to the sender's own
+  --            name and creates the company when that name does not explain the
+  --            domain, while a parked page creates nothing. Either way the
+  --            question is settled and the next message stops asking.
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'company', 'personal', 'provider', 'no_site')),
   -- What answered: the triage read, the sender-name heuristic when no site
