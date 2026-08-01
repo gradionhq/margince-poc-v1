@@ -217,6 +217,13 @@ func registerClientDirectly(t *testing.T, e *env, clientID string) {
 // leaves the connector switch as the only variable between them.
 func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 	const clientID = "directly-registered-client"
+	// A request the CONTRACT cannot bind is refused by the generated router
+	// before any middleware or handler runs, so the switch has no say in it.
+	// That refusal is captured in both states and compared below: it is the
+	// one answer this operation gives that the gate cannot change, and the
+	// thing an off switch must hide is the DEPLOYMENT's state, which two
+	// identical refusals disclose nothing about.
+	var unbindable [2]int
 
 	t.Run("off", func(t *testing.T) {
 		e := setup(t)
@@ -227,6 +234,7 @@ func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 		if status != http.StatusNotFound {
 			t.Fatalf("consent-request for a live client, connector off → %d, want 404", status)
 		}
+		unbindable[0] = e.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
 	})
 
 	t.Run("on", func(t *testing.T) {
@@ -237,7 +245,13 @@ func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 		if status != http.StatusOK {
 			t.Fatalf("consent-request for the same live client, connector on → %d, want 200", status)
 		}
+		unbindable[1] = c.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID, nil, nil, nil)
 	})
+
+	if unbindable[0] != http.StatusUnprocessableEntity || unbindable[1] != unbindable[0] {
+		t.Errorf("a request missing the required scope parameter → %d with the connector off and %d with it on, want %d from both: the parameter refusal must not distinguish the two deployments",
+			unbindable[0], unbindable[1], http.StatusUnprocessableEntity)
+	}
 }
 
 // authorizeNoFollow issues the authorize GET with redirects DISABLED, so the
