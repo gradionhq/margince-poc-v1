@@ -128,6 +128,18 @@ button.evidence-chip:hover {
   font-size: 12px;
 }
 
+/* Either side of a diff can be a whole jsonb document — a scraped fact set
+   runs to thousands of characters. Each side is capped at a few lines and
+   scrolls, so one such change cannot push the rest of the history off the
+   screen. The full value stays reachable, never truncated away. */
+.field-diff-from,
+.field-diff-to {
+  max-height: 4.5em;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
 .field-diff-from {
   color: var(--textTertiary);
   text-decoration: line-through;

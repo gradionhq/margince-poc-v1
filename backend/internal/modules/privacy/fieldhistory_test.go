@@ -4,6 +4,7 @@
 package privacy
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -163,7 +164,28 @@ func TestStringifyRendersValuesAndNeverLiteralNil(t *testing.T) {
 	if got := stringifyFieldValue(nil); got != nil {
 		t.Errorf("nil value = %q, want nil pointer (never a literal nil string)", *got)
 	}
-	if got := stringifyFieldValue(map[string]any{"a": "b"}); got == nil || *got == "" {
-		t.Error("structured value must render non-empty")
+	if got := stringifyFieldValue("Managed Hosting"); got == nil || *got != "Managed Hosting" {
+		t.Errorf("string value = %v, want it unchanged", got)
+	}
+}
+
+// A structured value is the server's own jsonb, and the reader is looking at
+// what changed on their account. Go's default formatting prints its internal
+// map syntax, which reached the screen as `map[logo:https://…]`.
+func TestStringifyStructuredValuesRenderAsJSONNotGoSyntax(t *testing.T) {
+	got := stringifyFieldValue(map[string]any{"logo": "https://scale.sc/icon.png"})
+	if got == nil {
+		t.Fatal("structured value rendered as nil, want JSON")
+	}
+	if strings.HasPrefix(*got, "map[") {
+		t.Errorf("value = %q, want JSON rather than Go map syntax", *got)
+	}
+	if *got != `{"logo":"https://scale.sc/icon.png"}` {
+		t.Errorf("value = %q, want compact JSON", *got)
+	}
+
+	list := stringifyFieldValue([]any{"a", "b"})
+	if list == nil || *list != `["a","b"]` {
+		t.Errorf("array value = %v, want compact JSON", list)
 	}
 }

@@ -399,7 +399,11 @@ export function changeTimeline(
   viewerUserId?: string,
 ): TimelineEntry[] {
   return changes.map((change) => ({
-    id: `change:${change.id}`,
+    // `id` is the AUDIT row's id, and one audit row projects one entry per
+    // field it touched — so it repeats across a flat list and only the pair
+    // identifies a row. The per-field view never saw this: its groups hold
+    // one field each, where the audit id alone happens to be unique.
+    id: `change:${change.id}:${change.field}`,
     kind: "change",
     title: label(change.field),
     atIso: change.changed_at,
