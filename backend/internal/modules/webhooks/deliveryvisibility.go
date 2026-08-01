@@ -45,6 +45,27 @@ import (
 // approvalVisibleTo in the switch below (BYO-EVT-4). The mirror.* events
 // name a dynamic object_class, handled by deferredDeliveryEvents below, so
 // no "mirror" key exists either.
+// selfOnlyEvents are subscribable events whose subject is a member's OWN
+// account and whose payload no other seat may read — not even an admin.
+//
+// They are keyed by EVENT TYPE rather than entity type because they stamp
+// entity "user", which they share with role.changed and the user.* lifecycle.
+// Those are genuinely workspace-level facts carried as a bare ref, so "user"
+// sits in workspaceLevelEntities below and delivers to every live subscription
+// owner. These do not qualify twice over: their subject is self-only by
+// decision (ADR-0078 §8b — a colleague's professional network is theirs, and
+// the API has no path to another member's row), and their payload carries
+// state rather than a bare ref, so the "receiver re-reads it under its own
+// scope" justification does not apply.
+//
+// Without this a webhook subscription would be a bypass of the access rule the
+// API enforces: an admin cannot read whether a colleague connected LinkedIn or
+// how large their network is, but would learn both from the fan-out.
+var selfOnlyEvents = map[string]struct{}{
+	"linkedin_account.changed":  {},
+	"linkedin_network.imported": {},
+}
+
 var workspaceLevelEntities = map[string]struct{}{
 	"pipeline":                {},
 	"stage":                   {},
@@ -126,6 +147,13 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// ratified undelivered, and caught here so the object_class
 		// collision can never fall through to a row-scope probe below.
 		return false, nil
+	}
+	if _, self := selfOnlyEvents[eventType]; self {
+		// The subject IS the member, so the only owner who may receive it is
+		// that member. Checked before the entity switch because these stamp
+		// entity "user", which is otherwise workspace-level.
+		actor, ok := principal.Actor(ctx)
+		return ok && actor.UserID != ids.Nil && actor.UserID == entityID, nil
 	}
 	switch entityType {
 	case "person", "organization", "deal", "lead", "project", "voice_profile":
