@@ -14311,17 +14311,14 @@ components:
     ConsentPassportOption:
       type: object
       description: |
-        One passport the signed-in human may lend to the requesting client. `granted` is
-        `scopes` intersected with what the client requested — it is what this connection
-        would actually receive, and may be narrower than `scopes`.
-      required: [id, label, scopes, granted, expires_at]
+        One passport the signed-in human may lend to the requesting client. `scopes` is both
+        what the passport carries and what a connection lending it receives: the client's
+        request does not narrow the grant, so there is no second, smaller set beside it.
+      required: [id, label, scopes, expires_at]
       properties:
         id: { type: string, format: uuid }
         label: { type: string }
         scopes:
-          type: array
-          items: { type: string, enum: [read, draft, write, send, enrich] }
-        granted:
           type: array
           items: { type: string, enum: [read, draft, write, send, enrich] }
         expires_at: { type: string, format: date-time }
@@ -14338,6 +14335,9 @@ components:
         requested:
           type: array
           items: { type: string, enum: [read, draft, write, send, enrich] }
+          description: |
+            The scopes the client named on the authorize URL. Informational only — the grant is
+            the lent passport's own scopes, so this neither widens nor narrows it.
         offline:
           type: boolean
           description: The client asked to stay connected without asking again (offline_access).

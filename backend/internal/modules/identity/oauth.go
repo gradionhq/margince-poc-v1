@@ -303,10 +303,10 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The human LENDS one of their own passports rather than granting scopes ad
-	// hoc, so the code carries the INTERSECTION of that passport's authority and
-	// the client's request — never wider than either one. resolveLend states why
-	// that intersection is re-computed here instead of taken from the form.
-	lent, lendable, err := h.svc.resolveLend(r.Context(), id, req.Scopes, r.PostForm.Get("passport_id"))
+	// hoc, so the code carries exactly that passport's authority — the client's
+	// request is not a second ceiling. resolveLend states why, and why the
+	// passport is re-resolved here instead of taken from the form.
+	lent, lendable, err := h.svc.resolveLend(r.Context(), id, r.PostForm.Get("passport_id"))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -337,8 +337,8 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 
 // mintAuthorizationCode writes the single-use code the consent produced and
 // returns the plaintext courier the client will redeem; only its hash is
-// stored. The scopes it records are the ones the human actually lent — the
-// intersection, never the client's request.
+// stored. The scopes it records are the ones the human actually lent — the lent
+// passport's own, never the client's request.
 //
 // The offline_access marker's durable home is oauth_grant.refresh_allowed, and
 // no grant exists until the code is redeemed — so it rides in this
@@ -386,7 +386,7 @@ func (h Handlers) mintAuthorizationCode(
 // question "which of my passports did I lend to this connection?" can be
 // answered afterwards.
 //
-// The after image is the authority actually handed over — the intersected
+// The after image is the authority actually handed over — the lent passport's
 // scopes, never the client's request — and refresh_allowed beside them, the
 // same pair issueGrant records when the code is later redeemed, so the consent
 // and its redemption read as one story. The actor is stamped by storekit from

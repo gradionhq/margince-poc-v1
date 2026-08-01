@@ -1986,33 +1986,6 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
-// Defines values for ConsentPassportOptionGranted.
-const (
-	ConsentPassportOptionGrantedDraft  ConsentPassportOptionGranted = "draft"
-	ConsentPassportOptionGrantedEnrich ConsentPassportOptionGranted = "enrich"
-	ConsentPassportOptionGrantedRead   ConsentPassportOptionGranted = "read"
-	ConsentPassportOptionGrantedSend   ConsentPassportOptionGranted = "send"
-	ConsentPassportOptionGrantedWrite  ConsentPassportOptionGranted = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentPassportOptionGranted enum.
-func (e ConsentPassportOptionGranted) Valid() bool {
-	switch e {
-	case ConsentPassportOptionGrantedDraft:
-		return true
-	case ConsentPassportOptionGrantedEnrich:
-		return true
-	case ConsentPassportOptionGrantedRead:
-		return true
-	case ConsentPassportOptionGrantedSend:
-		return true
-	case ConsentPassportOptionGrantedWrite:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ConsentPassportOptionScopes.
 const (
 	ConsentPassportOptionScopesDraft  ConsentPassportOptionScopes = "draft"
@@ -7460,22 +7433,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -9052,19 +9025,15 @@ type ConsentEventActorType string
 // ConsentEventNewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 type ConsentEventNewState string
 
-// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `granted` is
-// `scopes` intersected with what the client requested — it is what this connection
-// would actually receive, and may be narrower than `scopes`.
+// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `scopes` is both
+// what the passport carries and what a connection lending it receives: the client's
+// request does not narrow the grant, so there is no second, smaller set beside it.
 type ConsentPassportOption struct {
-	ExpiresAt time.Time                      `json:"expires_at"`
-	Granted   []ConsentPassportOptionGranted `json:"granted"`
-	Id        openapi_types.UUID             `json:"id"`
-	Label     string                         `json:"label"`
-	Scopes    []ConsentPassportOptionScopes  `json:"scopes"`
+	ExpiresAt time.Time                     `json:"expires_at"`
+	Id        openapi_types.UUID            `json:"id"`
+	Label     string                        `json:"label"`
+	Scopes    []ConsentPassportOptionScopes `json:"scopes"`
 }
-
-// ConsentPassportOptionGranted defines model for ConsentPassportOption.Granted.
-type ConsentPassportOptionGranted string
 
 // ConsentPassportOptionScopes defines model for ConsentPassportOption.Scopes.
 type ConsentPassportOptionScopes string
@@ -9091,8 +9060,11 @@ type ConsentRequest struct {
 	ClientName string `json:"client_name"`
 
 	// Offline The client asked to stay connected without asking again (offline_access).
-	Offline   bool                      `json:"offline"`
-	Passports []ConsentPassportOption   `json:"passports"`
+	Offline   bool                    `json:"offline"`
+	Passports []ConsentPassportOption `json:"passports"`
+
+	// Requested The scopes the client named on the authorize URL. Informational only — the grant is
+	// the lent passport's own scopes, so this neither widens nor narrows it.
 	Requested []ConsentRequestRequested `json:"requested"`
 }
 

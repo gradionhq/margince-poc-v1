@@ -63,10 +63,10 @@ const (
 // tests against — rather than spelled again here, so a scope added to the
 // closed vocabulary cannot be left out of discovery.
 //
-// A scope a client cannot see is a scope it will never ask for, and a resource
-// that shows none is a resource a client asks nothing of: the authorize parser
-// then defaults to `read` and the connection is read-only however broad the
-// passport the human lent, because a grant is the intersection of the two.
+// It is advertised because RFC 9728 §2 says a resource states its vocabulary,
+// and a scope a client cannot see is a scope it will never name. What it does
+// NOT do is bound a connection: the grant is the lent passport's own scopes, so
+// a client that names nothing here still receives everything the human lent.
 var resourceScopesSupported = func() []string {
 	advertised := make([]string, 0, len(passportScopeVocabulary))
 	for _, scope := range passportScopeVocabulary {

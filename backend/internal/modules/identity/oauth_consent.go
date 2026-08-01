@@ -5,14 +5,13 @@ package identity
 
 // The consent screen's read model. It answers ONE question — which of this
 // human's passports may be lent to this client — and answers it in SQL rather
-// than by filtering in Go, so the four exclusions cannot drift apart from the
+// than by filtering in Go, so the three exclusions cannot drift apart from the
 // row scope the rest of this module enforces.
 
 import (
 	"context"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -28,26 +27,28 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// ConsentOption is one lendable passport as the consent screen sees it.
-// Granted is Scopes ∩ the client's request: what the connection would actually
-// receive, which may be narrower than the passport carries.
+// ConsentOption is one lendable passport as the consent screen sees it. Scopes
+// is both what the passport carries and what a connection lending it receives:
+// the client's request does not narrow the grant, so there is no second,
+// smaller set to carry alongside.
 type ConsentOption struct {
 	ID        ids.PassportID
 	Label     string
 	Scopes    []principal.Scope
-	Granted   []principal.Scope
 	ExpiresAt time.Time
 }
 
-// SelectablePassports lists the passports id may lend to a client requesting
-// `requested`. Four exclusions, all in the predicate:
+// SelectablePassports lists the passports id may lend to a client. Three
+// exclusions, all in the predicate:
 //
 //   - on_behalf_of = the caller: you may only lend your OWN authority.
 //   - revoked_at IS NULL and unexpired: a dead credential is not a template.
 //   - oauth_grant_id IS NULL: a passport already bound to a connection is not
 //     lendable, or revoking one connection would appear to affect another.
-//   - a non-empty scope overlap: a passport that can grant nothing must not be
-//     offered as a choice that does nothing.
+//
+// What the client asked for is deliberately NOT an exclusion. A passport grants
+// its own scopes whatever was requested, so a passport that overlaps the
+// request in nothing is still a valid — and possibly the intended — choice.
 //
 // Human-only at the seam, not merely at the transport. Lending authority is a
 // decision only the human who holds it may take, and anything that could
@@ -55,15 +56,9 @@ type ConsentOption struct {
 // here, where every caller passes, rather than trusted to have been stopped by
 // the contract's `x-agent-access: human-only` or by a session lookup some later
 // transport might not perform.
-func (s *Service) SelectablePassports(
-	ctx context.Context, id Identity, requested []principal.Scope,
-) ([]ConsentOption, error) {
+func (s *Service) SelectablePassports(ctx context.Context, id Identity) ([]ConsentOption, error) {
 	if err := auth.RequireHuman(ctx); err != nil {
 		return nil, err
-	}
-	want := make([]string, 0, len(requested))
-	for _, scope := range requested {
-		want = append(want, string(scope))
 	}
 	var out []ConsentOption
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -74,8 +69,7 @@ func (s *Service) SelectablePassports(
 			  AND revoked_at IS NULL
 			  AND expires_at > now()
 			  AND oauth_grant_id IS NULL
-			  AND scopes && $2::text[]
-			ORDER BY created_at DESC`, id.UserID, want)
+			ORDER BY created_at DESC`, id.UserID)
 		if err != nil {
 			return err
 		}
@@ -98,9 +92,6 @@ func (s *Service) SelectablePassports(
 			}
 			for _, scope := range scopes {
 				option.Scopes = append(option.Scopes, principal.Scope(scope))
-				if slices.Contains(want, scope) {
-					option.Granted = append(option.Granted, principal.Scope(scope))
-				}
 			}
 			out = append(out, option)
 		}
@@ -123,15 +114,23 @@ type lentPassport struct {
 }
 
 // resolveLend re-resolves the passport a consent POST offered to lend and
-// answers with what the connection would actually receive: that passport's
-// authority intersected with what the client requested.
+// answers with what the connection actually receives: that passport's own
+// scopes, exactly.
+//
+// The client's request is not consulted. Every mainstream MCP client sends no
+// scope parameter at all, so an intersection here defaulted every real
+// connection to read and made the 🟡 write half of the tool surface
+// unreachable. Dropping the cap widens nothing an adversary could not already
+// have — a client that wants everything simply asks for everything — so the
+// human's deliberate choice of a passport, on a screen built for that choice,
+// is the whole answer.
 //
 // The lend is re-queried rather than taken at the form's word. The list the
 // browser rendered is seconds old, so every selectability condition — this
-// human's own passport, alive, not already bound to a connection, overlapping
-// the request — is judged again against live rows; a passport revoked in
-// another tab must not still be lendable. lendable is false for a passport_id
-// naming anything not on that live list, a malformed id included.
+// human's own passport, alive, not already bound to a connection — is judged
+// again against live rows; a passport revoked in another tab must not still be
+// lendable. lendable is false for a passport_id naming anything not on that
+// live list, a malformed id included.
 //
 // What this guarantees is that no lend is accepted for a passport that was
 // unselectable when the re-check ran — not that the check and the code write are
@@ -143,13 +142,9 @@ type lentPassport struct {
 // reached that credential anyway. The passport contributes its scopes and its
 // audited identity, both of which the human genuinely approved.
 func (s *Service) resolveLend(
-	ctx context.Context, id Identity, requested []string, rawID string,
+	ctx context.Context, id Identity, rawID string,
 ) (lent lentPassport, lendable bool, err error) {
-	want := make([]principal.Scope, 0, len(requested))
-	for _, scope := range requested {
-		want = append(want, principal.Scope(scope))
-	}
-	options, err := s.SelectablePassports(ctx, id, want)
+	options, err := s.SelectablePassports(ctx, id)
 	if err != nil {
 		return lentPassport{}, false, err
 	}
@@ -157,8 +152,8 @@ func (s *Service) resolveLend(
 	if !ok {
 		return lentPassport{}, false, nil
 	}
-	lent = lentPassport{ID: option.ID, Scopes: make([]string, 0, len(option.Granted))}
-	for _, scope := range option.Granted {
+	lent = lentPassport{ID: option.ID, Scopes: make([]string, 0, len(option.Scopes))}
+	for _, scope := range option.Scopes {
 		lent.Scopes = append(lent.Scopes, string(scope))
 	}
 	return lent, true, nil
@@ -240,15 +235,10 @@ func consentRequestPayload(
 		for _, scope := range option.Scopes {
 			scopes = append(scopes, crmcontracts.ConsentPassportOptionScopes(scope))
 		}
-		granted := make([]crmcontracts.ConsentPassportOptionGranted, 0, len(option.Granted))
-		for _, scope := range option.Granted {
-			granted = append(granted, crmcontracts.ConsentPassportOptionGranted(scope))
-		}
 		passports = append(passports, crmcontracts.ConsentPassportOption{
 			Id:        openapi_types.UUID(option.ID.UUID),
 			Label:     option.Label,
 			Scopes:    scopes,
-			Granted:   granted,
 			ExpiresAt: option.ExpiresAt,
 		})
 	}
@@ -276,7 +266,7 @@ func (h Handlers) GetConsentRequest(w http.ResponseWriter, r *http.Request, para
 		return
 	}
 	requested, offline := parseScopeRequest(params.Scope)
-	options, err := h.svc.SelectablePassports(r.Context(), id, requested)
+	options, err := h.svc.SelectablePassports(r.Context(), id)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
