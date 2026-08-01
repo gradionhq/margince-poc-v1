@@ -124,7 +124,7 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 	if _, err := storekit.Audit(auditCtx, tx, "create", "oauth_grant", grantID, nil,
 		map[string]any{
 			oauthParamClientID: in.ClientID,
-			"scopes":           in.Scopes,
+			auditFieldScopes:   in.Scopes,
 			"refresh_allowed":  in.RefreshAllowed,
 			oauthParamResource: in.Resource,
 		}); err != nil {

@@ -51,41 +51,60 @@ func TestClientResponseURICarriesOnlyOurAnswer(t *testing.T) {
 		want        string
 	}{
 		// The two answers, on the plain redirect every client registers.
-		"approval": {"https://client.example/cb", "S", approval,
-			"https://client.example/cb?code=AUTHCODE&state=S"},
-		"refusal": {"https://client.example/cb", "S", refusal,
-			"https://client.example/cb?error=access_denied&state=S"},
+		"approval": {
+			"https://client.example/cb", "S", approval,
+			"https://client.example/cb?code=AUTHCODE&state=S",
+		},
+		"refusal": {
+			"https://client.example/cb", "S", refusal,
+			"https://client.example/cb?error=access_denied&state=S",
+		},
 
 		// A query of the client's own is the reason this merges rather than
 		// appending behind a second '?', and it must come through untouched.
-		"the client's own query is preserved": {"https://client.example/cb?tenant=acme", "S", approval,
-			"https://client.example/cb?code=AUTHCODE&state=S&tenant=acme"},
+		"the client's own query is preserved": {
+			"https://client.example/cb?tenant=acme", "S", approval,
+			"https://client.example/cb?code=AUTHCODE&state=S&tenant=acme",
+		},
 
 		// A preset response parameter is cleared, whichever it is: for a
 		// loopback client the presented URI's query is never validated, so
 		// these arrive from whoever composed the authorize request.
-		"a preset code cannot survive a refusal": {"https://client.example/cb?code=preset", "S", refusal,
-			"https://client.example/cb?error=access_denied&state=S"},
-		"a preset error cannot survive an approval": {"https://client.example/cb?error=access_denied", "S", approval,
-			"https://client.example/cb?code=AUTHCODE&state=S"},
+		"a preset code cannot survive a refusal": {
+			"https://client.example/cb?code=preset", "S", refusal,
+			"https://client.example/cb?error=access_denied&state=S",
+		},
+		"a preset error cannot survive an approval": {
+			"https://client.example/cb?error=access_denied", "S", approval,
+			"https://client.example/cb?code=AUTHCODE&state=S",
+		},
 		"a preset error_description and error_uri are cleared too": {
 			"https://client.example/cb?error_description=nope&error_uri=https%3A%2F%2Fe.example", "S", approval,
-			"https://client.example/cb?code=AUTHCODE&state=S"},
-		"a preset state never reaches the client": {"https://client.example/cb?state=pinned", "S", approval,
-			"https://client.example/cb?code=AUTHCODE&state=S"},
+			"https://client.example/cb?code=AUTHCODE&state=S",
+		},
+		"a preset state never reaches the client": {
+			"https://client.example/cb?state=pinned", "S", approval,
+			"https://client.example/cb?code=AUTHCODE&state=S",
+		},
 
 		// No state sent means no state delivered — not an empty one, and
 		// certainly not one the redirect_uri carried.
-		"absent state emits no state at all": {"https://client.example/cb", "", approval,
-			"https://client.example/cb?code=AUTHCODE"},
-		"absent state does not license the URI's own": {"https://client.example/cb?state=pinned", "", approval,
-			"https://client.example/cb?code=AUTHCODE"},
+		"absent state emits no state at all": {
+			"https://client.example/cb", "", approval,
+			"https://client.example/cb?code=AUTHCODE",
+		},
+		"absent state does not license the URI's own": {
+			"https://client.example/cb?state=pinned", "", approval,
+			"https://client.example/cb?code=AUTHCODE",
+		},
 
 		// validRedirectURI refuses a fragment at registration; matching is
 		// port/scheme/host/path only, so a loopback client can present one
 		// anyway. It must not ride into the Location.
-		"a smuggled fragment is dropped": {"http://localhost:7777/cb#evil", "S", approval,
-			"http://localhost:7777/cb?code=AUTHCODE&state=S"},
+		"a smuggled fragment is dropped": {
+			"http://localhost:7777/cb#evil", "S", approval,
+			"http://localhost:7777/cb?code=AUTHCODE&state=S",
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := clientResponseURI(

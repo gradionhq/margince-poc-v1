@@ -35,6 +35,14 @@ import (
 // probing both tables.
 const passportTokenPrefix = "mgp_"
 
+// auditFieldScopes is the after-image key naming the authority a credential
+// write handed over. Every credential this module records carries it — the
+// passport mint below, the OAuth grant a consent produces (oauth_grant.go),
+// and the lend the consent POST records (oauth.go) — and they must agree on
+// the spelling, because reading the credential trail means reading one field
+// across all three.
+const auditFieldScopes = "scopes"
+
 const (
 	defaultPassportTTL = 30 * 24 * time.Hour
 	maxPassportTTL     = 90 * 24 * time.Hour
@@ -154,7 +162,7 @@ func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportI
 	// scopes and label are the row's own fields, so they are its after image
 	// rather than evidence about the write.
 	if _, err := storekit.Audit(actorCtx(ctx, id), tx, "create", "passport", out.ID.UUID,
-		nil, map[string]any{"scopes": in.Scopes, "label": in.Label}); err != nil {
+		nil, map[string]any{auditFieldScopes: in.Scopes, "label": in.Label}); err != nil {
 		return IssuedPassport{}, err
 	}
 	return out, nil

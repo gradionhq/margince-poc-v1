@@ -100,7 +100,7 @@ func redirectToClient(w http.ResponseWriter, r *http.Request, req authorizeReque
 // scheme, host and path only, so for a loopback client the presented URI's
 // query is never validated and a preset response parameter is reachable by
 // whoever composes the authorize request.
-var responseParams = []string{"code", "error", "error_description", "error_uri", "state"}
+var responseParams = []string{"code", oauthParamError, "error_description", "error_uri", "state"}
 
 // clientResponseURI is the absolute Location one authorization response is
 // delivered at: the client's redirect_uri carrying our answer, its own query

@@ -20,6 +20,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -47,9 +48,19 @@ type ConsentOption struct {
 //     lendable, or revoking one connection would appear to affect another.
 //   - a non-empty scope overlap: a passport that can grant nothing must not be
 //     offered as a choice that does nothing.
+//
+// Human-only at the seam, not merely at the transport. Lending authority is a
+// decision only the human who holds it may take, and anything that could
+// enumerate this list could pick from it — so an agent principal is refused
+// here, where every caller passes, rather than trusted to have been stopped by
+// the contract's `x-agent-access: human-only` or by a session lookup some later
+// transport might not perform.
 func (s *Service) SelectablePassports(
 	ctx context.Context, id Identity, requested []principal.Scope,
 ) ([]ConsentOption, error) {
+	if err := auth.RequireHuman(ctx); err != nil {
+		return nil, err
+	}
 	want := make([]string, 0, len(requested))
 	for _, scope := range requested {
 		want = append(want, string(scope))

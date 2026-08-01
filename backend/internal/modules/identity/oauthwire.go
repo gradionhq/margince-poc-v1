@@ -3,11 +3,11 @@
 
 package identity
 
-// The OAuth wire vocabulary this authorization server both PARSES off a
-// request and ADVERTISES in its metadata. Named once, in one place, because
-// the two sides have to agree exactly: a metadata document promising a grant
-// type or a parameter the endpoints do not honour strands a client after the
-// human has already consented, which is the worst possible moment to fail.
+// The OAuth wire vocabulary this authorization server PARSES off a request,
+// ADVERTISES in its metadata, and ANSWERS with. Named once, in one place,
+// because the sides have to agree exactly: a metadata document promising a
+// grant type or a parameter the endpoints do not honour strands a client after
+// the human has already consented, which is the worst possible moment to fail.
 
 const (
 	// oauthParamClientID and oauthParamResource are RFC 6749 / RFC 8707
@@ -23,6 +23,13 @@ const (
 	// grant_type of a renewal, the RFC 7009 token_type_hint, and the token
 	// response's own member. One spelling for all four.
 	oauthRefreshToken = "refresh_token"
+	// oauthParamError is RFC 6749's error member, which this server writes in
+	// two disjoint positions: the §5.2 JSON error body an endpoint answers, and
+	// the §4.1.2.1 error redirect a refused authorization sends to the client.
+	// One spelling for both, so a refusal cannot be named one thing on one path
+	// and something else on the other — and so responseParams (oauth_redirect.go)
+	// clears the same member an answer would set.
+	oauthParamError = "error"
 )
 
 // oauthScopesSupported is the passport vocabulary the metadata advertises,

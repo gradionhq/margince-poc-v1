@@ -314,7 +314,7 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// closed. It is judged AFTER the nonce check — a forged deny is still a
 	// forgery — and mints nothing: no grant, no code.
 	if r.PostForm.Get("deny") != "" {
-		redirectToClient(w, r, req, url.Values{"error": {"access_denied"}})
+		redirectToClient(w, r, req, url.Values{oauthParamError: {"access_denied"}})
 		return
 	}
 
@@ -415,7 +415,7 @@ func auditLend(
 		map[string]any{
 			"passport_id":      lentID,
 			oauthParamClientID: req.ClientID,
-			"scopes":           req.Scopes,
+			auditFieldScopes:   req.Scopes,
 			"refresh_allowed":  req.Offline,
 		})
 	return err
@@ -428,7 +428,7 @@ var (
 
 // oauthError is the RFC 6749 §5.2 error shape.
 func oauthError(w http.ResponseWriter, status int, code, description string) {
-	httperr.WriteJSON(w, status, map[string]string{"error": code, "error_description": description})
+	httperr.WriteJSON(w, status, map[string]string{oauthParamError: code, "error_description": description})
 }
 
 // scopeOfflineAccess is the scope Claude appends to ask for a refresh
