@@ -2678,4 +2678,24 @@ export const de = {
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
   "embedreindex.impact.queued": "würde in die Warteschlange gestellt",
+
+  "consent.title": "Zugriff autorisieren",
+  "consent.asks": "{client} möchte in Margince als du handeln.",
+  "consent.lend": "Leih ihm einen deiner Agent-Passports",
+  "consent.grantedNote":
+    "Diese Verbindung erhält nur die gezeigten Berechtigungen, auch wenn der Passport mehr erlaubt.",
+  "consent.offline":
+    "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
+  "consent.approve": "Autorisieren",
+  "consent.deny": "Abbrechen",
+  "consent.emptyTitle": "Du brauchst zuerst einen Agent-Passport",
+  "consent.emptyBody":
+    "Ein Passport ist die Vollmacht, die du einem Agenten leihst — er überschreitet nie deine eigenen Berechtigungen, und du kannst ihn jederzeit widerrufen. Stell einen aus, und wir bringen dich hierher zurück, um die Verbindung mit {client} abzuschließen.",
+  "consent.emptyCta": "Passport ausstellen",
+  "consent.expires": "läuft ab am {date}",
+  "consent.resumeTitle": "Verbindung mit {client} abschließen",
+  "consent.resumeBody":
+    "Du bist hierher gekommen, um einen Passport für {client} auszustellen. Sobald du einen hast, machst du dort weiter, wo du aufgehört hast.",
+  "consent.resume": "Verbindung fortsetzen",
+  "consent.resumeDismiss": "Diese Verbindung abbrechen",
 } as const satisfies Record<MessageKey, string>;

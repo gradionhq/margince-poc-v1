@@ -2657,6 +2657,26 @@ export const en = {
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "would enter economy mode",
   "embedreindex.impact.queued": "would be queued",
+
+  "consent.title": "Authorise access",
+  "consent.asks": "{client} wants to act in Margince as you.",
+  "consent.lend": "Lend it one of your agent passports",
+  "consent.grantedNote":
+    "This connection will get only the scopes shown, even if the passport allows more.",
+  "consent.offline":
+    "It will stay connected without asking again, renewing access until you revoke it.",
+  "consent.approve": "Authorise",
+  "consent.deny": "Cancel",
+  "consent.emptyTitle": "You need an agent passport first",
+  "consent.emptyBody":
+    "A passport is the authority you lend an agent — it never exceeds your own permissions, and you can revoke it at any time. Mint one and we'll bring you back here to finish connecting {client}.",
+  "consent.emptyCta": "Mint a passport",
+  "consent.expires": "expires {date}",
+  "consent.resumeTitle": "Finish connecting {client}",
+  "consent.resumeBody":
+    "You came here to mint a passport for {client}. Once you have one, pick up where you left off.",
+  "consent.resume": "Continue connecting",
+  "consent.resumeDismiss": "Cancel this connection",
 } as const;
 
 export type MessageKey = keyof typeof en;
