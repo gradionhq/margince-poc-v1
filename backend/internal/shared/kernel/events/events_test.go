@@ -65,6 +65,9 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"reply":    true,
 		"conflict": true, "budget_degraded": true, "write_rejected": true, "deleted": true,
 		"connected": true, "disconnected": true,
+		// A member imported their own LinkedIn network. Past tense like the
+		// rest; the list simply had not met it before.
+		"imported": true,
 	}
 
 	for _, typ := range Types() {

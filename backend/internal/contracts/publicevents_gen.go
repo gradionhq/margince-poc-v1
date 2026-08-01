@@ -34,6 +34,8 @@ const (
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
 	LeadUpdated               SubscribableEventType = "lead.updated"
+	LinkedinAccountChanged    SubscribableEventType = "linkedin_account.changed"
+	LinkedinNetworkImported   SubscribableEventType = "linkedin_network.imported"
 	MirrorBudgetDegraded      SubscribableEventType = "mirror.budget_degraded"
 	MirrorConflict            SubscribableEventType = "mirror.conflict"
 	MirrorDeleted             SubscribableEventType = "mirror.deleted"
@@ -128,6 +130,10 @@ func (e SubscribableEventType) Valid() bool {
 	case LeadPromoted:
 		return true
 	case LeadUpdated:
+		return true
+	case LinkedinAccountChanged:
+		return true
+	case LinkedinNetworkImported:
 		return true
 	case MirrorBudgetDegraded:
 		return true
@@ -526,6 +532,27 @@ type PublicEventLeadPromoted struct {
 type PublicEventLeadUpdated struct {
 	// ChangedFields What this update touched, incl. runtime cf_* custom fields. The value shape depends on the emit site: a column patch carries a flat field → new-value entry, while the recompute/routing/relationship sites carry a `{delta: {...}}` sub-object (occasionally with a sibling `source`). Read a key's value as either form.
 	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
+// PublicEventLinkedinAccountChanged Payload for linkedin_account.changed — a member recorded or corrected their OWN LinkedIn authorization (people/linkedinaccount.go's SaveMyLinkedInAccount). Consent to read a professional network is the same class of fact as consent.changed, so it is auditable and published rather than written quietly. The profile URL itself is NOT in the payload: it is the member's own identifier and a subscriber needs to know that the authorization moved, not what their LinkedIn address is.
+type PublicEventLinkedinAccountChanged struct {
+	// Connected Whether an authorization is on record after this change.
+	Connected bool `json:"connected"`
+
+	// HasProfileUrl Whether a profile URL is now stored. False after a member clears the field, which is a deliberate "do not record this".
+	HasProfileUrl bool `json:"has_profile_url"`
+}
+
+// PublicEventLinkedinNetworkImported Payload for linkedin_network.imported — a member uploaded their own LinkedIn connections export. ONE event for the import act, never one per row: an export is thousands of rows, a per-row event would bury every other event in the stream, and the auditable fact is that a member imported their network at all. No connection is named in the payload: the imported rows are third parties who never consented to being in this CRM, and publishing their names would defeat the point of keeping them invisible everywhere else.
+type PublicEventLinkedinNetworkImported struct {
+	// Imported Connections stored or refreshed.
+	Imported int `json:"imported"`
+
+	// Rows Rows read from the file.
+	Rows int `json:"rows"`
+
+	// Skipped Rows with no usable name, counted rather than hidden.
+	Skipped int `json:"skipped"`
 }
 
 // PublicEventMirrorBudgetDegraded Payload for mirror.budget_degraded — a force-fresh read fell back to the mirror because the workspace's shared OVB budget had shed to the "shed" band (overlay/freshness.go's emitBudgetDegraded, OVA-EVT-3). The event names the record the degraded read was about; that record's class is a RUNTIME value (the read's own entity ref), so this is a dynamic-entity event (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and the emit site supplies the real entity type through storekit.EmitEventForEntity.
@@ -1227,6 +1254,14 @@ func (PublicEventLeadUpdated) EventType() string { return "lead.updated" }
 
 func (PublicEventLeadUpdated) EntityType() string { return "lead" }
 
+func (PublicEventLinkedinAccountChanged) EventType() string { return "linkedin_account.changed" }
+
+func (PublicEventLinkedinAccountChanged) EntityType() string { return "user" }
+
+func (PublicEventLinkedinNetworkImported) EventType() string { return "linkedin_network.imported" }
+
+func (PublicEventLinkedinNetworkImported) EntityType() string { return "user" }
+
 func (PublicEventMirrorBudgetDegraded) EventType() string { return "mirror.budget_degraded" }
 
 func (PublicEventMirrorBudgetDegraded) EntityType() string { return "dynamic" }
@@ -1432,6 +1467,8 @@ var PublicEventVersions = map[string]int{
 	"lead.disqualified":            1,
 	"lead.promoted":                1,
 	"lead.updated":                 1,
+	"linkedin_account.changed":     1,
+	"linkedin_network.imported":    1,
 	"mirror.budget_degraded":       1,
 	"mirror.conflict":              1,
 	"mirror.deleted":               1,

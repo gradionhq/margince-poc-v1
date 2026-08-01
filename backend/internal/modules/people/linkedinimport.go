@@ -29,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -99,15 +100,37 @@ func (s *Store) ImportLinkedInConnections(ctx context.Context, r io.Reader) (Lin
 	out := LinkedInImportResult{Rows: len(rows.parsed) + rows.skipped, Skipped: rows.skipped}
 
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		out.Imported = 0
 		for _, row := range rows.parsed {
 			if err := upsertGhost(ctx, tx, actor.UserID, row); err != nil {
 				return err
 			}
 			out.Imported++
 		}
-		return nil
+		// The write shape, once for the ACT and not once per row. An export is
+		// thousands of connections; a per-row audit would bury every other
+		// entry in the log and a per-row event would do the same to the stream.
+		// The auditable fact is that this member imported their network, and
+		// how much of the file was usable.
+		auditID, err := storekit.Audit(ctx, tx, "import", "user", actor.UserID, nil, map[string]any{
+			"rows": out.Rows, "imported": out.Imported, "skipped": out.Skipped,
+		})
+		if err != nil {
+			return err
+		}
+		// No connection is NAMED in either the audit row or the event: the
+		// imported rows are third parties who never consented to being in this
+		// CRM, and recording their names here would defeat the invisibility
+		// that is the whole safety property of a ghost.
+		return storekit.EmitEvent(ctx, tx, auditID, actor.UserID,
+			crmcontracts.PublicEventLinkedinNetworkImported{
+				Rows: out.Rows, Imported: out.Imported, Skipped: out.Skipped,
+			})
 	})
-	return out, err
+	if err != nil {
+		return LinkedInImportResult{}, err
+	}
+	return out, nil
 }
 
 // LinkedInFormatError is a file this importer cannot read at all, as opposed

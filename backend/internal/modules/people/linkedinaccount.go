@@ -24,7 +24,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -96,7 +98,11 @@ func (s *Store) SaveMyLinkedInAccount(ctx context.Context, in SaveMyLinkedInAcco
 		return LinkedInAccount{}, err
 	}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+		before, err := readLinkedInAccountTx(ctx, tx, actor.UserID)
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `
 			INSERT INTO linkedin_account (workspace_id, user_id, profile_url, connected_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, NULLIF($2, ''), CASE WHEN $3 THEN now() END)
@@ -106,7 +112,30 @@ func (s *Store) SaveMyLinkedInAccount(ctx context.Context, in SaveMyLinkedInAcco
 			      WHEN $3 THEN coalesce(linkedin_account.connected_at, now())
 			      ELSE linkedin_account.connected_at END,
 			    updated_at = now()`, actor.UserID, trimmed, in.Connected)
-		return err
+		if err != nil {
+			return err
+		}
+		after, err := readLinkedInAccountTx(ctx, tx, actor.UserID)
+		if err != nil {
+			return err
+		}
+		// The write shape, in one transaction with the row. Consent to read a
+		// professional network is exactly the kind of fact that must be
+		// auditable — a member has to be able to ask when they agreed and what
+		// changed, and an unaudited consent write cannot answer either.
+		auditID, err := storekit.Audit(ctx, tx, "update", "user", actor.UserID,
+			auditLinkedInAccount(before), auditLinkedInAccount(after))
+		if err != nil {
+			return err
+		}
+		// The URL itself stays OUT of the payload: it is the member's own
+		// identifier, and a subscriber needs to know the authorization moved,
+		// not what their LinkedIn address is.
+		return storekit.EmitEvent(ctx, tx, auditID, actor.UserID,
+			crmcontracts.PublicEventLinkedinAccountChanged{
+				Connected:     after.ConnectedAt != nil,
+				HasProfileUrl: after.ProfileURL != nil,
+			})
 	})
 	if err != nil {
 		return LinkedInAccount{}, fmt.Errorf("people: saving the caller's LinkedIn account: %w", err)
@@ -131,4 +160,27 @@ func validateLinkedInProfileURL(s string) error {
 		}
 	}
 	return nil
+}
+
+// readLinkedInAccountTx reads one member's row inside an open transaction, for
+// the before/after images the audit row carries.
+func readLinkedInAccountTx(ctx context.Context, tx pgx.Tx, user ids.UUID) (LinkedInAccount, error) {
+	var out LinkedInAccount
+	err := tx.QueryRow(ctx,
+		`SELECT profile_url, connected_at FROM linkedin_account WHERE user_id = $1`, user).
+		Scan(&out.ProfileURL, &out.ConnectedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return LinkedInAccount{}, nil
+	}
+	return out, err
+}
+
+// auditLinkedInAccount is the field image the audit row stores. The profile URL
+// is recorded here and not in the event: the audit log is the member's own
+// history of their own account, while the event fans out to subscribers.
+func auditLinkedInAccount(a LinkedInAccount) map[string]any {
+	return map[string]any{
+		"profile_url":  a.ProfileURL,
+		"connected_at": a.ConnectedAt,
+	}
 }

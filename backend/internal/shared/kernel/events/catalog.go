@@ -69,13 +69,22 @@ var catalog = map[string]struct {
 	stream  string
 	version int
 }{
-	"person.created":    {personStreamEntity, 1},
-	"person.updated":    {personStreamEntity, 1},
-	"person.archived":   {personStreamEntity, 1},
-	"person.merged":     {personStreamEntity, 1},
-	"person.restored":   {personStreamEntity, 1},
-	"consent.changed":   {personStreamEntity, 1},
-	"retention.applied": {personStreamEntity, 1},
+	"person.created":  {personStreamEntity, 1},
+	"person.updated":  {personStreamEntity, 1},
+	"person.archived": {personStreamEntity, 1},
+	"person.merged":   {personStreamEntity, 1},
+	"person.restored": {personStreamEntity, 1},
+	"consent.changed": {personStreamEntity, 1},
+	// A member recording or correcting their own LinkedIn authorization. It
+	// rides the person stream because the thing it governs is whose network
+	// gets read, and consent to read a professional network is the same class
+	// of fact as consent.changed beside it.
+	"linkedin_account.changed": {personStreamEntity, 1},
+	// One import act, not one row: an export is thousands of rows and a
+	// per-row event would bury every other event in the stream, while the
+	// auditable fact is that a member imported their network at all.
+	"linkedin_network.imported": {personStreamEntity, 1},
+	"retention.applied":         {personStreamEntity, 1},
 
 	"organization.created":  {organizationStreamEntity, 1},
 	"organization.updated":  {organizationStreamEntity, 1},
