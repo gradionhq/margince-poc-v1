@@ -33,21 +33,40 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
+)
+
+// The outbox entity types this consumer reacts to. Declared here rather than
+// reusing the FlipCRM import vocabulary: these name an event envelope's entity,
+// and borrowing the incumbent-import constants sends a reader to the overlay
+// path looking for why this consumer lives there.
+const (
+	matchEntityPerson       = "person"
+	matchEntityOrganization = "organization"
 )
 
 // LinkedInMatchGen attaches LinkedIn ghosts as the CRM learns who exists.
 type LinkedInMatchGen struct {
 	store *people.Store
-	log   *slog.Logger
+	// pool and authority are what lets each pass run under the GHOST OWNER's
+	// authority rather than a system principal's. Nil means the old
+	// system-principal shape, which no wired role uses: the constructor takes
+	// both, and the tests that leave them nil exercise the per-person path,
+	// which already runs under its caller.
+	pool      *pgxpool.Pool
+	authority authz.Resolver
+	log       *slog.Logger
 }
 
 // NewLinkedInMatchGen builds the matcher consumer over the people store.
-func NewLinkedInMatchGen(store *people.Store, log *slog.Logger) *LinkedInMatchGen {
-	return &LinkedInMatchGen{store: store, log: log}
+func NewLinkedInMatchGen(pool *pgxpool.Pool, store *people.Store, authority authz.Resolver, log *slog.Logger) *LinkedInMatchGen {
+	return &LinkedInMatchGen{store: store, pool: pool, authority: authority, log: log}
 }
 
 // HandleEvent routes one envelope to a match. An event this consumer does not
@@ -60,22 +79,24 @@ func (g *LinkedInMatchGen) HandleEvent(ctx context.Context, env events.Envelope)
 	ctx = g.matchContext(ctx, env)
 
 	switch env.Entity.Type {
-	case flipObjectPerson:
+	case matchEntityPerson:
 		switch env.Type {
-		// created and updated only. An ARCHIVED contact is deliberately absent:
+		// Every event that can make a live person row matchable. An archive needs no
+		// reaction: both match arms require archived_at IS NULL, so an archived
+		// contact stops being a candidate without anything being recomputed.
 		// both match arms already require archived_at IS NULL, so an archive
 		// needs no reaction, and a merge arrives as an update on the target.
 		case "person.created", "person.updated", "person.merged", "person.restored":
 			return g.matchPerson(ctx, env.Entity.ID)
 		}
-	case flipObjectOrganization:
+	case matchEntityOrganization:
 		switch env.Type {
 		// An account appearing or being renamed changes which company strings
 		// resolve, and that is what most unmatched ghosts are waiting on. The
 		// pass is workspace-wide because a new account can unblock ghosts
 		// belonging to any member.
 		case "organization.created", "organization.updated", "organization.merged":
-			return g.matchWorkspace(ctx)
+			return g.matchWorkspace(ctx, env.WorkspaceID)
 		}
 	}
 	return nil
@@ -94,22 +115,30 @@ func (g *LinkedInMatchGen) matchPerson(ctx context.Context, person ids.UUID) err
 	return nil
 }
 
-func (g *LinkedInMatchGen) matchWorkspace(ctx context.Context) error {
-	matched, err := g.store.MatchLinkedInConnections(ctx, ids.Nil)
-	if err != nil {
-		return err
-	}
-	if matched.Confirmed+matched.Suggested > 0 {
-		g.log.InfoContext(ctx, "linkedin match: an account unblocked ghosts",
-			"confirmed", matched.Confirmed, "suggested", matched.Suggested)
-	}
-	return nil
+// matchWorkspace re-runs the match for every member with undecided ghosts, each
+// under their OWN authority. Whose ghosts get matched is then the same question
+// as whose records they can see, which is what makes the answer independent of
+// who triggered the event.
+func (g *LinkedInMatchGen) matchWorkspace(ctx context.Context, workspace ids.UUID) error {
+	return forEachGhostOwner(ctx, g.pool, g.authority, workspace,
+		func(ownerCtx context.Context, owner ids.UUID) error {
+			matched, err := g.store.MatchLinkedInConnections(ownerCtx, owner)
+			if err != nil {
+				return err
+			}
+			if matched.Confirmed+matched.Suggested > 0 {
+				g.log.InfoContext(ownerCtx, "linkedin match: an account unblocked ghosts",
+					"owner", owner.String(),
+					"confirmed", matched.Confirmed, "suggested", matched.Suggested)
+			}
+			return nil
+		})
 }
 
-// matchContext binds the envelope's workspace and a system principal. The
-// matcher is maintenance, not a user action: it must consider every ghost and
-// every contact the base tables hold, or which matches get made would depend on
-// who happened to trigger the event.
+// matchContext binds the envelope's workspace and the maintenance principal the
+// OWNER enumeration runs under. The per-owner passes replace this actor with
+// the member's own authority before any record is read — this one only reaches
+// linkedin_connection and the roster.
 func (g *LinkedInMatchGen) matchContext(ctx context.Context, env events.Envelope) context.Context {
 	ctx = principal.WithWorkspaceID(ctx, env.WorkspaceID)
 	ctx = principal.WithCorrelationID(ctx, env.Trace.CorrelationID)

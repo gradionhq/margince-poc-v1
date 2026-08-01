@@ -113,10 +113,9 @@ func (s *Store) ImportLinkedInConnections(ctx context.Context, r io.Reader) (Lin
 		// a whole network. Doing it here rather than trusting the hourly sweep
 		// makes the import self-healing: it cannot depend on a background pass
 		// having happened to run first.
-		if _, err := renormalizeGhostKeysTx(ctx, tx); err != nil {
+		if _, err := renormalizeGhostKeysTx(ctx, tx, actor.UserID); err != nil {
 			return err
 		}
-		out.Imported = 0
 		for _, row := range rows.parsed {
 			// Counted only when a row was actually stored. An erased subject on
 			// the suppression list is refused, and reporting them as imported

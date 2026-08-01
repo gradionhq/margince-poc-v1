@@ -269,7 +269,7 @@ func whoKnowsSection(ctx context.Context, tx pgx.Tx, personID ids.UUID, maxItems
 	if len(edges) > maxItems {
 		edges = edges[:maxItems]
 	}
-	names, err := memberNames(ctx, tx, edges)
+	names, err := MemberNames(ctx, tx, edges)
 	if err != nil {
 		return section, err
 	}
@@ -290,10 +290,14 @@ func whoKnowsSection(ctx context.Context, tx pgx.Tx, personID ids.UUID, maxItems
 	return section, nil
 }
 
-// memberNames resolves the display names of the colleagues on a set of edges.
+// MemberNames resolves the display names of the colleagues on a set of edges.
 // The roster is readable by any authenticated member, so naming a colleague on
 // a contact the caller can already open discloses nothing new.
-func memberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[ids.UUID]string, error) {
+//
+// Exported because compose needs the same map for the agent seams, and two
+// copies of one query are two places for the disclosure argument above to be
+// re-decided differently.
+func MemberNames(ctx context.Context, tx pgx.Tx, edges []InteractionEdge) (map[ids.UUID]string, error) {
 	out := map[ids.UUID]string{}
 	if len(edges) == 0 {
 		return out, nil

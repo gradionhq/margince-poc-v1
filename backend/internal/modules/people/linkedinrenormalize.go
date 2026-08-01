@@ -45,7 +45,6 @@ type ghostKeyRow struct {
 	company *string
 	stored  *string
 	status  string
-	decided bool
 	// syncedAt breaks a tie between two rows carrying the same strength of
 	// decision. The NEWER one wins: it is the one the latest export described,
 	// and its profile URL is the address the connection is reachable at today.
@@ -59,18 +58,6 @@ type ghostKeyRow struct {
 // somebody looked and said no, and losing that would re-ask a question they
 // already answered. Passed to SQL as an array so the ordering is spelled once.
 var matchRankOrder = []string{"unmatched", "suggested", "rejected", "confirmed"}
-
-// decidedStatus answers whether a status carries a HUMAN's judgement.
-//
-// `suggested` does not, and reading it as if it did was a real defect: the
-// matcher writes it on its own, so a machine guess ranked equal to a person's
-// confirmation. Two copies both counted as "decided", the OLDEST id won, and a
-// human's confirmed link to P2 was replaced by the matcher's guess at P1 while
-// the row inherited the status `confirmed` from the copy it had just
-// overwritten. The decision looked honoured and pointed at the wrong person.
-func decidedStatus(status string) bool {
-	return status == "confirmed" || status == "rejected"
-}
 
 // matchRank is a status's position in matchRankOrder, so Go and SQL rank the
 // four states by the one list.
@@ -93,7 +80,7 @@ func (s *Store) RenormalizeLinkedInCompanyKeys(ctx context.Context) (LinkedInRen
 	var out LinkedInRenormalizeResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		out, err = renormalizeGhostKeysTx(ctx, tx)
+		out, err = renormalizeGhostKeysTx(ctx, tx, ids.Nil)
 		return err
 	})
 	return out, err
@@ -107,9 +94,9 @@ func (s *Store) RenormalizeLinkedInCompanyKeys(ctx context.Context) (LinkedInRen
 // very duplicates the sweep exists to clean up. Repairing first makes the
 // import self-healing rather than dependent on a background pass having
 // happened to run.
-func renormalizeGhostKeysTx(ctx context.Context, tx pgx.Tx) (LinkedInRenormalizeResult, error) {
+func renormalizeGhostKeysTx(ctx context.Context, tx pgx.Tx, onlyOwner ids.UUID) (LinkedInRenormalizeResult, error) {
 	var out LinkedInRenormalizeResult
-	all, err := readGhostKeys(ctx, tx)
+	all, err := readGhostKeys(ctx, tx, onlyOwner)
 	if err != nil {
 		return out, err
 	}
@@ -128,13 +115,19 @@ func renormalizeGhostKeysTx(ctx context.Context, tx pgx.Tx) (LinkedInRenormalize
 // readGhostKeys loads every CSV-sourced ghost with the parts of its natural
 // key that the normalizer does not touch, so grouping can be done in Go where
 // the normalizer lives.
-func readGhostKeys(ctx context.Context, tx pgx.Tx) ([]ghostKeyRow, error) {
+// onlyOwner zero means every member's rows — the worker's sweep. A non-zero
+// value narrows to one member, which is what the INTERACTIVE import passes: an
+// upload must not rewrite and delete a colleague's rows inside the uploader's
+// request, both because it is a write on rows the caller has no read path to
+// and because it puts every member's export behind one member's transaction.
+func readGhostKeys(ctx context.Context, tx pgx.Tx, onlyOwner ids.UUID) ([]ghostKeyRow, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, company_name, normalized_company, match_status, synced_at,
 		       owner_user_id::text || '|' || normalized_name || '|' ||
 		         coalesce(connected_on::text, 'epoch')
 		  FROM linkedin_connection
-		 WHERE provider_member_ref IS NULL`)
+		 WHERE provider_member_ref IS NULL
+		   AND ($1::uuid IS NULL OR owner_user_id = $1)`, nullableOwner(onlyOwner))
 	if err != nil {
 		return nil, fmt.Errorf("people: reading LinkedIn keys to re-normalize: %w", err)
 	}
@@ -145,7 +138,6 @@ func readGhostKeys(ctx context.Context, tx pgx.Tx) ([]ghostKeyRow, error) {
 		if err := rows.Scan(&r.id, &r.company, &r.stored, &r.status, &r.syncedAt, &r.dupGroup); err != nil {
 			return nil, err
 		}
-		r.decided = decidedStatus(r.status)
 		all = append(all, r)
 	}
 	return all, rows.Err()
@@ -226,8 +218,8 @@ func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error 
 		           THEN d.profile_url ELSE coalesce(k.profile_url, d.profile_url) END,
 		       provider_member_ref = coalesce(k.provider_member_ref, d.provider_member_ref),
 		       -- The person travels WITH the winning decision. Coalescing it
-		       -- independently let the survivor keep its own guess while
-		       -- inheriting the other copy's confirmed status, which reported a
+		       -- independently would let the survivor keep its own guess while
+		       -- inheriting the other copy's confirmed status, reporting a
 		       -- human's decision over a link they never made.
 		       matched_person_id = CASE
 		         WHEN array_position($3::text[], d.match_status) > array_position($3::text[], k.match_status)
@@ -258,11 +250,11 @@ func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error 
 
 // survivor picks which of a duplicate set to keep.
 //
-// Ranked by the STRENGTH of the decision on the row, not by a decided/undecided
-// flag: confirmed outranks rejected outranks suggested outranks unmatched, the
-// same order the fold uses, so the row that is kept is the row whose
-// matched_person_id the merged record will carry. Ranking by a boolean let a
-// machine suggestion tie with a human confirmation and win on age.
+// Ranked by the STRENGTH of the decision on the row: confirmed outranks
+// rejected outranks suggested outranks unmatched, the same order the fold uses,
+// so the row that is kept is the row whose matched_person_id the merged record
+// will carry. A decided/undecided boolean would let a machine suggestion tie
+// with a human confirmation and win on age.
 //
 // The newer sync breaks a tie, and the id breaks that, so the choice is
 // deterministic across replicas and re-runs.

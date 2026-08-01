@@ -18,6 +18,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
@@ -45,14 +47,11 @@ func (r riskAwareRetriever) Search(ctx context.Context, q retrieval.Query) ([]re
 
 // AssembleContext runs the inner walk, then adds `network_risks` on a deal.
 //
-// The risks are read in their OWN transaction rather than the walk's, which is
-// a real limitation and not an oversight: the retrieval port hands out no
-// transaction, and threading one through it would make every implementer take
-// a database. The consequence is bounded — the two reads can be milliseconds
-// apart, so a risk can describe a deal a concurrent write just changed. That is
-// the same staleness any two-request client already sees, and a coverage
-// summary is advisory. A single-transaction answer is what GET
-// /deals/{id}/coverage is for.
+// The risks are read in their OWN transaction: the retrieval port hands out
+// none, and threading one through it would make every implementer take a
+// database. So the two reads can be milliseconds apart and a risk can describe
+// a deal a concurrent write just changed — the staleness any two-request client
+// already sees. GET /deals/{id}/coverage is the single-snapshot answer.
 func (r riskAwareRetriever) AssembleContext(ctx context.Context, anchor datasource.EntityRef, opts retrieval.AssembleOptions) (retrieval.Context, error) {
 	out, err := r.inner.AssembleContext(ctx, anchor, opts)
 	if err != nil {
@@ -63,6 +62,14 @@ func (r riskAwareRetriever) AssembleContext(ctx context.Context, anchor datasour
 	}
 	section, err := r.riskSection(ctx, anchor.ID)
 	if err != nil {
+		// A grant that vanished between the walk and this read drops the
+		// SECTION, not the answer. The same policy the at-risk sweep takes: a
+		// coverage summary is advisory, and throwing away a fully assembled
+		// timeline because one advisory read was refused turns a revoked grant
+		// into a broken assistant. Anything else still fails loudly.
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+			return out, nil
+		}
 		return retrieval.Context{}, err
 	}
 	if len(section.Items) > 0 {

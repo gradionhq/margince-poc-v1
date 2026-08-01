@@ -109,7 +109,7 @@ func rankIntroRoutes(ctx context.Context, tx pgx.Tx, contacts map[ids.UUID]strin
 	if len(edges) > introRouteCap {
 		edges = edges[:introRouteCap]
 	}
-	names, err := networkUserNames(ctx, tx, edges)
+	names, err := search.MemberNames(ctx, tx, edges)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
 	store := deals.NewStore(pool)
 	return func(ctx context.Context) (agents.AtRiskReport, error) {
 		var out agents.AtRiskReport
-		openStatus := "open"
+		openStatus := network.DealStatusOpen
 		// One over the cap, so "there was more" is observed rather than
 		// inferred from a full page — a page that happens to be exactly full is
 		// not evidence of a remainder.

@@ -31,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
 // LinkedInRematchArgs is the sweep's (empty) job payload.
@@ -48,13 +49,14 @@ const linkedInRematchInterval = time.Hour
 
 type linkedInRematchWorker struct {
 	river.WorkerDefaults[LinkedInRematchArgs]
-	pool  *pgxpool.Pool
-	store *people.Store
-	log   *slog.Logger
+	pool      *pgxpool.Pool
+	store     *people.Store
+	authority authz.Resolver
+	log       *slog.Logger
 }
 
-func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, log *slog.Logger) *linkedInRematchWorker {
-	return &linkedInRematchWorker{pool: pool, store: store, log: log}
+func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority authz.Resolver, log *slog.Logger) *linkedInRematchWorker {
+	return &linkedInRematchWorker{pool: pool, store: store, authority: authority, log: log}
 }
 
 // Work re-matches each workspace's unmatched ghosts, one workspace at a time so
@@ -117,5 +119,18 @@ func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID)
 	// Workspace-wide, which is what the zero owner means: this pass is not
 	// reporting one person's upload back to them, it is catching up every
 	// member's ghosts against records the workspace has since learned.
-	return w.store.MatchLinkedInConnections(w.systemContext(ctx, ws), ids.Nil)
+	// Per OWNER, under that owner's own authority: see linkedinowner.go for why
+	// a system principal here is an existence oracle.
+	var total people.LinkedInMatchResult
+	err := forEachGhostOwner(w.systemContext(ctx, ws), w.pool, w.authority, ws,
+		func(ownerCtx context.Context, owner ids.UUID) error {
+			matched, err := w.store.MatchLinkedInConnections(ownerCtx, owner)
+			if err != nil {
+				return err
+			}
+			total.Confirmed += matched.Confirmed
+			total.Suggested += matched.Suggested
+			return nil
+		})
+	return total, err
 }

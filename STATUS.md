@@ -338,6 +338,26 @@ open-deal and truncation-honesty fixes.
   before this branch; the group-email half is carry-forward item 4. Neither is
   new here.
 
+**The end-of-work review round found one thing both earlier passes missed, and
+it moved an architectural decision.** The capture-privacy fix from the Codex
+round closed only half the hole. Capture privacy is a property of the ROW
+(`visibility='owner'`); row scope is a property of the READER. The background
+matcher ran as a SYSTEM principal, which is unbounded by design, so
+`auth.ScopeClauseFor` returned an empty clause and the majority of contacts —
+which are `visibility='workspace'` and protected by row scope alone — were
+still matchable. `match_status` on the review list was then an existence
+oracle.
+
+The fix is architectural rather than another predicate: the event consumer and
+the hourly sweep now enumerate the ghost OWNERS and run once per owner under
+that member's live authority (`compose/linkedinowner.go`). A first attempt
+approximated own+team scope in SQL and was wrong — it dropped the feature's
+central case, which `TestAContactAddedLaterMeetsTheGhostThatWasWaiting` caught
+immediately. Two consequences worth knowing: the matcher now requires person
+READ rather than person UPDATE (it writes only the caller's own ghost rows), and
+a member holding no person grant is skipped rather than failing the sweep for
+everybody.
+
 **Two process errors worth remembering.** (1) I filtered `make check` output
 through grep for most of this session instead of checking its exit code, so a
 failing gate printed a lowercase `error` line I never saw. Check the status,

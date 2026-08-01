@@ -35,6 +35,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
@@ -182,7 +183,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// its contact exists, whoever created them. Deterministic like the edge
 	// projection above, so it runs on every worker.
 	{
-		matcher := compose.NewLinkedInMatchGen(people.NewStore(pool), logger)
+		matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(pool), identity.NewService(pool), logger)
 		_, _ = fmt.Fprintln(stdout, "worker matching LinkedIn connections as contacts appear")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:linkedin-match", matcher.HandleEvent, logger, 0) })
 	}

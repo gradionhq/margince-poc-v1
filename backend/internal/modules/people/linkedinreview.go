@@ -77,8 +77,7 @@ type ListMyLinkedInConnectionsInput struct {
 	// ID selects exactly one connection. It exists so a decision's response is
 	// assembled by the SAME read, under the SAME scope joins, as every other
 	// view of that row — a second single-row query is a second place for the
-	// disclosure rules to be wrong, and the one that existed here returned the
-	// matched ids with no scope join at all.
+	// disclosure rules to be wrong.
 	ID *ids.UUID
 	// MatchStatus nil means NO filter — the house rule for a filter's one
 	// no-filter input. Any value is a selection, never a default.

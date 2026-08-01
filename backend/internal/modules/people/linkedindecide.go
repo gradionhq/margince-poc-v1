@@ -236,11 +236,25 @@ func writeLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID 
 // clearLinkedInHandle removes the handle THIS connection put on a contact, when
 // the member takes the link back.
 //
+// It probes the contact FIRST. The person being cleared is the one the ghost
+// was previously linked to, and that link may have been made by a background
+// sweep rather than by this member — so it is not safe to assume they can read
+// it, and the delete plus the version bump underneath are writes. A contact
+// this member cannot reach is left alone and the decision still completes:
+// refusing the whole decision would strand the ghost on a link they are being
+// told they may not see.
+//
 // Matched on the handle value, not merely on the platform: a contact may carry
 // a LinkedIn address somebody typed in by hand, and a rejection here is a
 // statement about this connection, not licence to delete a field the member
 // never touched.
 func clearLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID ids.UUID) error {
+	if err := auth.EnsureVisibleLive(ctx, tx, entityPerson, personID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+			return nil
+		}
+		return err
+	}
 	var handle *string
 	if err := tx.QueryRow(ctx,
 		`SELECT profile_url FROM linkedin_connection WHERE id = $1`, connectionID).Scan(&handle); err != nil {

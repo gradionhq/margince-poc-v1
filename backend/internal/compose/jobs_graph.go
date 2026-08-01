@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
@@ -24,7 +25,7 @@ import (
 func addGraphJobs(workers *river.Workers, pool *pgxpool.Pool, log *slog.Logger) []*river.PeriodicJob {
 	river.AddWorker(workers, newParticipantBackfillWorker(pool, log))
 	river.AddWorker(workers, newGraphEdgeReconcileWorker(pool, log))
-	river.AddWorker(workers, newLinkedInRematchWorker(pool, people.NewStore(pool), log))
+	river.AddWorker(workers, newLinkedInRematchWorker(pool, people.NewStore(pool), identity.NewService(pool), log))
 	return []*river.PeriodicJob{
 		// The interaction-participant backfill: daily, run-on-start so an
 		// installation upgrading into ACT-DDL-3 recovers its history on the

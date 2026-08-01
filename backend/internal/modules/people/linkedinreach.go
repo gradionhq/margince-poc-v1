@@ -55,11 +55,16 @@ type LinkedInReach struct {
 
 // MyLinkedInReach reads the caller's own network, grouped by account.
 //
-// Organization row scope applies: an account the caller may not read does not
-// appear, and its connections fall into neither the list nor the unresolved
-// count — they are simply not this caller's to be told about. The alternative,
-// counting them as unresolved, would leak the existence of accounts through a
-// number.
+// Organization row scope applies to the LIST, and a connection parked on an
+// account the caller may not read is counted as UNRESOLVED rather than dropped.
+//
+// That direction is load-bearing. The two numbers are differenceable: a
+// connection in neither the visible accounts nor the unresolved total would
+// itself say "this employer resolved to something you are not allowed to see",
+// which is an account-enumeration oracle a member drives by uploading one row
+// per guessed company name. Counting it as unresolved makes it indistinguishable
+// from a company nobody here has on file, which is the same answer every
+// row-scoped list gives.
 func (s *Store) MyLinkedInReach(ctx context.Context, limit *int) (LinkedInReach, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.UserID == ids.Nil {
@@ -78,15 +83,37 @@ func (s *Store) MyLinkedInReach(ctx context.Context, limit *int) (LinkedInReach,
 		if err := s.readReachAccounts(ctx, tx, actor.UserID, capped, &out); err != nil {
 			return err
 		}
-		return tx.QueryRow(ctx, `
-			SELECT count(*) FROM linkedin_connection
-			 WHERE owner_user_id = $1 AND tombstoned_at IS NULL AND matched_org_id IS NULL`,
-			actor.UserID).Scan(&out.UnresolvedConnections)
+		return s.countUnresolved(ctx, tx, actor.UserID, &out)
 	})
 	if err != nil {
 		return LinkedInReach{}, err
 	}
 	return out, nil
+}
+
+// countUnresolved counts the caller's connections that reach no account they
+// can see — whether because the matcher placed none, or because the one it
+// placed is outside their row scope.
+func (s *Store) countUnresolved(ctx context.Context, tx pgx.Tx, owner ids.UUID, out *LinkedInReach) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	ownerPos := arg(owner)
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "o", arg)
+	if err != nil {
+		return err
+	}
+	visible := sqlAlwaysVisible
+	if scope != "" {
+		visible = scope
+	}
+	return tx.QueryRow(ctx, storekit.SQLf(`
+		SELECT count(*)
+		  FROM linkedin_connection c
+		 WHERE c.owner_user_id = $%d AND c.tombstoned_at IS NULL
+		   AND NOT EXISTS (
+		       SELECT 1 FROM organization o
+		        WHERE o.id = c.matched_org_id AND o.archived_at IS NULL AND (%s))`,
+		ownerPos, visible), args...).Scan(&out.UnresolvedConnections)
 }
 
 func (s *Store) readReachAccounts(ctx context.Context, tx pgx.Tx, owner ids.UUID, limit int, out *LinkedInReach) error {

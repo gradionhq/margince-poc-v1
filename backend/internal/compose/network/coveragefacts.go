@@ -20,10 +20,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// dealStatusOpen is the status the pipeline rules apply to. Named rather than
-// inline because two of them ask for it and a literal in both places is a
-// second definition waiting to drift.
-const dealStatusOpen = "open"
+// DealStatusOpen is the status the pipeline rules apply to. Named rather than
+// inline because several callers ask for it — including the at-risk sweep in
+// compose — and a literal in each place is a second definition waiting to
+// drift.
+const DealStatusOpen = "open"
+
+// dealStatusOpen is this package's own spelling of the same constant, so the
+// rules below read at their own level rather than reaching for the exported
+// name they define.
+const dealStatusOpen = DealStatusOpen
 
 // dealFacts is the deal's own row, as the risk rules need it.
 type dealFacts struct {
