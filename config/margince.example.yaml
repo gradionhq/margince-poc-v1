@@ -53,10 +53,13 @@ rates:
     # so change the URL if that is not OpenRouter.
     # openai_compatible: https://openrouter.ai/api/v1/models
 
-# Remote MCP connector (Gate 1). On here so a local stack serves it out of the
-# box; the code default is off, so an installation with no mcp block serves none
-# of it. Also needs --public-base-url (a bare origin) — cmd/api refuses to boot
-# without it, so copying this file cannot serve the surface by accident.
+# Remote MCP connector (Gate 1). On means /mcp and /oauth/* are served, so any
+# human here can lend one of their passports to an outside client; it is on in
+# this file so a local stack works unedited. The code default is off — delete
+# this block and none of it exists. It needs --public-base-url (a bare origin),
+# which cmd/api refuses to boot without; that refusal only catches an unset
+# flag, and mail, reset links and the Gmail/Graph connectors need it too, so a
+# deployment that already sets it serves the surface the moment it copies this.
 mcp:
   connector_enabled: true
 
