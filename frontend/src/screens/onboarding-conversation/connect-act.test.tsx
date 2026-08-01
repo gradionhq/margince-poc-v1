@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../i18n";
@@ -40,7 +40,13 @@ function renderConnectAct(outcome?: string) {
 beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
 });
-afterEach(() => vi.unstubAllGlobals());
+// Explicit, because auto-cleanup only runs with vitest globals enabled and
+// this suite does not use them: without it each test inherits the previous
+// render's DOM and every chip query finds several matches.
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 it("offers Microsoft as a live chip and opens its connect panel", async () => {
   installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });

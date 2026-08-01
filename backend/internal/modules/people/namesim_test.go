@@ -105,3 +105,30 @@ func TestNormalizeOrgNameKeepsASuffixThatIsTheName(t *testing.T) {
 		t.Fatalf("a lone suffix-shaped name was stripped to %q, want %q", got, "co")
 	}
 }
+
+// A compound German legal form is one suffix, not two tokens and a
+// connective. Before the ampersand was part of the strip this key came out as
+// "basecom gmbh &", which matches no account anybody stores.
+func TestNormalizeOrgNameStripsCompoundLegalForms(t *testing.T) {
+	for _, spelling := range []string{
+		"Basecom GmbH & Co. KG",
+		"Basecom GmbH und Co KG",
+		"Basecom GmbH",
+		"Basecom",
+	} {
+		if got := NormalizeOrgName(spelling); got != "basecom" {
+			t.Errorf("NormalizeOrgName(%q) = %q, want %q", spelling, got, "basecom")
+		}
+	}
+}
+
+// The strip must never eat the entire name. A company called "Co" keeps its
+// key; an empty one would collide with every other empty key and place
+// connections against an arbitrary account.
+func TestNormalizeOrgNameNeverStripsAwayTheWholeName(t *testing.T) {
+	for _, spelling := range []string{"Co", "GmbH", "& Co. KG"} {
+		if got := NormalizeOrgName(spelling); got == "" {
+			t.Errorf("NormalizeOrgName(%q) reduced the whole name to an empty key", spelling)
+		}
+	}
+}

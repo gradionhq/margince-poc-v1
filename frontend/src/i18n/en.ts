@@ -577,6 +577,18 @@ export const en = {
     "Import your own export to see who your team already knows",
   "linkedinImport.explainer":
     "LinkedIn gives you a Connections.csv under Settings → Data privacy → Get a copy of your data. Uploading it here shows who on your team already knows someone at an account. The connections do NOT become contacts: they never appear in search, lists or contact pages, and nobody can write to or email them.",
+  "linkedinImport.profileLabel": "Your LinkedIn profile URL",
+  "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "linkedinImport.saveProfile": "Save profile",
+  "linkedinImport.connectedNote":
+    "Connected. Imported connections are attributed to this profile, so the CRM can say which colleague knows someone rather than that \u201cthe company\u201d does.",
+  "linkedinImport.notConnectedNote":
+    "Not connected yet. Adding your profile URL attributes any connections you import to you by name.",
+  "linkedinImport.whichFile":
+    "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
+  "linkedinImport.choose": "Choose Connections.csv",
+  "linkedinImport.noMatchesYet":
+    "No matches yet, which is normal on a new workspace: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
   "linkedinImport.working": "Reading your export…",
   "linkedinImport.imported": "Connections imported",
   "linkedinImport.confirmed": "Matched to a contact",
@@ -1917,6 +1929,39 @@ export const en = {
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
+  "ob.conv.linkedin.why":
+    "Before your inbox, one thing matters more: who your team already knows. Your mail says who you have spoken to. Your LinkedIn network says who you could reach \u2014 and on a brand-new CRM, that is the difference between an account that looks cold and one where a colleague can make an introduction today.",
+  "ob.conv.linkedin.ask":
+    "Connecting takes one authorization. I read your connection list and nothing else \u2014 no messages, no posts, no activity.",
+  "ob.conv.linkedin.artifactTitle": "LinkedIn connection",
+  "ob.conv.linkedin.artifactSub":
+    "So the CRM can tell you who on your team already knows someone at an account.",
+  "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
+  "ob.conv.linkedin.scope1Rest":
+    "name, position, company and the date you connected.",
+  "ob.conv.linkedin.scope2Lead": "Nothing else.",
+  "ob.conv.linkedin.scope2Rest":
+    "No messages, no posts, no who-viewed-you, no activity.",
+  "ob.conv.linkedin.scope3Lead": "Your network stays yours.",
+  "ob.conv.linkedin.scope3Rest":
+    "It is attributed to you, never to the company, and disconnecting removes it.",
+  "ob.conv.linkedin.scope4Lead": "Nobody is contacted.",
+  "ob.conv.linkedin.scope4Rest":
+    "Connecting sends no invitations and no messages, ever.",
+  "ob.conv.linkedin.neverContacts":
+    "Your connections do NOT become contacts. They never appear in search, lists or contact pages, nothing can be written to them, and nobody can email them. They exist only to answer one question: does anyone here already know someone at this company?",
+  "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
+  "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "ob.conv.linkedin.profileWhy":
+    "Needed so the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+  "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
+  "ob.conv.linkedin.appPending":
+    "Heads up: our LinkedIn developer app is still awaiting approval, so this records your consent and profile but no connections sync yet. Until it clears you can upload your own Connections.csv under Settings, which works today.",
+  "ob.conv.linkedin.skip": "Skip LinkedIn for now",
+  "ob.conv.linkedin.connected":
+    "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
+  "ob.conv.linkedin.skipped":
+    "Skipped LinkedIn. You can connect it any time in Settings.",
   "ob.conv.connect.artifactTitle": "Inbox connection",
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",

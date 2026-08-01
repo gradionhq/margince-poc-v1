@@ -117,6 +117,8 @@ export function presenceFor(
       return voicePresence(state);
     case "results":
       return { core: "success" };
+    case "linkedin":
+      return { core: "listening" };
     case "connect":
       return { core: "listening" };
     case "done":

@@ -102,3 +102,53 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		Suggested: matched.Suggested,
 	})
 }
+
+// GetMyLinkedInAccount implements GET /me/linkedin-account.
+func (h Handlers) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	account, err := h.store.GetMyLinkedInAccount(r.Context())
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, linkedInAccountWire(account))
+}
+
+// SaveMyLinkedInAccount implements PUT /me/linkedin-account.
+func (h Handlers) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	var body crmcontracts.SaveLinkedInAccountRequest
+	if !httperr.Decode(w, r, &body) {
+		return
+	}
+	account, err := h.store.SaveMyLinkedInAccount(r.Context(), SaveMyLinkedInAccountInput{
+		ProfileURL: derefString(body.ProfileUrl),
+		Connected:  body.Connected != nil && *body.Connected,
+	})
+	if err != nil {
+		var input *DedupeInputError
+		if errors.As(err, &input) {
+			httperr.Write(w, r, httperr.Validation(input.Field, "invalid_profile_url", input.Msg))
+			return
+		}
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, linkedInAccountWire(account))
+}
+
+// linkedInAccountWire is the one place the account crosses to the wire, so the
+// two handlers cannot describe the same row differently.
+func linkedInAccountWire(a LinkedInAccount) crmcontracts.LinkedInAccount {
+	return crmcontracts.LinkedInAccount{
+		Connected:   a.ConnectedAt != nil,
+		ConnectedAt: a.ConnectedAt,
+		ProfileUrl:  a.ProfileURL,
+		Connections: a.Connections,
+	}
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

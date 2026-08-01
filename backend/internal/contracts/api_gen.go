@@ -10008,6 +10008,19 @@ type LeadListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// LinkedInAccount defines model for LinkedInAccount.
+type LinkedInAccount struct {
+	// Connected Whether this member has authorized LinkedIn.
+	Connected   bool       `json:"connected"`
+	ConnectedAt *time.Time `json:"connected_at,omitempty"`
+
+	// Connections How many connections this member's imports currently hold (tombstoned rows excluded).
+	Connections int `json:"connections"`
+
+	// ProfileUrl The member's own public profile — what their imported network is attributed to.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
 // LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
 // `skipped` is reported rather than hidden: a file half-ignored under a success
 // message is worse than a refusal.
@@ -12287,6 +12300,15 @@ type RunReportRequest struct {
 
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
+
+// SaveLinkedInAccountRequest defines model for SaveLinkedInAccountRequest.
+type SaveLinkedInAccountRequest struct {
+	// Connected Record the authorization. Never revokes an existing one.
+	Connected *bool `json:"connected,omitempty"`
+
+	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
 type SavedView struct {
@@ -16573,6 +16595,9 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// SaveMyLinkedInAccountJSONRequestBody defines body for SaveMyLinkedInAccount for application/json ContentType.
+type SaveMyLinkedInAccountJSONRequestBody = SaveLinkedInAccountRequest
 
 // ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
 type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
@@ -22762,6 +22787,12 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Your own LinkedIn account as this CRM records it.
+	// (GET /me/linkedin-account)
+	GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Record or correct your own LinkedIn profile.
+	// (PUT /me/linkedin-account)
+	SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
 	// Import your own LinkedIn connections export.
 	// (POST /me/linkedin-connections)
 	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
@@ -24010,6 +24041,18 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Your own LinkedIn account as this CRM records it.
+// (GET /me/linkedin-account)
+func (_ Unimplemented) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record or correct your own LinkedIn profile.
+// (PUT /me/linkedin-account)
+func (_ Unimplemented) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30492,6 +30535,46 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveMyLinkedInAccount(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39319,6 +39402,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-account", wrapper.GetMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/linkedin-account", wrapper.SaveMyLinkedInAccount)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)

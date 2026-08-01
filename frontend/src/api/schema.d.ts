@@ -4872,6 +4872,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/linkedin-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your own LinkedIn account as this CRM records it.
+         * @description Always the CALLER's row, never anybody else's. A colleague's professional
+         *     network is theirs, and no seat — including admin — reads or edits another
+         *     member's LinkedIn account through this API.
+         *
+         *     A member who has never been asked has no row, and that is not an error: the
+         *     response is simply not connected. The connection count is reported either
+         *     way, because an export can be uploaded from Settings without ever going
+         *     through the onboarding step.
+         */
+        get: operations["getMyLinkedInAccount"];
+        /**
+         * Record or correct your own LinkedIn profile.
+         * @description The profile URL is what the imported network is attributed to, so a member
+         *     can see and fix it. An empty `profile_url` CLEARS the stored value — a
+         *     member emptying the field means "do not record this", not "leave it".
+         *
+         *     `connected` records the authorization and never revokes one: disconnecting
+         *     is a deliberate act of its own, not a side effect of editing a URL.
+         */
+        put: operations["saveMyLinkedInAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -6977,6 +7013,28 @@ export interface components {
             stakeholders: components["schemas"]["DealCoverageSeat"][];
             our_side: components["schemas"]["PersonNetworkColleague"][];
             risks: components["schemas"]["DealCoverageRisk"][];
+        };
+        LinkedInAccount: {
+            /** @description Whether this member has authorized LinkedIn. */
+            connected: boolean;
+            /** Format: date-time */
+            connected_at?: string | null;
+            /**
+             * Format: uri
+             * @description The member's own public profile — what their imported network is attributed to.
+             */
+            profile_url?: string | null;
+            /** @description How many connections this member's imports currently hold (tombstoned rows excluded). */
+            connections: number;
+        };
+        SaveLinkedInAccountRequest: {
+            /** @description Absolute http(s) URL. Empty clears the stored value. */
+            profile_url?: string;
+            /**
+             * @description Record the authorization. Never revokes an existing one.
+             * @default false
+             */
+            connected: boolean;
         };
         /**
          * @description What one import did, in the terms someone asked to trust it would check.
@@ -21541,6 +21599,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LinkedInImportSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's LinkedIn account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    saveMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLinkedInAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
                 };
             };
             401: components["responses"]["Unauthorized"];

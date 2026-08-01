@@ -1,0 +1,137 @@
+/* The LinkedIn connections import card.
+   The result used to render as a bare <dl>, whose label/value pairs stack
+   into one flat column — a wall of alternating words and numbers that read as
+   a list of eight unrelated things rather than four counts. */
+
+.li-import {
+  margin-bottom: var(--space-4);
+}
+
+.li-import-explainer {
+  margin-top: 0;
+}
+
+/* Names the file, next to the icon, so it is read before the picker rather
+   than after a failed upload. */
+.li-import-which {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-2);
+  color: var(--textContent);
+  font: 500 0.875rem / 1.5 var(--f-body);
+}
+
+.li-import-which svg {
+  flex: none;
+  color: var(--textMuted);
+}
+
+.li-import-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* The native file input carries a browser-drawn button whose label we cannot
+   set, so it is hidden and a real <label> drives it. Hidden but focusable:
+   removing it from the tab order would make the card keyboard-unusable. */
+.li-import-picker input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.li-import-button {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--radius-2);
+  background: var(--surfaceRaised);
+  color: var(--textContent);
+  font: 500 0.875rem / 1.2 var(--f-body);
+  cursor: pointer;
+}
+
+.li-import-button:hover {
+  border-color: var(--borderStrong);
+}
+
+.li-import-picker input[type="file"]:focus-visible + .li-import-button,
+.li-import-button:focus-visible {
+  outline: 2px solid var(--focusRing);
+  outline-offset: 2px;
+}
+
+/* Four counts as four columns, each a label above its number, so the eye
+   reads pairs instead of a stack. */
+.li-import-result {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+
+.li-import-result div {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--radius-2);
+  background: var(--surfaceSunken, var(--surfaceRaised));
+}
+
+.li-import-result dt {
+  color: var(--textMuted);
+  font: 500 0.75rem / 1.3 var(--f-body);
+}
+
+.li-import-result dd {
+  margin: 0;
+  color: var(--textContent);
+  font: 600 1.5rem / 1.1 var(--f-display, var(--f-body));
+  font-variant-numeric: tabular-nums;
+}
+
+/* The profile section: the URL the imported network is attributed to. */
+.li-import-profile {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.li-import-field {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 32rem;
+  color: var(--textMuted);
+  font: 500 0.8125rem / 1.4 var(--f-body);
+}
+
+.li-import-field input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--radius-2);
+  background: var(--surfaceRaised);
+  color: var(--textContent);
+  font: 400 0.875rem / 1.5 var(--f-body);
+}
+
+.li-import-field input:focus-visible {
+  outline: 2px solid var(--focusRing);
+  outline-offset: 1px;
+}
+
+.li-import-profile p {
+  margin: 0;
+}

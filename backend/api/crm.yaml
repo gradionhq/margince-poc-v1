@@ -8110,6 +8110,58 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/linkedin-account:
+    get:
+      tags: [People]
+      operationId: getMyLinkedInAccount
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Your own LinkedIn account as this CRM records it.
+      description: |
+        Always the CALLER's row, never anybody else's. A colleague's professional
+        network is theirs, and no seat — including admin — reads or edits another
+        member's LinkedIn account through this API.
+
+        A member who has never been asked has no row, and that is not an error: the
+        response is simply not connected. The connection count is reported either
+        way, because an export can be uploaded from Settings without ever going
+        through the onboarding step.
+      responses:
+        '200':
+          description: The caller's LinkedIn account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [People]
+      operationId: saveMyLinkedInAccount
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Record or correct your own LinkedIn profile.
+      description: |
+        The profile URL is what the imported network is attributed to, so a member
+        can see and fix it. An empty `profile_url` CLEARS the stored value — a
+        member emptying the field means "do not record this", not "leave it".
+
+        `connected` records the authorization and never revokes one: disconnecting
+        is a deliberate act of its own, not a side effect of editing a URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveLinkedInAccountRequest' }
+      responses:
+        '200':
+          description: The saved account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -10727,6 +10779,29 @@ components:
         our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
         risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
 
+    LinkedInAccount:
+      type: object
+      required: [connected, connections]
+      properties:
+        connected: { type: boolean, description: 'Whether this member has authorized LinkedIn.' }
+        connected_at: { type: [string, 'null'], format: date-time }
+        profile_url:
+          type: [string, 'null']
+          format: uri
+          description: 'The member''s own public profile — what their imported network is attributed to.'
+        connections:
+          type: integer
+          description: 'How many connections this member''s imports currently hold (tombstoned rows excluded).'
+    SaveLinkedInAccountRequest:
+      type: object
+      properties:
+        profile_url:
+          type: string
+          description: 'Absolute http(s) URL. Empty clears the stored value.'
+        connected:
+          type: boolean
+          default: false
+          description: 'Record the authorization. Never revokes an existing one.'
     LinkedInImportSummary:
       type: object
       description: |

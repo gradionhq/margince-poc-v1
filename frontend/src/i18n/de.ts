@@ -587,6 +587,18 @@ export const de = {
     "Eigenen Export importieren und sehen, wen das Team bereits kennt",
   "linkedinImport.explainer":
     "LinkedIn stellt Ihnen unter Einstellungen → Datenschutz → Kopie Ihrer Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen: Sie erscheinen weder in Suche noch in Listen oder Kontaktseiten, und niemand kann ihnen schreiben.",
+  "linkedinImport.profileLabel": "Ihre LinkedIn-Profil-URL",
+  "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "linkedinImport.saveProfile": "Profil speichern",
+  "linkedinImport.connectedNote":
+    "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
+  "linkedinImport.notConnectedNote":
+    "Noch nicht verbunden. Mit Ihrer Profil-URL werden importierte Kontakte Ihnen namentlich zugeordnet.",
+  "linkedinImport.whichFile":
+    "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
+  "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
+  "linkedinImport.noMatchesYet":
+    "Noch keine Treffer, und das ist in einem neuen Workspace normal: Ihre Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen Ihrer E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
   "linkedinImport.working": "Export wird gelesen…",
   "linkedinImport.imported": "Kontakte importiert",
   "linkedinImport.confirmed": "Einer Person zugeordnet",
@@ -1954,6 +1966,39 @@ export const de = {
     "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.linkedin.why":
+    "Vor Ihrem Postfach z\u00e4hlt eines mehr: wen Ihr Team bereits kennt. Ihre E-Mails zeigen, mit wem Sie gesprochen haben. Ihr LinkedIn-Netzwerk zeigt, wen Sie erreichen k\u00f6nnten \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
+  "ob.conv.linkedin.ask":
+    "Das Verbinden kostet eine Autorisierung. Ich lese Ihre Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",
+  "ob.conv.linkedin.artifactSub":
+    "Damit das CRM Ihnen sagen kann, wer aus Ihrem Team bereits jemanden beim Kunden kennt.",
+  "ob.conv.linkedin.scope1Lead": "Ihre Kontaktliste \u2014",
+  "ob.conv.linkedin.scope1Rest":
+    "Name, Position, Unternehmen und das Datum der Vernetzung.",
+  "ob.conv.linkedin.scope2Lead": "Sonst nichts.",
+  "ob.conv.linkedin.scope2Rest":
+    "Keine Nachrichten, keine Beitr\u00e4ge, keine Profilbesuche, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.scope3Lead": "Ihr Netzwerk bleibt Ihres.",
+  "ob.conv.linkedin.scope3Rest":
+    "Es wird Ihnen zugeordnet, nie dem Unternehmen, und beim Trennen wird es entfernt.",
+  "ob.conv.linkedin.scope4Lead": "Niemand wird kontaktiert.",
+  "ob.conv.linkedin.scope4Rest":
+    "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
+  "ob.conv.linkedin.neverContacts":
+    "Ihre Kontakte werden NICHT zu Kontakten im CRM. Sie erscheinen nie in Suche, Listen oder Kontaktseiten, nichts kann ihnen geschrieben werden, und niemand kann sie anmailen. Sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+  "ob.conv.linkedin.profileLabel": "Ihre LinkedIn-Profil-URL",
+  "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "ob.conv.linkedin.profileWhy":
+    "N\u00f6tig, damit das Netzwerk Ihnen namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+  "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
+  "ob.conv.linkedin.appPending":
+    "Hinweis: Unsere LinkedIn-Entwickler-App wartet noch auf Freigabe. Ihre Zustimmung und Ihr Profil werden erfasst, es werden aber noch keine Kontakte synchronisiert. Bis dahin k\u00f6nnen Sie in den Einstellungen Ihre eigene Connections.csv hochladen \u2014 das funktioniert heute schon.",
+  "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
+  "ob.conv.linkedin.connected":
+    "LinkedIn autorisiert. Ihre Kontakte werden synchronisiert, sobald die App freigegeben ist.",
+  "ob.conv.linkedin.skipped":
+    "LinkedIn \u00fcbersprungen. Sie k\u00f6nnen es jederzeit in den Einstellungen verbinden.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":

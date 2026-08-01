@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
 // addGraphJobs registers the graph workers and returns their periodic
@@ -22,6 +24,7 @@ import (
 func addGraphJobs(workers *river.Workers, pool *pgxpool.Pool, log *slog.Logger) []*river.PeriodicJob {
 	river.AddWorker(workers, newParticipantBackfillWorker(pool, log))
 	river.AddWorker(workers, newGraphEdgeReconcileWorker(pool, log))
+	river.AddWorker(workers, newLinkedInRematchWorker(pool, people.NewStore(pool), log))
 	return []*river.PeriodicJob{
 		// The interaction-participant backfill: daily, run-on-start so an
 		// installation upgrading into ACT-DDL-3 recovers its history on the
@@ -37,6 +40,14 @@ func addGraphJobs(workers *river.Workers, pool *pgxpool.Pool, log *slog.Logger) 
 		// and doubles as the corruption remedy.
 		river.NewPeriodicJob(river.PeriodicInterval(graphEdgeReconcileInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return GraphEdgeReconcileArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+		// The LinkedIn re-match: hourly, because the ghosts an export leaves
+		// unmatched are waiting on people and accounts that mail capture is
+		// still creating. Without it the upload-time pass is the only pass
+		// there is, and a network imported on a new workspace matches almost
+		// nothing forever.
+		river.NewPeriodicJob(river.PeriodicInterval(linkedInRematchInterval),
+			func() (river.JobArgs, *river.InsertOpts) { return LinkedInRematchArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
 }

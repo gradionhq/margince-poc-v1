@@ -30,6 +30,11 @@ var legalSuffixes = map[string]bool{
 	"inc": true, "llc": true, "ltd": true, "gmbh": true, "ag": true,
 	"sa": true, "sas": true, "bv": true, "oy": true, "plc": true,
 	"co": true, "corp": true, "kg": true, "ug": true,
+	// The connective inside a compound legal form. "GmbH & Co. KG" is ONE
+	// form, and without this the strip halts on the ampersand and leaves
+	// "basecom gmbh &" as the key — which matches no account, because nobody
+	// stores a customer under that name.
+	"&": true, "und": true, "and": true,
 }
 
 // normalizeName casefolds and unaccents (PO-PARAM-JW-2). Both sides of
@@ -54,6 +59,10 @@ func normalizeName(s string) string {
 // NormalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix
 // strip, applied only to the trailing token: "Co" inside "Coca Co" is a
 // name, "Co" at the end is a suffix.
+//
+// The strip never consumes the whole name: "Co" alone stays "co", because a
+// company may BE its suffix and an empty key would collide with every other
+// empty key.
 func NormalizeOrgName(s string) string {
 	fields := strings.Fields(normalizeName(strings.ReplaceAll(s, ",", " ")))
 	for len(fields) > 1 {

@@ -243,3 +243,49 @@ func TestAnUnmatchedGhostStillNamesTheSubject(t *testing.T) {
 			"erasure and Art. 15 both use this reach, so a miss here is data kept after we certified it destroyed", byName)
 	}
 }
+
+// The upload matches against what the workspace knows AT THAT SECOND, and on a
+// new installation that is close to nothing: the export is uploaded during
+// onboarding, and the contacts it could match arrive over the following hours
+// as mail capture runs. Every one of those arrivals is a match the upload could
+// not have made, and until the sweep existed nothing was going to make it —
+// the ghost stayed unmatched forever and the account kept reporting that
+// nobody here knew anyone.
+//
+// Measured on a real 5,064-row export: 54 contacts appeared in it by name and
+// the upload-time pass matched 13.
+func TestAContactTheWorkspaceLearnsAboutLaterIsStillMatched(t *testing.T) {
+	e := setupDedupe(t)
+
+	// The import happens FIRST, on an empty workspace. Nothing to match.
+	e.importExport(t)
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
+		t.Fatalf("matching at upload time: %v", err)
+	}
+	if status, _ := e.ghostStatus(t, "Andreas Müller"); status != "unmatched" {
+		t.Fatalf("a ghost matched on an empty workspace: %q", status)
+	}
+
+	// Capture then does its work: the account and the contact appear.
+	org := e.seedOrgNamed(t, "Acme GmbH")
+	andreas := e.seedContact(t, "Andreas Müller")
+	e.employ(t, andreas, org)
+	dana := e.seedContact(t, "Dana Buyer")
+	e.seedEmail(t, dana, "dana@acme.test")
+	e.employ(t, dana, org)
+
+	// The sweep runs workspace-wide (the zero owner) and catches both.
+	matched, err := e.store.MatchLinkedInConnections(e.as(), ids.Nil)
+	if err != nil {
+		t.Fatalf("sweeping: %v", err)
+	}
+	if matched.Confirmed != 1 || matched.Suggested != 1 {
+		t.Errorf("the sweep reported %+v, want 1 confirmed and 1 suggested", matched)
+	}
+	if status, person := e.ghostStatus(t, "Dana Buyer"); status != "confirmed" || person == nil || *person != dana.UUID {
+		t.Errorf("the address match is %q → %v, want confirmed → %s", status, person, dana)
+	}
+	if status, person := e.ghostStatus(t, "Andreas Müller"); status != "suggested" || person == nil || *person != andreas.UUID {
+		t.Errorf("the name+employer match is %q → %v, want suggested → %s", status, person, andreas)
+	}
+}

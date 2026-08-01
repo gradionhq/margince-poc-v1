@@ -217,7 +217,9 @@ func linkedInRowFrom(record []string, index map[string]int) (linkedInRow, bool) 
 		company:    at(csvCompany),
 		// NormalizeOrgName, not normalizeName: it strips the legal suffix,
 		// so a connection at "Acme GmbH" matches the account stored as "Acme".
-		normCompany: NormalizeOrgName(at(csvCompany)),
+		// Through the LinkedIn cleaner first, because the field is a free-text
+		// headline on LinkedIn and not a company name.
+		normCompany: NormalizeOrgName(cleanLinkedInCompany(at(csvCompany))),
 		email:       normalizeEmail(at(csvEmail)),
 	}
 	// LinkedIn has shipped at least three date formats across locales and
@@ -282,4 +284,23 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 		return fmt.Errorf("people: storing a LinkedIn connection: %w", err)
 	}
 	return nil
+}
+
+// cleanLinkedInCompany strips what LinkedIn's company field carries that a
+// company name does not.
+//
+// The field is edited by the member, not chosen from a register, so it arrives
+// as a marketing headline: ".NFQ | Digital Creatives", "tagtu | Result-Driven
+// Business Travel". Everything after the first separator is a tagline, and a
+// leading dot or bullet is styling. Handled HERE rather than inside
+// NormalizeOrgName because this is LinkedIn's junk, not a property of company
+// names — the account dedupe must not start splitting customer names on
+// punctuation because one importer needed it to.
+func cleanLinkedInCompany(s string) string {
+	for _, sep := range []string{"|", "•", "·", "—", "–"} {
+		if cut, _, found := strings.Cut(s, sep); found {
+			s = cut
+		}
+	}
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), ".-·•*"))
 }
