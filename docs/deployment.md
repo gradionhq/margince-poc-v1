@@ -97,8 +97,16 @@ Both services sit behind one reverse proxy / ingress, under **one host**:
 | path | service |
 | --- | --- |
 | `/v1`, `/healthz`, `/readyz`, `/metrics` | api |
-| `/oauth/`, `/mcp`, `/.well-known/*` | api (present only with the MCP connector declared) |
+| `/webhooks/gmail`, `/webhooks/hubspot` | api (present only with that connector configured) |
+| `/oauth/`, `/mcp`, `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource` (and its `/mcp`-suffixed form) | api (present only with the MCP connector declared) |
 | everything else, `/` included | web (the SPA, port 8080) |
+
+Route the OAuth metadata documents by those exact paths, not by a
+`/.well-known/*` prefix: they are the only things the api serves under
+`/.well-known`, and a prefix rule takes `/.well-known/acme-challenge/…` away
+from whatever answers your certificate challenges. The webhook row is the api's
+because the caller is the provider, not a browser: each handler verifies its own
+push, so the SPA cannot stand in for it.
 
 One host, not two, because three things cross the split:
 
