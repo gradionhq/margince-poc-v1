@@ -120,6 +120,8 @@ func makeFieldHistoryEntry(row auditDiffRow, field string, oldValue, newValue *s
 // prints its own map syntax (`map[logo:https://…]`), and a reader looking at
 // what changed on their account should never be shown the server's internal
 // spelling of it.
+//
+//craft:ignore naked-any the argument IS an arbitrary decoded JSON value — one key of an audit row's jsonb image — and no narrower Go type describes it
 func stringifyFieldValue(v any) *string {
 	if v == nil {
 		return nil
