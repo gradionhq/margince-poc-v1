@@ -305,7 +305,10 @@ export function FieldDiff({
 }: Readonly<{ oldValue: string | null; newValue: string | null }>) {
   const t = useT();
   return (
-    <span className="field-diff">
+    // A div, not a span: the long-value side below is a `section`, which is
+    // flow content and invalid inside phrasing content. The row still reads as
+    // one line — `.field-diff` is inline-flex.
+    <div className="field-diff">
       {oldValue === null ? (
         <span className="field-diff-empty">{t("history.created")}</span>
       ) : (
@@ -325,7 +328,7 @@ export function FieldDiff({
           label={t("history.newValue")}
         />
       )}
-    </span>
+    </div>
   );
 }
 

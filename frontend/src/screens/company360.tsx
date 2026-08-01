@@ -64,7 +64,12 @@ const DEAL_ROLE_LABELS: Record<string, MessageKey> = {
 };
 
 export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
-  const key = DEAL_ROLE_LABELS[role];
+  // Own-property only: `role` is free text off the wire, and a value named
+  // `toString` or `constructor` would otherwise find something on Object's
+  // prototype, pass the truthy check, and render as an empty badge.
+  const key = Object.hasOwn(DEAL_ROLE_LABELS, role)
+    ? DEAL_ROLE_LABELS[role]
+    : undefined;
   return key ? t(key) : role.replace(/_/g, " ");
 }
 type Section = Organization360["sections_omitted"][number];
