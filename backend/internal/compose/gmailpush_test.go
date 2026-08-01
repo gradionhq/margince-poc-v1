@@ -75,18 +75,3 @@ func TestGmailPushOIDCGate(t *testing.T) {
 		}
 	})
 }
-
-func TestBearerToken(t *testing.T) {
-	cases := map[string]string{
-		"Bearer abc":  "abc",
-		"Bearer  abc": "abc",
-		"bearer abc":  "",
-		"abc":         "",
-		"":            "",
-	}
-	for header, want := range cases {
-		if got := bearerToken(header); got != want {
-			t.Errorf("bearerToken(%q) = %q, want %q", header, got, want)
-		}
-	}
-}

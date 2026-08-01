@@ -138,6 +138,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/field-history":                                              {Op: "getFieldHistory", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/leads":                                                      {Op: "listLeads", Access: "tool", Tool: "search_records", RecordType: "lead", Tier: "auto_execute"},
 	"GET /v1/leads/{id}":                                                 {Op: "getLead", Access: "tool", Tool: "read_record", RecordType: "lead", Tier: "auto_execute"},
+	"GET /v1/oauth/consent-request":                                      {Op: "getConsentRequest", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/offer-templates":                                            {Op: "listOfferTemplates", Access: "tool", Tool: "search_records", RecordType: "offer_template", Tier: "auto_execute"},
 	"GET /v1/offer-templates/{id}":                                       {Op: "getOfferTemplate", Access: "tool", Tool: "read_record", RecordType: "offer_template", Tier: "auto_execute"},
 	"GET /v1/offers/{id}":                                                {Op: "getOffer", Access: "tool", Tool: "read_record", RecordType: "offer", Tier: "auto_execute"},

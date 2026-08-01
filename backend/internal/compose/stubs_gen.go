@@ -12,10 +12,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// stubs satisfies every crmcontracts.ServerInterface operation with an
-// explicit 501: the whole contract surface exists from day one, and an
-// unimplemented call is loud, never a silent 404. Server embeds stubs
-// (one level deep) and module handlers shadow the operations they implement.
+// stubs answers every crmcontracts.ServerInterface operation with an explicit
+// 501: one stub per operation the contract declares.
+//
+// NOTHING EMBEDS IT. Server (server.go) implements the interface itself across
+// its module handler embeds and carries its own compile-time assertion, so an
+// operation with no real handler fails that assertion at build time — no
+// request ever reaches a stub below.
 type stubs struct{}
 
 var _ crmcontracts.ServerInterface = stubs{}
@@ -514,6 +517,10 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
+}
+
+func (stubs) GetConsentRequest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetConsentRequestParams) {
+	httperr.NotImplemented(w, r, "GetConsentRequest")
 }
 
 func (stubs) ListOfferTemplates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOfferTemplatesParams) {

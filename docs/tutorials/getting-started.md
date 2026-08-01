@@ -106,6 +106,6 @@ missing — it never skips.
   [explanation/backend-onboarding.md](../explanation/backend-onboarding.md) — the orientation hub (map,
   reading order, how to add an endpoint or a migration).
 - Connect an AI agent: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md),
-  then [how-to/run-the-mcp-server.md](../how-to/run-the-mcp-server.md).
+  then [how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md).
 - Every flag and environment variable: [reference/configuration.md](../reference/configuration.md).
 - Why the code is shaped the way it is: [explanation/architecture.md](../explanation/architecture.md).

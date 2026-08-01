@@ -33,12 +33,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
@@ -94,16 +94,6 @@ func WithGmailPush(inserter *jobs.Runner, cfg GmailPushConfig) Option {
 	}
 }
 
-// bearerToken extracts the token from an "Authorization: Bearer <t>" header;
-// anything else — wrong scheme, bare token, empty — yields "".
-func bearerToken(header string) string {
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return ""
-	}
-	return strings.TrimSpace(header[len(prefix):])
-}
-
 // gmailPushSpec declares Gmail's side of the chassis (design §6.5): one
 // operator token shared by every mailbox in the deployment (Pub/Sub pushes
 // to one URL per subscription — there is no per-mailbox path to key on), an
@@ -121,7 +111,7 @@ func gmailPushSpec(pool *pgxpool.Pool, inserter *jobs.Runner, token string, veri
 	}
 	if verifier != nil {
 		spec.Verify = func(ctx context.Context, r *http.Request) error {
-			return verifier.Verify(ctx, bearerToken(r.Header.Get("Authorization")))
+			return verifier.Verify(ctx, httpserver.BearerToken(r.Header.Get("Authorization")))
 		}
 	}
 	return spec

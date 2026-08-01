@@ -78,7 +78,7 @@ not architecture**. `internal/modules/ai/` owns it:
   mutations are human-only, re-gated at the store on the `automation` RBAC object. (The workflow engine
   itself is covered in [write-backbone.md → who consumes the events](write-backbone.md#5-the-consumer-side--groups--dedupe).)
 - **MCP** serves the *same* tool surface over **A1 stdio** and **A2 hosted HTTP** — one registry, one
-  admission gate, one audit stream. Running it: [how-to/run-the-mcp-server.md](../how-to/run-the-mcp-server.md);
+  admission gate, one audit stream. Running it: [how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md);
   minting the passport: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## Honest gaps

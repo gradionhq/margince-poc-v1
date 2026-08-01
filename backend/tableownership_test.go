@@ -54,6 +54,8 @@ var tableOwners = map[string]string{
 	"record_grant":             "internal/modules/identity",
 	"oauth_client":             "internal/modules/identity",
 	"oauth_authorization_code": "internal/modules/identity",
+	"oauth_grant":              "internal/modules/identity",
+	"oauth_refresh_token":      "internal/modules/identity",
 	"onboarding_wizard_state":  "internal/modules/identity",
 	// people
 	"person":        "internal/modules/people",
@@ -301,10 +303,8 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
 	"internal/modules/privacy:comms_outbound":               "the send log stores a second copy of an outbound message's recipients, subject and body, so Art. 17 erasure and the retention erase action scrub it in the SAME transaction that scrubs the activity it belongs to — routing it through comms would let the timeline row commit as a tombstone while the delivery still served the whole message",
 
-	// direct audit_log/event_outbox writers: storekit.Audit stamps
-	// captured_by from an authenticated principal, which these paths do
-	// not have or which need columns storekit's writer does not carry.
-	"internal/modules/identity:audit_log":     "the passport-mint audit stamps its actor from the granting human identity just resolved (not the request principal storekit.Audit would read); identity appends the append-only row itself",
+	// direct audit_log/event_outbox writers: these paths need columns
+	// storekit's writer does not carry.
 	"internal/modules/approvals:audit_log":    "approval evidence stamps passport_id/on_behalf_of, columns storekit's writer does not carry; same append-only table, this module's own writer",
 	"internal/modules/approvals:event_outbox": "approvals stages its events with the full envelope (passport actor fields) storekit.Emit does not carry; still outbox-only publishing",
 
@@ -312,7 +312,7 @@ var crossStoreWrites = map[string]string{
 	// mutates no record). They fire before/without an authenticated
 	// principal for storekit.LogSystem to stamp — bootstrap and failed
 	// logins have no session yet — so identity appends the append-only rows
-	// directly, the same reason it writes its own audit_log rows above.
+	// directly.
 	"internal/modules/identity:system_log": "login and failed-login land in system_log but fire before/without an authenticated principal for storekit.LogSystem to stamp; identity appends the append-only rows itself",
 
 	// overlay's Connect/Disconnect flip workspace.x_sor_mode/x_incumbent —

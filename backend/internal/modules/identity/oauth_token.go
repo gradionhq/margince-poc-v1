@@ -4,15 +4,17 @@
 package identity
 
 // The token endpoint: the authorization-code + PKCE exchange that ends
-// the A2 handshake. The token minted here IS an Agent Seat Passport —
-// there is no separate OAuth token store to drift out of sync with
-// passport revocation.
+// the A2 handshake. The access token minted here IS an Agent Seat Passport
+// — there is no separate OAuth token store to drift out of sync with
+// passport revocation — and it hangs off the oauth_grant row that records
+// the consent, so the connection as a whole stays revocable.
 
 import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 var (
@@ -35,10 +36,21 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
-	if r.PostForm.Get("grant_type") != "authorization_code" {
-		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "only authorization_code")
-		return
+	switch r.PostForm.Get("grant_type") {
+	case "authorization_code":
+		h.tokenFromAuthCode(w, r)
+	case oauthRefreshToken:
+		h.tokenFromRefresh(w, r)
+	default:
+		oauthError(w, http.StatusBadRequest, "unsupported_grant_type",
+			"only authorization_code and refresh_token")
 	}
+}
+
+// tokenFromAuthCode ends the handshake: the code the human's consent produced
+// becomes the first passport and, when the grant allows it, the first refresh
+// token.
+func (h Handlers) tokenFromAuthCode(w http.ResponseWriter, r *http.Request) {
 	code := r.PostForm.Get("code")
 	verifier := r.PostForm.Get("code_verifier")
 	if code == "" || verifier == "" {
@@ -46,11 +58,15 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, workspaceID, scopes, err := h.redeemAuthCode(r, code, verifier)
+	issued, refresh, err := h.exchangeAuthCode(r, code, verifier)
 	switch {
 	// A code cannot exist in a workspace that doesn't resolve, and the
-	// answer must not distinguish that from a spent code.
-	case errors.Is(err, errCodeSpent), errors.Is(err, database.ErrNoWorkspace):
+	// answer must not distinguish that from a spent code. A code whose human
+	// was deactivated between authorization and redemption joins them: the
+	// refusal is the same sentence, because whether an account exists and is
+	// deactivated is not something an unauthenticated caller may probe.
+	case errors.Is(err, errCodeSpent), errors.Is(err, database.ErrNoWorkspace),
+		errors.Is(err, errConsentingUserInactive):
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "code is unknown, expired, or already used")
 		return
 	case errors.Is(err, errGrantMismatch):
@@ -64,71 +80,183 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	label := "oauth:" + r.PostForm.Get("client_id")
-	issued, err := h.svc.IssuePassport(principal.WithWorkspaceID(r.Context(), workspaceID.UUID),
-		Identity{UserID: userID, WorkspaceID: workspaceID},
-		IssuePassportInput{Label: &label, Scopes: scopes})
-	if err != nil {
+	writeTokenResponse(w, issued, refresh)
+}
+
+// tokenFromRefresh renews a connection: the presented token is spent and its
+// successor issued, or the presentation is refused.
+//
+// EVERY refusal answers invalid_grant. Claude re-runs consent on that code
+// and on no other, so a more precise code — invalid_request for a malformed
+// presentation, invalid_scope for an over-wide one, a 403 for a revoked grant
+// — would leave the connector retrying a token that will never work again,
+// with no path back to a human.
+func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
+	issued, refresh, err := h.svc.rotateRefreshToken(r.Context(), refreshRequest{
+		Token:             r.PostForm.Get(oauthRefreshToken),
+		ClientID:          r.PostForm.Get(oauthParamClientID),
+		Scopes:            strings.Fields(r.PostForm.Get(oauthParamScope)),
+		Resource:          r.PostForm.Get(oauthParamResource),
+		CanonicalResource: h.mcpResource,
+		AccessTokenTTL:    h.accessTokenTTL(),
+	})
+	switch {
+	case errors.Is(err, errRefreshScope):
+		oauthError(w, http.StatusBadRequest, "invalid_grant",
+			"the requested scope exceeds what this connection was granted")
+		return
+	// A refresh token cannot exist in a workspace that doesn't resolve, and
+	// the answer must not distinguish that from an unknown token.
+	case errors.Is(err, errRefreshRejected), errors.Is(err, database.ErrNoWorkspace):
+		oauthError(w, http.StatusBadRequest, "invalid_grant",
+			"the refresh token is unknown, expired, or already used")
+		return
+	case err != nil:
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"access_token": issued.Token,
-		"token_type":   "Bearer",
-		"expires_in":   int(time.Until(issued.ExpiresAt).Seconds()),
-		"scope":        strings.Join(scopes, " "),
-	})
+	writeTokenResponse(w, issued, refresh)
 }
 
-// redeemAuthCode validates the exchange against the stored grant and
-// consumes the single-use code in one transaction.
-func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID ids.UserID, workspaceID ids.WorkspaceID, scopes []string, err error) {
+// writeTokenResponse is the RFC 6749 §5.1 success body, spelled once: the
+// code exchange and every later rotation must hand a client the same shape,
+// or a connector that renews stops finding the fields it found at connect.
+func writeTokenResponse(w http.ResponseWriter, issued IssuedPassport, refresh string) {
+	response := map[string]any{
+		"access_token":  issued.Token,
+		"token_type":    "Bearer",
+		"expires_in":    int(time.Until(issued.ExpiresAt).Seconds()),
+		oauthParamScope: strings.Join(issued.Scopes, " "),
+	}
+	// A refresh token is answered only when the grant allows one: a client
+	// that never asked for offline_access must not be handed a long-lived
+	// credential it never consented to store.
+	if refresh != "" {
+		response[oauthRefreshToken] = refresh
+		response["refresh_expires_in"] = int(refreshTokenTTL.Seconds())
+	}
+	httperr.WriteJSON(w, http.StatusOK, response)
+}
+
+// exchangeAuthCode turns a valid authorization code into the credentials
+// that outlive it, in ONE transaction: the single-use code is validated
+// and consumed, the grant recording what the human approved is written,
+// the first refresh token is minted beneath it, and the passport the
+// client will actually call with is stamped with that grant. A partial
+// commit here would leave a client holding a refresh token for a grant
+// that does not exist, or a live passport no revocation can reach.
+//
+// refresh is empty unless the authorization carried offline_access.
+func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issued IssuedPassport, refresh string, err error) {
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
-		// Read first, validate, and only then consume: a stranger who
-		// holds the code but not the verifier must not be able to BURN
-		// it for the legitimate client (denial-of-flow). The final
-		// conditional UPDATE keeps single-use airtight under races.
-		var (
-			challenge   string
-			clientID    string
-			redirectURI string
-			resource    *string
-		)
-		err := tx.QueryRow(r.Context(), `
-			SELECT user_id, workspace_id, scopes, code_challenge, client_id, redirect_uri, resource
-			FROM oauth_authorization_code
-			WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
-			hashOAuthCode(code)).
-			Scan(&userID, &workspaceID, &scopes, &challenge, &clientID, &redirectURI, &resource)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errCodeSpent
-		}
+		redeemed, err := h.consumeAuthCode(r, tx, code, verifier)
 		if err != nil {
 			return err
 		}
-		if r.PostForm.Get("client_id") != clientID || r.PostForm.Get("redirect_uri") != redirectURI {
-			return errGrantMismatch
+
+		// offline_access rode the code's scopes column (oauth.go's
+		// oauthAuthorize) because that table has no marker column of its
+		// own. Here it becomes what it always meant — refresh_allowed on
+		// the grant — and leaves the scope list: it is session lifetime,
+		// not authority over any record, and validScopes has no entry for
+		// it, so a passport carrying it would be refused outright.
+		passportScopes := redeemed.Scopes
+		refreshAllowed := slices.Contains(redeemed.Scopes, scopeOfflineAccess)
+		if refreshAllowed {
+			passportScopes = slices.DeleteFunc(slices.Clone(redeemed.Scopes), func(sc string) bool {
+				return sc == scopeOfflineAccess
+			})
 		}
-		// RFC 8707: a code bound to a resource mints tokens for that
-		// resource only.
-		if resource != nil && r.PostForm.Get("resource") != *resource {
-			return errAudienceMismatch
-		}
-		// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.
-		sum := sha256.Sum256([]byte(verifier))
-		if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
-			return errGrantMismatch
-		}
-		tag, err := tx.Exec(r.Context(), `
-			UPDATE oauth_authorization_code SET consumed_at = now()
-			WHERE code_hash = $1 AND consumed_at IS NULL`, hashOAuthCode(code))
+
+		grantID, refreshToken, err := issueGrant(r.Context(), tx, issueGrantInput{
+			WorkspaceID:    redeemed.WorkspaceID,
+			UserID:         redeemed.UserID,
+			ClientID:       redeemed.ClientID,
+			Scopes:         passportScopes,
+			RefreshAllowed: refreshAllowed,
+			Resource:       redeemed.Resource,
+		})
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return errCodeSpent // a racing exchange got there first
-		}
-		return nil
+		refresh = refreshToken
+
+		// The label names the client the consent was for; the grant is what
+		// actually binds the passport to it.
+		label := oauthPassportLabel(redeemed.ClientID)
+		issued, err = mintPassport(r.Context(), tx,
+			Identity{UserID: redeemed.UserID, WorkspaceID: redeemed.WorkspaceID},
+			IssuePassportInput{Label: &label, Scopes: passportScopes, TTL: h.accessTokenTTL()}, &grantID)
+		return err
 	})
-	return userID, workspaceID, scopes, err
+	if err != nil {
+		return IssuedPassport{}, "", err
+	}
+	return issued, refresh, nil
+}
+
+// redeemedCode is what a validated, spent authorization code carried into
+// the rest of the exchange. Scopes are still as authorized — the
+// offline_access marker included.
+type redeemedCode struct {
+	UserID      ids.UserID
+	WorkspaceID ids.WorkspaceID
+	Scopes      []string
+	ClientID    string
+	Resource    *string
+}
+
+// consumeAuthCode validates the exchange against the stored authorization
+// and consumes the single-use code, inside the caller's transaction so the
+// credentials issued against it commit with it.
+func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier string) (redeemedCode, error) {
+	// Read first, validate, and only then consume: a stranger who holds the
+	// code but not the verifier must not be able to BURN it for the
+	// legitimate client (denial-of-flow). The final conditional UPDATE keeps
+	// single-use airtight under races.
+	var (
+		out         redeemedCode
+		challenge   string
+		redirectURI string
+	)
+	// The client is joined for its lifecycle alone: a code minted seconds
+	// before an admin disabled the client must not still redeem into a grant,
+	// a refresh chain and a passport under it. A dead client makes the row
+	// vanish, so the answer is the same invalid_grant a spent code gets — the
+	// endpoint stays silent about which of the two it was.
+	err := tx.QueryRow(r.Context(), `
+		SELECT a.user_id, a.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource
+		FROM oauth_authorization_code a
+		JOIN oauth_client c ON (c.workspace_id, c.client_id) = (a.workspace_id, a.client_id)
+		WHERE a.code_hash = $1 AND a.consumed_at IS NULL AND a.expires_at > now()
+		  AND `+liveClientPredicate,
+		hashOAuthCode(code)).
+		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI, &out.Resource)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return redeemedCode{}, errCodeSpent
+	}
+	if err != nil {
+		return redeemedCode{}, err
+	}
+	if r.PostForm.Get(oauthParamClientID) != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get(oauthParamRedirectURI)) {
+		return redeemedCode{}, errGrantMismatch
+	}
+	if !audienceMatches(r.PostForm.Get(oauthParamResource), h.mcpResource, out.Resource) {
+		return redeemedCode{}, errAudienceMismatch
+	}
+	// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.
+	sum := sha256.Sum256([]byte(verifier))
+	if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
+		return redeemedCode{}, errGrantMismatch
+	}
+	tag, err := tx.Exec(r.Context(), `
+		UPDATE oauth_authorization_code SET consumed_at = now()
+		WHERE code_hash = $1 AND consumed_at IS NULL`, hashOAuthCode(code))
+	if err != nil {
+		return redeemedCode{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return redeemedCode{}, errCodeSpent // a racing exchange got there first
+	}
+	return out, nil
 }

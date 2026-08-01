@@ -236,12 +236,15 @@ type DeactivateUserInput struct {
 	Reason *string
 }
 
-// DeactivateUser flips the user to 'deactivated' and hard-revokes every
-// live session and every passport they bound, in ONE transaction with
-// the audit row and the user.deactivated event (§5.6a: the cascade seam
-// — per-call re-auth already refuses a deactivated principal, the event
-// lets caches and fan-outs drop access without polling). Admin-only;
-// idempotent on an already-deactivated user (no duplicate event).
+// DeactivateUser flips the user to 'deactivated' and hard-revokes
+// everything that borrows their authority — every live session, every
+// OAuth connection they consented to (grant, refresh chain and the
+// passports under it), and every locally minted passport — in ONE
+// transaction with the audit row and the user.deactivated event (§5.6a:
+// the cascade seam — per-call re-auth already refuses a deactivated
+// principal, the event lets caches and fan-outs drop access without
+// polling). Admin-only; idempotent on an already-deactivated user (no
+// duplicate event).
 func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in DeactivateUserInput) error {
 	if !actor.hasRole(roleAdmin) {
 		return apperrors.ErrPermissionDenied
@@ -274,6 +277,18 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, in.UserID); err != nil {
 			return err
 		}
+		// The OAuth connections this human consented to end FIRST, through the
+		// ONE cascade — before the bare passport revocation below. Two reasons,
+		// both load-bearing. Revoking their passports alone would leave the
+		// grants alive, and a connector's next renewal mints a replacement
+		// while sliding its 90-day window forward, so reactivating the human
+		// later restores full authority with no new consent. And the cascade
+		// takes the grant → refresh → passport lock order (oauth_grant.go): a
+		// bulk passport UPDATE ahead of it would take a passport lock first and
+		// deadlock against a rotation racing this deactivation.
+		if err := s.revokeGrantsOfUserTx(ctx, tx, in.UserID, deactivatedUserRevokeReason); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE session SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
 			in.UserID); err != nil {
@@ -291,6 +306,8 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			`DELETE FROM linkedin_connection WHERE owner_user_id = $1`, in.UserID); err != nil {
 			return err
 		}
+		// What is left after the cascade is the locally minted passports — the
+		// A1 path, which answers to no grant.
 		if _, err := tx.Exec(ctx,
 			`UPDATE passport SET revoked_at = now() WHERE on_behalf_of = $1 AND revoked_at IS NULL`,
 			in.UserID); err != nil {

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
+import { clearPendingAuthorize } from "../app/pendingauthorize";
 import { Button, EmptyState, Skeleton } from "../design-system/atoms";
 import type { Provenance } from "../design-system/trust";
 import { useT } from "../i18n";
@@ -107,6 +108,12 @@ export function OverlayUnavailable() {
 // AS-1: sign out. Clears ALL cached tenant data on success, then forces the
 // ["me"] probe to re-run → 401 → AuthGate renders the login screen.
 //
+// "All tenant data" includes the one piece that lives outside the query cache:
+// the pending-authorization stash (sessionStorage survives a sign-out that
+// doesn't close the tab). Left behind, the next human to sign in on this tab
+// would be offered a connection request they never started — and the resume
+// banner would send them to a consent screen holding their OWN passports.
+//
 // Order matters here: queryClient.clear() destroys every Query object in the
 // cache, INCLUDING ["me"]'s. If ["me"] were reset only after a full clear(),
 // resetQueries would find nothing matching that key to reset (it was already
@@ -127,6 +134,7 @@ export function useLogout() {
       // The next 401 at the boundary is this deliberate exit, not an
       // expired session — the login screen greets it accordingly.
       authExitNotice = "signed-out";
+      clearPendingAuthorize();
       queryClient.removeQueries({
         predicate: (query) => query.queryKey[0] !== "me",
       });

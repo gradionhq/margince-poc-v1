@@ -19,7 +19,7 @@ maps the codebase and links everything below.
 - [create-a-workflow.md](how-to/create-a-workflow.md) — scaffold and wire a new automation starter workflow into the closed catalog.
 - [apply-migrations.md](how-to/apply-migrations.md) — write and apply a database migration.
 - [mint-a-passport.md](how-to/mint-a-passport.md) — issue an agent passport token.
-- [run-the-mcp-server.md](how-to/run-the-mcp-server.md) — serve the governed MCP tool surface.
+- [connect-an-mcp-client.md](how-to/connect-an-mcp-client.md) — connect a client to the governed MCP tool surface.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
 - [connect-a-mailbox.md](how-to/connect-a-mailbox.md) — connect a mailbox for capture: Gmail over OAuth (standing sync + backfill), and IMAP with an app-password (standing sync) for a Gmail/Outlook mailbox.
 - [enrich-with-a-local-llm.md](how-to/enrich-with-a-local-llm.md) — point the AI lanes at a local Ollama and enrich a company with no cloud key.

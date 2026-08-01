@@ -1156,6 +1156,9 @@ export const de = {
   "settings.passports": "Agenten-Passports",
   "settings.passportsSub":
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+  "passport.select": "Passport",
+  "passport.noneOption": "Kein Passport",
+  "passport.scopeNotGranted": "nicht gewährt",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
@@ -2762,4 +2765,39 @@ export const de = {
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
   "embedreindex.impact.queued": "würde in die Warteschlange gestellt",
+
+  "consent.title": "Zugriff autorisieren",
+  "consent.asks": "{client} möchte in Margince als du handeln.",
+  "consent.lend": "Leih ihm einen deiner Agent-Passports",
+  "consent.grantedNote":
+    "Diese Verbindung erhält nur die gezeigten Berechtigungen, auch wenn der Passport mehr erlaubt.",
+  "consent.offline":
+    "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
+  "consent.approve": "Autorisieren",
+  "consent.deny": "Zugriff verweigern",
+  "consent.emptyTitle": "Du brauchst zuerst einen Agent-Passport",
+  "consent.emptyBody":
+    "Ein Passport ist die Vollmacht, die du einem Agenten leihst — er überschreitet nie deine eigenen Berechtigungen, und du kannst ihn jederzeit widerrufen. Stell einen aus, und wir bringen dich hierher zurück, um die Verbindung mit {client} abzuschließen.",
+  "consent.emptyCta": "Passport ausstellen",
+  "consent.expires": "läuft ab am {date}",
+  "consent.resumeTitle": "Verbindung mit {client} abschließen",
+  "consent.resumeBody":
+    "Du bist hierher gekommen, um einen Passport für {client} auszustellen. Sobald du einen hast, machst du dort weiter, wo du aufgehört hast.",
+  "consent.resume": "Verbindung fortsetzen",
+  "consent.resumeDismiss": "Diese Verbindung abbrechen",
+  "consent.reentering": "Verbinde erneut…",
+  "consent.backToApp": "Zurück zu Margince",
+  "consent.staleTitle": "Diese Anfrage ist abgelaufen",
+  "consent.staleBody":
+    "Die Verbindungsanfrage ist nicht mehr gültig. Geh zurück zur App, die du verbinden wolltest, und starte erneut — ein Neuladen dieser Seite hilft nicht.",
+  "consent.unlendableTitle": "Dieser Passport kann nicht mehr verliehen werden",
+  "consent.unlendableBody":
+    "Der für {client} gewählte Passport wurde widerrufen, ist abgelaufen oder bereits an eine andere Verbindung gebunden. Wähle unten einen anderen aus.",
+  "consent.invalidTitle":
+    "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
+  "consent.invalidBody":
+    "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
+  "consent.requestedNotGranted":
+    "{client} hat mehr angefordert, als dieser Passport gewähren kann:",
+  "consent.unnamedPassport": "Unbenannter Passport ({id})",
 } as const satisfies Record<MessageKey, string>;

@@ -35,16 +35,56 @@ import (
 // probing both tables.
 const passportTokenPrefix = "mgp_"
 
+// The after-image keys a credential write records. Every credential this module
+// audits — the passport mint below, the OAuth grant a consent produces
+// (oauth_grant.go), the lend the consent POST records (oauth.go) — draws its
+// keys from here, because reading the credential trail means reading one field
+// name across all three.
+//
+// This is the AUDIT PAYLOAD's vocabulary, which is why it is spelled here rather
+// than borrowed from the OAuth request parameters that happen to share some of
+// these words (oauthwire.go): those name what arrives on the wire, and a wire
+// parameter renamed by a future revision must not silently rename a column of
+// the audit trail.
+const (
+	auditFieldScopes         = "scopes"
+	auditFieldClientID       = "client_id"
+	auditFieldResource       = "resource"
+	auditFieldRefreshAllowed = "refresh_allowed"
+	auditFieldPassportID     = "passport_id"
+)
+
 const (
 	defaultPassportTTL = 30 * 24 * time.Hour
 	maxPassportTTL     = 90 * 24 * time.Hour
 )
 
-// validScopes is the closed verb vocabulary (interfaces.md §2).
-var validScopes = map[principal.Scope]bool{
-	principal.ScopeRead: true, principal.ScopeDraft: true, principal.ScopeWrite: true,
-	principal.ScopeSend: true, principal.ScopeEnrich: true,
+// MaxOAuthAccessTokenTTL is the ceiling mintPassport admits a TTL against,
+// exported so a process role can refuse an out-of-range
+// --oauth-access-token-ttl while it boots rather than leaving the first
+// connector handshake to discover it.
+const MaxOAuthAccessTokenTTL = maxPassportTTL
+
+// passportScopeVocabulary is the closed verb vocabulary (interfaces.md §2), in
+// ascending authority order. It is the ONE list: admission (validScopes) and
+// discovery (oauthScopesSupported) are both derived from it, so a scope added
+// here cannot be grantable-but-undiscoverable — a scope a client cannot see in
+// the metadata is a scope it will never ask for.
+var passportScopeVocabulary = []principal.Scope{
+	principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite,
+	principal.ScopeSend, principal.ScopeEnrich,
 }
+
+// validScopes is the admission form of that vocabulary: the mint and the
+// authorize parser both test membership, and neither may accept a verb the
+// metadata does not advertise.
+var validScopes = func() map[principal.Scope]bool {
+	admitted := make(map[principal.Scope]bool, len(passportScopeVocabulary))
+	for _, scope := range passportScopeVocabulary {
+		admitted[scope] = true
+	}
+	return admitted
+}()
 
 // IssuePassportInput — the granting human comes from the session, never
 // from the request: a passport is always on_behalf_of its issuer.
@@ -69,8 +109,33 @@ func (e *InvalidScopeError) Error() string {
 	return "scope " + e.Scope + " is not one of read|draft|write|send|enrich"
 }
 
-// IssuePassport mints a passport for the authenticated human in id.
+// IssuePassport mints a passport for the authenticated human in id — the
+// A1/local path, where the passport answers to no OAuth grant.
 func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePassportInput) (IssuedPassport, error) {
+	var out IssuedPassport
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = mintPassport(ctx, tx, id, in, nil)
+		return err
+	})
+	if err != nil {
+		return IssuedPassport{}, err
+	}
+	return out, nil
+}
+
+// mintPassport is the ONE spelling of the passport-mint write: admission
+// (the closed scope vocabulary and the TTL ceiling), the row, and the
+// audit row that records granting an agent standing authority. Admission
+// lives inside it rather than in each caller so no issuance path can
+// forget it.
+//
+// It takes the CALLER's transaction because the A2 code exchange commits
+// the mint together with the grant the passport belongs to and the
+// authorization code it spent — a passport whose grant did not commit
+// would be live authority nothing can revoke. grantID is nil for a
+// locally minted passport, which answers to no grant.
+func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportInput, grantID *ids.UUID) (IssuedPassport, error) {
 	if len(in.Scopes) == 0 {
 		return IssuedPassport{}, &InvalidScopeError{Scope: "(none)"}
 	}
@@ -96,25 +161,19 @@ func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePasspo
 	token := passportTokenPrefix + raw
 	out := IssuedPassport{Token: token, Scopes: in.Scopes}
 
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx,
-			`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-			 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval)
-			 RETURNING id, expires_at`,
-			id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String()).
-			Scan(&out.ID, &out.ExpiresAt)
-		if err != nil {
-			return err
-		}
-		// Granting an agent standing authority is itself an audited fact.
-		_, err = tx.Exec(ctx,
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id, evidence)
-			 VALUES ($1, 'human', $2, 'create', 'passport', $3,
-			         jsonb_build_object('scopes', $4::text[], 'label', $5::text))`,
-			id.WorkspaceID, "human:"+id.UserID.String(), out.ID, in.Scopes, in.Label)
-		return err
-	})
-	if err != nil {
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval, $7)
+		 RETURNING id, expires_at`,
+		id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String(), grantID).
+		Scan(&out.ID, &out.ExpiresAt); err != nil {
+		return IssuedPassport{}, err
+	}
+	// Granting an agent standing authority is itself an audited fact. The
+	// scopes and label are the row's own fields, so they are its after image
+	// rather than evidence about the write.
+	if _, err := storekit.Audit(actorCtx(ctx, id), tx, "create", "passport", out.ID.UUID,
+		nil, map[string]any{auditFieldScopes: in.Scopes, "label": in.Label}); err != nil {
 		return IssuedPassport{}, err
 	}
 	return out, nil
@@ -136,7 +195,7 @@ type PassportRow struct {
 // own; the admin role sees the workspace's (the same authority split
 // RevokePassport enforces).
 func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow, error) {
-	isAdmin := id.hasRole("admin")
+	isAdmin := id.hasRole(roleAdmin)
 	var out []PassportRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		query := `SELECT id, label, scopes, created_at, expires_at, revoked_at
@@ -175,42 +234,92 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 // consumers — in-flight agent sessions, read-models — drop it within
 // one bus cycle. A user revokes their own; the admin role may revoke
 // anyone's.
+//
+// A passport issued under an OAuth grant is not an independent credential:
+// it is ONE credential of a connection, and the client's next refresh would
+// mint a replacement seconds after the human killed it. So revoking it ends
+// the whole connection through the ONE cascade — which takes the grant lock
+// as its first act, keeping the grant → refresh → passport order this
+// function must not invert.
 func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.PassportID) error {
-	isAdmin := id.hasRole("admin")
 	ctx = actorCtx(ctx, id)
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var onBehalfOf ids.UserID
-		var revokedAt *time.Time
-		err := tx.QueryRow(ctx,
-			`SELECT on_behalf_of, revoked_at FROM passport WHERE id = $1`, passportID).
-			Scan(&onBehalfOf, &revokedAt)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		// Another user's passport reads as absent, not forbidden —
-		// existence-hiding matches the row-scope convention.
-		if onBehalfOf != id.UserID && !isAdmin {
-			return apperrors.ErrNotFound
-		}
-		if revokedAt != nil {
-			return nil // idempotent
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE passport SET revoked_at = now() WHERE id = $1`, passportID); err != nil {
-			return err
-		}
-		auditID, err := storekit.Audit(ctx, tx, "archive", "passport", passportID.UUID, nil, nil)
-		if err != nil {
-			return err
-		}
-		// agent_connection_id is omitted: the A1/local issuance path has
-		// no agent-connection storage (the hosted A2 surface adds it).
-		return storekit.EmitEvent(ctx, tx, auditID, passportID.UUID,
-			passportRevokedPayload(passportID, id.UserID))
+		return s.revokePassportTx(ctx, tx, id, passportID)
 	})
+}
+
+// revokePassportTx performs the revoke inside the caller's transaction: the
+// grant cascade first (revokeGrantTx takes the grant lock as its own first
+// act), this passport row second. That order is what keeps one death from
+// being audited twice — the cascade has already retired and emitted for this
+// row by the time the conditional UPDATE below runs.
+//
+// It requires an actor already bound on ctx: the audit rows it writes resolve
+// their principal from there, and it fails closed rather than writing an
+// unattributed revocation.
+func (s *Service) revokePassportTx(
+	ctx context.Context, tx pgx.Tx, id Identity, passportID ids.PassportID,
+) error {
+	var onBehalfOf ids.UserID
+	var revokedAt *time.Time
+	var grantID *ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT on_behalf_of, revoked_at, oauth_grant_id FROM passport WHERE id = $1`, passportID).
+		Scan(&onBehalfOf, &revokedAt, &grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Another user's passport reads as absent, not forbidden —
+	// existence-hiding matches the row-scope convention.
+	if onBehalfOf != id.UserID && !id.hasRole(roleAdmin) {
+		return apperrors.ErrNotFound
+	}
+	if revokedAt != nil && grantID == nil {
+		return nil // idempotent: a locally minted passport has nothing beneath it
+	}
+	if grantID != nil {
+		// The connection dies even when THIS row is already dead. A rotation
+		// that replaced the passport a moment before the human pressed the
+		// button would otherwise turn their revoke into a no-op: the
+		// credential they aimed at is gone, and the connection they meant
+		// keeps serving calls under its successor.
+		if err := s.revokeGrantTx(ctx, tx, *grantID, passportRevokedReason); err != nil {
+			return err
+		}
+	}
+	// The row itself, conditional on it still being live: the cascade
+	// above already retired every passport under the grant, and a second
+	// UPDATE would audit one death twice. It still runs for a passport
+	// whose grant was already dead — nothing may report a revocation it
+	// did not perform.
+	tag, err := tx.Exec(ctx,
+		`UPDATE passport SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, passportID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	return auditPassportRevoked(ctx, tx, passportID, id.UserID)
+}
+
+// auditPassportRevoked records one dead passport: the audit row and the bus
+// fact. It is the ONE spelling, so a credential a human deleted and one a
+// cascade retired are indistinguishable to a consumer holding it — what a
+// consumer has to act on is that THIS passport is gone, never why.
+//
+// agent_connection_id is omitted: the A1/local issuance path has no
+// agent-connection storage (the hosted A2 surface adds it).
+func auditPassportRevoked(ctx context.Context, tx pgx.Tx, passportID ids.PassportID, by ids.UserID) error {
+	auditID, err := storekit.Audit(ctx, tx, "archive", "passport", passportID.UUID, nil, nil)
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, passportID.UUID,
+		passportRevokedPayload(passportID, by))
 }
 
 // passportRevokedPayload builds passport.revoked's typed payload.
@@ -251,39 +360,105 @@ func (a AgentIdentity) Principal() principal.Principal {
 	}
 }
 
+// liveClientPredicate is the ONE spelling of "this client is still a client",
+// carried by EVERY statement that reads oauth_client: authentication (the rule
+// below) and issuance alike (the consent form, the consent POST and the code
+// exchange, in oauth.go and oauth_token.go). Disable and soft-delete are the
+// operator's off switch, and a switch that only stops calls — while consent and
+// issuance carry on beneath it — spends a human's approval on a client an admin
+// already killed. The client table is aliased c in each of those statements so
+// this is one string rather than four that can rot apart.
+const liveClientPredicate = `c.disabled_at IS NULL AND c.deleted_at IS NULL`
+
+// The LEFT JOINs and the predicate below are the liveness rule for an
+// OAuth-issued passport: a revoked grant, or a disabled or soft-deleted
+// client, must stop the credential on the very next call. They are the
+// answer for anything the revocation cascade never saw — a row written
+// before the cascade existed, or a grant an operator killed in the store —
+// so authentication fails closed instead of trusting that every kill path
+// remembered to walk down here.
+//
+// c.client_id IS NOT NULL is load-bearing: a LEFT JOIN that found no client
+// row means the grant points at a client that no longer exists, which must
+// fail closed rather than pass for want of a disabled_at to read.
+const agentLivenessJoins = `
+	LEFT JOIN oauth_grant  g ON (g.workspace_id, g.id)        = (p.workspace_id, p.oauth_grant_id)
+	LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)`
+
+// A locally minted passport (oauth_grant_id IS NULL) answers to no grant and
+// is unaffected — the A1 path must keep working exactly as it did. The client
+// half is liveClientPredicate (oauth.go), the same string the issuance path
+// carries, so "still a client" cannot mean one thing at consent and another at
+// authentication.
+const agentLivenessPredicate = `
+	AND (p.oauth_grant_id IS NULL
+	     OR (g.revoked_at IS NULL AND c.client_id IS NOT NULL
+	         AND ` + liveClientPredicate + `))`
+
+// The two entry points differ in NOTHING but which column identifies the
+// passport — the presented token's hash on the wire path, the row id on the
+// trusted-process path — so that difference is all each one supplies.
+const (
+	agentByHashPredicate = `p.token_hash = $1`
+	agentByIDPredicate   = `p.id = $1`
+)
+
+// agentAuthQuery assembles the agent-authentication statement around one
+// caller's predicate. Both entry points build theirs here, which is what
+// makes the liveness rule above impossible to have on one path and miss on
+// the other.
+func agentAuthQuery(predicate string) string {
+	return `SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
+		FROM passport p
+		JOIN app_user u ON u.id = p.on_behalf_of` + agentLivenessJoins + `
+		WHERE ` + predicate + `
+		  AND p.revoked_at IS NULL
+		  AND now() < p.expires_at
+		  AND u.status = 'active' AND u.archived_at IS NULL` + agentLivenessPredicate
+}
+
+// authenticateAgentWhere is the ONE agent-authentication query, resolving a
+// live passport to the principal its calls carry: the passport's own scopes
+// over the granting human's RBAC, loaded here and now.
+//
+//craft:ignore naked-any a pgx query argument is untyped by the driver's own signature, and the two callers pass different column types
+func (s *Service) authenticateAgentWhere(ctx context.Context, tx pgx.Tx, predicate string, arg any) (AgentIdentity, error) {
+	var a AgentIdentity
+	var scopes []string
+	err := tx.QueryRow(ctx, agentAuthQuery(predicate), arg).
+		Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AgentIdentity{}, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return AgentIdentity{}, err
+	}
+	a.Scopes = principal.NewScopeSet()
+	for _, sc := range scopes {
+		a.Scopes[principal.Scope(sc)] = struct{}{}
+	}
+	var loadErr error
+	a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)
+	if loadErr != nil {
+		return AgentIdentity{}, loadErr
+	}
+	return a, nil
+}
+
 // AuthenticateAgentByID resolves a passport ROW to its AgentIdentity —
 // the trusted-process path the Surface-B scheduler uses: the worker
 // holds no bearer secret, only the passport id a job row names. The
 // liveness rules are identical to the token path (revocation, expiry,
-// and the granting human's status all bind at resolution time), so a
-// parked overnight job wakes up with exactly the authority the passport
-// still has, not the authority it had when enqueued.
+// the granting human's status and the connection the passport belongs to
+// all bind at resolution time), so a parked overnight job wakes up with
+// exactly the authority the passport still has, not the authority it had
+// when enqueued.
 func (s *Service) AuthenticateAgentByID(ctx context.Context, passportID ids.PassportID) (AgentIdentity, error) {
 	var a AgentIdentity
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var scopes []string
-		err := tx.QueryRow(ctx,
-			`SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
-			 FROM passport p
-			 JOIN app_user u ON u.id = p.on_behalf_of
-			 WHERE p.id = $1
-			   AND p.revoked_at IS NULL
-			   AND now() < p.expires_at
-			   AND u.status = 'active' AND u.archived_at IS NULL`,
-			passportID).Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		a.Scopes = principal.NewScopeSet()
-		for _, sc := range scopes {
-			a.Scopes[principal.Scope(sc)] = struct{}{}
-		}
-		var loadErr error
-		a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)
-		return loadErr
+		var err error
+		a, err = s.authenticateAgentWhere(ctx, tx, agentByIDPredicate, passportID)
+		return err
 	})
 	if err != nil {
 		return AgentIdentity{}, err
@@ -302,29 +477,9 @@ func (s *Service) AuthenticateAgent(ctx context.Context, rawToken string) (Agent
 
 	var a AgentIdentity
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var scopes []string
-		err := tx.QueryRow(ctx,
-			`SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
-			 FROM passport p
-			 JOIN app_user u ON u.id = p.on_behalf_of
-			 WHERE p.token_hash = $1
-			   AND p.revoked_at IS NULL
-			   AND now() < p.expires_at
-			   AND u.status = 'active' AND u.archived_at IS NULL`,
-			hashToken(rawToken)).Scan(&a.PassportID, &a.WorkspaceID, &a.OnBehalfOf, &scopes, &a.SeatType)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		a.Scopes = principal.NewScopeSet()
-		for _, sc := range scopes {
-			a.Scopes[principal.Scope(sc)] = struct{}{}
-		}
-		var loadErr error
-		a.Roles, a.Teams, a.Permissions, loadErr = loadGrants(ctx, tx, a.OnBehalfOf)
-		return loadErr
+		var err error
+		a, err = s.authenticateAgentWhere(ctx, tx, agentByHashPredicate, hashToken(rawToken))
+		return err
 	})
 	if err != nil {
 		return AgentIdentity{}, err
