@@ -131,11 +131,19 @@ type logoAttempt struct {
 // candidate it touched comes back too, in the order tried.
 //
 // The chain is ordered by how likely a candidate is to BE the logo — the
-// og:image first (a small site's og:image usually is its mark), then the
-// homescreen icon, then the favicons, then the well-known /favicon.ico. A
-// candidate that is square enough is taken immediately; a wide one is
-// remembered and only used if nothing squarer turns up, so a site whose
-// og:image is a sharing banner still ends up with its real icon.
+// homescreen icon first, then the favicons, then the well-known
+// /favicon.ico, and the og:image last. A candidate that is square enough is
+// taken immediately; a wide one is remembered and only used if nothing
+// squarer turns up.
+//
+// The declared icons come first because they are the only assets a site
+// publishes SAYING "this is us at icon size". og:image is whatever the page
+// wants shown when it is shared, which is its mark on a small site and a hero
+// photo, a product shot or a podcast tile on many others. Ranked first, a
+// square-ish photo was taken on sight and the site's real apple-touch-icon
+// was never asked for — an import of 162 companies produced several accounts
+// wearing a stock photo. Wide sharing banners were already screened out by
+// shape; square ones could only be screened out by asking for the icon first.
 func resolveOrganizationLogo(ctx context.Context, fetch assetFetcher, seedURL string, declared declaredAssets) (resolvedLogo, []logoAttempt) {
 	candidates, dropped := logoCandidates(seedURL, declared)
 	attempts := make([]logoAttempt, 0, len(candidates)+1)
@@ -219,13 +227,15 @@ func fetchLogoCandidate(ctx context.Context, fetch assetFetcher, rawURL string) 
 // ones included, is named in the report.
 func logoCandidates(seedURL string, declared declaredAssets) (candidates []string, dropped int) {
 	ordered := make([]string, 0, len(declared.icons)+2)
-	if declared.ogImage != "" {
-		ordered = append(ordered, declared.ogImage)
-	}
 	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelAppleTouchIcon)...)
 	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelIcon)...)
 	if wellKnown, ok := wellKnownFaviconURL(seedURL); ok {
 		ordered = append(ordered, wellKnown)
+	}
+	// Last: a site that declared no usable icon still has this, and on a small
+	// site it usually IS the mark.
+	if declared.ogImage != "" {
+		ordered = append(ordered, declared.ogImage)
 	}
 
 	seen := make(map[string]bool, len(ordered))

@@ -225,6 +225,21 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 		// wall deadline still bounds the attempt.
 		seedPage, err = c.fetchPaced(ctx, pacer, seedURL)
 	}
+	// The seed is derived as `https://<domain>`, which is a guess about how the
+	// site publishes itself. When it does not answer, try the site's other
+	// spellings before concluding the company has no website — see siteseed.go.
+	if err != nil && !errors.Is(err, webread.ErrRobotsDisallowed) {
+		for _, candidate := range seedFallbacks(seedURL) {
+			if ctx.Err() != nil {
+				break
+			}
+			page, retryErr := c.fetchPaced(ctx, pacer, candidate)
+			if retryErr == nil {
+				seedURL, seedPage, err = candidate, page, nil
+				break
+			}
+		}
+	}
 	if err != nil {
 		return siteCrawl{}, fmt.Errorf("site read of %s: the seed page itself failed: %w", seedURL, err)
 	}

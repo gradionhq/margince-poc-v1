@@ -69,13 +69,16 @@ func TestLogoCandidateOrderPrefersTheDeclarationsMostLikelyToBeTheMark(t *testin
 			{URL: "https://acme.example/touch-180.png", Rel: webread.RelAppleTouchIcon, Sizes: "180x180"},
 		},
 	})
+	// The declared icons lead: they are the only assets a site publishes
+	// saying "this is us at icon size". og:image is whatever the page wants
+	// shown when it is shared, so it goes last.
 	want := []string{
-		"https://acme.example/share.png",
 		"https://acme.example/touch-180.png",
 		"https://acme.example/touch-120.png",
 		"https://acme.example/icon-192.png",
 		"https://acme.example/icon-32.png",
 		"https://acme.example/favicon.ico",
+		"https://acme.example/share.png",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidate order:\n got %v\nwant %v", got, want)
@@ -184,8 +187,29 @@ func TestResolveLogoPassesOverASharingBannerForTheRealIcon(t *testing.T) {
 	if logo.SourceURL != "https://acme.example/touch.png" {
 		t.Fatalf("chose %q, want the square icon over the banner", logo.SourceURL)
 	}
-	if len(attempts) != 2 || attempts[0].Outcome != logoOutcomeFallback {
-		t.Fatalf("attempts = %+v, want the banner recorded as a fallback", attempts)
+	// The icon is first in the chain and square, so it is taken on sight and
+	// the banner is never fetched at all — one asset less of egress.
+	if len(attempts) != 1 || attempts[0].Outcome != logoOutcomeChosen {
+		t.Fatalf("attempts = %+v, want only the icon tried", attempts)
+	}
+}
+
+// The shape screen catches a WIDE og:image. A square-ish one — a product
+// shot, a podcast tile, a near-square hero photo — passes every screen there
+// is, so the only thing that keeps it off the account is asking the site for
+// its declared icon first. A real import produced several companies wearing a
+// stock photo this way.
+func TestResolveLogoPrefersADeclaredIconOverASquarishPhoto(t *testing.T) {
+	site := &assetSite{assets: map[string][]byte{
+		"https://acme.example/hero.jpg":  logoFixture(t, 1200, 1000),
+		"https://acme.example/touch.png": logoFixture(t, 180, 180),
+	}}
+	logo, _ := resolveOrganizationLogo(context.Background(), site, logoSeed, declaredAssets{
+		ogImage: "https://acme.example/hero.jpg",
+		icons:   []webread.IconRef{{URL: "https://acme.example/touch.png", Rel: webread.RelAppleTouchIcon}},
+	})
+	if logo.SourceURL != "https://acme.example/touch.png" {
+		t.Fatalf("chose %q, want the declared icon over the photo", logo.SourceURL)
 	}
 }
 
@@ -222,7 +246,16 @@ func TestResolveLogoRefusesTheCandidatesThatWouldRenderBadly(t *testing.T) {
 			if logo.PNG != nil {
 				t.Fatalf("%s but it was stored anyway", tc.name)
 			}
-			if len(attempts) == 0 || !strings.Contains(attempts[0].Outcome, tc.wantReason) {
+			// The reason can sit behind the well-known /favicon.ico attempt,
+			// which this fixture site does not serve — what matters is that
+			// the refusal is reported in words, not which row carries it.
+			named := false
+			for _, attempt := range attempts {
+				if strings.Contains(attempt.Outcome, tc.wantReason) {
+					named = true
+				}
+			}
+			if !named {
 				t.Fatalf("attempts = %+v, want a reason naming %q", attempts, tc.wantReason)
 			}
 		})
