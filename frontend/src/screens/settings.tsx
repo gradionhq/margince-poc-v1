@@ -577,7 +577,7 @@ function AgentToolsCard() {
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("tools.title")} sub={t("tools.sub")} />
       {passports.data && passports.data.data.length > 0 && (
-        <div style={{ marginBottom: 10 }}>
+        <div className="tool-scope-filter">
           <PassportSelect
             options={passports.data.data
               .filter((p) => p.revoked_at == null)

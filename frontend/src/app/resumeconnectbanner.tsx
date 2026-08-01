@@ -34,7 +34,7 @@ export function ResumeConnectBanner() {
       role="status"
       className="card card-inset"
       style={{
-        marginBottom: 14,
+        marginBottom: "var(--space-4)",
         display: "flex",
         flexDirection: "column",
         gap: "var(--space-3)",
@@ -44,7 +44,7 @@ export function ResumeConnectBanner() {
         {t("consent.resumeTitle", { client: pending.clientName })}
       </strong>
       <p>{t("consent.resumeBody", { client: pending.clientName })}</p>
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button
           variant="primary"
           onClick={() => {

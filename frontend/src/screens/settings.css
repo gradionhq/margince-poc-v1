@@ -365,6 +365,13 @@
   margin-bottom: var(--space-1);
 }
 
+/* Tool console's passport-scope filter (AgentToolsCard): carries the gap the
+   <select> it replaced used to set directly, so extracting it into
+   PassportSelect didn't move the rendered spacing below. */
+.tool-scope-filter {
+  margin-bottom: 10px;
+}
+
 /* Connected inboxes (Integrations tab): one row per live capture connection. */
 .connectors-list {
   list-style: none;

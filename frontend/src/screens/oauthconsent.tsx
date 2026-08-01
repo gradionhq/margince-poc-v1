@@ -152,9 +152,9 @@ export function OAuthConsent() {
               <div
                 style={{
                   display: "flex",
-                  gap: 6,
+                  gap: "var(--space-1)",
                   flexWrap: "wrap",
-                  marginTop: 8,
+                  marginTop: "var(--space-2)",
                 }}
               >
                 <ScopeChips scopes={selected.scopes} dim={notGranted} />
@@ -170,7 +170,13 @@ export function OAuthConsent() {
                 })}
               </p>
               {data.offline && <p>{t("consent.offline")}</p>}
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  marginTop: "var(--space-3)",
+                }}
+              >
                 <form method="post" action="/oauth/authorize">
                   <HiddenAuthorizeFields params={params} consent={consent} />
                   <input type="hidden" name="passport_id" value={effectiveId} />
