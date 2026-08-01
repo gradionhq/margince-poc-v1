@@ -97,14 +97,21 @@ func coverageReader(pool *pgxpool.Pool) agents.CoverageReader {
 			if err != nil {
 				return err
 			}
-			out = toAgentCoverage(coverage)
+			// Names resolved here: a coverage answer whose colleagues are
+			// bare ids leaves a model unable to say who to ask, which is the
+			// only reason it asked.
+			names, err := coverageUserNames(ctx, tx, coverage)
+			if err != nil {
+				return err
+			}
+			out = toAgentCoverage(coverage, names)
 			return nil
 		})
 		return out, err
 	}
 }
 
-func toAgentCoverage(c network.DealCoverage) agents.DealCoverageAnswer {
+func toAgentCoverage(c network.DealCoverage, names map[ids.UUID]string) agents.DealCoverageAnswer {
 	out := agents.DealCoverageAnswer{DealID: c.DealID}
 	for _, s := range c.Stakeholders {
 		out.Stakeholders = append(out.Stakeholders, agents.CoverageSeat{
@@ -113,7 +120,8 @@ func toAgentCoverage(c network.DealCoverage) agents.DealCoverageAnswer {
 	}
 	for _, e := range c.OurSide {
 		colleague := agents.KnownColleague{
-			UserID: e.UserID, StrengthBucket: e.Strength.Bucket, Interactions90d: e.Count90d,
+			UserID: e.UserID, DisplayName: names[e.UserID],
+			StrengthBucket: e.Strength.Bucket, Interactions90d: e.Count90d,
 		}
 		if e.Strength.Bucket != relstrength.BucketNone {
 			strength := e.Strength.Strength
@@ -173,4 +181,14 @@ func networkUserNames(ctx context.Context, tx pgx.Tx, edges []search.Interaction
 		out[id] = name
 	}
 	return out, rows.Err()
+}
+
+// coverageUserNames resolves the display names for a coverage answer's
+// colleagues.
+func coverageUserNames(ctx context.Context, tx pgx.Tx, c network.DealCoverage) (map[ids.UUID]string, error) {
+	edges := make([]search.InteractionEdge, 0, len(c.OurSide))
+	for _, e := range c.OurSide {
+		edges = append(edges, search.InteractionEdge{UserID: e.UserID})
+	}
+	return networkUserNames(ctx, tx, edges)
 }

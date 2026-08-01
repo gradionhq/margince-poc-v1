@@ -114,6 +114,11 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err != nil {
 		return nil, err
 	}
+	if colleagues == nil {
+		// An empty LIST, not a null. The documented shape is an array, and a
+		// model handed null reads it as "unknown" rather than "nobody".
+		colleagues = []KnownColleague{}
+	}
 	// An empty answer is returned as an empty list, not an error. "Nobody here
 	// knows them" is a true and useful answer to this question — it is the
 	// answer that says the account is cold — and turning it into a failure

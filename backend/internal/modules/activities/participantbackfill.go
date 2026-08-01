@@ -132,6 +132,11 @@ func backfillParticipants(ctx context.Context, tx pgx.Tx, limit int) (int, error
 		            LIMIT 1
 		      ) o ON true
 		     WHERE a.archived_at IS NULL
+		       -- The same kinds live stamping accepts. Without this the
+		       -- backfill invents participants for notes and tasks, so a
+		       -- workspace's history and its new mail disagree about what
+		       -- counts as an interaction.
+		       AND a.kind IN ('email','call','meeting')
 		       AND NOT EXISTS (
 		           SELECT 1 FROM activity_participant p WHERE p.activity_id = a.id)
 		     ORDER BY a.id

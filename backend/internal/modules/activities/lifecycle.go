@@ -232,6 +232,14 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 				   SET person_id = $%d
 				 WHERE ap.activity_id = $%d AND ap.person_id IS NOT NULL
 				   AND ap.person_id <> $%d
+				   -- Only the person this relink DISPLACED: the one the link
+				   -- delete above just removed. An activity can name several
+				   -- people, and repointing all of them would rewrite
+				   -- conversations the correction never mentioned.
+				   AND NOT EXISTS (
+				       SELECT 1 FROM activity_link al
+				        WHERE al.activity_id = ap.activity_id
+				          AND al.entity_type = 'person' AND al.person_id = ap.person_id)
 				   AND EXISTS (SELECT 1 FROM person op WHERE op.id = ap.person_id AND (`+visible+`))
 				   AND NOT EXISTS (
 				       SELECT 1 FROM activity_participant other

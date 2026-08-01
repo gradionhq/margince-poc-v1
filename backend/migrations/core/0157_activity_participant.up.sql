@@ -41,8 +41,12 @@ CREATE TABLE activity_participant (
   -- checked as the table owner and so bypasses RLS.
   CONSTRAINT activity_participant_activity_fkey
     FOREIGN KEY (workspace_id, activity_id) REFERENCES activity (workspace_id, id) ON DELETE CASCADE,
+  -- SET NULL names its COLUMN. A composite FK's bare ON DELETE SET NULL nulls
+  -- every column in the key, workspace_id included — which is NOT NULL, so
+  -- deleting a user would fail outright instead of preserving the record that
+  -- a meeting happened.
   CONSTRAINT activity_participant_user_fkey
-    FOREIGN KEY (workspace_id, user_id) REFERENCES app_user (workspace_id, id) ON DELETE SET NULL,
+    FOREIGN KEY (workspace_id, user_id) REFERENCES app_user (workspace_id, id) ON DELETE SET NULL (user_id),
   CONSTRAINT activity_participant_person_fkey
     FOREIGN KEY (workspace_id, person_id) REFERENCES person (workspace_id, id) ON DELETE CASCADE
 );
