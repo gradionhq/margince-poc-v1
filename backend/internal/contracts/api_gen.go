@@ -147,6 +147,24 @@ func (e ActivityLinkEntityType) Valid() bool {
 	}
 }
 
+// Defines values for AddConsumerMailDomainRequestKind.
+const (
+	AddConsumerMailDomainRequestKindExtra AddConsumerMailDomainRequestKind = "extra"
+	AddConsumerMailDomainRequestKindNever AddConsumerMailDomainRequestKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the AddConsumerMailDomainRequestKind enum.
+func (e AddConsumerMailDomainRequestKind) Valid() bool {
+	switch e {
+	case AddConsumerMailDomainRequestKindExtra:
+		return true
+	case AddConsumerMailDomainRequestKindNever:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AddListMemberRequestEntityType.
 const (
 	AddListMemberRequestEntityTypeDeal         AddListMemberRequestEntityType = "deal"
@@ -1986,6 +2004,24 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	case ConsentPassportOptionScopesSend:
 		return true
 	case ConsentPassportOptionScopesWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConsumerMailDomainKind.
+const (
+	ConsumerMailDomainKindExtra ConsumerMailDomainKind = "extra"
+	ConsumerMailDomainKindNever ConsumerMailDomainKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the ConsumerMailDomainKind enum.
+func (e ConsumerMailDomainKind) Valid() bool {
+	switch e {
+	case ConsumerMailDomainKindExtra:
+		return true
+	case ConsumerMailDomainKindNever:
 		return true
 	default:
 		return false
@@ -7530,6 +7566,16 @@ type ActivityListResponse struct {
 	Page PageInfo   `json:"page"`
 }
 
+// AddConsumerMailDomainRequest defines model for AddConsumerMailDomainRequest.
+type AddConsumerMailDomainRequest struct {
+	// Domain A mail domain; normalized to its registrable form before it is stored.
+	Domain string                           `json:"domain"`
+	Kind   AddConsumerMailDomainRequestKind `json:"kind"`
+}
+
+// AddConsumerMailDomainRequestKind defines model for AddConsumerMailDomainRequest.Kind.
+type AddConsumerMailDomainRequestKind string
+
 // AddListMemberRequest defines model for AddListMemberRequest.
 type AddListMemberRequest struct {
 	EntityId   openapi_types.UUID             `json:"entity_id"`
@@ -8974,6 +9020,29 @@ type ConsentRequest struct {
 	// Offline The client asked to stay connected without asking again (offline_access).
 	Offline   bool                    `json:"offline"`
 	Passports []ConsentPassportOption `json:"passports"`
+}
+
+// ConsumerMailDomain One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+// consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+// that claimed it. Either way the domain is stored in its registrable form, which is what
+// the matcher keys on.
+type ConsumerMailDomain struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Domain The registrable domain (e.g. `gmx.net`).
+	Domain string             `json:"domain"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// Kind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+	Kind ConsumerMailDomainKind `json:"kind"`
+}
+
+// ConsumerMailDomainKind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+type ConsumerMailDomainKind string
+
+// ConsumerMailDomainListResponse defines model for ConsumerMailDomainListResponse.
+type ConsumerMailDomainListResponse struct {
+	Data []ConsumerMailDomain `json:"data"`
 }
 
 // ContextEntityRef defines model for ContextEntityRef.
@@ -16537,6 +16606,9 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 // SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
 type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
+// AddConsumerMailDomainJSONRequestBody defines body for AddConsumerMailDomain for application/json ContentType.
+type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
+
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
 
@@ -22602,6 +22674,15 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
+	// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+	// (GET /capture/consumer-mail-domains)
+	ListConsumerMailDomains(w http.ResponseWriter, r *http.Request)
+	// Add a consumer-mail domain, or carve one out (admin/ops).
+	// (POST /capture/consumer-mail-domains)
+	AddConsumerMailDomain(w http.ResponseWriter, r *http.Request)
+	// Withdraw a consumer-mail list entry (admin/ops).
+	// (DELETE /capture/consumer-mail-domains/{id})
+	RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
@@ -23634,6 +23715,24 @@ func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Req
 // Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 // (POST /brief/items/{itemId}/snooze)
 func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+// (GET /capture/consumer-mail-domains)
+func (_ Unimplemented) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a consumer-mail domain, or carve one out (admin/ops).
+// (POST /capture/consumer-mail-domains)
+func (_ Unimplemented) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Withdraw a consumer-mail list entry (admin/ops).
+// (DELETE /capture/consumer-mail-domains/{id})
+func (_ Unimplemented) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27285,6 +27384,78 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SnoozeBriefItem(w, r, itemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConsumerMailDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConsumerMailDomains(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddConsumerMailDomain(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveConsumerMailDomain(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39227,6 +39398,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/consumer-mail-domains", wrapper.ListConsumerMailDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/capture/consumer-mail-domains", wrapper.AddConsumerMailDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/capture/consumer-mail-domains/{id}", wrapper.RemoveConsumerMailDomain)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)

@@ -110,7 +110,7 @@ func NewCounterpartyVerdictEngine(pool *pgxpool.Pool, brain completer, log *slog
 	return &CounterpartyVerdictEngine{
 		pool:       pool,
 		pending:    capture.NewPendingStore(pool),
-		people:     people.NewStore(pool),
+		people:     newCounterpartyStore(pool),
 		activities: activities.NewStore(pool),
 		approvals:  approvals.NewService(pool),
 		brain:      brain,

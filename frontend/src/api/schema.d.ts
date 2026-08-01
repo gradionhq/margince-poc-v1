@@ -2905,6 +2905,66 @@ export interface paths {
         patch: operations["updateCaptureSettings"];
         trace?: never;
     };
+    "/capture/consumer-mail-domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace's own consumer-mail domain list (CAP-PARAM-5).
+         * @description The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
+         *     Mail from a consumer domain still creates the person; what it never creates is a
+         *     company. Every role may read the list; only admin/ops may change it. Governed by the
+         *     `capture_settings` RBAC object.
+         */
+        get: operations["listConsumerMailDomains"];
+        put?: never;
+        /**
+         * Add a consumer-mail domain, or carve one out (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never changes a workspace-wide capture
+         *     posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
+         *     takes one back out and wins over the baseline, which is the only way back in for an
+         *     operator whose real customers mail from a domain the shipped list claims.
+         *
+         *     The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
+         *     because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
+         *     existing entry and changing an entry's kind updates it, since a domain cannot be both
+         *     added and carved out. Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        post: operations["addConsumerMailDomain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/consumer-mail-domains/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a consumer-mail list entry (admin/ops).
+         * @description Returns the workspace to the shipped baseline's answer for that domain. Idempotent:
+         *     withdrawing an entry that is not there is a no-op, because the caller's intent is
+         *     already satisfied.
+         */
+        delete: operations["removeConsumerMailDomain"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/usage": {
         parameters: {
             query?: never;
@@ -5493,6 +5553,34 @@ export interface components {
         UpdateCaptureSettingsRequest: {
             /** @description Toggle captured-organization auto-enrichment. */
             auto_enrich?: boolean;
+        };
+        /**
+         * @description One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+         *     consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+         *     that claimed it. Either way the domain is stored in its registrable form, which is what
+         *     the matcher keys on.
+         */
+        ConsumerMailDomain: {
+            /** Format: uuid */
+            id: string;
+            /** @description The registrable domain (e.g. `gmx.net`). */
+            domain: string;
+            /**
+             * @description `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+             * @enum {string}
+             */
+            kind: "extra" | "never";
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        AddConsumerMailDomainRequest: {
+            /** @description A mail domain; normalized to its registrable form before it is stored. */
+            domain: string;
+            /** @enum {string} */
+            kind: "extra" | "never";
+        };
+        ConsumerMailDomainListResponse: {
+            data: components["schemas"]["ConsumerMailDomain"][];
         };
         /**
          * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
@@ -17424,6 +17512,78 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listConsumerMailDomains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's list entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumerMailDomainListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    addConsumerMailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddConsumerMailDomainRequest"];
+            };
+        };
+        responses: {
+            /** @description The entry (or the existing one, on an idempotent re-add). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumerMailDomain"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removeConsumerMailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entry withdrawn (or already absent). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getAiUsage: {

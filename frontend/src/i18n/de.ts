@@ -1818,6 +1818,22 @@ export const de = {
   "connectors.telegramReplaceCta": "Token ersetzen",
   "connectors.telegramConnectedAs": "Verbunden als @{username}.",
 
+  // Die Consumer-Mail-Liste des Workspace (CAP-PARAM-5).
+  "consumerMail.title": "Consumer-Mail-Domains",
+  "consumerMail.sub":
+    "Mail von einem privaten Postfach legt weiterhin die Person an — nur eben keine Firma. Margince liefert eine Liste dieser Anbieter mit; ergänze, was fehlt, oder nimm eine Domain wieder heraus, die zu Unrecht darauf steht.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "anbieter.example",
+  "consumerMail.kindLabel": "Was diese Domain ist",
+  "consumerMail.kind.extra": "Consumer-Mail — niemals eine Firma",
+  "consumerMail.kind.never":
+    "Eine echte Firma — mitgelieferte Liste ignorieren",
+  "consumerMail.add": "Hinzufügen",
+  "consumerMail.remove": "Entfernen",
+  "consumerMail.none":
+    "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
+  "consumerMail.adminOnly": "Diese Liste kann nur eine Administratorin ändern.",
+
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",

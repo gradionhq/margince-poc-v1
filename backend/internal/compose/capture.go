@@ -25,7 +25,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -59,13 +58,15 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 
 // CaptureConfig is the deployment's capture list-config, threaded from
 // margince.yaml's `capture:` block into the Sink's suppression gates: the
-// CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
-// additions plus its allowlist (ADR-0072) — plus the process logger the Sink's
-// post-commit steps report through. The zero value is the pinned baselines with
-// no deployment additions and the default logger.
+// CAP-PARAM-6 transactional/ESP additions plus its allowlist (ADR-0072) — plus
+// the process logger the Sink's post-commit steps report through. The zero
+// value is the pinned baseline with no deployment additions and the default
+// logger.
+//
+// The consumer-mail list (CAP-PARAM-5) is deliberately NOT here: it is the
+// workspace's own, edited in the settings surface and read per transaction, so
+// a correction takes effect on the next message instead of the next restart.
 type CaptureConfig struct {
-	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5 additions)
-	FreemailNever      []string // capture.freemail_never (CAP-PARAM-5 carve-outs)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
 	// Logger carries the process logger to the post-commit steps the Sink
@@ -97,8 +98,6 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 // compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
 func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
 	return CaptureConfig{
-		FreemailExtra:      c.FreemailExtra,
-		FreemailNever:      c.FreemailNever,
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
 		Logger:             log,
@@ -134,7 +133,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 	ensurer := peopleEnsurer{
-		store:  people.NewStore(pool),
+		store:  newCounterpartyStore(pool),
 		enrich: newAutoEnrichTrigger(pool, cfg.logger()),
 		triage: newDomainTriageTrigger(pool, cfg.logger()),
 		log:    cfg.logger(),
@@ -147,7 +146,6 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
 		WithEnsurer(ensurer,
-			capture.NewFreemailList(cfg.FreemailExtra, cfg.FreemailNever),
 			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
 		// The channel twin of the line above (telegram-oa design §6.4): an
 		// inbound channel message reaches the SAME module through its own

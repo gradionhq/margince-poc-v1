@@ -1788,6 +1788,22 @@ export const en = {
   "connectors.telegramReplaceCta": "Replace token",
   "connectors.telegramConnectedAs": "Connected as @{username}.",
 
+  // The workspace's own consumer-mail list (CAP-PARAM-5): what the shipped
+  // baseline missed, and what it got wrong. Admin-curated and shared, because
+  // whether a domain can name a company is a fact about the domain.
+  "consumerMail.title": "Consumer mail domains",
+  "consumerMail.sub":
+    "Mail from a consumer mailbox still creates the person — it just never creates a company. Margince ships a list of these providers; add what it missed, or take back a domain it wrongly claimed.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "provider.example",
+  "consumerMail.kindLabel": "What this domain is",
+  "consumerMail.kind.extra": "Consumer mail — never a company",
+  "consumerMail.kind.never": "A real company — ignore the shipped list",
+  "consumerMail.add": "Add",
+  "consumerMail.remove": "Remove",
+  "consumerMail.none": "Nothing added. The shipped list decides every domain.",
+  "consumerMail.adminOnly": "Only an admin can change this list.",
+
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",

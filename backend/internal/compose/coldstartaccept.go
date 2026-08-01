@@ -41,7 +41,7 @@ func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
 // decision-grant mapping (TestEveryRegisteredEffectKindHasADecisionGrantMapping).
 func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc := approvals.NewService(pool)
-	store := people.NewStore(pool)
+	store := newCounterpartyStore(pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
 	svc.WithEffect(enrichProposalKind, scrapeAcceptEffect(svc, store))
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, store))

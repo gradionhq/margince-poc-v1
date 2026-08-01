@@ -54,16 +54,16 @@ type EnsureRequest struct {
 	SuppressOrg bool // free-mail domain: person yes, company no
 }
 
-// WithEnsurer returns a copy wired to the counterparty auto-create path:
-// freemail decides which domains never derive a company (CAP-PARAM-5), and
+// WithEnsurer returns a copy wired to the counterparty auto-create path.
 // transactional decides which senders are mail infrastructure that derive no
-// counterparty at all while the activity stands (CAP-PARAM-6, ADR-0072). A nil
-// ensurer keeps capture activity-only (a role that wired no resolver); a nil
-// transactional list simply runs no T2 suppression.
-func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList, transactional *TransactionalList) *Sink {
+// counterparty at all while the activity stands (CAP-PARAM-6, ADR-0072); which
+// domains never derive a company (CAP-PARAM-5) is read per transaction from the
+// workspace's own list, so there is nothing to wire for it. A nil ensurer keeps
+// capture activity-only (a role that wired no resolver); a nil transactional
+// list simply runs no T2 suppression.
+func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, transactional *TransactionalList) *Sink {
 	c := *s
 	c.ensurer = ensurer
-	c.freemail = freemail
 	c.transactional = transactional
 	return &c
 }
@@ -190,7 +190,16 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
 	// company — gmail.com is not an organization whatever else is true of it.
 	// Its domain already says what it is, so it is not the ambiguous class.
-	if s.freemail != nil && s.freemail.IsFreemail(cp.Domain) {
+	//
+	// The workspace's own additions and carve-outs are read on THIS transaction,
+	// not cached at composition time: an admin who corrects a wrong baseline
+	// entry means the very next message, and a cache would make them wait
+	// without saying so.
+	consumerMail, err := MatcherTx(ctx, tx)
+	if err != nil {
+		return counterpartyDecision{}, err
+	}
+	if consumerMail.IsConsumer(cp.Domain) {
 		decision.create, decision.suppressOrg = true, true
 	}
 

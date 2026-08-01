@@ -9,15 +9,6 @@ package deployconfig
 
 // Capture is the deployment's mail-capture pipeline tuning (ADR-0063).
 type Capture struct {
-	// FreemailExtra appends deployment-specific consumer mail domains to
-	// the pinned baseline blocklist (CAP-PARAM-5): mail from these domains
-	// still creates the person, never a company.
-	FreemailExtra []string `yaml:"freemail_extra"`
-	// FreemailNever carves a domain back out of the consumer-mail baseline
-	// (CAP-PARAM-5): the shipped dataset is a third-party list, and a wrong
-	// entry would otherwise bar an operator's real customers from ever having a
-	// company. It wins over the baseline and over FreemailExtra.
-	FreemailNever []string `yaml:"freemail_never"`
 	// TransactionalExtra appends deployment-specific mail-infrastructure
 	// eSLDs to the pinned baseline (CAP-PARAM-6, ADR-0072): mail from these
 	// senders keeps the activity but derives no counterparty at all.

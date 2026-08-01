@@ -4759,6 +4759,83 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------- /capture/consumer-mail-domains (CAP-PARAM-5) ---------------
+  # The workspace's own consumer-mail list: what the shipped baseline missed,
+  # and what it got wrong. A domain on this list can never name a company
+  # (`extra`), or is taken back out of the baseline that claimed it (`never`).
+  # Workspace-shared and admin-curated — whether a domain can name a company is
+  # a statement about the domain, not about who reads its mail.
+  /capture/consumer-mail-domains:
+    get:
+      tags: [Capture]
+      operationId: listConsumerMailDomains
+      security: [ { cookieAuth: [] } ]
+      summary: The workspace's own consumer-mail domain list (CAP-PARAM-5).
+      description: |
+        The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
+        Mail from a consumer domain still creates the person; what it never creates is a
+        company. Every role may read the list; only admin/ops may change it. Governed by the
+        `capture_settings` RBAC object.
+      responses:
+        '200':
+          description: The workspace's list entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerMailDomainListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Capture]
+      operationId: addConsumerMailDomain
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Add a consumer-mail domain, or carve one out (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never changes a workspace-wide capture
+        posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
+        takes one back out and wins over the baseline, which is the only way back in for an
+        operator whose real customers mail from a domain the shipped list claims.
+
+        The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
+        because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
+        existing entry and changing an entry's kind updates it, since a domain cannot be both
+        added and carved out. Audit-only write (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddConsumerMailDomainRequest' }
+            examples:
+              missedProvider: { value: { domain: 'regional-mail.example', kind: extra } }
+              wrongEntry:     { value: { domain: 'customer-host.example', kind: never } }
+      responses:
+        '201':
+          description: The entry (or the existing one, on an idempotent re-add).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerMailDomain' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /capture/consumer-mail-domains/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Capture]
+      operationId: removeConsumerMailDomain
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Withdraw a consumer-mail list entry (admin/ops).
+      description: |
+        Returns the workspace to the shipped baseline's answer for that domain. Idempotent:
+        withdrawing an entry that is not there is a no-op, because the caller's intent is
+        already satisfied.
+      responses:
+        '204': { description: Entry withdrawn (or already absent). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /ai/usage:
     get:
       tags: [AI]
@@ -9201,6 +9278,34 @@ components:
       description: A sparse capture-settings patch (admin/ops).
       properties:
         auto_enrich: { type: boolean, description: Toggle captured-organization auto-enrichment. }
+
+    ConsumerMailDomain:
+      type: object
+      description: |
+        One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+        consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+        that claimed it. Either way the domain is stored in its registrable form, which is what
+        the matcher keys on.
+      required: [id, domain, kind]
+      properties:
+        id: { type: string, format: uuid }
+        domain: { type: string, description: 'The registrable domain (e.g. `gmx.net`).' }
+        kind:
+          type: string
+          enum: [extra, never]
+          description: '`extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.'
+        created_at: { type: string, format: date-time, readOnly: true }
+    AddConsumerMailDomainRequest:
+      type: object
+      required: [domain, kind]
+      properties:
+        domain: { type: string, description: 'A mail domain; normalized to its registrable form before it is stored.' }
+        kind: { type: string, enum: [extra, never] }
+    ConsumerMailDomainListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ConsumerMailDomain' } }
 
     # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
     CaptureConnection:

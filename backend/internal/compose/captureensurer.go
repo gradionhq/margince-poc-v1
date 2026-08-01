@@ -14,10 +14,26 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// newCounterpartyStore builds the people store every counterparty-creation path
+// shares, with the consumer-mail reader wired in. The ensure ladder has to know
+// which domains can never name a company, and capture owns that list — so the
+// injection happens here, where a module reaching a sibling is allowed and a
+// module importing one is not.
+//
+// Every route into EnsureCounterpartyTx uses this: the capture sink, the
+// verdict engine, and the review-queue accept. A plain people.NewStore on any
+// of them would silently fall back to the shipped baseline and ignore the
+// workspace's own corrections.
+func newCounterpartyStore(pool *pgxpool.Pool) *people.Store {
+	return people.NewStore(pool).WithConsumerMail(capture.MatcherTx)
+}
 
 // peopleEnsurer adapts the people module's auto-create engine onto
 // capture's resolver seams — the mail one and the channel one. Both land in the

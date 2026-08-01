@@ -33,7 +33,6 @@ type Sink struct {
 	stager         MergeStager
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
-	freemail       *FreemailList
 	transactional  *TransactionalList
 }
 

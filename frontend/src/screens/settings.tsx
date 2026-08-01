@@ -64,6 +64,7 @@ import {
   useCompanyContextCapabilities,
 } from "./company-context";
 import { ConnectorsCard } from "./connectors";
+import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
@@ -167,6 +168,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
+          <ConsumerMailDomainsCard />
           <LinkedInImportCard />
           {/* No review queue here: a match a human must judge is a proposal,
               and proposals live in the approvals inbox. This tab shows what the

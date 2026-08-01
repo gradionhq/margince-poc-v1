@@ -77,6 +77,7 @@ type Server struct {
 	connectorHandlers
 	backfillHandlers
 	captureSettingsHandlers
+	consumerMailDomainHandlers
 	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
@@ -323,6 +324,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 		// read the auto-enrich posture (all roles), toggle it (admin/ops).
 		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
+		// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
+		// domain control, and the only way an operator corrects a shipped
+		// baseline that is wrong about one of their customers.
+		consumerMailDomainHandlers: consumerMailDomainHandlers{store: capture.NewFreemailDomains(pool)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source

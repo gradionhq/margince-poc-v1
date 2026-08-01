@@ -271,7 +271,11 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 	// settle. The sink's tier ladder usually catches it first; this repeats the
 	// check because the verdict engine and the review-queue accept reach this
 	// same chokepoint without passing through that ladder.
-	if in.SuppressOrg || s.freemail().IsConsumer(base) {
+	consumerMail, err := s.freemail(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if in.SuppressOrg || consumerMail.IsConsumer(base) {
 		return nil
 	}
 	prior, known, err := readDispositionTx(ctx, tx, base)
