@@ -362,11 +362,15 @@ describe("onboarding gate", () => {
     // The consent screen itself is proof the gate never fired — an
     // onboarding redirect would have replaced the hash before this renders.
     expect(
-      await screen.findByRole("heading", { name: "Authorise access" }),
+      await screen.findByRole("heading", { name: "Authorize access" }),
     ).toBeTruthy();
     expect(window.location.hash).toBe(pendingHash);
   });
 
+  // The control for the exemption above: it must be scoped to the consent
+  // route, not a gate that stopped firing. This is the third premise the gate
+  // has to answer — an ordinary route named in the hash on FIRST load (the
+  // cases above cover an empty hash, and a hashchange after mount).
   it("still redirects an ordinary screen away when the company is undescribed", async () => {
     window.location.hash = "#/contacts";
     stubCompany(404);

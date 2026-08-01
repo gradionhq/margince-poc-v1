@@ -440,7 +440,7 @@ export const en = {
   "consent.noRecord": "no record",
   "consent.noPurposes": "This workspace tracks no consent purposes yet.",
   "consent.defaultDeny":
-    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorises another.",
+    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorizes another.",
   "consent.proofLog": "Proof log",
   "consent.proofEmpty":
     "No consent decision recorded for this purpose. An empty log is honest, not a gap.",
@@ -2742,14 +2742,14 @@ export const en = {
   "embedreindex.impact.degraded": "would enter economy mode",
   "embedreindex.impact.queued": "would be queued",
 
-  "consent.title": "Authorise access",
+  "consent.title": "Authorize access",
   "consent.asks": "{client} wants to act in Margince as you.",
   "consent.lend": "Lend it one of your agent passports",
   "consent.grantedNote":
     "This connection will get only the scopes shown, even if the passport allows more.",
   "consent.offline":
     "It will stay connected without asking again, renewing access until you revoke it.",
-  "consent.approve": "Authorise",
+  "consent.approve": "Authorize",
   "consent.deny": "Deny access",
   "consent.emptyTitle": "You need an agent passport first",
   "consent.emptyBody":
@@ -2773,7 +2773,7 @@ export const en = {
     "The passport you chose for {client} was revoked, expired, or is already bound to another connection. Choose a different one below.",
   "consent.invalidTitle": "This connection request could not be completed",
   "consent.invalidBody":
-    "This installation will not authorise the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
+    "This installation will not authorize the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
   "consent.requestedNotGranted":
     "{client} asked for more than this passport can grant:",
   "consent.unnamedPassport": "Unnamed passport ({id})",

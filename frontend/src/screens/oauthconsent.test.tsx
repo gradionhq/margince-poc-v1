@@ -28,6 +28,26 @@ import { OAuthConsent } from "./oauthconsent";
 
 const NONCE = "n1";
 
+// Every fixture carries the RFC 8707 audience param the server armed the
+// request with: a redirect fragment that omits it cannot prove the screen
+// carries it forward, and `resource` is the one authorize param whose loss
+// would be silent — the flow still completes, bound to the wrong audience.
+const RESOURCE = "https://margince.example/mcp";
+
+// The whole authorize request minus the nonce — what a re-entry (the mint
+// detour's stash, the post-sign-in retry) must carry, spelled once so both
+// assertions read from the same list.
+const AUTHORIZE_KEYS = [
+  "response_type",
+  "client_id",
+  "redirect_uri",
+  "scope",
+  "code_challenge",
+  "code_challenge_method",
+  "resource",
+  "state",
+];
+
 function hashWith(overrides: Record<string, string> = {}): string {
   const params = new URLSearchParams({
     response_type: "code",
@@ -36,6 +56,7 @@ function hashWith(overrides: Record<string, string> = {}): string {
     scope: "read",
     code_challenge: "abc123",
     code_challenge_method: "S256",
+    resource: RESOURCE,
     state: "night-state",
     consent: NONCE,
     ...overrides,
@@ -58,6 +79,7 @@ function hashWithError(
     scope: "read",
     code_challenge: "abc123",
     code_challenge_method: "S256",
+    resource: RESOURCE,
     state: "night-state",
     error: errorCode,
     ...overrides,
@@ -80,6 +102,7 @@ function hashWithoutNonce(overrides: Record<string, string> = {}): string {
     scope: "read",
     code_challenge: "abc123",
     code_challenge_method: "S256",
+    resource: RESOURCE,
     state: "night-state",
     ...overrides,
   });
@@ -93,15 +116,22 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function render(ui: ReactNode) {
+// Hands the client back for the one case that has to make the screen read the
+// consent request a SECOND time (a passport revoked while the screen was open).
+function renderWithClient(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return rtlRender(
+  rtlRender(
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+  return client;
+}
+
+function render(ui: ReactNode) {
+  renderWithClient(ui);
 }
 
 type ConsentPayload = {
@@ -118,14 +148,20 @@ type ConsentPayload = {
 
 // Fills every passport's expires_at so the screen's own read of that
 // (required) field never breaks a test whose payload didn't spell it out.
-function stubConsent(payload: ConsentPayload) {
-  const withExpiry = {
+function withExpiry(payload: ConsentPayload) {
+  return {
     ...payload,
     passports: payload.passports.map((p) => ({
       ...p,
       expires_at: "2026-12-31T00:00:00Z",
     })),
   };
+}
+
+// Answers the consent-request read from whatever `current()` returns AT THE
+// TIME OF THE CALL, so a test can change what the server offers between two
+// reads — the shape a passport revoked in another tab actually arrives in.
+function stubConsentReads(current: () => ConsentPayload) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -135,11 +171,15 @@ function stubConsent(payload: ConsentPayload) {
         "https://test.local",
       );
       if (url.pathname === "/v1/oauth/consent-request") {
-        return jsonResponse(withExpiry);
+        return jsonResponse(withExpiry(current()));
       }
       return jsonResponse({ title: "not found" }, 404);
     }),
   );
+}
+
+function stubConsent(payload: ConsentPayload) {
+  stubConsentReads(() => payload);
 }
 
 // Every read this screen makes fails. The states that need no server data must
@@ -187,7 +227,10 @@ function stubAuthorizePost(): { body: URLSearchParams } {
     "submit",
     (event) => {
       event.preventDefault();
-      const form = event.target as HTMLFormElement;
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) {
+        throw new Error("submit fired on something that is not a form");
+      }
       posted.body = new URLSearchParams(
         [...new FormData(form).entries()].map(([key, value]) => [
           key,
@@ -200,6 +243,16 @@ function stubAuthorizePost(): { body: URLSearchParams } {
   return posted;
 }
 
+// The viewer's zone as the screen asks for it. Restored by the suite's
+// afterEach, so one case pretending to be elsewhere never leaks into the next.
+function pretendViewerZone(timeZone: string): void {
+  const real = Intl.DateTimeFormat().resolvedOptions();
+  vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+    ...real,
+    timeZone,
+  });
+}
+
 beforeEach(() => {
   globalThis.location.hash = hashWith();
   clearPendingAuthorize();
@@ -208,6 +261,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   clearPendingAuthorize();
 });
 
@@ -224,7 +278,7 @@ describe("OAuthConsent", () => {
       await screen.findByText(/need an agent passport first/i),
     ).toBeTruthy();
     // Not a disabled button — no approve control at all.
-    expect(screen.queryByRole("button", { name: /authorise/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /authorize/i })).toBeNull();
   });
 
   it("stashes the pending authorize request before sending the human to mint one", async () => {
@@ -256,16 +310,9 @@ describe("OAuthConsent", () => {
     expect(stashedParams.has("consent")).toBe(false);
     expect(stashedParams.toString().includes(NONCE)).toBe(false);
     expect([...stashedParams.keys()].sort()).toEqual(
-      [
-        "response_type",
-        "client_id",
-        "redirect_uri",
-        "scope",
-        "code_challenge",
-        "code_challenge_method",
-        "state",
-      ].sort(),
+      [...AUTHORIZE_KEYS].sort(),
     );
+    expect(stashedParams.get("resource")).toBe(RESOURCE);
   });
 
   it("names the client from the server, never from the URL", async () => {
@@ -295,7 +342,7 @@ describe("OAuthConsent", () => {
     });
     render(<OAuthConsent />);
     await userEvent.click(
-      await screen.findByRole("button", { name: /authorise/i }),
+      await screen.findByRole("button", { name: /authorize/i }),
     );
     expect(posted.body.get("passport_id")).toBe("p1");
     // The nonce comes from the fragment, not from the endpoint: the cookie
@@ -318,11 +365,50 @@ describe("OAuthConsent", () => {
     render(<OAuthConsent />);
     await userEvent.selectOptions(await screen.findByRole("combobox"), "p2");
     await userEvent.click(
-      await screen.findByRole("button", { name: /authorise/i }),
+      await screen.findByRole("button", { name: /authorize/i }),
     );
     // A component that ignored onChange and always posted options[0] would
     // pass a single-passport test but fail this one.
     expect(posted.body.get("passport_id")).toBe("p2");
+  });
+
+  it("posts the passport it is displaying, even after a re-read drops the chosen one", async () => {
+    const posted = stubAuthorizePost();
+    const night = {
+      id: "p1",
+      label: "night agent",
+      scopes: ["read"],
+      granted: ["read"],
+    };
+    const day = {
+      id: "p2",
+      label: "day agent",
+      scopes: ["read"],
+      granted: ["read"],
+    };
+    let lendable = [night, day];
+    stubConsentReads(() => ({
+      client_name: "Claude Code",
+      requested: ["read"],
+      offline: false,
+      passports: lendable,
+    }));
+    const client = renderWithClient(<OAuthConsent />);
+    await userEvent.selectOptions(await screen.findByRole("combobox"), "p2");
+
+    // The day agent is revoked in another tab; the next read of the same
+    // request no longer offers it, and the selector falls back to the one
+    // passport that is left.
+    lendable = [night];
+    await client.invalidateQueries({ queryKey: ["oauth-consent-request"] });
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(1));
+
+    await userEvent.click(screen.getByRole("button", { name: /authorize/i }));
+    // Displayed and posted are ONE value. A form still carrying the vanished
+    // p2 would let the human approve the passport on screen while lending a
+    // different one.
+    expect(screen.getByRole("combobox")).toHaveValue("p1");
+    expect(posted.body.get("passport_id")).toBe("p1");
   });
 
   it("posts the deny marker when the human refuses the connection", async () => {
@@ -343,7 +429,13 @@ describe("OAuthConsent", () => {
     expect(posted.body.get("consent")).toBe(NONCE);
   });
 
-  it("shows when the lent passport expires", async () => {
+  it("shows when the lent passport expires, on the viewer's own calendar", async () => {
+    // stubConsent always fills expires_at with 2026-12-31T00:00:00Z (see its
+    // own comment) — an instant that is already 31 December in Berlin but
+    // still 30 December on the US west coast. Pretend the viewer is there:
+    // formatDate takes its zone as an argument and never consults
+    // resolvedOptions, so this spy redirects only the screen's own lookup.
+    pretendViewerZone("America/Los_Angeles");
     stubConsent({
       client_name: "Claude Code",
       requested: ["read"],
@@ -353,11 +445,18 @@ describe("OAuthConsent", () => {
       ],
     });
     render(<OAuthConsent />);
-    // stubConsent always fills expires_at with this instant (see its own
-    // comment); the screen renders it through the same formatDate the
-    // passport list elsewhere in this app already uses.
-    const expected = formatDate("2026-12-31T00:00:00Z", "en", "Europe/Berlin");
-    expect(await screen.findByText(new RegExp(expected))).toBeTruthy();
+    // The locked locale convention (format.ts INTL_LOCALE, "A100:
+    // unconfigured English is en-GB") renders DD/MM/YYYY: a fixed
+    // Europe/Berlin would print 31/12/2026 to a human whose calendar still
+    // says the 30th, on the one screen where the credential's lifetime is
+    // the decision.
+    expect(await screen.findByText(/30\/12\/2026/)).toBeTruthy();
+    const fixedZoneDate = formatDate(
+      "2026-12-31T00:00:00Z",
+      "en",
+      "Europe/Berlin",
+    );
+    expect(screen.queryByText(new RegExp(fixedZoneDate))).toBeNull();
   });
 
   it("discloses a self-renewing connection separately from the scopes", async () => {
@@ -387,7 +486,7 @@ describe("OAuthConsent", () => {
       ],
     });
     render(<OAuthConsent />);
-    await screen.findByRole("button", { name: /authorise/i });
+    await screen.findByRole("button", { name: /authorize/i });
     // "write" is in neither this passport's scopes nor its granted set. It has
     // to be disclosed anyway: a client asking for more than the passport can
     // give must not read as one whose whole request was satisfied.
@@ -428,7 +527,7 @@ describe("OAuthConsent — the stash outlives only the request it represents", (
       ],
     });
     render(<OAuthConsent />);
-    await screen.findByRole("button", { name: /authorise/i });
+    await screen.findByRole("button", { name: /authorize/i });
     // Arriving here with a usable list means any mint detour is over —
     // a stash surviving past this point is what makes Settings offer to
     // "finish" a connection that already went through.
@@ -461,7 +560,7 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     stubConsentUnavailable();
     render(<OAuthConsent />);
     expect(await screen.findByText(/request has expired/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /authorise/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /authorize/i })).toBeNull();
     // The nonce is spent forever, so the recovery is the client, never a
     // reload of this page — the copy says so rather than staying silent.
     expect(
@@ -490,7 +589,7 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     stubConsentUnavailable();
     render(<OAuthConsent />);
     expect(await screen.findByText(/could not be completed/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /authorise/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /authorize/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
     expect(
       screen.getByRole("button", { name: /back to margince/i }),
@@ -511,7 +610,7 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     render(<OAuthConsent />);
     expect(await screen.findByText(/no longer be lent/i)).toBeTruthy();
     await userEvent.click(
-      await screen.findByRole("button", { name: /authorise/i }),
+      await screen.findByRole("button", { name: /authorize/i }),
     );
     // The point of re-rendering the selector: the second choice is SUBMITTABLE.
     // The server left the cookie armed and handed the nonce back for this, so a
@@ -537,7 +636,7 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     // here is worse than saying nothing: every submission fails the nonce check,
     // so the screen looks actionable and is not.
     expect(await screen.findByText(/request has expired/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /authorise/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /authorize/i })).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
   });
 
@@ -553,7 +652,7 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     expect(
       await screen.findByText(/need an agent passport first/i),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /authorise/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /authorize/i })).toBeNull();
   });
 });
 
@@ -573,17 +672,8 @@ describe("OAuthConsent — re-entering after sign-in", () => {
     // Same exclusion as the mint-detour stash: a fresh nonce is only
     // ever minted server-side, so replaying an absent one is not on offer.
     expect(reentered.has("consent")).toBe(false);
-    expect([...reentered.keys()].sort()).toEqual(
-      [
-        "response_type",
-        "client_id",
-        "redirect_uri",
-        "scope",
-        "code_challenge",
-        "code_challenge_method",
-        "state",
-      ].sort(),
-    );
+    expect([...reentered.keys()].sort()).toEqual([...AUTHORIZE_KEYS].sort());
+    expect(reentered.get("resource")).toBe(RESOURCE);
   });
 
   it("never re-enters without a session — the effect's own signal never fires", async () => {

@@ -65,7 +65,7 @@ function reauthorizeUrl(params: URLSearchParams): string {
   return `/oauth/authorize?${carried.toString()}`;
 }
 
-// The hidden fields both the Authorise and the Cancel form share: the whole
+// The hidden fields both the Authorize and the Cancel form share: the whole
 // authorize request plus the nonce, carried through untouched.
 function HiddenAuthorizeFields({
   params,
@@ -181,6 +181,11 @@ function ConsentSelector({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  // A credential's lifetime is a personal deadline, not a reporting-period
+  // label (format.ts zone-by-purpose): the human deciding how long to lend
+  // reads the date on their own calendar. A fixed zone shows the wrong
+  // calendar day to everyone outside it.
+  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // I9: the stash exists only to survive the round trip to mint a passport.
   // Reaching this screen with a usable list means that detour, if there was
@@ -196,7 +201,12 @@ function ConsentSelector({
   }));
   const selected =
     options.find((option) => option.id === passportId) ?? options[0];
-  const effectiveId = passportId || selected.id;
+  // The id the screen DISPLAYS is the id it posts — one value, never two.
+  // A chosen passport can leave the list between renders (revoked in another
+  // tab, dropped by a refetch), and a posted id that no longer names the
+  // passport on screen would let the human approve one credential while
+  // lending another.
+  const effectiveId = selected.id;
   // Scopes the passport carries beyond what this client would actually get,
   // dimmed so the human sees the connection may receive less than the
   // passport allows — never hidden outright.
@@ -264,7 +274,7 @@ function ConsentSelector({
       )}
       <p className="t-small">
         {t("consent.expires", {
-          date: formatDate(selected.expires_at, locale, "Europe/Berlin"),
+          date: formatDate(selected.expires_at, locale, viewerZone),
         })}
       </p>
       {data.offline && <p>{t("consent.offline")}</p>}
