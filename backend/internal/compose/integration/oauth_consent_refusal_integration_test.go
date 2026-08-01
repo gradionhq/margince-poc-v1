@@ -9,8 +9,13 @@ package integration
 // form in the SPA, so a JSON refusal replaces it with a body of text on a page
 // that has no navigation: the human's flow ends there, with no way back and
 // nothing to click. Every refusal a human can cause therefore comes back to the
-// screen with a marker naming it — and never with the spent nonce, which would
-// fail again identically forever.
+// screen with a marker naming it.
+//
+// Whether the nonce comes back with it is the whole distinction between the two
+// kinds: a refusal the human's next action can fix keeps the armed pair alive
+// (consentScreenRetry), and one that nothing can fix hands back the request
+// alone, because a form it could submit would only be refused again
+// (consentScreenRefusal).
 //
 // The refusals a CLIENT causes are unchanged and belong next door: approve and
 // deny still answer the client's own redirect_uri (oauth_lend_integration_test.go),
@@ -19,26 +24,41 @@ package integration
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-// consentScreenRefusal reads the marker off the Location a refused consent POST
-// answered with, asserting the whole shape the SPA depends on: the screen's own
-// route, the authorization request back with it, and the marker naming why.
-//
-// The spent nonce must be absent, checked twice — as a parameter and as a
-// substring of the whole Location. A re-entry carrying it could only be refused
-// again for the same reason, so the screen has to obtain a fresh one from
-// /oauth/authorize.
-func consentScreenRefusal(t *testing.T, status int, location, spentNonce string) string {
+// consentScreenHandback reads the fragment a refused consent POST answered with
+// and asserts what EVERY refusal owes the screen: the screen's own route, and the
+// authorization request back with it — without which the human is at a form with
+// nothing to re-post.
+func consentScreenHandback(t *testing.T, status int, location string) url.Values {
 	t.Helper()
 	if status != http.StatusFound {
 		t.Fatalf("refused consent POST → %d, want 302 back to the consent screen", status)
 	}
 	params := consentFragment(t, location)
+	for _, param := range []string{"client_id", "redirect_uri", "scope", "code_challenge", "state"} {
+		if params.Get(param) == "" {
+			t.Fatalf("the refusal dropped %s, which the screen must re-post: %q", param, location)
+		}
+	}
+	return params
+}
+
+// consentScreenRefusal reads the marker off a TERMINAL refusal: one the human
+// cannot act on, where the screen states that the connection has to be started
+// again from the client.
+//
+// The nonce must be absent, checked twice — as a parameter and as a substring of
+// the whole Location. A re-entry carrying it could only be refused again for the
+// same reason, so a screen offered it would present an action that never works.
+func consentScreenRefusal(t *testing.T, status int, location, spentNonce string) string {
+	t.Helper()
+	params := consentScreenHandback(t, status, location)
 	if got := params.Get("consent"); got != "" {
-		t.Fatalf("the refusal hands the screen a nonce %q; re-entry must mint a fresh one", got)
+		t.Fatalf("a terminal refusal hands the screen a nonce %q; nothing it could submit would be accepted", got)
 	}
 	if spentNonce == "" {
 		t.Fatal("the caller passed no armed nonce, so the leak check below would pass vacuously")
@@ -46,12 +66,22 @@ func consentScreenRefusal(t *testing.T, status int, location, spentNonce string)
 	if strings.Contains(location, spentNonce) {
 		t.Fatalf("the spent nonce leaked into the refusal %q", location)
 	}
-	// Without the request the screen has nothing to re-post, and the human is
-	// back at a form that cannot be submitted.
-	for _, param := range []string{"client_id", "redirect_uri", "scope", "code_challenge", "state"} {
-		if params.Get(param) == "" {
-			t.Fatalf("the refusal dropped %s, which the screen must re-post: %q", param, location)
-		}
+	return params.Get("error")
+}
+
+// consentScreenRetry reads the marker off a RECOVERABLE refusal, where only the
+// human's choice was wrong. The armed nonce has to come back with the request:
+// the pending authorization is still valid, and a screen without the nonce could
+// only render a selection whose submission the double-submit check must refuse.
+func consentScreenRetry(t *testing.T, status int, location, armed string) string {
+	t.Helper()
+	params := consentScreenHandback(t, status, location)
+	if armed == "" {
+		t.Fatal("the caller passed no armed nonce, so the check below would pass vacuously")
+	}
+	if got := params.Get("consent"); got != armed {
+		t.Fatalf("a recoverable refusal handed back nonce %q, want the armed %q — without it the screen's only action fails",
+			got, armed)
 	}
 	return params.Get("error")
 }
@@ -75,6 +105,114 @@ func TestAStaleConsentNonceComesBackToTheScreen(t *testing.T) {
 	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
 	assertOwnerCount(t, o, 0,
 		`SELECT count(*) FROM audit_log WHERE entity_type = 'oauth_authorization_code'`)
+}
+
+// A passport revoked in another tab is the case this hand-back exists for, and
+// the only refusal a human can act on: the pending authorization is untouched, so
+// the flow must SURVIVE it — the nonce comes back on the fragment, its cookie
+// counterpart is left armed, and the second selection is accepted inside the
+// window the GET already opened.
+//
+// The second POST is deliberately assembled from the REFUSAL's own parameters
+// rather than from a freshly armed request, because that is the only form the
+// screen can build. A refusal that strips the nonce, and a POST that clears the
+// cookie merely because a nonce was presented, each leave the human at a selector
+// whose only button lands on the stale-consent dead end — and neither is visible
+// to a test that stops at "the refusal came back with a marker".
+func TestAnUnlendablePassportLeavesTheHumanASecondChoice(t *testing.T) {
+	o := setupOAuth(t)
+	revoked := o.mintPassport(t, "revoked in another tab", []string{"read"})
+	o.revokePassport(t, revoked)
+	lendable := o.mintPassport(t, "still lendable", []string{"read"})
+
+	form := o.armConsent(t, url.Values{"scope": {"read"}})
+	armed := form.Get("consent")
+	form.Set("passport_id", revoked)
+
+	status, location, _ := o.postConsent(t, form)
+
+	if got := consentScreenRetry(t, status, location, armed); got != "unlendable_passport" {
+		t.Fatalf("error = %q, want unlendable_passport: %q", got, location)
+	}
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
+
+	// The human picks another passport and submits the form they were handed.
+	second := consentScreenHandback(t, status, location)
+	second.Del("error")
+	second.Set("passport_id", lendable)
+
+	status, location, body := o.postConsent(t, second)
+
+	if status != http.StatusFound || !strings.HasPrefix(location, oauthRedirect) {
+		t.Fatalf("the second lend → %d %q %s, want a 302 to the client: the refusal must not have spent the consent",
+			status, location, body)
+	}
+	granted, err := url.Parse(location)
+	if err != nil {
+		t.Fatalf("parsing the client redirect %q: %v", location, err)
+	}
+	code := granted.Query().Get("code")
+	if code == "" {
+		t.Fatalf("the second lend redirected to %q with no code", location)
+	}
+	// A real consent, not merely a redirect that looks like one: the code
+	// redeems, and the lend recorded is the passport the human ended up choosing
+	// — never the one that was refused.
+	if tokenStatus, tokenBody := o.exchange(t, url.Values{"code": {code}}); tokenStatus != http.StatusOK {
+		t.Fatalf("redeeming the second lend's code → %d %v", tokenStatus, tokenBody)
+	}
+	assertOwnerCount(t, o, 1, `SELECT count(*) FROM audit_log
+		WHERE entity_type = 'oauth_authorization_code' AND after->>'passport_id' = $1`, lendable)
+}
+
+// The other end of that cookie's life. A refusal leaves the armed pair alone, so
+// something has to retire it — and that something is the DECISION: the approve
+// that minted a code and the deny that answered the client each clear the cookie
+// on their way out, which is what stops one armed authorization from being
+// submitted over and over for the rest of its five minutes.
+func TestACommittedConsentCannotBeSubmittedTwice(t *testing.T) {
+	o := setupOAuth(t)
+	for name, decision := range map[string]struct {
+		decide func(*testing.T, *oauthEnv, url.Values)
+		answer string
+	}{
+		"an approve that minted a code": {
+			decide: func(t *testing.T, o *oauthEnv, form url.Values) {
+				t.Helper()
+				form.Set("passport_id", o.mintPassport(t, "lent once", []string{"read"}))
+			},
+			answer: "code=",
+		},
+		"a deny that answered the client": {
+			decide: func(t *testing.T, _ *oauthEnv, form url.Values) {
+				t.Helper()
+				form.Set("deny", "1")
+			},
+			answer: "error=access_denied",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			form := o.armConsent(t, url.Values{"scope": {"read"}})
+			armed := form.Get("consent")
+			decision.decide(t, o, form)
+
+			status, location, body := o.postConsent(t, form)
+			if status != http.StatusFound || !strings.Contains(location, decision.answer) {
+				t.Fatalf("the decision → %d %q %s, want a 302 carrying %s", status, location, body, decision.answer)
+			}
+
+			// The very same form again, nonce and all. The browser no longer holds
+			// the cookie half of the pair, so this is refused — and refused
+			// TERMINALLY, because there is nothing left to decide.
+			status, location, _ = o.postConsent(t, form)
+			if got := consentScreenRefusal(t, status, location, armed); got != "stale_consent" {
+				t.Fatalf("re-submitting a committed consent → %q, want stale_consent: %q", got, location)
+			}
+		})
+	}
+	// One code per approve, however many times the form was submitted: the deny
+	// subtest above mints none at all, so this is the approve's single row.
+	assertOwnerCount(t, o, 1, `SELECT count(*) FROM oauth_authorization_code`)
 }
 
 // A POST whose authorization request no longer validates: the parameters are

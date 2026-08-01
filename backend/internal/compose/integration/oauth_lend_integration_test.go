@@ -205,9 +205,11 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 // the list was rendered seconds ago and the check must be re-run (I2).
 //
 // The human is one selection away from a working consent, so the refusal goes
-// back to the screen with a marker rather than replacing it with JSON — asserted
-// for both shapes the check refuses, a passport that is no longer selectable and
-// a POST that named none at all.
+// back to the screen carrying the marker AND the armed nonce — a recoverable
+// refusal, not JSON and not a dead end — asserted for both shapes the check
+// refuses, a passport that is no longer selectable and a POST that named none at
+// all. That the flow actually survives it is
+// TestAnUnlendablePassportLeavesTheHumanASecondChoice's subject.
 func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 	o := setupOAuth(t)
 	revoked := o.mintPassport(t, "revoked", []string{"read"})
@@ -215,13 +217,13 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 
 	status, location, armed := o.approveRefused(t, url.Values{"scope": {"read"}}, revoked)
 
-	if got := consentScreenRefusal(t, status, location, armed); got != "unlendable_passport" {
+	if got := consentScreenRetry(t, status, location, armed); got != "unlendable_passport" {
 		t.Fatalf("error = %q, want unlendable_passport: %q", got, location)
 	}
 	// A POST naming no passport at all is the same refusal: there is nothing to
 	// lend either way, and the screen has to ask again for the same reason.
 	status, location, armed = o.approveRefused(t, url.Values{"scope": {"read"}}, "")
-	if got := consentScreenRefusal(t, status, location, armed); got != "unlendable_passport" {
+	if got := consentScreenRetry(t, status, location, armed); got != "unlendable_passport" {
 		t.Fatalf("error = %q for a POST naming no passport, want unlendable_passport: %q", got, location)
 	}
 	// The refusal has to come BEFORE anything durable exists. The code row and

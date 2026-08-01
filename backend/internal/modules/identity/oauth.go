@@ -15,7 +15,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -119,17 +118,12 @@ func (h Handlers) oauthRegister(w http.ResponseWriter, r *http.Request) {
 
 // authorizePath is the consent endpoint. Four things have to agree on it and
 // each would break differently if they drifted: the two routes above, the
-// consent cookie's Path (below — the cookie is scoped to exactly this endpoint,
-// which is what keeps the nonce off every route the SPA can call), the
+// consent cookie's Path (oauth_consentnonce.go — scoped to exactly this
+// endpoint, which is what keeps the nonce off every route the SPA can call), the
 // middleware predicate that admits the GET without a session (isConsentEntry,
 // middleware.go), and the authorization_endpoint discovery advertises
 // (oauth_discovery.go), which a client follows before any of this runs.
 const authorizePath = "/oauth/authorize"
-
-// consentCookie carries the double-submit nonce that binds the consent
-// POST to the browser that saw the consent screen. SameSite=Strict
-// means a cross-site attacker can neither read nor ride it.
-const consentCookie = "crm_oauth_consent"
 
 // authorizeRequest is the validated, not-yet-consented authorize call.
 type authorizeRequest struct {
@@ -249,10 +243,7 @@ func (h Handlers) oauthConsentRedirect(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: consentCookie, Value: nonce, Path: authorizePath,
-		MaxAge: 300, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
-	})
+	armConsentCookie(w, nonce)
 
 	// The consent SCREEN lives in the SPA; this endpoint stays where discovery
 	// advertises it and keeps doing the work only the server can: validate the
@@ -278,21 +269,16 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
-	nonce, err := r.Cookie(consentCookie)
-	if err != nil || nonce.Value == "" ||
-		subtle.ConstantTimeCompare([]byte(nonce.Value), []byte(r.PostForm.Get("consent"))) != 1 {
+	if !consentNonceNowProven(r) {
 		// The ordinary cause is a human who left the screen open past the cookie's
-		// five minutes, so the answer is the screen — where re-entry mints a fresh
-		// nonce. A forged nonce lands here too and gets the same answer: it minted
-		// nothing either way, and the screen it reaches serves the human whose
-		// session the request already had to carry.
+		// five minutes, and nothing there is recoverable: a nonce this browser can
+		// no longer prove fails identically however often it is re-presented. So the
+		// screen gets the request without one and states the only way forward —
+		// start again from the client. A forged nonce lands here too and gets the
+		// same answer: it minted nothing either way.
 		refuseToConsentScreen(w, r, url.Values(r.PostForm), consentErrorStale)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: consentCookie, Value: "", Path: authorizePath, MaxAge: -1,
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
-	})
 
 	// A POST that fails validation is read by the human's browser, not by the
 	// client, so the refusal goes to the screen and validateAuthorize's
@@ -311,6 +297,7 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// closed. It is judged AFTER the nonce check — a forged deny is still a
 	// forgery — and mints nothing: no grant, no code.
 	if r.PostForm.Get("deny") != "" {
+		clearConsentCookie(w)
 		redirectToClient(w, r, req, url.Values{oauthParamError: {"access_denied"}})
 		return
 	}
@@ -325,9 +312,16 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !lendable {
-		// Nothing was minted, and the human is one selection away from a working
-		// consent: back to the screen, which re-reads the live list and asks again.
-		refuseToConsentScreen(w, r, url.Values(r.PostForm), consentErrorUnlendable)
+		// Nothing was minted and nothing about the pending authorization changed:
+		// the human is one selection away from a working consent. So the armed pair
+		// SURVIVES — the cookie stays, the nonce goes back with the request — and
+		// the screen re-reads the live list and asks again with a form it can
+		// actually submit. Stripping the nonce here would leave a selector whose
+		// only button the nonce check must refuse: the revoked-in-another-tab case
+		// answered with a dead end. The value handed back is the one the screen
+		// submitted, which the check above proved equal to the cookie.
+		retryAtConsentScreen(w, r, url.Values(r.PostForm),
+			r.PostForm.Get(consentScreenParamNonce), consentErrorUnlendable)
 		return
 	}
 	req.Scopes = lent.Scopes
@@ -337,6 +331,7 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
+	clearConsentCookie(w)
 	redirectToClient(w, r, req, url.Values{"code": {code}})
 }
 

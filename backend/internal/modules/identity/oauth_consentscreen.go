@@ -31,18 +31,31 @@ const ConsentScreenPath = "/#/oauth-consent"
 // SPA's words, not RFC 6749's: no client ever sees them, and the screen turns
 // each into one sentence in the human's language, which is why the marker
 // travels alone and the server's client-facing description does not follow it.
+//
+// They split in two, and the split decides whether the nonce travels with them:
+// a refusal the human's NEXT action can fix keeps the pending authorization
+// alive, and one that nothing can fix ends the flow on the screen.
 const (
 	consentScreenParamError = "error"
+	// consentScreenParamNonce is the screen's half of the double-submit pair.
+	// Named here rather than in the RFC vocabulary because no client ever sends
+	// or reads it: it exists between this endpoint and the SPA alone.
+	consentScreenParamNonce = "consent"
 	// consentErrorStale: the nonce cookie is gone, expired, or does not match
-	// the submitted value. The screen re-enters /oauth/authorize, which arms a
-	// fresh nonce — the spent one is unusable, so re-presenting it could only
-	// fail again, identically, forever.
+	// the submitted value. UNRECOVERABLE — a spent or forged nonce fails the
+	// same way however often it is presented — so the screen renders a terminal
+	// card asking the human to start again from their client, which is the only
+	// place a fresh authorization begins.
 	consentErrorStale = "stale_consent"
 	// consentErrorUnlendable: the selected passport did not survive the
 	// re-resolved selectability check, or no usable passport_id was submitted.
+	// RECOVERABLE — the pending authorization is untouched and only the human's
+	// CHOICE was wrong, so the nonce comes back with the request and their next
+	// selection succeeds inside the window the GET already armed.
 	consentErrorUnlendable = "unlendable_passport"
 	// consentErrorInvalid: validateAuthorize refused the POST — the request the
 	// screen posted back is not one this server will authorize any more.
+	// UNRECOVERABLE for the same reason: re-posting it would be refused again.
 	consentErrorInvalid = "invalid_request"
 )
 
@@ -59,10 +72,9 @@ var authorizeScreenParams = []string{
 // reads. Only the named parameters travel: an echo of the whole incoming query
 // would reflect arbitrary attacker-chosen keys into the screen's own state.
 //
-// The consent nonce is NOT among them, deliberately. A refusal hands back the
-// request, never the credential half of the double-submit pair — the screen
-// obtains a fresh nonce by re-entering /oauth/authorize, which is the only place
-// one is minted.
+// The nonce is not among them because it is not part of the REQUEST: it is the
+// credential half of the double-submit pair, added back only where the
+// authorization it belongs to is still usable (retryAtConsentScreen).
 func consentScreenParams(src url.Values) url.Values {
 	params := url.Values{}
 	for _, name := range authorizeScreenParams {
@@ -85,7 +97,7 @@ func consentHandoffParams(req authorizeRequest, nonce string) url.Values {
 		oauthParamRedirectURI: {req.RedirectURI}, oauthParamScope: {formScope(req)},
 		oauthParamCodeChallenge: {req.CodeChallenge}, oauthParamCodeChallengeMethod: {pkceMethodS256},
 		oauthParamResource: {req.Resource}, oauthParamState: {req.State},
-		"consent": {nonce},
+		consentScreenParamNonce: {nonce},
 	}
 }
 
@@ -120,8 +132,11 @@ func redirectToConsentScreen(w http.ResponseWriter, r *http.Request, params url.
 	http.Redirect(w, r, ConsentScreenPath+"?"+params.Encode(), http.StatusFound)
 }
 
-// refuseToConsentScreen answers a refusal the HUMAN has to act on: the screen
-// again, carrying the same request plus the marker naming what went wrong.
+// refuseToConsentScreen answers a refusal nothing can recover from: the nonce is
+// spent, or this server will not authorize the request any more. The screen gets
+// the request and the marker, WITHOUT a nonce — there is no submission left that
+// could succeed, and a screen that offered one would send the human round the
+// same refusal for as long as they kept trying.
 //
 // A refused consent POST is not a client protocol error to report to the client
 // — the human is still mid-flow, and their browser is the only thing reading the
@@ -130,5 +145,26 @@ func redirectToConsentScreen(w http.ResponseWriter, r *http.Request, params url.
 func refuseToConsentScreen(w http.ResponseWriter, r *http.Request, form url.Values, reason string) {
 	params := consentScreenParams(form)
 	params.Set(consentScreenParamError, reason)
+	redirectToConsentScreen(w, r, params)
+}
+
+// retryAtConsentScreen answers the refusal the human's next action fixes. The
+// pending authorization is still armed and still valid; only the passport they
+// picked was not lendable. So the nonce goes back WITH the request, and the
+// cookie holding its counterpart is deliberately left alone (clearConsentCookie
+// runs where consent COMMITS, not where a nonce was merely presented) — the
+// human chooses again and submits inside the same five minutes.
+//
+// Handing the nonce back discloses nothing new: it rides in the fragment, which
+// no browser ever transmits, and its value is what this very browser just sent.
+// The double-submit property is untouched, because the POST still requires the
+// cookie and the body to agree — this only declines to destroy a pair that is
+// still good.
+func retryAtConsentScreen(
+	w http.ResponseWriter, r *http.Request, form url.Values, nonce, reason string,
+) {
+	params := consentScreenParams(form)
+	params.Set(consentScreenParamError, reason)
+	params.Set(consentScreenParamNonce, nonce)
 	redirectToConsentScreen(w, r, params)
 }
