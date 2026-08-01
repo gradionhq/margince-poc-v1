@@ -144,6 +144,12 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
+	// Who was in it (ACT-DDL-3). After the links, because the counterparty is
+	// whichever person they name — and they have just been through the
+	// row-scope gate, so nothing here needs to re-check them.
+	if err := stampLoggedParticipants(ctx, tx, id, in.Kind, in.Direction, in.Links); err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
 
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{fieldKind: in.Kind, "subject": in.Subject})
 	if err != nil {

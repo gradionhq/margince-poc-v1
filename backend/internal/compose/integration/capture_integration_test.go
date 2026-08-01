@@ -185,8 +185,12 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if capturedBy != "connector:graph" || links != 1 {
-		t.Fatalf("provenance/link wrong: captured_by=%q links=%d", capturedBy, links)
+	// Provenance carries the granting human as well as the connector
+	// (ADR-0078 §4b), so a workspace with two connections for one provider can
+	// still say whose mailbox a row came from.
+	if capturedBy != "connector:graph:"+e.Rep1.String() || links != 1 {
+		t.Fatalf("provenance/link wrong: captured_by=%q links=%d, want connector:graph:%s",
+			capturedBy, links, e.Rep1)
 	}
 	// The jsonb cursor advanced to the second sync's watermark.
 	var syncN *string

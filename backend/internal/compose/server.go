@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
+	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -65,6 +66,9 @@ type Server struct {
 	voiceHandlers
 	reportHandlers
 	briefs.Handlers
+	// The relationship-graph reads (ADR-0078): who knows this contact, and
+	// how a deal is covered.
+	network.Reads
 	coldstartHandlers
 	companyHandlers
 	onboardingStateHandlers
@@ -308,6 +312,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
+		Reads:    network.NewReads(pool),
 		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
 		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
 		// pre-ingestion gate (wired in NewCaptureRegistry).

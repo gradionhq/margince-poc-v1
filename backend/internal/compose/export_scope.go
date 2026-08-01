@@ -97,7 +97,7 @@ func personChildExportScope(ctx context.Context, alias string, arg func(any) int
 	if !ok {
 		return "", errors.New("compose: no actor bound to export context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person") {
 		return "", nil
 	}
 	predicate := auth.VisiblePredicate(actor, "person", arg)
@@ -114,7 +114,7 @@ func relationshipExportScope(ctx context.Context, alias string, arg func(any) in
 	if !ok {
 		return "", errors.New("compose: no actor bound to export context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person", "organization", "deal") {
 		return "", nil
 	}
 	var clauses []string
@@ -136,13 +136,14 @@ func relationshipExportScope(ctx context.Context, alias string, arg func(any) in
 // polymorphicVisible renders "the referenced record is visible" for a
 // polymorphic (entity_type, entity_id) pair — the attachment manifest and
 // the audit-log member both ride it so neither leaks a row pointing at a
-// record outside the caller's scope. Unbounded actors carry no clause.
+// record outside the caller's scope. Only an actor unbounded over every
+// arm carries no clause.
 func polymorphicVisible(ctx context.Context, typeCol, idCol string, arg func(any) int) (string, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return "", errors.New("compose: no actor bound to export context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person", "organization", "deal", "lead") {
 		return "", nil
 	}
 	var parts []string
@@ -179,7 +180,7 @@ func auditExportScope(ctx context.Context, alias string, arg func(any) int) (str
 	if !ok {
 		return "", errors.New("compose: no actor bound to export context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person", "organization", "deal", "lead") {
 		return "", nil
 	}
 	entity, err := polymorphicVisible(ctx, alias+".entity_type", alias+".entity_id", arg)

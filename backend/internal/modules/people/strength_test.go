@@ -7,6 +7,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 func fixedNow() time.Time {
@@ -80,8 +82,8 @@ func TestStrengthEdgeCases(t *testing.T) {
 	// Purely one-directional: reciprocity sits exactly on the floor.
 	oneWay := RelationshipStrength{LastInteraction: at(1), InteractionCount90d: 10, Inbound90d: 0, Outbound90d: 10}
 	oneWay.finish(fixedNow())
-	if oneWay.Reciprocity != relStrengthReciprocityFloor {
-		t.Fatalf("one-directional reciprocity = %f, want the %v floor", oneWay.Reciprocity, relStrengthReciprocityFloor)
+	if oneWay.Reciprocity != relstrength.ReciprocityFloor {
+		t.Fatalf("one-directional reciprocity = %f, want the %v floor", oneWay.Reciprocity, relstrength.ReciprocityFloor)
 	}
 
 	// A single interaction today: strong recency, tiny frequency — one

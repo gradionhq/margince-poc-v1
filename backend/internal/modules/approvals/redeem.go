@@ -143,6 +143,47 @@ var versionTables = map[string]bool{
 	"project": true,
 }
 
+// contextTargetKinds are the staging kinds whose target_entity names what the
+// proposal is ABOUT rather than the row its effect writes to. Their stagings
+// carry no version pin, and the value is the reason why.
+//
+// The pin binds an approval to the exact content state of the row it
+// authorizes an operation against — what stops a confirmed "send this offer"
+// executing over an offer that changed underneath it. A proposal that CREATES
+// something has no such row, and pinning it anyway binds the approval to a row
+// that unrelated writes bump.
+//
+// This is keyed on the KIND rather than declared per service instance,
+// because staging and deciding do not always run through the same instance:
+// a declaration attached to the wiring was silently absent wherever a second
+// service was constructed, which is the failure it exists to prevent.
+// TestEveryContextTargetKindIsExplained holds each entry to its rationale.
+var contextTargetKinds = map[string]string{
+	"site_lead": "A lead read off a company's website is FILED under that company so the " +
+		"inbox can group and filter it, but creating the lead reads none of the " +
+		"company's own fields. Pinning it bound the approval to a row that unrelated " +
+		"writes bump — and the same enrichment run that discovers the leads writes " +
+		"the company's profile fields, so the pin went stale before any human saw " +
+		"the lead and every accept failed for the row's lifetime.",
+}
+
+// TargetIsContextOnly reports whether this kind's target names context rather
+// than the row the effect operates on.
+func TargetIsContextOnly(kind string) bool {
+	_, ok := contextTargetKinds[kind]
+	return ok
+}
+
+// ContextTargetKinds reports the declared kinds and their rationales, so a
+// fitness test can hold each one to an explanation.
+func ContextTargetKinds() map[string]string {
+	out := make(map[string]string, len(contextTargetKinds))
+	for kind, why := range contextTargetKinds {
+		out[kind] = why
+	}
+	return out
+}
+
 // TargetVersionCheckable reports whether a staged approval against this
 // entity type can carry a target_version pin that Redeem is able to
 // re-verify (ADR-0036 §2).

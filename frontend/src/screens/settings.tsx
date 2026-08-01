@@ -69,6 +69,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { LinkedInImportCard } from "./linkedin-import";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
@@ -161,6 +162,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <ConnectorsCard />
           <CaptureSettingsCard />
+          <LinkedInImportCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
         </>

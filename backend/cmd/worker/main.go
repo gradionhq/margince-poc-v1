@@ -29,6 +29,7 @@ import (
 	// build/composition/ in a composed build, the committed vanilla stub
 	// in a bare one — same import path either way.
 	"github.com/gradionhq/margince/composition"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -45,6 +46,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func main() {
@@ -165,6 +167,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger, 0) })
 	}
+	// The interaction-edge projection (ADR-0078). Unlike embeddings it needs no
+	// model, so it runs on every worker rather than only where a provider is
+	// configured — a deployment without AI still answers "who on our team knows
+	// this contact", which is a deterministic question about our own mail.
+	{
+		edges := search.NewGraphEdgeGen(search.NewStore(pool))
+		_, _ = fmt.Fprintln(stdout, "worker maintaining interaction edges")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:graph-edge", edges.HandleEvent, logger, 0) })
+	}
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
@@ -173,7 +184,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if blobConfigured {
 		_, _ = fmt.Fprintln(stdout, "worker storing site-read logos and erasing attachment objects (blobstore configured)")
 	}
-	retention := privacy.NewRetentionService(pool, blob, logger)
+	// Retention removes the interactions the relationship graph is folded
+	// from, so it carries the fold with it — in its own transaction, not on
+	// the bus. Injected here because the fold belongs to the search module and
+	// a module never imports a sibling.
+	retention := privacy.NewRetentionService(pool, blob, logger).
+		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
+			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
+		})
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
 	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
 

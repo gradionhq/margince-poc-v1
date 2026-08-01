@@ -76,7 +76,7 @@ type catchMeUpOn struct {
 
 func (t catchMeUpOn) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "catch_me_up_on", Version: "1.0.0",
+		Name: "catch_me_up_on", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),
@@ -106,7 +106,7 @@ type prepForMeeting struct {
 
 func (t prepForMeeting) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "prep_for_meeting", Version: "1.0.0",
+		Name: "prep_for_meeting", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp:    "getPerson/getOrganization/getDeal + listActivities",
 		InputSchema:  schema(anchorSchema),

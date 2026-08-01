@@ -245,3 +245,22 @@
   margin-bottom: var(--space-3);
   color: var(--textMeta);
 }
+
+/* Facts read from the site. The rhythm is tighter than the profile card above
+   because these are scanned, not read: the reader is looking for one thing. */
+.co-facts-group {
+  margin-bottom: var(--space-4);
+}
+
+.co-facts-heading {
+  margin-bottom: var(--space-2);
+}
+
+/* Verbs under the section they change: spaced off the content above so they
+   read as an action strip rather than another row of the list. */
+.co-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

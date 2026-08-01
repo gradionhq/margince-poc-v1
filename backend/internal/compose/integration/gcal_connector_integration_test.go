@@ -127,8 +127,11 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 	if activities != 1 {
 		t.Fatalf("gcal activities = %d, want 1 (external captured, internal skipped, idempotent replay)", activities)
 	}
-	if capturedBy != "connector:gcal" || sourceID != "evt-ext" || kind != "meeting" {
-		t.Fatalf("row wrong: captured_by=%q source_id=%q kind=%q", capturedBy, sourceID, kind)
+	// The calendar owner is named in the provenance, not just the connector
+	// (ADR-0078 §4b).
+	if capturedBy != "connector:gcal:"+e.Rep1.String() || sourceID != "evt-ext" || kind != "meeting" {
+		t.Fatalf("row wrong: captured_by=%q source_id=%q kind=%q, want connector:gcal:%s",
+			capturedBy, sourceID, kind, e.Rep1)
 	}
 
 	// The cursor advanced to the returned syncToken.

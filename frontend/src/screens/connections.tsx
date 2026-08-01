@@ -307,6 +307,33 @@ function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
 }
 
 /**
+ * contactEdges are this user's in_contact_with edges — one per contact they
+ * have exchanged messages with.
+ *
+ * A colleague's warmth is PER CONTACT, not per account, so a user row can
+ * carry several. The strongest is shown, because the question the card
+ * answers is "how good a route in is this person", and that is their best
+ * relationship rather than their average one.
+ */
+function strongestContactEdge(
+  graph: Graph,
+  userId: string,
+): GraphEdge | undefined {
+  let best: GraphEdge | undefined;
+  for (const edge of graph.edges) {
+    if (edge.kind !== "in_contact_with" || edge.from !== userId) {
+      continue;
+    }
+    // A null score is the "no signal yet" band, which loses to any real one
+    // but still beats having no edge at all.
+    if (best === undefined || (edge.strength ?? -1) > (best.strength ?? -1)) {
+      best = edge;
+    }
+  }
+  return best;
+}
+
+/**
  * NodeList renders one group of connections, each row reachable by keyboard
  * through EntityRef's own link and naming how it attaches to the account.
  */
@@ -347,11 +374,62 @@ function NodeList({
                 {node.strength}
               </Badge>
             )}
+            {node.kind === "user" && (
+              <ContactStrength graph={graph} userId={node.id} />
+            )}
           </span>
         </li>
       ))}
     </ul>
   );
+}
+
+/**
+ * ContactStrength shows how warm this colleague's own relationship with the
+ * account's people is — the per-user score (PO-F-3b), which is a different
+ * number from the contact's workspace-wide strength shown on contact rows.
+ *
+ * The two are deliberately not comparable, so they are never rendered as one
+ * figure: a contact can be warm to the company while the colleague standing
+ * next to them has barely met them, and that gap is exactly what a rep asking
+ * "who should make the introduction" needs to see.
+ *
+ * The `none` band renders as words, not a zero. "We have never spoken" and "we
+ * spoke and it went cold" are different facts about an account, and a zero
+ * would show them identically — it would read as a relationship that decayed
+ * when none ever existed.
+ */
+function ContactStrength({
+  graph,
+  userId,
+}: Readonly<{ graph: Graph; userId: string }>) {
+  const t = useT();
+  const edge = strongestContactEdge(graph, userId);
+  if (edge === undefined) {
+    return null;
+  }
+  if (edge.strength == null || edge.strength_bucket === "none") {
+    return <span className="cx-relation">{t("co.connections.noSignal")}</span>;
+  }
+  return (
+    <Badge tone={edgeStrengthTone(edge.strength_bucket)}>{edge.strength}</Badge>
+  );
+}
+
+// edgeStrengthTone maps the interaction edge's band onto a badge tone. It is
+// its own function rather than a reuse of strengthTone: the node band and the
+// edge band are separate enums on the wire, and collapsing them would make a
+// future divergence render silently wrong instead of failing to compile.
+function edgeStrengthTone(
+  bucket: GraphEdge["strength_bucket"],
+): "success" | "accent" | undefined {
+  if (bucket === "strong") {
+    return "success";
+  }
+  if (bucket === "moderate") {
+    return "accent";
+  }
+  return undefined;
 }
 
 // strengthTone maps the server's band onto a badge tone. The band is the

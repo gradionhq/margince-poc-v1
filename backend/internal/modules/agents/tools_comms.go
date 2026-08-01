@@ -66,7 +66,7 @@ type draftEmailTool struct{ comms Comms }
 
 func (t draftEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "draft_email", Version: "1.0.0",
+		Name: "draft_email", Version: toolVersionV1,
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "draftEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id"],"properties":{
@@ -100,7 +100,7 @@ type sendEmailTool struct{ comms Comms }
 
 func (t sendEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "send_email", Version: "1.0.0",
+		Name: "send_email", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "sendEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id","to","subject","body","consent_purpose"],"properties":{
@@ -132,7 +132,7 @@ type checkAvailability struct{ comms Comms }
 
 func (t checkAvailability) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "check_availability", Version: "1.0.0",
+		Name: "check_availability", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getAvailability",
 		InputSchema: schema(`{"type":"object","required":["from","to"],"properties":{
@@ -164,7 +164,7 @@ type bookMeetingTool struct{ comms Comms }
 
 func (t bookMeetingTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "book_meeting", Version: "1.0.0",
+		Name: "book_meeting", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "bookMeeting",
 		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{

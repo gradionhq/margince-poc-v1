@@ -395,6 +395,10 @@ func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 	httperr.NotImplemented(w, r, "AdvanceDeal")
 }
 
+func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetDealCoverage")
+}
+
 func (stubs) ListDealOffers(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealOffersParams) {
 	httperr.NotImplemented(w, r, "ListDealOffers")
 }
@@ -509,6 +513,10 @@ func (stubs) AddListMember(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 
 func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
+}
+
+func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
 }
 
 func (stubs) GetConsentRequest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetConsentRequestParams) {
@@ -793,6 +801,10 @@ func (stubs) IssueDoubleOptIn(w nethttp.ResponseWriter, r *nethttp.Request, id c
 
 func (stubs) MergePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergePersonParams) {
 	httperr.NotImplemented(w, r, "MergePerson")
+}
+
+func (stubs) GetPersonNetwork(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetPersonNetwork")
 }
 
 func (stubs) GetPersonStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

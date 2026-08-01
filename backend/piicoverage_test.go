@@ -79,10 +79,26 @@ var piiTables = map[string]piiHandling{
 	// suppression list keeps holding it, and Art. 15 hands it back.
 	"person_channel_identity": {erasureWrite: true, sarRead: true},
 	"lead":                    {erasureWrite: true, sarRead: true},
-	"activity":                {erasureWrite: true, sarRead: true},
-	"attachment":              {erasureWrite: true, sarRead: true},
-	"raw_capture":             {erasureWrite: true, sarRead: true},
-	"embedding":               {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
+	// Who was IN each interaction (ACT-DDL-3). It names the subject twice —
+	// by person_id and by the raw address of a party who never became a
+	// record — so erasure nulls both and Art. 15 hands back the fact that
+	// they were a party to those conversations.
+	"activity_participant": {erasureWrite: true, sarRead: true},
+	// LinkedIn ghosts (CG-DDL-2) hold a third party's name, employer and
+	// sometimes address, imported from a colleague's export without that
+	// person being asked. Erasure deletes them; Art. 15 hands them back,
+	// because "you appear in someone's imported address book" is exactly the
+	// kind of holding a subject would not otherwise discover.
+	"linkedin_connection": {erasureWrite: true, sarRead: true},
+	// The interaction projection (CG-DDL-1): derived, but derived from data an
+	// erasure removes, and it holds who corresponded with the subject and how
+	// often. Purged, never exported — like the embedding, it is a machine
+	// artifact rather than anything the subject supplied.
+	"graph_interaction_edge": {erasureWrite: true, sarRead: false},
+	"activity":               {erasureWrite: true, sarRead: true},
+	"attachment":             {erasureWrite: true, sarRead: true},
+	"raw_capture":            {erasureWrite: true, sarRead: true},
+	"embedding":              {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
@@ -178,16 +194,30 @@ func sqlLiterals(t *testing.T, path string) []string {
 // exists to prevent.
 var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure.go",
+	// The subject's TIMELINE and everything derived from it — split out of
+	// erasure.go when that file crossed the size cap. It is the same Art. 17
+	// transaction, so it counts here; leaving it off would let a table look
+	// uncovered the moment its purge moved file.
+	"internal/modules/privacy/erasuretimeline.go",
+	// Retention’s graph invalidation — same Art. 17/retention transaction.
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",
 	"internal/modules/privacy/deliveries.go",
 }
 
-// retentionSweepFile is the nightly time-based evaluator — the only eraser a
+// retentionSweepFiles are the nightly time-based evaluator — the only eraser a
 // subject-unlinked PII table has. Kept apart from the cascade above so a
 // retention sweep can never be mistaken for an answer to an Art. 17 request.
-const retentionSweepFile = "internal/modules/privacy/retention.go"
+//
+// A LIST rather than one path, because the evaluator has already outgrown one
+// file once: splitting the AI-store sweeps out made three tables look
+// unswept, and a census keyed to a single filename reports a refactor as a
+// compliance regression.
+var retentionSweepFiles = []string{
+	"internal/modules/privacy/retention.go",
+	"internal/modules/privacy/retentionai.go",
+}
 
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	writes := map[string]bool{}
@@ -202,9 +232,11 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	// the declared erasure assignments are checked against the statement that
 	// erases THIS table rather than against retention.go as a whole.
 	sweeps := map[string]string{}
-	for _, lit := range sqlLiterals(t, retentionSweepFile) {
-		for _, table := range sqlWriteTargets(lit) {
-			sweeps[table] += " " + collapsedSQL(lit)
+	for _, path := range retentionSweepFiles {
+		for _, lit := range sqlLiterals(t, path) {
+			for _, table := range sqlWriteTargets(lit) {
+				sweeps[table] += " " + collapsedSQL(lit)
+			}
 		}
 	}
 	reads := map[string]bool{}

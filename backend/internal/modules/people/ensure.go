@@ -302,7 +302,7 @@ func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID 
 		workspaceID(ctx), activityID, personID); err != nil {
 		return fmt.Errorf("people: linking activity to person: %w", err)
 	}
-	return nil
+	return namePersonAmongParticipants(ctx, tx, activityID, personID)
 }
 
 // recordDedupeCandidate stores the pair canonically (lower id left,

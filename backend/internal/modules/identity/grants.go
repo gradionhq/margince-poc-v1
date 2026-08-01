@@ -82,12 +82,26 @@ func (s *Service) ListRecordGrants(ctx context.Context, in ListGrantsInput) ([]g
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		var candidates []grantRow
 		for rows.Next() {
 			g, err := scanGrant(rows)
 			if err != nil {
+				rows.Close()
 				return err
 			}
+			candidates = append(candidates, g)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// The visibility probe runs AFTER the cursor is drained and closed,
+		// never inside the scan loop: it issues its own query on this same
+		// transaction, and pgx refuses a second query while rows are open
+		// ("conn busy"). The probe used to be a no-op for an unbounded
+		// caller, which hid the collision until a caller whose row scope
+		// renders a real clause came along.
+		for _, g := range candidates {
 			// A grant row names a row-scoped record: only grants whose
 			// target the caller could read are disclosed.
 			visible, err := auth.VisibleTo(ctx, tx, g.RecordType, g.RecordID)
@@ -98,7 +112,7 @@ func (s *Service) ListRecordGrants(ctx context.Context, in ListGrantsInput) ([]g
 				out = append(out, g)
 			}
 		}
-		return rows.Err()
+		return nil
 	})
 	return out, err
 }

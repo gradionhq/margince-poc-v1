@@ -248,12 +248,9 @@ func (s *Store) FindLeadByLinkedInURL(ctx context.Context, rawURL string) (*crmc
 
 	args := []any{normalized}
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	scope, err := auth.ScopeClauseFor(ctx, "lead", "", arg)
+	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
 	if err != nil {
 		return nil, err
-	}
-	if scope == "" {
-		scope = "TRUE"
 	}
 
 	var out *crmcontracts.Lead

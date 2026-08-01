@@ -294,6 +294,18 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 			in.UserID); err != nil {
 			return err
 		}
+		// A departing colleague's imported LinkedIn network goes with them.
+		// It is THEIR address book — thousands of third parties who never
+		// agreed to be in this CRM and whose only tie to it was that one
+		// person's employment. Keeping it would leave the company holding a
+		// private contact list belonging to someone who no longer works here,
+		// long after the relationship that justified holding it ended.
+		//
+		// Deleted rather than tombstoned: a tombstone still holds the names.
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM linkedin_connection WHERE owner_user_id = $1`, in.UserID); err != nil {
+			return err
+		}
 		// What is left after the cascade is the locally minted passports — the
 		// A1 path, which answers to no grant.
 		if _, err := tx.Exec(ctx,

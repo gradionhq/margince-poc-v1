@@ -33,6 +33,54 @@ import (
 
 // ungatedEntryPoints are the ratified auth-free store/service methods.
 var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
+	// Reached only from worker sweeps, approvals effect executors, or a
+	// service that owns the gate above them. Each entry states which.
+	"internal/modules/ai:CostReport":                   "aggregates the workspace's OWN ai_call rows under RLS and returns totals, never a record; the cost surface above it takes the grant",
+	"internal/modules/ai:DueDeferredBuilds":            "worker sweep: walks the fleet workspace-by-workspace for builds to re-offer, under the system principal — no human actor exists to gate",
+	"internal/modules/ai:RateFor":                      "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",
+	"internal/modules/ai:ServedTaskTotals":             "RLS-scoped aggregate of this workspace's calls for compose/costestimate; returns counts and totals, no record",
+	"internal/modules/capture:AgeOutReviewTx":          "age-out sweep write inside the caller's transaction",
+	"internal/modules/capture:AwaitingReview":          "review-queue sweep (compose/captureverdictsweeps.go) under the system principal",
+	"internal/modules/capture:ClaimDue":                "worker sweep (compose/captureverdict.go): claims due pending counterparties under the system principal; no request, no human actor",
+	"internal/modules/capture:ClaimReviewForAgeOut":    "the claim that serializes the age-out sweep; system principal, no request path",
+	"internal/modules/capture:CorrectResolution":       "sweep correction of a verdict it wrote itself, inside the caller's transaction",
+	"internal/modules/capture:Defer":                   "sweep bookkeeping for a claimed row — reschedule with backoff; reached only from the same system-principal loop as ClaimDue",
+	"internal/modules/capture:ExpireExhausted":         "auto-enrich sweep expiring exhausted budget slots",
+	"internal/modules/capture:LinkProposal":            "sweep bookkeeping: binds the staged proposal to the pending row it was raised from",
+	"internal/modules/capture:ListDueOrgs":             "auto-enrich sweep (compose/captureautoenrich.go) under the system principal",
+	"internal/modules/capture:MarkQueued":              "auto-enrich sweep bookkeeping for an org it just queued",
+	"internal/modules/capture:MarkResolved":            "records the outcome of an auto-applied deep read; effect-executor path, the approval is the authority",
+	"internal/modules/capture:NoiseMailForTx":          "sweep read inside the caller's transaction, selecting the loop's own claimed activities",
+	"internal/modules/capture:NoiseMailToHide":         "retention sweep read: noise mail eligible for hiding",
+	"internal/modules/capture:NoiseMailToRedact":       "retention sweep read: noise mail past its redaction window",
+	"internal/modules/capture:PurgeRawCaptureTx":       "retention sweep purge inside the caller's transaction, over activities the same sweep selected",
+	"internal/modules/capture:ReconcileDeclined":       "sweep reconciling declined proposals back onto their pending rows",
+	"internal/modules/capture:ReleaseBudget":           "returns the slot ReserveBudget took, same sweep",
+	"internal/modules/capture:ReserveBudget":           "auto-enrich budget reservation for the sweep's own slot; an accounting write with no record and no actor",
+	"internal/modules/capture:Resolve":                 "sweep verdict write for a row the loop already claimed; the claim is the authority and there is no principal to gate",
+	"internal/modules/capture:ResolveReviewed":         "approvals EFFECT EXECUTOR (compose/captureverdictaccept.go): it runs after a human approved the staged review, and the approval record is the authority — the approvals surface took the grant",
+	"internal/modules/capture:Retire":                  "sweep bookkeeping: retires a pending row the loop has finished with, same system-principal path as ClaimDue",
+	"internal/modules/capture:RetireExhausted":         "sweep retiring rows that exhausted their attempts",
+	"internal/modules/capture:StaleReviews":            "sweep read: reviews past their window, for the age-out loop",
+	"internal/modules/identity:Get":                    "onboarding wizard state, SELF-scoped: onboardingActor resolves the authenticated human and the query is keyed on user_id, so no object grant applies to your own checkpoint",
+	"internal/modules/identity:Put":                    "the write half of the same self-scoped wizard state; onboardingActor is the gate and the row is keyed on the acting user",
+	"internal/modules/overlay:BlockAutoMap":            "same: only usermapservice.go calls it, behind requireUserMapAdmin",
+	"internal/modules/overlay:Ingest":                  "the sync sweep's mirror write (backfill + refetch jobs) under the worker's system principal; the incumbent connection is the authority, and no human actor exists on this path",
+	"internal/modules/overlay:List":                    "row-scoped by the mirror_visibility deny-join rather than auth.Require: resolveActingMirrorUserID + visibilityJoin answer ErrNotFound for an unmapped principal BEFORE the page query runs, and the datasource provider above it takes the object grant",
+	"internal/modules/overlay:ListUserMap":             "reached only through usermapservice.go, whose every entry point takes requireUserMapAdmin (overlay_connection:update + RequireHuman) — the sanctioned Handlers->Service shape, where the service owns the gate and the store beneath it is module-internal",
+	"internal/modules/overlay:LoadBackfillCursor":      "sweep checkpoint read, the mirror of SaveBackfillCursor",
+	"internal/modules/overlay:LoadReconcileWatermark":  "reconcile-poller checkpoint read",
+	"internal/modules/overlay:PurgeRecord":             "deletion-feed teardown from the reconcile sweep: removes a mirror row the incumbent reports gone, under the system principal",
+	"internal/modules/overlay:RecomputeForOwner":       "recomputes mirror_visibility for one incumbent owner after a mapping change; driven by the mapping writes above, which are themselves gated",
+	"internal/modules/overlay:RecordSweepFailure":      "the failure half of the same backoff bookkeeping",
+	"internal/modules/overlay:RecordSweepSuccess":      "sweep health bookkeeping (backoff state) written by the sweep about itself",
+	"internal/modules/overlay:RevalidateEmailMappings": "sweep revalidation of owner email mappings; no request path reaches it",
+	"internal/modules/overlay:SaveBackfillCursor":      "sweep checkpoint write — the backfill's own resume cursor, not a record",
+	"internal/modules/overlay:SaveReconcileWatermark":  "reconcile-poller checkpoint write; sweep state, not a record",
+	"internal/modules/overlay:SeedUserMap":             "seeds mirror_user_map at connect time and on the sweep; the connect handler above it takes overlay_connection:update, and the sweep runs as system",
+	"internal/modules/overlay:SetManualUserMap":        "same: only usermapservice.go calls it, behind requireUserMapAdmin",
+	"internal/modules/overlay:UpsertAssoc":             "the same sweep's edge write, from backfill",
+	"internal/modules/overlay:UpsertUserMap":           "the per-entry write SeedUserMap and the visibility recompute drive; same two paths, no independent entry",
 	// Authentication IS the gate these methods implement: they run
 	// before a principal exists, or mint/retire the session itself.
 	"internal/modules/identity:Login":                 "pre-principal: password verification is what admits the actor; there is no principal to gate yet",
@@ -85,15 +133,9 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/people:FinishSiteRead":                  "worker-loop status transition (running→terminal) under the job's workspace context, not a human principal; the human's authority was checked at StartSiteRead and RLS scopes the guarded CAS write",
 	"internal/modules/people:UpdateSiteReadProgress":          "worker-loop progress hint on a still-running dossier, same seam as Begin/FinishSiteRead: no human principal, StartSiteRead held the gate, RLS scopes the guarded write",
 	"internal/modules/people:UpdateSiteReadDraft":             "worker-loop grounded-draft update on a still-running dossier, same seam as progress: admission happened at start and RLS scopes the versioned operational write",
-	"internal/modules/approvals:WithEffect":                   "composition-root wiring (registers the confirm effect); no data access",
-	"internal/modules/activities:WithBlobstore":               "composition-root wiring (injects the object store the attachment handlers use); no data access",
-	"internal/modules/activities:WithUnsubscribe":             "composition-root wiring (injects the RFC 8058 preference-token linker the send path derives its List-Unsubscribe from); returns a copy of the store, reads and writes nothing",
-	"internal/modules/activities:WithPublicBaseURL":           "composition-root wiring (the boot-configured public scheme+host the tokenized unsubscribe link and the minted Message-ID domain are built from); returns a copy of the store, reads and writes nothing",
-	"internal/modules/activities:WithSendAuthority":           "composition-root wiring (injects the send pre-flight both send paths consult); returns a copy of the store, reads and writes nothing",
-	"internal/modules/activities:WithChannelReachability":     "composition-root wiring (injects the seam that resolves who a channel conversation reaches); returns a copy of the store, reads and writes nothing — the seam it holds is itself asked inside the gated send path",
-	"internal/modules/activities:WithDraftOutcome":            "composition-root wiring (injects the recorder that resolves the voice learning signal a served draft opened, inside the send's own transaction); returns a copy of the store, reads and writes nothing",
 	"internal/modules/approvals:Stage":                        "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
 	"internal/modules/approvals:StageInTx":                    "transactional form of Stage used by an admitted compose orchestration; it records the same actor and differs only in commit ownership",
+	"internal/modules/approvals:StageOrJoinPendingInTx":       "StageInTx's joining twin, admitted the same way and by the same callers; it adds only the join-or-supersede decision over proposals of one kind against one target, never record data",
 	"internal/modules/approvals:StageUnlessDeclined":          "Stage with one added refusal — it declines to re-offer a proposal a human already rejected — so it is admitted exactly as Stage is, by the gated mutation that reached it; the extra read is of the offers this same proposal produced, never record data",
 	"internal/modules/approvals:HasPendingFor":                "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
 	"internal/modules/approvals:HasPendingKind":               "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
@@ -114,13 +156,9 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/search:EntitiesPending":                 "totals PendingByWorkspace across the fleet; same system-principal posture, no row data",
 	"internal/modules/search:ReembedCorpus":                   "the River job body (Task 15) driven under the system principal, same posture as EmbedGen/PendingByWorkspace; the job's own enqueue (via ClaimAndEnqueueReembedding) is the gated entry point",
 	"internal/modules/customfields:ActiveColumns":             "called from inside a record store's own gated Get/List/Create/Update, whose object-level RBAC already ran; the column names/types it answers are workspace-visible schema (the same shape custom_field:read already exposes), not row data a second gate would need to narrow",
-	"internal/modules/people:WithFieldCatalog":                "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
-	"internal/modules/deals:WithFieldCatalog":                 "composition-root wiring (injects the fieldcatalog reader the cf_* read/write paths use); no data access",
-	"internal/modules/deals:WithClock":                        "test-only clock injection (mutate-and-return builder like WithFieldCatalog); no data access",
 	"internal/modules/activities:LabeledCaptureCountSince":    "aggregate count read (ADR-0068 cost pre-flight) consumed only by the compose estimator; it returns a single labeled-message COUNT, never row data — RLS scopes it to the workspace and there is nothing for object-RBAC to narrow (same shape as the approvals existence probes)",
 	"internal/modules/activities:UnlabeledCaptureEmails":      "classify-backlog read driven by the worker sweep under the workspace GUC, no human principal (ADR-0063); the rows were admitted at capture time and the labels route attention only",
 	"internal/modules/activities:SetCaptureLabel":             "classify verdict write driven by the worker sweep under the workspace GUC; a CAS on capture_label IS NULL that touches nothing but the two label columns — attention routing, not a record mutation (§3.2)",
-	"internal/modules/approvals:EffectKinds":                  "returns the registered staging-kind NAMES this process composed — build-time wiring, not workspace data; it exists so the composition root's fitness test can hold every stageable kind to a decision-grant mapping, and it touches no database at all",
 	"internal/modules/activities:LinkCapturedMailTx":          "the `real` disposition's mirror of the hide, driven by the same verdict sweep on the caller's transaction: it attaches the sender's captured mail to the person the verdict just created, so it can only ever link rows the workspace already holds to a record it just authorized — there is no human principal in a sweep for object-RBAC to admit",
 	"internal/modules/activities:HideCapturedNoiseTx":         "the ADR-0072 noise disposition's hide, driven by the verdict engine's system principal on the caller's transaction; its authority is the floored verdict that resolved the ledger row, and there is no human principal in a sweep for object-RBAC to admit — the write is idempotent, reversible, and touches only archived_at",
 	"internal/modules/activities:RedactCapturedNoiseTx":       "the same disposition's delayed content redaction, driven by the same sweep once the undo window has closed; gating it on a human's permissions would mean a workspace whose reviewer lost access keeps the mail it decided to redact — the obligation outlives any one principal",
@@ -133,13 +171,6 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/people:PromoteOrgName":                  "the sweep's own write, gated by CORROBORATION rather than by a principal: a CAS on name_source='domain' that a human edit or a dossier name structurally beats, and the uncorroborated case never reaches it — it stages a 🟡 proposal whose decision IS the RBAC gate (organization:update)",
 	"internal/modules/people:PromoteOrgNameTx":                "the same CAS on the caller's transaction, called by the org_name_promotion accept executor AFTER the approvals service admitted the deciding human against the organization:update grant and the target's row scope",
 	"internal/modules/people:ApplySignatureFields":            "evidence-gated fill-only-empty write driven by the worker sweep under the workspace GUC (§2.9): NULL-predicate CAS on title, first-phone-only insert, PO-DDL-12 evidence rows — a human's answer is structurally untouchable (GATE-AI-4)",
-	"internal/modules/overlay:WithBudgetMeter":                "composition-root wiring (injects the shared OVB meter GetOverlayBudget reads); no data access",
-	"internal/modules/overlay:WithIncumbentClassesTranslator": "composition-root wiring (injects the canonical->incumbent class mapping SyncStatus's backfill-completeness lookup needs); no data access",
-	"internal/modules/overlay:WithIncumbentFactory":           "composition-root wiring (injects the per-connection incumbent adapter builder Connect seeds the owners directory through); no data access — Connect itself remains auth.Require-gated",
-	"internal/modules/overlay:WithLogger":                     "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
-	"internal/modules/overlay:WithModeFlipObserver":           "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
-	"internal/modules/overlay:WithFlipImportProbe":            "composition-root wiring (injects the in-flight-flip predicate Disconnect consults, since the run records are the migration module's); no data access — Disconnect itself stays auth.Require-gated",
-	"internal/modules/webhooks:DeliveryEnabled":               "deployment-capability flag (is a signing key configured?): reads no tenant rows, returns a single boolean the gated ListWebhookSubscriptions handler surfaces so the UI can render a not-enabled state — a config posture with nothing for object-RBAC to narrow",
 
 	// comms: delivery machinery, not the message. StageTx runs inside the
 	// caller's own transaction, alongside the activity write that already
@@ -230,7 +261,7 @@ func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, [
 				continue
 			}
 			if se, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-				if id, ok := se.X.(*ast.Ident); ok && (id.Name == "Store" || id.Name == "Service") {
+				if id, ok := se.X.(*ast.Ident); ok && storeReceiver(id.Name) && takesContext(fn) {
 					entries = append(entries, gateEntry{dir, fn.Name.Name})
 				}
 			}
@@ -291,4 +322,29 @@ func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 			t.Errorf("ungatedEntryPoints[%s] matches no ungated entry point — stale waiver, remove it", key)
 		}
 	}
+}
+
+// storeReceiver matches the store and service receivers by SUFFIX, not
+// by exact name. A module whose store is called MirrorStore or RunStore
+// is no less a store, and matching only the bare names left those
+// outside this gate entirely — invisible coverage reads exactly like
+// real coverage.
+func storeReceiver(name string) bool {
+	return strings.HasSuffix(name, "Store") || strings.HasSuffix(name, "Service")
+}
+
+// takesContext keeps the gate on ENTRY POINTS. A method that takes no
+// context does no request work — option setters (WithClock), accessors
+// and constructors — and demanding an auth gate of them would grow a
+// ratification list that says nothing about whether the real entry
+// points are covered.
+func takesContext(fn *ast.FuncDecl) bool {
+	for _, param := range fn.Type.Params.List {
+		if sel, ok := param.Type.(*ast.SelectorExpr); ok {
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "context" && sel.Sel.Name == "Context" {
+				return true
+			}
+		}
+	}
+	return false
 }
