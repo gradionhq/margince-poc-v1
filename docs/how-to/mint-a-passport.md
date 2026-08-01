@@ -32,7 +32,11 @@ is capped at 2160 (90 days).
 - **MCP**: send it as `Authorization: Bearer mgp_…` to the api's `/mcp`
   transport — see
   [connect-an-mcp-client.md](connect-an-mcp-client.md). Most clients obtain
-  their own token through the OAuth handshake instead of being handed one.
+  their own token through the OAuth handshake instead of being handed one. In
+  that flow this passport is the **ceiling**, not the grant: the connection
+  receives the scopes the client requested intersected with the ones minted
+  here, so a client that requests narrowly gets a narrow connection from a wide
+  passport.
 - **REST**: send it as `Authorization: Bearer mgp_…` against the same
   `/v1` surface. The identical governance applies on both transports: 🟢
   mutations execute with agent-stamped provenance, 🟡 mutations stage an

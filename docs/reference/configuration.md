@@ -56,10 +56,22 @@ Operational endpoints (served next to `/v1`):
   server's 401, which a split origin breaks. The gate also requires
   `--public-base-url`: it is a boot error without one, because the
   advertised resource is an audience decision and must never be derived
-  from the request `Host`. With the gate off — the default — none of
+  from the request `Host`. With the gate off — the code default — none of
   those routes exists and each answers 404, so an installation that has
   not declared the connector exposes no client registration and no
-  token endpoint.
+  token endpoint. The shipped example config declares the gate on, which
+  is why a `make dev` stack serves the connector with no edit; the boot
+  error is what keeps that a local convenience rather than an accidental
+  exposure.
+
+  Both discovery documents advertise `scopes_supported`, derived from the
+  one closed passport vocabulary: the protected resource names the five
+  record verbs (`read`, `draft`, `write`, `send`, `enrich`), and the
+  authorization server names those plus `offline_access`, which buys token
+  lifetime rather than access to a record. A scope absent from the resource
+  document is a scope a client never requests, and a connection is granted
+  only the intersection of what the client requested with the passport the
+  human lent — so what those documents say bounds every connection.
 
 ## cmd/worker — the background process role
 
