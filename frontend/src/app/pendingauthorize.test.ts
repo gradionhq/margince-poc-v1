@@ -14,7 +14,34 @@ import {
 // module owns, exactly as a foreign write from another feature would.
 const STORAGE_KEY = "margince.pendingAuthorize";
 
+// A browser that refuses session storage throws on the PROPERTY ACCESS —
+// what private-mode and blocked-storage builds actually do, rather than a
+// store that quietly answers null. Restored after each case so the rest of
+// the suite reads the real jsdom storage.
+let releaseStorage: (() => void) | null = null;
+
+function refuseStorage(): void {
+  const original = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "sessionStorage",
+  );
+  releaseStorage = () => {
+    Reflect.deleteProperty(globalThis, "sessionStorage");
+    if (original) {
+      Object.defineProperty(globalThis, "sessionStorage", original);
+    }
+  };
+  Object.defineProperty(globalThis, "sessionStorage", {
+    get() {
+      throw new DOMException("storage is unavailable", "SecurityError");
+    },
+    configurable: true,
+  });
+}
+
 afterEach(() => {
+  releaseStorage?.();
+  releaseStorage = null;
   clearPendingAuthorize();
 });
 
@@ -52,6 +79,21 @@ describe("pendingauthorize", () => {
       JSON.stringify({ url: "/oauth/authorize?client_id=x" }),
     );
     expect(readPendingAuthorize()).toBeNull();
+  });
+
+  // The stash is a convenience, not a step the flow depends on: it is written
+  // from a click handler that then navigates, so a storage refusal escaping
+  // from here would strand the human on the screen they just left.
+  it("stays silent when the browser refuses storage entirely", () => {
+    refuseStorage();
+    expect(() =>
+      stashPendingAuthorize({
+        url: "/oauth/authorize?client_id=x",
+        clientName: "Claude Code",
+      }),
+    ).not.toThrow();
+    expect(readPendingAuthorize()).toBeNull();
+    expect(() => clearPendingAuthorize()).not.toThrow();
   });
 
   it("clears the stash so a subsequent read is absent", () => {

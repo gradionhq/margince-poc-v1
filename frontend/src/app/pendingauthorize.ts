@@ -17,14 +17,36 @@ function isPendingAuthorize(value: unknown): value is PendingAuthorize {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-  const record = value as Record<string, unknown>;
   return (
-    typeof record.url === "string" && typeof record.clientName === "string"
+    "url" in value &&
+    typeof value.url === "string" &&
+    "clientName" in value &&
+    typeof value.clientName === "string"
   );
 }
 
+// The stash is a CONVENIENCE, never a step the flow depends on: a browser that
+// refuses session storage (private mode with a zero quota, third-party storage
+// blocked, storage disabled outright) throws on the property access itself, and
+// every one of those throws would otherwise escape from a click handler mid
+// flow — stranding the human on the screen whose button they just pressed.
+// Losing the stash costs them the resume banner and nothing else: the consent
+// request still lives at the client they started from.
+function storage(): Storage | null {
+  try {
+    return globalThis.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
 export function stashPendingAuthorize(pending: PendingAuthorize): void {
-  globalThis.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+  try {
+    storage()?.setItem(STORAGE_KEY, JSON.stringify(pending));
+  } catch {
+    // A quota or security refusal — see storage(). Nothing to recover: the
+    // caller is navigating away and the banner simply won't appear.
+  }
 }
 
 // A malformed or foreign value at this key (a stray write from another
@@ -32,11 +54,11 @@ export function stashPendingAuthorize(pending: PendingAuthorize): void {
 // "nothing pending" rather than throwing — the resume banner that reads
 // this must never crash the app over a storage key it doesn't own alone.
 export function readPendingAuthorize(): PendingAuthorize | null {
-  const raw = globalThis.sessionStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
   try {
+    const raw = storage()?.getItem(STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
     const parsed: unknown = JSON.parse(raw);
     return isPendingAuthorize(parsed) ? parsed : null;
   } catch {
@@ -45,5 +67,10 @@ export function readPendingAuthorize(): PendingAuthorize | null {
 }
 
 export function clearPendingAuthorize(): void {
-  globalThis.sessionStorage.removeItem(STORAGE_KEY);
+  try {
+    storage()?.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing readable can be left behind by a storage that refused the
+    // write in the first place — see storage().
+  }
 }
