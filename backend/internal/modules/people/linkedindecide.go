@@ -269,7 +269,15 @@ func clearLinkedInHandle(ctx context.Context, tx pgx.Tx, connectionID, personID 
 // stale If-Match token valid: a browser holding version V would overwrite the
 // social set it never saw, and replacePersonSocial replaces ALL rows, so the
 // handle just written would vanish with no error anywhere.
+//
+// The row is LOCKED before the bump rather than updated blind. Two decisions
+// landing on one contact at the same instant would otherwise both read the
+// pre-bump version and one increment would be lost — the same TOCTOU shape
+// every by-id update in this codebase is required to close.
 func touchPerson(ctx context.Context, tx pgx.Tx, personID ids.UUID) error {
+	if _, err := storekit.LockRow(ctx, tx, entityPerson, personID, storekit.LiveOnly); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE person SET updated_at = now() WHERE id = $1`, personID); err != nil {
 		return fmt.Errorf("people: bumping the contact a LinkedIn handle changed: %w", err)

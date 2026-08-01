@@ -305,6 +305,49 @@ never overwrites one already on the record. Migration 0164 adds the column:
 `Connections.csv` has carried a `URL` column in every format LinkedIn has
 shipped and this importer read every other one.
 
+**Codex full-branch review, reconciled.** 17 findings; 13 fixed on the branch,
+4 pushed back with reasons. The fixed ones, by class: a capture-privacy leak
+(the system matcher is exempt from owner-private by design, so it linked one
+member's ghost to another member's private contact, and the review list
+returned the uuid while hiding the name — an id alone proves a record exists);
+a reversed human decision (the duplicate collapse ranked the matcher's own
+`suggested` equal to a person's `confirmed`); a write-shape break (a rejection
+emitted nothing, and a confirmation's `person.updated` cited an audit row for
+the LinkedIn connection); and a GDPR gap (`profile_url` reached neither Art. 15
+nor the Art. 17 ghost sweep). Plus the authorization, employment-predicate,
+open-deal and truncation-honesty fixes.
+
+**Pushed back, with reasons.**
+- **Admin audit access shows that Alice confirmed a match to person P.**
+  Not a defect. ADR-0078/A123 settles this explicitly: who-knows-whom is
+  workspace-shared metadata exactly as PO-F-3 already is, and the pooled
+  disclosure reaches every role. What must stay private is the UNMATCHED
+  ghosts — third parties who never became records — and those are not named in
+  the audit payload or the event. A confirmed match is a fact about a CRM
+  contact.
+- **Name-only ghosts are resurrected after erasure.** Real, and pre-existing
+  rather than introduced here: the suppression schema admits only `email` and
+  `channel_identity` kinds, and the importer says so in a comment. Closing it
+  needs a new suppression kind, a migration, and a privacy-module change, and
+  it should land as its own PR rather than inside this one.
+- **`matched_org_id` is never cleared when its evidence stops resolving.**
+  Already carry-forward item 5 above; the review adds the reach-count
+  consequence, which is recorded there.
+- **Coverage counts non-deal interactions, and a group email inflates the
+  concentration floor.** The engagement half is `deals.Stakeholders`, shipped
+  before this branch; the group-email half is carry-forward item 4. Neither is
+  new here.
+
+**Two process errors worth remembering.** (1) I filtered `make check` output
+through grep for most of this session instead of checking its exit code, so a
+failing gate printed a lowercase `error` line I never saw. Check the status,
+not the text. (2) That hidden failure was `contract-breaking-check` reporting
+`/oauth/consent-request` as removed — which it was NOT. `origin/main` had
+advanced by one PR (#345, the MCP remote connector) after this branch was cut,
+and I briefly "restored" the endpoint by hand before realising the branch was
+simply stale. The fix was a merge, not an edit. A breaking-change gate firing
+on a path nobody touched means the branch is behind.
+
 **A migration number is claimed by two unmerged branches — needs a decision.**
 The locked `.claude/worktrees/capture-domain-triage` worktree owns 0160–0163;
 this branch owns 0160. Both are committed, both are unmerged, and the contents
