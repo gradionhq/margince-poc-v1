@@ -256,6 +256,29 @@ and 5 on the deal 360, since both new cards are native-only. Four new
 integration tests cover the departure SQL and the going-cold window against a
 real database.
 
+**The LinkedIn suggestions can now be decided.** The import card counted
+"awaiting your confirmation" for a queue that existed nowhere: there was no
+list, confirm or reject endpoint and no screen, so the matcher's middle tier
+(name + employer, which is where all the volume is) was inert. Four
+owner-scoped endpoints now exist — `GET /me/linkedin-connections`,
+`POST …/{id}/confirm`, `POST …/{id}/reject`, `GET /me/linkedin-reach` — with
+the review queue and the reach table in Settings → Integrations.
+
+Confirming writes the CONNECTION's own LinkedIn URL onto the contact, and
+never overwrites one already on the record. Migration 0164 adds the column:
+`Connections.csv` has carried a `URL` column in every format LinkedIn has
+shipped and this importer read every other one.
+
+**A migration number is claimed by two unmerged branches — needs a decision.**
+The locked `.claude/worktrees/capture-domain-triage` worktree owns 0160–0163;
+this branch owns 0160. Both are committed, both are unmerged, and the contents
+differ (`0160_linkedin_account` here, `0160_drop_capture_exclusion_rule`
+there). I renumbered my NEW migration to 0164, but 0160 cannot be resolved
+unilaterally — whichever branch merges second has to renumber, and the shared
+`margince_test` database will keep serving whichever schema was applied last
+until it is rebuilt. This is the failure mode where the ledger reports "schema
+at head" while the column is absent.
+
 **Still open in this area:** carry-forward items 1–6 and 8–10 above are
 untouched. Item 4 (our-side concentration counting a group email once per
 stakeholder) now also affects nothing new — the departure and going-cold rules
