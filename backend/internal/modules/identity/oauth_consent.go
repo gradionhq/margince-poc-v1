@@ -3,10 +3,11 @@
 
 package identity
 
-// The consent screen's read model. It answers ONE question — which of this
-// human's passports may be lent to this client — and answers it in SQL rather
-// than by filtering in Go, so the three exclusions cannot drift apart from the
-// row scope the rest of this module enforces.
+// Which of this human's passports may be lent to a client, answered twice from
+// ONE predicate: as the list the consent screen renders, and as the locked
+// re-check the consent POST commits its authorization code with. Both answer in
+// SQL rather than by filtering in Go, so the exclusions cannot drift apart from
+// each other or from the row scope the rest of this module enforces.
 
 import (
 	"context"
@@ -39,8 +40,12 @@ type ConsentOption struct {
 	ExpiresAt time.Time
 }
 
-// SelectablePassports lists the passports id may lend to a client. Three
-// exclusions, all in the predicate:
+// lendablePassportPredicate is the ONE spelling of "this human may lend this
+// passport", carried by both statements that decide it: the list the consent
+// screen renders (SelectablePassports) and the locked re-check the consent POST
+// commits with (lockLentPassport). $1 is the human. Three exclusions, in SQL
+// rather than filtered in Go, so they cannot drift apart from each other or from
+// the row scope the rest of this module enforces:
 //
 //   - on_behalf_of = the caller: you may only lend your OWN authority.
 //   - revoked_at IS NULL and unexpired: a dead credential is not a template.
@@ -50,6 +55,15 @@ type ConsentOption struct {
 // What the client asked for is deliberately NOT an exclusion. A passport grants
 // its own scopes whatever was requested, so a passport that overlaps the
 // request in nothing is still a valid — and possibly the intended — choice.
+//
+// Parenthesized, because one of its two callers ANDs it with a condition of its
+// own: a future arm joined by OR would otherwise widen that statement's row scope
+// while leaving the list correct.
+const lendablePassportPredicate = `(on_behalf_of = $1 AND revoked_at IS NULL
+	  AND expires_at > now() AND oauth_grant_id IS NULL)` // #nosec G101 -- a SQL predicate over passport rows, not a credential
+
+// SelectablePassports lists the passports id may lend to a client — the
+// lendablePassportPredicate above, nothing else.
 //
 // Human-only at the seam, not merely at the transport. Lending authority is a
 // decision only the human who holds it may take, and anything that could
@@ -66,10 +80,7 @@ func (s *Service) SelectablePassports(ctx context.Context, id Identity) ([]Conse
 		rows, err := tx.Query(ctx, `
 			SELECT id, label, scopes, expires_at
 			FROM passport
-			WHERE on_behalf_of = $1
-			  AND revoked_at IS NULL
-			  AND expires_at > now()
-			  AND oauth_grant_id IS NULL
+			WHERE `+lendablePassportPredicate+`
 			ORDER BY created_at DESC`, id.UserID)
 		if err != nil {
 			return err
@@ -114,9 +125,26 @@ type lentPassport struct {
 	Scopes []string
 }
 
-// resolveLend re-resolves the passport a consent POST offered to lend and
-// answers with what the connection actually receives: that passport's own
-// scopes, exactly.
+// lockLentPassport re-resolves the passport a consent POST offered to lend and
+// LOCKS the row it resolved, inside the transaction that writes the
+// authorization code (mintLentAuthorizationCode). It answers with what the
+// connection actually receives: that passport's own scopes, exactly. lendable is
+// false for a passport_id this human cannot lend right now — a malformed id
+// included.
+//
+// The lend is re-queried rather than taken at the form's word. The list the
+// browser rendered is seconds old, so every selectability condition — this
+// human's own passport, alive, not already bound to a connection — is judged
+// again against live rows; a passport revoked in another tab must not still be
+// lendable.
+//
+// The row lock is what makes that a decision rather than a guess. A revocation
+// is a plain UPDATE of this very row (revokePassportTx, passport.go), so it
+// needs this same lock: arriving first it commits, and the predicate is
+// re-evaluated against the revoked row, which refuses the lend; arriving second
+// it waits until the code row it would have raced has committed. Without the
+// lock the two transactions pass each other and the revoked passport is lent
+// anyway.
 //
 // The client's request is not consulted. Every mainstream MCP client sends no
 // scope parameter at all, so an intersection here defaulted every real
@@ -125,59 +153,30 @@ type lentPassport struct {
 // have — a client that wants everything simply asks for everything — so the
 // human's deliberate choice of a passport, on a screen built for that choice,
 // is the whole answer.
-//
-// The lend is re-queried rather than taken at the form's word. The list the
-// browser rendered is seconds old, so every selectability condition — this
-// human's own passport, alive, not already bound to a connection — is judged
-// again against live rows; a passport revoked in another tab must not still be
-// lendable. lendable is false for a passport_id naming anything not on that
-// live list, a malformed id included.
-//
-// What this guarantees is that no lend is accepted for a passport that was
-// unselectable when the re-check ran — not that the check and the code write are
-// one transaction. They are not: the check reads in its own transaction and
-// mintAuthorizationCode writes in another, so a revocation landing between them
-// still produces a code. That window costs nothing, because the connection's
-// credential is independent of the lent passport: the code exchange mints a NEW
-// passport bound to the grant (oauth_token.go), and revoking the lent one never
-// reached that credential anyway. The passport contributes its scopes and its
-// audited identity, both of which the human genuinely approved.
-func (s *Service) resolveLend(
-	ctx context.Context, id Identity, rawID string,
+func lockLentPassport(
+	ctx context.Context, tx pgx.Tx, id Identity, rawID string,
 ) (lent lentPassport, lendable bool, err error) {
-	options, err := s.SelectablePassports(ctx, id)
+	// A malformed id refuses exactly like an unknown one: the value arrives from
+	// a form, and parsing is where that boundary is crossed — an unparseable id
+	// must never reach the query as a zero value, which would name a zero row.
+	// It is a refusal rather than a failure: a form value that is not an id names
+	// no lendable passport, exactly as an unknown id names none.
+	passportID, parseErr := ids.ParseAs[ids.PassportKind](rawID)
+	if parseErr != nil {
+		return lentPassport{}, false, nil
+	}
+	var scopes []string
+	err = tx.QueryRow(ctx, `
+		SELECT scopes FROM passport
+		WHERE id = $2 AND `+lendablePassportPredicate+`
+		FOR UPDATE`, id.UserID, passportID).Scan(&scopes)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return lentPassport{}, false, nil
+	}
 	if err != nil {
 		return lentPassport{}, false, err
 	}
-	option, ok := findOption(options, rawID)
-	if !ok {
-		return lentPassport{}, false, nil
-	}
-	lent = lentPassport{ID: option.ID, Scopes: make([]string, 0, len(option.Scopes))}
-	for _, scope := range option.Scopes {
-		lent.Scopes = append(lent.Scopes, string(scope))
-	}
-	return lent, true, nil
-}
-
-// findOption resolves the passport_id a consent POST carried against the
-// options that same request just re-queried, so a lend is only ever accepted
-// for a passport still on the live list.
-//
-// A malformed id refuses exactly like an unknown one: the value arrives from a
-// form, and parsing is where that boundary is crossed — an unparseable id must
-// never reach the comparison as a zero value, which would match a zero option.
-func findOption(options []ConsentOption, rawID string) (ConsentOption, bool) {
-	id, err := ids.ParseAs[ids.PassportKind](rawID)
-	if err != nil {
-		return ConsentOption{}, false
-	}
-	for _, option := range options {
-		if option.ID == id {
-			return option, true
-		}
-	}
-	return ConsentOption{}, false
+	return lentPassport{ID: passportID, Scopes: scopes}, true, nil
 }
 
 // liveClient resolves client_id to the name a consent screen may show. An

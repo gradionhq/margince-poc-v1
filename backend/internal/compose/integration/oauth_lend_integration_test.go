@@ -250,6 +250,47 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 		`SELECT count(*) FROM audit_log WHERE entity_type = 'oauth_authorization_code'`)
 }
 
+// The boundary of the lend's atomic re-check, stated as behaviour rather than
+// left to a comment. The consent commits the code and the lent passport's row
+// lock together, so a revocation racing the POST cannot produce a code
+// (identity's oauth_lend_lock_integration_test.go). Once the code EXISTS the
+// question is different: nothing on oauth_authorization_code names the passport,
+// so the exchange has nothing to re-check and the code redeems for its five
+// minutes.
+//
+// That is deliberate, and this test is where it is deliberate: the connection's
+// credential is a NEW grant-bound passport, and revoking the lent one is not the
+// switch that ends connections derived from it — ending a connection goes through
+// its grant. What the exchange DOES re-check is the human. So the day someone
+// records the lent passport on the code row, this test is what tells them they are
+// changing the meaning of a lend, not fixing a race.
+func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
+	o := setupOAuth(t)
+	lent := o.mintPassport(t, "revoked-after-consent", []string{"read", "write"})
+	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, lent)
+
+	o.revokePassport(t, lent)
+
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusOK {
+		t.Fatalf("token → %d %v, want 200: the code carries no reference to the lent passport, so revoking it after consent cannot reach this exchange",
+			status, body)
+	}
+	minted, _ := body["access_token"].(string)
+	if !o.accessTokenWorks(t, minted) {
+		t.Fatal("the connection's own credential has no authority although the exchange succeeded")
+	}
+	// The scopes are still the ones the human approved when the passport was
+	// alive: a dead template is not a narrower one.
+	if scope, _ := body["scope"].(string); scope != "read write" {
+		t.Fatalf("granted scope = %q, want %q", scope, "read write")
+	}
+	// And the credential the human killed stayed killed — the connection did not
+	// resurrect it, it was issued its own.
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NOT NULL`, lent)
+}
+
 // Deny is a first-class answer: the client is TOLD, per RFC 6749 §4.1.2.1,
 // rather than left hanging on a closed tab.
 func TestDenyRedirectsToTheClientWithAccessDenied(t *testing.T) {

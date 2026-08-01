@@ -37,7 +37,7 @@ const passportTokenPrefix = "mgp_"
 
 // The after-image keys a credential write records. Every credential this module
 // audits — the passport mint below, the OAuth grant a consent produces
-// (oauth_grant.go), the lend the consent POST records (oauth.go) — draws its
+// (oauth_grant.go), the lend the consent POST records (oauth_lend.go) — draws its
 // keys from here, because reading the credential trail means reading one field
 // name across all three.
 //
