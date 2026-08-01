@@ -358,6 +358,15 @@ describe("Shell", () => {
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
+  // The consent screen is where a human hands an agent their own authority —
+  // it must never be framed inside the app's own nav, which is what
+  // RAIL_LESS_SCREENS carrying "oauth-consent" is for.
+  it("renders rail-less for the OAuth consent screen", () => {
+    window.location.hash = "#/oauth-consent";
+    render(<Shell onOpenSearch={() => {}}>{null}</Shell>);
+    expect(screen.queryByRole("navigation")).toBeNull();
+  });
+
   it("renders the rail on core screens", () => {
     window.location.hash = "#/contacts";
     render(<Shell onOpenSearch={() => {}}>{null}</Shell>);

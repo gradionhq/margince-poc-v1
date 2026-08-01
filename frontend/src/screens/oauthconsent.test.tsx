@@ -10,6 +10,7 @@ import {
   clearPendingAuthorize,
   readPendingAuthorize,
 } from "../app/pendingauthorize";
+import { formatDate } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { OAuthConsent } from "./oauthconsent";
 
@@ -29,6 +30,7 @@ function hashWith(overrides: Record<string, string> = {}): string {
     scope: "read",
     code_challenge: "abc123",
     code_challenge_method: "S256",
+    state: "night-state",
     consent: NONCE,
     ...overrides,
   });
@@ -155,9 +157,32 @@ describe("OAuthConsent", () => {
     );
     const stashed = readPendingAuthorize();
     expect(stashed?.url).toContain("/oauth/authorize?");
-    expect(stashed?.url).toContain("client_id=");
     expect(stashed?.clientName).toBe("Claude Code");
     expect(globalThis.location.hash).toBe("#/settings/ai");
+
+    // I8: the nonce must NOT survive into the stash — it is single-use and
+    // cookie-bound, and the mint trip navigates away from /oauth/authorize
+    // entirely, so replaying it on return would only get a refusal at the
+    // very end of the detour. Compare the actual parameter SET rather than
+    // grepping for a handful of substrings, so a future edit that drops one
+    // of the other required params (or reintroduces the nonce under a
+    // different key) fails here too.
+    const stashedParams = new URLSearchParams(
+      (stashed?.url ?? "").split("?")[1] ?? "",
+    );
+    expect(stashedParams.has("consent")).toBe(false);
+    expect(stashedParams.toString().includes(NONCE)).toBe(false);
+    expect([...stashedParams.keys()].sort()).toEqual(
+      [
+        "response_type",
+        "client_id",
+        "redirect_uri",
+        "scope",
+        "code_challenge",
+        "code_challenge_method",
+        "state",
+      ].sort(),
+    );
   });
 
   it("names the client from the server, never from the URL", async () => {
@@ -194,6 +219,23 @@ describe("OAuthConsent", () => {
     // that holds its counterpart is Path=/oauth/authorize and reaches
     // nothing else.
     expect(posted.body.get("consent")).toBe(NONCE);
+  });
+
+  it("shows when the lent passport expires", async () => {
+    stubConsent({
+      client_name: "Claude Code",
+      requested: ["read"],
+      offline: false,
+      passports: [
+        { id: "p1", label: "night agent", scopes: ["read"], granted: ["read"] },
+      ],
+    });
+    render(<OAuthConsent />);
+    // stubConsent always fills expires_at with this instant (see its own
+    // comment); the screen renders it through the same formatDate the
+    // passport list elsewhere in this app already uses.
+    const expected = formatDate("2026-12-31T00:00:00Z", "en", "Europe/Berlin");
+    expect(await screen.findByText(new RegExp(expected))).toBeTruthy();
   });
 
   it("discloses a self-renewing connection separately from the scopes", async () => {
