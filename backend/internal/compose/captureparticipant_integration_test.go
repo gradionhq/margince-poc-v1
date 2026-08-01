@@ -347,9 +347,10 @@ func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
 		t.Fatalf("reading participants back: %v", err)
 	}
 
-	// Roles too, and exactly three rows: a repoint that kept the old row, or
-	// moved the right person into the wrong role, would satisfy a membership
-	// check while still misstating who said what.
+	// Roles too, and exactly two rows — the repointed one and the untouched
+	// one. A repoint that ADDED the corrected contact while keeping the
+	// displaced row would leave three and still pass a membership check, as
+	// would one that moved the right person into the wrong role.
 	want := map[ids.UUID]string{corrected: "from", unlinked: "cc"}
 	if len(got) != len(want) {
 		t.Errorf("%d participants after the relink, want %d — the displaced row was "+
