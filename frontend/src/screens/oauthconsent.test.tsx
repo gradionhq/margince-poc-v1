@@ -136,7 +136,6 @@ function render(ui: ReactNode) {
 
 type ConsentPayload = {
   client_name: string;
-  requested: string[];
   offline: boolean;
   passports: Array<{
     id: string;
@@ -268,7 +267,6 @@ describe("OAuthConsent", () => {
   it("guides the human to mint a passport when they have none, and offers no way to approve", async () => {
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [],
     });
@@ -283,7 +281,6 @@ describe("OAuthConsent", () => {
   it("stashes the pending authorize request before sending the human to mint one", async () => {
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [],
     });
@@ -318,7 +315,6 @@ describe("OAuthConsent", () => {
     globalThis.location.hash = hashWith({ client_name: "EVIL" });
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -331,7 +327,6 @@ describe("OAuthConsent", () => {
     const posted = stubAuthorizePost();
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -350,7 +345,6 @@ describe("OAuthConsent", () => {
     const posted = stubAuthorizePost();
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [
         { id: "p1", label: "night agent", scopes: ["read"] },
@@ -382,7 +376,6 @@ describe("OAuthConsent", () => {
     let lendable = [night, day];
     stubConsentReads(() => ({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: lendable,
     }));
@@ -408,7 +401,6 @@ describe("OAuthConsent", () => {
     const posted = stubAuthorizePost();
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -429,7 +421,6 @@ describe("OAuthConsent", () => {
     pretendViewerZone("America/Los_Angeles");
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -451,7 +442,6 @@ describe("OAuthConsent", () => {
   it("discloses a self-renewing connection separately from the scopes", async () => {
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: true,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -468,7 +458,6 @@ describe("OAuthConsent", () => {
       client_name: "Claude Code",
       // The shape every real MCP client produces: it named no scope, so the
       // server read the request as `read` alone. The passport is far wider.
-      requested: ["read"],
       offline: false,
       passports: [
         {
@@ -497,7 +486,6 @@ describe("OAuthConsent", () => {
   it("gives an unlabelled passport a fallback that still identifies it", async () => {
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1anonymous", label: "", scopes: ["read"] }],
     });
@@ -519,7 +507,6 @@ describe("OAuthConsent — the stash outlives only the request it represents", (
     });
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p1", label: "night agent", scopes: ["read"] }],
     });
@@ -538,7 +525,6 @@ describe("OAuthConsent — the stash outlives only the request it represents", (
     });
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [],
     });
@@ -598,7 +584,6 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     const posted = stubAuthorizePost();
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p2", label: "day agent", scopes: ["read"] }],
     });
@@ -619,7 +604,6 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     globalThis.location.hash = hashWithError("unlendable_passport");
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [{ id: "p2", label: "day agent", scopes: ["read"] }],
     });
@@ -637,7 +621,6 @@ describe("OAuthConsent — what a refused consent is handed back", () => {
     globalThis.location.hash = hashWithRetry("unlendable_passport");
     stubConsent({
       client_name: "Claude Code",
-      requested: ["read"],
       offline: false,
       passports: [],
     });

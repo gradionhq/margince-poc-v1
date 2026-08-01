@@ -2013,33 +2013,6 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	}
 }
 
-// Defines values for ConsentRequestRequested.
-const (
-	ConsentRequestRequestedDraft  ConsentRequestRequested = "draft"
-	ConsentRequestRequestedEnrich ConsentRequestRequested = "enrich"
-	ConsentRequestRequestedRead   ConsentRequestRequested = "read"
-	ConsentRequestRequestedSend   ConsentRequestRequested = "send"
-	ConsentRequestRequestedWrite  ConsentRequestRequested = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentRequestRequested enum.
-func (e ConsentRequestRequested) Valid() bool {
-	switch e {
-	case ConsentRequestRequestedDraft:
-		return true
-	case ConsentRequestRequestedEnrich:
-		return true
-	case ConsentRequestRequestedRead:
-		return true
-	case ConsentRequestRequestedSend:
-		return true
-	case ConsentRequestRequestedWrite:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ContextEntityRefType.
 const (
 	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
@@ -7433,22 +7406,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	Dropped       ListSignalsParamsResolutionState = "dropped"
-	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	Resolved      ListSignalsParamsResolutionState = "resolved"
-	Unresolved    ListSignalsParamsResolutionState = "unresolved"
+	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
+	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
+	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case Dropped:
+	case ListSignalsParamsResolutionStateDropped:
 		return true
-	case LowConfidence:
+	case ListSignalsParamsResolutionStateLowConfidence:
 		return true
-	case Resolved:
+	case ListSignalsParamsResolutionStateResolved:
 		return true
-	case Unresolved:
+	case ListSignalsParamsResolutionStateUnresolved:
 		return true
 	default:
 		return false
@@ -9062,14 +9035,7 @@ type ConsentRequest struct {
 	// Offline The client asked to stay connected without asking again (offline_access).
 	Offline   bool                    `json:"offline"`
 	Passports []ConsentPassportOption `json:"passports"`
-
-	// Requested The scopes the client named on the authorize URL. Informational only — the grant is
-	// the lent passport's own scopes, so this neither widens nor narrows it.
-	Requested []ConsentRequestRequested `json:"requested"`
 }
-
-// ConsentRequestRequested defines model for ConsentRequest.Requested.
-type ConsentRequestRequested string
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
@@ -14723,7 +14689,9 @@ type ImportLinkedInConnectionsMultipartBody struct {
 type GetConsentRequestParams struct {
 	ClientId string `form:"client_id" json:"client_id"`
 
-	// Scope The space-delimited scopes the client requested, including offline_access if asked.
+	// Scope The space-delimited scopes the client requested. Only the offline_access marker in it
+	// is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+	// grants the chosen passport's own.
 	Scope string `form:"scope" json:"scope"`
 }
 

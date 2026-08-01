@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -201,34 +202,22 @@ func (s *Service) liveClient(ctx context.Context, clientID string) (string, erro
 	return name, nil
 }
 
-// parseScopeRequest reads the consent screen's scope parameter: split on
-// whitespace, offline_access peeled into its own marker (never a passport
-// scope — mirrors parseOAuthScopes), and anything outside the closed
-// validScopes vocabulary silently dropped rather than refused. Unlike
-// parseOAuthScopes this never errors and never defaults to read: a consent
-// screen shows exactly what the client asked for, including a client that
-// asked for nothing this installation grants at all.
-func parseScopeRequest(raw string) (requested []principal.Scope, offline bool) {
-	for _, sc := range strings.Fields(raw) {
-		if sc == scopeOfflineAccess {
-			offline = true
-			continue
-		}
-		if validScopes[principal.Scope(sc)] {
-			requested = append(requested, principal.Scope(sc))
-		}
-	}
-	return requested, offline
+// offlineRequested is all the consent screen takes from the client's scope
+// parameter: whether it asked to stay connected without asking again. The access
+// scopes in it are not read, because they decide nothing the screen renders — a
+// lend grants the chosen passport's own scopes — while offline_access is about
+// the connection's lifetime, which the human is approving and so must see.
+//
+// Unlike parseOAuthScopes this never errors: an unknown scope has already been
+// refused on the authorize request this screen is rendering.
+func offlineRequested(raw string) bool {
+	return slices.Contains(strings.Fields(raw), scopeOfflineAccess)
 }
 
 // consentRequestPayload maps the read model onto the generated wire shape.
 func consentRequestPayload(
-	clientName string, requested []principal.Scope, offline bool, options []ConsentOption,
+	clientName string, offline bool, options []ConsentOption,
 ) crmcontracts.ConsentRequest {
-	wireRequested := make([]crmcontracts.ConsentRequestRequested, 0, len(requested))
-	for _, scope := range requested {
-		wireRequested = append(wireRequested, crmcontracts.ConsentRequestRequested(scope))
-	}
 	passports := make([]crmcontracts.ConsentPassportOption, 0, len(options))
 	for _, option := range options {
 		scopes := make([]crmcontracts.ConsentPassportOptionScopes, 0, len(option.Scopes))
@@ -244,7 +233,6 @@ func consentRequestPayload(
 	}
 	return crmcontracts.ConsentRequest{
 		ClientName: clientName,
-		Requested:  wireRequested,
 		Offline:    offline,
 		Passports:  passports,
 	}
@@ -265,7 +253,6 @@ func (h Handlers) GetConsentRequest(w http.ResponseWriter, r *http.Request, para
 		httperr.Write(w, r, err)
 		return
 	}
-	requested, offline := parseScopeRequest(params.Scope)
 	options, err := h.svc.SelectablePassports(r.Context(), id)
 	if err != nil {
 		httperr.Write(w, r, err)
@@ -276,5 +263,6 @@ func (h Handlers) GetConsentRequest(w http.ResponseWriter, r *http.Request, para
 	// redirect hands the nonce to the screen in the fragment instead, and the POST
 	// still proves possession of the cookie. An endpoint that read it would 404
 	// every real browser while a test setting the header by hand passed.
-	httperr.WriteJSON(w, http.StatusOK, consentRequestPayload(clientName, requested, offline, options))
+	httperr.WriteJSON(w, http.StatusOK,
+		consentRequestPayload(clientName, offlineRequested(params.Scope), options))
 }

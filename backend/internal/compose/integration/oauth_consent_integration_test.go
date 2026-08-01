@@ -65,9 +65,8 @@ func (o *oauthEnv) consentRequest(t *testing.T, scope string) consentRequestWire
 }
 
 type consentRequestWire struct {
-	ClientName string   `json:"client_name"`
-	Requested  []string `json:"requested"`
-	Offline    bool     `json:"offline"`
+	ClientName string `json:"client_name"`
+	Offline    bool   `json:"offline"`
 	Passports  []struct {
 		ID     string   `json:"id"`
 		Label  string   `json:"label"`

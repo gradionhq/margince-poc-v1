@@ -337,7 +337,6 @@ describe("onboarding gate", () => {
           return new Response(
             JSON.stringify({
               client_name: "Acme Client",
-              requested: ["read"],
               offline: false,
               passports: [
                 {
