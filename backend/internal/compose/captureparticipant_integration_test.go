@@ -201,3 +201,83 @@ func assertParticipant(t *testing.T, rows []participantRow, role string, user *i
 	}
 	t.Errorf("no participant in role %q: %+v", role, rows)
 }
+
+// The two deletes the FK actions exist to survive. Both used to fail outright:
+// SET NULL on a user-only participant row leaves it naming nobody, which the
+// identity CHECK refuses, and clearing a ghost's matched_person_id leaves
+// match_status = 'confirmed', which the shape CHECK refuses. Neither failure was
+// visible from the graph tests, because nothing in them ever deleted anybody.
+func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+
+	var contact, activityID ids.UUID
+	var doomed ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
+			VALUES (`+ws+`, 'Departing Contact', $1, 'manual', 'human:test', 'workspace')
+			RETURNING id`, e.Rep1).Scan(&contact); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO app_user (workspace_id, email, display_name)
+			VALUES (`+ws+`, 'doomed@example.test', 'Doomed Colleague')
+			RETURNING id`).Scan(&doomed); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
+			VALUES (`+ws+`, 'email', 'Letzte Mail', 'outbound', now(), 'manual', 'human:test')
+			RETURNING id`).Scan(&activityID); err != nil {
+			return err
+		}
+		// A user-ONLY participant row: no person arm, no address arm.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
+			VALUES (`+ws+`, $1, $2, 'from')`, activityID, doomed); err != nil {
+			return err
+		}
+		// A CONFIRMED ghost pointing at the contact.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, company_name,
+			   normalized_company, matched_person_id, match_status, source)
+			VALUES (`+ws+`, $1, 'Departing Contact', 'departing contact', 'Acme',
+			        'acme', $2, 'confirmed', 'csv_export')`, e.Rep1, contact)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM app_user WHERE id = $1`, doomed)
+		return err
+	}); err != nil {
+		t.Errorf("deleting a colleague who was in one conversation failed: %v\n"+
+			"an administrator removing an account cannot be blocked by a row "+
+			"that only records who was on a thread", err)
+	}
+
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `DELETE FROM person WHERE id = $1`, contact)
+		return err
+	}); err != nil {
+		t.Errorf("deleting a person with a confirmed LinkedIn match failed: %v\n"+
+			"this is the Art. 17 path — an erasure request that cannot complete "+
+			"is a compliance failure, not an inconvenience", err)
+	}
+
+	var ghosts int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM linkedin_connection WHERE matched_person_id = $1`,
+			contact).Scan(&ghosts)
+	}); err != nil {
+		t.Fatalf("counting ghosts: %v", err)
+	}
+	if ghosts != 0 {
+		t.Errorf("the erased person still has %d LinkedIn ghost(s) pointing at them", ghosts)
+	}
+}

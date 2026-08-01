@@ -58,11 +58,14 @@ CREATE TABLE linkedin_connection (
   updated_at          timestamptz NOT NULL DEFAULT now(),
 
   FOREIGN KEY (workspace_id, owner_user_id)     REFERENCES app_user (workspace_id, id) ON DELETE CASCADE,
-  -- SET NULL names its COLUMN, for the reason ACT-DDL-3 spells out: a bare
-  -- composite SET NULL would null workspace_id too and make deleting a matched
-  -- person or account fail rather than orphaning the ghost's match.
-  FOREIGN KEY (workspace_id, matched_person_id) REFERENCES person   (workspace_id, id) ON DELETE SET NULL (matched_person_id),
-  FOREIGN KEY (workspace_id, matched_org_id)    REFERENCES organization (workspace_id, id) ON DELETE SET NULL (matched_org_id),
+  -- The person arm CASCADES: a ghost exists to point at somebody, and erasure
+  -- already deletes a subject's ghosts outright. SET NULL cannot work here —
+  -- clearing matched_person_id on a CONFIRMED row violates the shape CHECK
+  -- below, so deleting the person would fail instead.
+  FOREIGN KEY (workspace_id, matched_person_id) REFERENCES person (workspace_id, id) ON DELETE CASCADE,
+  -- The ACCOUNT arm nulls its own column: a ghost outlives the account it was
+  -- placed against, and no CHECK depends on that column.
+  FOREIGN KEY (workspace_id, matched_org_id) REFERENCES organization (workspace_id, id) ON DELETE SET NULL (matched_org_id),
   -- A confirmed match must name what it matched. A status that claims a link
   -- it does not hold is worse than no status.
   CONSTRAINT linkedin_connection_match_shape CHECK (

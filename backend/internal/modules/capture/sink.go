@@ -220,7 +220,7 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	// owner is known — every consumer downstream sees an activity whose
 	// captured_by reads `connector:gmail` and cannot recover the human behind
 	// it. The participant rows are the record of that fact.
-	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Direction, rec.Counterparty.Email); err != nil {
+	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Kind, fields.Direction, rec.Counterparty.Email); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is

@@ -24,10 +24,13 @@ CREATE TABLE activity_participant (
   id            uuid PRIMARY KEY DEFAULT uuidv7(),
   workspace_id  uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
   activity_id   uuid NOT NULL,
-  -- ON DELETE SET NULL, not CASCADE: a user leaving must not delete the
-  -- record that a meeting happened. The row survives with its person and
-  -- address arms, and the projection drops the edge because reads filter
-  -- through the live-member predicate.
+  -- CASCADE, and it costs nothing: each participant is its OWN row, so
+  -- removing a deleted user's row leaves every other party to that
+  -- conversation untouched — the record that a meeting happened is the
+  -- activity, not this row. SET NULL was tried and is wrong twice over: a
+  -- bare composite one nulls workspace_id, and a column-scoped one leaves a
+  -- user-only row with no identity arm, which the CHECK below refuses. Either
+  -- way deleting a user would fail outright.
   user_id       uuid NULL,
   person_id     uuid NULL,
   address       text NULL,
@@ -41,12 +44,8 @@ CREATE TABLE activity_participant (
   -- checked as the table owner and so bypasses RLS.
   CONSTRAINT activity_participant_activity_fkey
     FOREIGN KEY (workspace_id, activity_id) REFERENCES activity (workspace_id, id) ON DELETE CASCADE,
-  -- SET NULL names its COLUMN. A composite FK's bare ON DELETE SET NULL nulls
-  -- every column in the key, workspace_id included — which is NOT NULL, so
-  -- deleting a user would fail outright instead of preserving the record that
-  -- a meeting happened.
   CONSTRAINT activity_participant_user_fkey
-    FOREIGN KEY (workspace_id, user_id) REFERENCES app_user (workspace_id, id) ON DELETE SET NULL (user_id),
+    FOREIGN KEY (workspace_id, user_id) REFERENCES app_user (workspace_id, id) ON DELETE CASCADE,
   CONSTRAINT activity_participant_person_fkey
     FOREIGN KEY (workspace_id, person_id) REFERENCES person (workspace_id, id) ON DELETE CASCADE
 );
