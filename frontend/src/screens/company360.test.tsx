@@ -990,3 +990,50 @@ describe("company view — a recorded role reaches the screen", () => {
     ).toBeTruthy();
   });
 });
+
+it("does not offer a role the contact already holds on that deal", async () => {
+  // The write creates an edge, so picking a held role asks the server for a
+  // second copy of a fact it already has.
+  stub(
+    view({
+      deals: {
+        data: [
+          { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+        ],
+        page: emptyPage,
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Christian Hagemeyer",
+            deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            consent: {},
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: {
+                recency: 0,
+                frequency: 0,
+                reciprocity: 0,
+                direction: 0,
+              },
+            },
+          },
+        ],
+        page: emptyPage,
+      },
+    }),
+  );
+  renderCompany();
+
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Set role" }),
+  );
+  const roles = screen.getByLabelText("Role") as HTMLSelectElement;
+  expect([...roles.options].map((option) => option.value)).not.toContain(
+    "champion",
+  );
+});

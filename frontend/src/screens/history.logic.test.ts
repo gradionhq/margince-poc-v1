@@ -137,3 +137,20 @@ describe("mergeChronology", () => {
     expect(merged.truncated).toBe(false);
   });
 });
+
+// Two feeds are written by two stores. A merge that compares the STRINGS puts
+// "…:00.500Z" before "…:00Z" and a +02:00 offset in the wrong hour entirely —
+// an order the reader has no way to know is wrong.
+it("orders by the instant, not by how the timestamp is spelled", () => {
+  const rows = [
+    { id: "fractional", at: "2026-07-19T09:00:00.500Z" },
+    { id: "offset", at: "2026-07-19T11:30:00+02:00" },
+    { id: "plain", at: "2026-07-19T09:00:00Z" },
+  ];
+  const merged = mergeChronology([{ rows, hasMore: false }], (row) => row.at);
+  expect(merged.rows.map((row) => row.id)).toEqual([
+    "offset",
+    "fractional",
+    "plain",
+  ]);
+});

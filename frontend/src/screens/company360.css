@@ -118,10 +118,12 @@
   margin-bottom: var(--space-3);
 }
 
-/* The brief leads the middle column: prose, so it reads at body size with
-   its citations inline rather than as a footer of chips. */
+/* The brief leads the middle column: prose, so it reads at body size with its
+   citations inline rather than as a footer of chips, and is set wider and
+   quieter than the cards around it — meant to be read top to bottom once,
+   not scanned. */
 .co-brief {
-  padding: 12px 14px;
+  padding: var(--space-4);
   margin-bottom: var(--space-3);
 }
 .co-brief-lines {
@@ -279,12 +281,6 @@
   display: none;
 }
 
-/* The brief reads as prose rather than as fields, so it is set wider and
-   quieter than the cards around it: it is meant to be read top to bottom
-   once, not scanned. */
-.co-brief {
-  padding: var(--space-4);
-}
 .co-brief-meta {
   display: flex;
   align-items: center;

@@ -60,10 +60,18 @@ export function mergeChronology<Row>(
   feeds: readonly Feed<Row>[],
   at: (row: Row) => string,
 ): { rows: Row[]; truncated: boolean } {
+  // Instants, never the strings that spell them. Two feeds are written by two
+  // stores, and "2026-07-19T09:00:00Z" sorts against "2026-07-19T09:00:00.5Z"
+  // and "2026-07-19T11:00:00+02:00" by character, which orders neither the way
+  // the clock does. The whole point of this function is an order a reader can
+  // trust, so it compares numbers.
+  const instant = (row: Row) => Date.parse(at(row));
   const boundaries = feeds
     .filter((feed) => feed.hasMore && feed.rows.length > 0)
-    .map((feed) => feed.rows.reduce((a, b) => (at(a) < at(b) ? a : b)))
-    .map(at);
+    .map((feed) =>
+      feed.rows.reduce((a, b) => (instant(a) < instant(b) ? a : b)),
+    )
+    .map(instant);
   // A feed that has more but loaded NOTHING bounds the merge at the top: its
   // very newest row is unknown, so no part of the merge is provably complete.
   const blind = feeds.some((feed) => feed.hasMore && feed.rows.length === 0);
@@ -74,14 +82,14 @@ export function mergeChronology<Row>(
 
   const all = feeds
     .flatMap((feed) => feed.rows)
-    .sort((a, b) => at(b).localeCompare(at(a)));
+    .sort((a, b) => instant(b) - instant(a));
   if (blind) {
     return { rows: [], truncated: true };
   }
   if (floor === undefined) {
     return { rows: all, truncated: false };
   }
-  const rows = all.filter((row) => at(row) > floor);
+  const rows = all.filter((row) => instant(row) > floor);
   return {
     rows,
     truncated: rows.length < all.length || feeds.some((f) => f.hasMore),

@@ -418,6 +418,21 @@ function SetRoleAction({
   const [role, setRole] = useState<string>(ASSIGNABLE_ROLES[0]);
   const titleId = useId();
 
+  // A role this contact already holds on the selected deal is not on offer:
+  // the write creates an edge, so picking it again asks the server for a
+  // second copy of a fact that is already recorded.
+  const held = new Set(
+    contact.deal_roles
+      .filter((entry) => entry.deal_id === dealId)
+      .map((entry) => entry.role),
+  );
+  const offered: readonly string[] = ASSIGNABLE_ROLES.filter(
+    (candidate) => !held.has(candidate),
+  );
+  // Changing the deal changes what is left to pick, so the selection follows
+  // the list rather than the list following a stale selection.
+  const picked = offered.includes(role) ? role : offered[0];
+
   const save = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/relationships", {
@@ -425,7 +440,7 @@ function SetRoleAction({
           kind: "deal_stakeholder",
           person_id: contact.person_id,
           deal_id: dealId,
-          role,
+          role: picked,
           is_current_primary: false,
           source: "manual",
         },
@@ -486,10 +501,10 @@ function SetRoleAction({
             <span className="t-label">{t("co.role.role")}</span>
             <select
               className="input"
-              value={role}
+              value={picked ?? ""}
               onChange={(event) => setRole(event.target.value)}
             >
-              {ASSIGNABLE_ROLES.map((candidate) => (
+              {offered.map((candidate) => (
                 <option key={candidate} value={candidate}>
                   {dealRoleLabel(candidate, t)}
                 </option>
@@ -503,7 +518,7 @@ function SetRoleAction({
             <Button
               variant="primary"
               onClick={() => save.mutate()}
-              disabled={save.isPending || dealId === ""}
+              disabled={save.isPending || dealId === "" || !picked}
             >
               {t("record.save")}
             </Button>

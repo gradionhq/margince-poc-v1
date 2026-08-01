@@ -659,6 +659,10 @@ select.input {
   right: 0;
   z-index: 20;
   min-width: 180px;
+  /* On a 390px screen, or at high zoom, a menu that only states a minimum
+     grows the page instead of itself: the panel goes off the right edge and
+     takes its actions with it. */
+  max-width: calc(100vw - 2 * var(--space-3));
   display: flex;
   flex-direction: column;
   align-items: stretch;

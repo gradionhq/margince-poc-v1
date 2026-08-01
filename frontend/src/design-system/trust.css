@@ -149,6 +149,10 @@ button.evidence-chip:hover {
      side would centre itself against the arrow. align-self is what a flex item
      obeys; vertical-align says nothing here. */
   align-self: flex-start;
+  /* Shrinkable, or one long side takes the whole row and pushes the arrow and
+     the other value onto lines of their own — which stops reading as a diff. */
+  min-width: 0;
+  flex: 0 1 auto;
   max-height: 4.5em;
   overflow-y: auto;
 }
