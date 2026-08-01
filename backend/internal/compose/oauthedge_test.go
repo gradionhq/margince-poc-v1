@@ -245,9 +245,10 @@ func TestRegistrationSurvivesRealVolumeAndItsDenialDoesNotOutliveTheFlood(t *tes
 }
 
 // consentRequest builds one consent-flow request. session empty sends NO cookie,
-// which is the shape of a caller with no live session — every such request is
-// refused by the middleware behind this edge, so it may only ever spend the
-// per-peer arm of the budget.
+// which is the shape of a caller with no live session: behind this edge the GET
+// is answered with the screen a human can sign in on and the POST is refused
+// outright. Neither presents a session key, so such a request may only ever
+// spend the per-peer arm of the budget.
 func consentRequest(method, session, remoteIP string) *http.Request {
 	r := httptest.NewRequest(method, oauthAuthorizePath+"?client_id=c", nil)
 	r.RemoteAddr = remoteIP + ":51000"
@@ -258,9 +259,11 @@ func consentRequest(method, session, remoteIP string) *http.Request {
 }
 
 // TestASessionlessFloodCannotDenyASignedInHumanConsent is the availability
-// property the consent key exists for. Consent requires a live session, so a
-// caller with none can never complete it — and must therefore never be able to
-// spend the budget of a human who has one.
+// property the consent key exists for. Taking a consent DECISION requires a live
+// session — the POST is refused without one, and a session-less GET only ever
+// hands the human to a screen where they can sign in — so a caller with none can
+// never complete a consent, and must therefore never be able to spend the budget
+// of a human who has one.
 //
 // It replaces a test asserting the 61st request on ANY /oauth path from one IP
 // is a 429 off one shared per-IP budget. That is the defect stated as a

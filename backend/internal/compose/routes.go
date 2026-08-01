@@ -140,10 +140,12 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 		mcpLimits := newMCPLimiters()
 		mux.Handle("/mcp", httpserver.Correlate(httpserver.AccessLog(log, mcpEdge(mcp, mcpLimits, srv.mcpAllowedOrigin))))
 		// The AS endpoints live outside the generated resource surface but
-		// behind the same workspace and session middleware
-		// (/oauth/authorize requires a live session); the discovery
-		// documents are static. The limits wrap that middleware rather than
-		// sitting inside it, so a refused request costs no session read.
+		// behind the same workspace and session middleware (whose one exemption
+		// is the consent GET — a human arriving without a session gets a screen
+		// they can sign in on, not a JSON 401; the consent DECISION still demands
+		// one); the discovery documents are static. The limits wrap that
+		// middleware rather than sitting inside it, so a refused request costs no
+		// session read.
 		mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, oauthEdge(authH.Middleware(authH.OAuthRouter()), mcpLimits))))
 		mux.HandleFunc("/.well-known/oauth-authorization-server", authH.OAuthServerMetadata)
 		mux.HandleFunc("/.well-known/oauth-protected-resource", authH.ProtectedResourceMetadata)
