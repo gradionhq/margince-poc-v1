@@ -118,25 +118,8 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 	now := time.Now().UTC()
 	var sections []graphSection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Anchor profile — also the existence/visibility gate for the
-		// whole assembly: an anchor the caller cannot see yields nothing.
-		if err := auth.EnsureVisible(ctx, tx, anchorType, anchorID); err != nil {
-			return err
-		}
-		var title string
-		err := tx.QueryRow(ctx,
-			fmt.Sprintf(`SELECT %s FROM %s t WHERE t.id = $1 AND t.archived_at IS NULL`, branch.title, branch.table),
-			anchorID).Scan(&title)
+		title, err := anchorProfile(ctx, tx, branch, anchorType, anchorID)
 		if err != nil {
-			// EnsureVisible answers nil (not merely "visible") when the
-			// caller's scope clause is empty — an unrestricted viewer's
-			// full-access grant, not proof the row exists. This is the
-			// real existence check: an anchor id nobody wrote resolves to
-			// the same not-found every other single-record read gives,
-			// never a raw scan error.
-			if errors.Is(err, pgx.ErrNoRows) {
-				return apperrors.ErrNotFound
-			}
 			return err
 		}
 		sections = append(sections, graphSection{name: "profile", items: []graphItem{{
@@ -185,6 +168,30 @@ func (s *Store) assembleGraph(ctx context.Context, anchorType string, anchorID i
 		return nil, err
 	}
 	return sections, nil
+}
+
+// anchorProfile reads the anchor's title, and is the existence and visibility
+// gate for the whole assembly: an anchor the caller cannot see yields nothing.
+func anchorProfile(ctx context.Context, tx pgx.Tx, branch *searchBranch, anchorType string, anchorID ids.UUID) (string, error) {
+	if err := auth.EnsureVisible(ctx, tx, anchorType, anchorID); err != nil {
+		return "", err
+	}
+	var title string
+	err := tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT %s FROM %s t WHERE t.id = $1 AND t.archived_at IS NULL`, branch.title, branch.table),
+		anchorID).Scan(&title)
+	if err != nil {
+		// EnsureVisible answers nil (not merely "visible") when the caller's
+		// scope clause is empty — an unrestricted viewer's full-access grant,
+		// not proof the row exists. This is the real existence check: an anchor
+		// id nobody wrote resolves to the same not-found every other
+		// single-record read gives, never a raw scan error.
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", apperrors.ErrNotFound
+		}
+		return "", err
+	}
+	return title, nil
 }
 
 // anchorTimeline is hop 1: the anchor's activity timeline, scope-walked
