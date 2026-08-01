@@ -244,23 +244,38 @@ func logoCandidates(seedURL string, declared declaredAssets) (candidates []strin
 	// The two site-level sources: what every site has whether it declared
 	// anything or not, and — last — the share image, which on a small site
 	// usually IS the mark.
-	var fallbacks []string
+	var candidateFallbacks []string
 	if wellKnown, ok := wellKnownFaviconURL(seedURL); ok {
-		fallbacks = keepNew(fallbacks, wellKnown)
+		candidateFallbacks = append(candidateFallbacks, wellKnown)
 	}
-	fallbacks = keepNew(fallbacks, declared.ogImage)
+	if declared.ogImage != "" {
+		candidateFallbacks = append(candidateFallbacks, declared.ogImage)
+	}
 
 	// The cap bounds one read's asset egress, so it has to bite somewhere —
 	// but it must not bite the fallbacks. They are exactly what answers when
 	// the declarations are stale, and a page carrying logoMaxCandidates dead
 	// touch-icon tags would otherwise spend the whole budget on them and
 	// leave the company with no mark at all.
-	room := logoMaxCandidates - len(fallbacks)
+	room := logoMaxCandidates - len(candidateFallbacks)
 	if len(icons) > room {
 		dropped = len(icons) - room
 		icons = icons[:room]
 	}
-	return append(icons, fallbacks...), dropped
+	// Deduped against the icons that SURVIVED the cap, never against the ones
+	// it cut: a page declaring /favicon.ico among a hundred stale tags would
+	// otherwise lose the fallback to a candidate that is never fetched.
+	kept := make(map[string]bool, len(icons))
+	for _, icon := range icons {
+		kept[icon] = true
+	}
+	for _, candidate := range candidateFallbacks {
+		if !kept[candidate] {
+			kept[candidate] = true
+			icons = append(icons, candidate)
+		}
+	}
+	return icons, dropped
 }
 
 // iconURLsByRel selects one rel's icons, largest declared size first. A page

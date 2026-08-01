@@ -84,8 +84,9 @@ set one on the contact who is."
 **Logos: measured, not guessed.** 96 of 162 imported companies have one. Of
 the 66 without, 36 had a site read that FAILED having read zero pages. The
 logo comes out of the page the deep read already fetched, so no page means no
-mark. Probing all 37 failed seeds: 19 answer on another host or scheme, 18 are
-genuinely gone. A domain became a seed as `https://<domain>` and nothing else,
+mark. Probing every failed seed on the machine — 37, one more than those 36,
+because a company whose read failed can still carry a logo from an earlier
+one — 19 answer on another host or scheme and 18 are genuinely gone. A domain became a seed as `https://<domain>` and nothing else,
 so the crawl now walks the site's other spellings (www or apex, then http)
 before concluding a company has no website. A robots refusal is never retried
 under another host.

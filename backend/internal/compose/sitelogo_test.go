@@ -377,3 +377,24 @@ func TestLogoCandidatesSpendTheCapOnDeclarationsNotOnTheFallbacks(t *testing.T) 
 		}
 	}
 }
+
+// A declared /favicon.ico that the cap CUT must not take the site-level
+// fallback with it: the fallback exists for exactly the page whose
+// declarations are stale, and a hundred dead tags would otherwise consume it
+// in a candidate that is never fetched.
+func TestLogoCandidatesKeepTheFallbackACutDeclarationAlsoNamed(t *testing.T) {
+	icons := make([]webread.IconRef, 0, logoMaxCandidates*2)
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/stale-%d.png", i), Rel: webread.RelAppleTouchIcon,
+		})
+	}
+	// Declared last, so the cap cuts it.
+	icons = append(icons, webread.IconRef{
+		URL: "https://acme.example/favicon.ico", Rel: webread.RelIcon,
+	})
+	got, _ := logoCandidates(logoSeed, declaredAssets{icons: icons})
+	if !slices.Contains(got, "https://acme.example/favicon.ico") {
+		t.Errorf("candidates %v lost /favicon.ico to a declaration the cap dropped", got)
+	}
+}

@@ -24,19 +24,30 @@ func TestSeedFallbacksOffersTheApexWhenTheSeedCarriesWWW(t *testing.T) {
 	}
 }
 
-// A host that is already a subdomain is not a www convention. Stripping its
-// label would point at a different host, which may not be this company at all.
-func TestSeedFallbacksNeverInventsAHostForASubdomainSeed(t *testing.T) {
-	for _, seed := range []string{"https://careers.acme.com", "https://acme.co.uk"} {
+// A label is never STRIPPED except the exact `www` prefix: dropping any other
+// one points at a host that may not be this company at all.
+func TestSeedFallbacksNeverStripsALabelThatIsNotWWW(t *testing.T) {
+	for _, seed := range []string{"https://careers.acme.com", "https://shop.acme.co.uk"} {
 		for _, candidate := range seedFallbacks(seed) {
-			if candidate == "https://acme.com" || candidate == "https://www.acme.com" {
-				t.Errorf("seed %q produced %q — a different host", seed, candidate)
+			for _, forbidden := range []string{
+				"https://acme.com", "https://www.acme.com",
+				"https://acme.co.uk", "https://www.acme.co.uk",
+			} {
+				if candidate == forbidden {
+					t.Errorf("seed %q produced %q — a different host", seed, candidate)
+				}
 			}
 		}
 	}
-	// acme.co.uk has two dots, so no www is guessed; only the scheme varies.
-	if got, want := seedFallbacks("https://acme.co.uk"), []string{"http://acme.co.uk"}; !slices.Equal(got, want) {
-		t.Errorf("seedFallbacks = %v, want %v", got, want)
+}
+
+// A multi-label public suffix is not a subdomain. Counting dots called
+// acme.co.uk one and skipped its www spelling, which is where a good share of
+// UK and German companies actually publish.
+func TestSeedFallbacksOffersWWWForAMultiLabelSuffix(t *testing.T) {
+	got := seedFallbacks("https://acme.co.uk")
+	if !slices.Contains(got, "https://www.acme.co.uk") {
+		t.Errorf("seedFallbacks = %v, want the www spelling offered", got)
 	}
 }
 

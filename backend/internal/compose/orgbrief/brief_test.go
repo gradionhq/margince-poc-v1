@@ -452,8 +452,14 @@ func TestFoldProfileBoundsOneStatement(t *testing.T) {
 	in.foldProfile([]crmcontracts.CompanyProfileField{
 		{Field: "offer_summary", Value: strings.Repeat("x", briefProfileValueMax*3)},
 	})
-	if got := len(in.Profile[0].Value); got != briefProfileValueMax {
-		t.Errorf("value length = %d, want it bounded to %d", got, briefProfileValueMax)
+	value := in.Profile[0].Value
+	if got := utf8.RuneCountInString(value); got != briefProfileValueMax {
+		t.Errorf("value = %d characters, want it bounded to %d", got, briefProfileValueMax)
+	}
+	// A cut statement says so, or it reads as an approved sentence that
+	// happens to stop mid-thought.
+	if !strings.HasSuffix(value, "…") {
+		t.Errorf("value = %q, want the cut marked", value[len(value)-10:])
 	}
 }
 

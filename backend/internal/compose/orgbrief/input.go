@@ -294,8 +294,12 @@ func truncateRunes(value string, limit int) string {
 	}
 	kept := 0
 	for offset := range value {
-		if kept == limit {
-			return value[:offset]
+		if kept == limit-1 {
+			// The ellipsis says the statement was cut, and counts against the
+			// limit rather than pushing past it. Without it the card shows an
+			// approved sentence that stops mid-thought and reads as though the
+			// author wrote it that way.
+			return value[:offset] + "…"
 		}
 		kept++
 	}

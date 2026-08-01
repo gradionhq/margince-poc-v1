@@ -45,6 +45,12 @@ func (c *siteCrawler) fetchSeed(ctx context.Context, pacer crawlPacer, seedURL s
 			break
 		}
 		retryPage, retryErr := c.fetchPaced(ctx, pacer, candidate)
+		if transientCrawlError(ctx, retryErr) {
+			// The same single retry the first spelling gets. A CDN timeout on
+			// the www spelling is not evidence that the site is unreachable,
+			// and treating it as one loses a company its whole read.
+			retryPage, retryErr = c.fetchPaced(ctx, pacer, candidate)
+		}
 		if retryErr == nil {
 			return candidate, retryPage, nil
 		}
@@ -77,17 +83,22 @@ func seedFallbacks(seedURL string) []string {
 	if parsed.Scheme != schemeHTTP && parsed.Scheme != schemeHTTPS {
 		return nil
 	}
-	// A host that is already a subdomain (app.acme.com) stays as it is: only
-	// the bare `www` convention is a spelling of the SAME site. Stripping any
-	// other label would point at a different host that may serve someone else.
+	// Only the `www` convention, and only ever by ADDING it or removing that
+	// exact label. Stripping any other label would point at a different host
+	// that may serve someone else — `app.acme.com` is not `acme.com`.
+	//
+	// Adding www is offered for every host, including multi-label ones:
+	// counting dots called `acme.co.uk` a subdomain and skipped the www
+	// spelling, which is where a good share of UK and German companies
+	// actually publish. A www prefix that means nothing simply fails to
+	// resolve, which costs one bounded fetch; a missing one costs the whole
+	// site read.
 	host := parsed.Host
 	var hosts []string
 	if after, found := strings.CutPrefix(host, "www."); found {
 		hosts = []string{host, after}
-	} else if strings.Count(hostWithoutPort(host), ".") == 1 {
-		hosts = []string{host, "www." + host}
 	} else {
-		hosts = []string{host}
+		hosts = []string{host, "www." + host}
 	}
 
 	var out []string
@@ -102,12 +113,4 @@ func seedFallbacks(seedURL string) []string {
 		}
 	}
 	return out
-}
-
-// hostWithoutPort drops a :port so the label count reflects the name alone.
-func hostWithoutPort(host string) string {
-	if i := strings.LastIndex(host, ":"); i > strings.LastIndex(host, "]") {
-		return host[:i]
-	}
-	return host
 }

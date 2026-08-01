@@ -203,6 +203,27 @@ const empty = {
 function Cards({ view }: Readonly<{ view: View }>) {
   installFetchStub({
     "GET /signals": () => jsonResponse({ data: [], page }),
+    // The brief is the card the stories exist to show. Unstubbed it fell
+    // through to the empty fallback, and all three stories rendered the same
+    // blank block instead of the three answers they are here to compare.
+    "GET /organizations/o-1/brief": () =>
+      jsonResponse({
+        organization_id: "o-1",
+        generated_at: "2026-07-13T09:00:00Z",
+        generated_by: "deterministic",
+        sentences: view.people?.data?.length
+          ? [
+              {
+                text: "Relationship strength 62 across 2 known contact(s).",
+                evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+              },
+              {
+                text: "What they sell: managed commerce hosting.",
+                evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+              },
+            ]
+          : [],
+      }),
     // The prepared questions answer from the account; the story serves the
     // deterministic floor, which is what a deployment with no model lane shows.
     "POST /organizations/o-1/ask": () =>
