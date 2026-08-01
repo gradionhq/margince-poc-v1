@@ -182,17 +182,6 @@ async function searchOrgTargets(
   }));
 }
 
-// A form value narrowed back to the classification enum. Anything the
-// catalogue does not know is dropped rather than sent: the column has a CHECK
-// on it, so a stray value would come back a 422 the user cannot act on.
-function asClassification(value: string): Classification | undefined {
-  return Object.hasOwn(CLASSIFICATION_LABELS, value)
-    ? (Object.keys(CLASSIFICATION_LABELS) as Classification[]).find(
-        (candidate) => candidate === value,
-      )
-    : undefined;
-}
-
 function asSizeBand(
   value: string | undefined,
 ): CreateOrganizationRequest["size_band"] {
@@ -276,7 +265,6 @@ export function mapOrgUpdate(
     industry: stringField(values.industry).trim() || undefined,
     size_band: asSizeBand(stringField(values.size_band)),
     owner_id: stringField(values.owner_id).trim() || undefined,
-    classification: asClassification(stringField(values.classification)),
   };
   if (!sameDomainSet(desired, current)) {
     body.domains = desired;
@@ -304,11 +292,15 @@ const companyCreateFields: CreateField[] = [
   },
 ];
 
-// The edit form. Owner and classification are built per-render rather than
-// declared here: the owner options are the live user roster, and the
-// classification labels are translated — both need a component's context.
+// The edit form, built per-render because the owner options are the live user
+// roster.
+//
+// Classification is NOT here. `UpdateOrganizationRequest` carries no such
+// field — the value is set by the partner extension and by confirmed
+// proposals — so a select for it would collect an answer and drop it. The
+// badge names the value; changing it needs a contract that does not exist
+// yet (raised in STATUS.md).
 function companyEditFields(
-  t: ReturnType<typeof useT>,
   owners: readonly { id: string; display_name: string }[],
 ): CreateField[] {
   return [
@@ -331,15 +323,6 @@ function companyEditFields(
       options: owners.map((user) => ({
         value: user.id,
         label: user.display_name,
-      })),
-    },
-    {
-      key: "classification",
-      label: "org.classification",
-      type: "select",
-      options: Object.entries(CLASSIFICATION_LABELS).map(([value, key]) => ({
-        value,
-        label: t(key),
       })),
     },
     {
@@ -1248,13 +1231,12 @@ function CompanyEditAction({
     <EditAction
       label={t("record.edit")}
       notice={overlay ? t("overlay.partialWriteBack") : undefined}
-      fields={[...companyEditFields(t, owners), ...cf.formFields]}
+      fields={[...companyEditFields(owners), ...cf.formFields]}
       record={{
         id: org.id,
         version: org.version,
         display_name: org.display_name,
         owner_id: org.owner_id ?? "",
-        classification: org.classification ?? "",
         legal_name: org.legal_name ?? "",
         industry: org.industry ?? "",
         size_band: org.size_band ?? "",
@@ -1618,11 +1600,22 @@ function useAccountChronology({
   activities: Activity[];
   activitiesHaveMore: boolean;
   renderActions: (activity: Activity) => ReactNode;
-}>): { entries: TimelineEntry[]; truncated: boolean; changes: ChangesQuery } {
+}>): {
+  entries: TimelineEntry[];
+  truncated: boolean;
+  changes: ChangesQuery;
+  // What the CURRENT filter is waiting on or failed at. A query that is
+  // switched off never resolves — it reports pending forever — so the caller
+  // must not read the query's own flags. Reading them turned the default
+  // Activities view into a skeleton that never became a timeline.
+  loading: boolean;
+  failed: boolean;
+} {
   const t = useT();
   const viewerId = useViewerId();
+  const wantsChanges = filter !== "activities";
   const changes = useFieldHistory("organization", orgId, {
-    enabled: filter !== "activities",
+    enabled: wantsChanges,
   });
   const changeRows = changes.data?.pages.flatMap((page) => page.data) ?? [];
   const activityEntries = activityTimeline(activities, viewerId, renderActions);
@@ -1631,12 +1624,26 @@ function useAccountChronology({
     (field) => coldFieldLabel(field, t),
     viewerId,
   );
+  const loading = wantsChanges && changes.isPending;
+  const failed = wantsChanges && changes.isError;
 
   if (filter === "activities") {
-    return { entries: activityEntries, truncated: false, changes };
+    return {
+      entries: activityEntries,
+      truncated: false,
+      changes,
+      loading: false,
+      failed: false,
+    };
   }
   if (filter === "changes") {
-    return { entries: changeEntries, truncated: false, changes };
+    return {
+      entries: changeEntries,
+      truncated: false,
+      changes,
+      loading,
+      failed,
+    };
   }
   const merged = mergeChronology<TimelineEntry>(
     [
@@ -1645,7 +1652,13 @@ function useAccountChronology({
     ],
     (entry) => entry.atIso,
   );
-  return { entries: merged.rows, truncated: merged.truncated, changes };
+  return {
+    entries: merged.rows,
+    truncated: merged.truncated,
+    changes,
+    loading,
+    failed,
+  };
 }
 
 // The four RecordView slots the chronology section fills: the list, the
@@ -1748,8 +1761,8 @@ function useChronologySlots({
       ),
       timelineNotice: chronologyNotice(
         {
-          loading: loading || history.changes.isPending,
-          failed: failed || history.changes.isError,
+          loading: loading || history.loading,
+          failed: failed || history.failed,
           assembled: Boolean(view?.activities),
           filter,
         },

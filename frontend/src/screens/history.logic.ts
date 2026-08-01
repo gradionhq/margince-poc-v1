@@ -49,6 +49,12 @@ export type Feed<Row> = { rows: Row[]; hasMore: boolean };
  *
  * A feed that is fully loaded imposes no boundary: nothing older is missing
  * from it. When neither feed has more, the merge is the whole history.
+ *
+ * The cut is STRICT. Both feeds page on (timestamp, id), not on timestamp
+ * alone, so a feed whose oldest loaded row sits at T may still have unfetched
+ * rows at exactly T. Keeping the boundary row would put a same-second gap
+ * inside a stretch the merge presents as whole — which is the one failure this
+ * function exists to prevent, reappearing one row further down.
  */
 export function mergeChronology<Row>(
   feeds: readonly Feed<Row>[],
@@ -75,7 +81,7 @@ export function mergeChronology<Row>(
   if (floor === undefined) {
     return { rows: all, truncated: false };
   }
-  const rows = all.filter((row) => at(row) >= floor);
+  const rows = all.filter((row) => at(row) > floor);
   return {
     rows,
     truncated: rows.length < all.length || feeds.some((f) => f.hasMore),

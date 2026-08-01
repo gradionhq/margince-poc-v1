@@ -136,20 +136,17 @@ func stringifyFieldValue(v any) *string {
 	}
 	encoded, err := json.Marshal(v)
 	if err != nil {
-		// Unencodable is a fact about the value, not a reason to print Go's
-		// rendering of it: the row keeps its field, its actor and its time,
-		// and says the value itself cannot be shown.
-		s := valueUnrenderable
-		return &s
+		// Every value here came out of json.Unmarshal on the audit row, so it
+		// re-encodes by construction; this branch exists for the shape of the
+		// API, not for a case the data can reach. It answers with the same nil
+		// an absent value gets — the client already renders that as an honest
+		// "not recorded" marker in the reader's own language. A sentence
+		// written here instead would be English on a German screen.
+		return nil
 	}
 	s := string(encoded)
 	return &s
 }
-
-// What a diff side shows when the stored value cannot be rendered at all.
-// Plain words, no internals: the client has no branch for this, and a reader
-// seeing it has still learned that the field changed and who changed it.
-const valueUnrenderable = "(value cannot be shown)"
 
 func applyFieldMask(data map[string]any, mask entityFieldMask) map[string]any {
 	if data == nil || len(mask) == 0 {

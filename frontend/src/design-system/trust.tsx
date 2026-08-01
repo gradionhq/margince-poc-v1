@@ -309,14 +309,51 @@ export function FieldDiff({
       {oldValue === null ? (
         <span className="field-diff-empty">{t("history.created")}</span>
       ) : (
-        <span className="field-diff-from">{oldValue}</span>
+        <DiffSide
+          className="field-diff-from"
+          value={oldValue}
+          label={t("history.oldValue")}
+        />
       )}
       <ArrowRight className="field-diff-arrow" aria-hidden size={14} />
       {newValue === null ? (
         <span className="field-diff-empty">{t("history.cleared")}</span>
       ) : (
-        <span className="field-diff-to">{newValue}</span>
+        <DiffSide
+          className="field-diff-to"
+          value={newValue}
+          label={t("history.newValue")}
+        />
       )}
+    </span>
+  );
+}
+
+// One side of a diff. A stored value can be a whole jsonb document, so the
+// side is capped and scrolls — and a scroll container that is not focusable is
+// a region a keyboard reader cannot reach at all. Long values therefore get a
+// named, tab-reachable region; short ones stay plain text, because a tab stop
+// on every diff in a history is its own obstacle.
+const DIFF_SCROLLS_ABOVE = 160;
+
+function DiffSide({
+  className,
+  value,
+  label,
+}: Readonly<{ className: string; value: string; label: string }>) {
+  if (value.length <= DIFF_SCROLLS_ABOVE) {
+    return <span className={className}>{value}</span>;
+  }
+  return (
+    // A scrollable region of static text is exactly the case WCAG 2.1.1 wants
+    // given a tab stop and a name: without one, a keyboard reader cannot reach
+    // the part of the value that is scrolled out of view. There is no semantic
+    // element for "text that scrolls", so the region role IS the pattern here.
+    // NOSONAR: a scrollable region needs a tab stop and a name; the content is text, not a control
+    // biome-ignore lint/a11y/useSemanticElements: no element means "scrollable text region"; role=region is the documented pattern
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: the tab stop is what makes the scrolled-out text reachable at all
+    <span className={className} role="region" aria-label={label} tabIndex={0}>
+      {value}
     </span>
   );
 }

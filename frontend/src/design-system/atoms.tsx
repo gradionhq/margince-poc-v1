@@ -4,6 +4,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -475,6 +476,8 @@ export function OverflowMenu({
 }>) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const panelId = useId();
 
   useEffect(() => {
     if (!open) {
@@ -483,6 +486,7 @@ export function OverflowMenu({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpen(false);
+        trigger.current?.focus();
       }
     };
     const onPointer = (event: MouseEvent) => {
@@ -503,11 +507,17 @@ export function OverflowMenu({
 
   return (
     <div className="overflow-menu" ref={wrap}>
+      {/* A disclosure, not an ARIA menu. `role="menu"` promises arrow-key
+          navigation and a roving tabstop; the items here are the caller's own
+          buttons, each opening its own dialog, and Tab through them is the
+          behaviour a reader actually gets. Announcing a menu we do not
+          implement is worse than announcing the expandable region we do. */}
       <button
         type="button"
+        ref={trigger}
         className="btn btn-ghost btn-sm overflow-menu-trigger"
-        aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={panelId}
         aria-label={label}
         title={label}
         onClick={() => setOpen((was) => !was)}
@@ -517,14 +527,15 @@ export function OverflowMenu({
       {/* Hidden, never unmounted. The items own their own dialogs, so
           unmounting them on close would throw away the dialog the click just
           opened. `hidden` also takes them out of the tab order, so a closed
-          menu is closed for a keyboard reader too. */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: Escape and outside-click are handled above; the items are real buttons with their own keyboard path */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the interactive elements are the caller's buttons inside */}
-      <div
-        className="overflow-menu-items"
-        hidden={!open}
-        onClick={() => setOpen(false)}
-      >
+          menu is closed for a keyboard reader too.
+
+          Clicking an item does NOT close the panel. The item opens a dialog
+          that covers the page, and a dialog restores focus to whatever opened
+          it — so hiding that item first would send focus, on close, to a node
+          that is no longer there. Leaving the panel open keeps the return
+          target visible; the outside-click below then closes it on the
+          reader's next move. */}
+      <div id={panelId} className="overflow-menu-items" hidden={!open}>
         {children}
       </div>
     </div>

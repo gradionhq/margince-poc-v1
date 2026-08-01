@@ -78,18 +78,28 @@ describe("mergeChronology", () => {
       ],
       at,
     );
-    expect(merged.rows.map(at)).toEqual([
-      "2026-03-01",
-      "2026-02-15",
-      "2026-02-01",
-    ]);
+    expect(merged.rows.map(at)).toEqual(["2026-03-01", "2026-02-15"]);
     expect(merged.truncated).toBe(true);
   });
 
-  it("takes the newest boundary when both feeds have more, and keeps the boundary row", () => {
-    // Both feeds are complete AT 2026-02-20 — the second loaded down to it,
-    // the first past it — so that row belongs. Only what is strictly older
-    // could be missing rows the second feed has not fetched.
+  it("drops the boundary row itself, because the feeds page on (time, id)", () => {
+    // Two activities share a second and the page broke between them. Keeping
+    // rows AT the boundary would render one of them and silently omit the
+    // other — the same invisible gap, one row further down.
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01"), row("2026-02-01")], hasMore: true },
+        { rows: [row("2026-02-01")], hasMore: false },
+      ],
+      at,
+    );
+    expect(merged.rows.map(at)).toEqual(["2026-03-01"]);
+    expect(merged.truncated).toBe(true);
+  });
+
+  it("takes the newest boundary when both feeds have more", () => {
+    // The second feed loaded down to 2026-02-20 and has more, so nothing at
+    // or below that instant is provably complete.
     const merged = mergeChronology(
       [
         { rows: [row("2026-03-01"), row("2026-02-01")], hasMore: true },
@@ -97,11 +107,7 @@ describe("mergeChronology", () => {
       ],
       at,
     );
-    expect(merged.rows.map(at)).toEqual([
-      "2026-03-05",
-      "2026-03-01",
-      "2026-02-20",
-    ]);
+    expect(merged.rows.map(at)).toEqual(["2026-03-05", "2026-03-01"]);
     expect(merged.truncated).toBe(true);
   });
 

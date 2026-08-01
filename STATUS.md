@@ -1367,9 +1367,13 @@ raises only.
 2. **"Prospect" means three things.** It is the default
    `organization.classification`, informal prose for a lead, and the name of
    an external persona (PERSONA-PAT). The glossary splits person/organization
-   from Contact/Company but says nothing here, and the build shipped the enum
-   value raw to the screen because no copy rule existed. Wanted: a terminology
-   rule plus display copy for the nine classification values.
+   from Contact/Company but says nothing here. The build USED to ship the enum
+   value raw to the screen; PR #356 added typed display catalogues, so what is
+   owed upstream is the normative terminology rule, not the copy. Also wanted:
+   whether `classification` is human-editable at all.
+   `UpdateOrganizationRequest` carries no such field today — the value is set
+   by the partner extension and by confirmed proposals — so the company page
+   can name a company's type but not change it, which the founder will want.
 3. **Nobody is specified to assign `champion` / `economic_buyer`.**
    DEAL-AC-11 asserts the roles are "drawn from captured email/meeting
    participants", but no AI task, formula or capture rule anywhere produces

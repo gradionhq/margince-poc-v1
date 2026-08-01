@@ -35,6 +35,8 @@ export const en = {
   "trust.editValue": "Edit {description}",
 
   "history.created": "— created —",
+  "history.oldValue": "Previous value",
+  "history.newValue": "New value",
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
   "history.empty": "No changes recorded",
@@ -478,7 +480,7 @@ export const en = {
   "org.class.competitor": "Competitor",
   "org.class.other": "Other",
   "org.class.explain":
-    "How this company relates to you — not a stage in a deal. Edit it to change.",
+    "How this company relates to you — not a stage in a deal.",
   "signal.kind.stalled_deal": "Deal stalled",
   "signal.kind.champion_left": "Champion left",
   "signal.kind.reengagement": "Worth re-engaging",

@@ -52,6 +52,10 @@ function render(ui: ReactNode) {
 // The record's rare verbs — edit, merge, archive, share, full history — live
 // behind the header's overflow menu, so a test that operates one opens the
 // menu first. Returns once the item is on screen.
+//
+// getByTestId would find the items whether the menu were open or shut: they
+// stay mounted so their dialogs survive the click that closes the menu. The
+// closed state is asserted separately, on the `hidden` panel.
 async function openRecordMenu(testId: string): Promise<HTMLElement> {
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy(),
@@ -1436,6 +1440,30 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       source: "manual",
     });
     expect(posted).not.toHaveProperty("person_id");
+  });
+});
+
+describe("CompanyScreen — the header's overflow menu", () => {
+  // The panel keeps its items mounted so a dialog opened from one survives the
+  // click that closes the menu — which means "closed" has to be asserted on
+  // the panel, not on the absence of the items. A `display` rule in the
+  // author stylesheet once beat the UA's `[hidden] {display:none}` and left
+  // every destructive verb standing open in the header.
+  it("keeps its items out of the page until the trigger is used", async () => {
+    stubFetch(companyBackstop);
+    render(<CompanyScreen id="o-1" />);
+
+    const trigger = await screen.findByRole("button", { name: "More actions" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const panelId = trigger.getAttribute("aria-controls");
+    expect(panelId).toBeTruthy();
+    const panel = document.getElementById(panelId ?? "");
+    expect(panel?.hasAttribute("hidden")).toBe(true);
+
+    await userEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(panel?.hasAttribute("hidden")).toBe(false);
   });
 });
 

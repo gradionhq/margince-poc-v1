@@ -38,6 +38,8 @@ export const de = {
   "trust.editValue": "{description} bearbeiten",
 
   "history.created": "— angelegt —",
+  "history.oldValue": "Vorheriger Wert",
+  "history.newValue": "Neuer Wert",
   "history.cleared": "— geleert —",
   "history.passport": "Agent-Passport",
   "history.empty": "Keine Änderungen erfasst",
@@ -488,7 +490,7 @@ export const de = {
   "org.class.competitor": "Wettbewerber",
   "org.class.other": "Sonstige",
   "org.class.explain":
-    "Wie diese Firma zu euch steht — keine Phase in einem Deal. Zum Ändern bearbeiten.",
+    "Wie diese Firma zu euch steht — keine Phase in einem Deal.",
   "signal.kind.stalled_deal": "Deal steht",
   "signal.kind.champion_left": "Champion ist weg",
   "signal.kind.reengagement": "Wieder ansprechen",
@@ -503,7 +505,7 @@ export const de = {
   "co.pulse.strengthTail.other":
     "\u2014 von {count} Personen hier (Beziehung {score}/100)",
   "co.pulse.strengthExplain":
-    "Beziehungsst\u00e4rke, 0\u2013100: wie viel Austausch es mit diesem Account gab, gemessen am Kontakt mit dem meisten.",
+    "Beziehungsst\u00e4rke, 0\u2013100: wie viel Austausch es mit diesem Account gab \u2014 gemessen an dem Kontakt, mit dem es den meisten gab.",
   "co.pulse.noStrength": "Noch keine Interaktionen erfasst",
   "co.pulse.lastTouch": "Letzter Kontakt {when}",
   "co.pulse.neverTouched": "Noch nie kontaktiert",

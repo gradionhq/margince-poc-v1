@@ -669,6 +669,12 @@ select.input {
   background: var(--bgElevated);
   box-shadow: var(--shadow-pop);
 }
+/* An author-level `display` beats the UA stylesheet's `[hidden] {display:none}`,
+   so without this the closed menu stays open — the whole point of folding the
+   destructive verbs away, undone by one declaration. */
+.overflow-menu-items[hidden] {
+  display: none;
+}
 /* The items are whatever the caller renders — buttons of every variant. They
    read as a menu here: full width, left-aligned, no competing fills. */
 .overflow-menu-items .btn {
