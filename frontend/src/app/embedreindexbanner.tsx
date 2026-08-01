@@ -11,15 +11,18 @@ import {
 } from "../screens/common";
 import { embedReindexStatusQueryKey } from "../screens/embedreindex";
 
-// The reindex-needed advisory (v6 B2). Keyed OFF reindex_needed alone, NEVER
-// entities_pending: reindex_needed also flips true on identity drift even
-// when entities_pending briefly reads 0 (search/binding.go), so a naive
-// entities_pending > 0 check would miss that case and a naive "entities_
-// pending stayed nonzero" check would fire on stale data that only looks
-// wrong. Gated to ops/admin, same as EconomyBanner: only the settings card's
-// confirm/rebuild actions are admin/ops-restricted server-side, but the
-// banner itself is an ops/admin surface — a rep or read_only user has
-// nothing actionable to do with it.
+// The reindex-needed advisory (v6 B2, rekeyed per ADR-0069 §3a): shown ONLY
+// on an identity mismatch (configured_identity ≠ populated_identity) — the
+// operator changed the embed binding and has not confirmed the rebuild, the
+// one state a human must act on. Identity-matched pending entities (a lost
+// embed event) are NOT this banner's business: the worker drift sweep heals
+// them automatically, and the settings card (screens/embedreindex.tsx) shows
+// the pending detail meanwhile. Keying off reindex_needed here would show an
+// admin a banner about drift the system is already fixing. Gated to
+// ops/admin, same as EconomyBanner: only the settings card's confirm/rebuild
+// actions are admin/ops-restricted server-side, but the banner itself is an
+// ops/admin surface — a rep or read_only user has nothing actionable to do
+// with it.
 export function EmbedReindexBanner() {
   const t = useT();
   const me = useMe();
@@ -42,7 +45,12 @@ export function EmbedReindexBanner() {
   // Advisory only: a failed status probe must not block the app shell — the
   // settings card (screens/embedreindex.tsx) surfaces the same read's error
   // state to the accountable audience.
-  if (!enabled || query.isError || !query.data?.reindex_needed) {
+  if (
+    !enabled ||
+    query.isError ||
+    !query.data ||
+    query.data.configured_identity === query.data.populated_identity
+  ) {
     return null;
   }
   return (
