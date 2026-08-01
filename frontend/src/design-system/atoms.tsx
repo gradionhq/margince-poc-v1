@@ -1,4 +1,4 @@
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import "./atoms.css";
 
 // The Margince atom library (B-EP09.2, re-scoped to our own
@@ -271,7 +272,11 @@ export function Modal({
   if (!open) {
     return null;
   }
-  return (
+  // Portalled to the document body rather than rendered in place: a dialog
+  // opened from inside a collapsed container — the record header's overflow
+  // menu — would otherwise be hidden along with it, and the click that opened
+  // the dialog is the same click that collapses the menu.
+  return createPortal(
     // NOSONAR: backdrop dismiss only; keyboard path (Esc) handled by the effect above
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
@@ -296,7 +301,8 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -451,6 +457,80 @@ export function DataTable<Row>({
  * `open` forces it open for a state the reader must not miss (a tool that is
  * running, a result that just arrived); left undefined the reader decides.
  */
+// OverflowMenu folds the verbs a record offers but a reader rarely wants —
+// merge, archive, share — behind one control, so the header carries identity
+// and the frequent actions rather than a row of buttons of equal weight where
+// the destructive ones sit next to the routine ones.
+//
+// The children are the caller's own action components (each opening its own
+// confirm flow), so the menu owns only the disclosure: it closes on Escape, on
+// a click outside, and after a click inside — a menu that stayed open over the
+// confirm dialog its own item just opened would cover the decision.
+export function OverflowMenu({
+  label,
+  children,
+}: Readonly<{
+  label: string;
+  children: ReactNode;
+}>) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (
+        event.target instanceof Node &&
+        !wrap.current?.contains(event.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    globalThis.addEventListener("keydown", onKey);
+    globalThis.addEventListener("mousedown", onPointer);
+    return () => {
+      globalThis.removeEventListener("keydown", onKey);
+      globalThis.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  return (
+    <div className="overflow-menu" ref={wrap}>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm overflow-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <MoreHorizontal aria-hidden="true" size={16} />
+      </button>
+      {/* Hidden, never unmounted. The items own their own dialogs, so
+          unmounting them on close would throw away the dialog the click just
+          opened. `hidden` also takes them out of the tab order, so a closed
+          menu is closed for a keyboard reader too. */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: Escape and outside-click are handled above; the items are real buttons with their own keyboard path */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the interactive elements are the caller's buttons inside */}
+      <div
+        className="overflow-menu-items"
+        hidden={!open}
+        onClick={() => setOpen(false)}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function Disclosure({
   summary,
   open,

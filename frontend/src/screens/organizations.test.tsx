@@ -49,6 +49,18 @@ function render(ui: ReactNode) {
   );
 }
 
+// The record's rare verbs — edit, merge, archive, share, full history — live
+// behind the header's overflow menu, so a test that operates one opens the
+// menu first. Returns once the item is on screen.
+async function openRecordMenu(testId: string): Promise<HTMLElement> {
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await waitFor(() => expect(screen.getByTestId(testId)).toBeTruthy());
+  return screen.getByTestId(testId);
+}
+
 const org = {
   id: "o-1",
   workspace_id: "w",
@@ -648,8 +660,7 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     const industry = await screen.findByLabelText("Industry");
     await userEvent.clear(industry);
     await userEvent.type(industry, "Manufacturing");
@@ -682,8 +693,7 @@ describe("CompanyScreen — edit domains round-trip (B7)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     await screen.findByLabelText("Industry");
     await userEvent.click(screen.getByText("Add domain"));
     await userEvent.type(screen.getByLabelText("Domain *"), "brandt.example");
@@ -893,10 +903,7 @@ describe("CompanyScreen — archive (P-3)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("archive-record")).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByTestId("archive-record"));
+    await userEvent.click(await openRecordMenu("archive-record"));
     await userEvent.click(screen.getByTestId("archive-confirm"));
 
     await waitFor(() => expect(deleted).toBe(true));
@@ -933,7 +940,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await openRecordMenu("edit-record");
     expect(screen.getByTestId("archive-record")).toBeTruthy();
     // Anchor on something only overlay mode produces, so the absence below
     // is asserted AFTER /me landed. Waiting on the absence alone passes on
@@ -966,8 +973,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     const industry = await screen.findByLabelText("Industry");
     await userEvent.clear(industry);
     await userEvent.type(industry, "Manufacturing");
@@ -988,8 +994,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     expect(
       screen.getByText(/Only the fields HubSpot accepts are written back/),
     ).toBeTruthy();
@@ -1072,10 +1077,7 @@ describe("CompanyScreen — merge into target (P-2)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("merge-record")).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.click(await openRecordMenu("merge-record"));
     await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
 
     vi.useFakeTimers();
@@ -1326,14 +1328,15 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The number, the contact count, and the last touch all read off the one
-    // composite response — no second round trip for the header.
-    // The score is matched with its own lead-in, not as a bare number: the
-    // brief below the header states elapsed days, so a plain /41/ matches
-    // whichever account age happens to equal the score on the day the suite
-    // runs.
-    await waitFor(() => expect(screen.getByText(/41 · via/)).toBeTruthy());
-    expect(screen.getByText(/3 contacts/)).toBeTruthy();
+    // The contact, the count and the score all read off the one composite
+    // response — no second round trip for the header. The line leads with the
+    // person because that is what a rep acts on; the score follows, labelled,
+    // because a bare number scales to nothing.
+    await waitFor(() =>
+      expect(screen.getByText(/Strongest contact/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/of 3 people here/)).toBeTruthy();
+    expect(screen.getByText(/relationship 41\/100/)).toBeTruthy();
     expect(screen.getByText(/Last touch/)).toBeTruthy();
   });
 
@@ -1436,10 +1439,13 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
   });
 });
 
-describe("CompanyScreen — History tab", () => {
-  it("shows a History tab that lists record changes", async () => {
+describe("CompanyScreen — the record's history", () => {
+  // The audit spine is an inspection of the record, not part of the account's
+  // story, so it opens from the header's overflow menu rather than standing
+  // as a tab beside the timeline.
+  it("opens the full history from the overflow menu", async () => {
     stubFetch(async (url) => {
-      if (url.includes("/history")) {
+      if (url.includes("/records/organization/o-1/history")) {
         return jsonResponse({
           data: [
             {
@@ -1461,14 +1467,52 @@ describe("CompanyScreen — History tab", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /history/i })).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByRole("button", { name: /history/i }));
+    await userEvent.click(await openRecordMenu("company-full-history"));
 
     await waitFor(() =>
       expect(screen.getByText("Created the record")).toBeTruthy(),
     );
+  });
+
+  // Field changes are the account's own chronology, so they sit in the
+  // timeline behind a filter — not on a screen of their own.
+  it("shows field changes in the timeline under the Changes filter", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/field-history")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "f1",
+              entity_type: "organization",
+              entity_id: "o-1",
+              field: "industry",
+              old_value: "Automotive",
+              new_value: "Manufacturing",
+              changed_at: "2026-07-14T10:00:00Z",
+              actor_type: "human",
+              actor_id: "u1",
+            },
+          ],
+          page: { next_cursor: null },
+        });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+
+    // Scoped to the timeline: the account is called "Brandt Automotive GmbH",
+    // so a page-wide match on the old value would pass on the heading.
+    const timeline = await screen.findByRole("region", { name: "Timeline" });
+    await waitFor(() =>
+      expect(within(timeline).getByText("Manufacturing")).toBeTruthy(),
+    );
+    expect(within(timeline).getByText("Automotive")).toBeTruthy();
+    expect(within(timeline).getByText("Industry")).toBeTruthy();
   });
 });
 

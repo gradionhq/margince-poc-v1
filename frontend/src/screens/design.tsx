@@ -82,7 +82,7 @@ function TrustShowcase() {
         <ConfidenceMeter level="med" />
         <ConfidenceMeter level="low" />
         <ProvenanceTag provenance={{ kind: "agent", agent: "capture" }} />
-        <ProvenanceTag provenance={{ kind: "human" }} />
+        <ProvenanceTag provenance={{ kind: "human", self: true }} />
         <span className="t-caption">
           <AutonomyDot tier="auto" /> {t("autonomy.auto")}
         </span>

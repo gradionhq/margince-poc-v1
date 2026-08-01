@@ -85,15 +85,29 @@ export function ConfidenceMeter({
 }
 
 // Provenance is an agent (`agent:capture`), a connector (`connector:gmail`),
-// or the human user — the three shapes captured_by can take.
+// or a human — the shapes captured_by can take, plus the honest fourth for a
+// row that records none of them.
+//
+// `human` carries whether that human is the reader. "Typed by you" over a
+// colleague's entry is a false statement about who to ask, and it was also
+// what an unattributed row said: the two cases a reader most needs kept apart
+// both read as their own handiwork.
 export type Provenance =
   | { kind: "agent"; agent: string }
   | { kind: "connector"; connector: string }
-  | { kind: "human" };
+  | { kind: "human"; self: boolean; userId?: string }
+  | { kind: "unknown" };
 
 export function ProvenanceTag({
   provenance,
-}: Readonly<{ provenance: Provenance }>) {
+  // How a named human renders. The design system has no record lookups, so a
+  // caller that can resolve a user id to a name supplies the element; without
+  // one the tag says a person entered it without claiming which one.
+  renderUser,
+}: Readonly<{
+  provenance: Provenance;
+  renderUser?: (userId: string) => ReactNode;
+}>) {
   const t = useT();
   if (provenance.kind === "agent") {
     return (
@@ -109,8 +123,31 @@ export function ProvenanceTag({
       </span>
     );
   }
+  if (provenance.kind === "unknown") {
+    return (
+      <span className="provenance provenance-unknown">
+        {t("trust.sourceUnknown")}
+      </span>
+    );
+  }
+  if (provenance.self) {
+    return (
+      <span className="provenance provenance-human">
+        {t("trust.typedByYou")}
+      </span>
+    );
+  }
+  const named = provenance.userId ? renderUser?.(provenance.userId) : undefined;
   return (
-    <span className="provenance provenance-human">{t("trust.typedByYou")}</span>
+    <span className="provenance provenance-human">
+      {named ? (
+        <>
+          {t("trust.typedByPrefix")} {named}
+        </>
+      ) : (
+        t("trust.typedByHuman")
+      )}
+    </span>
   );
 }
 
@@ -201,7 +238,7 @@ export function StagedProposal({
     // Either way the original evidence stays attached (§4.4).
     const provenance: Provenance =
       resolution.outcome === "edited"
-        ? { kind: "human" }
+        ? { kind: "human", self: true }
         : { kind: "agent", agent: proposal.agent };
     return (
       <section className="real-card" aria-label={t("trust.resolvedValue")}>

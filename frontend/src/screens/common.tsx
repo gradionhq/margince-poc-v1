@@ -301,16 +301,39 @@ export function QueryGate<Data>({
 // captured_by is server-stamped "human:<uuid> | agent:<id> | connector:<name>".
 // The tag shows the bare id — never the doubled "agent: agent:<id>" the old
 // reassembly produced — and a connector reads as a connector, not an agent.
-export function provenanceOf(capturedBy: string | undefined): Provenance {
-  if (!capturedBy || capturedBy.startsWith("human:")) {
-    return { kind: "human" };
+//
+// A human is only "you" when the id is the reader's. Without a viewer id the
+// human branch stays unnamed rather than guessing: a caller that cannot say
+// who is reading cannot claim the reader typed it. An absent captured_by is
+// `unknown` and says so — it used to render as the reader's own typing, which
+// is the one attribution nobody can check.
+export function provenanceOf(
+  capturedBy: string | undefined,
+  viewerUserId?: string,
+): Provenance {
+  if (!capturedBy) {
+    return { kind: "unknown" };
   }
   const [source, name] = capturedBy.split(":", 2);
+  if (source === "human") {
+    return {
+      kind: "human",
+      self: Boolean(viewerUserId) && name === viewerUserId,
+      userId: name,
+    };
+  }
   const label = name ?? source;
   if (source === "connector") {
     return { kind: "connector", connector: label };
   }
   return { kind: "agent", agent: label };
+}
+
+// The reader's own user id, for the provenance tags on this screen. Undefined
+// while /me is in flight, which the tags read as "a person, not provably you"
+// — the honest reading until the session is known.
+export function useViewerId(): string | undefined {
+  return useMe().data?.user.id;
 }
 
 // RFC 7807 bodies carry the honest detail; surface it instead of a generic

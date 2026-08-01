@@ -98,7 +98,7 @@ describe("ConfidenceMeter", () => {
 describe("ProvenanceTag", () => {
   it("distinguishes agent-written from human-typed", () => {
     render(<ProvenanceTag provenance={{ kind: "agent", agent: "runner" }} />);
-    render(<ProvenanceTag provenance={{ kind: "human" }} />);
+    render(<ProvenanceTag provenance={{ kind: "human", self: true }} />);
     expect(screen.getByText("agent: runner").className).toContain(
       "provenance-agent",
     );

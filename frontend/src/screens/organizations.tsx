@@ -12,11 +12,13 @@ import {
   DataTable,
   Disclosure,
   EmptyState,
+  Modal,
+  OverflowMenu,
   SectionHeader,
   SegmentedControl,
   Skeleton,
 } from "../design-system/atoms";
-import { RecordView } from "../design-system/composed";
+import { RecordView, type TimelineEntry } from "../design-system/composed";
 import {
   EvidenceMark,
   type EvidenceMarkSource,
@@ -35,12 +37,14 @@ import { ArchiveAction } from "./archive";
 import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
+  LoadMoreButton,
   problemMessage,
   provenanceOf,
   QueryGate,
   QueryStates,
   throwProblem,
   useSorMode,
+  useViewerId,
 } from "./common";
 import {
   DealsCard,
@@ -61,9 +65,10 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef } from "./entityref";
+import { EntityRef, useRoster } from "./entityref";
 import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
-import { RecordHistoryTab } from "./history";
+import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
+import { mergeChronology } from "./history.logic";
 import { confidenceLevel } from "./inbox";
 import {
   ListGate,
@@ -93,6 +98,23 @@ import {
 // firmographics card, and timeline stay exactly as they were.
 
 type Organization = components["schemas"]["Organization"];
+type Classification = NonNullable<Organization["classification"]>;
+
+// How the classification column reads to a person. The column stores the
+// enum; printing the enum itself put "prospect" in front of a German reader
+// and told an English one only slightly more. Typed against the schema union,
+// so a value added upstream fails the build here rather than leaking raw.
+const CLASSIFICATION_LABELS: Record<Classification, MessageKey> = {
+  prospect: "org.class.prospect",
+  customer: "org.class.customer",
+  agency: "org.class.agency",
+  reseller: "org.class.reseller",
+  tech_vendor: "org.class.tech_vendor",
+  platform: "org.class.platform",
+  partner: "org.class.partner",
+  competitor: "org.class.competitor",
+  other: "org.class.other",
+};
 type CreateOrganizationRequest =
   components["schemas"]["CreateOrganizationRequest"];
 type UpdateOrganizationRequest =
@@ -158,6 +180,17 @@ async function searchOrgTargets(
     id: candidate.id,
     name: candidate.display_name,
   }));
+}
+
+// A form value narrowed back to the classification enum. Anything the
+// catalogue does not know is dropped rather than sent: the column has a CHECK
+// on it, so a stray value would come back a 422 the user cannot act on.
+function asClassification(value: string): Classification | undefined {
+  return Object.hasOwn(CLASSIFICATION_LABELS, value)
+    ? (Object.keys(CLASSIFICATION_LABELS) as Classification[]).find(
+        (candidate) => candidate === value,
+      )
+    : undefined;
 }
 
 function asSizeBand(
@@ -242,6 +275,8 @@ export function mapOrgUpdate(
     legal_name: stringField(values.legal_name).trim() || undefined,
     industry: stringField(values.industry).trim() || undefined,
     size_band: asSizeBand(stringField(values.size_band)),
+    owner_id: stringField(values.owner_id).trim() || undefined,
+    classification: asClassification(stringField(values.classification)),
   };
   if (!sameDomainSet(desired, current)) {
     body.domains = desired;
@@ -269,25 +304,54 @@ const companyCreateFields: CreateField[] = [
   },
 ];
 
-const companyEditFields: CreateField[] = [
-  { key: "display_name", label: "create.displayName", required: true },
-  { key: "legal_name", label: "create.legalName" },
-  { key: "industry", label: "create.industry" },
-  {
-    key: "size_band",
-    label: "create.sizeBand",
-    type: "select",
-    options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
-  },
-  {
-    key: "domains",
-    label: "org.domains",
-    type: "repeatable",
-    addLabel: "field.addDomain",
-    rowFields: [{ key: "domain", label: "field.domain", required: true }],
-    primaryKey: "is_primary",
-  },
-];
+// The edit form. Owner and classification are built per-render rather than
+// declared here: the owner options are the live user roster, and the
+// classification labels are translated — both need a component's context.
+function companyEditFields(
+  t: ReturnType<typeof useT>,
+  owners: readonly { id: string; display_name: string }[],
+): CreateField[] {
+  return [
+    { key: "display_name", label: "create.displayName", required: true },
+    { key: "legal_name", label: "create.legalName" },
+    { key: "industry", label: "create.industry" },
+    {
+      key: "size_band",
+      label: "create.sizeBand",
+      type: "select",
+      options: SIZE_BAND_OPTIONS.map((band) => ({ value: band, label: band })),
+    },
+    // Who is accountable for this account. It defaults to whoever created the
+    // record and stays there until someone changes it — which, until now,
+    // nothing on this page let them do.
+    {
+      key: "owner_id",
+      label: "co.pulse.owner",
+      type: "select",
+      options: owners.map((user) => ({
+        value: user.id,
+        label: user.display_name,
+      })),
+    },
+    {
+      key: "classification",
+      label: "org.classification",
+      type: "select",
+      options: Object.entries(CLASSIFICATION_LABELS).map(([value, key]) => ({
+        value,
+        label: t(key),
+      })),
+    },
+    {
+      key: "domains",
+      label: "org.domains",
+      type: "repeatable",
+      addLabel: "field.addDomain",
+      rowFields: [{ key: "domain", label: "field.domain", required: true }],
+      primaryKey: "is_primary",
+    },
+  ];
+}
 
 async function createCompany(
   values: Record<string, string>,
@@ -374,7 +438,9 @@ export function CompaniesScreen() {
                 header: t("org.classification"),
                 render: (org: Organization) =>
                   org.classification ? (
-                    <Badge>{org.classification}</Badge>
+                    <Badge>
+                      {t(CLASSIFICATION_LABELS[org.classification])}
+                    </Badge>
                   ) : null,
               },
               {
@@ -1135,77 +1201,127 @@ function FactsCard({
   );
 }
 
-// Three tabs, not five. The company view is ONE scrolling page: the
+// Two tabs, not three. The company view is ONE scrolling page: the
 // relationship edges and the hierarchy roll-up moved into its rails, where a
 // rep reads them alongside everything else instead of hunting for them.
-// History and Partner stay tabs because each is a different question, asked
-// rarely, with its own surface.
-const COMPANY_TABS = ["overview", "partner", "history"] as const;
+//
+// History is no longer one of them. Field changes belong in the account's own
+// chronology (the timeline's Changes filter), and the audit spine is an
+// inspection of the record rather than part of its story — it opens from the
+// header's overflow menu. A tab of equal weight beside the account's story
+// said the two were the same kind of question. Partner stays a tab: it is a
+// form, not a reading of this account.
+const COMPANY_TABS = ["overview", "partner"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
+
+// Which slice of the account's chronology is on screen. Activities is what
+// happened WITH them, changes is what happened TO the record; a reader who
+// wants them in one order picks "all".
+const TIMELINE_FILTERS = ["activities", "changes", "all"] as const;
+type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
+
+type Activity = components["schemas"]["Activity"];
+type ChangesQuery = ReturnType<typeof useFieldHistory>;
 
 // The company 360 badge/action bar. Archived records are read-only: the
 // backend rejects edit/merge/archive on a non-live row (there is no unarchive
 // path), so those buttons would only 404 — the Archived badge is the whole
 // affordance. Extracted from CompanyScreen so its render stays legible.
-function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
+// The company's edit form. Its own component because it owns three reads the
+// rest of the action bar has no use for — the custom-field catalogue, the user
+// roster behind the owner picker, and the record slice they prefill.
+function CompanyEditAction({
+  org,
+  overlay,
+}: Readonly<{ org: Organization; overlay: boolean }>) {
   const t = useT();
   const cf = useObjectCustomFields("organization");
+  const roster = useRoster("user", true);
+  // The roster hook serves users and teams alike, so narrow to the entries
+  // that actually carry a person's name rather than asserting the shape.
+  const owners = (roster.data ?? []).flatMap((entry) =>
+    "display_name" in entry
+      ? [{ id: entry.id, display_name: entry.display_name }]
+      : [],
+  );
+  return (
+    <EditAction
+      label={t("record.edit")}
+      notice={overlay ? t("overlay.partialWriteBack") : undefined}
+      fields={[...companyEditFields(t, owners), ...cf.formFields]}
+      record={{
+        id: org.id,
+        version: org.version,
+        display_name: org.display_name,
+        owner_id: org.owner_id ?? "",
+        classification: org.classification ?? "",
+        legal_name: org.legal_name ?? "",
+        industry: org.industry ?? "",
+        size_band: org.size_band ?? "",
+        // The repeatable domains field prefills from the org's live set;
+        // its rows are string-keyed, so the primary flag stringifies to
+        // match the "true"/"" the primary radio writes.
+        domains: (org.domains ?? []).map((domain) => ({
+          domain: domain.domain,
+          is_primary: String(domain.is_primary),
+        })),
+        ...cf.recordSlice(org),
+      }}
+      update={async (values, rows) => {
+        const { data, error } = await api.PATCH("/organizations/{id}", {
+          params: {
+            path: { id: org.id },
+            ...ifMatch(org.version),
+          },
+          body: {
+            ...mapOrgUpdate(values, rows ?? {}, org.domains),
+            ...cf.toBody(values),
+          },
+        });
+        if (error) {
+          throwProblem(error);
+        }
+        return data;
+      }}
+      invalidate="organizations"
+      recordKey="organization"
+      resolveExisting={(_code, existingId) => ({
+        screen: "companies",
+        id: existingId,
+      })}
+    />
+  );
+}
+
+function CompanyActionBadges({
+  org,
+  onOpenHistory,
+}: Readonly<{ org: Organization; onOpenHistory: () => void }>) {
+  const t = useT();
   const overlay = useSorMode() === "overlay";
+  // An archived record is read-only: the backend rejects edit/merge/archive
+  // on a non-live row (there is no unarchive path), so those items would only
+  // 404. Its history stays readable — what happened to a record is exactly
+  // what a reader wants after it has been put away.
+  const writable = !org.archived_at;
   return (
     <>
-      {org.classification && <Badge>{org.classification}</Badge>}
-      <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
-      {org.archived_at ? (
-        <Badge tone="warn">{t("record.archived")}</Badge>
-      ) : (
-        <>
-          <EditAction
-            label={t("record.edit")}
-            notice={overlay ? t("overlay.partialWriteBack") : undefined}
-            fields={[...companyEditFields, ...cf.formFields]}
-            record={{
-              id: org.id,
-              version: org.version,
-              display_name: org.display_name,
-              legal_name: org.legal_name ?? "",
-              industry: org.industry ?? "",
-              size_band: org.size_band ?? "",
-              // The repeatable domains field prefills from the org's live set;
-              // its rows are string-keyed, so the primary flag stringifies to
-              // match the "true"/"" the primary radio writes.
-              domains: (org.domains ?? []).map((domain) => ({
-                domain: domain.domain,
-                is_primary: String(domain.is_primary),
-              })),
-              ...cf.recordSlice(org),
-            }}
-            update={async (values, rows) => {
-              const { data, error } = await api.PATCH("/organizations/{id}", {
-                params: {
-                  path: { id: org.id },
-                  ...ifMatch(org.version),
-                },
-                body: {
-                  ...mapOrgUpdate(values, rows ?? {}, org.domains),
-                  ...cf.toBody(values),
-                },
-              });
-              if (error) {
-                throwProblem(error);
-              }
-              return data;
-            }}
-            invalidate="organizations"
-            recordKey="organization"
-            resolveExisting={(_code, existingId) => ({
-              screen: "companies",
-              id: existingId,
-            })}
-          />
+      {org.classification && (
+        <span title={t("org.class.explain")}>
+          <Badge>{t(CLASSIFICATION_LABELS[org.classification])}</Badge>
+        </span>
+      )}
+      {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
+      {/* An archived record read from a mirror offers nothing at all: every
+          write is refused and the history is a native read the mirror has no
+          row for. Rendering the trigger anyway would open an empty popover. */}
+      {(writable || !overlay) && (
+        <OverflowMenu label={t("record.moreActions")}>
+          {writable && <CompanyEditAction org={org} overlay={overlay} />}
           {/* Merge has no incumbent-first projection — the seam refuses it
-              outright (overlay/provider_writes.go Merge) — unlike
-              edit/archive above, which it serves, so it stays hidden here. */}
-          {!overlay && (
+            outright (overlay/provider_writes.go Merge) — unlike
+            edit/archive above, which it serves, so it stays hidden here. */}
+          {writable && !overlay && (
             <MergeAction
               label={t("merge.org")}
               sourceId={org.id}
@@ -1235,30 +1351,48 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
               })}
             />
           )}
-          <ArchiveAction
-            label={t("record.archive")}
-            confirmText={t("record.archiveConfirm")}
-            archive={async () => {
-              const { data, error } = await api.DELETE("/organizations/{id}", {
-                params: { path: { id: org.id } },
-              });
-              if (error) {
-                throwProblem(error);
-              }
-              return data;
-            }}
-            invalidate="organizations"
-            recordKey="organization"
-            onArchived={() => navigate({ screen: "companies" })}
-          />
+          {writable && (
+            <ArchiveAction
+              label={t("record.archive")}
+              confirmText={t("record.archiveConfirm")}
+              archive={async () => {
+                const { data, error } = await api.DELETE(
+                  "/organizations/{id}",
+                  {
+                    params: { path: { id: org.id } },
+                  },
+                );
+                if (error) {
+                  throwProblem(error);
+                }
+                return data;
+              }}
+              invalidate="organizations"
+              recordKey="organization"
+              onArchived={() => navigate({ screen: "companies" })}
+            />
+          )}
           {/* A record grant probes the native row via auth.EnsureLinkTarget,
-              which a mirrored record has no row for — sharing stays hidden
-              in overlay regardless of record type (see deals.tsx's
-              DealBadges). */}
-          {!overlay && (
+            which a mirrored record has no row for — sharing stays hidden
+            in overlay regardless of record type (see deals.tsx's
+            DealBadges). */}
+          {writable && !overlay && (
             <ShareAction recordType="organization" recordId={org.id} />
           )}
-        </>
+          {/* The audit spine: who changed this record and when. It reads as an
+            inspection of the record rather than part of its story, so it sits
+            with the other rare verbs instead of beside the account's own
+            timeline. */}
+          {!overlay && (
+            <Button
+              small
+              data-testid="company-full-history"
+              onClick={onOpenHistory}
+            >
+              {t("record.fullHistory")}
+            </Button>
+          )}
+        </OverflowMenu>
       )}
     </>
   );
@@ -1327,15 +1461,14 @@ function CompanyRecord({
         labels={{
           overview: t("tab.overview"),
           partner: t("tab.partner"),
-          history: t("tab.history"),
         }}
       />
     </div>
   );
 
-  // Every tab renders inside ONE page. Partner and History used to be a
-  // different component tree with no rails, so switching tab unmounted both
-  // side columns and every query behind them: the grid re-columned under the
+  // Both tabs render inside ONE page. Partner used to be a different
+  // component tree with no rails, so switching tab unmounted both side
+  // columns and every query behind them: the grid re-columned under the
   // reader and the page refetched itself on the way back. Only the middle
   // column's body changes now.
   return (
@@ -1347,7 +1480,6 @@ function CompanyRecord({
       failed={view.isError}
       tab={tab}
       tabs={tabs}
-      onOpenHistory={() => onTab("history")}
     />
   );
 }
@@ -1384,6 +1516,7 @@ function CompanyPulse({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  const viewerId = useViewerId();
   const strength = view?.strength;
   // The strength section is what carries BOTH the score and the last touch.
   // Withheld or absent, the line says nothing about either: "never
@@ -1408,14 +1541,23 @@ function CompanyPulse({
             : t("co.pulse.neverTouched")}
         </span>
       )}
+      {/* The owner, named as the owner. Unlabelled it read as one more
+          person in a row of people, and the reader had no way to tell the
+          one accountable for this account from whoever last touched it. */}
       <span>
+        {t("co.pulse.owner")}:{" "}
         {org.owner_id ? (
           <EntityRef kind="user" id={org.owner_id} />
         ) : (
           t("co.pulse.unowned")
         )}
       </span>
-      <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+      {/* Where the RECORD came from — a different question from who owns it,
+          and the reason both now carry a word saying which is which. */}
+      <ProvenanceTag
+        provenance={provenanceOf(org.captured_by, viewerId)}
+        renderUser={(userId) => <EntityRef kind="user" id={userId} />}
+      />
       {/* What is waiting on a human decision here, and the way to make it.
           The count was a badge that led nowhere: a reader told that 27
           decisions are owed and given no way to pay them learns only that the
@@ -1441,18 +1583,181 @@ function StrengthPulse({
     // relationship to attribute and no number worth leading with.
     return <span>{t("co.pulse.noStrength")}</span>;
   }
+  // The person, then the number — and the number says what it measures.
+  // "2 · via Christian Hagemeyer of 3 contacts" led with a bare score nobody
+  // could scale and buried the one fact a rep acts on: who the way in is.
   return (
-    <span>
-      {t("co.pulse.strengthLead", { score: strength.score })}{" "}
+    <span title={t("co.pulse.strengthExplain")}>
+      {t("co.pulse.strongestLead")}{" "}
       <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
       {t(
         strength.contact_count === 1
           ? "co.pulse.strengthTail.one"
           : "co.pulse.strengthTail.other",
-        { count: strength.contact_count },
+        { count: strength.contact_count, score: strength.score },
       )}
     </span>
   );
+}
+
+// useAccountChronology assembles the middle column's history: what happened
+// with this account, what changed about the record, or both in one order.
+//
+// The two feeds page independently, so "both" is not a concatenation — the
+// merge is cut where it stops being provably complete (mergeChronology), and
+// the cut is stated rather than left to look like the end of the history.
+function useAccountChronology({
+  orgId,
+  filter,
+  activities,
+  activitiesHaveMore,
+  renderActions,
+}: Readonly<{
+  orgId: string;
+  filter: TimelineFilter;
+  activities: Activity[];
+  activitiesHaveMore: boolean;
+  renderActions: (activity: Activity) => ReactNode;
+}>): { entries: TimelineEntry[]; truncated: boolean; changes: ChangesQuery } {
+  const t = useT();
+  const viewerId = useViewerId();
+  const changes = useFieldHistory("organization", orgId, {
+    enabled: filter !== "activities",
+  });
+  const changeRows = changes.data?.pages.flatMap((page) => page.data) ?? [];
+  const activityEntries = activityTimeline(activities, viewerId, renderActions);
+  const changeEntries = changeTimeline(
+    changeRows,
+    (field) => coldFieldLabel(field, t),
+    viewerId,
+  );
+
+  if (filter === "activities") {
+    return { entries: activityEntries, truncated: false, changes };
+  }
+  if (filter === "changes") {
+    return { entries: changeEntries, truncated: false, changes };
+  }
+  const merged = mergeChronology<TimelineEntry>(
+    [
+      { rows: activityEntries, hasMore: activitiesHaveMore },
+      { rows: changeEntries, hasMore: changes.hasNextPage },
+    ],
+    (entry) => entry.atIso,
+  );
+  return { entries: merged.rows, truncated: merged.truncated, changes };
+}
+
+// The four RecordView slots the chronology section fills: the list, the
+// filter above it, the load-more and disclosure below it, and the notice that
+// replaces the list when there is nothing honest to draw. Assembled here so
+// the page's render reads as a layout rather than as four nested ternaries.
+function useChronologySlots({
+  org,
+  view,
+  overlay,
+  loading,
+  failed,
+  active,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  loading: boolean;
+  failed: boolean;
+  // Whether the chronology is on screen at all. The Partner tab is a form,
+  // so it renders no timeline rather than an empty one.
+  active: boolean;
+}>): {
+  slots: {
+    timeline?: TimelineEntry[];
+    timelineHeader?: ReactNode;
+    timelineFooter?: ReactNode;
+    timelineNotice?: ReactNode;
+  };
+  showChanges: () => void;
+} {
+  const t = useT();
+  const [filter, setFilter] = useState<TimelineFilter>("activities");
+  const history = useAccountChronology({
+    orgId: org.id,
+    filter,
+    activities: view?.activities?.data ?? [],
+    activitiesHaveMore: view?.activities?.page.has_more ?? false,
+    renderActions: (activity) => (
+      <TimelineActions
+        activity={activity}
+        entityType="organization"
+        entityId={org.id}
+      />
+    ),
+  });
+  // An evidence mark asks "where did this value come from" — the answer is
+  // the record's change history, so the mark turns the timeline to Changes
+  // rather than opening a screen of its own.
+  const showChanges = () => setFilter("changes");
+
+  if (!active) {
+    return { slots: { timelineNotice: <span /> }, showChanges };
+  }
+  // In overlay mode the refusal is stated once, in the body: repeating it over
+  // the timeline would read as two separate things being unavailable rather
+  // than one page not being assembled.
+  if (overlay) {
+    return {
+      slots: { timeline: history.entries, timelineNotice: <span /> },
+      showChanges,
+    };
+  }
+  return {
+    showChanges,
+    slots: {
+      timeline: history.entries,
+      // Above the list rather than in the page's tab strip: it narrows this
+      // section, and a control that looks like a tab reads as a new page.
+      timelineHeader: (
+        <div className="co-tabs">
+          <SegmentedControl
+            options={TIMELINE_FILTERS}
+            value={filter}
+            onChange={setFilter}
+            label={t("co.chronology.label")}
+            labels={{
+              activities: t("co.chronology.activities"),
+              changes: t("co.chronology.changes"),
+              all: t("co.chronology.all"),
+            }}
+          />
+        </div>
+      ),
+      // Asking sits UNDER the account's own story, not above it: it is a tool
+      // for when the page did not already answer the question, and standing
+      // between the brief and the timeline it took the place of content.
+      timelineFooter: (
+        <>
+          {/* Where the merged view stops being complete, said out loud.
+              Silence here would read as the end of the account's history. */}
+          {history.truncated && (
+            <p className="t-small">{t("co.chronology.truncated")}</p>
+          )}
+          {filter !== "activities" && (
+            <LoadMoreButton query={history.changes} />
+          )}
+          <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
+        </>
+      ),
+      timelineNotice: chronologyNotice(
+        {
+          loading: loading || history.changes.isPending,
+          failed: failed || history.changes.isError,
+          assembled: Boolean(view?.activities),
+          filter,
+        },
+        history.entries.length,
+        t,
+      ),
+    },
+  };
 }
 
 // CompanyPage is the page itself: identity and verbs at the top, then three
@@ -1471,7 +1776,6 @@ function CompanyPage({
   failed,
   tab,
   tabs,
-  onOpenHistory,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
@@ -1483,25 +1787,34 @@ function CompanyPage({
   failed: boolean;
   tab: CompanyTab;
   tabs: ReactNode;
-  // An evidence mark's "full history" opens the record's History tab, which
-  // is local state on this screen rather than a route — so the mark is
-  // handed the switch instead of a link it could not build.
-  onOpenHistory: () => void;
 }>) {
   const t = useT();
-  const timeline = view?.activities?.data ?? [];
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   // A task written or completed from this page changes the account's timeline,
   // its next steps (both read from the 360) and the standing work queue.
   const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
+  const { slots, showChanges } = useChronologySlots({
+    org,
+    view,
+    overlay,
+    loading,
+    failed,
+    active: tab === "overview",
+  });
   return (
     <RecordView
       name={org.display_name}
       avatarSrc={org.logo_url}
       subtitle={companySubtitle(org)}
       zone={RECORD_ZONE}
-      badges={<CompanyActionBadges org={org} />}
+      badges={
+        <CompanyActionBadges
+          org={org}
+          onOpenHistory={() => setAuditOpen(true)}
+        />
+      }
       pulse={
         <CompanyPulse
           org={org}
@@ -1527,9 +1840,9 @@ function CompanyPage({
                 weight made the reader decide what mattered on every visit, and
                 the scraped facts are the part they need least often and that
                 takes the most room. */}
-            <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+            <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
             <Disclosure summary={t("co.evidence.title")}>
-              <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+              <FactsCard orgId={org.id} onOpenHistory={showChanges} />
             </Disclosure>
             <Disclosure summary={t("co.relationships.title")}>
               <RelationshipsTab scope={{ organization_id: org.id }} />
@@ -1554,46 +1867,9 @@ function CompanyPage({
         readOnly: Boolean(org.archived_at),
         t,
       })}
-      // The timeline is the account's story and belongs to the overview. The
-      // Partner tab is a form and History has its own change list, so neither
-      // repeats it under itself.
-      timeline={
-        tab === "overview"
-          ? activityTimeline(timeline, (activity) => (
-              <TimelineActions
-                activity={activity}
-                entityType="organization"
-                entityId={org.id}
-              />
-            ))
-          : undefined
-      }
-      // In overlay mode the refusal is stated once, in the body: repeating it
-      // over the timeline would read as two separate things being
-      // unavailable rather than one page not being assembled.
-      // Asking sits UNDER the account's own story, not above it. It is a tool
-      // for when the page did not already answer the question, and standing
-      // between the brief and the timeline it took the place of content.
-      timelineFooter={
-        tab === "overview" ? (
-          <AssistantPanel
-            orgId={org.id}
-            enabled={!overlay}
-            onOpenRecord={openCitation}
-          />
-        ) : undefined
-      }
-      timelineNotice={
-        overlay || tab !== "overview" ? (
-          <span />
-        ) : (
-          timelineNoticeFor(
-            { loading, failed, assembled: Boolean(view?.activities) },
-            timeline.length,
-            t,
-          )
-        )
-      }
+      // The chronology is the account's story and belongs to the overview.
+      // The Partner tab is a form, so it does not repeat it under itself.
+      {...slots}
     >
       {tabs}
       {/* Overlay refuses the whole company page, not one tab of it: the
@@ -1602,9 +1878,6 @@ function CompanyPage({
           refusal into reads that can only fail. */}
       {overlay && <OverlayFallback />}
       {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
-      {!overlay && tab === "history" && (
-        <RecordHistoryTab kind="organization" id={org.id} />
-      )}
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
       )}
@@ -1636,8 +1909,8 @@ function CompanyPage({
         />
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
-          Partner or History put a panel from one tab on top of another, and a
-          reader who switched tabs to get rid of it could not. */}
+          Partner put a panel from one tab on top of another, and a reader who
+          switched tabs to get rid of it could not. */}
       {decisionsOpen && tab === "overview" && (
         <CompanyApprovalsPanel
           orgId={org.id}
@@ -1645,6 +1918,25 @@ function CompanyPage({
           onClose={() => setDecisionsOpen(false)}
         />
       )}
+      {/* The audit spine, opened from the header's overflow menu. It belongs
+          to the RECORD, not to a tab, so it opens over whichever tab is up. */}
+      <Modal
+        open={auditOpen}
+        onClose={() => setAuditOpen(false)}
+        labelledBy="co-audit-title"
+        size="wide"
+      >
+        <h2 id="co-audit-title" className="t-h2 modal-title">
+          {t("record.fullHistory")}
+        </h2>
+        {/* Mounted only while open: the two history reads behind it are the
+            page's most expensive, and nobody who never opens the panel should
+            pay for them. */}
+        {auditOpen && <RecordHistoryTab kind="organization" id={org.id} />}
+        <div className="form-actions">
+          <Button onClick={() => setAuditOpen(false)}>{t("fab.close")}</Button>
+        </div>
+      </Modal>
     </RecordView>
   );
 }
@@ -1758,13 +2050,22 @@ function businessRail({
   );
 }
 
-// timelineNoticeFor keeps four things apart that all render as an empty
+// chronologyNotice keeps four things apart that all render as an empty
 // list if you let them: still loading, the read failed, the section was
-// never in the payload, and the account genuinely has nothing logged. Only
+// never in the payload, and the account genuinely has nothing to show. Only
 // the last one may say so — the other three would have a rep conclude
 // nobody has ever touched this account.
-function timelineNoticeFor(
-  timeline: { loading: boolean; failed: boolean; assembled: boolean },
+//
+// The empty sentence names what the filter was looking for. "Nothing logged
+// on this account" under the Changes filter would be a claim about the
+// activity feed the reader is not looking at.
+function chronologyNotice(
+  timeline: {
+    loading: boolean;
+    failed: boolean;
+    assembled: boolean;
+    filter: TimelineFilter;
+  },
   count: number,
   t: ReturnType<typeof useT>,
 ): ReactNode {
@@ -1774,7 +2075,13 @@ function timelineNoticeFor(
   if (timeline.failed || !timeline.assembled) {
     return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
   }
-  return count === 0 ? (
-    <EmptyState>{t("co.timeline.empty")}</EmptyState>
-  ) : undefined;
+  if (count > 0) {
+    return undefined;
+  }
+  const empty: Record<TimelineFilter, MessageKey> = {
+    activities: "co.timeline.empty",
+    changes: "co.chronology.changesEmpty",
+    all: "co.chronology.allEmpty",
+  };
+  return <EmptyState>{t(empty[timeline.filter])}</EmptyState>;
 }

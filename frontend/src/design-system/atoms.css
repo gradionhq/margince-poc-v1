@@ -642,3 +642,36 @@ select.input {
 .disclosure-body {
   margin-top: var(--space-3);
 }
+
+/* The overflow menu: one trigger, a popover of the caller's own action
+   buttons. Anchored to the trigger so it opens under it regardless of where
+   the header wraps. */
+.overflow-menu {
+  position: relative;
+  display: inline-flex;
+}
+.overflow-menu-trigger {
+  padding-inline: var(--space-2);
+}
+.overflow-menu-items {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+}
+/* The items are whatever the caller renders — buttons of every variant. They
+   read as a menu here: full width, left-aligned, no competing fills. */
+.overflow-menu-items .btn {
+  width: 100%;
+  justify-content: flex-start;
+}

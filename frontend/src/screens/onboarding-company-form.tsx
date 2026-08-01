@@ -347,7 +347,7 @@ function CompanyFormField({
             <Bot aria-hidden /> {t("ob.readFromSite")}
           </span>
         )}
-        {edited && <ProvenanceTag provenance={{ kind: "human" }} />}
+        {edited && <ProvenanceTag provenance={{ kind: "human", self: true }} />}
       </label>
       {multiline ? (
         <textarea

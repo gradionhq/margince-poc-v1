@@ -23,6 +23,7 @@ import {
   QueryGate,
   throwProblem,
   useSorMode,
+  useViewerId,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
@@ -331,6 +332,9 @@ function timelineTitle(activity: Activity): string {
 
 export function activityTimeline(
   activities: Activity[],
+  // Who is reading, so a row this user logged reads as theirs and a
+  // colleague's does not. Absent while the session is still resolving.
+  viewerUserId?: string,
   renderActions?: (activity: Activity) => ReactNode,
 ): TimelineEntry[] {
   return activities.map((activity) => ({
@@ -343,7 +347,7 @@ export function activityTimeline(
     body: activity.body,
     direction: activity.direction,
     atIso: activity.occurred_at,
-    provenance: provenanceOf(activity.captured_by),
+    provenance: provenanceOf(activity.captured_by, viewerUserId),
     actions: renderActions?.(activity),
   }));
 }
@@ -454,6 +458,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
   });
   const timelineQuery = useTimeline("person", id);
   const overlay = useSorMode() === "overlay";
+  const viewerId = useViewerId();
 
   return (
     <div className="wrap">
@@ -466,7 +471,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             zone="Europe/Berlin"
             badges={
               <>
-                <ProvenanceTag provenance={provenanceOf(person.captured_by)} />
+                <ProvenanceTag
+                  provenance={provenanceOf(person.captured_by, viewerId)}
+                />
                 {person.archived_at ? (
                   // An archived record is read-only: the backend rejects
                   // edit/merge/archive on a non-live row (there is no
@@ -580,14 +587,18 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             }
             timeline={
               timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data, (activity) => (
-                    <TimelineActions
-                      activity={activity}
-                      entityType="person"
-                      entityId={id}
-                      personId={id}
-                    />
-                  ))
+                ? activityTimeline(
+                    timelineQuery.data.data,
+                    viewerId,
+                    (activity) => (
+                      <TimelineActions
+                        activity={activity}
+                        entityType="person"
+                        entityId={id}
+                        personId={id}
+                      />
+                    ),
+                  )
                 : []
             }
             timelineNotice={overlay ? <OverlayUnavailable /> : undefined}

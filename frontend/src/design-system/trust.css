@@ -73,6 +73,13 @@ button.evidence-chip:hover {
   background: var(--bgCard);
   color: var(--teal);
 }
+/* An unrecorded source claims neither a person nor a machine, and reads as
+   the absence it is rather than borrowing either one's colour. */
+.provenance-unknown {
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-style: italic;
+}
 
 /* A staged proposal is visibly NOT yet real: AI-tinted ground, dashed border. */
 .staging-card {
