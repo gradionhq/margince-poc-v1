@@ -593,6 +593,26 @@ export const en = {
   "linkedinImport.imported": "Connections imported",
   "linkedinImport.confirmed": "Matched to a contact",
   "linkedinImport.suggested": "Awaiting your confirmation",
+
+  // The review queue and the reach table (ADR-0078 §2.1b).
+  "linkedinReview.title": "Suggested matches",
+  "linkedinReview.sub":
+    "The matcher thinks these connections are contacts you already have. A name and an employer are not proof, so you decide.",
+  "linkedinReview.empty": "Nothing waiting. Every suggestion has been decided.",
+  "linkedinReview.confirm": "Yes, that is them",
+  "linkedinReview.reject": "Not them",
+  "linkedinReview.hiddenContact": "A contact you cannot see",
+  "linkedinReach.title": "Where your network reaches",
+  "linkedinReach.sub":
+    "Accounts on file where you already know somebody, most connections first.",
+  "linkedinReach.empty":
+    "None of your connections work at an account on file yet.",
+  "linkedinReach.account": "Account",
+  "linkedinReach.connections": "You know",
+  "linkedinReach.onFile": "Already contacts",
+  "linkedinReach.onFileOf": "{onFile} of {total}",
+  "linkedinReach.footnote":
+    "Showing {shown} of {total} accounts. {unresolved} connections work somewhere that is not an account on file yet.",
   "linkedinImport.skipped": "Rows skipped (no usable name)",
   "co.connections.group.contacts": "contacts",
   "co.connections.group.deals": "deals",

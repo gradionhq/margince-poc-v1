@@ -192,6 +192,7 @@ func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error 
 		       position            = coalesce(k.position, d.position),
 		       company_name        = coalesce(k.company_name, d.company_name),
 		       connected_on        = coalesce(k.connected_on, d.connected_on),
+		       profile_url         = coalesce(k.profile_url, d.profile_url),
 		       provider_member_ref = coalesce(k.provider_member_ref, d.provider_member_ref),
 		       matched_person_id   = coalesce(k.matched_person_id, d.matched_person_id),
 		       matched_org_id      = coalesce(k.matched_org_id, d.matched_org_id),

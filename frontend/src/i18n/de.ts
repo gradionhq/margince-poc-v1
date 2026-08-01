@@ -603,6 +603,26 @@ export const de = {
   "linkedinImport.imported": "Kontakte importiert",
   "linkedinImport.confirmed": "Einer Person zugeordnet",
   "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
+
+  // Die Prüfliste und die Reichweiten-Tabelle (ADR-0078 §2.1b).
+  "linkedinReview.title": "Vorgeschlagene Zuordnungen",
+  "linkedinReview.sub":
+    "Der Abgleich hält diese Kontakte für Personen, die Sie bereits haben. Name und Arbeitgeber sind kein Beweis — Sie entscheiden.",
+  "linkedinReview.empty": "Nichts offen. Jeder Vorschlag wurde entschieden.",
+  "linkedinReview.confirm": "Ja, das ist sie",
+  "linkedinReview.reject": "Nicht dieselbe Person",
+  "linkedinReview.hiddenContact": "Eine Person, die Sie nicht sehen dürfen",
+  "linkedinReach.title": "Wohin Ihr Netzwerk reicht",
+  "linkedinReach.sub":
+    "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",
+  "linkedinReach.empty":
+    "Noch keine Ihrer Verbindungen arbeitet bei einer erfassten Firma.",
+  "linkedinReach.account": "Firma",
+  "linkedinReach.connections": "Sie kennen",
+  "linkedinReach.onFile": "Bereits Personen",
+  "linkedinReach.onFileOf": "{onFile} von {total}",
+  "linkedinReach.footnote":
+    "{shown} von {total} Firmen angezeigt. {unresolved} Verbindungen arbeiten bei einer Firma, die noch nicht erfasst ist.",
   "linkedinImport.skipped": "Übersprungen (kein verwertbarer Name)",
   "co.connections.rel.co_sell_with": "gemeinsamer Vertrieb",
   "co.connections.group.contacts": "Kontakte",

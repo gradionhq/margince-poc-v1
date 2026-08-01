@@ -1,0 +1,23 @@
+-- 0161: the connection's own LinkedIn profile URL.
+--
+-- Connections.csv has carried a `URL` column in every export format LinkedIn
+-- has shipped, and the importer read every other column but this one. It is
+-- the field that makes a confirmed match worth something: when a human says
+-- "this connection IS that contact", the contact should end up carrying the
+-- LinkedIn address, and until now there was nothing to write.
+--
+-- It is also the only field a ghost ever contributes to a real record. The
+-- name, employer, position and connection date stay on the ghost — that is a
+-- third party's data and copying it onto a contact is the consent problem the
+-- whole ghost design exists to avoid — while the profile URL of somebody who
+-- is ALREADY a contact of this workspace is a fact about a record that already
+-- exists.
+--
+-- Nullable, because the API path may supply a member ref instead and because
+-- rows imported before this migration have none. Not part of any key: two
+-- exports of the same connection carry the same URL, but the URL is not what
+-- identifies them (uq_linkedin_connection_natural still is), and putting a
+-- derived-looking column into a natural key is the mistake normalized_company
+-- already taught us.
+
+ALTER TABLE linkedin_connection ADD COLUMN profile_url text NULL;

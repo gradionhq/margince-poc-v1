@@ -68,6 +68,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { LinkedInImportCard } from "./linkedin-import";
+import { LinkedInReachCard, LinkedInReviewCard } from "./linkedin-review";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
@@ -166,6 +167,12 @@ function tabContent(id: SettingsTabId): ReactNode {
           <ConnectorsCard />
           <CaptureSettingsCard />
           <LinkedInImportCard />
+          {/* The queue sits directly under the import that produced it: the
+              summary counts suggestions, and the next thing on the page has to
+              be where they are decided. The reach table follows, because it is
+              what the decisions change. */}
+          <LinkedInReviewCard />
+          <LinkedInReachCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
         </>

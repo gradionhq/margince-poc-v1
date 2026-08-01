@@ -58,6 +58,7 @@ const (
 	csvCompany   = "company"
 	csvPosition  = "position"
 	csvConnected = "connected"
+	csvURL       = "url"
 )
 
 // linkedInHeaderAliases maps the column names LinkedIn has shipped over the
@@ -77,6 +78,11 @@ var linkedInHeaderAliases = map[string]string{
 	"position":       csvPosition,
 	"connected on":   csvConnected,
 	"verbunden am":   csvConnected,
+	// The connection's own profile address. It is the ONE field a confirmed
+	// match copies onto a contact, so an export whose header this table does
+	// not recognize leaves every confirmation unable to write anything.
+	"url":        csvURL,
+	"profil-url": csvURL,
 }
 
 // ImportLinkedInConnections reads a Connections.csv for ONE user and upserts
@@ -162,6 +168,7 @@ type linkedInRow struct {
 	company     string
 	normCompany string
 	email       string
+	profileURL  string
 	connectedOn *time.Time
 }
 
@@ -254,6 +261,7 @@ func linkedInRowFrom(record []string, index map[string]int) (linkedInRow, bool) 
 		// headline on LinkedIn and not a company name.
 		normCompany: NormalizeOrgName(cleanLinkedInCompany(at(csvCompany))),
 		email:       normalizeEmail(at(csvEmail)),
+		profileURL:  at(csvURL),
 	}
 	// LinkedIn has shipped at least three date formats across locales and
 	// years. An unparseable date is not a reason to lose the connection — it
@@ -296,9 +304,11 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 	_, err := tx.Exec(ctx, `
 		INSERT INTO linkedin_connection
 		    (workspace_id, owner_user_id, full_name, normalized_name, position,
-		     company_name, normalized_company, connected_on, email, source, synced_at)
+		     company_name, normalized_company, connected_on, email, profile_url,
+		     source, synced_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''), 'csv_export', now())
+		        $1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''),
+	        NULLIF($9, ''), 'csv_export', now())
 		ON CONFLICT (workspace_id, owner_user_id, normalized_name,
 		             coalesce(normalized_company, ''), coalesce(connected_on, 'epoch'::date))
 		  WHERE provider_member_ref IS NULL
@@ -307,12 +317,15 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 		    position   = EXCLUDED.position,
 		    company_name = EXCLUDED.company_name,
 		    email      = coalesce(EXCLUDED.email, linkedin_connection.email),
+		    -- A later export wins on the URL: a member who changed their
+		    -- vanity address is reachable at the new one, and the old is dead.
+		    profile_url = coalesce(EXCLUDED.profile_url, linkedin_connection.profile_url),
 		    synced_at  = now(),
 		    updated_at = now(),
 		    -- A re-import revives a connection an earlier export had dropped.
 		    tombstoned_at = NULL`,
 		owner, row.fullName, row.normalized, row.position,
-		row.company, row.normCompany, row.connectedOn, row.email)
+		row.company, row.normCompany, row.connectedOn, row.email, row.profileURL)
 	if err != nil {
 		return fmt.Errorf("people: storing a LinkedIn connection: %w", err)
 	}
