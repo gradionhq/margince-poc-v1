@@ -308,4 +308,71 @@ describe("onboarding gate", () => {
     await screen.findByRole("navigation");
     expect(window.location.hash).toBe("#/contacts");
   });
+
+  // A pending /oauth/authorize request lives entirely in the hash (the
+  // client_id/scope/consent-nonce query string) — navigate() rewrites
+  // location.hash, so a gate redirect here would destroy the request with no
+  // way to recover it, unlike an ordinary screen a human can simply re-visit.
+  it("does not redirect away from oauth-consent when the company is undescribed", async () => {
+    const pendingHash =
+      "#/oauth-consent?client_id=c1&scope=read&consent=nonce123";
+    window.location.hash = pendingHash;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(
+            JSON.stringify({ user: { id: "u1" }, roles: ["admin"], teams: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url.endsWith("/v1/company")) {
+          return new Response(JSON.stringify({ code: "not_found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        if (url.includes("/oauth/consent-request")) {
+          return new Response(
+            JSON.stringify({
+              client_name: "Acme Client",
+              requested: ["read"],
+              offline: false,
+              passports: [
+                {
+                  id: "p1",
+                  label: "Everyday agent",
+                  scopes: ["read"],
+                  granted: ["read"],
+                  expires_at: "2027-01-01T00:00:00Z",
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    mount();
+    // The consent screen itself is proof the gate never fired — an
+    // onboarding redirect would have replaced the hash before this renders.
+    expect(
+      await screen.findByRole("heading", { name: "Authorise access" }),
+    ).toBeTruthy();
+    expect(window.location.hash).toBe(pendingHash);
+  });
+
+  it("still redirects an ordinary screen away when the company is undescribed", async () => {
+    window.location.hash = "#/contacts";
+    stubCompany(404);
+    mount();
+    await waitFor(() =>
+      expect(window.location.hash).toBe("#/onboarding/company"),
+    );
+  });
 });
