@@ -23,11 +23,15 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
-// promptVersion changes whenever the prompt or the shape of the assembled
-// input changes. It rides the fingerprint, so a deploy that rewrites the
-// prompt invalidates every cached brief rather than serving text written to
-// the old instructions.
-const promptVersion = "org-brief-v3"
+// promptVersion changes whenever ANYTHING about how a brief is written
+// changes: the model prompt, the shape of the assembled input, or the wording
+// the deterministic floor produces. It rides the fingerprint, so such a deploy
+// invalidates every cached brief rather than serving text written the old way.
+//
+// The floor's wording counts because the floor's OUTPUT is what gets cached. A
+// deploy that reworded it and left this alone kept serving the old sentences
+// to every account whose facts had not moved — which is most of them.
+const promptVersion = "org-brief-v4"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned

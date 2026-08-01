@@ -57,19 +57,26 @@ func Deterministic(orgID string, in Input) []Sentence {
 	return dedupedSentences(sentences)
 }
 
-// profileLabels turn a stored field name into the question it answers. The
-// deterministic floor states the statement verbatim behind that label — it
-// paraphrases nothing, because a paraphrase nobody can check is worth less
-// than the sentence a human already accepted.
+// profileLabels turn a stored field name into the question it answers.
+//
+// Label and value are joined with a colon, never grammatically. These values
+// are whatever a human accepted off a site read: some are noun phrases and
+// some are whole sentences in the company's own language, and a lead-in that
+// reads as a sentence stem produced "They sell Als unabhängige Beratung helfen
+// wir…" on a real account. A colon is true of both shapes.
+//
+// The floor states the statement verbatim behind that label — it paraphrases
+// nothing, because a paraphrase nobody can check is worth less than the
+// sentence a human already accepted.
 var profileLabels = map[string]string{
-	"offer_summary":     "They sell",
-	"icp":               "They sell to",
-	"value_proposition": "They promise",
-	"usp":               "They differentiate on",
-	"customer_pains":    "They solve",
-	"desired_outcomes":  "Their customers want",
-	"buying_center":     "Buying decisions there sit with",
-	"sales_motion":      "They sell through",
+	"offer_summary":     "What they sell",
+	"icp":               "Who they sell to",
+	"value_proposition": "What they promise",
+	"usp":               "How they differentiate",
+	"customer_pains":    "What they solve",
+	"desired_outcomes":  "What their customers want",
+	"buying_center":     "Who decides there",
+	"sales_motion":      "How they sell",
 }
 
 // deterministicProfileLines bounds the company half of the floor. Two
@@ -88,7 +95,7 @@ func profileLines(in Input, account []Evidence) []Sentence {
 			continue
 		}
 		out = append(out, Sentence{
-			Text:     fmt.Sprintf("%s %s", label, trimSentence(entry.Value)),
+			Text:     fmt.Sprintf("%s: %s", label, trimSentence(entry.Value)),
 			Evidence: account,
 		})
 	}

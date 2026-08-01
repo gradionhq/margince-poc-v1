@@ -1140,30 +1140,39 @@ export function AccountBrief({
           onOpenRecord={onOpenRecord}
         />
       )}
-      <p className="co-prep-foot">
-        {/* What moved while the reader was away. The brief is about the
-            account; this is about their absence from it, which no server-side
-            reading can know. */}
-        {sinceLastVisit(view) > 0 && (
-          <span className="t-caption">
-            {t(
-              sinceLastVisit(view) === 1
-                ? "co.read.newActivityOne"
-                : "co.read.newActivityMany",
-              { count: sinceLastVisit(view) },
-            )}
-          </span>
-        )}
-        {firstVisit(view) && (
-          <span className="t-caption">{t("co.since.first")}</span>
-        )}
-        {/* Withheld sections are named once, about the whole reading, rather
-            than as a refusal beside each line the reader did not get. */}
-        {(view?.sections_omitted?.length ?? 0) > 0 && (
-          <span className="t-caption">{t("co.prep.withheld")}</span>
-        )}
-      </p>
+      <BriefFooter view={view} />
     </section>
+  );
+}
+
+// BriefFooter is the reading's own caveats: what moved while the reader was
+// away, and whether any of the account was withheld from them. Split out
+// because it answers questions ABOUT the brief rather than being part of it.
+function BriefFooter({ view }: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const since = sinceLastVisit(view);
+  return (
+    <p className="co-prep-foot">
+      {/* Never both: on a first open the server counts every activity as new,
+          and "14 new items" beside "you are opening this account for the first
+          time" is the page contradicting itself. */}
+      {firstVisit(view) && (
+        <span className="t-caption">{t("co.since.first")}</span>
+      )}
+      {!firstVisit(view) && since > 0 && (
+        <span className="t-caption">
+          {t(
+            since === 1 ? "co.read.newActivityOne" : "co.read.newActivityMany",
+            { count: since },
+          )}
+        </span>
+      )}
+      {/* Withheld sections are named once, about the whole reading, rather
+          than as a refusal beside each line the reader did not get. */}
+      {(view?.sections_omitted?.length ?? 0) > 0 && (
+        <span className="t-caption">{t("co.prep.withheld")}</span>
+      )}
+    </p>
   );
 }
 

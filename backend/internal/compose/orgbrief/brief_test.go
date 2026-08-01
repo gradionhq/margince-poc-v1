@@ -414,8 +414,9 @@ func TestDeterministicKeepsTheCompanyHalfShort(t *testing.T) {
 	}
 	var profileLines int
 	for _, sentence := range Deterministic("org-1", in) {
-		if strings.HasPrefix(sentence.Text, "They ") || strings.HasPrefix(sentence.Text, "Buying ") ||
-			strings.HasPrefix(sentence.Text, "Their ") {
+		if strings.HasPrefix(sentence.Text, "What ") ||
+			strings.HasPrefix(sentence.Text, "Who ") ||
+			strings.HasPrefix(sentence.Text, "How ") {
 			profileLines++
 		}
 	}
