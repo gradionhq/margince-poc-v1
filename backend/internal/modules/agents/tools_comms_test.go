@@ -127,7 +127,11 @@ func TestSendMessageToolStagesAgainstTheConversation(t *testing.T) {
 		t.Errorf("staged against %s/%v, want activity/%v", info.TargetType, info.TargetID, anchor)
 	}
 	if info.TargetVersion == nil || *info.TargetVersion != 7 {
-		t.Errorf("TargetVersion = %v, want the anchor's row version so redemption re-checks it", info.TargetVersion)
+		// This is the tool's own contribution to staging, not the pin of
+		// record: the approvals engine resolves its own version server-side
+		// inside the staging transaction and the adapter that forwards this
+		// StageRequest drops TargetVersion rather than passing it through.
+		t.Errorf("TargetVersion = %v, want the anchor's row version", info.TargetVersion)
 	}
 	if info.Summary == "" {
 		t.Error("Summary is empty; the inbox would show an unlabelled approval")

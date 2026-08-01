@@ -228,6 +228,29 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-01 (channel reply governance, branch `feat/channel-send-tool`)
+
+**The channel reply is now a governed, stageable tool.** `POST
+/v1/activities/{id}/send-message` is admitted under the `send` scope, at
+`TierConfirmationRequired`, through a registered `send_message` tool whose
+`StageInfo` pins the conversation's row version — the same posture
+`send_offer` and outbound mail already carry, closing the gap where the
+channel-reply route resolved by synthesis at `write`.
+
+A ratchet test (`agentpolicysynthesis_test.go`) now pins every verb that
+still resolves by synthesis into one of two maps: verbs where `write` is
+the right cap, and known outbound holes. Not fixed here, deliberately:
+
+- **Five outbound verbs are still admitted under `write` by synthesis** —
+  `send_offer`, `enrich`, `reconcile_overlay`, `connect_incumbent`,
+  `disconnect_incumbent`. Closing each means registering a tool and scope
+  for it; `connect_incumbent`/`disconnect_incumbent` additionally need the
+  tier and scope decided together, which nothing has done yet.
+- **`send_email` and `book_meeting` are both 🟡 tools with no `StageInfo`.**
+  An MCP call to either refuses outright rather than ever staging an
+  approval — there is no path to a "yes" for an agent caller today, only
+  the REST route's own confirm-first gate.
+
 ## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
 
 **"Who on our team knows this contact" is now a stored fact, and the company

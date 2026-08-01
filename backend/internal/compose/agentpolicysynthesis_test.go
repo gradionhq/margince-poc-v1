@@ -14,6 +14,7 @@ package compose
 
 import (
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ import (
 // cap for it.
 var synthesizedVerbs = map[string]string{
 	"advance_project_phase": "internal state change on a project; reversible by advancing again",
-	"draft_offer":           "regenerates a draft in place; nothing leaves the workspace",
+	"draft_offer":           "regenerates a draft in place — no message is transmitted to a counterparty; the AI lane may send the deal's context to the configured model provider, but that is governed by model routing and budget, not the send scope",
 	"relink_activity":       "moves an activity between records; internal and reversible",
 	"render_offer":          "renders a document for the caller; no transmission",
 	"share_record":          "grants and revokes access inside the workspace",
@@ -30,20 +31,30 @@ var synthesizedVerbs = map[string]string{
 }
 
 // outboundHoles are synthesized verbs that DO leave the workspace and are
-// admitted under `write` today. The value names the scope each should carry, so
-// the pin reads as the debt it is rather than as approval. Closing one means
-// registering a tool for it (as send_message was) and deleting its line.
+// admitted under `write` today. The value names the scope each should carry
+// — or, where that has not been decided, says so and why — so the pin reads
+// as the debt it is rather than as approval. Closing one means registering a
+// tool for it (as send_message was) and deleting its line.
 var outboundHoles = map[string]string{
 	"send_offer":           "send",
 	"enrich":               "enrich",
-	"connect_incumbent":    "write is likely right for authenticating a connection, but the tier and scope were never decided together — see DESIGN §3.5",
+	"connect_incumbent":    "write is likely right for authenticating a connection, but the tier and scope were never decided together",
 	"disconnect_incumbent": "as connect_incumbent",
-	"reconcile_overlay":    "enrich — the sweep it queues calls the incumbent's API and spends its budget (overlay/reconcile.go:106)",
+	"reconcile_overlay":    "enrich — the sweep it queues calls overlay.Reconcile's inc.Modified fetch against the incumbent's API and spends its budget",
 }
 
 func TestEverySynthesizedVerbIsPinned(t *testing.T) {
+	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles} {
+		for verb, reason := range pins {
+			if strings.TrimSpace(reason) == "" {
+				t.Errorf("the pin for %s has no reason — a pin must say why the verb may resolve by synthesis", verb)
+			}
+		}
+	}
+
 	registry := NewRegistry(nil, SendPath{})
 
+	checked := 0
 	unexplained := []string{}
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool {
@@ -52,6 +63,7 @@ func TestEverySynthesizedVerbIsPinned(t *testing.T) {
 		if _, registered := registry.Spec(pol.Tool); registered {
 			continue
 		}
+		checked++
 		if _, pinned := synthesizedVerbs[pol.Tool]; pinned {
 			continue
 		}
@@ -59,6 +71,9 @@ func TestEverySynthesizedVerbIsPinned(t *testing.T) {
 			continue
 		}
 		unexplained = append(unexplained, pol.Tool+" ("+route+")")
+	}
+	if checked == 0 {
+		t.Fatal("no synthesized tool routes in the generated policy — the pin no longer covers anything")
 	}
 
 	sort.Strings(unexplained)

@@ -67,8 +67,9 @@ func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 	}
 }
 
-// Resolving a spec is not admitting a call: refusal happens in Admit
-// (agentgate.go:129). This is the other half of the invariant.
+// Resolving a spec is not admitting a call: refusal happens inside
+// auth.Gate.Admit, not in the spec resolution above. This is the other half
+// of the invariant.
 func TestAWriteOnlyPassportIsRefusedTheChannelReply(t *testing.T) {
 	pol := agentPolicies["POST /v1/activities/{id}/send-message"]
 	spec, ok := operationSpec(pol, NewRegistry(nil, SendPath{}))
@@ -86,8 +87,10 @@ func TestAWriteOnlyPassportIsRefusedTheChannelReply(t *testing.T) {
 	// fullSeat (extensiontools_test.go) is a permissive gate authority — a
 	// full seat and empty RBAC — so admission here turns purely on the
 	// spec's required scope against the passport's granted scopes, the
-	// thing under test. The workspace binding is what lets Admit reach that
-	// scope decision instead of failing closed on a missing tenant first.
+	// thing under test. auth.Gate.Admit checks that scope before it ever
+	// reads the workspace, so the binding below is not load-bearing for this
+	// assertion — it is here only to make the context a realistic agent
+	// context.
 	if _, err := auth.NewGate(fullSeat{}).Admit(ctx, spec, nil); !errors.Is(err, apperrors.ErrScopeExceeded) {
 		t.Errorf("a write-only passport was admitted to the channel reply: err = %v, want ErrScopeExceeded", err)
 	}
