@@ -354,6 +354,7 @@ export function activityTimeline(
 
 export function ContactsScreen() {
   const t = useT();
+  const viewerId = useViewerId();
   const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
     key: "people",
@@ -420,7 +421,7 @@ export function ContactsScreen() {
                 header: t("people.capturedBy"),
                 render: (person: Person) => (
                   <ProvenanceTag
-                    provenance={provenanceOf(person.captured_by)}
+                    provenance={provenanceOf(person.captured_by, viewerId)}
                   />
                 ),
               },

@@ -13,6 +13,7 @@ import {
 import { formatDate, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
 import {
@@ -37,6 +38,35 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+
+// What each signal kind is, in words. The badge rendered the stored enum, so
+// a German reader met `buying_intent` and an English one met an identifier.
+// Typed against the schema union: a kind added upstream fails the build here.
+const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
+  stalled_deal: "signal.kind.stalled_deal",
+  champion_left: "signal.kind.champion_left",
+  reengagement: "signal.kind.reengagement",
+  buying_intent: "signal.kind.buying_intent",
+  risk: "signal.kind.risk",
+  other: "signal.kind.other",
+};
+
+// The deal-stakeholder roles worth a word. `role` is free text on the wire
+// (the enum is an unminted contract extension, DEAL-EXT-5), so an unknown
+// value renders as itself rather than being hidden — a role somebody typed is
+// still a fact about this contact.
+const DEAL_ROLE_LABELS: Record<string, MessageKey> = {
+  champion: "co.role.champion",
+  economic_buyer: "co.role.economic_buyer",
+  blocker: "co.role.blocker",
+  influencer: "co.role.influencer",
+  user: "co.role.user",
+};
+
+export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
+  const key = DEAL_ROLE_LABELS[role];
+  return key ? t(key) : role.replace(/_/g, " ");
+}
 type Section = Organization360["sections_omitted"][number];
 
 // OVERLAY_REFUSAL is the validation code the 360 answers for a workspace
@@ -351,7 +381,7 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
           {t(reachLabelKey(reach))}
         </Badge>
         {roles.map((role) => (
-          <Badge key={role}>{role}</Badge>
+          <Badge key={role}>{dealRoleLabel(role, t)}</Badge>
         ))}
         <ConsentChip consent={contact.consent} />
       </span>
@@ -578,7 +608,7 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{signal.kind}</Badge>
+              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>

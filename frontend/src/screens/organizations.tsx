@@ -353,6 +353,7 @@ async function createCompany(
 
 export function CompaniesScreen() {
   const t = useT();
+  const viewerId = useViewerId();
   const cf = useObjectCustomFields("organization");
   const state = useListQuery<Organization>({
     key: "organizations",
@@ -430,7 +431,9 @@ export function CompaniesScreen() {
                 key: "provenance",
                 header: t("people.capturedBy"),
                 render: (org: Organization) => (
-                  <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+                  <ProvenanceTag
+                    provenance={provenanceOf(org.captured_by, viewerId)}
+                  />
                 ),
               },
             ]}
@@ -1462,6 +1465,7 @@ function CompanyRecord({
       failed={view.isError}
       tab={tab}
       tabs={tabs}
+      onTab={onTab}
     />
   );
 }
@@ -1610,6 +1614,10 @@ function useAccountChronology({
   // Activities view into a skeleton that never became a timeline.
   loading: boolean;
   failed: boolean;
+  // Whether fetching more CHANGES would lengthen the merged view. When the
+  // activity feed is the shorter of the two, it is not: the merge cuts at its
+  // oldest row and every extra change page falls below that line.
+  changesAreTheLimit: boolean;
 } {
   const t = useT();
   const viewerId = useViewerId();
@@ -1634,6 +1642,7 @@ function useAccountChronology({
       changes,
       loading: false,
       failed: false,
+      changesAreTheLimit: false,
     };
   }
   if (filter === "changes") {
@@ -1643,6 +1652,7 @@ function useAccountChronology({
       changes,
       loading,
       failed,
+      changesAreTheLimit: changes.hasNextPage,
     };
   }
   const merged = mergeChronology<TimelineEntry>(
@@ -1652,12 +1662,30 @@ function useAccountChronology({
     ],
     (entry) => entry.atIso,
   );
+  // The merged view is cut at the newest "oldest loaded" among the feeds that
+  // still have more. Another page of changes only reaches the reader when the
+  // change feed owns that cut — i.e. its oldest loaded row is not older than
+  // the activity feed's.
+  const oldest = (rows: TimelineEntry[]) =>
+    rows.length > 0
+      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b)).atIso
+      : undefined;
+  const oldestChange = oldest(changeEntries);
+  const oldestActivity = oldest(activityEntries);
+  const changesAreTheLimit =
+    changes.hasNextPage &&
+    (!activitiesHaveMore ||
+      oldestChange === undefined ||
+      oldestActivity === undefined ||
+      oldestChange >= oldestActivity);
+
   return {
     entries: merged.rows,
     truncated: merged.truncated,
     changes,
     loading,
     failed,
+    changesAreTheLimit,
   };
 }
 
@@ -1753,7 +1781,12 @@ function useChronologySlots({
           {history.truncated && (
             <p className="t-small">{t("co.chronology.truncated")}</p>
           )}
-          {filter !== "activities" && (
+          {/* Only where fetching more changes actually lengthens the list.
+              Under "all" the merge is cut at whichever feed is shorter, so if
+              the ACTIVITY feed is the constraint, another page of changes is
+              filtered straight back out and the button does nothing. */}
+          {(filter === "changes" ||
+            (filter === "all" && history.changesAreTheLimit)) && (
             <LoadMoreButton query={history.changes} />
           )}
           <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
@@ -1789,6 +1822,7 @@ function CompanyPage({
   failed,
   tab,
   tabs,
+  onTab,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
@@ -1800,6 +1834,10 @@ function CompanyPage({
   failed: boolean;
   tab: CompanyTab;
   tabs: ReactNode;
+  // An evidence mark can be clicked from the Partner tab, where the timeline
+  // it wants to filter is not on screen; the page has to come back to the
+  // Overview before the filter means anything.
+  onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
@@ -1808,7 +1846,7 @@ function CompanyPage({
   // A task written or completed from this page changes the account's timeline,
   // its next steps (both read from the 360) and the standing work queue.
   const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
-  const { slots, showChanges } = useChronologySlots({
+  const { slots, showChanges: filterToChanges } = useChronologySlots({
     org,
     view,
     overlay,
@@ -1816,6 +1854,10 @@ function CompanyPage({
     failed,
     active: tab === "overview",
   });
+  const showChanges = () => {
+    onTab("overview");
+    filterToChanges();
+  };
   return (
     <RecordView
       name={org.display_name}

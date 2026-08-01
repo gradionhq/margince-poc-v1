@@ -40,6 +40,7 @@ import {
   provenanceOf,
   QueryGate,
   throwProblem,
+  useViewerId,
 } from "./common";
 import {
   type Approval,
@@ -446,6 +447,7 @@ export function ApprovalRow({
   extraInvalidateKeys?: readonly QueryKey[];
 }>) {
   const t = useT();
+  const viewerId = useViewerId();
   const queryClient = useQueryClient();
   const tierMap = useAgentTierMap();
   const [editing, setEditing] = useState(false);
@@ -567,7 +569,9 @@ export function ApprovalRow({
         {/* kind is meta, not the headline — the human reads the summary first */}
         <span className="t-small">{approvalKindLabel(approval.kind, t)}</span>
         <OriginatingToolChip kind={approval.kind} />
-        <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
+        <ProvenanceTag
+          provenance={provenanceOf(approval.proposed_by, viewerId)}
+        />
         {level && <ConfidenceMeter level={level} />}
         <RowStatusChip
           decided={!!decided}

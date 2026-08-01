@@ -484,16 +484,30 @@ export function OverflowMenu({
       return;
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        trigger.current?.focus();
+      if (event.key !== "Escape") {
+        return;
       }
+      // A dialog opened from this menu owns Escape while it is up. Closing
+      // both layers on one keypress would take the reader back past the menu
+      // they were choosing from, and they would have to reopen it to pick
+      // something else.
+      if (document.querySelector(".overlay")) {
+        return;
+      }
+      setOpen(false);
+      trigger.current?.focus();
     };
     const onPointer = (event: MouseEvent) => {
-      if (
-        event.target instanceof Node &&
-        !wrap.current?.contains(event.target)
-      ) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      // A dialog this menu opened is portalled to the body, so every click
+      // inside it looks like a click outside the menu. Closing on those would
+      // hide the item the dialog has to give focus back to when it closes.
+      if (event.target instanceof Element && event.target.closest(".overlay")) {
+        return;
+      }
+      if (!wrap.current?.contains(event.target)) {
         setOpen(false);
       }
     };
