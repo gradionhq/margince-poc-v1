@@ -82,7 +82,7 @@ func TestAStaleConsentNonceComesBackToTheScreen(t *testing.T) {
 // validateAuthorize is the thing that refuses. The human reads the refusal on
 // the screen; the specific OAuth code is a client developer's vocabulary and
 // stays on the GET, where a client developer looks.
-func TestAPostThatFailsValidationComesBackToTheScreen(t *testing.T) {
+func TestAConsentPostThatFailsValidationComesBackToTheScreen(t *testing.T) {
 	o := setupOAuth(t)
 	form := o.armConsent(t, nil)
 	armed := form.Get("consent")
