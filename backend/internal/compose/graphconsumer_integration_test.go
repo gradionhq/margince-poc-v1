@@ -265,6 +265,12 @@ func TestAContactAddedLaterMeetsTheGhostThatWasWaiting(t *testing.T) {
 		t.Fatalf("seeding the ghost: %v", err)
 	}
 
+	// The ghost's owner needs a real person grant: the matcher now runs under
+	// each owner's own authority, so a member the RBAC resolver reports as
+	// holding nothing is skipped. A fixture that only built a context proved
+	// nothing about that path.
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
 	// Months later a rep adds the contact by hand.
 	person, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
 		FullName: "Dana Buyer", Source: "manual",
@@ -314,7 +320,7 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	// Both reps hold the SAME role, so the only thing separating them is row
 	// scope — which is what this test is about. A role that reads people with
 	// own-scope: Rep3 may read the contacts they own, and no others.
-	grantOwnScopeRole(t, e, e.Rep3)
+	grantReadPeopleRole(t, e, e.Rep3, "own")
 
 	// Rep3's ghost. Rep3 sits in Team2, alone.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -368,10 +374,13 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	}
 }
 
-// grantOwnScopeRole gives one member a role that reads people under OWN scope.
-// The sweep resolves authority from the database, not from a test principal, so
-// a fixture that only builds a context proves nothing about it.
-func grantOwnScopeRole(t *testing.T, e *integration.Env, user ids.UUID) {
+// grantReadPeopleRole gives one member a role that reads people at the named
+// row scope.
+//
+// The matcher resolves authority from the DATABASE, not from a test principal,
+// so a fixture that only builds a context proves nothing about which member the
+// sweep will act for.
+func grantReadPeopleRole(t *testing.T, e *integration.Env, user ids.UUID, rowScope string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -379,10 +388,10 @@ func grantOwnScopeRole(t *testing.T, e *integration.Env, user ids.UUID) {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO role (workspace_id, key, name, permissions)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'ghost_owner_test', 'Ghost owner test',
-			        '{"row_scope":"own","objects":{"person":{"read":true}}}'::jsonb)
+			        'ghost_owner_' || $1, 'Ghost owner test',
+			        format('{"row_scope":"%s","objects":{"person":{"read":true}}}', $1)::jsonb)
 			ON CONFLICT (workspace_id, key) DO UPDATE SET name = EXCLUDED.name
-			RETURNING id`).Scan(&roleID); err != nil {
+			RETURNING id`, rowScope).Scan(&roleID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
@@ -391,6 +400,6 @@ func grantOwnScopeRole(t *testing.T, e *integration.Env, user ids.UUID) {
 			ON CONFLICT DO NOTHING`, user, roleID)
 		return err
 	}); err != nil {
-		t.Fatalf("granting the own-scope role: %v", err)
+		t.Fatalf("granting the %s-scope role: %v", rowScope, err)
 	}
 }
