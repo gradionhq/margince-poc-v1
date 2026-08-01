@@ -1,4 +1,7 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
@@ -69,5 +72,22 @@ describe("ScopeChips", () => {
       screen.getByText("write", { selector: "span:not(.sr-only)" }).style
         .opacity,
     ).toBe("");
+  });
+
+  // The other half of the same rule. This suite mounts no stylesheet, so the
+  // assertion above can only prove the COMPONENT never dims a chip inline —
+  // the .badge-dim rule could still do it in CSS, which is exactly the
+  // contrast drop a small chip cannot survive (B-EP09.21). Read the rule.
+  it("keeps the dim chip's own stylesheet rule free of opacity", () => {
+    // join, not `new URL(…, import.meta.url)`: Vite rewrites that pattern
+    // into a served asset URL, which node's fs cannot open.
+    const atoms = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "atoms.css"),
+      "utf8",
+    );
+    const rule = /\.badge-dim\s*\{([^}]*)\}/.exec(atoms);
+    expect(rule).toBeTruthy();
+    const declarations = (rule?.[1] ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(declarations).not.toMatch(/opacity/);
   });
 });

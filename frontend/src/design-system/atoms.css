@@ -38,7 +38,12 @@
  * screen-reader-only label (ScopeChips) for parity without visual noise. */
 .badge-dim {
   background: transparent;
-  border: 1px dashed var(--borderStrong);
+  /* An outline, not a border: the base .badge carries none, so a border would
+     grow the dim chip 2px past the filled chips beside it and shift its text
+     off their baseline. The negative offset draws the dash inside the chip's
+     own box, following its border-radius. */
+  outline: 1px dashed var(--borderStrong);
+  outline-offset: -1px;
 }
 
 .card {
