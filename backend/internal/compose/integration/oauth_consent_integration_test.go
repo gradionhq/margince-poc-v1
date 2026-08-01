@@ -83,7 +83,7 @@ func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	o := setupOAuth(t)
 	ctx := context.Background()
 
-	lendable := o.mintPassport(t, "lendable", []string{"read", "write"})
+	o.mintPassport(t, "lendable", []string{"read", "write"})
 	o.mintPassport(t, "no-overlap", []string{"enrich"})
 	revoked := o.mintPassport(t, "revoked", []string{"read"})
 	o.revokePassport(t, revoked)
@@ -111,7 +111,6 @@ func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	if got := got.Passports[0].Granted; !slices.Equal(got, []string{"read", "write"}) {
 		t.Fatalf("granted = %v, want [read write]", got)
 	}
-	_ = lendable
 }
 
 // A passport whose scopes exceed the request lends only the overlap: a client

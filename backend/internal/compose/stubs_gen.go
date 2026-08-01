@@ -12,12 +12,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// stubs satisfies every crmcontracts.ServerInterface operation with an
-// explicit 501: one stub per operation the contract declares, proving that
-// list is enumerable and complete. Nothing embeds stubs — Server (server.go)
-// implements the full interface itself, across its own module handler
-// embeds — so a contract operation with no real handler fails Server's own
-// compile-time assertion, not a runtime 501 through this type.
+// stubs answers every crmcontracts.ServerInterface operation with an explicit
+// 501: one stub per operation the contract declares.
+//
+// NOTHING EMBEDS IT. Server (server.go) implements the interface itself across
+// its module handler embeds and carries its own compile-time assertion, so an
+// operation with no real handler fails that assertion at build time — no
+// request ever reaches a stub below.
 type stubs struct{}
 
 var _ crmcontracts.ServerInterface = stubs{}

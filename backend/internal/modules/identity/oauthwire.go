@@ -11,8 +11,10 @@ package identity
 
 const (
 	// oauthParamClientID and oauthParamResource are RFC 6749 / RFC 8707
-	// request parameters; each is also the name of the field the audit trail
-	// and the DCR response carry them under, so the spelling travels.
+	// request parameters: the names this server READS off a query or form and
+	// writes back into a redirect. The audit trail names the same two values
+	// under its own keys (auditField*, passport.go) — an audit payload is not
+	// this wire, and neither vocabulary may rename the other by accident.
 	oauthParamClientID = "client_id"
 	oauthParamResource = "resource"
 	// oauthResponseTypeCode is the ONLY response_type this server serves

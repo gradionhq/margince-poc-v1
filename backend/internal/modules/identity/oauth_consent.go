@@ -132,6 +132,16 @@ type lentPassport struct {
 // the request — is judged again against live rows; a passport revoked in
 // another tab must not still be lendable. lendable is false for a passport_id
 // naming anything not on that live list, a malformed id included.
+//
+// What this guarantees is that no lend is accepted for a passport that was
+// unselectable when the re-check ran — not that the check and the code write are
+// one transaction. They are not: the check reads in its own transaction and
+// mintAuthorizationCode writes in another, so a revocation landing between them
+// still produces a code. That window costs nothing, because the connection's
+// credential is independent of the lent passport: the code exchange mints a NEW
+// passport bound to the grant (oauth_token.go), and revoking the lent one never
+// reached that credential anyway. The passport contributes its scopes and its
+// audited identity, both of which the human genuinely approved.
 func (s *Service) resolveLend(
 	ctx context.Context, id Identity, requested []string, rawID string,
 ) (lent lentPassport, lendable bool, err error) {

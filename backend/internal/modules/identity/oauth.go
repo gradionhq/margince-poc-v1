@@ -402,10 +402,10 @@ func auditLend(
 ) error {
 	_, err := storekit.Audit(ctx, tx, "create", "oauth_authorization_code", codeID, nil,
 		map[string]any{
-			"passport_id":      lentID,
-			oauthParamClientID: req.ClientID,
-			auditFieldScopes:   req.Scopes,
-			"refresh_allowed":  req.Offline,
+			auditFieldPassportID:     lentID,
+			auditFieldClientID:       req.ClientID,
+			auditFieldScopes:         req.Scopes,
+			auditFieldRefreshAllowed: req.Offline,
 		})
 	return err
 }

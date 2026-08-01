@@ -123,10 +123,10 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 	auditCtx := actorCtx(ctx, Identity{UserID: in.UserID, WorkspaceID: in.WorkspaceID})
 	if _, err := storekit.Audit(auditCtx, tx, "create", "oauth_grant", grantID, nil,
 		map[string]any{
-			oauthParamClientID: in.ClientID,
-			auditFieldScopes:   in.Scopes,
-			"refresh_allowed":  in.RefreshAllowed,
-			oauthParamResource: in.Resource,
+			auditFieldClientID:       in.ClientID,
+			auditFieldScopes:         in.Scopes,
+			auditFieldRefreshAllowed: in.RefreshAllowed,
+			auditFieldResource:       in.Resource,
 		}); err != nil {
 		return ids.Nil, "", err
 	}

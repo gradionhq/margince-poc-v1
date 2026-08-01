@@ -35,13 +35,24 @@ import (
 // probing both tables.
 const passportTokenPrefix = "mgp_"
 
-// auditFieldScopes is the after-image key naming the authority a credential
-// write handed over. Every credential this module records carries it — the
-// passport mint below, the OAuth grant a consent produces (oauth_grant.go),
-// and the lend the consent POST records (oauth.go) — and they must agree on
-// the spelling, because reading the credential trail means reading one field
-// across all three.
-const auditFieldScopes = "scopes"
+// The after-image keys a credential write records. Every credential this module
+// audits — the passport mint below, the OAuth grant a consent produces
+// (oauth_grant.go), the lend the consent POST records (oauth.go) — draws its
+// keys from here, because reading the credential trail means reading one field
+// name across all three.
+//
+// This is the AUDIT PAYLOAD's vocabulary, which is why it is spelled here rather
+// than borrowed from the OAuth request parameters that happen to share some of
+// these words (oauthwire.go): those name what arrives on the wire, and a wire
+// parameter renamed by a future revision must not silently rename a column of
+// the audit trail.
+const (
+	auditFieldScopes         = "scopes"
+	auditFieldClientID       = "client_id"
+	auditFieldResource       = "resource"
+	auditFieldRefreshAllowed = "refresh_allowed"
+	auditFieldPassportID     = "passport_id"
+)
 
 const (
 	defaultPassportTTL = 30 * 24 * time.Hour
