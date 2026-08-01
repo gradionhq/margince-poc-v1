@@ -35,3 +35,9 @@ func IsInteractionKind(kind string) bool {
 func InteractionKindSQLList() string {
 	return "'" + strings.Join(interactionKinds, "','") + "'"
 }
+
+// InteractionKindSQLGroup is the same list already parenthesised, for the
+// `kind IN %s` shape the deal-health and person-strength queries use.
+func InteractionKindSQLGroup() string {
+	return "(" + InteractionKindSQLList() + ")"
+}

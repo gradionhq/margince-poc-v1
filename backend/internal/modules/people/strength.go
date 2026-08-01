@@ -60,8 +60,9 @@ type RelationshipStrength struct {
 	ContributingIDs     []ids.ActivityID
 }
 
-// strengthKinds are the qualifying interaction kinds (§4 inputs).
-const strengthKinds = `('email','call','meeting')`
+// strengthKinds are the activity kinds that count as contact, from the one
+// shared definition — see relstrength.InteractionKindSQLGroup.
+var strengthKinds = relstrength.InteractionKindSQLGroup()
 
 // PersonStrength computes the §4 baseline for one person. The person
 // read is row-scoped exactly like GetPerson: a person the caller cannot

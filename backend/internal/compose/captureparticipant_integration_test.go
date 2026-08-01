@@ -347,14 +347,27 @@ func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
 		t.Fatalf("reading participants back: %v", err)
 	}
 
-	if _, ok := got[corrected]; !ok {
-		t.Error("the relink did not repoint the participant it displaced, so the " +
-			"participants and the links now tell different stories about the same mail")
+	// Roles too, and exactly three rows: a repoint that kept the old row, or
+	// moved the right person into the wrong role, would satisfy a membership
+	// check while still misstating who said what.
+	want := map[ids.UUID]string{corrected: "from", unlinked: "cc"}
+	if len(got) != len(want) {
+		t.Errorf("%d participants after the relink, want %d — the displaced row was "+
+			"added to rather than replaced", len(got), len(want))
 	}
-	if _, ok := got[unlinked]; !ok {
-		t.Error("the relink rewrote a participant it never displaced: that row named " +
-			"somebody who was never linked, and now names a contact who was never " +
-			"in the conversation")
+	for person, role := range want {
+		switch gotRole, ok := got[person]; {
+		case !ok && person == corrected:
+			t.Error("the relink did not repoint the participant it displaced, so the " +
+				"participants and the links now tell different stories about the same mail")
+		case !ok:
+			t.Error("the relink rewrote a participant it never displaced: that row named " +
+				"somebody who was never linked, and now names a contact who was never " +
+				"in the conversation")
+		case gotRole != role:
+			t.Errorf("participant %s has role %q, want %q — a repoint must not change "+
+				"who sent and who was copied", person, gotRole, role)
+		}
 	}
 	if _, ok := got[linked]; ok {
 		t.Error("the displaced contact is still a participant")
