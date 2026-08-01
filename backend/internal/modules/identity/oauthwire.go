@@ -3,6 +3,8 @@
 
 package identity
 
+import "slices"
+
 // The OAuth wire vocabulary this authorization server PARSES off a request,
 // ADVERTISES in its metadata, and ANSWERS with. Named once, in one place,
 // because the sides have to agree exactly: a metadata document promising a
@@ -54,20 +56,28 @@ const (
 	oauthParamError = "error"
 )
 
-// oauthScopesSupported is the passport vocabulary the metadata advertises,
-// least authority first, plus the session-lifetime marker. It is DERIVED from
-// passportScopeVocabulary (passport.go) — the same list admission tests
-// against — rather than spelled again here, so a scope added to the closed
-// vocabulary cannot be left out of discovery. A scope a client cannot see is a
-// scope it will never ask for.
+// resourceScopesSupported is the passport vocabulary the PROTECTED RESOURCE
+// document advertises (RFC 9728 §2), least authority first: the verbs that buy
+// access to the records served here, with no lifetime marker among them. It is
+// DERIVED from passportScopeVocabulary (passport.go) — the same list admission
+// tests against — rather than spelled again here, so a scope added to the
+// closed vocabulary cannot be left out of discovery.
 //
-// offline_access is appended last and is not a member of that vocabulary: it
-// asks for the connection's lifetime, not authority over any record, and its
-// durable home is oauth_grant.refresh_allowed.
-var oauthScopesSupported = func() []string {
-	advertised := make([]string, 0, len(passportScopeVocabulary)+1)
+// A scope a client cannot see is a scope it will never ask for, and a resource
+// that shows none is a resource a client asks nothing of: the authorize parser
+// then defaults to `read` and the connection is read-only however broad the
+// passport the human lent, because a grant is the intersection of the two.
+var resourceScopesSupported = func() []string {
+	advertised := make([]string, 0, len(passportScopeVocabulary))
 	for _, scope := range passportScopeVocabulary {
 		advertised = append(advertised, string(scope))
 	}
-	return append(advertised, scopeOfflineAccess)
+	return advertised
 }()
+
+// oauthScopesSupported is that same vocabulary as the AUTHORIZATION SERVER
+// document advertises it (RFC 8414), plus the session-lifetime marker appended
+// last. offline_access is no member of the closed vocabulary and never appears
+// on the resource: it asks for the connection's lifetime, not authority over
+// any record, and its durable home is oauth_grant.refresh_allowed.
+var oauthScopesSupported = append(slices.Clone(resourceScopesSupported), scopeOfflineAccess)

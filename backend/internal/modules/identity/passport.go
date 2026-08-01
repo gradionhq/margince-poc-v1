@@ -67,9 +67,10 @@ const MaxOAuthAccessTokenTTL = maxPassportTTL
 
 // passportScopeVocabulary is the closed verb vocabulary (interfaces.md §2), in
 // ascending authority order. It is the ONE list: admission (validScopes) and
-// discovery (oauthScopesSupported) are both derived from it, so a scope added
-// here cannot be grantable-but-undiscoverable — a scope a client cannot see in
-// the metadata is a scope it will never ask for.
+// BOTH discovery documents (oauthScopesSupported for the authorization server,
+// resourceScopesSupported for the protected resource) are derived from it, so a
+// scope added here cannot be grantable-but-undiscoverable — a scope a client
+// cannot see in the metadata is a scope it will never ask for.
 var passportScopeVocabulary = []principal.Scope{
 	principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite,
 	principal.ScopeSend, principal.ScopeEnrich,
