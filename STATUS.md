@@ -329,7 +329,17 @@ the removed one; routing the event to the existing fold fixed both).
 6. A refreshed LinkedIn export never tombstones connections absent from it.
 7. `at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
    not built.
-8. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
+8. **Spec raise owed (PO-PARAM-1).** `legalSuffixes` gained `&`/`und`/`and` so
+   the strip crosses a compound German legal form ("GmbH & Co. KG"). The
+   parameter is spec-pinned; this implements the stated intent rather than
+   changing it, but it needs reconciling upstream.
+9. LinkedIn employer matching still needs an EXACT normalized key. On a real
+   5,064-row export, 75 contacts matched by name and 22 matched fully; 44 were
+   blocked by a company string that reaches no account ("Wortfilter.de" vs
+   "Wortfilter", "SIMIO GmbH & Co. KG" vs "Simio Consulting", two accounts both
+   named "Nfq" — deliberately refused as ambiguous). Fuzzy org matching would
+   recover some at the cost of wrong suggestions; not attempted.
+10. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
    (07-01..07-14 and 07-01..07-31) while now needing a `current_date` row so the
    budget block does not zero at a month boundary. Both hold today because the
    live date is outside those windows; they break when it is not. The fix is to
