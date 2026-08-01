@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -83,6 +84,15 @@ type EnsureCounterpartyResult struct {
 	OrganizationID *ids.OrganizationID
 	OrgCreated     bool
 	DedupeRecorded bool
+
+	// TriagePending reports that this domain's organization question was left
+	// open, and TriageDomain names the domain to ask about. The ensure only
+	// RECORDS the question — enqueueing the crawl that answers it belongs to
+	// compose, after this transaction commits, so a queue outage can never cost
+	// the message that raised it. The sweep re-finds anything a missed trigger
+	// dropped, so a lost signal costs latency and nothing else.
+	TriagePending bool
+	TriageDomain  string
 }
 
 // EnsureCounterparty resolves-or-creates the person (and company) behind one
@@ -203,51 +213,33 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	return nil
 }
 
-// ensureOrgAndEmployment runs PO-F-2 on the mail domain, creating the
-// company when unknown, and plants the employment edge unless the person
-// already has a current primary employer.
+// ensureOrgAndEmployment decides what this mail domain may create, and creates
+// only that. It runs PO-F-2 on the domain, and where the domain is not yet
+// understood it creates NOTHING and opens the question instead — the person
+// already exists, and an organization invented from a domain label is the
+// defect this ladder exists to stop.
+//
+// The order is load-bearing at every step:
+//
+//	an organization already on this domain  → attach; a human's row always wins
+//	consumer mail                           → no company, and no question to ask
+//	a settled verdict                       → obey it
+//	anything else                           → open the question, create nothing
 func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, res *EnsureCounterpartyResult) error {
 	if err := auth.Require(ctx, entityOrganization, principal.ActionCreate); err != nil {
 		return err
 	}
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain}})
+	base := freemail.Registrable(in.Domain)
+	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain, base}})
 	if err != nil {
 		return err
 	}
-	orgID := match.OrganizationID
 	if match.Decision != DecisionExactCollision {
-		wsID := workspaceID(ctx)
-		orgID = ids.New[ids.OrganizationKind]()
-		// A readable name derived from the domain's registrable label
-		// ("gitex.com" → "Gitex"), marked name_source='domain' so a richer
-		// source (dossier, corroborated signature) may overwrite it later
-		// without ever clobbering a human (ADR-0072/A118, PO-F-2a). The domain
-		// is retained as the honest fallback when no label can be derived.
-		displayName := DisplayNameFromDomain(in.Domain)
-		if displayName == "" {
-			displayName = in.Domain
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
-			orgID, wsID, displayName, nameSourceDomain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
-			return fmt.Errorf("people: insert captured organization: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, lower($3), true, $4, $5)`,
-			wsID, orgID, in.Domain, in.Source, in.CapturedBy); err != nil {
-			return fmt.Errorf("people: insert captured organization domain: %w", err)
-		}
-		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: displayName})
-		if err != nil {
-			return err
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}); err != nil {
-			return err
-		}
-		res.OrgCreated = true
+		// No organization yet. Whether one may be created is not this path's
+		// call any more.
+		return s.deferOrgToTriage(ctx, tx, in, base, res)
 	}
+	orgID := match.OrganizationID
 	res.OrganizationID = &orgID
 
 	// The employment edge: only when the person has no current primary
@@ -264,6 +256,42 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 		workspaceID(ctx), res.PersonID, orgID, in.Source, in.CapturedBy); err != nil {
 		return fmt.Errorf("people: insert employment edge: %w", err)
 	}
+	return nil
+}
+
+// deferOrgToTriage handles a domain with no organization behind it yet: decide
+// whether the question is even worth asking, and if it is, open it.
+//
+// Nothing is created here on purpose. The person is already committed and the
+// message is already on their timeline; what is withheld is a company row that
+// nothing yet justifies. ADR-0063's create-on-sight is what manufactured
+// "Herpertz" from a man's own domain, and no later evidence removed it.
+func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, base string, res *EnsureCounterpartyResult) error {
+	// Consumer mail is answered by the domain itself and needs no crawl to
+	// settle. The sink's tier ladder usually catches it first; this repeats the
+	// check because the verdict engine and the review-queue accept reach this
+	// same chokepoint without passing through that ladder.
+	if in.SuppressOrg || s.freemail().IsConsumer(base) {
+		return nil
+	}
+	prior, known, err := readDispositionTx(ctx, tx, base)
+	if err != nil {
+		return err
+	}
+	if known && prior.Settled() {
+		// personal, provider, no_site — all answered, all "no company from this
+		// domain". A 'company' verdict cannot reach here: the dedupe above
+		// would have found the organization it named.
+		return nil
+	}
+	if known {
+		res.TriagePending, res.TriageDomain = true, base
+		return nil
+	}
+	if err := recordPendingDispositionTx(ctx, tx, base, in.OwnerID); err != nil {
+		return err
+	}
+	res.TriagePending, res.TriageDomain = true, base
 	return nil
 }
 

@@ -123,6 +123,16 @@ var finishedSiteReadStatuses = map[string]bool{
 	"done": true, "partial": true, "failed": true, "cancelled": true,
 }
 
+// The three things a dossier can be ABOUT (site_read.target_kind). An
+// organization read enriches a row that exists; the other two run before their
+// subject does, and bind it only once a human (onboarding) or a verdict
+// (triage) says it should exist.
+const (
+	TargetKindOrganization = "organization"
+	TargetKindOnboarding   = "onboarding"
+	TargetKindDomainTriage = "domain_triage"
+)
+
 // siteReadStopReasons mirrors the row's stopped_reason CHECK so a bad
 // worker value reads as an actionable error, not a constraint 500.
 var siteReadStopReasons = map[string]bool{"budget": true, "page_cap": true, "byte_cap": true, "deadline": true}
@@ -138,25 +148,44 @@ type SiteReadEnqueue func(context.Context, pgx.Tx, SiteRead) error
 // which happened. Row-scoped: an org the caller cannot see is
 // ErrNotFound (existence-hiding).
 func (s *Store) StartSiteRead(ctx context.Context, orgID ids.OrganizationID, seedURL, requestedBy string) (SiteRead, bool, error) {
-	return s.createOrJoinSiteRead(ctx, &orgID, "organization", seedURL, requestedBy, nil)
+	return s.createOrJoinSiteRead(ctx, &orgID, TargetKindOrganization, seedURL, requestedBy, nil)
 }
 
 // StartSiteReadQueued is the production organization-enrichment start. The
 // dossier and River job commit together, so no queued row can exist without
 // work behind it.
 func (s *Store) StartSiteReadQueued(ctx context.Context, orgID ids.OrganizationID, seedURL, requestedBy string, enqueue SiteReadEnqueue) (SiteRead, bool, error) {
-	return s.createOrJoinSiteRead(ctx, &orgID, "organization", seedURL, requestedBy, enqueue)
+	return s.createOrJoinSiteRead(ctx, &orgID, TargetKindOrganization, seedURL, requestedBy, enqueue)
 }
 
 // StartOnboardingSiteRead creates an unbound operational dossier. It writes no
 // organization, profile field, fact, or lead before confirmation.
 func (s *Store) StartOnboardingSiteRead(ctx context.Context, seedURL, requestedBy string, enqueue SiteReadEnqueue) (SiteRead, bool, error) {
-	return s.createOrJoinSiteRead(ctx, nil, "onboarding", seedURL, requestedBy, enqueue)
+	return s.createOrJoinSiteRead(ctx, nil, TargetKindOnboarding, seedURL, requestedBy, enqueue)
+}
+
+// TriageSeedScheme prefixes a registrable domain into the triage read's seed
+// url. The seed is derived, never supplied, so the in-flight unique index on
+// (workspace, seed_url) is per-domain uniqueness: two senders arriving on a new
+// domain at once buy one crawl between them.
+const TriageSeedScheme = "https://"
+
+// TriageSeedURL is the url a domain's triage read starts from.
+func TriageSeedURL(domain string) string { return TriageSeedScheme + domain }
+
+// StartDomainTriageSiteRead creates the dossier that decides whether a mail
+// domain deserves an organization at all. It starts unbound for the same reason
+// an onboarding read does: the row it may eventually name does not exist yet. A
+// company verdict binds it as it creates that row.
+func (s *Store) StartDomainTriageSiteRead(ctx context.Context, domain, requestedBy string, enqueue SiteReadEnqueue) (SiteRead, bool, error) {
+	return s.createOrJoinSiteRead(ctx, nil, TargetKindDomainTriage, TriageSeedURL(domain), requestedBy, enqueue)
 }
 
 func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.OrganizationID, targetKind, seedURL, requestedBy string, enqueue SiteReadEnqueue) (SiteRead, bool, error) {
+	// An unbound read is not updating anything — it runs to decide whether a
+	// row should exist at all — so create is the honest permission for it.
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
-		if targetKind != "onboarding" {
+		if targetKind == TargetKindOrganization {
 			return SiteRead{}, false, err
 		}
 		if createErr := auth.Require(ctx, "organization", principal.ActionCreate); createErr != nil {
