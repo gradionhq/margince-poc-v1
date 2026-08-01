@@ -45,11 +45,15 @@ export function EmbedReindexBanner() {
   // Advisory only: a failed status probe must not block the app shell — the
   // settings card (screens/embedreindex.tsx) surfaces the same read's error
   // state to the accountable audience.
+  // status "reembedding" is the confirmed rebuild already running:
+  // populated_identity only catches up at completion, so without this the
+  // banner would keep demanding a decision the admin already made.
   if (
     !enabled ||
     query.isError ||
     !query.data ||
-    query.data.configured_identity === query.data.populated_identity
+    query.data.configured_identity === query.data.populated_identity ||
+    query.data.status === "reembedding"
   ) {
     return null;
   }

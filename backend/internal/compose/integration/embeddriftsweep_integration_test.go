@@ -102,6 +102,17 @@ func TestSweepEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 	}
 	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unswept Person', 'manual', 'human:x')`)
 
+	// The refusal only proves anything if there was real pending work to
+	// refuse — healed==0 over an empty pending set is vacuous.
+	identity, _ := embedder.EmbedIdentity()
+	pending, err := e.store.EntitiesPending(ctx, identity)
+	if err != nil {
+		t.Fatalf("EntitiesPending: %v", err)
+	}
+	if pending != 1 {
+		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
+	}
+
 	healed, err := e.store.SweepEmbeddingDrift(ctx, embedder)
 	if err != nil {
 		t.Fatalf("SweepEmbeddingDrift: %v", err)
@@ -132,6 +143,16 @@ func TestSweepEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
 	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Mid Reindex Person', 'manual', 'human:x')`)
+
+	// The wait-out only proves anything if the sweep had real pending work
+	// it chose not to touch — healed==0 over an empty set is vacuous.
+	pending, err := e.store.EntitiesPending(ctx, identity)
+	if err != nil {
+		t.Fatalf("EntitiesPending: %v", err)
+	}
+	if pending != 1 {
+		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
+	}
 
 	healed, err := e.store.SweepEmbeddingDrift(ctx, embedder)
 	if err != nil {

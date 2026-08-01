@@ -12,6 +12,7 @@ function mount(
     populated_identity: string;
     reindex_needed: boolean;
     entities_pending: number;
+    status?: string;
   },
 ) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -104,6 +105,21 @@ it("renders nothing for identity-matched drift, even with reindex_needed true an
     populated_identity: "anthropic/voyage-3@1024",
     reindex_needed: true,
     entities_pending: 42,
+  });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Reindex needed")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("renders nothing while a confirmed rebuild is running", async () => {
+  // populated_identity only catches up when the job completes, so the
+  // mismatch alone would keep demanding a decision the admin already made.
+  const { fetchMock } = mount(["admin"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-2@1024",
+    reindex_needed: true,
+    entities_pending: 42,
+    status: "reembedding",
   });
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   expect(screen.queryByText("Reindex needed")).toBeNull();
