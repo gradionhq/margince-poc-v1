@@ -572,8 +572,17 @@ function AgentToolsCard() {
       return data;
     },
   });
-  const selected = passports.data?.data.find((p) => p.id === passportId);
-  const grantedScopes = new Set(selected?.scopes ?? []);
+  const lendable = (passports.data?.data ?? []).filter(
+    (p) => p.revoked_at == null,
+  );
+  // The filter follows the selector: a passport revoked while it was the
+  // chosen scope drops out of the options, and the <select> then shows "all
+  // passports" — so the inventory must read as unfiltered too, rather than
+  // stay quietly scoped to a credential no longer on offer.
+  const scopeId = lendable.some((p) => p.id === passportId) ? passportId : "";
+  const grantedScopes = new Set(
+    lendable.find((p) => p.id === scopeId)?.scopes ?? [],
+  );
 
   return (
     <section className="card" style={{ marginBottom: 14 }}>
@@ -581,14 +590,12 @@ function AgentToolsCard() {
       {passports.data && passports.data.data.length > 0 && (
         <div className="tool-scope-filter">
           <PassportSelect
-            options={passports.data.data
-              .filter((p) => p.revoked_at == null)
-              .map((p) => ({
-                id: p.id,
-                label: t("tools.scopedTo", { label: p.label }),
-                scopes: p.scopes,
-              }))}
-            value={passportId}
+            options={lendable.map((p) => ({
+              id: p.id,
+              label: t("tools.scopedTo", { label: p.label }),
+              scopes: p.scopes,
+            }))}
+            value={scopeId}
             onChange={setPassportId}
             allowEmpty
             emptyLabel={t("tools.scopeAll")}
@@ -609,7 +616,7 @@ function AgentToolsCard() {
           >
             {data.data.map((tool) => {
               const reachable =
-                !passportId ||
+                !scopeId ||
                 tool.required_scope == null ||
                 grantedScopes.has(tool.required_scope);
               return (
