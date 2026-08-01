@@ -32,6 +32,7 @@ import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
+import { OAuthConsent } from "./screens/oauthconsent";
 import { OfferScreen } from "./screens/offers";
 import { OfferTemplatesScreen } from "./screens/offertemplates";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
@@ -134,6 +135,10 @@ function ScreenView({
       return id ? <OfferScreen id={id} /> : <PendingScreen />;
     case "offer-templates":
       return <OfferTemplatesScreen />;
+    // reached only via the server's redirect off GET /oauth/authorize
+    // (#/oauth-consent?…&consent=<nonce>) — never a rail destination.
+    case "oauth-consent":
+      return <OAuthConsent />;
     case "automations":
       return <AutomationsScreen />;
     // also reached from Settings, not the rail (AC-custom-fields admin door)
