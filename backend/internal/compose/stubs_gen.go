@@ -13,9 +13,11 @@ import (
 )
 
 // stubs satisfies every crmcontracts.ServerInterface operation with an
-// explicit 501: the whole contract surface exists from day one, and an
-// unimplemented call is loud, never a silent 404. Server embeds stubs
-// (one level deep) and module handlers shadow the operations they implement.
+// explicit 501: one stub per operation the contract declares, proving that
+// list is enumerable and complete. Nothing embeds stubs — Server (server.go)
+// implements the full interface itself, across its own module handler
+// embeds — so a contract operation with no real handler fails Server's own
+// compile-time assertion, not a runtime 501 through this type.
 type stubs struct{}
 
 var _ crmcontracts.ServerInterface = stubs{}

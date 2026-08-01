@@ -241,8 +241,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   identity: a service owns the multi-step domain logic and drives the
   SQL inside it).
 - `internal/compose/` — the composition layer every process role shares:
-  the contract HTTP surface (module handlers shadow generated 501 stubs),
-  the composite `datasource.SystemOfRecordProvider`, the MCP registry +
+  the contract HTTP surface (every module's handler set embeds directly
+  into `Server`, which asserts the full generated `ServerInterface` on
+  its own — a contract operation with no handler is a build break, not
+  a served 501), the composite `datasource.SystemOfRecordProvider`, the MCP registry +
   approvals adapter, and the cross-module integration suites (in
   `compose/integration`, with the shared harness). Every cross-module
   edge is injected HERE (identity's workspace seed ← deals; agents'

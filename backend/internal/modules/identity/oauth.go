@@ -48,7 +48,7 @@ const authCodeTTL = 5 * time.Minute
 func (h Handlers) OAuthRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/register", h.oauthRegister)
-	mux.HandleFunc("GET /oauth/authorize", h.oauthConsentForm)
+	mux.HandleFunc("GET /oauth/authorize", h.oauthConsentRedirect)
 	mux.HandleFunc("POST /oauth/authorize", h.oauthAuthorize)
 	mux.HandleFunc("POST /oauth/token", h.oauthToken)
 	mux.HandleFunc("POST /oauth/revoke", h.oauthRevoke)
@@ -207,12 +207,12 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	return req, "", ""
 }
 
-// oauthConsentForm (GET) validates the request, arms the consent nonce
-// and hands the browser to the consent screen. It never mints a code: a
+// oauthConsentRedirect (GET) validates the request, arms the consent nonce
+// and redirects the browser to the consent screen. It never mints a code: a
 // GET riding an existing session must not be able to authorize anything
 // — a DCR-registered client luring a signed-in admin onto this URL
 // would otherwise silently borrow their authority (OAuth CSRF).
-func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
+func (h Handlers) oauthConsentRedirect(w http.ResponseWriter, r *http.Request) {
 	if _, ok := identityFrom(r.Context()); !ok {
 		httperr.Unauthorized(w, r, "authorization requires the signed-in human whose authority the agent will borrow")
 		return

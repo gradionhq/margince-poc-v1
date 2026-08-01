@@ -136,7 +136,7 @@ func consentFragment(t *testing.T, location string) url.Values {
 // the flow.
 func (o *oauthEnv) armConsent(t *testing.T, extra url.Values) url.Values {
 	t.Helper()
-	status, location, body, _ := o.authorizeRawFollow(t, extra)
+	status, location, body, _ := o.authorizeNoFollow(t, extra)
 	if status != http.StatusFound {
 		t.Fatalf("consent redirect → %d %s", status, body)
 	}

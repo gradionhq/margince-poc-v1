@@ -28,10 +28,12 @@ func Healthz(w http.ResponseWriter, _ *http.Request) {
 // SecureHeaders sets the browser-facing response headers on everything —
 // UI and API alike. SameSite=Strict on the session cookie covers CSRF;
 // these close what it does not: framing (clickjacking), MIME sniffing,
-// and referrer leakage. The CSP is same-origin only: the sole first-party
-// HTML the backend serves is the OAuth consent page (system-ui font, one
-// inline style attribute — hence style-src 'unsafe-inline'); every other
-// response is JSON.
+// and referrer leakage. The CSP is same-origin only: this backend serves
+// no first-party HTML at all — every response from here is JSON — so
+// these directives bind API responses rather than a page. style-src
+// keeps 'unsafe-inline' regardless: loosening it is a CSP posture
+// decision for whatever renders HTML behind this origin, not a
+// side effect of where any one screen happens to live.
 // LimitBodies caps every request body at httperr.MaxBodyBytes so no
 // handler — including ones decoding r.Body directly — can be fed an
 // unbounded payload. Reads past the cap fail with http.MaxBytesError.

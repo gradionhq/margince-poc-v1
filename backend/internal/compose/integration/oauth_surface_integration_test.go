@@ -152,7 +152,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	// session surface, the next hosted call answers 401 + RFC 9728.
 	var passportID string
 	if err := o.owner.QueryRow(context.Background(),
-		`SELECT id FROM passport ORDER BY created_at DESC LIMIT 1`).Scan(&passportID); err != nil {
+		`SELECT id FROM passport WHERE token_hash = $1`, sha256Hex(token)).Scan(&passportID); err != nil {
 		t.Fatal(err)
 	}
 	if status := o.call(t, "DELETE", "/v1/passports/"+passportID, nil, nil, nil); status != http.StatusNoContent {

@@ -241,11 +241,11 @@ func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
 	})
 }
 
-// authorizeRawFollow issues the authorize GET with redirects DISABLED, so the
+// authorizeNoFollow issues the authorize GET with redirects DISABLED, so the
 // 302 itself is the assertion target rather than whatever it points at. The
 // Set-Cookie values come back too: the armed nonce is half of the double-submit
 // pair the fragment carries the other half of.
-func (o *oauthEnv) authorizeRawFollow(t *testing.T, extra url.Values) (int, string, string, []*http.Cookie) {
+func (o *oauthEnv) authorizeNoFollow(t *testing.T, extra url.Values) (int, string, string, []*http.Cookie) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet,
 		o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
@@ -287,7 +287,7 @@ func cookieValue(t *testing.T, setCookies []*http.Cookie, name string) string {
 func TestAuthorizeRedirectsToTheSPAConsentScreen(t *testing.T) {
 	o := setupOAuth(t)
 
-	status, location, body, setCookies := o.authorizeRawFollow(t, url.Values{"scope": {"read write"}})
+	status, location, body, setCookies := o.authorizeNoFollow(t, url.Values{"scope": {"read write"}})
 
 	if status != http.StatusFound {
 		t.Fatalf("authorize → %d %s, want 302", status, body)

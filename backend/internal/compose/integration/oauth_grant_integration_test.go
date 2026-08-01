@@ -160,7 +160,7 @@ func TestCodeExchangeAfterTheHumanIsDeactivatedIssuesNoGrant(t *testing.T) {
 func TestAuthorizeCarriesTheRenewalRequestToTheConsentScreen(t *testing.T) {
 	o := setupOAuth(t)
 
-	status, location, body, _ := o.authorizeRawFollow(t, url.Values{"scope": {"read offline_access"}})
+	status, location, body, _ := o.authorizeNoFollow(t, url.Values{"scope": {"read offline_access"}})
 	if status != http.StatusFound {
 		t.Fatalf("authorize → %d %s, want 302", status, body)
 	}
@@ -169,7 +169,7 @@ func TestAuthorizeCarriesTheRenewalRequestToTheConsentScreen(t *testing.T) {
 	}
 
 	// A request that did not ask to stay connected must not claim it did.
-	status, location, body, _ = o.authorizeRawFollow(t, url.Values{"scope": {"read"}})
+	status, location, body, _ = o.authorizeNoFollow(t, url.Values{"scope": {"read"}})
 	if status != http.StatusFound {
 		t.Fatalf("authorize → %d %s, want 302", status, body)
 	}
