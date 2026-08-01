@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../i18n";
+import { installFetchStub, jsonResponse } from "../story-utils";
 import {
   conversationReducer,
   initialConversationState,
@@ -36,7 +37,13 @@ function renderAct(dispatch = vi.fn()) {
   return dispatch;
 }
 
-beforeEach(() => vi.stubGlobal("scrollTo", vi.fn()));
+beforeEach(() => {
+  vi.stubGlobal("scrollTo", vi.fn());
+  installFetchStub({
+    "PUT /me/linkedin-account": () =>
+      jsonResponse({ connected: true, connections: 0 }),
+  });
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -74,11 +81,16 @@ it("will not authorize until the profile it attributes the network to is given",
     "https://www.linkedin.com/in/lars",
   );
   expect(button).not.toBeDisabled();
+  // The act advances only once the answer is STORED: finishing onboarding
+  // believing you connected, with nothing recorded, is worse than a slower
+  // button.
   await userEvent.click(button);
-  expect(dispatch).toHaveBeenCalledWith({
-    type: "LINKEDIN_CONNECTED",
-    profile: "https://www.linkedin.com/in/lars",
-  });
+  await waitFor(() =>
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "LINKEDIN_CONNECTED",
+      profile: "https://www.linkedin.com/in/lars",
+    }),
+  );
 });
 
 it("can be declined in one click, without a profile", async () => {

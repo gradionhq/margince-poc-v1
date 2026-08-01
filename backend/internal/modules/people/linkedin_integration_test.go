@@ -289,3 +289,67 @@ func TestAContactTheWorkspaceLearnsAboutLaterIsStillMatched(t *testing.T) {
 		t.Errorf("the name+employer match is %q → %v, want suggested → %s", status, person, andreas)
 	}
 }
+
+// The profile is the member's own answer about themselves, and it is theirs
+// alone: onboarding records it, the settings tab shows it back, and a
+// correction sticks. Nothing here reaches another member's row — there is no
+// parameter that could.
+func TestAMemberOwnsAndCanCorrectTheirLinkedInProfile(t *testing.T) {
+	e := setupDedupe(t)
+
+	// Never asked: not connected, and that is not an error.
+	before, err := e.store.GetMyLinkedInAccount(e.as())
+	if err != nil {
+		t.Fatalf("reading an account that does not exist yet: %v", err)
+	}
+	if before.ProfileURL != nil || before.ConnectedAt != nil {
+		t.Errorf("a member who was never asked reads as %+v, want empty", before)
+	}
+
+	// The onboarding act's answer.
+	saved, err := e.store.SaveMyLinkedInAccount(e.as(), SaveMyLinkedInAccountInput{
+		ProfileURL: "https://www.linkedin.com/in/lars", Connected: true,
+	})
+	if err != nil {
+		t.Fatalf("saving the profile: %v", err)
+	}
+	if saved.ProfileURL == nil || *saved.ProfileURL != "https://www.linkedin.com/in/lars" {
+		t.Errorf("saved profile = %v, want the URL given", saved.ProfileURL)
+	}
+	if saved.ConnectedAt == nil {
+		t.Error("the authorization was not recorded")
+	}
+	connectedAt := *saved.ConnectedAt
+
+	// A correction from the settings tab. It edits the URL and must NOT
+	// revoke the authorization — disconnecting is its own deliberate act.
+	fixed, err := e.store.SaveMyLinkedInAccount(e.as(), SaveMyLinkedInAccountInput{
+		ProfileURL: "https://www.linkedin.com/in/lars-jankowfsky", Connected: false,
+	})
+	if err != nil {
+		t.Fatalf("correcting the profile: %v", err)
+	}
+	if fixed.ProfileURL == nil || *fixed.ProfileURL != "https://www.linkedin.com/in/lars-jankowfsky" {
+		t.Errorf("corrected profile = %v, want the new URL", fixed.ProfileURL)
+	}
+	if fixed.ConnectedAt == nil || !fixed.ConnectedAt.Equal(connectedAt) {
+		t.Errorf("editing the URL changed the authorization: %v, want it untouched at %v",
+			fixed.ConnectedAt, connectedAt)
+	}
+
+	// Emptying the field CLEARS it rather than leaving the old value behind.
+	cleared, err := e.store.SaveMyLinkedInAccount(e.as(), SaveMyLinkedInAccountInput{})
+	if err != nil {
+		t.Fatalf("clearing the profile: %v", err)
+	}
+	if cleared.ProfileURL != nil {
+		t.Errorf("clearing left %v behind — a member emptying the field means do not record this", cleared.ProfileURL)
+	}
+
+	// A headline is not a URL, and saying so beats storing a broken link.
+	if _, err := e.store.SaveMyLinkedInAccount(e.as(), SaveMyLinkedInAccountInput{
+		ProfileURL: "Lars Jankowfsky | Founder",
+	}); err == nil {
+		t.Error("a non-URL profile was accepted")
+	}
+}

@@ -239,7 +239,10 @@ func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
 			rows.Close()
 			return err
 		}
-		if org, known := orgs[NormalizeOrgName(company)]; known {
+		// The SAME cleaner the import applies. Without it the two disagree
+		// about what "company" means, and a ghost stored under a cleaned key
+		// is looked up under an uncleaned one.
+		if org, known := orgs[NormalizeOrgName(cleanLinkedInCompany(company))]; known {
 			ghostIDs = append(ghostIDs, ghost)
 			orgIDs = append(orgIDs, org)
 		}

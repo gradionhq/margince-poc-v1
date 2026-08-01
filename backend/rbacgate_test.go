@@ -40,6 +40,8 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/ai:RateFor":                      "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",
 	"internal/modules/ai:ServedTaskTotals":             "RLS-scoped aggregate of this workspace's calls for compose/costestimate; returns counts and totals, no record",
 	"internal/modules/capture:AgeOutReviewTx":          "age-out sweep write inside the caller's transaction",
+	"internal/modules/people:GetMyLinkedInAccount":     "self-only: reads the CALLER's own linkedin_account row, keyed on the authenticated principal's user id, and there is no path here to another member's; an object grant would be the wrong question because a member needs no permission to see their own profile",
+	"internal/modules/people:SaveMyLinkedInAccount":    "self-only, same row and same key as GetMyLinkedInAccount — a member editing their own LinkedIn profile URL, which no seat including admin may do on their behalf",
 	"internal/modules/capture:AwaitingReview":          "review-queue sweep (compose/captureverdictsweeps.go) under the system principal",
 	"internal/modules/capture:ClaimDue":                "worker sweep (compose/captureverdict.go): claims due pending counterparties under the system principal; no request, no human actor",
 	"internal/modules/capture:ClaimReviewForAgeOut":    "the claim that serializes the age-out sweep; system principal, no request path",

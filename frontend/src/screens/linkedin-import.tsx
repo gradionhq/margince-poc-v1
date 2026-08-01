@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, SectionHeader } from "../design-system/atoms";
@@ -95,10 +95,14 @@ function LinkedInProfileSection() {
 
   const stored = account.data?.profile_url ?? "";
   // Adopt the server value until the member starts typing, so a save or a
-  // refetch is reflected without discarding an edit in progress.
-  useEffect(() => {
+  // refetch is reflected without discarding an edit in progress. Adjusted
+  // during render rather than in an effect: an effect would paint the stale
+  // value first and then correct it.
+  const [seen, setSeen] = useState(stored);
+  if (seen !== stored) {
+    setSeen(stored);
     setDraft(null);
-  }, [stored]);
+  }
   const value = draft ?? stored;
   const dirty = value.trim() !== stored;
 
