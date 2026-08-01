@@ -432,3 +432,69 @@ func TestRenormalizingCollapsesTheDuplicatesAnOldKeyLeft(t *testing.T) {
 		t.Errorf("a second pass changed %+v, want nothing — it runs on every boot", again)
 	}
 }
+
+// A duplicate is folded, not discarded. The two copies were written at
+// different times and each may hold something the other lacks — above all an
+// EMAIL, which is the only field that can CONFIRM a match rather than suggest
+// one, and which LinkedIn supplies only for connections who allowed it.
+// Dropping the copy that carried the address would silently downgrade a
+// confirmable match to a guess.
+func TestCollapsingADuplicateKeepsWhatEachCopyKnew(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		insert := `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, company_name,
+			   normalized_company, position, email, connected_on, match_status, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Abbas Fawaz', 'abbas fawaz', 'najahak.io | Growth',
+			        $2, $3, $4, NULL, $5, 'csv_export')`
+		// The stale copy carries the address and nothing else of note.
+		if _, err := tx.Exec(ctx, insert, e.rep, "najahak.io | growth",
+			nil, "abbas@najahak.test", "unmatched"); err != nil {
+			return err
+		}
+		// The fresh copy carries a position and a human's rejection.
+		_, err := tx.Exec(ctx, insert, e.rep, "najahak.io",
+			"Head of Growth", nil, "rejected")
+		return err
+	}); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	if _, err := e.store.RenormalizeLinkedInCompanyKeys(ctx); err != nil {
+		t.Fatalf("re-normalizing: %v", err)
+	}
+
+	var email, position, status *string
+	var rows int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM linkedin_connection WHERE normalized_name = 'abbas fawaz'`).
+			Scan(&rows); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT email, position, match_status FROM linkedin_connection
+			  WHERE normalized_name = 'abbas fawaz'`).Scan(&email, &position, &status)
+	}); err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("%d rows survive, want 1", rows)
+	}
+	if email == nil || *email != "abbas@najahak.test" {
+		t.Errorf("the address was lost (%v) — it is the only field that can confirm "+
+			"a match rather than suggest one", email)
+	}
+	if position == nil || *position != "Head of Growth" {
+		t.Errorf("the position was lost (%v)", position)
+	}
+	// The human's judgement outlives whichever copy happened to be kept.
+	if status == nil || *status != "rejected" {
+		t.Errorf("the survivor is %v, want rejected — somebody looked and said no, "+
+			"and losing that re-asks a question they already answered", status)
+	}
+}

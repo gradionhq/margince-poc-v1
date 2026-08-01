@@ -294,12 +294,16 @@ func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
 			rows.Close()
 			return err
 		}
-		// The SAME cleaner the import applies. Without it the two disagree
-		// about what "company" means, and a ghost stored under a cleaned key
-		// is looked up under an uncleaned one.
-		if org, known := orgs[NormalizeOrgName(cleanLinkedInCompany(company))]; known {
-			ghostIDs = append(ghostIDs, ghost)
-			orgIDs = append(orgIDs, org)
+		// The SAME cleaner the import applies, then the narrow fallbacks. A
+		// fallback is accepted only when it resolves to exactly one account —
+		// orgKeys already drops every ambiguous key — so a looser lookup can
+		// widen what is FOUND without ever widening what is GUESSED.
+		for _, key := range orgMatchKeys(company) {
+			if org, known := orgs[key]; known {
+				ghostIDs = append(ghostIDs, ghost)
+				orgIDs = append(orgIDs, org)
+				break
+			}
 		}
 	}
 	rows.Close()

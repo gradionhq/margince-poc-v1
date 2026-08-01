@@ -48,6 +48,16 @@ type ghostKeyRow struct {
 	dupGroup string
 }
 
+// matchRankOrder ranks the match states by how much human judgement they carry,
+// weakest first, so a merge keeps the strongest rather than whichever row
+// happened to be chosen as the survivor. A rejection outranks a suggestion:
+// somebody looked and said no, and losing that would re-ask a question they
+// already answered. Passed to SQL as an array so the ordering is spelled once.
+var matchRankOrder = []string{"unmatched", "suggested", "rejected", "confirmed"}
+
+// decidedStatus answers whether a status carries a human's judgement.
+func decidedStatus(status string) bool { return status != "unmatched" }
+
 // RenormalizeLinkedInCompanyKeys recomputes every stored company key and
 // collapses the duplicates a previous normalizer left behind.
 //
@@ -57,22 +67,37 @@ type ghostKeyRow struct {
 func (s *Store) RenormalizeLinkedInCompanyKeys(ctx context.Context) (LinkedInRenormalizeResult, error) {
 	var out LinkedInRenormalizeResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		all, err := readGhostKeys(ctx, tx)
-		if err != nil {
-			return err
-		}
-		groups, wanted := groupByCurrentKey(all)
-		for _, group := range groups {
-			merged, rekeyed, err := collapseGroup(ctx, tx, group, wanted)
-			if err != nil {
-				return err
-			}
-			out.Merged += merged
-			out.Rekeyed += rekeyed
-		}
-		return nil
+		var err error
+		out, err = renormalizeGhostKeysTx(ctx, tx)
+		return err
 	})
 	return out, err
+}
+
+// renormalizeGhostKeysTx is the pass itself, inside a caller's transaction.
+//
+// The import calls it BEFORE upserting, and that is not belt-and-braces: the
+// import computes its keys with today's normalizer while stored rows may still
+// carry yesterday's, so an import running between two sweeps would create the
+// very duplicates the sweep exists to clean up. Repairing first makes the
+// import self-healing rather than dependent on a background pass having
+// happened to run.
+func renormalizeGhostKeysTx(ctx context.Context, tx pgx.Tx) (LinkedInRenormalizeResult, error) {
+	var out LinkedInRenormalizeResult
+	all, err := readGhostKeys(ctx, tx)
+	if err != nil {
+		return out, err
+	}
+	groups, wanted := groupByCurrentKey(all)
+	for _, group := range groups {
+		merged, rekeyed, err := collapseGroup(ctx, tx, group, wanted)
+		if err != nil {
+			return out, err
+		}
+		out.Merged += merged
+		out.Rekeyed += rekeyed
+	}
+	return out, nil
 }
 
 // readGhostKeys loads every CSV-sourced ghost with the parts of its natural
@@ -95,7 +120,7 @@ func readGhostKeys(ctx context.Context, tx pgx.Tx) ([]ghostKeyRow, error) {
 		if err := rows.Scan(&r.id, &r.company, &r.stored, &r.status, &r.dupGroup); err != nil {
 			return nil, err
 		}
-		r.decided = r.status != "unmatched"
+		r.decided = decidedStatus(r.status)
 		all = append(all, r)
 	}
 	return all, rows.Err()
@@ -118,15 +143,23 @@ func groupByCurrentKey(all []ghostKeyRow) (map[string][]ghostKeyRow, map[ids.UUI
 	return groups, wanted
 }
 
-// collapseGroup keeps one row from a duplicate set and re-keys it. Deleting the
-// others rather than merging them is right: they hold the same facts about the
-// same connection, and the only thing worth preserving is a human's decision,
-// which survivor() already keeps.
+// collapseGroup folds a duplicate set into one row.
+//
+// The other rows are NOT simply discarded. Two copies of one connection were
+// written at different times and each may hold something the other lacks — most
+// of all an EMAIL, which is the only field that can confirm a match rather than
+// suggest one, and which LinkedIn only supplies for connections who allowed it.
+// Dropping the copy that carried the address would quietly downgrade a
+// confirmable match to a guess. So every field is folded into the survivor
+// first, and only then are the others deleted.
 func collapseGroup(ctx context.Context, tx pgx.Tx, group []ghostKeyRow, wanted map[ids.UUID]string) (merged, rekeyed int, err error) {
 	keep := survivor(group)
 	for _, r := range group {
 		if r.id == keep.id {
 			continue
+		}
+		if err := foldGhostInto(ctx, tx, keep.id, r.id); err != nil {
+			return 0, 0, err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM linkedin_connection WHERE id = $1`, r.id); err != nil {
 			return 0, 0, fmt.Errorf("people: collapsing a duplicate LinkedIn connection: %w", err)
@@ -143,6 +176,46 @@ func collapseGroup(ctx context.Context, tx pgx.Tx, group []ghostKeyRow, wanted m
 		rekeyed++
 	}
 	return merged, rekeyed, nil
+}
+
+// foldGhostInto copies whatever the doomed row knows and the survivor does not
+// into the survivor, before the doomed row is deleted.
+//
+// coalesce in the survivor's favour for every field EXCEPT the match state and
+// the timestamps, where the strongest and the newest win: a re-import refreshes
+// position and company, and a human's decision must outlive whichever copy
+// happened to be kept.
+func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE linkedin_connection k
+		   SET email               = coalesce(k.email, d.email),
+		       position            = coalesce(k.position, d.position),
+		       company_name        = coalesce(k.company_name, d.company_name),
+		       connected_on        = coalesce(k.connected_on, d.connected_on),
+		       provider_member_ref = coalesce(k.provider_member_ref, d.provider_member_ref),
+		       matched_person_id   = coalesce(k.matched_person_id, d.matched_person_id),
+		       matched_org_id      = coalesce(k.matched_org_id, d.matched_org_id),
+		       -- The stronger decision wins, and it must be spelled here as
+		       -- well as in survivor(): the survivor is chosen before the fold,
+		       -- so a rejected copy of a kept unmatched row would otherwise be
+		       -- thrown away with its judgement.
+		       match_status = CASE
+		         WHEN array_position($3::text[], d.match_status) > array_position($3::text[], k.match_status)
+		           THEN d.match_status ELSE k.match_status END,
+		       -- A row is tombstoned only when EVERY copy was: one live copy
+		       -- means the connection is still in somebody's export.
+		       tombstoned_at = CASE
+		         WHEN k.tombstoned_at IS NULL OR d.tombstoned_at IS NULL THEN NULL
+		         ELSE greatest(k.tombstoned_at, d.tombstoned_at) END,
+		       synced_at  = greatest(k.synced_at, d.synced_at),
+		       updated_at = now()
+		  FROM linkedin_connection d
+		 WHERE k.id = $1 AND d.id = $2`,
+		keep, doomed, matchRankOrder)
+	if err != nil {
+		return fmt.Errorf("people: folding a duplicate LinkedIn connection into its survivor: %w", err)
+	}
+	return nil
 }
 
 // survivor picks which of a duplicate set to keep: a row carrying a human's

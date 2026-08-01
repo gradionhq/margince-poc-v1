@@ -100,6 +100,16 @@ func (s *Store) ImportLinkedInConnections(ctx context.Context, r io.Reader) (Lin
 	out := LinkedInImportResult{Rows: len(rows.parsed) + rows.skipped, Skipped: rows.skipped}
 
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Repair the stored keys BEFORE upserting. normalized_company is a
+		// derived part of the natural key, so rows written under an older
+		// normalizer no longer collide with what this import computes — and
+		// inserting against a stale key is exactly how a re-import duplicates
+		// a whole network. Doing it here rather than trusting the hourly sweep
+		// makes the import self-healing: it cannot depend on a background pass
+		// having happened to run first.
+		if _, err := renormalizeGhostKeysTx(ctx, tx); err != nil {
+			return err
+		}
 		out.Imported = 0
 		for _, row := range rows.parsed {
 			if err := upsertGhost(ctx, tx, actor.UserID, row); err != nil {
@@ -325,5 +335,63 @@ func cleanLinkedInCompany(s string) string {
 			s = cut
 		}
 	}
-	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s), ".-·•*"))
+	s = strings.TrimSpace(strings.Trim(strings.TrimSpace(s), ".-·•*"))
+	return strings.TrimSuffix(s, ".")
+}
+
+// webTLDs are the domain endings a company writes into its own name —
+// "Wortfilter.de" is the account stored as "Wortfilter". Only stripped when the
+// name is a single token, so "Booking.com Partners" keeps its shape and a firm
+// genuinely called "X.Y Consulting" is untouched.
+var webTLDs = []string{".de", ".com", ".io", ".ai", ".net", ".org", ".co", ".eu", ".at", ".ch"}
+
+// orgMatchKeys are the keys ONE company string may be looked up under, in
+// descending order of how much it claims.
+//
+// The exact key always comes first and is the only one the account dedupe uses.
+// The rest are LinkedIn-side fallbacks for the ways a member writes their
+// employer that a register never would, each one narrow enough to be checked
+// against a real example that failed:
+//
+//	"Wortfilter.de"                 → wortfilter      (the account's own name)
+//	"The Sentry"                    → thesentry       (spacing)
+//	"pinops consumer research"      → pinops          (a description trailing the name)
+//	"SIMIO GmbH & Co. KG"           → simio           (already exact after the strip)
+//
+// A fallback is a LOOKUP key, never a claim: the caller only accepts one when
+// it resolves to exactly one account, so "NFQ Technologies" still reaches
+// nothing while two accounts are called Nfq.
+func orgMatchKeys(company string) []string {
+	exact := NormalizeOrgName(cleanLinkedInCompany(company))
+	if exact == "" {
+		return nil
+	}
+	keys := []string{exact}
+	seen := map[string]bool{exact: true}
+	add := func(k string) {
+		if k != "" && !seen[k] {
+			seen[k] = true
+			keys = append(keys, k)
+		}
+	}
+	fields := strings.Fields(exact)
+	if len(fields) == 1 {
+		for _, tld := range webTLDs {
+			if trimmed := strings.TrimSuffix(exact, tld); trimmed != exact {
+				add(trimmed)
+				break
+			}
+		}
+	}
+	// Spacing is not identity: "The Sentry" and "Thesentry" are one account.
+	add(strings.ReplaceAll(exact, " ", ""))
+	// A leading name followed by what the company DOES. Two tokens minimum on
+	// the survivor would be safer still, but one is what the real misses need
+	// ("pinops consumer research", "brickfox Multichannel eCommerce") and the
+	// unambiguity requirement is what keeps it honest.
+	if len(fields) > 1 {
+		add(fields[0])
+		add(strings.Join(fields[:len(fields)-1], " "))
+	}
+	return keys
 }
