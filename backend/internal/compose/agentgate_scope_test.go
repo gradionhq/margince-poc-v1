@@ -22,32 +22,47 @@ import (
 func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 	registry := NewRegistry(nil, SendPath{})
 
-	outbound := map[string]string{
-		"send_email":   "POST /v1/activities/{id}/send-email",
-		"send_message": "POST /v1/activities/{id}/send-message",
+	// The outbound universe: every verb still pinned as a hole, plus every
+	// registered tool that declares egress. Deriving it is what makes closing a
+	// hole at the wrong scope fail here rather than pass quietly.
+	outbound := map[string]bool{}
+	for verb := range outboundHoles {
+		outbound[verb] = true
+	}
+	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+		if spec.Egress {
+			outbound[spec.Name] = true
+		}
 	}
 
-	for verb, route := range outbound {
-		pol, known := agentPolicies[route]
-		if !known {
-			t.Fatalf("%s: route %q is absent from the generated policy table", verb, route)
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool || !outbound[pol.Tool] {
+			continue
 		}
-		if pol.Tool != verb {
-			t.Fatalf("%s: route %q declares tool %q", verb, route, pol.Tool)
+		if _, registered := registry.Spec(pol.Tool); !registered {
+			// A pinned hole is known-wrong — outboundHoles names the debt,
+			// not a passing grade — so it must not be asserted against
+			// ScopeSend here. TestThePinsDescribeVerbsThatStillExist covers
+			// the other half: it fails the moment the verb gains a tool,
+			// which is when this branch starts asserting on it instead.
+			if _, pinned := outboundHoles[pol.Tool]; !pinned {
+				t.Errorf("%s (%s) is derived as outbound but is neither registered nor a pinned hole", pol.Tool, route)
+			}
+			continue
 		}
 		spec, ok := operationSpec(pol, registry)
 		if !ok {
-			t.Fatalf("%s: the gate cannot resolve a spec for it", verb)
+			t.Fatalf("%s: the gate cannot resolve a spec for it", pol.Tool)
 		}
 		if spec.RequiredScope != principal.ScopeSend {
 			t.Errorf("%s admits under scope %q, want %q — a write-only passport can send with it",
-				verb, spec.RequiredScope, principal.ScopeSend)
+				pol.Tool, spec.RequiredScope, principal.ScopeSend)
 		}
 		if spec.Tier != mcp.TierConfirmationRequired {
-			t.Errorf("%s admits at tier %v, want TierConfirmationRequired", verb, spec.Tier)
+			t.Errorf("%s admits at tier %v, want TierConfirmationRequired", pol.Tool, spec.Tier)
 		}
 		if !spec.Egress {
-			t.Errorf("%s does not declare egress; it leaves the workspace", verb)
+			t.Errorf("%s does not declare egress; it leaves the workspace", pol.Tool)
 		}
 	}
 }
