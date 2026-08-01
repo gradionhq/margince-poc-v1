@@ -375,8 +375,15 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	ctx = withIdentity(ctx, id)
-	ctx = principal.WithActor(ctx, principal.Principal{
+	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
+}
+
+// withHumanPrincipal binds one authenticated human onto the context: the
+// identity the module's own handlers read and the kernel principal every store
+// gate reads. One spelling for both hand-offs below, so a session admitted by
+// either arrives as the same principal.
+func withHumanPrincipal(ctx context.Context, id Identity) context.Context {
+	return principal.WithActor(withIdentity(ctx, id), principal.Principal{
 		Type:        principal.PrincipalHuman,
 		ID:          "human:" + id.UserID.String(),
 		UserID:      id.UserID.UUID,
@@ -384,7 +391,39 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 		SeatType:    principal.SeatType(id.SeatType),
 		Permissions: id.Permissions,
 	})
-	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// serveAsOptionalHuman serves the consent entry point (isConsentEntry,
+// middleware.go) with whatever session the browser has, including none: a
+// signed-in human reaches the handler as themselves, and a human who is not
+// signed in reaches it as nobody — which is the case the handler answers with a
+// redirect to the login screen.
+//
+// "Not signed in" deliberately covers an expired or revoked session too. The
+// human's situation is identical (they must sign in again) and so is the answer,
+// while a 401 would strand exactly the human whose consent screen sat open too
+// long. Nothing is admitted by it: this route hands an unidentified caller a
+// redirect and nothing else, and the seat ceiling has no bearing on a GET.
+//
+// A session that cannot be RESOLVED — a database failure, not a dead session —
+// is still an error. Reporting it as "not signed in" would send a human into a
+// login loop against an installation that cannot authenticate anyone.
+func (h Handlers) serveAsOptionalHuman(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler) {
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	id, err := h.svc.Authenticate(ctx, cookie.Value)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
 }
 
 // restScope maps an HTTP method onto the passport verb it exercises on

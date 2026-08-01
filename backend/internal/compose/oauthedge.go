@@ -97,12 +97,15 @@ func oauthAdmits(r *http.Request, lim mcpLimiters) bool {
 		perPeer := lim.peerCeiling.Allow(peerCeilingKey(peerGroupToken, ip))
 		return perClient && perPeer
 	case oauthAuthorizePath:
-		// Consent needs a live session — the GET form and the POST grant alike,
-		// being two halves of one human flow — so the session a request presents
-		// is a key per real human, and a request carrying none can only ever be
-		// refused by the middleware behind this edge. Without that key an
-		// unauthenticated flood at one request per second denied every human in
-		// the installation the ability to approve or re-approve a connection.
+		// Consent is a human flow, so the session a request presents is a key per
+		// real human. Without that key an unauthenticated flood at one request per
+		// second denied every human in the installation the ability to approve or
+		// re-approve a connection. A request presenting no session shares the
+		// fallback bucket instead, and on this path that is not only a refusal any
+		// more: the authorize GET answers a session-less human with a redirect to
+		// sign in. So a flood there costs a human who has not signed in YET the
+		// start of their flow (they sign in through the app and re-enter), and
+		// costs a signed-in human nothing — their key is their own.
 		// The per-peer ceiling is what a varying cookie cannot escape, and 60
 		// consent requests a minute is far past what one human generates.
 		perHuman := lim.authorize.Allow(presentedKey("session", ip, sessionDigest(r)))

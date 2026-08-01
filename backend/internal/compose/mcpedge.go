@@ -78,6 +78,13 @@ func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handl
 	// came up, and how much of it: a mount that silently serves nothing is
 	// indistinguishable from a mount that never happened.
 	log.Info("mcp: hosted connector transport mounted", "path", "/mcp", "tools", len(s.toolRegistry.Specs()))
+	// The consent flow leaves this origin and has to come back to it: the
+	// authorize GET redirects a human's browser to the SPA route below, which
+	// POSTs the decision back to /oauth/authorize. Nothing here can verify that
+	// anything answers that route — the api serves no SPA — and an ingress that
+	// sends it elsewhere 404s a human mid-consent, so the target is named where an
+	// operator can compare it against what their front end actually routes.
+	log.Info("mcp: consent screen redirect target", "location", identity.ConsentScreenPath)
 	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(auth),
 		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log)
 }
@@ -240,10 +247,11 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 // So a request that PRESENTS something is metered on a digest of it — the bearer
 // on /mcp, the browser session on the consent form, the token to kill on
 // /oauth/revoke — and only a request presenting NOTHING falls back to the peer
-// address. That fallback is safe precisely because a presentation-less request
-// on those paths can never be anything but a refusal, so refusing it costs a
-// caller holding the real thing nothing. kind namespaces the two arms so a key
-// read out of a limiter says which one it is.
+// address. What that fallback can cost is bounded by what a presentation-less
+// request can obtain: a refusal on /mcp and on /oauth/revoke, and on the consent
+// GET a redirect to sign in — so spending it never touches a caller holding the
+// real thing, and at worst delays a human who has not signed in yet. kind
+// namespaces the two arms so a key read out of a limiter says which one it is.
 //
 // What no presented key can bound is the FIRST use of each distinct
 // presentation: a bearer nobody has seen is indistinguishable from a valid one

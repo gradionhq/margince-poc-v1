@@ -43,8 +43,9 @@ const authCodeTTL = 5 * time.Minute
 // OAuthRouter serves the authorization-server endpoints. Mounted
 // behind the same workspace/session middleware as /v1: register, token
 // and revoke are public (the workspace still binds via slug/subdomain);
-// authorize demands the signed-in human whose authority the passport
-// will borrow.
+// the consent POST demands the signed-in human whose authority the
+// passport will borrow, and the consent GET admits a session-less one
+// for the sole purpose of sending them somewhere they can sign in.
 func (h Handlers) OAuthRouter() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /oauth/register", h.oauthRegister)
@@ -214,7 +215,19 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 // would otherwise silently borrow their authority (OAuth CSRF).
 func (h Handlers) oauthConsentRedirect(w http.ResponseWriter, r *http.Request) {
 	if _, ok := identityFrom(r.Context()); !ok {
-		httperr.Unauthorized(w, r, "authorization requires the signed-in human whose authority the agent will borrow")
+		// A human who runs `claude mcp add` arrives here in a browser that may
+		// carry no session at all, and the endpoint cannot ask for one: it serves
+		// no HTML. The SPA can — AuthGate renders the login screen in place at
+		// whatever route was asked for — so the answer is the screen, and the human
+		// signs in without losing the request.
+		//
+		// It carries the request and NOTHING this endpoint has not yet done:
+		// no nonce (there is no human to bind one to) and no validated value
+		// (validateAuthorize has not run). Once signed in the screen re-enters this
+		// endpoint, which then validates and arms as usual. This redirect cannot
+		// loop: its target is the SPA document, a route this api does not serve, so
+		// nothing behind it redirects again on its own.
+		redirectToConsentScreen(w, r, consentScreenParams(r.URL.Query()))
 		return
 	}
 	req, oauthCode, detail := h.validateAuthorize(r, r.URL.Query())
@@ -234,43 +247,8 @@ func (h Handlers) oauthConsentRedirect(w http.ResponseWriter, r *http.Request) {
 
 	// The consent SCREEN lives in the SPA; this endpoint stays where discovery
 	// advertises it and keeps doing the work only the server can: validate the
-	// request and arm the consent nonce. The params ride in the FRAGMENT, which
-	// browsers never transmit — so client_id, state and the PKCE challenge do
-	// not enter api access logs or any intermediary's.
-	//
-	// A relative Location is deliberate: the SPA and this api share an origin
-	// (the SPA reads its own API base from location.origin), so naming a host
-	// here would add configuration that could only ever disagree with reality.
-	//
-	// The nonce rides here too. The cookie above is Path=/oauth/authorize, so no
-	// endpoint the SPA can call ever receives it — the screen gets its half of the
-	// double-submit pair from the fragment, and the POST must still present both.
-	params := url.Values{
-		"response_type": {oauthResponseTypeCode}, oauthParamClientID: {req.ClientID},
-		"redirect_uri": {req.RedirectURI}, "scope": {formScope(req)},
-		"code_challenge": {req.CodeChallenge}, "code_challenge_method": {"S256"},
-		oauthParamResource: {req.Resource}, "state": {req.State},
-		"consent": {nonce},
-	}
-	http.Redirect(w, r, "/#/oauth-consent?"+params.Encode(), http.StatusFound)
-}
-
-// formScope is the scope string the consent screen must POST back. It re-adds
-// offline_access — never a passport scope, and never presented as one — so the
-// POST re-derives the same Offline marker; without it the round trip through the
-// screen would silently drop the client's refresh request.
-//
-// offline_access is not authority over any record but over the connection's
-// LIFETIME, which the exchange records as the grant's refresh_allowed. That
-// audit row asserts the human approved a self-renewing connection, so the
-// screen has to disclose it — apart from the scope list, never as an item in
-// it, where a human cannot tell it apart from a permission.
-func formScope(req authorizeRequest) string {
-	scope := strings.Join(req.Scopes, " ")
-	if req.Offline {
-		return strings.TrimSpace(scope + " " + scopeOfflineAccess)
-	}
-	return scope
+	// request and arm the consent nonce.
+	redirectToConsentScreen(w, r, consentHandoffParams(req, nonce))
 }
 
 // oauthAuthorize (POST) is the consent decision: same-site by header,
@@ -294,7 +272,12 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	nonce, err := r.Cookie(consentCookie)
 	if err != nil || nonce.Value == "" ||
 		subtle.ConstantTimeCompare([]byte(nonce.Value), []byte(r.PostForm.Get("consent"))) != 1 {
-		oauthError(w, http.StatusForbidden, "access_denied", "consent token missing or stale — reload the authorization page")
+		// The ordinary cause is a human who left the screen open past the cookie's
+		// five minutes, so the answer is the screen — where re-entry mints a fresh
+		// nonce. A forged nonce lands here too and gets the same answer: it minted
+		// nothing either way, and the screen it reaches serves the human whose
+		// session the request already had to carry.
+		refuseToConsentScreen(w, r, url.Values(r.PostForm), consentErrorStale)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -302,9 +285,14 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 
-	req, oauthCode, detail := h.validateAuthorize(r, url.Values(r.PostForm))
-	if oauthCode != "" {
-		oauthError(w, http.StatusBadRequest, oauthCode, detail)
+	// A POST that fails validation is read by the human's browser, not by the
+	// client, so the refusal goes to the screen and validateAuthorize's
+	// client-facing code and description stay behind: the screen states the
+	// refusal in the human's own language, and the specific code is a client
+	// developer's vocabulary, delivered on the GET where a client developer looks.
+	req, refusal, _ := h.validateAuthorize(r, url.Values(r.PostForm))
+	if refusal != "" {
+		refuseToConsentScreen(w, r, url.Values(r.PostForm), consentErrorInvalid)
 		return
 	}
 
@@ -328,8 +316,9 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !lendable {
-		oauthError(w, http.StatusBadRequest, "invalid_request",
-			"select one of your own live passports to lend this client")
+		// Nothing was minted, and the human is one selection away from a working
+		// consent: back to the screen, which re-reads the live list and asks again.
+		refuseToConsentScreen(w, r, url.Values(r.PostForm), consentErrorUnlendable)
 		return
 	}
 	req.Scopes = lent.Scopes

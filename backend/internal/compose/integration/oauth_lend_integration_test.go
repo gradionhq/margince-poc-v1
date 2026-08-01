@@ -49,13 +49,19 @@ func (o *oauthEnv) approveWithPassport(t *testing.T, extra url.Values, passportI
 	return granted.Query().Get("code")
 }
 
-// approveRaw is approveWithPassport without the success assertion, for a caller
-// whose subject IS the refusal — the fatal "want 302" would abort the test
-// before its own assertion ran.
-func (o *oauthEnv) approveRaw(t *testing.T, extra url.Values, passportID string) (int, string) {
+// approveRefused is approveWithPassport without the success assertion, for a
+// caller whose subject IS the refusal — the fatal "want 302" would abort the
+// test before its own assertion ran. It returns the armed nonce alongside the
+// answer, because what a refusal must NOT hand back is that nonce. An empty
+// passportID posts no selection at all.
+func (o *oauthEnv) approveRefused(t *testing.T, extra url.Values, passportID string) (status int, location, armed string) {
 	t.Helper()
-	status, _, body := o.approve(t, extra, passportID)
-	return status, body
+	form := o.armConsent(t, extra)
+	if passportID != "" {
+		form.Set("passport_id", passportID)
+	}
+	status, location, _ = o.postConsent(t, form)
+	return status, location, form.Get("consent")
 }
 
 // denyRaw is the human refusing. RFC 6749 §4.1.2.1 answers the CLIENT at its
@@ -197,18 +203,26 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 
 // A passport the human may not lend cannot be lent, even by a hand-made POST:
 // the list was rendered seconds ago and the check must be re-run (I2).
+//
+// The human is one selection away from a working consent, so the refusal goes
+// back to the screen with a marker rather than replacing it with JSON — asserted
+// for both shapes the check refuses, a passport that is no longer selectable and
+// a POST that named none at all.
 func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 	o := setupOAuth(t)
 	revoked := o.mintPassport(t, "revoked", []string{"read"})
 	o.revokePassport(t, revoked)
 
-	status, body := o.approveRaw(t, url.Values{"scope": {"read"}}, revoked)
+	status, location, armed := o.approveRefused(t, url.Values{"scope": {"read"}}, revoked)
 
-	if status != http.StatusBadRequest {
-		t.Fatalf("approve with a revoked passport → %d %s, want 400", status, body)
+	if got := consentScreenRefusal(t, status, location, armed); got != "unlendable_passport" {
+		t.Fatalf("error = %q, want unlendable_passport: %q", got, location)
 	}
-	if !strings.Contains(body, "invalid_request") {
-		t.Fatalf("body %q should refuse as invalid_request", body)
+	// A POST naming no passport at all is the same refusal: there is nothing to
+	// lend either way, and the screen has to ask again for the same reason.
+	status, location, armed = o.approveRefused(t, url.Values{"scope": {"read"}}, "")
+	if got := consentScreenRefusal(t, status, location, armed); got != "unlendable_passport" {
+		t.Fatalf("error = %q for a POST naming no passport, want unlendable_passport: %q", got, location)
 	}
 	// The refusal has to come BEFORE anything durable exists. The code row and
 	// the audit row naming the lend are the two a consent POST can write, so both

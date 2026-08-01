@@ -336,8 +336,11 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	// The redirect goes to the screen, not toward the client — and there is
 	// nothing to carry there yet: a GET mints no code.
 	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
-	// A consent POST without the armed nonce (the cross-site forgery
-	// shape) is refused.
+	// A consent POST without the armed nonce mints nothing. It is sent back to
+	// the consent screen rather than refused with a body, because the ordinary
+	// cause is a human whose nonce expired — the refusal itself, and its
+	// mint-nothing consequence, are TestAStaleConsentNonceComesBackToTheScreen's
+	// subject; here it is only the absence of a code that matters.
 	form := url.Values{}
 	for k, vs := range q {
 		form[k] = vs
@@ -345,15 +348,21 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	form.Set("consent", "forged")
 	post, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err = o.client.Do(post)
+	o.client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeBody(t, resp)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("forged consent POST → %d, want 403", resp.StatusCode)
+	if location := resp.Header.Get("Location"); strings.Contains(location, "code=") {
+		t.Fatalf("forged consent POST → %q, which carries a code", location)
 	}
-	// A browser-stamped cross-site POST is refused outright.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
+
+	// A browser-stamped cross-site POST is refused OUTRIGHT — no redirect, not
+	// even to the consent screen. This is not a human who took too long: the
+	// initiator was another site, so there is nobody to send back to a screen.
 	post2, _ := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	post2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	post2.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -364,6 +373,9 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 	closeBody(t, resp)
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("cross-site consent POST → %d, want 403", resp.StatusCode)
+	}
+	if location := resp.Header.Get("Location"); location != "" {
+		t.Fatalf("cross-site consent POST redirected to %q; an attack is refused, not sent to a screen", location)
 	}
 }
 
