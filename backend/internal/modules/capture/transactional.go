@@ -28,26 +28,8 @@ package capture
 import (
 	"strings"
 
-	"golang.org/x/net/publicsuffix"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 )
-
-// registrableDomain normalizes a mail domain (any subdomain depth) to its
-// registrable eTLD+1 via the public-suffix list: "eu.docusign.net" →
-// "docusign.net", "news.acme.co.uk" → "acme.co.uk". Punycode ("xn--") labels
-// pass through unchanged (already ASCII). Empty for a blank or suffix-only
-// domain. This is what the exact-infra check and the allowlist key on, so a
-// listing covers every subdomain of an eSLD without enumerating them.
-func registrableDomain(domain string) string {
-	domain = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(domain, ".")))
-	if domain == "" {
-		return ""
-	}
-	base, err := publicsuffix.EffectiveTLDPlusOne(domain)
-	if err != nil {
-		return domain
-	}
-	return base
-}
 
 // transactionalBaseline is the pinned set of registrable domains (eTLD+1) that
 // are mail infrastructure, never a counterparty's own company. Matched exactly
@@ -124,7 +106,7 @@ func NewTransactionalList(extra, never []string) *TransactionalList {
 // and a stable reason breadcrumb (recorded for observability). The activity is
 // unaffected — only person/org derivation is gated.
 func (l *TransactionalList) Suppress(in TransactionalInput) (bool, string) {
-	base := registrableDomain(in.Domain)
+	base := freemail.Registrable(in.Domain)
 	if base == "" {
 		return false, ""
 	}

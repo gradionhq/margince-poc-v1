@@ -65,7 +65,8 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 // post-commit steps report through. The zero value is the pinned baselines with
 // no deployment additions and the default logger.
 type CaptureConfig struct {
-	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
+	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5 additions)
+	FreemailNever      []string // capture.freemail_never (CAP-PARAM-5 carve-outs)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
 	// Logger carries the process logger to the post-commit steps the Sink
@@ -98,6 +99,7 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
 	return CaptureConfig{
 		FreemailExtra:      c.FreemailExtra,
+		FreemailNever:      c.FreemailNever,
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
 		Logger:             log,
@@ -146,7 +148,7 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
 		WithEnsurer(ensurer,
-			capture.NewFreemailList(cfg.FreemailExtra),
+			capture.NewFreemailList(cfg.FreemailExtra, cfg.FreemailNever),
 			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
 		// The channel twin of the line above (telegram-oa design §6.4): an
 		// inbound channel message reaches the SAME module through its own
