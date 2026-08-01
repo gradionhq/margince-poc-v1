@@ -31,6 +31,15 @@ numbers appear here when releases start.
   and hosted A2 transport (OAuth), the 🟢/🟡 autonomy tiers enforced
   below the transport on MCP and REST alike, and the approval engine
   (stage → human decision → single-use redemption).
+- **Consent lends a passport**: `GET /oauth/authorize` redirects to an SPA
+  consent screen where the human selects one of their own existing agent
+  passports; the connection receives that passport's scopes intersected
+  with the client's request, carried by a *new* grant-bound passport, so
+  revoking a connection never touches the human's own credential. Deny
+  answers the client `access_denied`. A human with no passport is guided
+  to mint one and brought back to finish connecting, which means
+  `claude mcp add` no longer completes unattended for a fresh account.
+  The lend is recorded in the audit trail.
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
   Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.

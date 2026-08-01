@@ -191,6 +191,42 @@ UI today.
 Both block the coverage matrix (their buying committee × our team, cells by
 relationship strength) agreed as the company page's centrepiece.
 
+## Open items left by the consent screen (PR #345)
+
+The passport-lending consent screen shipped; these are the parts deliberately
+not in it, each named so none is mistaken for done.
+
+- **The minted credential does not name the passport it came from.** The design
+  promises a label like `Claude Code (from "night agent")`, and the flow cannot
+  produce one: the lend is known at consent time, the credential is minted at
+  token exchange, and nothing carries the lent passport between them. It needs a
+  column on the authorization-code row; the migration was kept out of #345 on
+  purpose. Until then the audit row is the only record of which passport was
+  lent — enough to answer the question after the fact, not enough to show a human
+  in Settings.
+- **The lend audit row ships no event.** The event catalog carries no
+  consent/lend fact, and `audit.appended` is declared with no emit site and an
+  empty payload, so it could name neither the passport nor the client. The
+  exception is *ratified* in `auditOnlyWrites` beside `mintPassport` and
+  `issueGrant` rather than left silent, and the catalog gap is owed upstream as a
+  spec raise — an `oauth_grant.*` verb is the shape to ask for.
+- **The German consent copy is machine-written.** Key parity is enforced by test,
+  register is not. Wants a native pass; `en` is the default locale, so it does
+  not block.
+- **A per-human grantable scope set still does not exist.** Scopes are checked
+  against the closed vocabulary, and the seat/RBAC ceiling applies at call time
+  in `Gate.Admit`, so a read-seat human can still mint a `write` passport and
+  discover the refusal only when the write runs. The consent screen inherits that
+  honesty gap rather than introducing it.
+- **The `client` screen can be diverted by the onboarding gate.** #345 fixed this
+  for the consent route — an undescribed installation used to rewrite the hash and
+  destroy a pending authorization outright — but `client` reaches the same gate
+  and is authenticated. Pre-existing, unrelated to the connector, and unfixed.
+- **`stubs_gen.go` and its generator are dead inventory.** Nothing embeds the
+  type now that `Server` asserts the contract interface directly. Deleting it is a
+  decision, not a cleanup, so it was left alone; the generated comment no longer
+  claims a mechanism that does not exist.
+
 ## Where this is
 
 Margince's **WP0 foundation + WP1 core spine** are built and green:
