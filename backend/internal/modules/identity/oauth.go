@@ -431,11 +431,18 @@ func oauthError(w http.ResponseWriter, status int, code, description string) {
 // ever got that far.
 const scopeOfflineAccess = "offline_access"
 
-// parseOAuthScopes splits and validates the space-delimited scope
-// parameter. offline reports whether the caller asked for offline_access;
-// the returned scopes never include it, so every downstream consumer that
-// treats scopes as passport authority (the consent list, the passport
-// mint) sees only the closed read|draft|write|send|enrich vocabulary.
+// parseOAuthScopes splits the space-delimited scope parameter and refuses
+// anything outside the closed read|draft|write|send|enrich vocabulary — the
+// refusal is what this function is for, since it happens before any code
+// exists. offline reports whether the caller asked for offline_access, and the
+// returned scopes never include it: it buys the connection's lifetime, and a
+// scope list is read as record authority wherever it travels.
+//
+// The scopes themselves grant nothing. A consent hands over the passport the
+// human lent — oauth_consent.go's resolveLend replaces these before the code is
+// minted, and the consent screen offers passports without consulting the
+// request — so what survives of this list is the string the screen posts back
+// (formScope, oauth_consentscreen.go), which carries the offline marker home.
 func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	if strings.TrimSpace(raw) == "" {
 		return []string{string(principal.ScopeRead)}, false, nil
@@ -454,11 +461,14 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	// the only marker that can cause this, since anything else unknown
 	// already errored above — carries no authority to deny outright: it is
 	// the same "nothing asked for" situation as the blank-string case
-	// above, not a client mistake. Defaulting on the empty OUTCOME (rather
-	// than special-casing "offline_access" as the one literal request that
-	// defaults) means no path ever mints a zero-scope passport that
-	// silently fails every later tool call, whatever future marker-style
-	// scope might someday reduce the parsed list to nothing.
+	// above, not a client mistake. The condition is the empty OUTCOME
+	// rather than the literal "offline_access", so any future marker-style
+	// scope that reduces the list to nothing answers the same way.
+	//
+	// The default decides nothing about authority: it cannot reach a passport
+	// mint on any path. All it settles is that the scope parameter travelling
+	// to the consent screen, and re-parsed when that screen posts back, names
+	// read rather than nothing.
 	if len(scopes) == 0 {
 		scopes = []string{string(principal.ScopeRead)}
 	}
