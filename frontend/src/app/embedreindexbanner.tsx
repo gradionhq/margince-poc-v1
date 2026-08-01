@@ -45,15 +45,17 @@ export function EmbedReindexBanner() {
   // Advisory only: a failed status probe must not block the app shell — the
   // settings card (screens/embedreindex.tsx) surfaces the same read's error
   // state to the accountable audience.
-  // status "reembedding" is the confirmed rebuild already running:
-  // populated_identity only catches up at completion, so without this the
-  // banner would keep demanding a decision the admin already made.
+  // The mismatch ALONE keys the banner (SEARCH-AC-13) — deliberately not
+  // status-qualified: suppressing during status="reembedding" would also
+  // hide a rebuild whose job was drift-cancelled and left the marker
+  // stuck, exactly the state the settings card's recovery affordance
+  // exists for. A redundant banner during a healthy rebuild is the
+  // cheaper failure.
   if (
     !enabled ||
     query.isError ||
     !query.data ||
-    query.data.configured_identity === query.data.populated_identity ||
-    query.data.status === "reembedding"
+    query.data.configured_identity === query.data.populated_identity
   ) {
     return null;
   }

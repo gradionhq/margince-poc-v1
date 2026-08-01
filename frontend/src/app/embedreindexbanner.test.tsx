@@ -111,19 +111,19 @@ it("renders nothing for identity-matched drift, even with reindex_needed true an
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-it("renders nothing while a confirmed rebuild is running", async () => {
-  // populated_identity only catches up when the job completes, so the
-  // mismatch alone would keep demanding a decision the admin already made.
-  const { fetchMock } = mount(["admin"], {
+it("keeps showing during status=reembedding — a stuck marker must stay visible", async () => {
+  // Deliberately NOT suppressed while a rebuild runs: a drift-cancelled
+  // job leaves the marker at "reembedding" with no live worker, and
+  // hiding the banner there would bury the one state that needs the
+  // settings card's recovery affordance (SEARCH-AC-13: mismatch alone).
+  mount(["admin"], {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
     entities_pending: 42,
     status: "reembedding",
   });
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-  expect(screen.queryByText("Reindex needed")).toBeNull();
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(await screen.findByText("Reindex needed")).toBeTruthy();
 });
 
 it("renders nothing when the store is current", async () => {
