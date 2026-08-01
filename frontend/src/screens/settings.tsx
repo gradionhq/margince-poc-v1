@@ -34,6 +34,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { PassportSelect, ScopeChips } from "../design-system/passportselect";
 import { FieldGuard, RoleBadge } from "../design-system/rbac";
 import {
   AutonomyDot,
@@ -483,9 +484,7 @@ function PassportCard() {
                       once at mint) — masked reads as "withheld", not absent. */}
                   <span className="t-label">{t("settings.token")}</span>
                   <FieldGuard mode="masked" />
-                  {passport.scopes.map((scope) => (
-                    <Badge key={scope}>{scope}</Badge>
-                  ))}
+                  <ScopeChips scopes={passport.scopes} />
                   <span className="t-small">
                     {t("settings.created", {
                       date: formatDate(
@@ -576,22 +575,22 @@ function AgentToolsCard() {
     <section className="card" style={{ marginBottom: 14 }}>
       <SectionHeader title={t("tools.title")} sub={t("tools.sub")} />
       {passports.data && passports.data.data.length > 0 && (
-        <select
-          className="input"
-          aria-label={t("tools.scopeAll")}
-          value={passportId}
-          onChange={(event) => setPassportId(event.target.value)}
-          style={{ marginBottom: 10 }}
-        >
-          <option value="">{t("tools.scopeAll")}</option>
-          {passports.data.data
-            .filter((p) => p.revoked_at == null)
-            .map((p) => (
-              <option key={p.id} value={p.id}>
-                {t("tools.scopedTo", { label: p.label })}
-              </option>
-            ))}
-        </select>
+        <div style={{ marginBottom: 10 }}>
+          <PassportSelect
+            options={passports.data.data
+              .filter((p) => p.revoked_at == null)
+              .map((p) => ({
+                id: p.id,
+                label: t("tools.scopedTo", { label: p.label }),
+                scopes: p.scopes,
+              }))}
+            value={passportId}
+            onChange={setPassportId}
+            allowEmpty
+            emptyLabel={t("tools.scopeAll")}
+            ariaLabel={t("tools.scopeAll")}
+          />
+        </div>
       )}
       <QueryGate query={tools} empty={(data) => data.data.length === 0}>
         {(data) => (

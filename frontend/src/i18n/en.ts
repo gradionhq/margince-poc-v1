@@ -1050,6 +1050,9 @@ export const en = {
   "settings.passports": "Agent passports",
   "settings.passportsSub":
     "an agent acts as you, never above you — every call re-checks your RBAC",
+  "passport.select": "Passport",
+  "passport.noneOption": "No passport",
+  "passport.scopeNotGranted": "not granted",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",

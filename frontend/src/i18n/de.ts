@@ -1069,6 +1069,9 @@ export const de = {
   "settings.passports": "Agenten-Passports",
   "settings.passportsSub":
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+  "passport.select": "Passport",
+  "passport.noneOption": "Kein Passport",
+  "passport.scopeNotGranted": "nicht gewährt",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",

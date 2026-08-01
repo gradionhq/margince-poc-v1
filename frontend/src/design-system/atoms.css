@@ -32,6 +32,14 @@
   background: var(--accentLight);
   color: var(--accent);
 }
+/* A scope the current selection does not grant: an unfilled, dashed outline
+ * rather than a faded fill. Text keeps the same --textMeta the filled chip
+ * uses (it is a shape change, not a contrast drop) — paired with a
+ * screen-reader-only label (ScopeChips) for parity without visual noise. */
+.badge-dim {
+  background: transparent;
+  border: 1px dashed var(--borderStrong);
+}
 
 .card {
   background: var(--bgElevated);
