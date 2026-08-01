@@ -229,6 +229,9 @@ type Server struct {
 	// WithAccountBrief can rebuild the brief service over the SAME gated
 	// read rather than a second one that might drift from it.
 	org360Svc *org360.Service
+	// peopleStore is shared by the 360 and the account brief: the brief reads
+	// the company's curated profile through it, under the caller's own gates.
+	peopleStore *people.Store
 
 	// sorDispatch is the per-workspace native/overlay provider dispatch:
 	// the ONE instance both the ADR-0055 admission layer (contractAPI's
@@ -387,10 +390,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// The model lane is nil here: WithAccountBrief binds the api role's
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
-	srv.org360Svc = org360.NewService(pool,
-		people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		approvals.NewService(pool), time.Now)
-	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, nil, "", time.Now)
+	srv.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
+	srv.org360Svc = org360.NewService(pool, srv.peopleStore, approvals.NewService(pool), time.Now)
+	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, srv.peopleStore, nil, "", time.Now)
 	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
 		srv.org360Svc,

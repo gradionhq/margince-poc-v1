@@ -17,6 +17,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -26,7 +27,7 @@ import (
 // input changes. It rides the fingerprint, so a deploy that rewrites the
 // prompt invalidates every cached brief rather than serving text written to
 // the old instructions.
-const promptVersion = "org-brief-v2"
+const promptVersion = "org-brief-v3"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned
@@ -53,6 +54,12 @@ type Input struct {
 	// brief, and it tells the writer to stay silent about those sections
 	// rather than inferring around the gap.
 	SectionsOmitted []string `json:"sections_omitted,omitempty"`
+
+	// Profile is what the COMPANY is — what it sells, to whom, how it
+	// differentiates — as opposed to everything above, which is how it stands
+	// with us. Curated statements a site read produced and a human accepted,
+	// so the brief can describe the company without inventing a word about it.
+	Profile []ProfileIn `json:"profile,omitempty"`
 }
 
 // NamedIn is a record the brief may write about and must be able to cite:
@@ -216,4 +223,53 @@ func Fingerprint(in Input, routingVersion string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(promptVersion + "\x00" + routingVersion + "\x00" + string(encoded)))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// ProfileIn is one curated statement about the company. The field name rides
+// along because it is what the statement ANSWERS — "who they sell to" reads
+// very differently from "what they sell", and the value alone loses that.
+type ProfileIn struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
+// briefProfileFields is the subset worth putting in front of a salesperson,
+// in the order a person would ask. The store holds sixteen fields; the rest
+// are registry and address detail that describe a legal entity rather than a
+// business, and a brief that recited them would read like a company register.
+var briefProfileFields = []string{
+	"offer_summary",
+	"icp",
+	"value_proposition",
+	"usp",
+	"customer_pains",
+	"desired_outcomes",
+	"buying_center",
+	"sales_motion",
+}
+
+// briefProfileValueMax bounds one statement. These are prose fields with no
+// length cap of their own, and a single essay would crowd out every other
+// fact in the prompt's context.
+const briefProfileValueMax = 400
+
+// foldProfile takes the curated statements in a fixed order, so the same
+// account fingerprints the same way whatever order the store returned.
+func (in *Input) foldProfile(fields []crmcontracts.CompanyProfileField) {
+	byField := make(map[string]string, len(fields))
+	for _, field := range fields {
+		value := strings.TrimSpace(field.Value)
+		if value == "" {
+			continue
+		}
+		if len(value) > briefProfileValueMax {
+			value = value[:briefProfileValueMax]
+		}
+		byField[string(field.Field)] = value
+	}
+	for _, name := range briefProfileFields {
+		if value, ok := byField[name]; ok {
+			in.Profile = append(in.Profile, ProfileIn{Field: name, Value: value})
+		}
+	}
 }

@@ -534,6 +534,13 @@ export const de = {
   "co.people.consentGranted": "Kontakt erlaubt",
   "co.people.consentWithdrawn": "Widerrufen",
   "co.people.consentUnknown": "Keine Einwilligung hinterlegt",
+  "co.brief.title": "Bevor du mit ihnen sprichst",
+  "co.brief.unavailable":
+    "Die Einschätzung zu diesem Account konnte nicht geladen werden — das hier ist nicht das ganze Bild.",
+  "co.brief.empty":
+    "Zu diesem Account gibt es noch zu wenig, um etwas daraus zu lesen.",
+  "co.brief.rewrite": "Neu schreiben",
+  "co.brief.rewriting": "Wird geschrieben…",
   "co.brief.by.model": "Von Margince geschrieben",
   "co.brief.by.deterministic": "Aus deinen Daten zusammengestellt",
   "co.brief.generatedAt": "Stand {when}",

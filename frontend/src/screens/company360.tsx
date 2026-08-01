@@ -10,7 +10,7 @@ import {
   SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
-import { formatDate, formatMoney } from "../format/format";
+import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -868,6 +868,168 @@ function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
       {t(`co.brief.by.${by}`)}
     </Badge>
   );
+}
+
+/**
+ * AccountBrief is what a rep reads before they do anything else on this page:
+ * where this account stands with us, then what the company itself is.
+ *
+ * It replaces reading the record. The page used to answer "what is this
+ * company" with sixteen scraped statements in a rail card, every value a
+ * paragraph — a wall nobody reads before a call. The same statements now feed
+ * two sentences here and stay underneath for whoever wants them.
+ *
+ * Fetched on open, not on request. The server rewrites a brief whose inputs
+ * have moved before it answers, so what renders is always current and an
+ * account nobody has touched costs no model call at all. "Refresh" is for a
+ * reader who wants it rewritten anyway.
+ */
+export function AccountBrief({
+  orgId,
+  view,
+  enabled,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  // The 360 the page already holds. The brief itself is written server-side;
+  // this is for the two things it cannot write — what to DO next, and whether
+  // any of the account was withheld from this reader.
+  view?: Organization360;
+  enabled: boolean;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const queryClient = useQueryClient();
+  const brief = useQuery({
+    queryKey: ["org-brief", orgId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const rewrite = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => queryClient.setQueryData(["org-brief", orgId], data),
+  });
+
+  if (!enabled) {
+    return null;
+  }
+  const written: Brief | undefined = brief.data;
+  // A payload without sentences is a brief this build cannot read, not an
+  // account with nothing to say — the same distinction every card here keeps.
+  const readable = Array.isArray(written?.sentences) ? written : undefined;
+  return (
+    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
+      <h2 className="co-part-label">{t("co.brief.title")}</h2>
+      {brief.isPending && <Skeleton width="100%" height={64} />}
+      {brief.isError && <EmptyState>{t("co.brief.unavailable")}</EmptyState>}
+      {readable && readable.sentences.length === 0 && (
+        <EmptyState>{t("co.brief.empty")}</EmptyState>
+      )}
+      {readable && readable.sentences.length > 0 && (
+        <SentenceList
+          sentences={readable.sentences}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      {readable && (
+        <p className="co-brief-meta">
+          {/* Who wrote it and when, always — a reader weighing a sentence
+              needs both, and an undated summary is one nobody can trust. */}
+          <WrittenBy by={readable.generated_by} />
+          <span className="t-small">
+            {t("co.brief.generatedAt", {
+              when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+            })}
+          </span>
+          <Button
+            small
+            onClick={() => rewrite.mutate()}
+            disabled={rewrite.isPending}
+          >
+            {rewrite.isPending
+              ? t("co.brief.rewriting")
+              : t("co.brief.rewrite")}
+          </Button>
+        </p>
+      )}
+      {rewrite.isError && (
+        <p className="t-caption form-error">{rewrite.error.message}</p>
+      )}
+      {/* What to do about it, in the same block that said what it is. These
+          were two cards — one describing the account, one advising on it —
+          so the reader carried the reading from the first into the second
+          themselves. */}
+      {view && (
+        <SuggestionsSection
+          orgId={orgId}
+          view={view}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      <p className="co-prep-foot">
+        {/* What moved while the reader was away. The brief is about the
+            account; this is about their absence from it, which no server-side
+            reading can know. */}
+        {sinceLastVisit(view) > 0 && (
+          <span className="t-caption">
+            {t(
+              sinceLastVisit(view) === 1
+                ? "co.read.newActivityOne"
+                : "co.read.newActivityMany",
+              { count: sinceLastVisit(view) },
+            )}
+          </span>
+        )}
+        {firstVisit(view) && (
+          <span className="t-caption">{t("co.since.first")}</span>
+        )}
+        {/* Withheld sections are named once, about the whole reading, rather
+            than as a refusal beside each line the reader did not get. */}
+        {(view?.sections_omitted?.length ?? 0) > 0 && (
+          <span className="t-caption">{t("co.prep.withheld")}</span>
+        )}
+      </p>
+    </section>
+  );
+}
+
+// sinceLastVisit is how many activities landed since the reader's baseline.
+//
+// Zero and "not counted" are different answers and neither earns a line: a
+// withheld section means nobody counted, and a counted zero means nothing
+// happened — reporting either as news would be a claim the page cannot make.
+function sinceLastVisit(view?: Organization360): number {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return 0;
+  }
+  return view.since_last_visit?.new_activities ?? 0;
+}
+
+// firstVisit is true only when the account HAS a baseline section and it is
+// empty. Read off an absent section it would turn data a reader's grants
+// withheld into a claim about their own history.
+function firstVisit(view?: Organization360): boolean {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return false;
+  }
+  return Boolean(view.since_last_visit) && !view.since_last_visit?.baseline_at;
 }
 
 // The prepared questions, in the order the card offers them: what is open now,

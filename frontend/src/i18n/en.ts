@@ -523,6 +523,13 @@ export const en = {
   "co.people.consentGranted": "May contact",
   "co.people.consentWithdrawn": "Withdrawn",
   "co.people.consentUnknown": "No consent on file",
+  "co.brief.title": "Before you talk to them",
+  "co.brief.unavailable":
+    "The account reading could not be loaded, so this is not the whole picture.",
+  "co.brief.empty":
+    "There is not enough on this account yet to read anything from it.",
+  "co.brief.rewrite": "Write it again",
+  "co.brief.rewriting": "Writing…",
   "co.brief.by.model": "Written by Margince",
   "co.brief.by.deterministic": "Assembled from your records",
   "co.brief.generatedAt": "as of {when}",

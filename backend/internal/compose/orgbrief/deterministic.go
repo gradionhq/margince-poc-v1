@@ -21,7 +21,7 @@ import (
 // record it came from, exactly as the model path's do, so the card renders
 // and behaves identically whichever wrote it.
 func Deterministic(orgID string, in Input) []Sentence {
-	account := []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
+	account := accountEvidence(orgID)
 	sentences := make([]Sentence, 0, 4)
 
 	sentences = append(sentences, Sentence{Text: identityLine(in), Evidence: account})
@@ -51,7 +51,59 @@ func Deterministic(orgID string, in Input) []Sentence {
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.OpenTasks[0].ID}},
 		})
 	}
+	// Then what the company IS. Same two-part shape the model lane is asked
+	// for, so the card reads the same whichever wrote it.
+	sentences = append(sentences, profileLines(in, account)...)
 	return dedupedSentences(sentences)
+}
+
+// profileLabels turn a stored field name into the question it answers. The
+// deterministic floor states the statement verbatim behind that label — it
+// paraphrases nothing, because a paraphrase nobody can check is worth less
+// than the sentence a human already accepted.
+var profileLabels = map[string]string{
+	"offer_summary":     "They sell",
+	"icp":               "They sell to",
+	"value_proposition": "They promise",
+	"usp":               "They differentiate on",
+	"customer_pains":    "They solve",
+	"desired_outcomes":  "Their customers want",
+	"buying_center":     "Buying decisions there sit with",
+	"sales_motion":      "They sell through",
+}
+
+// deterministicProfileLines bounds the company half of the floor. Two
+// statements say what a company does; eight is the profile card, which the
+// reader can open underneath.
+const deterministicProfileLines = 2
+
+func profileLines(in Input, account []Evidence) []Sentence {
+	out := make([]Sentence, 0, deterministicProfileLines)
+	for _, entry := range in.Profile {
+		if len(out) == deterministicProfileLines {
+			break
+		}
+		label, ok := profileLabels[entry.Field]
+		if !ok {
+			continue
+		}
+		out = append(out, Sentence{
+			Text:     fmt.Sprintf("%s %s", label, trimSentence(entry.Value)),
+			Evidence: account,
+		})
+	}
+	return out
+}
+
+// trimSentence renders a stored statement as one sentence: no trailing
+// punctuation doubled, and a closing full stop when the value has none.
+func trimSentence(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return trimmed
+	}
+	trimmed = strings.TrimRight(trimmed, ".!?;:, ")
+	return trimmed + "."
 }
 
 func identityLine(in Input) string {

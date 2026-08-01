@@ -47,6 +47,7 @@ import {
   useViewerId,
 } from "./common";
 import {
+  AccountBrief,
   DealsCard,
   NextSteps,
   type Org360Result,
@@ -78,7 +79,6 @@ import {
   useListQuery,
 } from "./listquery";
 import { LogActivityAction } from "./logactivity";
-import { MeetingBrief } from "./meetingbrief";
 import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
@@ -1896,12 +1896,15 @@ function CompanyPage({
       rail={
         overlay ? undefined : (
           <>
-            {/* What this company is, in one card. Everything under it is the
-                EVIDENCE for that card, folded away: thirteen sections of equal
-                weight made the reader decide what mattered on every visit, and
-                the scraped facts are the part they need least often and that
-                takes the most room. */}
-            <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
+            {/* The company's own statements, folded away. The BRIEF says what
+                this company is, in two sentences, at the top of the page —
+                these sixteen fields are where those sentences come from and
+                where a reader goes when two are not enough. Standing open
+                they were a wall of paragraphs, every value underlined, that
+                nobody read before a call. */}
+            <Disclosure summary={t("co.profile.title")}>
+              <ProfileFieldsCard orgId={org.id} onOpenHistory={showChanges} />
+            </Disclosure>
             <Disclosure summary={t("co.evidence.title")}>
               <FactsCard orgId={org.id} onOpenHistory={showChanges} />
             </Disclosure>
@@ -1947,7 +1950,12 @@ function CompanyPage({
           "since your last visit" block, because two cards each claiming to
           say what the state is made the reader arbitrate between them. */}
       {tab === "overview" && view && (
-        <MeetingBrief view={view} orgId={org.id} onOpenRecord={openCitation} />
+        <AccountBrief
+          orgId={org.id}
+          view={view}
+          enabled={!overlay}
+          onOpenRecord={openCitation}
+        />
       )}
       {tab === "overview" && view && (
         <NextSteps

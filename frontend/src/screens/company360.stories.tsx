@@ -4,8 +4,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
 import { AssistantPanel } from "./assistant";
-import { DealsCard, NextSteps, PeopleCard, TagsCard } from "./company360";
-import { MeetingBrief } from "./meetingbrief";
+import {
+  AccountBrief,
+  DealsCard,
+  NextSteps,
+  PeopleCard,
+  TagsCard,
+} from "./company360";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // The company view's cards, rendered straight from a payload rather than
@@ -13,7 +18,6 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // by side: here it is, there is none, and your role cannot read this.
 // A fixed instant, so the brief renders the same lines in every snapshot
 // rather than drifting as the story ages.
-const STORY_NOW = new Date("2026-07-31T09:00:00Z");
 
 const meta: Meta = {
   title: "Screens/Company 360 cards",
@@ -223,7 +227,7 @@ function Cards({ view }: Readonly<{ view: View }>) {
   return (
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
-        <MeetingBrief view={view} orgId="o-1" now={STORY_NOW} />
+        <AccountBrief orgId="o-1" view={view} enabled />
         <AssistantPanel orgId="o-1" enabled />
         <NextSteps view={view} />
         <PeopleCard view={view} />

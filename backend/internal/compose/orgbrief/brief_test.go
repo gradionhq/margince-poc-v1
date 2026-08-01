@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -229,6 +230,13 @@ func (failingLane) Complete(context.Context, model.Request) (model.Response, err
 	return model.Response{}, errors.New("budget exhausted")
 }
 
+// scriptedLane answers with whatever the case wrote for it.
+type scriptedLane struct{ reply string }
+
+func (l *scriptedLane) Complete(context.Context, model.Request) (model.Response, error) {
+	return model.Response{Text: l.reply}, nil
+}
+
 type nonsenseLane struct{}
 
 func (nonsenseLane) Complete(context.Context, model.Request) (model.Response, error) {
@@ -352,5 +360,122 @@ func TestParseBriefGroundsContactsAndTasks(t *testing.T) {
 	}
 	if len(kept) != 2 {
 		t.Errorf("kept %d sentences, want both the contact and the task grounded", len(kept))
+	}
+}
+
+// The brief answers two questions, in this order: where we stand with this
+// account, and what the company is. The second half exists because the
+// company page's profile card — sixteen scraped fields, every value a
+// paragraph — is not something a rep reads before a call.
+
+func TestDeterministicClosesWithWhatTheCompanyIs(t *testing.T) {
+	in := Input{
+		Name: "ScaleCommerce",
+		Profile: []ProfileIn{
+			{Field: "offer_summary", Value: "Managed hosting for e-commerce"},
+			{Field: "icp", Value: "Shop operators and agencies"},
+		},
+	}
+	sentences := Deterministic("org-1", in)
+	if len(sentences) < 3 {
+		t.Fatalf("sentences = %+v, want the identity line plus both profile lines", sentences)
+	}
+	last := sentences[len(sentences)-2:]
+	if !strings.Contains(last[0].Text, "Managed hosting for e-commerce") {
+		t.Errorf("first profile line = %q, want the stored statement verbatim", last[0].Text)
+	}
+	if !strings.Contains(last[1].Text, "Shop operators and agencies") {
+		t.Errorf("second profile line = %q, want the stored statement verbatim", last[1].Text)
+	}
+	// The company half is about the company, so it cites the organization.
+	for _, sentence := range last {
+		if len(sentence.Evidence) != 1 || sentence.Evidence[0].EntityType != citeOrganization {
+			t.Errorf("profile line %q cites %+v, want the organization", sentence.Text, sentence.Evidence)
+		}
+	}
+}
+
+// A profile the page has not gathered yet is not a gap to apologize for.
+func TestDeterministicSaysNothingAboutACompanyItKnowsNothingAbout(t *testing.T) {
+	for _, sentence := range Deterministic("org-1", Input{Name: "Acme"}) {
+		for label := range profileLabels {
+			if strings.Contains(sentence.Text, label) {
+				t.Errorf("sentence %q talks about the company with no profile to talk from", sentence.Text)
+			}
+		}
+	}
+}
+
+// Eight statements is the profile card, which the reader can open underneath.
+func TestDeterministicKeepsTheCompanyHalfShort(t *testing.T) {
+	in := Input{Name: "Acme"}
+	for _, field := range briefProfileFields {
+		in.Profile = append(in.Profile, ProfileIn{Field: field, Value: "something about " + field})
+	}
+	var profileLines int
+	for _, sentence := range Deterministic("org-1", in) {
+		if strings.HasPrefix(sentence.Text, "They ") || strings.HasPrefix(sentence.Text, "Buying ") ||
+			strings.HasPrefix(sentence.Text, "Their ") {
+			profileLines++
+		}
+	}
+	if profileLines > deterministicProfileLines {
+		t.Errorf("profile lines = %d, want at most %d", profileLines, deterministicProfileLines)
+	}
+}
+
+func TestFoldProfileTakesAFixedOrderAndDropsTheEmpty(t *testing.T) {
+	var in Input
+	in.foldProfile([]crmcontracts.CompanyProfileField{
+		{Field: "icp", Value: "Agencies"},
+		{Field: "offer_summary", Value: "Hosting"},
+		{Field: "usp", Value: "   "},
+		// Not in the brief's subset: registry detail describes a legal
+		// entity, not a business.
+		{Field: "register_vat", Value: "DE123"},
+	})
+	if len(in.Profile) != 2 {
+		t.Fatalf("profile = %+v, want the two business statements only", in.Profile)
+	}
+	// Fixed order, so the same account fingerprints the same way whatever
+	// order the store returned its rows in.
+	if in.Profile[0].Field != "offer_summary" || in.Profile[1].Field != "icp" {
+		t.Errorf("profile order = %+v, want offer_summary then icp", in.Profile)
+	}
+}
+
+func TestFoldProfileBoundsOneStatement(t *testing.T) {
+	var in Input
+	in.foldProfile([]crmcontracts.CompanyProfileField{
+		{Field: "offer_summary", Value: strings.Repeat("x", briefProfileValueMax*3)},
+	})
+	if got := len(in.Profile[0].Value); got != briefProfileValueMax {
+		t.Errorf("value length = %d, want it bounded to %d", got, briefProfileValueMax)
+	}
+}
+
+// The model writes the relationship half; the company half is quoted from
+// statements a human already accepted. Putting curated prose through a model
+// buys nothing and risks a paraphrase nobody checked — so both writers close
+// with the SAME sentences, and certification stays valid because the prompt
+// never changed.
+func TestModelBriefClosesWithTheSameQuotedCompanyLines(t *testing.T) {
+	in := inputFixture()
+	in.Profile = []ProfileIn{{Field: "offer_summary", Value: "Managed hosting"}}
+	lane := &scriptedLane{reply: `{"sentences":[{"text":"Two deals are open.","evidence":[{"entity_type":"organization","entity_id":"` + briefOrgID + `"}]}]}`}
+
+	written, by, err := Write(context.Background(), lane, briefOrgID, in)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if by != crmcontracts.Model {
+		t.Fatalf("generated_by = %q, want the model path", by)
+	}
+	last := written[len(written)-1]
+	if !strings.Contains(last.Text, "Managed hosting") {
+		t.Errorf("last sentence = %q, want the company statement quoted", last.Text)
+	}
+	if len(last.Evidence) != 1 || last.Evidence[0].EntityType != citeOrganization {
+		t.Errorf("company line cites %+v, want the organization", last.Evidence)
 	}
 }

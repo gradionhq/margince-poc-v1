@@ -122,7 +122,18 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 		//nolint:nilerr // on_budget_exhausted: degrade — the fallback IS the answer, and generated_by reports it
 		return deterministic, crmcontracts.Deterministic, nil
 	}
-	return written, crmcontracts.Model, nil
+	// The company half is APPENDED, not asked for: those statements are
+	// already curated prose a human accepted, so putting them through a model
+	// buys nothing and risks a paraphrase nobody checked. The model writes the
+	// relationship — the part that needs synthesis — and both paths close with
+	// the same quoted description of the company.
+	return append(written, profileLines(in, accountEvidence(orgID))...), crmcontracts.Model, nil
+}
+
+// accountEvidence cites the account itself: the company description is about
+// the company, not about any one deal or message.
+func accountEvidence(orgID string) []Evidence {
+	return []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
 }
 
 // BriefRequest builds the one request this site sends. Exported because the
