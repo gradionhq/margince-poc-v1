@@ -68,10 +68,9 @@ Operational endpoints (served next to `/v1`):
   one closed passport vocabulary: the protected resource names the five
   record verbs (`read`, `draft`, `write`, `send`, `enrich`), and the
   authorization server names those plus `offline_access`, which buys token
-  lifetime rather than access to a record. A scope absent from the resource
-  document is a scope a client never requests, and a connection is granted
-  only the intersection of what the client requested with the passport the
-  human lent — so what those documents say bounds every connection.
+  lifetime rather than access to a record. What a connection is granted is the
+  passport the human lent, not what the client requested — these documents state
+  the vocabulary a client may name, they do not bound the grant.
 
 ## cmd/worker — the background process role
 

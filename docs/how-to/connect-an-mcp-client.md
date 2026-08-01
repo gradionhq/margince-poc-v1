@@ -55,11 +55,9 @@ in that browser, the sign-in screen comes first and the consent screen follows
 it — the pending request survives the sign-in.
 
 The consent screen does not grant a client whatever it asked for. It asks the
-signed-in human to **lend one of their own existing agent passports** — the
-connection's scopes come from that passport, intersected with what the client
-requested, so the client can end up with **less** than the passport carries,
-never more. There is a real Deny too: it sends the client `access_denied`
-instead of leaving it hanging.
+signed-in human to **lend one of their own existing agent passports**, and the
+connection gets that passport's scopes. There is a real Deny too: it sends the
+client `access_denied` instead of leaving it hanging.
 
 **A human with no passport yet cannot approve anything.** The screen shows a
 guide instead of an approve control — mint a passport in Settings (the
@@ -73,38 +71,24 @@ and RBAC — an agent can never exceed the human who granted it.
 
 ## What a connection actually receives
 
-Two independent decisions meet, and the grant is their **intersection**:
+**The scopes of the passport you selected.** That is the whole rule. Lend a
+`read draft write send enrich` passport and the connection has all five; lend a
+`read` passport and it has one.
 
-1. **What the client requests.** The client puts a `scope` parameter on the
-   authorize URL. It learns what it may name there from `scopes_supported` on
-   `/.well-known/oauth-protected-resource` (the five record verbs: `read`,
-   `draft`, `write`, `send`, `enrich`) and from the conservative
-   `scope="read draft"` hint on the `401` challenge. It is free to ask for
-   less, and free to ask for nothing.
-2. **What the human lends.** The passport chosen on the consent screen is the
-   ceiling. The connection can come out with less than that passport carries,
-   never with more.
+What the client asked for on the authorize URL does not change this. Every
+mainstream client — Claude Code, Claude Desktop, Codex, VS Code — sends no
+`scope` parameter at all, so a rule that also capped the grant at the request
+would make every real connection read-only whatever you lent. Your choice of
+passport is the decision, so it is the answer.
 
-A client asking for less than the passport allows is therefore capped at what
-it asked for, and **a client that names no scope at all receives `read` only**,
-however broad the passport lent. An absent `scope` parameter is not "everything
-the passport allows": the authorize endpoint reads it as nothing requested and
-falls back to the least authority, because the alternative — a zero-scope
-connection — would fail every tool call it ever made.
-
-That fallback is what a reader should expect from `claude mcp add` today: it
-sends no `scope`, so a fresh connection is read-only — the read tools only, with
-no `create_record`, `update_record`, or `send_email` among them. Lending a
-`read draft write send enrich` passport does not widen it, because the ceiling
-is not the request. Widening it is the client's move, not the passport's: a
-client that names the verbs it needs (the MCP Inspector lets you type them) gets
-them, up to the lent passport.
+The client is still told what it got: the token response reports the granted
+scopes (RFC 6749 §5.1), so a client that asked for less than it received learns
+so rather than guessing.
 
 Two ways to see what a connection has, rather than assume:
 
 - **Before approving**, on the consent screen: the chips under the selected
-  passport are its scopes, and every chip this connection will *not* receive is
-  dimmed and labelled "not granted". The solid chips are the grant.
+  passport are its scopes, and they are the grant.
 - **After connecting**, from the connection itself: `tools/list` returns only
   the tools the granted scopes can invoke, so the tool list is the proof. A
   connection that lists no write tool did not receive `write`.
@@ -127,11 +111,10 @@ npx @modelcontextprotocol/inspector
 # then, in the UI: Transport = "Streamable HTTP", URL = http://localhost:8080/mcp
 ```
 
-`tools/list` shows only what the connection's **granted** scopes could actually
-invoke — not what the lent passport carries — so the surface an inspector
-reports is the surface that client really has. The Inspector also lets you type
-the scopes it requests, which is how to confirm that a wider grant is available
-and that only the client's request was narrowing it.
+`tools/list` shows only what the connection's granted scopes could actually
+invoke, so the surface an inspector reports is the surface that client really
+has — and since the grant is the lent passport, that list is what the passport
+you chose can reach.
 
 ## Turn it off
 
