@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useT } from "../i18n";
 
 // Shared between the tool console's passport filter and the OAuth consent
@@ -9,7 +12,6 @@ export type PassportOption = {
   id: string;
   label: string;
   scopes: string[];
-  granted?: string[];
 };
 
 // A scope chip row. `dim` names the scopes the current selection does not
