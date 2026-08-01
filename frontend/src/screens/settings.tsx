@@ -49,7 +49,6 @@ import { useLocale, useT } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
-import { CaptureExclusionsCard } from "./capture-exclusions";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
   canConfigureAutomations,
@@ -173,7 +172,6 @@ function tabContent(id: SettingsTabId): ReactNode {
               and proposals live in the approvals inbox. This tab shows what the
               import bought — which accounts the network reaches. */}
           <LinkedInReachCard />
-          <CaptureExclusionsCard />
           <WebhooksCard />
         </>
       );

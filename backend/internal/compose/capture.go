@@ -130,18 +130,13 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 }
 
 // newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
-// merge-stager, the exclusion gate, and the counterparty auto-create
-// resolver attached. Every capture path shares this spelling: the connector
+// merge-stager and the counterparty auto-create resolver attached. Every capture path shares this spelling: the connector
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger()), log: cfg.logger()}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
-		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
-		// any write, so it covers EVERY connector (imap one-shot, gmail
-		// sync) uniformly (capture.md CAP-DDL-3, AC1.3).
-		WithExclusions(capture.NewExclusions(pool)).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
 		// chokepoint — composed here so capture never imports people. The

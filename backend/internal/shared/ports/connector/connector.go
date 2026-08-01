@@ -134,13 +134,6 @@ type NormalizedRecord struct {
 	Source     string // "<system>:<id>" — REQUIRED
 	CapturedBy string // "connector:<name>" — REQUIRED
 	Raw        []byte // re-parseable original → raw jsonb, off the hot path
-	// Match carries the attributes the personal-mail exclusion gate (RC-2)
-	// evaluates in the ONE Sink, BEFORE anything is written. Mail
-	// connectors populate it; a record with a zero value (a lead, a
-	// non-mail activity) can never match a rule, so the gate is a no-op
-	// for it. Kept off Fields on purpose: exclusion is a pipeline concern,
-	// not a domain column.
-	Match ExclusionAttrs
 
 	// Counterparty is the human on the other side of a captured message —
 	// the auto-create pipeline's input (ADR-0063). Zero for records that
@@ -236,16 +229,6 @@ func (c Counterparty) WithOwnerAttestation(providerFiled bool) Counterparty {
 
 // SentByOwner reports whether both halves of the attestation agreed.
 func (c Counterparty) SentByOwner() bool { return c.sentByOwner }
-
-// ExclusionAttrs is the normalized, matchable face of a captured message
-// the RC-2 exclusion gate reads: the sender's domain, every recipient's
-// domain, and any provider mail labels. Producers should already lowercase
-// these; the matcher compares case-insensitively regardless.
-type ExclusionAttrs struct {
-	SenderDomain     string
-	RecipientDomains []string
-	Labels           []string
-}
 
 // NaturalKey is the (source_system, source_id) idempotency key the DB
 // unique indexes enforce (data-model §7/§8).

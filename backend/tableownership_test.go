@@ -128,7 +128,6 @@ var tableOwners = map[string]string{
 	// capture
 	"raw_capture":                  "internal/modules/capture",
 	"capture_connection":           "internal/modules/capture",
-	"capture_exclusion_rule":       "internal/modules/capture",
 	"capture_sync_state":           "internal/modules/capture",
 	"capture_backfill":             "internal/modules/capture",
 	"workspace_email_domain":       "internal/modules/capture",

@@ -76,19 +76,6 @@ func TestParseEventMapsMeetingActivity(t *testing.T) {
 	}
 }
 
-func TestToRecordCarriesExclusionDomainsForTheGate(t *testing.T) {
-	raw := eventJSON(t, "evt-2", "confirmed", "Sync", "2026-07-16T10:00:00Z",
-		gcalOwner, "client@acme.com", "vendor@beta.io")
-	rec := mustRecord(t, raw)
-	if rec.Match.SenderDomain != "myco.com" {
-		t.Errorf("Match.SenderDomain = %q, want myco.com (the organizer)", rec.Match.SenderDomain)
-	}
-	// De-duped attendee domains feed the RC-2 personal-mail gate in the Sink.
-	if len(rec.Match.RecipientDomains) != 2 {
-		t.Errorf("Match.RecipientDomains = %v, want [acme.com beta.io]", rec.Match.RecipientDomains)
-	}
-}
-
 func TestSkipReasonAllInternalYieldsZeroRows(t *testing.T) {
 	// Owner + two colleagues on the same domain: an internal meeting → skip.
 	raw := eventJSON(t, "evt-3", "confirmed", "Standup", "2026-07-16T09:00:00Z",
@@ -119,16 +106,15 @@ func TestSkipReasonCancelledSkips(t *testing.T) {
 
 func TestExternallyOrganizedMeetingIsCaptured(t *testing.T) {
 	// A client organizes; the owner attends. There is an external party, so it
-	// is a real customer touch → captured, with the organizer's domain leading
-	// the RC-2 match attributes.
+	// is a real customer touch → captured.
 	raw := eventJSON(t, "evt-ext-org", "confirmed", "Vendor review", "2026-07-16T14:00:00Z",
 		"host@acme.com", gcalOwner, "host@acme.com")
 	m := mustParse(t, raw)
 	if _, skip := m.SkipReason(); skip {
 		t.Fatal("an externally-organized meeting the owner attends must be captured")
 	}
-	if got := m.ToRecord("gcal", raw).Match.SenderDomain; got != "acme.com" {
-		t.Errorf("Match.SenderDomain = %q, want acme.com (the external organizer)", got)
+	if body := m.ToRecord("gcal", raw).Fields.(capture.ActivityFields).Body; !strings.Contains(body, "host@acme.com") {
+		t.Errorf("body = %q, want the external organizer named in it", body)
 	}
 }
 

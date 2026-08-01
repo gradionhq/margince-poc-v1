@@ -1053,27 +1053,6 @@ func (e CaptureConnectionStatus) Valid() bool {
 	}
 }
 
-// Defines values for CaptureExclusionRuleKind.
-const (
-	CaptureExclusionRuleKindLabel           CaptureExclusionRuleKind = "label"
-	CaptureExclusionRuleKindRecipientDomain CaptureExclusionRuleKind = "recipient_domain"
-	CaptureExclusionRuleKindSenderDomain    CaptureExclusionRuleKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CaptureExclusionRuleKind enum.
-func (e CaptureExclusionRuleKind) Valid() bool {
-	switch e {
-	case CaptureExclusionRuleKindLabel:
-		return true
-	case CaptureExclusionRuleKindRecipientDomain:
-		return true
-	case CaptureExclusionRuleKindSenderDomain:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ChangeUserRoleRequestRole.
 const (
 	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
@@ -2142,27 +2121,6 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CreateCaptureExclusionRequestKind.
-const (
-	CreateCaptureExclusionRequestKindLabel           CreateCaptureExclusionRequestKind = "label"
-	CreateCaptureExclusionRequestKindRecipientDomain CreateCaptureExclusionRequestKind = "recipient_domain"
-	CreateCaptureExclusionRequestKindSenderDomain    CreateCaptureExclusionRequestKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CreateCaptureExclusionRequestKind enum.
-func (e CreateCaptureExclusionRequestKind) Valid() bool {
-	switch e {
-	case CreateCaptureExclusionRequestKindLabel:
-		return true
-	case CreateCaptureExclusionRequestKindRecipientDomain:
-		return true
-	case CreateCaptureExclusionRequestKindSenderDomain:
 		return true
 	default:
 		return false
@@ -8395,28 +8353,6 @@ type CaptureConsent struct {
 	Wording *string `json:"wording,omitempty"`
 }
 
-// CaptureExclusionRule One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
-// produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
-// filtering DSL — a small typed (kind, value) pair, per connected user.
-type CaptureExclusionRule struct {
-	CreatedAt *time.Time         `json:"created_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
-
-	// Kind Match a sender domain, a recipient domain, or a mail label.
-	Kind CaptureExclusionRuleKind `json:"kind"`
-
-	// Value The normalized domain (e.g. `personal-family.example`) or the provider mail-label name.
-	Value string `json:"value"`
-}
-
-// CaptureExclusionRuleKind Match a sender domain, a recipient domain, or a mail label.
-type CaptureExclusionRuleKind string
-
-// CaptureExclusionRuleListResponse defines model for CaptureExclusionRuleListResponse.
-type CaptureExclusionRuleListResponse struct {
-	Data []CaptureExclusionRule `json:"data"`
-}
-
 // CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
 // changed only by admin/ops.
 type CaptureSettings struct {
@@ -9126,15 +9062,6 @@ type CreateAutomationRequest struct {
 	Name   string                 `json:"name"`
 	Params map[string]interface{} `json:"params"`
 }
-
-// CreateCaptureExclusionRequest defines model for CreateCaptureExclusionRequest.
-type CreateCaptureExclusionRequest struct {
-	Kind  CreateCaptureExclusionRequestKind `json:"kind"`
-	Value string                            `json:"value"`
-}
-
-// CreateCaptureExclusionRequestKind defines model for CreateCaptureExclusionRequest.Kind.
-type CreateCaptureExclusionRequestKind string
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
 type CreateConsentPurposeRequest struct {
@@ -16610,9 +16537,6 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 // SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
 type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
-// CreateCaptureExclusionJSONRequestBody defines body for CreateCaptureExclusion for application/json ContentType.
-type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
-
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
 
@@ -22678,15 +22602,6 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
-	// List the calling user's personal-mail exclusion rules (RC-2).
-	// (GET /capture/exclusions)
-	ListCaptureExclusions(w http.ResponseWriter, r *http.Request)
-	// Add a personal-mail exclusion rule (RC-2).
-	// (POST /capture/exclusions)
-	CreateCaptureExclusion(w http.ResponseWriter, r *http.Request)
-	// Remove a personal-mail exclusion rule (RC-2).
-	// (DELETE /capture/exclusions/{id})
-	DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
@@ -23719,24 +23634,6 @@ func (_ Unimplemented) MarkBriefItemDismissed(w http.ResponseWriter, r *http.Req
 // Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 // (POST /brief/items/{itemId}/snooze)
 func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// List the calling user's personal-mail exclusion rules (RC-2).
-// (GET /capture/exclusions)
-func (_ Unimplemented) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Add a personal-mail exclusion rule (RC-2).
-// (POST /capture/exclusions)
-func (_ Unimplemented) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Remove a personal-mail exclusion rule (RC-2).
-// (DELETE /capture/exclusions/{id})
-func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27388,78 +27285,6 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SnoozeBriefItem(w, r, itemId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ListCaptureExclusions operation middleware
-func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCaptureExclusions(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// CreateCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCaptureExclusion(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// DeleteCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "id" -------------
-	var id Id
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteCaptureExclusion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39402,15 +39227,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/capture/exclusions", wrapper.ListCaptureExclusions)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/capture/exclusions", wrapper.CreateCaptureExclusion)
-	})
-	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/capture/exclusions/{id}", wrapper.DeleteCaptureExclusion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)

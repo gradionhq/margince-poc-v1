@@ -1788,27 +1788,6 @@ export const en = {
   "connectors.telegramReplaceCta": "Replace token",
   "connectors.telegramConnectedAs": "Connected as @{username}.",
 
-  // Personal-mail exclusions (RC-2, Task 8): a reachable UI for a privacy
-  // control that already had live mail syncing and no button — human-only,
-  // an agent must not widen or narrow a human's personal-mail boundary.
-  "exclusions.title": "Personal-mail exclusions",
-  "exclusions.sub":
-    "Keep specific mail out of your CRM entirely. A matching message produces zero CRM rows — nothing is captured and then hidden, it's simply never captured.",
-  "exclusions.kind.senderDomain": "mail from this domain",
-  "exclusions.kind.recipientDomain": "mail to this domain",
-  "exclusions.kind.label": "mail with this label",
-  "exclusions.new": "New rule",
-  "exclusions.none": "No exclusion rules yet.",
-  "exclusions.modalTitle": "Add an exclusion rule",
-  "exclusions.fieldKind": "Rule type",
-  "exclusions.value": "Value",
-  "exclusions.add": "Add",
-  "exclusions.alreadyPresent": "This rule already exists in your list.",
-  "exclusions.remove": "Remove",
-  "exclusions.removeTitle": "Remove this rule?",
-  "exclusions.removeConfirm":
-    "Mail matching this rule will stop being excluded — new messages will be captured normally again.",
-
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",

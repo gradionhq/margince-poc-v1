@@ -223,18 +223,6 @@ func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemI
 	httperr.NotImplemented(w, r, "SnoozeBriefItem")
 }
 
-func (stubs) ListCaptureExclusions(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "ListCaptureExclusions")
-}
-
-func (stubs) CreateCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "CreateCaptureExclusion")
-}
-
-func (stubs) DeleteCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "DeleteCaptureExclusion")
-}
-
 func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCaptureSettings")
 }

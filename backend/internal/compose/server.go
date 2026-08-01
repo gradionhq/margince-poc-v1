@@ -76,7 +76,6 @@ type Server struct {
 	scrapeHandlers
 	connectorHandlers
 	backfillHandlers
-	captureExclusionHandlers
 	captureSettingsHandlers
 	channelHandlers
 	filteredExportHandlers
@@ -321,10 +320,6 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
 		Reads:    network.NewReads(pool),
-		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
-		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
-		// pre-ingestion gate (wired in NewCaptureRegistry).
-		captureExclusionHandlers: captureExclusionHandlers{store: capture.NewExclusions(pool)},
 		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 		// read the auto-enrich posture (all roles), toggle it (admin/ops).
 		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
