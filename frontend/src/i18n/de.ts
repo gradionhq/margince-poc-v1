@@ -2687,7 +2687,7 @@ export const de = {
   "consent.offline":
     "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
   "consent.approve": "Autorisieren",
-  "consent.deny": "Abbrechen",
+  "consent.deny": "Zugriff verweigern",
   "consent.emptyTitle": "Du brauchst zuerst einen Agent-Passport",
   "consent.emptyBody":
     "Ein Passport ist die Vollmacht, die du einem Agenten leihst — er überschreitet nie deine eigenen Berechtigungen, und du kannst ihn jederzeit widerrufen. Stell einen aus, und wir bringen dich hierher zurück, um die Verbindung mit {client} abzuschließen.",
@@ -2698,4 +2698,19 @@ export const de = {
     "Du bist hierher gekommen, um einen Passport für {client} auszustellen. Sobald du einen hast, machst du dort weiter, wo du aufgehört hast.",
   "consent.resume": "Verbindung fortsetzen",
   "consent.resumeDismiss": "Diese Verbindung abbrechen",
+  "consent.reentering": "Verbinde erneut…",
+  "consent.backToApp": "Zurück zu Margince",
+  "consent.staleTitle": "Diese Anfrage ist abgelaufen",
+  "consent.staleBody":
+    "Die Verbindungsanfrage ist nicht mehr gültig. Geh zurück zu {client} und starte die Verbindung erneut — ein Neuladen dieser Seite hilft nicht.",
+  "consent.unlendableTitle": "Dieser Passport kann nicht mehr verliehen werden",
+  "consent.unlendableBody":
+    "Der für {client} gewählte Passport wurde widerrufen, ist abgelaufen oder bereits an eine andere Verbindung gebunden. Wähle unten einen anderen aus.",
+  "consent.invalidTitle":
+    "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
+  "consent.invalidBody":
+    "Geh zurück zu {client} und starte die Verbindung erneut.",
+  "consent.requestedNotGranted":
+    "{client} hat mehr angefordert, als dieser Passport gewähren kann:",
+  "consent.unnamedPassport": "Unbenannter Passport ({id})",
 } as const satisfies Record<MessageKey, string>;

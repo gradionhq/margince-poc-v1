@@ -2666,7 +2666,7 @@ export const en = {
   "consent.offline":
     "It will stay connected without asking again, renewing access until you revoke it.",
   "consent.approve": "Authorise",
-  "consent.deny": "Cancel",
+  "consent.deny": "Deny access",
   "consent.emptyTitle": "You need an agent passport first",
   "consent.emptyBody":
     "A passport is the authority you lend an agent — it never exceeds your own permissions, and you can revoke it at any time. Mint one and we'll bring you back here to finish connecting {client}.",
@@ -2677,6 +2677,19 @@ export const en = {
     "You came here to mint a passport for {client}. Once you have one, pick up where you left off.",
   "consent.resume": "Continue connecting",
   "consent.resumeDismiss": "Cancel this connection",
+  "consent.reentering": "Reconnecting…",
+  "consent.backToApp": "Back to Margince",
+  "consent.staleTitle": "This request has expired",
+  "consent.staleBody":
+    "The connection request is no longer valid. Go back to {client} and start connecting again — reloading this page will not help.",
+  "consent.unlendableTitle": "That passport can no longer be lent",
+  "consent.unlendableBody":
+    "The passport you chose for {client} was revoked, expired, or is already bound to another connection. Choose a different one below.",
+  "consent.invalidTitle": "This connection request could not be completed",
+  "consent.invalidBody": "Go back to {client} and start connecting again.",
+  "consent.requestedNotGranted":
+    "{client} asked for more than this passport can grant:",
+  "consent.unnamedPassport": "Unnamed passport ({id})",
 } as const;
 
 export type MessageKey = keyof typeof en;
