@@ -19,7 +19,8 @@ const oneWriteThreeFields: FieldHistoryEntry[] = [
   new_value: "x",
   changed_at: "2026-07-14T10:00:00Z",
   actor_type: "human",
-  actor_id: "u-1",
+  // The spine stores the principal id, not the bare user id.
+  actor_id: "human:u-1",
 }));
 
 describe("changeTimeline", () => {
@@ -35,7 +36,7 @@ describe("changeTimeline", () => {
     expect(row.kind).toBe("change");
   });
 
-  it("only calls the actor 'you' when the actor is the reader", () => {
+  it("matches the reader through the principal prefix the spine stores", () => {
     const mine = changeTimeline(oneWriteThreeFields, (f) => f, "u-1");
     expect(mine[0].provenance).toEqual({
       kind: "human",

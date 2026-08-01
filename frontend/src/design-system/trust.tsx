@@ -345,16 +345,19 @@ function DiffSide({
     return <span className={className}>{value}</span>;
   }
   return (
-    // A scrollable region of static text is exactly the case WCAG 2.1.1 wants
-    // given a tab stop and a name: without one, a keyboard reader cannot reach
-    // the part of the value that is scrolled out of view. There is no semantic
-    // element for "text that scrolls", so the region role IS the pattern here.
-    // NOSONAR: a scrollable region needs a tab stop and a name; the content is text, not a control
-    // biome-ignore lint/a11y/useSemanticElements: no element means "scrollable text region"; role=region is the documented pattern
-    // biome-ignore lint/a11y/noNoninteractiveTabindex: the tab stop is what makes the scrolled-out text reachable at all
-    <span className={className} role="region" aria-label={label} tabIndex={0}>
+    // A `section` with an accessible name IS a region — the semantic element,
+    // not a span wearing the role. The tab stop is what makes the scrolled-out
+    // part reachable at all: WCAG 2.1.1 requires a scrollable region to be
+    // operable by keyboard, and without it the text below the fold cannot be
+    // reached by anyone not using a mouse.
+    <section
+      className={`${className} field-diff-long`}
+      aria-label={label}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the tab stop is what makes the scrolled-out text reachable at all
+      tabIndex={0}
+    >
       {value}
-    </span>
+    </section>
   );
 }
 

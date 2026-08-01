@@ -169,6 +169,27 @@ func TestStringifyRendersValuesAndNeverLiteralNil(t *testing.T) {
 	}
 }
 
+// Every jsonb number decodes to float64, and Go's default verb formats one
+// with %g — so a revenue of 50000000 reached the screen as "5e+07". A
+// salesperson reading what changed on a company gets the number.
+func TestStringifyLargeNumbersNeverRenderInScientificNotation(t *testing.T) {
+	for _, tc := range []struct {
+		in   float64
+		want string
+	}{
+		{50000000, "50000000"},
+		{250000000, "250000000"},
+		{1234.5, "1234.5"},
+		{0, "0"},
+		{-7500000, "-7500000"},
+	} {
+		got := stringifyFieldValue(tc.in)
+		if got == nil || *got != tc.want {
+			t.Errorf("stringifyFieldValue(%v) = %v, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // A structured value is the server's own jsonb, and the reader is looking at
 // what changed on their account. Go's default formatting prints its internal
 // map syntax, which reached the screen as `map[logo:https://…]`.

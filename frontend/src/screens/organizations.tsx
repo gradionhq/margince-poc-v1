@@ -1794,9 +1794,15 @@ function useChronologySlots({
       ),
       timelineNotice: chronologyNotice(
         {
-          loading: loading || history.loading,
-          failed: failed || history.failed,
-          assembled: Boolean(view?.activities),
+          // Per filter, because the two feeds fail independently. A 360 that
+          // omitted its activities section says nothing about the change
+          // feed, and reporting the Changes view as unavailable on that
+          // basis hid rows that had loaded perfectly well.
+          loading:
+            filter === "changes" ? history.loading : loading || history.loading,
+          failed:
+            filter === "changes" ? history.failed : failed || history.failed,
+          assembled: filter === "changes" ? true : Boolean(view?.activities),
           filter,
         },
         history.entries.length,

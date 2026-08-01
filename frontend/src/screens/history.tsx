@@ -77,13 +77,21 @@ function provenanceOfEntry(
   entry: Pick<AuditHistoryEntry, "actor_type" | "actor_id">,
   viewerUserId?: string,
 ): Provenance {
-  return entry.actor_type === "human"
-    ? {
-        kind: "human",
-        self: Boolean(viewerUserId) && entry.actor_id === viewerUserId,
-        userId: entry.actor_id,
-      }
-    : { kind: "agent", agent: entry.actor_id };
+  if (entry.actor_type !== "human") {
+    return { kind: "agent", agent: entry.actor_id };
+  }
+  // The spine stores the principal id, which for a human is `human:<uuid>`
+  // (principal.Principal.ID), while the session reports the bare user id.
+  // Compared as-is the two never match, and every row a reader wrote came
+  // back attributed to a teammate.
+  const userId = entry.actor_id.startsWith("human:")
+    ? entry.actor_id.slice("human:".length)
+    : entry.actor_id;
+  return {
+    kind: "human",
+    self: Boolean(viewerUserId) && userId === viewerUserId,
+    userId,
+  };
 }
 
 function HistoryEntryRow({

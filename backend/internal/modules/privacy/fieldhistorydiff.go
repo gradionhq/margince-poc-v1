@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -129,7 +130,14 @@ func stringifyFieldValue(v any) *string {
 	switch typed := v.(type) {
 	case string:
 		return &typed
-	case bool, float64, float32,
+	case float64:
+		// Every jsonb number arrives here as a float64, and Go's default
+		// verb formats one with %g — so an annual revenue of 50000000 reached
+		// the screen as `5e+07`. FormatFloat with -1 precision writes the
+		// shortest decimal that round-trips, and never an exponent.
+		s := strconv.FormatFloat(typed, 'f', -1, 64)
+		return &s
+	case bool,
 		int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64,
 		json.Number:

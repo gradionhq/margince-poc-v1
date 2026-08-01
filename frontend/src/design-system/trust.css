@@ -129,15 +129,25 @@ button.evidence-chip:hover {
 }
 
 /* Either side of a diff can be a whole jsonb document — a scraped fact set
-   runs to thousands of characters. Each side is capped at a few lines and
-   scrolls, so one such change cannot push the rest of the history off the
-   screen. The full value stays reachable, never truncated away. */
+   runs to thousands of characters — so a long side is capped and scrolls,
+   and one such change cannot push the rest of the history off the screen.
+
+   The cap goes ONLY on the sides FieldDiff marked long, never on every side.
+   A short value that merely wrapped past the cap in a narrow column would
+   scroll without the tab stop that makes a scrolled region reachable, and the
+   part below the fold would be unreachable by keyboard. One threshold, set in
+   the component, decides both. */
 .field-diff-from,
 .field-diff-to {
-  max-height: 4.5em;
-  overflow-y: auto;
   overflow-wrap: anywhere;
   max-width: 100%;
+}
+.field-diff-long {
+  /* A section is block-level; the diff reads as one line, so it sits inline. */
+  display: inline-block;
+  vertical-align: top;
+  max-height: 4.5em;
+  overflow-y: auto;
 }
 
 .field-diff-from {
