@@ -205,6 +205,18 @@ func (c *channelSendEnv) sendReply(t *testing.T, purpose string, headers map[str
 	return status, answer.Code, answer.Detail
 }
 
+// mintPassport issues an agent passport under the given scopes and returns its bearer token.
+func (c *channelSendEnv) mintPassport(t *testing.T, scopes []string) string {
+	t.Helper()
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := c.call(t, "POST", "/v1/passports", anyMap{"label": "reply agent", "scopes": scopes}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+	return minted.Token
+}
+
 // stagedChannelDeliveries counts channel-shaped comms_outbound rows — the fact a
 // refusal must not leave behind, and the fact an acceptance must.
 func (c *channelSendEnv) stagedChannelDeliveries(t *testing.T) int {
@@ -233,22 +245,34 @@ func (c *channelSendEnv) outboundActivities(t *testing.T) int {
 	return n
 }
 
-// An agent caller meets the 🟡 gate: outbound and irreversible, so it may propose
-// the send and may not perform it. The refusal has to happen before the message
-// is staged — an agent that could stage one has already sent it as far as the
-// customer is concerned.
+// A write-only passport may not reach an outbound verb at all: the scope cap
+// the granting human set is checked before the tier question is asked.
+func TestSendMessageRefusesAWriteOnlyPassport(t *testing.T) {
+	c := setupChannelSend(t)
+	token := c.mintPassport(t, []string{"read", "write"})
+
+	status, code, _ := c.sendReply(t, "transactional", map[string]string{"Authorization": "Bearer " + token})
+
+	if status != http.StatusForbidden || code != "scope_exceeds_grantor" {
+		t.Fatalf("write-only passport reply → %d %q, want 403 scope_exceeds_grantor", status, code)
+	}
+	if n := c.stagedChannelDeliveries(t); n != 0 {
+		t.Fatalf("%d deliveries staged behind a scope-refused send, want 0", n)
+	}
+	if n := c.outboundActivities(t); n != 0 {
+		t.Fatalf("%d outbound activities logged behind a scope-refused send, want 0", n)
+	}
+}
+
+// A send-scoped agent caller meets the 🟡 gate: it may propose the send and may
+// not perform it. The refusal has to happen before the message is staged — an
+// agent that could stage one has already sent it as far as the customer is
+// concerned.
 func TestSendMessageRequiresAnApprovalTokenForAnAgentCaller(t *testing.T) {
 	c := setupChannelSend(t)
-	var minted struct {
-		Token string `json:"token"`
-	}
-	if status := c.call(t, "POST", "/v1/passports", anyMap{
-		"label": "reply agent", "scopes": []string{"read", "write"},
-	}, nil, &minted); status != http.StatusCreated {
-		t.Fatalf("issue passport → %d", status)
-	}
+	token := c.mintPassport(t, []string{"read", "send"})
 
-	status, code, detail := c.sendReply(t, "transactional", map[string]string{"Authorization": "Bearer " + minted.Token})
+	status, code, detail := c.sendReply(t, "transactional", map[string]string{"Authorization": "Bearer " + token})
 
 	if status != http.StatusForbidden || code != "approval_required" {
 		t.Fatalf("agent reply with no approval token → %d %q, want 403 approval_required", status, code)

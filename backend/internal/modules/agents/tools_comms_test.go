@@ -26,15 +26,19 @@ type recordingComms struct {
 func (c *recordingComms) DraftEmail(context.Context, ids.UUID, string) (string, string, error) {
 	return "", "", nil
 }
+
 func (c *recordingComms) SendEmail(context.Context, ids.UUID, SendEmailArgs) (json.RawMessage, error) {
 	return nil, nil
 }
+
 func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
 	return nil, nil
 }
+
 func (c *recordingComms) BookMeeting(context.Context, BookMeetingArgs) (json.RawMessage, error) {
 	return nil, nil
 }
+
 func (c *recordingComms) SendMessage(_ context.Context, anchor ids.UUID, in SendMessageArgs) (json.RawMessage, error) {
 	c.anchor, c.args = anchor, in
 	return json.RawMessage(`{"status":"accepted"}`), nil
@@ -89,7 +93,7 @@ func TestSendMessageToolGovernsAsSendEmailDoes(t *testing.T) {
 func TestSendMessageToolNamesNoRecipient(t *testing.T) {
 	var decoded struct {
 		Properties           map[string]json.RawMessage `json:"properties"`
-		AdditionalProperties bool                       `json:"additionalProperties"`
+		AdditionalProperties bool                       `json:"additionalProperties"` //nolint:tagliatelle // JSON Schema spec keyword, must be camelCase
 	}
 	if err := json.Unmarshal(sendMessageTool{}.Spec().InputSchema, &decoded); err != nil {
 		t.Fatalf("input schema is not JSON: %v", err)
