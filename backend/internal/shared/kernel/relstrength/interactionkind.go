@@ -5,9 +5,10 @@ package relstrength
 
 import "strings"
 
-// InteractionKinds is the closed set of activity kinds that represent a real
-// exchange between two people, and it lives here because four places need to
-// agree on it: live capture stamping, hand-logged stamping, the historical
+// interactionKinds is the closed set of activity kinds that represent a real
+// exchange between two people. It is unexported because a caller that could
+// append to it would silently change both the scoring and the SQL below. It
+// lives here because four places need to agree on it: live capture stamping, hand-logged stamping, the historical
 // backfill's SQL, and any future producer of participant rows.
 //
 // A task is intent and a note is a record of thinking; neither means two people
@@ -15,12 +16,12 @@ import "strings"
 // relationship. When they disagreed, a captured note became an interaction while
 // an identical hand-logged one did not — the same conversation scoring
 // differently depending on how it arrived.
-var InteractionKinds = []string{"email", "call", "meeting"}
+var interactionKinds = []string{"email", "call", "meeting"}
 
 // IsInteractionKind answers whether an activity of this kind means two people
 // spoke.
 func IsInteractionKind(kind string) bool {
-	for _, k := range InteractionKinds {
+	for _, k := range interactionKinds {
 		if k == kind {
 			return true
 		}
@@ -32,5 +33,5 @@ func IsInteractionKind(kind string) bool {
 // the same set the Go paths do instead of restating it as a literal that can
 // drift. The values are compile-time constants of this package, never input.
 func InteractionKindSQLList() string {
-	return "'" + strings.Join(InteractionKinds, "','") + "'"
+	return "'" + strings.Join(interactionKinds, "','") + "'"
 }

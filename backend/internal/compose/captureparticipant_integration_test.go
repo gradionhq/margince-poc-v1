@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -279,5 +280,83 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 	}
 	if ghosts != 0 {
 		t.Errorf("the erased person still has %d LinkedIn ghost(s) pointing at them", ghosts)
+	}
+}
+
+// A relink corrects ONE association, and must leave every other participant
+// alone. Inferring the displaced person from "is a participant but no longer
+// linked" was wrong twice over: a participant can name somebody who was never
+// linked at all — capture stamps a counterparty whether or not a link exists —
+// and that row would then be rewritten to name a contact who was never in the
+// conversation.
+func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := context.Background()
+	ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+
+	linked := e.SeedPerson(t, "Linked Contact", &e.Rep1)
+	unlinked := e.SeedPerson(t, "Never Linked", &e.Rep1)
+	corrected := e.SeedPerson(t, "The Real Contact", &e.Rep1)
+
+	var activityID ids.ActivityID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
+			VALUES (`+ws+`, 'email', 'Verwechslung', 'inbound', now(), 'gmail:m-9', 'connector:gmail')
+			RETURNING id`).Scan(&activityID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+			VALUES (`+ws+`, $1, 'person', $2)`, activityID, linked); err != nil {
+			return err
+		}
+		// Two participants: one matching the link, one that never had a link.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+			VALUES (`+ws+`, $1, $2, 'from'), (`+ws+`, $1, $3, 'cc')`, activityID, linked, unlinked)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	if _, err := e.Activities.RelinkActivity(e.Admin(), activityID, activities.RelinkActivityInput{
+		EntityType: "person", EntityID: corrected, ReplaceExistingOfType: true,
+	}); err != nil {
+		t.Fatalf("relinking: %v", err)
+	}
+
+	got := map[ids.UUID]string{}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT person_id, role FROM activity_participant WHERE activity_id = $1`, activityID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var pid ids.UUID
+			var role string
+			if err := rows.Scan(&pid, &role); err != nil {
+				return err
+			}
+			got[pid] = role
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading participants back: %v", err)
+	}
+
+	if _, ok := got[corrected]; !ok {
+		t.Error("the relink did not repoint the participant it displaced, so the " +
+			"participants and the links now tell different stories about the same mail")
+	}
+	if _, ok := got[unlinked]; !ok {
+		t.Error("the relink rewrote a participant it never displaced: that row named " +
+			"somebody who was never linked, and now names a contact who was never " +
+			"in the conversation")
+	}
+	if _, ok := got[linked]; ok {
+		t.Error("the displaced contact is still a participant")
 	}
 }
