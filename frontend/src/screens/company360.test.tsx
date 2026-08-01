@@ -861,3 +861,70 @@ describe("company view — naming the buying committee", () => {
     expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
   });
 });
+
+// A role belongs to a deal, so the same person can be champion on one and
+// nobody on another. Rendering the role alone made two badges that read
+// identically — and React saw one key twice.
+describe("company view — a buying role names the deal it is on", () => {
+  const contactOnTwoDeals = {
+    person_id: "p-1",
+    full_name: "Dana Buyer",
+    deal_roles: [
+      { deal_id: "d-1", role: "champion" },
+      { deal_id: "d-2", role: "champion" },
+    ],
+    consent: { marketing_email: "granted" },
+    strength: {
+      score: 62,
+      bucket: "strong",
+      factors: { recency: 1, frequency: 1, reciprocity: 1, direction: 1 },
+    },
+  };
+  const twoOpenDeals = {
+    data: [
+      { deal_id: "d-1", name: "Renewal", status: "open", stalled: false },
+      { deal_id: "d-2", name: "New business", status: "open", stalled: false },
+    ],
+    page: emptyPage,
+    won_lifetime: { amount_minor: 0, currency: "EUR" },
+    lost_count: 0,
+  };
+
+  it("names each deal when the person holds the same role on two of them", async () => {
+    stub(
+      view({
+        people: { data: [contactOnTwoDeals], page: emptyPage },
+        deals: twoOpenDeals,
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion · Renewal")).toBeTruthy();
+    expect(screen.getByText("champion · New business")).toBeTruthy();
+  });
+
+  it("leaves the deal name off when there is only one deal to be on", async () => {
+    stub(
+      view({
+        people: {
+          data: [
+            {
+              ...contactOnTwoDeals,
+              deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            },
+          ],
+          page: emptyPage,
+        },
+        deals: {
+          ...twoOpenDeals,
+          data: [twoOpenDeals.data[0]],
+        },
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion")).toBeTruthy();
+  });
+});

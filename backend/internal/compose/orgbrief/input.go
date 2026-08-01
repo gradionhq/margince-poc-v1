@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
@@ -252,22 +253,27 @@ var briefProfileFields = []string{
 	"sales_motion",
 }
 
-// briefProfileValueMax bounds one statement. These are prose fields with no
-// length cap of their own, and a single essay would crowd out every other
-// fact in the prompt's context.
+// briefProfileValueMax bounds one statement, in CHARACTERS. These are prose
+// fields with no length cap of their own, and a single essay would crowd out
+// every other fact the card is written from.
 const briefProfileValueMax = 400
+
+// withoutProfile is the Input as the model may see it. The company profile is
+// the reader's own approved prose, quoted after the model runs; a copy in the
+// prompt would let the model rewrite it (see BriefRequest).
+func (in Input) withoutProfile() Input {
+	in.Profile = nil
+	return in
+}
 
 // foldProfile takes the curated statements in a fixed order, so the same
 // account fingerprints the same way whatever order the store returned.
 func (in *Input) foldProfile(fields []crmcontracts.CompanyProfileField) {
 	byField := make(map[string]string, len(fields))
 	for _, field := range fields {
-		value := strings.TrimSpace(field.Value)
+		value := truncateRunes(strings.TrimSpace(field.Value), briefProfileValueMax)
 		if value == "" {
 			continue
-		}
-		if len(value) > briefProfileValueMax {
-			value = value[:briefProfileValueMax]
 		}
 		byField[string(field.Field)] = value
 	}
@@ -276,4 +282,22 @@ func (in *Input) foldProfile(fields []crmcontracts.CompanyProfileField) {
 			in.Profile = append(in.Profile, ProfileIn{Field: name, Value: value})
 		}
 	}
+}
+
+// truncateRunes cuts at a character boundary. A byte slice through German
+// prose splits the umlaut that straddles the limit, and the broken sequence
+// reaches the reader as the replacement character — from a field whose whole
+// promise is that it shows their own approved words.
+func truncateRunes(value string, limit int) string {
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	kept := 0
+	for offset := range value {
+		if kept == limit {
+			return value[:offset]
+		}
+		kept++
+	}
+	return value
 }

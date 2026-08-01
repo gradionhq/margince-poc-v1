@@ -858,3 +858,23 @@ func slicesContains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+func TestCrawlStopsTheLadderWhenAFallbackSpellingRefuses(t *testing.T) {
+	// The bare domain does not answer at all, its www spelling refuses by
+	// robots, and http:// would serve the same site happily. The refusal is
+	// the site's answer for all three: knocking on the next door is still
+	// asking the same company that already said no.
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{"http://acme.com": {text: readable("home")}},
+		pageErrors: map[string][]error{
+			"https://acme.com":     {errors.New("no such host"), errors.New("no such host")},
+			"https://www.acme.com": {webread.ErrRobotsDisallowed},
+		},
+	}
+	if _, err := testSiteCrawler(site).Crawl(context.Background(), "https://acme.com"); err == nil {
+		t.Fatal("crawl succeeded despite a robots refusal on a fallback spelling")
+	}
+	if slicesContains(site.fetched, "http://acme.com") {
+		t.Errorf("fetched %v — a refusal must end the ladder, not move it to another scheme", site.fetched)
+	}
+}

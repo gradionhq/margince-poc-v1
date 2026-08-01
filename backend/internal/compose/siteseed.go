@@ -18,9 +18,46 @@ package compose
 // nothing more: the same site, named the way that site actually publishes it.
 
 import (
+	"context"
+	"errors"
 	"net/url"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 )
+
+// fetchSeed gets the landing page, or reports why the site could not be read
+// at all. It returns the URL that ANSWERED, which is the site's own spelling
+// of itself and what the crawl treats as on-site from then on.
+func (c *siteCrawler) fetchSeed(ctx context.Context, pacer crawlPacer, seedURL string) (string, webread.Page, error) {
+	page, err := c.fetchPaced(ctx, pacer, seedURL)
+	if transientCrawlError(ctx, err) {
+		// The landing page is the only irreplaceable discovery source. One
+		// immediate retry absorbs a transient edge/CDN timeout while the
+		// crawl's wall deadline still bounds the attempt.
+		page, err = c.fetchPaced(ctx, pacer, seedURL)
+	}
+	if err == nil || errors.Is(err, webread.ErrRobotsDisallowed) {
+		return seedURL, page, err
+	}
+	for _, candidate := range seedFallbacks(seedURL) {
+		if ctx.Err() != nil {
+			break
+		}
+		retryPage, retryErr := c.fetchPaced(ctx, pacer, candidate)
+		if retryErr == nil {
+			return candidate, retryPage, nil
+		}
+		// A refusal is the site's answer, not a spelling that failed to
+		// resolve. Every remaining candidate is the SAME site under another
+		// host or scheme, so trying them would be answering a "no" by
+		// knocking on the next door.
+		if errors.Is(retryErr, webread.ErrRobotsDisallowed) {
+			return seedURL, webread.Page{}, retryErr
+		}
+	}
+	return seedURL, webread.Page{}, err
+}
 
 // seedFallbacks returns the other spellings of a seed worth trying, in order,
 // after the seed itself has failed to answer. The seed is never repeated.

@@ -210,3 +210,28 @@ func TestStringifyStructuredValuesRenderAsJSONNotGoSyntax(t *testing.T) {
 		t.Errorf("array value = %v, want compact JSON", list)
 	}
 }
+
+// A site-read confirmation audits the pipeline's own state under the
+// organization: which draft it applied, where it read, and the entire applied
+// payload. None of those is a field of the record — nobody can see one as a
+// live value — so "what changed on this record" must not recite them.
+func TestDiffWithholdsTheWritingPipelinesOwnBookkeeping(t *testing.T) {
+	row := fhRow("agent", nil, map[string]any{
+		"industry":      "Manufacturing",
+		"source":        "site_read",
+		"source_url":    "https://acme.example",
+		"fields":        map[string]any{"logo": "https://acme.example/logo.png"},
+		"human_fields":  map[string]any{},
+		"facts":         []any{"one", "two"},
+		"site_read_id":  "019fbc88-0000-7000-8000-000000000000",
+		"draft_version": float64(3),
+	})
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 || entries[0].Field != "industry" {
+		got := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			got = append(got, entry.Field)
+		}
+		t.Fatalf("fields = %v, want the record's own field alone", got)
+	}
+}

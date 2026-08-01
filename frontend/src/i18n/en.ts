@@ -635,6 +635,8 @@ export const en = {
   "co.chronology.allEmpty": "Nothing has happened on this account yet.",
   "co.chronology.truncated":
     "Older entries are not shown here — there are more of both kinds than this view can put in order. Pick Activities or Changes to read further back.",
+  "co.chronology.truncatedActivities":
+    "This account has more activities than fit here. Only the most recent ones are listed.",
   "timeline.sent": "Sent",
   "timeline.received": "Received",
   "timeline.textMore": "Read it",

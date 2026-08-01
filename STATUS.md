@@ -100,7 +100,10 @@ calls with no per-user rate limit. The workspace AI budget bounds the spend and
 the refresh button disables while pending, so this is a refinement rather than
 a hole. Agent-authored change rows lose their passport and evidence chips in
 the timeline (both survive in the full history). The merged timeline can page
-changes but not activities, which the 360 serves as one bounded page.
+changes but not activities, which the 360 serves as one bounded page — the
+Activities filter now SAYS the list is cut, but offers no way to read further
+back. Captured email bodies still land in timeline rows at full length; the
+plan's item to collapse them to subject plus a two-line snippet was not done.
 
 ## Open defect — field history shows the site-read draft's internals
 
@@ -118,12 +121,20 @@ collided on React keys because one audit row projects one entry per field and
 they all carry the audit id; and a diff side could push the whole history off
 the screen.
 
+The Codex review of PR #356 pointed out that merging changes into the account
+timeline puts this in front of every rep rather than behind a tab, so the
+projection now withholds those keys (`writerBookkeepingKeys` in
+`privacy/fieldhistorydiff.go`). That is a display rule, not the fix: it is a
+named list of the writers' payload keys, and a new writer adding a key has to
+add it there too. Note it is deliberately NOT the privacy `entityFieldMask`,
+which means "hidden exactly as the live value is hidden" — these fields are not
+withheld from anyone, they are simply not fields of the record, and the audit
+spine still shows them to an auditor.
+
 What is left is which entity those audit rows belong to. Re-keying them is a
 data-model question — the erasure cascade and the retention evaluator both key
 on `entity_type` — so it wants an upstream decision, not a patch in the
-projection. The privacy `entityFieldMask` is the wrong lever: it means "hidden
-exactly as the live value is hidden", and these fields are not withheld, just
-uninteresting.
+projection.
 
 Founder asked on 2026-08-01 whether field history is something an end user
 should see and whether it is valuable. For a human edit it is (Industry:
@@ -1442,6 +1453,13 @@ raises only.
    timeline" and stops. AC-company-1..12 is a screen transcription, not a
    layout spec, and it still lists a History tab this build has now retired in
    favour of a timeline filter.
+7. **An account owner cannot be unassigned.** `UpdateOrganizationRequest`
+   types `owner_id` as `[string, 'null']`, but the generated Go binds it to
+   `*openapi_types.UUID`, where a JSON `null` and an omitted field decode to
+   the same nil — so the store cannot tell "clear the owner" from "leave it
+   alone". The edit form now makes the picker required once an account HAS an
+   owner rather than offering a blank option it cannot honour. Wanted:
+   whether unassigning is a real operation, and if so the wire shape for it.
 
 ## Upstream spec raises owed from 2026-07-31
 

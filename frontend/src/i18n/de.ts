@@ -645,6 +645,8 @@ export const de = {
   "co.chronology.allEmpty": "Zu diesem Account ist noch nichts passiert.",
   "co.chronology.truncated":
     "Ältere Einträge fehlen hier — es gibt mehr von beidem, als diese Ansicht in eine Reihenfolge bringen kann. Wähle Aktivitäten oder Änderungen, um weiter zurückzulesen.",
+  "co.chronology.truncatedActivities":
+    "Dieser Account hat mehr Aktivitäten, als hier hineinpassen. Gezeigt werden nur die neuesten.",
   "timeline.sent": "Gesendet",
   "timeline.received": "Erhalten",
   "timeline.textMore": "Lesen",

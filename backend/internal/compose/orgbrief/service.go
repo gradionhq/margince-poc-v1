@@ -75,9 +75,14 @@ func NewService(pool *pgxpool.Pool, view Assembler, profile ProfileReader, lane 
 }
 
 // assemble reads both halves the brief is written from: how the account
-// stands with us, and what the company is. A profile read that fails is not
-// an error — the relationship half is the part a rep opens the page for, and
-// a brief without the company description is still worth its card.
+// stands with us, and what the company is.
+//
+// A profile read that fails fails the whole brief. An account with no site
+// read answers with no rows, so the empty case never arrives here as an
+// error — an error means the read itself broke, and treating that as "this
+// company has no description" writes a brief that silently lost its second
+// half AND caches it, so the next reader sees the same gap with nothing to
+// say it was ever there. The reader gets one honest failure instead.
 func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID) (Input, error) {
 	view, err := s.view.Assemble(ctx, orgID)
 	if err != nil {
@@ -86,9 +91,10 @@ func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID) (Input
 	in := FromView(view)
 	if s.profile != nil {
 		fields, profileErr := s.profile.ListOrganizationProfileFields(ctx, orgID)
-		if profileErr == nil {
-			in.foldProfile(fields)
+		if profileErr != nil {
+			return Input{}, fmt.Errorf("read the company profile for the brief: %w", profileErr)
 		}
+		in.foldProfile(fields)
 	}
 	return in, nil
 }

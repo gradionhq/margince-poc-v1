@@ -300,8 +300,9 @@ const companyCreateFields: CreateField[] = [
 // proposals — so a select for it would collect an answer and drop it. The
 // badge names the value; changing it needs a contract that does not exist
 // yet (raised in STATUS.md).
-function companyEditFields(
+export function companyEditFields(
   owners: readonly { id: string; display_name: string }[],
+  hasOwner: boolean,
 ): CreateField[] {
   return [
     { key: "display_name", label: "create.displayName", required: true },
@@ -316,10 +317,18 @@ function companyEditFields(
     // Who is accountable for this account. It defaults to whoever created the
     // record and stays there until someone changes it — which, until now,
     // nothing on this page let them do.
+    //
+    // Required exactly when the account HAS an owner: an optional select
+    // offers a blank option, and `UpdateOrganizationRequest.owner_id` cannot
+    // carry "unassign" — a null is indistinguishable from an omitted field on
+    // the wire. Offering the blank would take the answer and drop it. An
+    // account with no owner yet keeps the blank, because there it is the
+    // truthful current state rather than an edit we cannot make.
     {
       key: "owner_id",
       label: "co.pulse.owner",
       type: "select",
+      required: hasOwner,
       options: owners.map((user) => ({
         value: user.id,
         label: user.display_name,
@@ -1234,7 +1243,10 @@ function CompanyEditAction({
     <EditAction
       label={t("record.edit")}
       notice={overlay ? t("overlay.partialWriteBack") : undefined}
-      fields={[...companyEditFields(owners), ...cf.formFields]}
+      fields={[
+        ...companyEditFields(owners, Boolean(org.owner_id)),
+        ...cf.formFields,
+      ]}
       record={{
         id: org.id,
         version: org.version,
@@ -1638,7 +1650,10 @@ function useAccountChronology({
   if (filter === "activities") {
     return {
       entries: activityEntries,
-      truncated: false,
+      // The 360 caps this section, and a capped list that says nothing reads
+      // as the whole history: a rep looking at the oldest of 25 rows would
+      // take it for the day the relationship began.
+      truncated: activitiesHaveMore,
       changes,
       loading: false,
       failed: false,
@@ -1779,7 +1794,13 @@ function useChronologySlots({
           {/* Where the merged view stops being complete, said out loud.
               Silence here would read as the end of the account's history. */}
           {history.truncated && (
-            <p className="t-small">{t("co.chronology.truncated")}</p>
+            <p className="t-small">
+              {t(
+                filter === "activities"
+                  ? "co.chronology.truncatedActivities"
+                  : "co.chronology.truncated",
+              )}
+            </p>
           )}
           {/* Only where fetching more changes actually lengthens the list.
               Under "all" the merge is cut at whichever feed is shorter, so if

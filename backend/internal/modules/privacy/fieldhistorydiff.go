@@ -28,6 +28,29 @@ type entityFieldMask map[string]struct{}
 
 var defaultFieldMasks = map[string]entityFieldMask{}
 
+// writerBookkeepingKeys names keys an audit image carries that are not fields
+// OF the record: the writing pipeline's own state. A site-read confirmation
+// audits which draft it applied (`site_read_id`, `draft_version`), where it
+// read (`source`, `source_url`) and the whole applied payload (`fields`,
+// `human_fields`, `facts`) — none of which is a column anyone can see as a
+// live value, and one of which is a fact array thousands of characters long.
+//
+// Field history answers "what changed on this record", so it withholds them.
+// The audit spine (recordHistoryEntry) keeps them: an auditor asking which
+// pipeline run wrote a row is asking exactly this.
+var writerBookkeepingKeys = entityFieldMask{
+	"source":        {},
+	"source_url":    {},
+	"source_ref":    {},
+	"fields":        {},
+	"human_fields":  {},
+	"facts":         {},
+	"site_read_id":  {},
+	"draft_version": {},
+	"anchor":        {},
+	"captured_by":   {},
+}
+
 // auditDiffRow carries the columns of one audit_log row the diff needs.
 type auditDiffRow struct {
 	id         ids.UUID
@@ -57,8 +80,8 @@ func diffAuditRowFields(row auditDiffRow, mask entityFieldMask, fieldFilter *str
 	if !fieldHistoryProjectedActions[row.action] {
 		return nil
 	}
-	before := applyFieldMask(row.before, mask)
-	after := applyFieldMask(row.after, mask)
+	before := applyFieldMask(applyFieldMask(row.before, mask), writerBookkeepingKeys)
+	after := applyFieldMask(applyFieldMask(row.after, mask), writerBookkeepingKeys)
 
 	keyset := make(map[string]struct{}, len(before)+len(after))
 	for k := range before {

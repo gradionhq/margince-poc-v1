@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -347,5 +348,32 @@ func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
 	w.reclaimLogoObject(context.Background(), ids.NewV7(), &empty)
 	if len(blob.deletedLive) != 1 {
 		t.Fatalf("a nil or empty key must delete nothing, got %v", blob.deletedLive)
+	}
+}
+
+// The cap bounds one read's asset egress, so it has to bite somewhere — but
+// the two site-level sources are exactly what answers when the declarations
+// are stale, and a page with a cap's worth of dead touch-icon tags would
+// otherwise spend the whole budget on them.
+func TestLogoCandidatesSpendTheCapOnDeclarationsNotOnTheFallbacks(t *testing.T) {
+	icons := make([]webread.IconRef, 0, logoMaxCandidates*2)
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/stale-%d.png", i), Rel: webread.RelAppleTouchIcon,
+		})
+	}
+	got, dropped := logoCandidates(logoSeed, declaredAssets{
+		icons: icons, ogImage: "https://acme.example/share.png",
+	})
+	if len(got) != logoMaxCandidates {
+		t.Fatalf("tried %d candidates, want the cap of %d", len(got), logoMaxCandidates)
+	}
+	if dropped == 0 {
+		t.Fatal("declarations were dropped to make room; the drop must be reported")
+	}
+	for _, want := range []string{"https://acme.example/favicon.ico", "https://acme.example/share.png"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("candidates %v dropped %s — the fallbacks must survive the cap", got, want)
+		}
 	}
 }

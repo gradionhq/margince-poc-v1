@@ -520,7 +520,14 @@ function ContactRow({
   openDeals: readonly OpenDeal[];
 }>) {
   const t = useT();
-  const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
+  const roles = contact.deal_roles.filter((entry) => entry.role);
+  // Which deal a role is on only matters when there is more than one to
+  // confuse: a person can be champion on the renewal and nobody on the new
+  // business, and two identical badges would say neither.
+  const nameOfDeal = (dealId: string) =>
+    openDeals.length > 1
+      ? openDeals.find((deal) => deal.id === dealId)?.name
+      : undefined;
   const reach = reachOf(contact);
   return (
     <li className="co-row">
@@ -538,9 +545,16 @@ function ContactRow({
         <Badge tone={reach === "answered" ? "success" : undefined}>
           {t(reachLabelKey(reach))}
         </Badge>
-        {roles.map((role) => (
-          <Badge key={role}>{dealRoleLabel(role, t)}</Badge>
-        ))}
+        {roles.map((entry) => {
+          const deal = nameOfDeal(entry.deal_id);
+          return (
+            <Badge key={`${entry.deal_id}:${entry.role}`}>
+              {deal
+                ? `${dealRoleLabel(entry.role, t)} · ${deal}`
+                : dealRoleLabel(entry.role, t)}
+            </Badge>
+          );
+        })}
         <ConsentChip consent={contact.consent} />
         {/* The page said "nobody here is your champion" and gave no way to
             say who is: the roles are set on the deal screen, which is a

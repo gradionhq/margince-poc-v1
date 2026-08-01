@@ -226,31 +226,41 @@ func fetchLogoCandidate(ctx context.Context, fetch assetFetcher, rawURL string) 
 // egress is bounded whatever a page declares. Every candidate tried, off-host
 // ones included, is named in the report.
 func logoCandidates(seedURL string, declared declaredAssets) (candidates []string, dropped int) {
-	ordered := make([]string, 0, len(declared.icons)+2)
-	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelAppleTouchIcon)...)
-	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelIcon)...)
-	if wellKnown, ok := wellKnownFaviconURL(seedURL); ok {
-		ordered = append(ordered, wellKnown)
-	}
-	// Last: a site that declared no usable icon still has this, and on a small
-	// site it usually IS the mark.
-	if declared.ogImage != "" {
-		ordered = append(ordered, declared.ogImage)
+	seen := make(map[string]bool, len(declared.icons)+2)
+	keepNew := func(into []string, urls ...string) []string {
+		for _, u := range urls {
+			if u == "" || seen[u] {
+				continue
+			}
+			seen[u] = true
+			into = append(into, u)
+		}
+		return into
 	}
 
-	seen := make(map[string]bool, len(ordered))
-	unique := make([]string, 0, len(ordered))
-	for _, candidate := range ordered {
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		unique = append(unique, candidate)
+	icons := keepNew(nil, iconURLsByRel(declared.icons, webread.RelAppleTouchIcon)...)
+	icons = keepNew(icons, iconURLsByRel(declared.icons, webread.RelIcon)...)
+
+	// The two site-level sources: what every site has whether it declared
+	// anything or not, and — last — the share image, which on a small site
+	// usually IS the mark.
+	var fallbacks []string
+	if wellKnown, ok := wellKnownFaviconURL(seedURL); ok {
+		fallbacks = keepNew(fallbacks, wellKnown)
 	}
-	if len(unique) > logoMaxCandidates {
-		return unique[:logoMaxCandidates], len(unique) - logoMaxCandidates
+	fallbacks = keepNew(fallbacks, declared.ogImage)
+
+	// The cap bounds one read's asset egress, so it has to bite somewhere —
+	// but it must not bite the fallbacks. They are exactly what answers when
+	// the declarations are stale, and a page carrying logoMaxCandidates dead
+	// touch-icon tags would otherwise spend the whole budget on them and
+	// leave the company with no mark at all.
+	room := logoMaxCandidates - len(fallbacks)
+	if len(icons) > room {
+		dropped = len(icons) - room
+		icons = icons[:room]
 	}
-	return unique, 0
+	return append(icons, fallbacks...), dropped
 }
 
 // iconURLsByRel selects one rel's icons, largest declared size first. A page

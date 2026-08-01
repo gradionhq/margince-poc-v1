@@ -13,7 +13,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { CompaniesScreen, CompanyScreen, mapOrgUpdate } from "./organizations";
+import {
+  CompaniesScreen,
+  CompanyScreen,
+  companyEditFields,
+  mapOrgUpdate,
+} from "./organizations";
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
@@ -1844,5 +1849,85 @@ describe("CompanyScreen — the layout does not shift as the read lands", () => 
         "record-zones-both",
       ),
     );
+  });
+});
+
+// The 360 caps its activities section. A capped list that says nothing reads
+// as the whole history: the rep takes the oldest row on screen for the day the
+// relationship started.
+describe("CompanyScreen — the timeline says where it stops", () => {
+  it("says the activity list is cut when the 360 reports more", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "email",
+              subject: "Re: Lead Gen",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: true, next_cursor: "c1" },
+        },
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "This account has more activities than fit here. Only the most recent ones are listed.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("stays silent when the account's whole activity list is on screen", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "email",
+              subject: "Re: Lead Gen",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    expect(screen.queryByText(/more activities than fit here/)).toBeNull();
+  });
+});
+
+// `UpdateOrganizationRequest.owner_id` cannot carry "unassign" — a null is
+// indistinguishable from an omitted field on the wire. An optional select
+// offers a blank option, so picking it took the answer and dropped it: the
+// save reported success and the old owner stayed responsible.
+describe("companyEditFields — the owner select never offers what it cannot save", () => {
+  const ownerField = (hasOwner: boolean) =>
+    companyEditFields(
+      [{ id: "u1", display_name: "Demo Admin" }],
+      hasOwner,
+    ).find((field) => field.key === "owner_id");
+
+  it("is required while the account has an owner, so no blank option renders", () => {
+    // An optional select renders a blank option; picking it would send a body
+    // the server reads as "leave the owner alone".
+    expect(ownerField(true)?.required).toBe(true);
+  });
+
+  it("stays optional while the account has no owner at all", () => {
+    // There the blank is the truthful current state, not an edit we cannot make.
+    expect(ownerField(false)?.required).toBeFalsy();
   });
 });

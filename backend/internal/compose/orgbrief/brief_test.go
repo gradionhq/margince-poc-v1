@@ -19,8 +19,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -478,5 +480,92 @@ func TestModelBriefClosesWithTheSameQuotedCompanyLines(t *testing.T) {
 	}
 	if len(last.Evidence) != 1 || last.Evidence[0].EntityType != citeOrganization {
 		t.Errorf("company line cites %+v, want the organization", last.Evidence)
+	}
+}
+
+// The company half is the reader's own approved prose. Appending it after the
+// model runs guarantees the approved wording APPEARS; it does not stop a model
+// that read the same text from putting its own wording next to it, cited to
+// the organization and so accepted by the grounding check. Withholding it from
+// the request is what makes the promise true.
+func TestBriefRequestWithholdsTheCompanyProfileFromTheModel(t *testing.T) {
+	in := inputFixture()
+	in.Profile = []ProfileIn{{Field: "offer_summary", Value: "Managed hosting for shops"}}
+
+	request := BriefRequest(in)
+	sent := request.Messages[0].Content
+	if strings.Contains(sent, "Managed hosting for shops") {
+		t.Errorf("the request carries the approved company prose:\n%s", sent)
+	}
+	// The relationship half is still there — withholding the profile must not
+	// cost the model the account it is writing about.
+	if !strings.Contains(sent, in.Name) {
+		t.Errorf("the request lost the account itself:\n%s", sent)
+	}
+	// And the caller's own copy is untouched, because the appended company
+	// lines are read from it after the model answers.
+	if len(in.Profile) != 1 {
+		t.Errorf("BriefRequest mutated its caller's input: %+v", in.Profile)
+	}
+}
+
+func TestFoldProfileCutsAtACharacterNotAByte(t *testing.T) {
+	// German prose: 400 bytes lands mid-umlaut, and a byte cut leaves a broken
+	// sequence that reaches the reader as the replacement character.
+	var in Input
+	in.foldProfile([]crmcontracts.CompanyProfileField{
+		{Field: "offer_summary", Value: strings.Repeat("ä", briefProfileValueMax*2)},
+	})
+	value := in.Profile[0].Value
+	if !utf8.ValidString(value) {
+		t.Fatalf("value is not valid UTF-8: %q", value)
+	}
+	if got := utf8.RuneCountInString(value); got != briefProfileValueMax {
+		t.Errorf("value = %d characters, want it bounded to %d", got, briefProfileValueMax)
+	}
+}
+
+func TestQuotedCompanyLinesKeepTheAuthorsOwnTerminator(t *testing.T) {
+	in := inputFixture()
+	in.Profile = []ProfileIn{
+		{Field: "offer_summary", Value: "Wer braucht das?"},
+		{Field: "icp", Value: "Mittelstand"},
+	}
+	lines := profileLines(in, accountEvidence(briefOrgID))
+	if len(lines) != 2 {
+		t.Fatalf("lines = %+v, want both statements", lines)
+	}
+	if !strings.HasSuffix(lines[0].Text, "?") {
+		t.Errorf("line = %q, want the approved question mark kept", lines[0].Text)
+	}
+	if !strings.HasSuffix(lines[1].Text, ".") {
+		t.Errorf("line = %q, want a full stop added where the value had none", lines[1].Text)
+	}
+}
+
+type fixedAssembler struct{ view crmcontracts.Organization360 }
+
+func (f fixedAssembler) Assemble(context.Context, ids.OrganizationID) (crmcontracts.Organization360, error) {
+	return f.view, nil
+}
+
+type failingProfile struct{ err error }
+
+func (f failingProfile) ListOrganizationProfileFields(context.Context, ids.OrganizationID) ([]crmcontracts.CompanyProfileField, error) {
+	return nil, f.err
+}
+
+// A profile read that BREAKS is not the same as a company with nothing on
+// file. Treating them alike wrote a brief silently missing its second half and
+// cached it, so the next reader saw the same gap with nothing to say it had
+// ever been there.
+func TestAssembleFailsRatherThanCachingABriefThatLostItsCompanyHalf(t *testing.T) {
+	boom := errors.New("connection reset")
+	s := &Service{
+		view:    fixedAssembler{view: crmcontracts.Organization360{}},
+		profile: failingProfile{err: boom},
+	}
+	if _, err := s.assemble(context.Background(), ids.OrganizationID{}); !errors.Is(err, boom) {
+		t.Fatalf("assemble err = %v, want the profile read's own failure", err)
 	}
 }

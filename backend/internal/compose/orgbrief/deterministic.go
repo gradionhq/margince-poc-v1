@@ -102,14 +102,19 @@ func profileLines(in Input, account []Evidence) []Sentence {
 	return out
 }
 
-// trimSentence renders a stored statement as one sentence: no trailing
-// punctuation doubled, and a closing full stop when the value has none.
+// trimSentence renders a stored statement as one sentence: a closing full
+// stop when the value ends without one, and the author's own terminator kept
+// when it has one. Rewriting a "?" into a "." would be an edit to approved
+// text, which is the one thing this half of the brief promises not to do —
+// so only a dangling list separator is stripped.
 func trimSentence(value string) string {
-	trimmed := strings.TrimSpace(value)
+	trimmed := strings.TrimRight(strings.TrimSpace(value), ";:, ")
 	if trimmed == "" {
 		return trimmed
 	}
-	trimmed = strings.TrimRight(trimmed, ".!?;:, ")
+	if strings.HasSuffix(trimmed, ".") || strings.HasSuffix(trimmed, "!") || strings.HasSuffix(trimmed, "?") {
+		return trimmed
+	}
 	return trimmed + "."
 }
 
