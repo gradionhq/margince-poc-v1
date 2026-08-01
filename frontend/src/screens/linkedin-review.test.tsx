@@ -108,7 +108,9 @@ describe("LinkedInReviewCard", () => {
     // offered — rejecting still is, because clearing it is a real decision.
     stubRoutes({
       "GET /me/linkedin-connections": {
-        data: [{ ...SUGGESTION, matched_person_id: null, matched_person_name: null }],
+        data: [
+          { ...SUGGESTION, matched_person_id: null, matched_person_name: null },
+        ],
         page: EMPTY_PAGE,
       },
     });
@@ -221,6 +223,8 @@ describe("LinkedInReachCard", () => {
     expect(
       await screen.findByText(/Showing 1 of 267 accounts/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/4797 connections work somewhere/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/4797 connections work somewhere/),
+    ).toBeInTheDocument();
   });
 });

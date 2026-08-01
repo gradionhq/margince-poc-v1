@@ -1,4 +1,4 @@
--- 0161: the connection's own LinkedIn profile URL.
+-- 0164: the connection's own LinkedIn profile URL.
 --
 -- Connections.csv has carried a `URL` column in every export format LinkedIn
 -- has shipped, and the importer read every other column but this one. It is
