@@ -4762,6 +4762,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who on our team knows this contact, and how well.
+         * @description The person-anchored answer to the question the company connections card answers
+         *     per account: which colleagues have a real recorded relationship with this
+         *     contact, warmest first.
+         *
+         *     Warmth is the per-user relationship strength (PO-F-3b) — the same recency ×
+         *     frequency × reciprocity arithmetic as the contact's workspace-wide score, over
+         *     only the interactions THAT colleague was in. The two are not comparable by
+         *     addition and are never merged: a contact can be warm to the company while the
+         *     colleague beside them has barely met them, and that gap is the answer to "who
+         *     should make the introduction".
+         *
+         *     A colleague with no qualifying interaction in the window carries the `none`
+         *     band and no number — "we have never spoken" and "we spoke and it went cold" are
+         *     different facts, and a zero would render them identically.
+         *
+         *     Departed colleagues are absent: the surface exists to name someone who can act.
+         *     A contact the caller cannot read answers 404, never a leak of its existence.
+         */
+        get: operations["getPersonNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who covers this deal, and what is wrong with how it is covered.
+         * @description Every seat on the deal, which of them are actually engaged, which colleagues
+         *     carry the contact, and the risks that follow.
+         *
+         *     **Engaged means a two-way exchange**, not a seat on a list: both an inbound and
+         *     an outbound qualifying interaction in the window. A deal threaded only through
+         *     people who never replied is exactly what these flags exist to catch, and it is
+         *     the same test the deal-health composite uses — one definition, so two screens
+         *     cannot disagree about the same deal.
+         *
+         *     Risk kinds and their sources: `single_threaded_theirs` is REPORT-PARAM-1
+         *     verbatim (fewer than two engaged contacts); `single_threaded_ours` is
+         *     GRAPH-RISK-1, a statement about OUR coverage rather than the customer's, which
+         *     is why it carries its own id; `coverage_gap` is a deal with seats but no engaged
+         *     champion — a well-threaded deal nobody inside is arguing for.
+         *
+         *     Every risk carries the ids behind it. A flag a human cannot drill into is a red
+         *     dot nobody can act on.
+         */
+        get: operations["getDealCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/linkedin-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import your own LinkedIn connections export.
+         * @description Upload the `Connections.csv` LinkedIn hands every member under
+         *     Settings → Data privacy → Get a copy of your data. No LinkedIn app or API
+         *     approval is involved: this is your own export, imported into your own network.
+         *
+         *     **The imported rows are not contacts.** They are graph substrate — they never
+         *     appear in search, lists, the people screens, or the assistant's record tools,
+         *     nothing can write to them, and no outreach can reach them. They exist to answer
+         *     one question: does anyone here already know someone at this company.
+         *
+         *     The network is yours. The owner is the authenticated caller, never a field in
+         *     the file, so nobody can attribute a stranger's connections to a colleague.
+         *
+         *     Re-importing a refreshed export updates rather than duplicates. Rows with no
+         *     usable name are counted as skipped rather than silently dropped — an import that
+         *     quietly ignored half a file while reporting success is worse than one that fails.
+         *
+         *     Matching runs after the import and follows the house dedupe rule: an exact email
+         *     match confirms automatically, name-plus-employer only suggests, and an ambiguous
+         *     name suggests nothing. Nothing here ever creates a person.
+         */
+        post: operations["importLinkedInConnections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -6820,6 +6930,71 @@ export interface components {
              */
             logo_url?: string | null;
         };
+        /** @description One colleague's own relationship with this contact. */
+        PersonNetworkColleague: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /** @description PO-F-3b, computed at read; null when the band is `none`. */
+            strength?: number | null;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+            interactions_90d: number;
+            /** Format: date-time */
+            last_at?: string | null;
+        };
+        /**
+         * @description The colleagues who know this contact, warmest first. Ordering is the answer, not
+         *     a presentation detail: it is who to ask.
+         */
+        PersonNetwork: {
+            /** Format: uuid */
+            person_id: string;
+            colleagues: components["schemas"]["PersonNetworkColleague"][];
+        };
+        /** @description One stakeholder seat, and whether it is a relationship or just a name. */
+        DealCoverageSeat: {
+            /** Format: uuid */
+            person_id: string;
+            role: string;
+            /** @description A two-way exchange in the window — both directions, not just our sends. */
+            engaged: boolean;
+        };
+        /**
+         * @description One finding, with the records behind it. `kind` names the rule so a surface can
+         *     explain the flag rather than assert it.
+         */
+        DealCoverageRisk: {
+            /** @enum {string} */
+            kind: "single_threaded_theirs" | "single_threaded_ours" | "coverage_gap" | "champion_left" | "stakeholder_left" | "going_cold";
+            summary: string;
+            person_ids?: string[];
+            user_ids?: string[];
+        };
+        DealCoverage: {
+            /** Format: uuid */
+            deal_id: string;
+            stakeholders: components["schemas"]["DealCoverageSeat"][];
+            our_side: components["schemas"]["PersonNetworkColleague"][];
+            risks: components["schemas"]["DealCoverageRisk"][];
+        };
+        /**
+         * @description What one import did, in the terms someone asked to trust it would check.
+         *     `skipped` is reported rather than hidden: a file half-ignored under a success
+         *     message is worse than a refusal.
+         */
+        LinkedInImportSummary: {
+            /** @description Connection rows found in the file. */
+            rows: number;
+            /** @description Rows stored (created or updated). */
+            imported: number;
+            /** @description Rows with no usable name — they identify nobody. */
+            skipped: number;
+            /** @description Matched to a contact by exact email address, which is identity here. */
+            confirmed: number;
+            /** @description Matched by name and employer — plausible, awaiting a human. */
+            suggested: number;
+        };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
          *     always nodes in the same payload — an edge naming a record the caller may not
@@ -6839,10 +7014,12 @@ export interface components {
              *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
              *     the organization that records the edge to its counterparty.
              *     `owns` — `from` is the workspace member who owns the account.
-             *     `in_contact_with` — `from` is the workspace member who has recorded interactions
-             *     (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-             *     those interactions, so a task assigned to a teammate does not make one: an
-             *     assignment is intent, a logged email is contact.
+             *     `in_contact_with` — `from` is the workspace member who has been IN recorded
+             *     interactions (email, call, meeting) with the contact at `to`. It is drawn from
+             *     the recorded participants of those interactions, so it holds for
+             *     connector-captured mail as well as manually logged activity. Being copied on a
+             *     thread does not make one, and neither does a task assigned to a teammate: a cc
+             *     is exposure and an assignment is intent, while a logged exchange is contact.
              * @enum {string}
              */
             kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with" | "owns" | "in_contact_with";
@@ -6852,6 +7029,33 @@ export interface components {
              *     both `owns` and `in_contact_with`.
              */
             role?: string | null;
+            /**
+             * @description How warm this particular colleague's relationship with this contact is, 0–100,
+             *     on `in_contact_with` edges only; null on every other kind, which describes a
+             *     structural fact rather than a relationship.
+             *
+             *     It is the per-user relationship strength (PO-F-3b): the same recency ×
+             *     frequency × reciprocity arithmetic as the workspace-wide contact score, over
+             *     only the interactions THIS colleague was in. It is deliberately not comparable
+             *     by addition to the contact's own score — one answers "how warm is this contact
+             *     to us", the other "to this person among us", and neither is derivable from the
+             *     other.
+             *
+             *     Computed at read from exact timestamps and counts, never stored, so it decays
+             *     with the clock rather than with whenever a job last ran.
+             *
+             *     Null also when the colleague and contact have no qualifying interaction in the
+             *     scoring window, which is not the same as a zero — see `strength_bucket`.
+             */
+            strength?: number | null;
+            /**
+             * @description The display band for `strength`, so a surface renders the same words everywhere.
+             *     `none` means no qualifying interaction at all and is shown as "no signal yet",
+             *     never as a zero: "we have never spoken" and "we spoke and it went cold" are
+             *     different facts about an account.
+             * @enum {string|null}
+             */
+            strength_bucket?: "none" | "weak" | "moderate" | "strong" | null;
         };
         /**
          * @description The warm-intro route the account's most recent open signal proposes: which signal,
@@ -21258,6 +21462,89 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The colleagues who know this contact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonNetwork"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealCoverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal's coverage and its risks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealCoverage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    importLinkedInConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description LinkedIn `Connections.csv`.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What the import stored and what the matcher decided. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInImportSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
         };
     };

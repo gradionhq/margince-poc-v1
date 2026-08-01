@@ -335,6 +335,26 @@ var rowScopedFKDecisions = map[string]string{
 	// the activity whose body it just read — never from a request body.
 	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own row-scoped candidate query",
 	"person_signature_enrich_state.activity_id": "server-derived: stamped by the enrich pass from the activity that candidate query returned",
+	// The interaction participants (ACT-DDL-3): neither id is ever carried on
+	// a request body. Capture mints the activity in the same transaction and
+	// resolves the counterparty through the ensure chokepoint's own row-scoped
+	// lookup; a manual activity takes its person from a link the activities
+	// store already put through auth.EnsureLinkTarget. Reads inherit the
+	// activity's own visibility (the link walk), so a participant row never
+	// discloses an activity its reader could not already open.
+	"activity_participant.activity_id": "child row: written only beside the activity itself, inside the transaction that mints it",
+	"activity_participant.person_id":   "server-derived: the counterparty the ensure chokepoint resolved, or a link the activities store already gated",
+	// The interaction projection (CG-DDL-1) holds no fact of its own: every
+	// row is folded from activity_participant rows by the consumer, and no
+	// request body ever names a person here. Reads of it carry the person
+	// predicate, so an edge never discloses a contact the caller cannot open.
+	"graph_interaction_edge.person_id": "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	// The LinkedIn ghost's match arms (CG-DDL-2). A ghost is not a record and
+	// carries no client-supplied reference: the matcher resolves both ids from
+	// its own row-scoped lookups, and a human confirming a suggestion
+	// addresses the ghost row rather than naming a person.
+	"linkedin_connection.matched_person_id": "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
+	"linkedin_connection.matched_org_id":    "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

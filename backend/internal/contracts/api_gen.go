@@ -2796,6 +2796,36 @@ func (e DealStatus) Valid() bool {
 	}
 }
 
+// Defines values for DealCoverageRiskKind.
+const (
+	DealCoverageRiskKindChampionLeft         DealCoverageRiskKind = "champion_left"
+	DealCoverageRiskKindCoverageGap          DealCoverageRiskKind = "coverage_gap"
+	DealCoverageRiskKindGoingCold            DealCoverageRiskKind = "going_cold"
+	DealCoverageRiskKindSingleThreadedOurs   DealCoverageRiskKind = "single_threaded_ours"
+	DealCoverageRiskKindSingleThreadedTheirs DealCoverageRiskKind = "single_threaded_theirs"
+	DealCoverageRiskKindStakeholderLeft      DealCoverageRiskKind = "stakeholder_left"
+)
+
+// Valid indicates whether the value is a known member of the DealCoverageRiskKind enum.
+func (e DealCoverageRiskKind) Valid() bool {
+	switch e {
+	case DealCoverageRiskKindChampionLeft:
+		return true
+	case DealCoverageRiskKindCoverageGap:
+		return true
+	case DealCoverageRiskKindGoingCold:
+		return true
+	case DealCoverageRiskKindSingleThreadedOurs:
+		return true
+	case DealCoverageRiskKindSingleThreadedTheirs:
+		return true
+	case DealCoverageRiskKindStakeholderLeft:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DedupeCandidateEntityType.
 const (
 	DedupeCandidateEntityTypeOrganization DedupeCandidateEntityType = "organization"
@@ -4002,6 +4032,30 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationGraphEdgeStrengthBucket.
+const (
+	OrganizationGraphEdgeStrengthBucketModerate OrganizationGraphEdgeStrengthBucket = "moderate"
+	OrganizationGraphEdgeStrengthBucketNone     OrganizationGraphEdgeStrengthBucket = "none"
+	OrganizationGraphEdgeStrengthBucketStrong   OrganizationGraphEdgeStrengthBucket = "strong"
+	OrganizationGraphEdgeStrengthBucketWeak     OrganizationGraphEdgeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphEdgeStrengthBucket enum.
+func (e OrganizationGraphEdgeStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationGraphEdgeStrengthBucketModerate:
+		return true
+	case OrganizationGraphEdgeStrengthBucketNone:
+		return true
+	case OrganizationGraphEdgeStrengthBucketStrong:
+		return true
+	case OrganizationGraphEdgeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationGraphNodeKind.
 const (
 	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
@@ -4464,6 +4518,30 @@ func (e PersonEmailEmailType) Valid() bool {
 	case PersonEmailEmailTypePersonal:
 		return true
 	case PersonEmailEmailTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonNetworkColleagueStrengthBucket.
+const (
+	PersonNetworkColleagueStrengthBucketModerate PersonNetworkColleagueStrengthBucket = "moderate"
+	PersonNetworkColleagueStrengthBucketNone     PersonNetworkColleagueStrengthBucket = "none"
+	PersonNetworkColleagueStrengthBucketStrong   PersonNetworkColleagueStrengthBucket = "strong"
+	PersonNetworkColleagueStrengthBucketWeak     PersonNetworkColleagueStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonNetworkColleagueStrengthBucket enum.
+func (e PersonNetworkColleagueStrengthBucket) Valid() bool {
+	switch e {
+	case PersonNetworkColleagueStrengthBucketModerate:
+		return true
+	case PersonNetworkColleagueStrengthBucketNone:
+		return true
+	case PersonNetworkColleagueStrengthBucketStrong:
+		return true
+	case PersonNetworkColleagueStrengthBucketWeak:
 		return true
 	default:
 		return false
@@ -7271,28 +7349,28 @@ func (e ListSignalsParamsStatus) Valid() bool {
 
 // Defines values for ListSignalsParamsKind.
 const (
-	BuyingIntent ListSignalsParamsKind = "buying_intent"
-	ChampionLeft ListSignalsParamsKind = "champion_left"
-	Other        ListSignalsParamsKind = "other"
-	Reengagement ListSignalsParamsKind = "reengagement"
-	Risk         ListSignalsParamsKind = "risk"
-	StalledDeal  ListSignalsParamsKind = "stalled_deal"
+	ListSignalsParamsKindBuyingIntent ListSignalsParamsKind = "buying_intent"
+	ListSignalsParamsKindChampionLeft ListSignalsParamsKind = "champion_left"
+	ListSignalsParamsKindOther        ListSignalsParamsKind = "other"
+	ListSignalsParamsKindReengagement ListSignalsParamsKind = "reengagement"
+	ListSignalsParamsKindRisk         ListSignalsParamsKind = "risk"
+	ListSignalsParamsKindStalledDeal  ListSignalsParamsKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsKind enum.
 func (e ListSignalsParamsKind) Valid() bool {
 	switch e {
-	case BuyingIntent:
+	case ListSignalsParamsKindBuyingIntent:
 		return true
-	case ChampionLeft:
+	case ListSignalsParamsKindChampionLeft:
 		return true
-	case Other:
+	case ListSignalsParamsKindOther:
 		return true
-	case Reengagement:
+	case ListSignalsParamsKindReengagement:
 		return true
-	case Risk:
+	case ListSignalsParamsKindRisk:
 		return true
-	case StalledDeal:
+	case ListSignalsParamsKindStalledDeal:
 		return true
 	default:
 		return false
@@ -9504,6 +9582,34 @@ type DealForecastCategory string
 // DealStatus defines model for Deal.Status.
 type DealStatus string
 
+// DealCoverage defines model for DealCoverage.
+type DealCoverage struct {
+	DealId       openapi_types.UUID       `json:"deal_id"`
+	OurSide      []PersonNetworkColleague `json:"our_side"`
+	Risks        []DealCoverageRisk       `json:"risks"`
+	Stakeholders []DealCoverageSeat       `json:"stakeholders"`
+}
+
+// DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
+// explain the flag rather than assert it.
+type DealCoverageRisk struct {
+	Kind      DealCoverageRiskKind  `json:"kind"`
+	PersonIds *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary   string                `json:"summary"`
+	UserIds   *[]openapi_types.UUID `json:"user_ids,omitempty"`
+}
+
+// DealCoverageRiskKind defines model for DealCoverageRisk.Kind.
+type DealCoverageRiskKind string
+
+// DealCoverageSeat One stakeholder seat, and whether it is a relationship or just a name.
+type DealCoverageSeat struct {
+	// Engaged A two-way exchange in the window — both directions, not just our sends.
+	Engaged  bool               `json:"engaged"`
+	PersonId openapi_types.UUID `json:"person_id"`
+	Role     string             `json:"role"`
+}
+
 // DealListResponse defines model for DealListResponse.
 type DealListResponse struct {
 	Data []Deal   `json:"data"`
@@ -9900,6 +10006,26 @@ type LeadStatus string
 type LeadListResponse struct {
 	Data []Lead   `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
+// `skipped` is reported rather than hidden: a file half-ignored under a success
+// message is worse than a refusal.
+type LinkedInImportSummary struct {
+	// Confirmed Matched to a contact by exact email address, which is identity here.
+	Confirmed int `json:"confirmed"`
+
+	// Imported Rows stored (created or updated).
+	Imported int `json:"imported"`
+
+	// Rows Connection rows found in the file.
+	Rows int `json:"rows"`
+
+	// Skipped Rows with no usable name — they identify nobody.
+	Skipped int `json:"skipped"`
+
+	// Suggested Matched by name and employer — plausible, awaiting a human.
+	Suggested int `json:"suggested"`
 }
 
 // List A static membership set or a dynamic segment. Mirrors the `list` table.
@@ -10917,17 +11043,43 @@ type OrganizationGraphEdge struct {
 	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 	// the organization that records the edge to its counterparty.
 	// `owns` — `from` is the workspace member who owns the account.
-	// `in_contact_with` — `from` is the workspace member who has recorded interactions
-	// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-	// those interactions, so a task assigned to a teammate does not make one: an
-	// assignment is intent, a logged email is contact.
+	// `in_contact_with` — `from` is the workspace member who has been IN recorded
+	// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+	// the recorded participants of those interactions, so it holds for
+	// connector-captured mail as well as manually logged activity. Being copied on a
+	// thread does not make one, and neither does a task assigned to a teammate: a cc
+	// is exposure and an assignment is intent, while a logged exchange is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
 	// (champion, economic_buyer, …). Null on the edges that carry none, which includes
 	// both `owns` and `in_contact_with`.
-	Role *string            `json:"role,omitempty"`
-	To   openapi_types.UUID `json:"to"`
+	Role *string `json:"role,omitempty"`
+
+	// Strength How warm this particular colleague's relationship with this contact is, 0–100,
+	// on `in_contact_with` edges only; null on every other kind, which describes a
+	// structural fact rather than a relationship.
+	//
+	// It is the per-user relationship strength (PO-F-3b): the same recency ×
+	// frequency × reciprocity arithmetic as the workspace-wide contact score, over
+	// only the interactions THIS colleague was in. It is deliberately not comparable
+	// by addition to the contact's own score — one answers "how warm is this contact
+	// to us", the other "to this person among us", and neither is derivable from the
+	// other.
+	//
+	// Computed at read from exact timestamps and counts, never stored, so it decays
+	// with the clock rather than with whenever a job last ran.
+	//
+	// Null also when the colleague and contact have no qualifying interaction in the
+	// scoring window, which is not the same as a zero — see `strength_bucket`.
+	Strength *int `json:"strength,omitempty"`
+
+	// StrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+	// `none` means no qualifying interaction at all and is shown as "no signal yet",
+	// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+	// different facts about an account.
+	StrengthBucket *OrganizationGraphEdgeStrengthBucket `json:"strength_bucket,omitempty"`
+	To             openapi_types.UUID                   `json:"to"`
 }
 
 // OrganizationGraphEdgeKind `employment` — the account employs the person.
@@ -10938,11 +11090,19 @@ type OrganizationGraphEdge struct {
 // `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 // the organization that records the edge to its counterparty.
 // `owns` — `from` is the workspace member who owns the account.
-// `in_contact_with` — `from` is the workspace member who has recorded interactions
-// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-// those interactions, so a task assigned to a teammate does not make one: an
-// assignment is intent, a logged email is contact.
+// `in_contact_with` — `from` is the workspace member who has been IN recorded
+// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+// the recorded participants of those interactions, so it holds for
+// connector-captured mail as well as manually logged activity. Being copied on a
+// thread does not make one, and neither does a task assigned to a teammate: a cc
+// is exposure and an assignment is intent, while a logged exchange is contact.
 type OrganizationGraphEdgeKind string
+
+// OrganizationGraphEdgeStrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+// `none` means no qualifying interaction at all and is shown as "no signal yet",
+// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+// different facts about an account.
+type OrganizationGraphEdgeStrengthBucket string
 
 // OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
 // and which contact is the way in. The contact is ranked exactly as
@@ -11512,6 +11672,28 @@ type PersonListResponse struct {
 	Data []Person `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
+// a presentation detail: it is who to ask.
+type PersonNetwork struct {
+	Colleagues []PersonNetworkColleague `json:"colleagues"`
+	PersonId   openapi_types.UUID       `json:"person_id"`
+}
+
+// PersonNetworkColleague One colleague's own relationship with this contact.
+type PersonNetworkColleague struct {
+	DisplayName     string     `json:"display_name"`
+	Interactions90d int        `json:"interactions_90d"`
+	LastAt          *time.Time `json:"last_at,omitempty"`
+
+	// Strength PO-F-3b, computed at read; null when the band is `none`.
+	Strength       *int                                 `json:"strength,omitempty"`
+	StrengthBucket PersonNetworkColleagueStrengthBucket `json:"strength_bucket"`
+	UserId         openapi_types.UUID                   `json:"user_id"`
+}
+
+// PersonNetworkColleagueStrengthBucket defines model for PersonNetworkColleague.StrengthBucket.
+type PersonNetworkColleagueStrengthBucket string
 
 // PersonPhone defines model for PersonPhone.
 type PersonPhone struct {
@@ -14445,6 +14627,12 @@ type ListListMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ImportLinkedInConnectionsMultipartBody defines parameters for ImportLinkedInConnections.
+type ImportLinkedInConnectionsMultipartBody struct {
+	// File LinkedIn `Connections.csv`.
+	File openapi_types.File `json:"file"`
+}
+
 // ListOfferTemplatesParams defines parameters for ListOfferTemplates.
 type ListOfferTemplatesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -16385,6 +16573,9 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
+type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
 
 // CreateOfferTemplateJSONRequestBody defines body for CreateOfferTemplate for application/json ContentType.
 type CreateOfferTemplateJSONRequestBody = CreateOfferTemplateRequest
@@ -22481,6 +22672,9 @@ type ServerInterface interface {
 	// Advance a deal to a new stage (audit-logged with prior + next stage).
 	// (POST /deals/{id}/advance)
 	AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id, params AdvanceDealParams)
+	// Who covers this deal, and what is wrong with how it is covered.
+	// (GET /deals/{id}/coverage)
+	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// List a deal's offers, newest revision first.
 	// (GET /deals/{id}/offers)
 	ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams)
@@ -22568,6 +22762,9 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Import your own LinkedIn connections export.
+	// (POST /me/linkedin-connections)
+	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
 	// List offer templates (branded DE/EN PDF layouts), newest first.
 	// (GET /offer-templates)
 	ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams)
@@ -22778,6 +22975,9 @@ type ServerInterface interface {
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
+	// Who on our team knows this contact, and how well.
+	// (GET /people/{id}/network)
+	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -23633,6 +23833,12 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Who covers this deal, and what is wrong with how it is covered.
+// (GET /deals/{id}/coverage)
+func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List a deal's offers, newest revision first.
 // (GET /deals/{id}/offers)
 func (_ Unimplemented) ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams) {
@@ -23804,6 +24010,12 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Import your own LinkedIn connections export.
+// (POST /me/linkedin-connections)
+func (_ Unimplemented) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -24224,6 +24436,12 @@ func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, 
 // Merge this person into a target (non-lossy).
 // (POST /people/{id}/merge)
 func (_ Unimplemented) MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Who on our team knows this contact, and how well.
+// (GET /people/{id}/network)
+func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -28913,6 +29131,40 @@ func (siw *ServerInterfaceWrapper) AdvanceDeal(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetDealCoverage operation middleware
+func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDealOffers operation middleware
 func (siw *ServerInterfaceWrapper) ListDealOffers(w http.ResponseWriter, r *http.Request) {
 
@@ -30240,6 +30492,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportLinkedInConnections operation middleware
+func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportLinkedInConnections(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -33338,6 +33610,40 @@ func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MergePerson(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersonNetwork operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonNetwork(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -38925,6 +39231,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deals/{id}/advance", wrapper.AdvanceDeal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/offers", wrapper.ListDealOffers)
 	})
 	r.Group(func(r chi.Router) {
@@ -39010,6 +39319,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/offer-templates", wrapper.ListOfferTemplates)
@@ -39220,6 +39532,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)

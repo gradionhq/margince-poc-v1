@@ -215,6 +215,14 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the
+	// connector principal bound to THIS context is the only place the mailbox
+	// owner is known — every consumer downstream sees an activity whose
+	// captured_by reads `connector:gmail` and cannot recover the human behind
+	// it. The participant rows are the record of that fact.
+	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Kind, fields.Direction, rec.Counterparty.Email); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is
 	// metadata-only, never the subject/body (capturedActivityAuditImage).
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, capturedActivityAuditImage(rec, fields))
@@ -320,7 +328,7 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey,
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), capturedByFor(ctx, rec), rec.ThreadKey,
 		// Normalized lowercased at the write (a connector need not lowercase the
 		// header case), matching the person_email normalization, so the T1
 		// correspondence lookup's index-backed equality matches regardless of
@@ -434,4 +442,38 @@ func captureSource(rec connector.NormalizedRecord) string {
 // connectorPrincipalID renders the audit identity for a connector.
 func connectorPrincipalID(name string) string {
 	return "connector:" + strings.TrimPrefix(name, "connector:")
+}
+
+// connectorProvenance is what a captured activity's captured_by records: the
+// connector AND the mailbox owner behind it, `connector:gmail:<user>`.
+//
+// The connector alone was not enough to say anything useful. Two colleagues
+// who have both connected Gmail produce rows stamped identically, so nothing
+// downstream could tell whose mailbox a message came from — the provenance
+// named the software rather than the person, and any later attempt to
+// attribute history had to guess or decline.
+//
+// It is derived from the authenticated principal, never from the record the
+// connector handed us: provenance a caller can assert is provenance a caller
+// can forge. A principal carrying no granting user falls back to the bare
+// connector id, which is the honest answer for a connection with no human
+// behind it.
+func connectorProvenance(actor principal.Principal) string {
+	if actor.UserID == ids.Nil {
+		return actor.ID
+	}
+	return actor.ID + ":" + actor.UserID.String()
+}
+
+// capturedByFor is the provenance stamped on a captured activity: the acting
+// connector plus the mailbox owner behind it. It falls back to the record's
+// own value only when no actor is bound, which the sink has already refused
+// by the time this runs — the fallback exists so a future caller cannot get a
+// blank provenance out of a missing principal.
+func capturedByFor(ctx context.Context, rec connector.NormalizedRecord) string {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return rec.CapturedBy
+	}
+	return connectorProvenance(actor)
 }

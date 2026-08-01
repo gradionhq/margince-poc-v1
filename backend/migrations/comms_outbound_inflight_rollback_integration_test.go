@@ -12,9 +12,14 @@ package migrations
 // before the evidence goes, or a re-applied 0156 hands them back to the runner
 // looking untried and the customer gets a second copy.
 //
-// `migrate down` defaults to one step and reverts newest-first, so 0156 comes
-// off ALONE — 0155's blanket DELETE of the channel rows does not run, and those
-// rows are still there to be redelivered.
+// `migrate down` reverts newest-first, so the step count is derived from where
+// 0156 actually SITS rather than assumed to be one. What matters is that 0156
+// is the LAST migration reverted: 0155's blanket DELETE of the channel rows
+// must not run, or the rows this test is about are gone before it looks.
+//
+// Written as a literal 1, this reverted whichever migration happened to be
+// newest and still passed, because the guard asserted the COUNT. The next
+// migration anyone added turned it into a test of that migration instead.
 
 import (
 	"context"
@@ -48,12 +53,14 @@ func TestRollingBackTheInflightMarkerParksUnlearnedSends(t *testing.T) {
 	// parking it would strand a message nobody ever tried to send.
 	untried := seedChannelDeliveryForRollback(t, conn, ws, false)
 
-	reverted, err := dbmigrate.Down(ctx, conn, core, 1)
+	// Every migration from the newest down to and including 0156.
+	steps := stepsDownTo(t, core, "0156")
+	reverted, err := dbmigrate.Down(ctx, conn, core, steps)
 	if err != nil {
-		t.Fatalf("reverting 0156: %v", err)
+		t.Fatalf("reverting down to 0156: %v", err)
 	}
-	if reverted != 1 {
-		t.Fatalf("reverted %d migrations, want exactly 1 — this test is no longer exercising 0156 alone", reverted)
+	if reverted != steps {
+		t.Fatalf("reverted %d migrations, want %d — 0156 did not come off", reverted, steps)
 	}
 
 	status, reason := readDeliveryOutcome(t, conn, ws, unlearned)
@@ -115,4 +122,19 @@ func readDeliveryOutcome(t *testing.T, conn *pgx.Conn, ws, id string) (status, r
 		t.Fatalf("reading delivery %s: %v", id, err)
 	}
 	return status, reason
+}
+
+// stepsDownTo counts how many migrations `Down` must revert for the named
+// version to come off, given that it reverts newest-first. It fails loudly on
+// an unknown version rather than returning a count that would quietly revert
+// the wrong thing — which is the failure this helper exists to end.
+func stepsDownTo(t *testing.T, ns dbmigrate.Namespace, version string) int {
+	t.Helper()
+	for i := len(ns.Migrations) - 1; i >= 0; i-- {
+		if ns.Migrations[i].Version == version {
+			return len(ns.Migrations) - i
+		}
+	}
+	t.Fatalf("migration %s is not in the core namespace; this test names a version that no longer exists", version)
+	return 0
 }

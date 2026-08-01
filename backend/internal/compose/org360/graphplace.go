@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // placeContacts adds the employees, strongest relationship first with person
@@ -190,8 +191,7 @@ func (g *graphAssembly) placeOurSide() {
 	for _, edge := range g.ourSide {
 		drawn[edge.user.userID] = true
 		g.addUserNode(edge.user)
-		g.addEdge(edge.user.userID, edge.personID,
-			crmcontracts.OrganizationGraphEdgeKindInContactWith, nil)
+		g.addContactEdge(edge)
 	}
 	g.out.DroppedCount += g.ourSideTotal - len(drawn)
 }
@@ -276,6 +276,28 @@ func (g *graphAssembly) addNode(node crmcontracts.OrganizationGraphNode) {
 
 // addEdge appends one edge. Both ends are nodes by construction: every
 // caller places the far node first.
+// addContactEdge draws one colleague's contact with one person, carrying how
+// warm that particular relationship is.
+//
+// The band is what a surface renders; the number is what it ranks by. A
+// relationship with no qualifying interaction in the window carries the `none`
+// band and a NULL number on purpose — "we have never spoken" and "we spoke and
+// it went cold" are different facts, and a zero would render them the same.
+func (g *graphAssembly) addContactEdge(edge ourSideEdge) {
+	bucket := crmcontracts.OrganizationGraphEdgeStrengthBucket(edge.strength.Bucket)
+	wire := crmcontracts.OrganizationGraphEdge{
+		From:           openapi_types.UUID(edge.user.userID),
+		To:             openapi_types.UUID(edge.personID),
+		Kind:           crmcontracts.OrganizationGraphEdgeKindInContactWith,
+		StrengthBucket: &bucket,
+	}
+	if edge.strength.Bucket != relstrength.BucketNone {
+		strength := edge.strength.Strength
+		wire.Strength = &strength
+	}
+	g.out.Edges = append(g.out.Edges, wire)
+}
+
 func (g *graphAssembly) addEdge(from, to ids.UUID, kind crmcontracts.OrganizationGraphEdgeKind, role *string) {
 	g.out.Edges = append(g.out.Edges, crmcontracts.OrganizationGraphEdge{
 		From: openapi_types.UUID(from),

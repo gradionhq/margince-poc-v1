@@ -22,19 +22,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// unboundedCtx binds an admin whose row scope is all, so
-// auth.ActivityScopeClause contributes nothing and the assertions below are
-// about the entity filter alone.
-func unboundedCtx() context.Context {
+// unscopedCtx binds the one principal for whom auth.ActivityScopeClause
+// contributes nothing, so the assertions below are about the entity filter
+// alone. That principal is SYSTEM, not an admin: an activity's links reach
+// person and organization rows, which carry capture privacy
+// (visibility='owner'), and capture privacy is a property of the row that
+// row_scope=all does not clear — so a human admin does get a clause.
+func unscopedCtx() context.Context {
 	return principal.WithActor(context.Background(), principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:admin", UserID: ids.NewV7(),
-		Permissions: principal.Permissions{
-			RoleKeys: []string{"admin"},
-			Objects: map[string]principal.ObjectGrant{
-				"activity": {Read: true},
-			},
-			RowScope: principal.RowScopeAll,
-		},
+		Type: principal.PrincipalSystem, ID: "system",
+		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
 	})
 }
 
@@ -69,7 +66,7 @@ func filterFor(ctx context.Context, t *testing.T, entityType string) (join strin
 }
 
 func TestOrganizationFilterWalksTheAccountsThreeLinks(t *testing.T) {
-	join, where, args := filterFor(unboundedCtx(), t, "organization")
+	join, where, args := filterFor(unscopedCtx(), t, "organization")
 
 	if join != "" {
 		t.Errorf("organization filter joined %q; a join multiplies an activity "+
@@ -101,7 +98,7 @@ func TestEveryOtherEntityTypeKeepsItsFlatLinkJoin(t *testing.T) {
 		"lead":    "al.lead_id",
 		"project": "al.project_id",
 	} {
-		join, where, args := filterFor(unboundedCtx(), t, entityType)
+		join, where, args := filterFor(unscopedCtx(), t, entityType)
 		if join != " JOIN activity_link al ON al.activity_id = a.id" {
 			t.Errorf("%s filter join = %q, want the flat activity_link join", entityType, join)
 		}
@@ -124,7 +121,10 @@ func TestEveryOtherEntityTypeKeepsItsFlatLinkJoin(t *testing.T) {
 // widen WHO may read one, so the row-scope clause is still composed next to it.
 func TestTheAccountWalkStillCarriesTheRowScope(t *testing.T) {
 	_, where, _ := filterFor(teamScopedCtx(), t, "organization")
-	if !strings.Contains(where, "activity_link nl") {
+	// bool_or is the row-scope walk's own token: it is how the any-link
+	// rule and the link-less-note rule are spelled in one pass, and the
+	// account walk below never emits it.
+	if !strings.Contains(where, "bool_or") {
 		t.Errorf("the row-scope link-walk is missing from a bounded caller's account filter: %s", where)
 	}
 	// The employment arm is the walk's own token: the row-scope clause also
@@ -136,7 +136,7 @@ func TestTheAccountWalkStillCarriesTheRowScope(t *testing.T) {
 
 func TestAnUnknownEntityTypeIsRefusedRatherThanBuiltIntoSQL(t *testing.T) {
 	entityType, entity := "invoice", ids.NewV7()
-	_, _, _, err := listActivitiesFilter(unboundedCtx(), ListActivitiesInput{
+	_, _, _, err := listActivitiesFilter(unscopedCtx(), ListActivitiesInput{
 		EntityType: &entityType, EntityID: &entity,
 	})
 	var badType *InvalidLinkTypeError

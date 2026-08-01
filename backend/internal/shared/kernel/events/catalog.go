@@ -250,6 +250,11 @@ func Groups() []Group {
 	}
 	return []Group{
 		{Name: "cg:context-graph", Streams: forEntities(personStreamEntity, organizationStreamEntity, dealStreamEntity, activityStreamEntity, leadStreamEntity)},
+		// The interaction-edge projection (CG-DDL-1 / ADR-0078). Its OWN group
+		// rather than a second handler on cg:context-graph: a projection
+		// rebuild must not be able to stall embedding freshness, and the two
+		// have unrelated failure modes.
+		{Name: "cg:graph-edge", Streams: forEntities(activityStreamEntity, personStreamEntity)},
 		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
 		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},

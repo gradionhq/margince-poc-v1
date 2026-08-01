@@ -346,6 +346,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
+	// The ADR-0078 relationship-graph passes register themselves, so this
+	// wiring stays one line as that surface grows (jobs_graph.go).
+	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{

@@ -203,7 +203,144 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-07-31
+## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
+
+**"Who on our team knows this contact" is now a stored fact, and the company
+page's connections card works for the first time on real mail.** Branch
+`feat/network-graph`, unpushed, nine commits. Upstream half is
+`spec/network-graph-decision-pack` in margince-foundation (ADR-0078 / A123,
+accepted).
+
+**The defect that started it.** The card derived our-side edges by matching
+`captured_by = 'human:<uuid>'` on the activity row. Connector-captured mail is
+stamped `connector:gmail`, so on any workspace whose history comes from a real
+mailbox the group matched nothing and rendered empty — worst on the accounts
+with the most correspondence, with no error to contradict it. The root cause
+was that nothing recorded WHO WAS IN a conversation: `activity_link` has no
+user arm, and the mailbox owner (known at ingest from `capture_connection`) was
+never written down.
+
+**What shipped**
+
+- **0157 `activity_participant`** (ACT-DDL-3): one row per party per activity,
+  three identity arms (our user / a known person / a raw address for the party
+  who never became a record), closed role set. Stamped by capture at ingest and
+  by the hand-logging path; promoted from address to person at
+  `linkActivityToPerson`, the one chokepoint every ensure path reaches.
+- **0158 `graph_interaction_edge`** (CG-DDL-1): the derived user↔contact
+  projection. Recompute-never-increment, no audit/outbox, score computed at
+  read. Maintained by the `cg:graph-edge` consumer, re-trued nightly.
+- **`shared/kernel/relstrength`**: the §4 arithmetic extracted so PO-F-3 and
+  PO-F-3b cannot drift. Existing tests pass unchanged; new tests pin the spec's
+  worked example exactly (47, moderate).
+- **`StrengthForPeopleAsOf`**: what §4 would have said at a past instant, for
+  the going-cold comparison. A counterfactual over today's corpus, not history
+  — an erased interaction is absent from the past answer too, deliberately.
+- **A resumable participant backfill** for history captured before the table
+  existed. Refuses to guess when two users share one provider.
+- **Capture privacy is now enforced** — see below; it was a prerequisite.
+
+**Three defects found on the way, all pre-existing on main**
+
+1. **`visibility='owner'` was written and never read.** Migration 0095 says it
+   is "enforced by the row-scope clauses in platform/auth"; `VisiblePredicate`
+   never consulted the column. Under team scope a whole team read each other's
+   unpromoted captured contacts, and under `row_scope=all` so did every admin.
+   Fixed, with the founder rule: the importing user ALONE, not even Admin.
+   Art. 15/17 cross it through `EnsureVisibleForSubjectRights`.
+2. **`GET /v1/record-grants` answered 500 for every non-admin.** It probed
+   visibility inside an open cursor on the same transaction ("conn busy"). It
+   looked healthy only because the probe was a no-op for unbounded callers and
+   the test runs as one.
+3. **Postgres JIT cost more than it saved.** The row-scope predicates inflate
+   estimated plan cost past `jit_above_cost` while the query stays an indexed
+   OLTP read: 12ms of work behind 475ms of LLVM on the `/search` union. The
+   threshold is crossed by the row-scope TIER, so a rep paid it on a query an
+   admin ran for free. `jit=off` on the app pool.
+
+**LinkedIn (CSV half) shipped.** `0159 linkedin_connection` + the
+`Connections.csv` importer + the matcher + `POST /me/linkedin-connections`.
+Ghosts are graph substrate, never records: invisible to search, lists, people
+screens and the assistant's record tools, and nothing can write to them. An
+exact email match auto-confirms (the house dedupe rule); name+employer only
+suggests; an ambiguous name suggests nothing. Nothing ever creates a person.
+Erasure deletes a subject's ghosts and Art. 15 exports them. The OAuth/API half
+waits on LinkedIn approving a developer app — it is a thin provider behind the
+same rows.
+
+**The frontend shows per-colleague warmth** on the connections card, kept
+separate from the contact's workspace-wide score: a contact can be warm to the
+company while the colleague beside them has barely met them, and that gap is
+the point. `none` renders as "no signal yet", never a zero.
+
+**Deliberately NOT done on this branch** (the plan's phase 5 tail + 2.3). No
+`compose/network/` risk detectors (single-threaded, going-cold, champion-left,
+coverage-gap), no `GET /people/{id}/network`, no `GET /deals/{id}/coverage`, no
+agent tools, and no onboarding upload box for the CSV (the endpoint exists and
+takes a multipart POST; nothing in the UI calls it yet). The substrate they all
+sit on is in place and tested.
+
+**Three defects the stop-time review caught after the first pass**, all now
+fixed and worth remembering as a class: (1) the projection consumer listened
+for a `person.erased` event no path emits, so every Art. 17 erasure left the
+subject's correspondence pattern standing — erasure is now discharged inside
+its own transaction, because an obligation carried by a bus message fails
+silently when the bus is behind; (2) four of the event names the consumer
+switched on did not exist at all, which is how a projection silently stops
+updating; (3) relink moved the activity_link and left the participant row
+naming the old contact, permanently. Also: the PII census is a hand-maintained
+list, so new tables pass it vacuously until enrolled.
+
+**Codex full-branch review, reconciled.** 14 findings; 7 fixed on the branch,
+7 accepted and recorded below. The fixed ones, because the CLASS matters more
+than the instances: two privacy leaks (deal coverage listed owner-private
+stakeholders to anyone who could see the deal; the person-network read used
+EnsureVisible, which skips its probe for unbounded callers and never checks
+archived_at), one lying test (deactivation sets `status` and leaves
+archived_at NULL — the test ARCHIVED the user instead, so it passed while
+production kept offering departed colleagues), one contract lie (warmest-first
+promised, last-contact delivered AND capped, so a recent one-liner evicted a
+year-long relationship), two deletion gaps (the time-based retention sweep
+reached none of the new tables; LinkedIn erasure keyed on a DERIVED org id, so
+a ghost imported before its account existed survived), and one stale-state gap
+(retention emits `retention.applied`, which the graph consumer now listens
+for — the first attempt at that fix was a second SQL statement inside privacy
+that only DELETED empty pairs, so a pair with other interactions kept counting
+the removed one; routing the event to the existing fold fixed both).
+
+**Accepted, NOT fixed — carry these forward.**
+1. Calendar and group-mail participants: capture writes the mailbox owner and
+   ONE counterparty, so gcal attendees and multi-party mail are still not
+   recorded as participants. ADR-0078 §1 claims they are; that claim is
+   currently ahead of the code.
+2. Relink invalidation: the participant row is repointed before the event
+   fires, so the consumer cannot name the displaced pair and the old edge
+   survives to the nightly rebuild. Needs the additive `relinked_from`
+   reference (a public-event contract change). The repoint itself is now
+   correct — it takes the displaced ids from the delete rather than inferring
+   them — but the event still cannot carry them.
+3. Person merge does not repoint `activity_participant`; the consumer drops the
+   source edge assuming it did, and the nightly rebuild can recreate an edge to
+   the archived source because the fold does not check person liveness.
+4. Our-side concentration counts one group email once per stakeholder, so five
+   stakeholders on one message satisfy the five-interaction floor.
+5. `matched_org_id` is only recomputed on upload and never cleared, so org
+   rename/archive/merge leaves reach counts stale or misattached.
+6. A refreshed LinkedIn export never tombstones connections absent from it.
+7. `at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
+   not built.
+8. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
+   (07-01..07-14 and 07-01..07-31) while now needing a `current_date` row so the
+   budget block does not zero at a month boundary. Both hold today because the
+   live date is outside those windows; they break when it is not. The fix is to
+   day-scope the assertions, and it belongs with whoever owns that test.
+
+**Verification.** `make check-backend` green. Integration lane matches the
+`origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
+failures present there are unchanged and unrelated. Not yet run: `make dev`
+(shared machine, other session active) and `make frontend-e2e`.
+
+## Session pickup — 2026-07-31 (AI certification)
 
 **The site read stopped proposing leads nobody asked for.** Three defects in
 the published-person lane closed in PR #342 (merged):

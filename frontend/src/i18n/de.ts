@@ -581,6 +581,17 @@ export const de = {
   "co.connections.rel.referred_by.owner": "von diesem Account empfohlen",
   "co.connections.rel.owns": "betreut diesen Account",
   "co.connections.rel.in_contact_with": "im Austausch",
+  "co.connections.noSignal": "noch kein Signal",
+  "linkedinImport.title": "LinkedIn-Kontakte",
+  "linkedinImport.sub":
+    "Eigenen Export importieren und sehen, wen das Team bereits kennt",
+  "linkedinImport.explainer":
+    "LinkedIn stellt Ihnen unter Einstellungen → Datenschutz → Kopie Ihrer Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen: Sie erscheinen weder in Suche noch in Listen oder Kontaktseiten, und niemand kann ihnen schreiben.",
+  "linkedinImport.working": "Export wird gelesen…",
+  "linkedinImport.imported": "Kontakte importiert",
+  "linkedinImport.confirmed": "Einer Person zugeordnet",
+  "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
+  "linkedinImport.skipped": "Übersprungen (kein verwertbarer Name)",
   "co.connections.rel.co_sell_with": "gemeinsamer Vertrieb",
   "co.connections.group.contacts": "Kontakte",
   "co.connections.group.deals": "Deals",

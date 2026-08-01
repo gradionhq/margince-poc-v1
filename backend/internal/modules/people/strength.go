@@ -27,21 +27,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
-// bucketNone is the display bucket for a relationship with no
-// qualifying interaction at all — shown as "no interactions yet", never
-// as a number.
-const bucketNone = "none"
-
-// §4 tunables (spec parameter registry names in comments).
+// The §4 vocabulary this package uses, aliased from the leaf that owns the
+// arithmetic (shared/kernel/relstrength) rather than restated. A second
+// definition of a tunable is a second thing to keep in step.
 const (
-	relStrengthHalfLifeDays     = 30.0 // RELSTRENGTH_HALFLIFE_DAYS
-	relStrengthFreqSaturation   = 20.0 // RELSTRENGTH_FREQ_SATURATION
-	relStrengthReciprocityFloor = 0.25 // RELSTRENGTH_RECIPROCITY_FLOOR
-	relStrengthWindowDays       = 90   // frequency/reciprocity window
+	bucketNone            = relstrength.BucketNone
+	relStrengthWindowDays = relstrength.WindowDays
 	// relStrengthEvidenceCap bounds the contributing-ids payload; the
-	// factors are computed over the FULL window regardless.
+	// factors are computed over the FULL window regardless. It is this
+	// package's own concern — a display cap, not part of the formula.
 	relStrengthEvidenceCap = 200
 )
 
@@ -63,8 +60,9 @@ type RelationshipStrength struct {
 	ContributingIDs     []ids.ActivityID
 }
 
-// strengthKinds are the qualifying interaction kinds (§4 inputs).
-const strengthKinds = `('email','call','meeting')`
+// strengthKinds are the activity kinds that count as contact, from the one
+// shared definition — see relstrength.InteractionKindSQLGroup.
+var strengthKinds = relstrength.InteractionKindSQLGroup()
 
 // PersonStrength computes the §4 baseline for one person. The person
 // read is row-scoped exactly like GetPerson: a person the caller cannot
@@ -277,7 +275,7 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	if len(contacts) == 0 {
 		return nil, nil
 	}
-	return contactStrengths(ctx, tx, contacts, now)
+	return contactStrengths(ctx, tx, contacts, now, nil)
 }
 
 // personScopePredicate is the caller's person row-scope predicate for a query
@@ -298,6 +296,31 @@ func personScopePredicate(ctx context.Context, arg func(any) int) (string, error
 // deal stakeholders together, and asking per person would open one
 // transaction each and read a different instant for every node.
 func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, now time.Time) ([]ContactStrength, error) {
+	return strengthForPeopleAt(ctx, tx, people, now, nil)
+}
+
+// StrengthForPeopleAsOf answers what §4 WOULD have said at a past instant:
+// the same fold, with the window ending at asOf and every later interaction
+// excluded. It is what "this relationship is going cold" compares against —
+// today's score against the same contact's score a month ago — and it needs
+// no snapshot table to do it.
+//
+// It is a COUNTERFACTUAL over today's corpus, not exact history, and the
+// difference is not pedantic. An activity archived or erased since asOf is
+// absent from this answer even though it was present then. That is the
+// behaviour we want, not a defect to route around: an erasure must not be
+// able to resurrect the strength it removed, or the score becomes a way to
+// read deleted data. What the caller is entitled to say is "strength then,
+// judged by what we may still count today" — and no more than that.
+func StrengthForPeopleAsOf(ctx context.Context, tx pgx.Tx, people []ids.PersonID, asOf time.Time) ([]ContactStrength, error) {
+	return strengthForPeopleAt(ctx, tx, people, asOf, &asOf)
+}
+
+// strengthForPeopleAt is the shared body. A nil upper bound means "no upper
+// bound", which is deliberately NOT the same as passing now: an interaction
+// timestamped slightly ahead of the app's clock is ordinary, and the live
+// score has always counted it.
+func strengthForPeopleAt(ctx context.Context, tx pgx.Tx, people []ids.PersonID, now time.Time, until *time.Time) ([]ContactStrength, error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, err
 	}
@@ -329,7 +352,7 @@ func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, no
 	if len(visible) == 0 {
 		return nil, nil
 	}
-	return contactStrengths(ctx, tx, visible, now)
+	return contactStrengths(ctx, tx, visible, now, until)
 }
 
 // contactStrengths folds the §4 inputs for a whole contact set out of ONE
@@ -337,7 +360,7 @@ func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, no
 // deliberately NOT collected here: they are the person page's receipts, and
 // carrying up to relStrengthEvidenceCap of them per contact would make an
 // account list payload grow with its history rather than its contact count.
-func contactStrengths(ctx context.Context, tx pgx.Tx, contacts []ids.PersonID, now time.Time) ([]ContactStrength, error) {
+func contactStrengths(ctx context.Context, tx pgx.Tx, contacts []ids.PersonID, now time.Time, until *time.Time) ([]ContactStrength, error) {
 	windowStart := now.AddDate(0, 0, -relStrengthWindowDays)
 	rows, err := tx.Query(ctx, `
 		SELECT l.person_id,
@@ -348,7 +371,10 @@ func contactStrengths(ctx context.Context, tx pgx.Tx, contacts []ids.PersonID, n
 		FROM activity a
 		JOIN activity_link l ON l.activity_id = a.id
 		WHERE l.person_id = ANY($1) AND a.kind IN `+strengthKinds+` AND a.archived_at IS NULL
-		GROUP BY l.person_id`, contacts, windowStart)
+		  -- NULL means no upper bound, so the live score is unchanged; an
+		  -- as-of read passes the instant it is asking about.
+		  AND ($3::timestamptz IS NULL OR a.occurred_at <= $3)
+		GROUP BY l.person_id`, contacts, windowStart, until)
 	if err != nil {
 		return nil, err
 	}
@@ -419,32 +445,22 @@ func strengthInputs(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now t
 }
 
 // finish folds the gathered inputs through the §4 formula.
+//
+// The arithmetic itself lives in shared/kernel/relstrength, not here: the
+// per-colleague score (PO-F-3b, ADR-0078) is the same curve over a narrower
+// input set, and the two appear side by side on one screen. A constant tuned
+// in one copy and not the other would read as a contradiction rather than a
+// rounding difference, so there is one copy.
 func (r *RelationshipStrength) finish(now time.Time) {
-	if r.LastInteraction == nil {
-		// No interactions: undefined → 0, shown as "no interactions yet",
-		// never as a number.
-		r.Bucket = bucketNone
-		return
-	}
-	days := now.Sub(*r.LastInteraction).Hours() / 24
-	if days < 0 {
-		days = 0
-	}
-	r.Recency = math.Exp2(-days / relStrengthHalfLifeDays)
-	r.Frequency = math.Min(1.0, float64(r.InteractionCount90d)/relStrengthFreqSaturation)
-	directed := r.Inbound90d + r.Outbound90d
-	balance := 0.0
-	if directed > 0 {
-		balance = 1 - math.Abs(float64(r.Inbound90d-r.Outbound90d))/float64(directed)
-	}
-	r.Reciprocity = relStrengthReciprocityFloor + (1-relStrengthReciprocityFloor)*balance
-	r.Strength = int(math.Round(100 * r.Recency * r.Frequency * r.Reciprocity))
-	switch {
-	case r.Strength >= 60:
-		r.Bucket = "strong"
-	case r.Strength >= 25:
-		r.Bucket = "moderate"
-	default:
-		r.Bucket = "weak"
-	}
+	score := relstrength.Compute(relstrength.Inputs{
+		LastInteraction: r.LastInteraction,
+		Count90d:        r.InteractionCount90d,
+		Inbound90d:      r.Inbound90d,
+		Outbound90d:     r.Outbound90d,
+	}, now)
+	r.Strength = score.Strength
+	r.Bucket = score.Bucket
+	r.Recency = score.Recency
+	r.Frequency = score.Frequency
+	r.Reciprocity = score.Reciprocity
 }
