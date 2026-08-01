@@ -5,7 +5,7 @@ package agents
 
 // The communication verbs on the MCP surface (crm.yaml x-mcp-tool):
 // draft_email / check_availability are 🟢 (propose, never commit);
-// send_email / book_meeting are 🟡 — the registry's admission gate
+// send_email / send_message / book_meeting are 🟡 — the registry's admission gate
 // stages them for approval exactly like every other confirmation_required tool. The
 // module never touches activities' internals: compose injects the
 // Comms seam, which delegates to the SAME store methods the HTTP
@@ -14,10 +14,12 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -26,6 +28,10 @@ import (
 type Comms interface {
 	DraftEmail(ctx context.Context, anchor ids.UUID, intent string) (subject, body string, err error)
 	SendEmail(ctx context.Context, anchor ids.UUID, in SendEmailArgs) (json.RawMessage, error)
+	// SendMessage replies on a captured channel conversation. It takes no
+	// addressee: the recipient is the person the anchor conversation is with,
+	// resolved server-side, so a reply can only reach the human who opened it.
+	SendMessage(ctx context.Context, anchor ids.UUID, in SendMessageArgs) (json.RawMessage, error)
 	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error)
 	BookMeeting(ctx context.Context, in BookMeetingArgs) (json.RawMessage, error)
 }
@@ -36,6 +42,14 @@ type SendEmailArgs struct {
 	Subject        string   `json:"subject"`
 	Body           string   `json:"body"`
 	ConsentPurpose string   `json:"consent_purpose"`
+}
+
+// SendMessageArgs is one channel reply. It carries no subject and no
+// addressee, and that absence is the transport's shape rather than an
+// omission: a messaging channel has neither.
+type SendMessageArgs struct {
+	Body           string `json:"body"`
+	ConsentPurpose string `json:"consent_purpose"`
 }
 
 type BookMeetingArgs struct {
@@ -49,13 +63,16 @@ type BookMeetingArgs struct {
 	} `json:"links"`
 }
 
-// RegisterCommsTools wires the four verbs over the injected seam.
-func RegisterCommsTools(r *Registry, comms Comms) {
+// RegisterCommsTools wires the five verbs over the injected seam. The provider
+// is the record reader send_message stages against; the other four verbs do not
+// stage and never read it.
+func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordProvider) {
 	if comms == nil {
 		return
 	}
 	r.Register(draftEmailTool{comms: comms})
 	r.Register(sendEmailTool{comms: comms})
+	r.Register(sendMessageTool{comms: comms, p: p})
 	r.Register(checkAvailability{comms: comms})
 	r.Register(bookMeetingTool{comms: comms})
 }
@@ -124,6 +141,65 @@ func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		return nil, err
 	}
 	return t.comms.SendEmail(ctx, args.ActivityID, args.SendEmailArgs)
+}
+
+// --- send_message (🟡: outbound + irreversible, the channel twin of send_email) ---
+
+// sendMessageTool carries a record reader its mail twin does not: a 🟡 tool
+// stages through StageInfo, and staging has to know the version of the row the
+// effect targets and refuse one whose authority lives in another system.
+type sendMessageTool struct {
+	comms Comms
+	p     datasource.SystemOfRecordProvider
+}
+
+func (t sendMessageTool) Spec() mcp.ToolSpec {
+	return mcp.ToolSpec{
+		Name: "send_message", Version: toolVersionV1,
+		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
+		OpenAPIOp: "sendMessage",
+		InputSchema: schema(`{"type":"object","required":["activity_id","body","consent_purpose"],"properties":{
+			"activity_id":{"type":"string","format":"uuid","description":"The captured conversation being replied to"},
+			"body":{"type":"string","minLength":1},
+			"consent_purpose":{"type":"string","description":"Purpose key the recipient must have granted"},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
+			"additionalProperties":false}`),
+		OutputSchema: schema(`{"type":"object"}`),
+	}
+}
+
+type sendMessageToolArgs struct {
+	ActivityID ids.UUID `json:"activity_id"`
+	SendMessageArgs
+}
+
+func (t sendMessageTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args sendMessageToolArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
+	if err != nil {
+		return StageInfo{}, err
+	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
+		// The inbox shows the human what they are releasing. The message text
+		// is the thing being approved, so it belongs in the summary; the
+		// recipient does not, because nobody named one — the conversation did.
+		Summary: fmt.Sprintf("Reply on a captured conversation: %q", args.Body),
+	}, nil
+}
+
+func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args sendMessageToolArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	return t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs)
 }
 
 // --- check_availability (🟢 read) ---
