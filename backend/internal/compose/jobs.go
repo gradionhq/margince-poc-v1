@@ -349,6 +349,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The ADR-0078 relationship-graph passes register themselves, so this
 	// wiring stays one line as that surface grows (jobs_graph.go).
 	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
+	// The ADR-0069 §3a embed drift sweep registers itself the same way
+	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
+	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{

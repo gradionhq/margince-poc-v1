@@ -79,17 +79,6 @@ visible from a test.
    paragraph, all underlined so everything reads as a link. The facts wall was
    collapsed and then rebuilt out of profile fields.
 
-## Open — the reindex banner is ops jargon on every page
-
-`Reindex needed / Review in settings` sits above every record, for every user.
-It reports that the search embedding index is stale — the configured embedding
-model differs from what is populated, or records are queued. That is an
-operator's concern, and the detail already lives in Settings → Data. It
-occupies the most prominent slot on the page for a reader who cannot act on it.
-
-Founder asked what it was on 2026-07-31; the answer was "search index status,
-admin only". Moving it into Settings is a small change nobody has taken.
-
 ## Open decision — the organization brief endpoint has no client
 
 `GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
