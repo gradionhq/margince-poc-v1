@@ -358,8 +358,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// The deep-read worker registers regardless: without a model path
 		// (nil SiteExtract) it fails a picked-up read honestly rather than
 		// leaving it queued behind a job no one can work.
-		DeepReadBrain:     modelPath.SiteExtract,
-		DeepReadFactBrain: modelPath.SiteFactExtract,
+		DeepReadBrain:       modelPath.SiteExtract,
+		DeepReadFactBrain:   modelPath.SiteFactExtract,
+		DeepReadTriageBrain: modelPath.SiteTriage,
 		// Same posture for the voice build: the worker registers with or
 		// without a model, failing picked-up builds actionably when brainless.
 		VoiceBrain: modelPath.VoiceBuild,

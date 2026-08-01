@@ -70,6 +70,25 @@ type SiteReadDebugReport struct {
 	// ExtractionDurationMs is the parallel extraction's wall clock —
 	// with the crawl duration, the read's whole latency story.
 	ExtractionDurationMs int64 `json:"extraction_duration_ms"`
+	// Triage is what the domain-triage classifier made of the landing page.
+	// It is reported for EVERY debug run, including seeds that would never be
+	// triaged in production, because tuning that prompt is the whole reason to
+	// point this tool at a personal domain or a mailbox vendor.
+	Triage DebugTriage `json:"triage"`
+}
+
+// DebugTriage is the seed-page classification and what it would have cost.
+type DebugTriage struct {
+	Kind       string  `json:"kind"`
+	Confidence float64 `json:"confidence"`
+	Reason     string  `json:"reason"`
+	// Aborts reports whether this verdict would have stopped the crawl after
+	// the landing page — the saving the classifier exists to buy.
+	Aborts bool `json:"aborts"`
+	// Error is the classification call's own failure, if it had one. A failed
+	// classification is not a failed read: production falls through to the
+	// full crawl, and so does this.
+	Error string `json:"error,omitempty"`
 }
 
 // RunSiteReadDebug runs one full deep read in memory and reports every
@@ -135,6 +154,9 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.ModelLaneError = extraction.err.Error()
 	}
 	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
+	if len(crawl.Pages) > 0 {
+		report.Triage = debugTriage(ctx, rec, crawl.Pages[0])
+	}
 	if logoFetch != nil {
 		logoSeed := crawl.SeedURL
 		if logoSeed == "" {
@@ -162,6 +184,24 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.Warnings = append(report.Warnings, warning)
 	}
 	return report, nil
+}
+
+// debugTriage runs the domain-triage classifier over the landing page the crawl
+// already read. It classifies AFTER the fact here rather than before, because a
+// debug run wants the whole read regardless of the verdict — what it reports is
+// what production WOULD have decided.
+func debugTriage(ctx context.Context, brain completer, seed crawlPage) DebugTriage {
+	resp, err := brain.Complete(ctx, triageRequest(seed))
+	if err != nil {
+		return DebugTriage{Kind: siteKindUnclear, Error: err.Error()}
+	}
+	verdict := gateTriageVerdict(resp.Text)
+	return DebugTriage{
+		Kind:       verdict.Kind,
+		Confidence: float64(verdict.Confidence),
+		Reason:     verdict.Reason,
+		Aborts:     verdict.Aborts(),
+	}
 }
 
 // recordingBrain decorates the injected brain with per-call telemetry

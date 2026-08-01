@@ -75,6 +75,55 @@ func (s *Store) ResolveDomainTriage(ctx context.Context, in ResolveDomainTriageI
 	return res, nil
 }
 
+// ResolveUnreadableDomainTriage settles a domain whose site gave no answer —
+// unreachable, or read and identifying nobody. The sender's own name is the
+// last evidence available, and it is tested HERE, inside the same transaction
+// and under the same row lock as the verdict it produces, against the very
+// people a company answer would have employed.
+//
+// A domain that is somebody's name is theirs. Anything else gets the
+// organization it would have got before triage existed: a real business whose
+// site is down must not lose its record over an outage.
+func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
+	var res ResolveDomainTriageResult
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		persons, err := PersonsOnDomain(ctx, tx, in.Domain)
+		if err != nil {
+			return err
+		}
+		if DomainLooksPersonal(registrableLabel(in.Domain), persons) {
+			in.Status, in.Source = DomainPersonal, DomainSourceHeuristic
+		} else {
+			in.Status, in.Source = DomainCompany, DomainSourceHeuristic
+		}
+		res, err = s.resolveDomainTriageTx(ctx, tx, in)
+		if err != nil {
+			return err
+		}
+		if in.Status == DomainCompany {
+			// The organization exists, but nothing evidenced it — record that
+			// honestly rather than claiming a site said so.
+			return markDispositionUnevidenced(ctx, tx, in.Domain)
+		}
+		return nil
+	})
+	if err != nil {
+		return ResolveDomainTriageResult{}, err
+	}
+	return res, nil
+}
+
+// markDispositionUnevidenced downgrades a company answer nothing corroborated
+// to no_site: the organization stands, and the ledger says why it exists.
+func markDispositionUnevidenced(ctx context.Context, tx pgx.Tx, domain string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE organization_domain_disposition SET status = $2, updated_at = now()
+		 WHERE domain = $1`, domain, DomainNoSite); err != nil {
+		return fmt.Errorf("people: recording that %s was never evidenced: %w", domain, err)
+	}
+	return nil
+}
+
 func (s *Store) resolveDomainTriageTx(ctx context.Context, tx pgx.Tx, in ResolveDomainTriageInput) (ResolveDomainTriageResult, error) {
 	// The lock every concurrent ensure on this domain waits behind, taken
 	// before anything is decided so no ensure can slip between the read and

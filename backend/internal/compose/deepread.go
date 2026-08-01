@@ -93,6 +93,11 @@ type siteDeepReadWorker struct {
 	people  *people.Store
 	crawler *siteCrawler
 	extract evidenceExtractor
+	// triageBrain answers the domain-triage classification. Its own lane, not
+	// the extractor's: one cheap question of one page must not bill the profile
+	// lane's premium-only ladder. Nil is a role that cannot classify, which
+	// settles a domain from what the workspace already knows instead.
+	triageBrain completer
 	// fetch is the same guarded egress the crawl uses, for the ONE thing the
 	// crawl does not fetch itself: the logo asset the seed page declared.
 	fetch assetFetcher
@@ -122,22 +127,23 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
-		people:     people.NewStore(pool),
-		crawler:    newSiteCrawler(fetcher, caps),
-		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
-		fetch:      fetcher,
-		blob:       blob,
-		approvals:  approvals.NewService(pool),
-		authority:  identity.NewService(pool),
-		autoEnrich: capture.NewAutoEnrichStore(pool),
-		settings:   capture.NewSettings(pool),
-		log:        log,
-		caps:       caps,
-		now:        time.Now,
+		people:      people.NewStore(pool),
+		crawler:     newSiteCrawler(fetcher, caps),
+		extract:     evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
+		triageBrain: triageBrain,
+		fetch:       fetcher,
+		blob:        blob,
+		approvals:   approvals.NewService(pool),
+		authority:   identity.NewService(pool),
+		autoEnrich:  capture.NewAutoEnrichStore(pool),
+		settings:    capture.NewSettings(pool),
+		log:         log,
+		caps:        caps,
+		now:         time.Now,
 	}
 }
 
@@ -193,7 +199,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
 	// the row — a payload disagreeing with it must not buy a wider budget or
 	// skip a confirm-first proposal.
-	if isAutoEnrichRequest(claim.RequestedBy) {
+	if isSystemRead(claim.RequestedBy) {
 		enabled, err := w.autoEnrichEnabled(ctx)
 		if err != nil {
 			// Recorded, not returned raw: the read is already claimed, so a
@@ -204,8 +210,27 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
 		}
 		if !enabled {
+			// A triage read may not simply stop here. Its domain is a question
+			// somebody's mail already asked, and abandoning it would leave that
+			// question open forever — no organization for that domain, ever.
+			// Answering it from what the workspace already knows is the honest
+			// close, and it is what the operator's "don't crawl" actually means.
+			if isDomainTriageRequest(claim.RequestedBy) {
+				return w.triageWithoutLooking(ctx, args, claim)
+			}
 			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
 		}
+	}
+	// The domain-triage lane runs before its subject exists: it decides whether
+	// an organization should be created at all, so it cannot share the path
+	// below, which assumes one to enrich. A role with no model path answers it
+	// the same way a disabled setting does, rather than failing a question the
+	// sweep would then re-ask forever.
+	if isDomainTriageRequest(claim.RequestedBy) {
+		if w.triageBrain == nil || w.extract.brain == nil {
+			return w.triageWithoutLooking(ctx, args, claim)
+		}
+		return w.runTriage(ctx, args, claim)
 	}
 	if w.extract.brain == nil {
 		return w.fail(ctx, args.SiteReadID,
