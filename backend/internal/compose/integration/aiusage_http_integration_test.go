@@ -189,15 +189,45 @@ func seedAiModelRate(t *testing.T, e *env, wsID string, day time.Time) {
 	}
 }
 
+// seedCostFixture plants the ai_model_rate + ai_call rows
+// TestAiUsageCostOverHTTP prices against, on top of seedAiUsage's meter
+// rows (usageDay(10) capture_classify across two tiers, usageDay(11)
+// enrich): rate each tier's own ai_call row distinctly so the two
+// resulting capture_classify costs are provably different, hand-computable
+// amounts — not one shared total copy-pasted onto both lines.
+//
+// local_small: 2_000 in / 500 out at the seeded sheet price
+// (5_000_000/25_000_000 microUSD per MTok) =
+// (2_000*5_000_000 + 500*25_000_000)/1_000_000 = 22_500 microUSD =
+// 2 cents (truncating).
+//
+// cheap_cloud: 4_000 in / 1_000 out, double local_small's usage =
+// (4_000*5_000_000 + 1_000*25_000_000)/1_000_000 = 45_000 microUSD =
+// 4 cents.
+//
+// The rate's effective_date is anchored a full year before usageMonth
+// (never a fixed calendar date) so it always predates the seeded ai_call
+// rows regardless of which month the suite runs in. enrich/usageDay(11)'s
+// call names "no-rate-model" — no ai_model_rate row covers it (neither the
+// workspace-default seed sheet nor this fixture's own row) — so it must
+// come back unpriced, never a silent 0.
+func seedCostFixture(t *testing.T, e *env, wsID string) {
+	t.Helper()
+	seedAiModelRate(t, e, wsID, usageMonth().AddDate(-1, 0, 0))
+	seedAiCall(t, e, wsID, "capture_classify", "local_small", "anthropic", "claude-test-model", 2_000, 500, usageDay(10).Add(12*time.Hour))
+	seedAiCall(t, e, wsID, "capture_classify", "cheap_cloud", "anthropic", "claude-test-model", 4_000, 1_000, usageDay(10).Add(13*time.Hour))
+	seedAiCall(t, e, wsID, "enrich", "cheap_cloud", "anthropic", "no-rate-model", 500, 100, usageDay(11).Add(12*time.Hour))
+}
+
 // TestAiUsageCostOverHTTP proves AIRT-WIRE-1's cost merge (ADR-0067,
-// price-on-read) end to end over the real wire, on top of seedAiUsage's
-// fixture (usageDay(10) capture_classify across two tiers, usageDay(11)
-// enrich). CostReport groups by day + task + TIER — exactly the wire's
-// own grain — so each tier line of a task must report ONLY its own
-// tier's priced cost, never a shared task-day total broadcast onto both
-// rows: that broadcast is exactly what let a client double-count by
-// summing cost_est_minor across a task's tier rows. A day/task with no
-// matching rate omits cost_est_minor instead of reporting a fabricated 0.
+// price-on-read) end to end over the real wire, on top of seedAiUsage's +
+// seedCostFixture's rows. CostReport groups by day + task + TIER —
+// exactly the wire's own grain — so each tier line of a task must report
+// ONLY its own tier's priced cost, never a shared task-day total
+// broadcast onto both rows: that broadcast is exactly what let a client
+// double-count by summing cost_est_minor across a task's tier rows. A
+// day/task with no matching rate omits cost_est_minor instead of
+// reporting a fabricated 0.
 func TestAiUsageCostOverHTTP(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
@@ -207,33 +237,7 @@ func TestAiUsageCostOverHTTP(t *testing.T) {
 	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
 		t.Fatalf("workspace lookup: %v", err)
 	}
-
-	// capture_classify/usageDay(10) ran on two tiers (seedAiUsage's meter
-	// rows): rate each tier's own ai_call row distinctly so the two
-	// resulting costs are provably different, hand-computable amounts —
-	// not one shared total copy-pasted onto both lines.
-	//
-	// local_small: 2_000 in / 500 out at the seeded sheet price
-	// (5_000_000/25_000_000 microUSD per MTok) =
-	// (2_000*5_000_000 + 500*25_000_000)/1_000_000 = 22_500 microUSD =
-	// 2 cents (truncating).
-	//
-	// cheap_cloud: 4_000 in / 1_000 out, double local_small's usage =
-	// (4_000*5_000_000 + 1_000*25_000_000)/1_000_000 = 45_000 microUSD =
-	// 4 cents.
-	//
-	// The rate's effective_date is anchored a full year before usageMonth
-	// (never a fixed calendar date) so it always predates the seeded
-	// ai_call rows regardless of which month the suite runs in.
-	seedAiModelRate(t, e, wsID, usageMonth().AddDate(-1, 0, 0))
-	seedAiCall(t, e, wsID, "capture_classify", "local_small", "anthropic", "claude-test-model", 2_000, 500, usageDay(10).Add(12*time.Hour))
-	seedAiCall(t, e, wsID, "capture_classify", "cheap_cloud", "anthropic", "claude-test-model", 4_000, 1_000, usageDay(10).Add(13*time.Hour))
-	// enrich/usageDay(11): seedAiUsage already counts calls for this
-	// task/day at tier cheap_cloud, but "no-rate-model" has no
-	// ai_model_rate row (neither the workspace-default seed sheet nor
-	// this test's own seedAiModelRate names it) — must come back
-	// unpriced, never a silent 0.
-	seedAiCall(t, e, wsID, "enrich", "cheap_cloud", "anthropic", "no-rate-model", 500, 100, usageDay(11).Add(12*time.Hour))
+	seedCostFixture(t, e, wsID)
 
 	var usage aiUsageDTO
 	fullMonthURL := fmt.Sprintf("/v1/ai/usage?from=%s&to=%s", usageDateStr(1), usageMonthEnd().Format(time.DateOnly))
