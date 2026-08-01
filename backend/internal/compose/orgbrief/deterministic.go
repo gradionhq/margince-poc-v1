@@ -112,8 +112,12 @@ func trimSentence(value string) string {
 	if trimmed == "" {
 		return trimmed
 	}
-	if strings.HasSuffix(trimmed, ".") || strings.HasSuffix(trimmed, "!") || strings.HasSuffix(trimmed, "?") {
-		return trimmed
+	// "…" included: a statement that trails off already ends, and appending a
+	// full stop to it renders "….".
+	for _, terminator := range []string{".", "!", "?", "…"} {
+		if strings.HasSuffix(trimmed, terminator) {
+			return trimmed
+		}
 	}
 	return trimmed + "."
 }

@@ -373,7 +373,14 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 	ctx, cancel := context.WithTimeout(ctx, logoLaneBudget)
 	defer cancel()
 
-	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, claim.SeedURL, crawl.SeedAssets)
+	// The spelling that ANSWERED, not the one asked for: after the fallback
+	// ladder recovers a site on www or over http, /favicon.ico under the
+	// original seed is a guess at a host that served nothing.
+	seedURL := crawl.SeedURL
+	if seedURL == "" {
+		seedURL = claim.SeedURL
+	}
+	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, seedURL, crawl.SeedAssets)
 	if logo.PNG == nil {
 		w.log.InfoContext(ctx, "site read resolved no logo",
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL,

@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { PeopleCard } from "./company360";
 import { CompanyScreen } from "./organizations";
 
 // The company view's honesty rules, which are the whole point of the
@@ -926,5 +927,66 @@ describe("company view — a buying role names the deal it is on", () => {
 
     await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
     expect(screen.getByText("champion")).toBeTruthy();
+  });
+});
+
+describe("company view — a recorded role reaches the screen", () => {
+  const contact = {
+    person_id: "p-1",
+    full_name: "Christian Hagemeyer",
+    deal_roles: [],
+    consent: {},
+    strength: {
+      score: 0,
+      bucket: "dormant",
+      factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+    },
+  };
+  const withOneOpenDeal = view({
+    deals: {
+      data: [{ deal_id: "d-1", name: "Pilot", status: "open", stalled: false }],
+      page: emptyPage,
+      won_lifetime: { amount_minor: 0, currency: "EUR" },
+      lost_count: 0,
+    },
+    people: { data: [contact], page: emptyPage },
+  });
+
+  it("re-reads the account after the role is saved", async () => {
+    // The committee reading, the missing-role warning and the row's own chips
+    // all come off the 360, so a save that does not re-read it leaves the page
+    // showing the state the rep just changed.
+    const fetched = stub(withOneOpenDeal);
+    renderCompany();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Set role" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        fetched.filter((path) => path.endsWith("/360")).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("offers no role control on an account that takes no writes", async () => {
+    // Archived is read-only: the company page hides edit, merge and archive on
+    // one, so a write dressed as a chip has no business staying. The page
+    // passes its own read-only state down; the card is asserted directly
+    // because that state comes from the record, not from the 360.
+    render(<PeopleCard view={withOneOpenDeal} writable={false} />);
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+
+  it("offers it on an account that does", async () => {
+    render(<PeopleCard view={withOneOpenDeal} writable />);
+
+    expect(
+      await screen.findByRole("button", { name: "Set role" }),
+    ).toBeTruthy();
   });
 });

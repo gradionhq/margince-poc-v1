@@ -164,8 +164,9 @@ visible from a test.
    currently only say what it lacks.
 5. **The profile card is a new wall.** Ten fields, every value a full
    paragraph, all underlined so everything reads as a link. The facts wall was
-   collapsed and then rebuilt out of profile fields. Still open — the plan is
-   to fold it under the account brief once that card lands.
+   collapsed and then rebuilt out of profile fields. Closed on PR #356: the
+   card folded into a disclosure under the account brief, which quotes the two
+   statements worth reading up front.
 
 Items 2, 3 and 4 are still open and are the substance of the brief work below.
 
@@ -237,24 +238,21 @@ partner extension already carries `margin_tier`. So the shape is a typed
 commission resolved through the partner's margin tier at deal-won time — NOT a
 free-text field. Nothing wires those two together yet; raised below.
 
-## Open decision — the organization brief endpoint has no client
+## Settled — the organization brief endpoint has a client again
 
-`GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
-removed from the company page because what it produced restated the screen:
+For a while `GET /organizations/{id}/brief` was read by nothing. Its card had
+been taken off the company page because what it produced restated the screen:
 on a live account its two sentences were "you currently have three contacts
 recorded for this account" and "there is one open task due on August 1, 2026",
 both of which the reader could already see, under a heading that promised a
-reading of the account.
+reading of the account. The open question was whether to make it worth a card
+or retire it.
 
-The endpoint, its store and `compose/orgbrief` are untouched. Either the
-sentences it generates need to be worth a card of their own — the research on
-account pages says a generated summary must answer a NAMED question and cite
-its source, not narrate the record — or the endpoint should be retired. Not a
-call to make from the frontend.
-
-The client component and its hook were deleted rather than left mounted
-nowhere. `SentenceList`, `Citations` and `WrittenBy` survive: the Ask flow
-uses all three.
+Made worth a card, on PR #356: it leads the company page as the AccountBrief,
+and it answers a named question — where we stand with this account, then what
+the company is, the second half quoted from approved profile statements rather
+than written. See "Decided 2026-08-01 — the account brief is the answer to the
+profile wall" above for what that decided and what it still owes upstream.
 
 ## Open spec collision — the coverage matrix needs what the spec rules out
 

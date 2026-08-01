@@ -145,7 +145,10 @@ button.evidence-chip:hover {
 .field-diff-long {
   /* A section is block-level; the diff reads as one line, so it sits inline. */
   display: inline-block;
-  vertical-align: top;
+  /* .field-diff is an inline-flex row centring its items, so a tall scrolling
+     side would centre itself against the arrow. align-self is what a flex item
+     obeys; vertical-align says nothing here. */
+  align-self: flex-start;
   max-height: 4.5em;
   overflow-y: auto;
 }

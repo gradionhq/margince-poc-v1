@@ -480,7 +480,11 @@ function TimelineList({
             <span className="tl-icon">
               <Icon aria-hidden />
             </span>
-            <span className="tl-body">
+            {/* A div, not a span: a change row's detail is a field diff whose
+                long-value side is a focusable region — flow content, invalid
+                inside phrasing content. The row lays out identically, because
+                .tl-body is a flex column either way. */}
+            <div className="tl-body">
               <span className="tl-title">{entry.title}</span>
               {entry.body && <TimelineText text={entry.body} />}
               {entry.detail}
@@ -498,7 +502,7 @@ function TimelineList({
                 <ProvenanceTag provenance={entry.provenance} />
                 {entry.via}
               </span>
-            </span>
+            </div>
             {entry.actions && (
               <span className="tl-actions">{entry.actions}</span>
             )}

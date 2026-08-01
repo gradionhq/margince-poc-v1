@@ -1239,6 +1239,13 @@ function CompanyEditAction({
       ? [{ id: entry.id, display_name: entry.display_name }]
       : [],
   );
+  // The roster is one page of 200. An owner outside it — a big workspace, a
+  // deactivated user — would leave the prefilled select showing a blank it
+  // cannot resolve, and since the select is required once an owner is set,
+  // saving anything else would then force a reassignment nobody asked for.
+  if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
+    owners.push({ id: org.owner_id, display_name: org.owner_id });
+  }
   return (
     <EditAction
       label={t("record.edit")}
@@ -2078,7 +2085,9 @@ function businessRail({
             The connections graph and the filing metadata fold away: the graph
             re-lists the people directly above it, and lists and tags are how
             the account is filed rather than anything about the account. */}
-        <PeopleCard view={view} />
+        {/* Roles are a write, so the card offers them on the same terms as
+            every other verb on this page: never on an archived record. */}
+        <PeopleCard view={view} writable={!readOnly} />
         <DealsCard
           view={view}
           // The verb sits under the list it changes: a rep who has just read

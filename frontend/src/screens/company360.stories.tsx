@@ -230,7 +230,7 @@ function Cards({ view }: Readonly<{ view: View }>) {
         <AccountBrief orgId="o-1" view={view} enabled />
         <AssistantPanel orgId="o-1" enabled />
         <NextSteps view={view} />
-        <PeopleCard view={view} />
+        <PeopleCard view={view} writable />
         <DealsCard view={view} />
         <TagsCard view={view} />
       </div>

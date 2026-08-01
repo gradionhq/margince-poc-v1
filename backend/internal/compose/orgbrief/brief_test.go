@@ -400,7 +400,7 @@ func TestDeterministicClosesWithWhatTheCompanyIs(t *testing.T) {
 // A profile the page has not gathered yet is not a gap to apologize for.
 func TestDeterministicSaysNothingAboutACompanyItKnowsNothingAbout(t *testing.T) {
 	for _, sentence := range Deterministic("org-1", Input{Name: "Acme"}) {
-		for label := range profileLabels {
+		for _, label := range profileLabels {
 			if strings.Contains(sentence.Text, label) {
 				t.Errorf("sentence %q talks about the company with no profile to talk from", sentence.Text)
 			}

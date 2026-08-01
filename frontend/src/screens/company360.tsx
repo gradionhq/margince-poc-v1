@@ -290,7 +290,12 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
-export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function PeopleCard({
+  view,
+  // Whether this account takes writes at all. An archived record is read-only
+  // — the page hides every other verb on one — so the role control goes too.
+  writable = false,
+}: Readonly<{ view?: Organization360; writable?: boolean }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
   const truncated = Boolean(view?.people?.page.has_more);
@@ -341,6 +346,7 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
             key={contact.person_id}
             contact={contact}
             openDeals={openDeals}
+            writable={writable}
           />
         ))}
       </ul>
@@ -434,7 +440,7 @@ function SetRoleAction({
       // The committee reading, the missing-role warning and the row's own
       // chips all come off the 360, so the account is re-read rather than
       // patched in place.
-      await queryClient.invalidateQueries({ queryKey: ["org360"] });
+      await queryClient.invalidateQueries({ queryKey: ["organization360"] });
     },
   });
 
@@ -512,12 +518,16 @@ function SetRoleAction({
 function ContactRow({
   contact,
   openDeals,
+  writable,
 }: Readonly<{
   contact: Contact;
   // The open deals a role can be recorded against. A role belongs to a DEAL,
   // not to a person: this contact may be the champion on the renewal and
   // nobody on the new business.
   openDeals: readonly OpenDeal[];
+  // Read-only accounts still NAME the roles held on them; they just offer no
+  // way to change one.
+  writable: boolean;
 }>) {
   const t = useT();
   const roles = contact.deal_roles.filter((entry) => entry.role);
@@ -559,7 +569,7 @@ function ContactRow({
         {/* The page said "nobody here is your champion" and gave no way to
             say who is: the roles are set on the deal screen, which is a
             different page and a different task. */}
-        <SetRoleAction contact={contact} openDeals={openDeals} />
+        {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
       </span>
     </li>
   );

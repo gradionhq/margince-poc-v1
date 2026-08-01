@@ -824,12 +824,16 @@ func TestCrawlDowngradesToPlainHTTPOnlyAfterEveryHTTPSSpelling(t *testing.T) {
 	if crawl.Pages[0].URL != "http://acme.com" {
 		t.Fatalf("seed page = %q, want the http spelling", crawl.Pages[0].URL)
 	}
-	// https must have been exhausted first: a working https is always better
-	// than the same site in the clear.
-	httpsFirst := site.fetched[0] == "https://acme.com" &&
-		slicesContains(site.fetched, "https://www.acme.com")
-	if !httpsFirst {
-		t.Errorf("fetch order = %v, want both https spellings tried before http", site.fetched)
+	// https must be exhausted BEFORE the first http attempt: a working https is
+	// always better than the same site in the clear. Comparing positions, not
+	// mere presence — "www was fetched at some point" is also true of an order
+	// that tried http first.
+	firstHTTP := indexOfFetch(site.fetched, "http://acme.com")
+	for _, https := range []string{"https://acme.com", "https://www.acme.com"} {
+		at := indexOfFetch(site.fetched, https)
+		if at < 0 || at > firstHTTP {
+			t.Errorf("fetch order = %v, want %s tried before http://acme.com", site.fetched, https)
+		}
 	}
 }
 
@@ -848,6 +852,16 @@ func TestCrawlNeverWalksTheLadderAroundARobotsRefusal(t *testing.T) {
 	if slicesContains(site.fetched, "https://www.acme.com") {
 		t.Errorf("fetched %v — a robots refusal must not be retried under another host", site.fetched)
 	}
+}
+
+// indexOfFetch reports where a URL was first asked for, or -1.
+func indexOfFetch(fetched []string, url string) int {
+	for i, s := range fetched {
+		if s == url {
+			return i
+		}
+	}
+	return -1
 }
 
 func slicesContains(haystack []string, needle string) bool {
