@@ -182,3 +182,53 @@ func TestTheBackfillIsIdempotentAndTerminates(t *testing.T) {
 		t.Errorf("an unattributable activity was attributed to %v", got)
 	}
 }
+
+func TestTheBackfillDoesNotInventParticipantsForNotesAndTasks(t *testing.T) {
+	e := integration.Setup(t)
+	seedConnection(t, e, e.Rep1)
+
+	// A note and a task are not interactions: assigning work is intent, and
+	// writing something down is not reaching out. Live stamping already
+	// refuses them, and the backfill has to agree — otherwise a workspace's
+	// HISTORY and its NEW mail disagree about what counts as contact, and the
+	// same relationship scores differently depending on when it happened.
+	note := seedLegacyActivityOfKind(t, e, "bf-note-1", "human:"+e.Rep1.String(), "note")
+	task := seedLegacyActivityOfKind(t, e, "bf-task-1", "human:"+e.Rep1.String(), "task")
+	mail := seedLegacyActivityOfKind(t, e, "bf-mail-1", "human:"+e.Rep1.String(), "email")
+
+	runBackfill(t, e)
+
+	for _, c := range []struct {
+		id   ids.UUID
+		kind string
+		want int
+	}{{note, "note", 0}, {task, "task", 0}, {mail, "email", 2}} {
+		var got int
+		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(),
+				`SELECT count(*) FROM activity_participant WHERE activity_id = $1`, c.id).Scan(&got)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got != c.want {
+			t.Errorf("a %s produced %d participant rows, want %d", c.kind, got, c.want)
+		}
+	}
+}
+
+// seedLegacyActivityOfKind is seedLegacyActivity with the kind chosen.
+func seedLegacyActivityOfKind(t *testing.T, e *integration.Env, sourceID, capturedBy, kind string) ids.UUID {
+	t.Helper()
+	var id ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at,
+			                      source_system, source_id, source, captured_by, counterparty_email)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Alt', 'outbound', now(), 'gmail', $2, $3, $4, 'pat@counterparty.test')
+			RETURNING id`, kind, sourceID, "gmail:"+sourceID, capturedBy).Scan(&id)
+	}); err != nil {
+		t.Fatalf("seeding a %s: %v", kind, err)
+	}
+	return id
+}

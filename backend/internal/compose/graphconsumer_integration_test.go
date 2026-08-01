@@ -178,3 +178,61 @@ func TestTheAgentSeamsAnswerThroughTheSameGates(t *testing.T) {
 		t.Error("the seam answered for a contact that does not exist")
 	}
 }
+
+func TestCoverageNamesItsColleaguesForTheAgent(t *testing.T) {
+	e := integration.Setup(t)
+	person := seedGraphPerson(t, e, "Coverage Contact")
+	activityID := seedExchange(t, e, person)
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return search.RecomputeEdgesForActivities(e.Admin(), tx, []ids.UUID{activityID})
+	}); err != nil {
+		t.Fatalf("folding: %v", err)
+	}
+
+	var dealID ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		// The harness seeds no pipeline, so this test brings its own.
+		var pipelineID, stageID ids.UUID
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO pipeline (workspace_id, name) VALUES (`+ws+`, 'Coverage Test')
+			RETURNING id`).Scan(&pipelineID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO stage (workspace_id, pipeline_id, name, position)
+			VALUES (`+ws+`, $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO deal (workspace_id, name, stage_id, pipeline_id, owner_id, source, captured_by)
+			VALUES (`+ws+`, 'Covered', $1, $2, $3, 'manual', 'human:test')
+			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
+			VALUES (`+ws+`, 'deal_stakeholder', $1, $2, 'champion', 'manual', 'human:test')`,
+			person, dealID)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the deal: %v", err)
+	}
+
+	answer, err := coverageReader(e.Pool)(e.Admin(), dealID)
+	if err != nil {
+		t.Fatalf("coverage seam: %v", err)
+	}
+	if len(answer.OurSide) == 0 {
+		t.Fatal("coverage named no colleagues though one exchanged mail with the stakeholder")
+	}
+	// A bare id leaves a model unable to say who to ask, which is the only
+	// reason it asked.
+	if answer.OurSide[0].DisplayName == "" {
+		t.Error("the colleague came back with an empty name")
+	}
+	if len(answer.Stakeholders) != 1 {
+		t.Errorf("coverage listed %d seats, want 1", len(answer.Stakeholders))
+	}
+}
