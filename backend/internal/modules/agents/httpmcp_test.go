@@ -195,13 +195,13 @@ func TestInitializeIsExemptFromTheProtocolVersionHeaderCheck(t *testing.T) {
 	}
 }
 
-// A tool failure outside the sentinel taxonomy is scrubbed on its way to the
-// client by design, so the server-side log line is the ONLY place its cause
-// survives. That makes the logger this transport dispatches with load-bearing:
-// falling back to slog.Default() in a process that never called SetDefault —
-// which cmd/api does not — writes the one diagnostic to a handler nobody
-// configured, in a format nobody is parsing.
-func TestScrubbedToolFailuresReachTheConfiguredLogger(t *testing.T) {
+// A failed tool call is diagnosed server-side — a scrubbed cause has nowhere
+// else to go, and a refusal's line is what tells an operator that a client is
+// working from a stale tool list. That makes this transport's logger
+// load-bearing: falling back to slog.Default() in a process that never called
+// SetDefault — which cmd/api does not — writes those diagnostics to a handler
+// nobody configured, in a format nobody is parsing.
+func TestFailedToolCallsReachTheConfiguredLogger(t *testing.T) {
 	var logged bytes.Buffer
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
 		func(*http.Request) string { return "" }, "margince-crm", "test",
@@ -222,13 +222,16 @@ func TestScrubbedToolFailuresReachTheConfiguredLogger(t *testing.T) {
 		t.Errorf("closing response body: %v", err)
 	}
 
-	// The client half: generic, and it does not name the tool it could not find.
-	if !strings.Contains(string(body), "internal reason") {
-		t.Fatalf("the client answer %q is not the scrubbed one, so this proves nothing about what was logged instead", body)
+	// The client half: the invented name is the caller's own input, so quoting
+	// it back discloses nothing — and it is how an agent tells its own mistake
+	// from an outage it should wait out.
+	if answer := string(body); !strings.Contains(answer, "unknown tool no_such_tool") ||
+		strings.Contains(answer, "internal reason") {
+		t.Errorf("the client answer %q does not name the invented tool as the caller's own mistake", answer)
 	}
 	// The server half, which is the point.
-	if !strings.Contains(logged.String(), "mcp: tool call failed") || !strings.Contains(logged.String(), "no_such_tool") {
-		t.Errorf("the configured logger recorded %q, want the cause of the scrubbed failure: the transport dispatched with a logger nobody configured", logged.String())
+	if !strings.Contains(logged.String(), "mcp: tool call refused") || !strings.Contains(logged.String(), "no_such_tool") {
+		t.Errorf("the configured logger recorded %q, want the refused call: the transport dispatched with a logger nobody configured", logged.String())
 	}
 }
 

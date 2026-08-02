@@ -22,7 +22,9 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -275,7 +277,17 @@ func toolError(msg string) map[string]any {
 // is an internal failure whose text (driver errors, hosts, wrap chains)
 // must not cross the trust boundary to the tool client: it surfaces
 // generically and the real cause is logged server-side.
+//
+// The branches below are an ENRICHMENT, not the completeness guarantee:
+// each one exists because its prose beats anything derivable from a status
+// code. Completeness lives in the default branch, which asks the one shared
+// taxonomy — so a class with no branch here degrades to a plainer message,
+// never to a false "something broke".
 func (s *Dispatcher) explain(tool string, err error) string {
+	var (
+		badArgs     *BadArgsError
+		unknownTool *UnknownToolError
+	)
 	switch {
 	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
@@ -300,9 +312,87 @@ func (s *Dispatcher) explain(tool string, err error) string {
 		// it.
 		return "This workspace's system of record cannot serve this tool, and no retry will change that. " +
 			"Do not retry it; use another tool, or tell the user this capability is unavailable here. (" + err.Error() + ")"
+	case errors.As(err, &unknownTool):
+		// A name that is not on the surface at all — the model invented it, or
+		// is working from a stale tool list. Saying so discloses nothing: the
+		// name came from the caller, and tools/list already names every tool
+		// its passport admits, while a real tool it may not use answers
+		// ErrScopeExceeded above. What the generic branch cost instead was
+		// real — "retry" against a tool that will never exist is a loop.
+		//
+		// Worth a line for operators, at the level it is: a client working
+		// from a stale tool list is a client mistake, not our outage.
+		s.log.Warn("mcp: tool call refused", "tool", tool, "code", "unknown_tool", "err", unknownTool)
+		return unknownTool.Error() + ". Nothing was changed, and no retry will make this name resolve. " +
+			"Call tools/list and use a name from it."
+	case errors.As(err, &badArgs):
+		// The tool surface's own validation refusal: a misspelled argument, a
+		// value outside a closed vocabulary, an empty message body. The agent
+		// wrote those arguments, so it is the one party that can fix them —
+		// which it cannot do unless we say which one was wrong.
+		//
+		// Echoing the detail is safe BY CONSTRUCTION rather than by luck:
+		// BadArgsError.Error bounds it (maxBadArgsDetail) precisely because it
+		// quotes the caller's own JSON back into a transcript that later
+		// prompts of the same run will read.
+		return "The arguments were rejected before the tool ran; nothing was changed. (" + badArgs.Error() + ") " +
+			"Correct them against the tool's inputSchema and call again — re-sending the same arguments will be rejected again."
 	default:
+		return s.explainClassified(tool, err)
+	}
+}
+
+// explainClassified answers every error with no bespoke branch above by
+// asking the ONE taxonomy (httperr.Classify) instead of repeating the
+// judgement locally. Whatever the REST surface answers with a 4xx is the
+// caller's own mistake or a governed refusal, and reporting one of those to
+// an agent as an internal failure is wrong twice over: it withholds the
+// argument the agent could have fixed, and the "retry" it offers instead
+// cannot ever succeed — a scheduled run spends its whole step budget
+// re-issuing the same rejected call.
+//
+// Only an error outside the taxonomy is a server fault, and only its
+// existence crosses the trust boundary; the cause stays in the log.
+func (s *Dispatcher) explainClassified(tool string, err error) string {
+	fault, ok := httperr.Classify(err)
+	if !ok {
 		s.log.Error("mcp: tool call failed", "tool", tool, "err", err)
 		return "The tool failed for an internal reason; nothing may have changed. " +
 			"Retry, and if it keeps failing contact the workspace admin."
 	}
+
+	// A classified refusal is not a fault of ours, so it is not logged as
+	// one — except where a sentinel wrapped a driver failure, which is. In
+	// that case Classify has already withheld the driver's text from Detail,
+	// so the operator's half is logged and the agent still sees only the
+	// sentinel's own words.
+	if fault.InfraCause != nil {
+		s.log.Error("mcp: tool call failed", "tool", tool, "err", fault.InfraCause)
+	} else {
+		s.log.Warn("mcp: tool call refused", "tool", tool, "code", fault.Code, "err", err)
+	}
+
+	if fault.Transient() {
+		return "This tool is temporarily unavailable — nothing was changed. (" + faultCodes(fault) + ": " + fault.Detail + ") " +
+			"The same call can succeed later; wait before retrying, and tell the user if they are waiting on it."
+	}
+	return "This call was refused as issued and nothing was changed; repeating it unchanged will be refused the same way. (" +
+		faultCodes(fault) + ": " + fault.Detail + ") Correct the arguments and call again — or, if this is a governed refusal " +
+		"rather than a mistake, do not retry: tell the user what is blocking it."
+}
+
+// faultCodes renders the machine codes an agent can branch on. A validation
+// fault's outer code is the same word for every bad input ("validation_error");
+// the per-field codes underneath are the ones that say WHICH argument and why,
+// so they are what the agent gets — the same breakdown the REST body carries,
+// rather than the flattened summary the outer code alone would give.
+func faultCodes(fault httperr.Fault) string {
+	if len(fault.Fields) == 0 {
+		return fault.Code
+	}
+	parts := make([]string, 0, len(fault.Fields))
+	for _, f := range fault.Fields {
+		parts = append(parts, f.Field+"="+f.Code)
+	}
+	return fault.Code + " " + strings.Join(parts, ", ")
 }

@@ -134,44 +134,107 @@ func clientInputValidation(err error) (error, bool) {
 	return nil, false
 }
 
-// Write maps err onto the wire. Unknown errors become an opaque 500 — the
-// cause is logged server-side, never leaked to the client.
-func Write(w http.ResponseWriter, r *http.Request, err error) {
+// Fault is the surface-independent verdict on an error: the status the
+// contract answers with, its stable machine code, and the detail that is safe
+// to put in front of a caller. Write renders it as RFC 7807 for the REST
+// surface; the MCP tool dispatcher renders the same verdict as prose an agent
+// can act on. The status is the only HTTP-shaped part, and Transient reads it
+// so that no other surface has to.
+type Fault struct {
+	Status  int
+	Code    string
+	Detail  string
+	Details map[string]any
+
+	// Fields is the per-field breakdown of a validation refusal, empty for
+	// every other class. It names the inputs the caller must change.
+	Fields []FieldError
+
+	// InfraCause is the raw infrastructure failure (Postgres, network) that a
+	// sentinel wrapped. Detail never carries its text — SQL fragments and
+	// addresses are operator reading, not caller reading — so the surface
+	// logs this instead of showing it.
+	InfraCause error
+}
+
+// Transient reports whether repeating the same call unchanged could succeed
+// later: a rate limit, or a dependency that is temporarily unavailable. Every
+// other classified fault is settled — something must change (the arguments, a
+// human's decision, the workspace's configuration) before a retry means
+// anything, and telling a caller to retry one of those is advice that can only
+// waste its budget.
+func (f Fault) Transient() bool {
+	return f.Status == http.StatusTooManyRequests || f.Status >= http.StatusInternalServerError
+}
+
+// Classify is the ONE decision tree behind the error taxonomy: what err means
+// to a caller, independent of the surface that caller reached us through. It
+// reports false only for an error outside the taxonomy — a genuine server
+// fault, whose text never crosses to a client.
+//
+// Every surface classifies HERE. The REST mapper and the MCP tool dispatcher
+// each used to carry their own copy of this judgement, and the copies
+// disagreed: a malformed argument was a 422 naming the offending field on
+// REST, and "the tool failed for an internal reason; retry" on MCP — advice
+// that could never succeed, for a mistake the caller could have fixed had we
+// named it. One tree and two renderers means the surfaces cannot drift apart
+// again.
+func Classify(err error) (Fault, bool) {
 	var withDetails *DetailedError
 	if errors.As(err, &withDetails) {
-		writeProblem(w, problem{
+		return Fault{
 			Status:  withDetails.Status,
 			Code:    withDetails.Code,
 			Detail:  withDetails.Detail,
 			Details: withDetails.Details,
-		})
-		return
+			Fields:  withDetails.Fields,
+		}, true
 	}
 
 	if v, ok := clientInputValidation(err); ok {
-		Write(w, r, v)
-		return
+		return Classify(v)
 	}
 
 	for _, m := range mapping {
 		if errors.Is(err, m.sentinel) {
-			detail := err.Error()
+			f := Fault{Status: m.status, Code: m.code, Detail: err.Error()}
 			// A sentinel wrapped around an infrastructure failure must not
-			// carry that failure's text onto the wire (SQL fragments,
-			// addresses). The client gets the sentinel's canonical detail;
-			// the full cause goes to the server log, like any 500 would.
+			// carry that failure's text to a caller. It gets the sentinel's
+			// canonical detail; the full cause goes to the surface's log.
 			if infrastructureCause(err) {
-				slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
-					"method", r.Method, "path", r.URL.Path, "err", err)
-				detail = m.sentinel.Error()
+				f.Detail = m.sentinel.Error()
+				f.InfraCause = err
 			}
-			writeProblem(w, problem{Status: m.status, Code: m.code, Detail: detail})
-			return
+			return f, true
 		}
 	}
 
-	slog.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "err", err)
-	writeProblem(w, problem{Status: http.StatusInternalServerError, Code: "internal"})
+	return Fault{}, false
+}
+
+// Write maps err onto the wire. Unknown errors become an opaque 500 — the
+// cause is logged server-side, never leaked to the client.
+func Write(w http.ResponseWriter, r *http.Request, err error) {
+	fault, ok := Classify(err)
+	if !ok {
+		slog.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "err", err)
+		writeProblem(w, problem{Status: http.StatusInternalServerError, Code: "internal"})
+		return
+	}
+	if fault.InfraCause != nil {
+		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
+			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
+	}
+	details := fault.Details
+	if len(fault.Fields) > 0 {
+		details = fieldDetails(fault.Fields)
+	}
+	writeProblem(w, problem{
+		Status:  fault.Status,
+		Code:    fault.Code,
+		Detail:  fault.Detail,
+		Details: details,
+	})
 }
 
 // infrastructureCause reports whether err's chain contains a raw
@@ -183,6 +246,18 @@ func infrastructureCause(err error) bool {
 	return errors.As(err, &pgErr) || errors.As(err, &netErr)
 }
 
+// FieldError is one per-field refusal inside a validation fault: which input
+// the caller got wrong, the contract's stable code for it, and what to fix.
+// It is typed rather than left in the Details bag because it is the ACTIONABLE
+// half of a 422 — the surfaces render it (REST into the problem body, MCP into
+// the sentence an agent reads), and a surface cannot render what it has to
+// guess the shape of.
+type FieldError struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // DetailedError carries a non-sentinel wire shape: validation errors
 // (422 with field errors), duplicate conflicts (409 with existing_id),
 // auth failures. Constructed by handlers, mapped here.
@@ -191,6 +266,12 @@ type DetailedError struct {
 	Code    string
 	Detail  string
 	Details map[string]any
+
+	// Fields is the per-field breakdown of a validation refusal. It is the
+	// single source for that breakdown: the wire body is rendered FROM it, so
+	// a surface reading Fields and a client reading the body can never be
+	// looking at two different lists.
+	Fields []FieldError
 }
 
 func (e *DetailedError) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Detail) }
@@ -223,10 +304,19 @@ func Validation(field, code, message string) *DetailedError {
 		Status: http.StatusUnprocessableEntity,
 		Code:   "validation_error",
 		Detail: message,
-		Details: map[string]any{
-			"errors": []map[string]string{{"field": field, "code": code, "message": message}},
-		},
+		Fields: []FieldError{{Field: field, Code: code, Message: message}},
 	}
+}
+
+// fieldDetails renders the per-field breakdown into the contract's
+// `details.errors` body shape. Rendering it here, from Fields, is what keeps
+// the typed list and the wire list the same list.
+func fieldDetails(fields []FieldError) map[string]any {
+	errs := make([]map[string]string, 0, len(fields))
+	for _, f := range fields {
+		errs = append(errs, map[string]string{"field": f.Field, "code": f.Code, "message": f.Message})
+	}
+	return map[string]any{"errors": errs}
 }
 
 // Duplicate is the 409 dedupe shape. existingID is included only when
