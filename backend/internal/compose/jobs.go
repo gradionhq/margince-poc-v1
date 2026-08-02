@@ -253,8 +253,13 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// nil brain so a queued build fails actionably instead of rotting.
 	river.AddWorker(workers, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
 	river.AddWorker(workers, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
-	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
-	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	// Each scheduled pass is a dispatcher plus a workspace worker. Only the
+	// dispatcher gets a periodic entry below; the workspace worker is enqueued,
+	// never ticked.
+	river.AddWorker(workers, &closeDateSweepWorker{pool: pool})
+	river.AddWorker(workers, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
+	river.AddWorker(workers, &followUpReconcileWorker{pool: pool})
+	river.AddWorker(workers, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
@@ -461,6 +466,18 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// likewise long; their own bounded pool keeps a multi-workspace
 			// burst from starving close-date, reconcile, and capture jobs.
 			rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
+			// The AI-backed capture passes make serial model calls, so a
+			// fanned-out fleet of them would occupy every default worker and
+			// delay sends, Telegram polls, and capture syncs. Same species as
+			// deep reads — long and model-bound — so the same posture.
+			aiCaptureQueue: {MaxWorkers: aiCaptureMaxWorkers},
+			// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
+			// counts but does not pace, and its keys are per workspace, so it
+			// cannot bound a provider-level burst: a concurrent fan-out could
+			// exceed the incumbent's per-second Search limit. Each workspace
+			// still gets its own job row, which is the observability this phase
+			// is after; per-workspace PARALLELISM is not.
+			overlayReconcileQueue: {MaxWorkers: 1},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,
