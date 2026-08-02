@@ -485,14 +485,14 @@ func TestBackfillWire(t *testing.T) {
 	})
 
 	worker := &captureBackfillWorker{registry: b.registry, log: b.handlers.log}
-	t.Run("the pager worker refuses malformed job args", func(t *testing.T) {
+	t.Run("the pager worker refuses job args that name nothing", func(t *testing.T) {
 		if err := worker.Work(context.Background(), &river.Job[CaptureBackfillArgs]{
-			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: "not-a-uuid", BackfillID: runID},
+			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{BackfillID: runID},
 		}); err == nil {
-			t.Fatal("a malformed workspace id must fail the job")
+			t.Fatal("args naming no workspace must fail the job")
 		}
 		if err := worker.Work(context.Background(), &river.Job[CaptureBackfillArgs]{
-			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: b.env.WS.String(), BackfillID: "not-a-uuid"},
+			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: b.env.WS, BackfillID: "not-a-uuid"},
 		}); err == nil {
 			t.Fatal("a malformed backfill id must fail the job")
 		}
@@ -501,7 +501,7 @@ func TestBackfillWire(t *testing.T) {
 	t.Run("the pager worker walks the run to done", func(t *testing.T) {
 		// One page per tick: the worker snoozes between pages, so drive it as
 		// River would — re-invoke until it stops snoozing (the run terminated).
-		driveBackfillToTerminal(t, worker, CaptureBackfillArgs{Workspace: b.env.WS.String(), BackfillID: runID})
+		driveBackfillToTerminal(t, worker, CaptureBackfillArgs{Workspace: b.env.WS, BackfillID: runID})
 		var out crmcontracts.BackfillStatus
 		if code, _ := b.do(b.human, t, status(crmcontracts.Gmail), "", &out); code != http.StatusOK {
 			t.Fatalf("status = %d, want 200", code)
@@ -530,7 +530,7 @@ func TestBackfillWire(t *testing.T) {
 		}
 		// A page fault is recorded on the row, not retried by River.
 		if err := worker.Work(context.Background(), &river.Job[CaptureBackfillArgs]{
-			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: b.env.WS.String(), BackfillID: out.BackfillId.String()},
+			JobRow: &rivertype.JobRow{}, Args: CaptureBackfillArgs{Workspace: b.env.WS, BackfillID: out.BackfillId.String()},
 		}); err != nil {
 			t.Fatalf("Work must absorb a page fault (the row owns retry), got %v", err)
 		}

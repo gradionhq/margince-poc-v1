@@ -136,27 +136,20 @@ func NewOrgNamePromoter(pool *pgxpool.Pool, log *slog.Logger) *OrgNamePromoter {
 	}
 }
 
-// Run weighs every provisionally-named organization's signature evidence.
-// One organization's failure is logged and skipped: the evidence is durable,
-// so the next pass sees exactly the same question.
-func (p *OrgNamePromoter) Run(ctx context.Context) error {
-	workspaces, err := liveWorkspaceIDs(ctx, p.pool)
-	if err != nil {
-		return err
-	}
-	for _, ws := range workspaces {
-		// The promotion writes an audit row and an organization.updated event,
-		// so the pass binds the system actor like every worker job.
-		wsCtx := principal.WithCorrelationID(principal.WithActor(
-			principal.WithWorkspaceID(ctx, ws), principal.Principal{
-				Type: principal.PrincipalSystem,
-				ID:   orgNamePromotionActor,
-			}), ids.NewV7())
-		if err := p.sweepWorkspace(wsCtx, ws); err != nil {
-			return err
-		}
-	}
-	return nil
+// RunWorkspace weighs one workspace's provisionally-named organizations against
+// their signature evidence. One organization's failure is logged and skipped:
+// the evidence is durable, so the next pass sees exactly the same question.
+//
+// The fleet fan-out lives in the job layer, so a workspace whose pass fails
+// fails its own job row.
+func (p *OrgNamePromoter) RunWorkspace(ctx context.Context, ws ids.UUID) error {
+	// The promotion writes an audit row and an organization.updated event,
+	// so the pass binds the system actor like every worker job.
+	wsCtx := principal.WithCorrelationID(principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem,
+		ID:   orgNamePromotionActor,
+	}), ids.NewV7())
+	return p.sweepWorkspace(wsCtx, ws)
 }
 
 // sweepWorkspace walks every candidate in one workspace, a page at a time.

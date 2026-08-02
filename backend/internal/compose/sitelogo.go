@@ -272,7 +272,7 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 
-	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.WorkspaceID), orgID)
+	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.Workspace), orgID)
 	if err := w.blob.Put(ctx, key, bytes.NewReader(logo.PNG), int64(len(logo.PNG)), imagenorm.ContentType); err != nil {
 		// A failed Put can still have left a partial object, and no row names
 		// this key, so collecting it is unambiguously safe.

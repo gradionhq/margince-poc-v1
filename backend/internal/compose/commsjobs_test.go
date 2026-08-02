@@ -58,7 +58,7 @@ func (s *stubDispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (com
 // sendJob builds one job for the worker with a fresh workspace/delivery pair.
 func sendJob(ws, delivery ids.UUID) *river.Job[SendEmailArgs] {
 	return &river.Job[SendEmailArgs]{
-		Args: SendEmailArgs{Workspace: ws.String(), DeliveryID: delivery.String()},
+		Args: SendEmailArgs{Workspace: ws, DeliveryID: delivery.String()},
 	}
 }
 
@@ -203,13 +203,15 @@ func TestSendEmailWorkerDispatchesUnderASystemActorAndACorrelationID(t *testing.
 	}
 }
 
-// An unparseable argument names no delivery, so there is nothing to dispatch:
-// the job must fail rather than dispatch a zero id, which would read as "some
-// other delivery" to a row-scoped query.
-func TestSendEmailWorkerRefusesAMalformedJobArgument(t *testing.T) {
+// An argument that names no delivery has nothing to dispatch, and one that
+// names no workspace has nowhere to dispatch it: the job must fail rather than
+// run against a zero id, which would read as "some other delivery" to a
+// row-scoped query — or, for the workspace, as an unbound GUC failing later
+// and less legibly.
+func TestSendEmailWorkerRefusesAJobArgumentThatNamesNothing(t *testing.T) {
 	cases := map[string]SendEmailArgs{
-		"workspace": {Workspace: "not-a-uuid", DeliveryID: ids.NewV7().String()},
-		"delivery":  {Workspace: ids.NewV7().String(), DeliveryID: "not-a-uuid"},
+		"workspace": {DeliveryID: ids.NewV7().String()},
+		"delivery":  {Workspace: ids.NewV7(), DeliveryID: "not-a-uuid"},
 	}
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {

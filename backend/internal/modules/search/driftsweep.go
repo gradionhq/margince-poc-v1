@@ -15,56 +15,52 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// SweepEmbeddingDrift re-embeds the entities whose embed event the
-// at-least-once bus lost (ADR-0069 §3a, SEARCH-AC-13): live entities with
-// non-empty source text and no embedding row under the current identity.
-// It runs ONLY when the configured identity matches what the store is
-// populated under and no fleet-wide reindex job is live — the
+// SweepWorkspaceEmbeddingDrift re-embeds the entities whose embed event the
+// at-least-once bus lost (ADR-0069 §3a, SEARCH-AC-13) in ONE workspace: live
+// entities with non-empty source text and no embedding row under the current
+// identity. It runs ONLY when the configured identity matches what the store
+// is populated under and no fleet-wide reindex job is live — the
 // binding-change case keeps its preview→confirm human consent
-// (embedreindextransport.go); this sweep never touches the binding
-// marker. The marker is re-read before every workspace so a reindex
-// claimed (or a binding swapped) mid-pass stops the sweep at the next
-// workspace boundary instead of racing the fleet-wide job. Idempotent by
-// UpsertEmbedding's content-hash + identity skip-compare, so a concurrent
-// ordinary embed of the same entity costs nothing. Returns how many
+// (embedreindextransport.go); this sweep never touches the binding marker.
+// Idempotent by UpsertEmbedding's content-hash + identity skip-compare, so a
+// concurrent ordinary embed of the same entity costs nothing. Returns how many
 // entities it actually embedded.
-func (s *Store) SweepEmbeddingDrift(ctx context.Context, embedder Embedder) (int, error) {
+func (s *Store) SweepWorkspaceEmbeddingDrift(ctx context.Context, wsID ids.WorkspaceID, embedder Embedder) (int, error) {
 	configured, _ := embedder.EmbedIdentity()
 	if configured == "" {
 		return 0, nil
 	}
 
-	workspaces, err := s.fleetWorkspaceIDs(ctx)
+	// The marker is read before this workspace's pass so a reindex claimed
+	// (or a binding swapped) since the dispatcher enumerated stops this
+	// workspace rather than racing the fleet-wide job. Each workspace now
+	// carries that check itself, which is what the fleet loop's per-iteration
+	// re-read amounted to.
+	populated, status, _, err := s.PopulatedIdentity(ctx)
 	if err != nil {
 		return 0, err
 	}
+	if populated != configured || status == "reembedding" {
+		return 0, nil
+	}
+
+	// system principal: the sweep repairs an index over the WHOLE
+	// workspace, not one caller's row scope — the same posture as
+	// EmbedGen and ReembedCorpus.
+	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 	healed := 0
-	for _, wsID := range workspaces {
-		populated, status, _, err := s.PopulatedIdentity(ctx)
+	for entityType, src := range pendingSources {
+		pendingIDs, err := s.pendingEntityIDs(wsCtx, entityType, src, configured)
 		if err != nil {
 			return healed, err
 		}
-		if populated != configured || status == "reembedding" {
-			return healed, nil
-		}
-
-		// system principal: the sweep repairs an index over the WHOLE
-		// workspace, not one caller's row scope — the same posture as
-		// EmbedGen and ReembedCorpus.
-		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
-		for entityType, src := range pendingSources {
-			pendingIDs, err := s.pendingEntityIDs(wsCtx, entityType, src, configured)
+		for _, id := range pendingIDs {
+			fresh, err := s.healEntity(wsCtx, entityType, id, embedder)
 			if err != nil {
-				return healed, err
+				return healed, fmt.Errorf("search: drift-sweeping %s %s: %w", entityType, id, err)
 			}
-			for _, id := range pendingIDs {
-				fresh, err := s.healEntity(wsCtx, entityType, id, embedder)
-				if err != nil {
-					return healed, fmt.Errorf("search: drift-sweeping %s %s: %w", entityType, id, err)
-				}
-				if fresh {
-					healed++
-				}
+			if fresh {
+				healed++
 			}
 		}
 	}

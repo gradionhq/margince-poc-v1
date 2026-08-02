@@ -25,6 +25,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -34,6 +35,10 @@ type ParticipantBackfillArgs struct{}
 
 // Kind is the River job kind for the participant backfill.
 func (ParticipantBackfillArgs) Kind() string { return "participant_backfill" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (ParticipantBackfillArgs) FleetWide() {}
 
 // participantBackfillBatch is how many activities one statement attributes.
 // Modest on purpose: the pass holds a write transaction for its duration and
@@ -69,21 +74,40 @@ func newParticipantBackfillWorker(pool *pgxpool.Pool, log *slog.Logger) *partici
 // next tick simply re-selects whatever this one did not finish, because the
 // pass carries no cursor to lose.
 func (w *participantBackfillWorker) Work(ctx context.Context, _ *river.Job[ParticipantBackfillArgs]) error {
-	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
-	if err != nil {
-		return err
+	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		func(ws ids.UUID) river.JobArgs { return ParticipantBackfillWorkspaceArgs{Workspace: ws} }))
+}
+
+// ParticipantBackfillWorkspaceArgs is one workspace's participant backfill.
+type ParticipantBackfillWorkspaceArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (ParticipantBackfillWorkspaceArgs) Kind() string { return "participant_backfill_workspace" }
+
+// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
+func (a ParticipantBackfillWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// participantBackfillWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
+// wiring rather than a second copy of it.
+type participantBackfillWorkspaceWorker struct {
+	river.WorkerDefaults[ParticipantBackfillWorkspaceArgs]
+	*participantBackfillWorker
+}
+
+func (w *participantBackfillWorkspaceWorker) Work(ctx context.Context, job *river.Job[ParticipantBackfillWorkspaceArgs]) error {
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
+		return jobs.FaultContext(ctx, err)
 	}
-	for _, ws := range workspaces {
-		recovered, err := w.backfillWorkspace(ctx, ws)
-		if err != nil {
-			w.log.WarnContext(ctx, "participant backfill: workspace pass failed",
-				"workspace", ws.String(), "err", err)
-			continue
-		}
-		if recovered > 0 {
-			w.log.InfoContext(ctx, "participant backfill: recovered interaction participants",
-				"workspace", ws.String(), "rows", recovered)
-		}
+	recovered, err := w.backfillWorkspace(ctx, job.Args.Workspace)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	if recovered > 0 {
+		w.log.InfoContext(ctx, "participant backfill: recovered interaction participants",
+			"workspace", job.Args.Workspace.String(), "rows", recovered)
 	}
 	return nil
 }

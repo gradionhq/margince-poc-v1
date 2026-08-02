@@ -29,6 +29,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
@@ -39,6 +40,10 @@ type LinkedInRematchArgs struct{}
 
 // Kind is the River job kind for the LinkedIn re-match sweep.
 func (LinkedInRematchArgs) Kind() string { return "linkedin_rematch" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (LinkedInRematchArgs) FleetWide() {}
 
 // linkedInRematchInterval is hourly rather than daily, because the window it
 // covers is the workspace's first day: an export uploaded during onboarding is
@@ -62,30 +67,47 @@ func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority
 // Work re-matches each workspace's unmatched ghosts, one workspace at a time so
 // a failure in one leaves the others swept.
 func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInRematchArgs]) error {
-	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
-	if err != nil {
-		return err
+	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		func(ws ids.UUID) river.JobArgs { return LinkedInRematchWorkspaceArgs{Workspace: ws} }))
+}
+
+// LinkedInRematchWorkspaceArgs is one workspace's LinkedIn re-match pass.
+type LinkedInRematchWorkspaceArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (LinkedInRematchWorkspaceArgs) Kind() string { return "linkedin_rematch_workspace" }
+
+// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
+func (a LinkedInRematchWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// linkedInRematchWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
+// wiring rather than a second copy of it.
+type linkedInRematchWorkspaceWorker struct {
+	river.WorkerDefaults[LinkedInRematchWorkspaceArgs]
+	*linkedInRematchWorker
+}
+
+func (w *linkedInRematchWorkspaceWorker) Work(ctx context.Context, job *river.Job[LinkedInRematchWorkspaceArgs]) error {
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
+		return jobs.FaultContext(ctx, err)
 	}
-	for _, ws := range workspaces {
-		// Re-key BEFORE matching. A stale company key both misses its account
-		// and duplicates on the next import, and matching duplicates would
-		// double every reach count the matches feed.
-		if err := w.renormalizeWorkspace(ctx, ws); err != nil {
-			w.log.WarnContext(ctx, "linkedin re-match: workspace re-normalize failed",
-				"workspace", ws.String(), "err", err)
-			continue
-		}
-		matched, err := w.sweepWorkspace(ctx, ws)
-		if err != nil {
-			w.log.WarnContext(ctx, "linkedin re-match: workspace sweep failed",
-				"workspace", ws.String(), "err", err)
-			continue
-		}
-		if matched.Confirmed+matched.Suggested > 0 {
-			w.log.InfoContext(ctx, "linkedin re-match: new matches",
-				"workspace", ws.String(),
-				"confirmed", matched.Confirmed, "suggested", matched.Suggested)
-		}
+	// Re-key BEFORE matching. A stale company key both misses its account and
+	// duplicates on the next import, and matching duplicates would double
+	// every reach count the matches feed.
+	if err := w.renormalizeWorkspace(ctx, job.Args.Workspace); err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	matched, err := w.sweepWorkspace(ctx, job.Args.Workspace)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	if matched.Confirmed+matched.Suggested > 0 {
+		w.log.InfoContext(ctx, "linkedin re-match: new matches",
+			"workspace", job.Args.Workspace.String(),
+			"confirmed", matched.Confirmed, "suggested", matched.Suggested)
 	}
 	return nil
 }

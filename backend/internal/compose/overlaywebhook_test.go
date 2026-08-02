@@ -66,7 +66,7 @@ func TestWebhookReceiverIngestsGenuineChange(t *testing.T) {
 	if len(enq.jobs) != 1 {
 		t.Fatalf("a genuine change must enqueue one re-fetch, got %d", len(enq.jobs))
 	}
-	if enq.jobs[0].Workspace != ws.String() || enq.jobs[0].IncumbentClass != "contacts" {
+	if enq.jobs[0].Workspace != ws.UUID || enq.jobs[0].IncumbentClass != "contacts" {
 		t.Errorf("enqueued %+v, want a contacts re-fetch for the bound workspace", enq.jobs[0])
 	}
 }
@@ -220,7 +220,7 @@ func TestWebhookReceiverBoundSignalEnqueuesCoalescedRefetch(t *testing.T) {
 	if len(enq.jobs) != 1 {
 		t.Fatalf("enqueued %d jobs, want 1", len(enq.jobs))
 	}
-	if enq.jobs[0] != (OverlayRefetchArgs{Workspace: ws.String(), IncumbentClass: "contacts", ExternalID: "42"}) {
+	if enq.jobs[0] != (OverlayRefetchArgs{Workspace: ws.UUID, IncumbentClass: "contacts", ExternalID: "42"}) {
 		t.Errorf("enqueued %+v, want contacts/42 for the bound workspace", enq.jobs[0])
 	}
 	// Coalescing (OVA-PARAM-10): unique-by-args + scheduled a window ahead so a
@@ -284,13 +284,17 @@ func TestWebhookReceiverDropsUnmappedSubscription(t *testing.T) {
 // unparseable workspace id is a permanent defect — the worker returns nil (no
 // retry) rather than looping on an unfixable arg. This exercises the guard
 // before any DB access.
-func TestOverlayRefetchWorkerRejectsMalformedWorkspace(t *testing.T) {
+func TestOverlayRefetchWorkerRejectsArgsNamingNoWorkspace(t *testing.T) {
 	w := &overlayRefetchWorker{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
-		Args: OverlayRefetchArgs{Workspace: "not-a-uuid", IncumbentClass: "contacts", ExternalID: "1"},
+		Args: OverlayRefetchArgs{IncumbentClass: "contacts", ExternalID: "1"},
 	})
-	if err != nil {
-		t.Errorf("a malformed workspace id must return nil (not retryable), got %v", err)
+	// Cancelled rather than failed: the payload is a permanent defect, so a
+	// retry ladder would spend three attempts to reach the same answer. It is
+	// not nil either — a completed row would say the re-fetch happened.
+	var cancel *river.JobCancelError
+	if !errors.As(err, &cancel) {
+		t.Errorf("args naming no workspace must cancel the job, got %v", err)
 	}
 }
 
@@ -382,8 +386,8 @@ func TestWebhookReceiverBindsOncePerPortalInABatch(t *testing.T) {
 	// that enqueued the same args twice, or mapped the deal event to the wrong
 	// class, must fail here (not merely miscount).
 	want := []OverlayRefetchArgs{
-		{Workspace: ws.String(), IncumbentClass: "contacts", ExternalID: "1"},
-		{Workspace: ws.String(), IncumbentClass: "deals", ExternalID: "2"},
+		{Workspace: ws.UUID, IncumbentClass: "contacts", ExternalID: "1"},
+		{Workspace: ws.UUID, IncumbentClass: "deals", ExternalID: "2"},
 	}
 	for i, w := range want {
 		if enq.jobs[i] != w {

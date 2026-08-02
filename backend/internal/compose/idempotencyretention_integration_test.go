@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seedSettledClaim plants one recorded response whose created_at is ageOffset
@@ -46,8 +47,8 @@ func TestIdempotencyRetentionPurgesSnapshotsPastTheReplayWindow(t *testing.T) {
 	seedSettledClaim(t, e, "fresh-claim", "1 hour")
 
 	sweeper := NewIdempotencyRetentionSweeper(e.Pool, slog.New(slog.DiscardHandler))
-	if err := sweeper.Sweep(context.Background()); err != nil {
-		t.Fatalf("Sweep: %v", err)
+	if err := sweeper.SweepWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
+		t.Fatalf("SweepWorkspace: %v", err)
 	}
 
 	if claimExists(t, e, "expired-claim") {
@@ -60,8 +61,8 @@ func TestIdempotencyRetentionPurgesSnapshotsPastTheReplayWindow(t *testing.T) {
 	}
 
 	t.Run("a second pass is a no-op", func(t *testing.T) {
-		if err := sweeper.Sweep(context.Background()); err != nil {
-			t.Fatalf("Sweep: %v", err)
+		if err := sweeper.SweepWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
+			t.Fatalf("SweepWorkspace: %v", err)
 		}
 		if !claimExists(t, e, "fresh-claim") {
 			t.Error("the second pass purged a claim still inside the window")

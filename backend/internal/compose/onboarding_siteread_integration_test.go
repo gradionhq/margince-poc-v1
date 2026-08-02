@@ -52,7 +52,7 @@ func onboardingDraft(t *testing.T, e *integration.Env) people.SiteRead {
 func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRead) people.SiteRead {
 	t.Helper()
 	if _, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+		Workspace: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 	}), read.ID, 10*time.Minute); err != nil {
 		t.Fatalf("begin onboarding read: %v", err)
 	}
@@ -75,7 +75,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS, SiteReadID: read.ID})
+	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID})
 	stopped := "page_cap"
 	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{
 		Status: "partial", FactCount: len(fields) + len(facts), ProfileFields: fields,
@@ -525,7 +525,7 @@ func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
 		t.Fatalf("start onboarding read: %v", err)
 	}
 	if _, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+		Workspace: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 	}), read.ID, 10*time.Minute); err != nil {
 		t.Fatalf("begin onboarding read: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := e.People.FinishSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS, SiteReadID: read.ID,
+		Workspace: e.WS, SiteReadID: read.ID,
 	}), read.ID, people.FinishSiteReadInput{
 		Status: "done", FactCount: len(fields), ProfileFields: fields,
 		Pages:        []people.SiteReadPage{{URL: seedURL, Kind: "home"}},

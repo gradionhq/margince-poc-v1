@@ -33,6 +33,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/migrations"
 )
 
@@ -243,7 +244,7 @@ func runEligibilityScan(t *testing.T, e *Env) {
 	t.Helper()
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scanner := compose.NewTimeScannerWithClock(e.Pool, func() time.Time { return eligibilityScanNow }, quiet)
-	if err := scanner.Scan(context.Background()); err != nil {
+	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
 		t.Fatalf("time-scan pass: %v", err)
 	}
 }

@@ -44,13 +44,13 @@ type rateRefreshHandlers struct {
 
 func (h rateRefreshHandlers) ProposeFxRateRefresh(w http.ResponseWriter, r *http.Request) {
 	h.enqueueRefresh(w, r, "fx_rate", func(ws ids.UUID, by string) river.JobArgs {
-		return FxRateRefreshArgs{WorkspaceID: ws, RequestedBy: by}
+		return FxRateRefreshArgs{Workspace: ws, RequestedBy: by}
 	})
 }
 
 func (h rateRefreshHandlers) ProposeAiModelRateRefresh(w http.ResponseWriter, r *http.Request) {
 	h.enqueueRefresh(w, r, "ai_model_rate", func(ws ids.UUID, by string) river.JobArgs {
-		return AiModelRateRefreshArgs{WorkspaceID: ws, RequestedBy: by}
+		return AiModelRateRefreshArgs{Workspace: ws, RequestedBy: by}
 	})
 }
 
