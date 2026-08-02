@@ -340,7 +340,7 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 			"subject":{"type":"string"},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}}},
+				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),

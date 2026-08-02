@@ -296,27 +296,28 @@ func TestAToolWithNoOutputSchemaGetsNoStructuredContent(t *testing.T) {
 	}
 }
 
-// assertObjectSchema is what Register enforces; the error has to name the tool
-// and the offending type, because a boot panic is read without a debugger.
-func TestAssertObjectSchemaNamesTheToolAndTheType(t *testing.T) {
+// assertObjectSchemas is what Register enforces; the error has to name the
+// tool and the offending type, because a boot panic is read without a
+// debugger.
+func TestAssertObjectSchemasNamesTheToolAndTheType(t *testing.T) {
 	spec := objectSpec("run_report", principal.ScopeRead)
 	spec.OutputSchema = json.RawMessage(`{"type":"string"}`)
 
-	err := assertObjectSchema(spec)
+	err := assertObjectSchemas(spec)
 
 	if err == nil {
-		t.Fatal("assertObjectSchema accepted a string output schema")
+		t.Fatal("assertObjectSchemas accepted a string output schema")
 	}
 	for _, want := range []string{"run_report", "string"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not name %q", err, want)
 		}
 	}
-	if err := assertObjectSchema(objectSpec("read_record", principal.ScopeRead)); err != nil {
-		t.Errorf("assertObjectSchema rejected an object schema: %v", err)
+	if err := assertObjectSchemas(objectSpec("read_record", principal.ScopeRead)); err != nil {
+		t.Errorf("assertObjectSchemas rejected an object schema: %v", err)
 	}
-	if err := assertObjectSchema(mcp.ToolSpec{Name: "no_schema"}); err != nil {
-		t.Errorf("assertObjectSchema rejected an absent schema: %v", err)
+	if err := assertObjectSchemas(mcp.ToolSpec{Name: "no_schema"}); err != nil {
+		t.Errorf("assertObjectSchemas rejected an absent schema: %v", err)
 	}
 }
 
@@ -356,5 +357,38 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 	}
 	if _, present := res["structuredContent"]; present {
 		t.Error("structuredContent present on a failed call")
+	}
+}
+
+// The whole tools/list response has to encode, and the schemas are the part of
+// it that can stop it: they are hand-written JSON literals spliced from
+// constants and embedded verbatim, so one misplaced brace in one tool takes
+// every tool down behind a 500 rather than breaking its own entry.
+//
+// This walks the registered surface and marshals the real response, because
+// that is the failure — a live tools/list answering 500 while every unit test
+// was green, which is how it was actually found.
+func TestTheWholeToolListEncodes(t *testing.T) {
+	registry := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	RegisterCoreTools(registry, nil, nil, nil, nil)
+	RegisterReportTool(registry, nil)
+	RegisterCommsTools(registry, &recordingComms{}, nil)
+	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test")
+
+	listed := s.toolList(scopedAgentCtx(
+		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend))
+	if len(listed) == 0 {
+		t.Fatal("no tools listed — this walk would pass vacuously")
+	}
+
+	// Per tool first: a single failing Marshal of the whole slice names no
+	// tool, and the point of the boot assertion is that it says which one.
+	for _, tool := range listed {
+		if _, err := json.Marshal(tool); err != nil {
+			t.Errorf("tool %v does not encode: %v", tool[fieldName], err)
+		}
+	}
+	if _, err := json.Marshal(map[string]any{"tools": listed}); err != nil {
+		t.Fatalf("the tools/list result does not encode: %v", err)
 	}
 }

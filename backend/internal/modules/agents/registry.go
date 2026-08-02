@@ -44,10 +44,16 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 
 var _ mcp.Registry = (*Registry)(nil)
 
-// Register refuses the two spec defects that would otherwise surface as
-// runtime authority bugs: a duplicate name (two handlers behind one
-// admission decision) and a TierDynamic spec with no resolver (a tool
-// whose tier nobody computes would default to whatever the gate assumes).
+// Register refuses, at boot, the spec defects that would otherwise surface as
+// a runtime authority bug or a broken wire response: a duplicate name (two
+// handlers behind one admission decision), a TierDynamic spec with no resolver
+// (a tool whose tier nobody computes would default to whatever the gate
+// assumes), a missing display title, and a schema that is not an encodable
+// object (see assertObjectSchemas — one bad brace takes the whole tools/list
+// down, not just its own tool).
+//
+// This is the ONE door every tool comes through, core and extension alike, so
+// none of it is a list of tools someone has to keep current.
 func (r *Registry) Register(t mcp.Tool) {
 	spec := t.Spec()
 	if spec.Name == "" {
@@ -66,7 +72,7 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
 	}
-	if err := assertObjectSchema(spec); err != nil {
+	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: " + err.Error())
 	}
@@ -182,30 +188,45 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 	return out
 }
 
-// assertObjectSchema holds the promise tools/call has to keep. A declared
-// outputSchema obliges the server to answer with structured content that
-// conforms to it, and the dispatcher can only do that for an OBJECT — a JSON
-// array or scalar has nowhere to land in structuredContent, which the protocol
-// types as an object.
+// assertObjectSchemas holds two promises tools/list and tools/call have to
+// keep, at the one door every tool comes through.
 //
-// So the schema is checked at the one door every tool comes through, rather
-// than at the dispatcher, where a mismatch would already be a served response.
-// A schema written some other way (a $ref, a bare allOf) fails here on purpose:
-// it is not wrong, but it is not something the dispatcher has been taught to
-// honour, and failing at boot beats advertising a shape the results miss.
-func assertObjectSchema(spec mcp.ToolSpec) error {
-	if spec.OutputSchema == nil {
-		return nil
-	}
-	var declared struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(spec.OutputSchema, &declared); err != nil {
-		return fmt.Errorf("%s has an OutputSchema that is not valid JSON: %w", spec.Name, err)
-	}
-	if declared.Type != "object" {
-		return fmt.Errorf("%s declares OutputSchema type %q; tools/call can only return structuredContent for an object schema",
-			spec.Name, declared.Type)
+// The first is ENCODABILITY. Both schemas are hand-written JSON literals
+// spliced together from constants, and they reach the client by being embedded
+// verbatim into the tools/list response — so ONE misplaced brace does not
+// break one tool, it makes the whole listing unencodable and every tool
+// disappears behind a 500. That is a boot-time defect discovered on a client's
+// first request, which is exactly the wrong end.
+//
+// The second is that both are OBJECT schemas. MCP requires an object input
+// schema, and a declared outputSchema obliges the server to answer with
+// structured content conforming to it — which the dispatcher can only do for
+// an object, because structuredContent is typed as one. A schema written some
+// other way (a $ref, a bare allOf) fails here on purpose: not wrong, but not
+// something the dispatcher has been taught to honour, and failing at boot
+// beats advertising a shape the results miss.
+func assertObjectSchemas(spec mcp.ToolSpec) error {
+	for _, s := range []struct {
+		field string
+		raw   json.RawMessage
+	}{
+		{field: "InputSchema", raw: spec.InputSchema},
+		{field: "OutputSchema", raw: spec.OutputSchema},
+	} {
+		if s.raw == nil {
+			continue
+		}
+		var declared struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(s.raw, &declared); err != nil {
+			return fmt.Errorf("%s has an %s that is not valid JSON, which makes the whole tools/list response unencodable: %w",
+				spec.Name, s.field, err)
+		}
+		if declared.Type != "object" {
+			return fmt.Errorf("%s declares %s type %q; this surface serves object schemas only",
+				spec.Name, s.field, declared.Type)
+		}
 	}
 	return nil
 }
