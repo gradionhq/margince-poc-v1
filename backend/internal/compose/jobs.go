@@ -11,7 +11,6 @@ package compose
 // loops for River behaviour-preserving.
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -28,64 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-// IdempotencyRetentionArgs schedules one purge of replay claims past the
-// window. Always-on: the claim bodies are record snapshots, so retaining them
-// past the retry they protect is subject data kept for no purpose.
-type IdempotencyRetentionArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (IdempotencyRetentionArgs) Kind() string { return "idempotency_retention" }
-
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
-func (IdempotencyRetentionArgs) FleetWide() {}
-
-// idempotencyRetentionWorker is the dispatcher. It enumerates EVERY
-// workspace, archived ones included: archiving does not un-store the claim
-// snapshots inside a workspace, and idempotency_key.workspace_id is
-// ON DELETE RESTRICT, so leftovers would also refuse the eventual hard delete.
-type idempotencyRetentionWorker struct {
-	river.WorkerDefaults[IdempotencyRetentionArgs]
-	pool *pgxpool.Pool
-}
-
-func (w *idempotencyRetentionWorker) Work(ctx context.Context, _ *river.Job[IdempotencyRetentionArgs]) error {
-	workspaces, err := enumerateEveryWorkspace(ctx, w.pool)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
-		func(ws ids.UUID) river.JobArgs { return IdempotencyRetentionWorkspaceArgs{Workspace: ws} }))
-}
-
-// IdempotencyRetentionWorkspaceArgs purges one workspace's expired claims.
-type IdempotencyRetentionWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (IdempotencyRetentionWorkspaceArgs) Kind() string { return "idempotency_retention_workspace" }
-
-// WorkspaceID binds this purge to its tenant (jobs.WorkspaceScoped).
-func (a IdempotencyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// idempotencyRetentionWorkspaceWorker purges one workspace.
-type idempotencyRetentionWorkspaceWorker struct {
-	river.WorkerDefaults[IdempotencyRetentionWorkspaceArgs]
-	sweeper *IdempotencyRetentionSweeper
-}
-
-func (w *idempotencyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[IdempotencyRetentionWorkspaceArgs]) error {
-	wsCtx, err := workspaceJobCtx(ctx, job.Args)
-	if err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	return jobs.FaultContext(ctx, w.sweeper.SweepWorkspace(wsCtx))
-}
 
 // dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
 // query, deliberately decoupled from per-connection pacing (the sidecar's
@@ -436,7 +378,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		))
 		if cfg.GmailWatch.Topic != "" {
 			river.AddWorker(workers, &gmailWatchWorker{
-				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
+				registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
+			})
+			river.AddWorker(workers, &gmailWatchRenewWorker{
+				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
 			})
 			periodic = append(periodic, river.NewPeriodicJob(
 				river.PeriodicInterval(cfg.GmailWatch.Interval),

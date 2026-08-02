@@ -19,6 +19,7 @@ var (
 	_ jobs.WorkspaceScoped = IdempotencyRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}

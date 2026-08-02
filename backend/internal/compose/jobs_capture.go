@@ -21,7 +21,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is
@@ -135,27 +134,68 @@ func (GmailWatchArgs) Kind() string { return "gmail_watch_renew" }
 func (GmailWatchArgs) FleetWide() {}
 
 // gmailWatchWorker walks the fleet's active Gmail connections whose watch is
-// missing or nearing expiry and registers/renews each against the configured
-// Pub/Sub topic, advancing watch_expires_at. One connection's failure is logged
-// and skipped (a revoked mailbox must not force the whole pass to retry); only a
-// fleet-enumeration failure is returned (so River retries the tick). It mirrors
-// gmailSyncWorker — the same DueConnections-shaped walk, keyed on the renewal
-// deadline instead of the sync cursor.
+// missing or nearing expiry and enqueues ONE renewal job per connection,
+// against the configured Pub/Sub topic. It mirrors gmailSyncWorker — the same
+// collectDue-shaped walk, keyed on the renewal deadline instead of the sync
+// cursor — and it fans out at the same granularity, because a watch belongs to
+// a connection rather than to a workspace: a mailbox whose renewal fails is one
+// connection's problem, and per-connection jobs keep it from being read as the
+// tenant's.
 type gmailWatchWorker struct {
 	river.WorkerDefaults[GmailWatchArgs]
 	registry    *capture.Registry
-	topic       string
 	renewWithin time.Duration
 	log         *slog.Logger
 }
 
 func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs]) error {
+	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := w.registry.DueWatches(ctx, "gmail", w.renewWithin)
 	for _, d := range due {
-		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
-		if err := w.registry.RenewWatch(wsCtx, d.ID, w.topic); err != nil {
-			w.log.WarnContext(ctx, "gmail watch renewal failed", "connection", d.ID.String(), "err", err)
+		if _, err := client.Insert(ctx, GmailWatchRenewArgs{
+			Workspace:    d.Workspace.UUID,
+			ConnectionID: d.ID.String(),
+		}, &river.InsertOpts{
+			MaxAttempts: sweepWorkspaceMaxAttempts,
+			UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+		}); err != nil {
+			w.log.WarnContext(ctx, "gmail watch renewal enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}
 	return jobs.FaultContext(ctx, enumErr)
+}
+
+// GmailWatchRenewArgs renews ONE connection's push watch. The workspace travels
+// with it because capture_connection is RLS-scoped and a job carries no
+// session.
+type GmailWatchRenewArgs struct {
+	Workspace    ids.UUID `json:"workspace_id"`
+	ConnectionID string   `json:"connection_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GmailWatchRenewArgs) Kind() string { return "gmail_watch_renew_connection" }
+
+// WorkspaceID binds this renewal to its tenant (jobs.WorkspaceScoped).
+func (a GmailWatchRenewArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// gmailWatchRenewWorker renews one connection's watch and advances
+// watch_expires_at. A revoked mailbox fails its OWN row now, where before it
+// was logged and skipped inside a pass River recorded as completed.
+type gmailWatchRenewWorker struct {
+	river.WorkerDefaults[GmailWatchRenewArgs]
+	registry *capture.Registry
+	topic    string
+}
+
+func (w *gmailWatchRenewWorker) Work(ctx context.Context, job *river.Job[GmailWatchRenewArgs]) error {
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	connID, err := ids.Parse(job.Args.ConnectionID)
+	if err != nil {
+		return jobs.FaultContext(ctx, fmt.Errorf("gmail_watch_renew_connection: connection id: %w", err))
+	}
+	return jobs.FaultContext(ctx, w.registry.RenewWatch(wsCtx, connID, w.topic))
 }
