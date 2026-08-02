@@ -16,9 +16,14 @@ package compose
 // worker that reached its store, its model lane or its pool before checking
 // the workspace would panic here rather than fail — so this suite also pins
 // the ORDER, which no gate can see.
+//
+// It covers EVERY workspace-scoped kind, and the count below is what keeps
+// that true: a new kind added to jobroles.go's compile-time assertions and not
+// to this map fails here rather than going unnoticed.
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/riverqueue/river"
@@ -26,6 +31,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// workspaceScopedKinds is how many jobs.WorkspaceScoped assertions
+// jobroles.go carries. Kept in step with it by the check below.
+const workspaceScopedKinds = 26
 
 func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	// Named by kind rather than by Go type: a failure should say which JOB is
@@ -85,6 +94,55 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		AiModelRateRefreshArgs{}.Kind(): func(ctx context.Context) error {
 			return (&aiModelRateRefreshWorker{}).Work(ctx, &river.Job[AiModelRateRefreshArgs]{})
 		},
+
+		// The kinds below parse one OTHER id before reaching the guard, so
+		// their args carry a valid one: with a zero-value payload the earlier
+		// parse would fail and the test would pass without the workspace guard
+		// ever running.
+		SendEmailArgs{}.Kind(): func(ctx context.Context) error {
+			return (&commsSendWorker{}).Work(ctx, &river.Job[SendEmailArgs]{
+				Args: SendEmailArgs{DeliveryID: ids.NewV7().String()},
+			})
+		},
+		CaptureBackfillArgs{}.Kind(): func(ctx context.Context) error {
+			return (&captureBackfillWorker{}).Work(ctx, &river.Job[CaptureBackfillArgs]{
+				Args: CaptureBackfillArgs{BackfillID: ids.NewV7().String()},
+			})
+		},
+		CaptureSyncArgs{}.Kind(): func(ctx context.Context) error {
+			return (&captureSyncWorker{}).Work(ctx, &river.Job[CaptureSyncArgs]{
+				Args: CaptureSyncArgs{ConnectionID: ids.NewV7().String()},
+			})
+		},
+		TelegramIngestArgs{}.Kind(): func(ctx context.Context) error {
+			return (&telegramIngestWorker{}).Work(ctx, &river.Job[TelegramIngestArgs]{
+				Args: TelegramIngestArgs{RawCaptureID: ids.NewV7().String()},
+			})
+		},
+		TelegramPollArgs{}.Kind(): func(ctx context.Context) error {
+			return (&telegramPollWorker{}).Work(ctx, &river.Job[TelegramPollArgs]{
+				Args: TelegramPollArgs{ConnectionID: ids.NewV7().String()},
+			})
+		},
+		VoiceBuildArgs{}.Kind(): func(ctx context.Context) error {
+			return (&voiceBuildWorker{}).Work(ctx, &river.Job[VoiceBuildArgs]{
+				Args: VoiceBuildArgs{RequestedBy: ids.NewV7().String()},
+			})
+		},
+		OverlayRefetchArgs{}.Kind(): func(ctx context.Context) error {
+			return (&overlayRefetchWorker{log: slog.New(slog.DiscardHandler)}).Work(
+				ctx, &river.Job[OverlayRefetchArgs]{})
+		},
+		SiteDeepReadArgs{}.Kind(): func(ctx context.Context) error {
+			return (&siteDeepReadWorker{}).Work(ctx, &river.Job[SiteDeepReadArgs]{
+				Args: SiteDeepReadArgs{SiteReadID: ids.NewV7()},
+			})
+		},
+	}
+
+	if len(refusals) != workspaceScopedKinds {
+		t.Fatalf("this suite drives %d workers but the tree declares %d workspace-scoped kinds (jobroles.go) — a kind whose refusal nobody pins is one that can silently stop refusing",
+			len(refusals), workspaceScopedKinds)
 	}
 
 	for kind, work := range refusals {
