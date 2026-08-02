@@ -50,7 +50,7 @@ type idempotencyRetentionWorker struct {
 }
 
 func (w *idempotencyRetentionWorker) Work(ctx context.Context, _ *river.Job[IdempotencyRetentionArgs]) error {
-	return w.sweeper.Sweep(ctx)
+	return jobs.FaultContext(ctx, w.sweeper.Sweep(ctx))
 }
 
 // dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
@@ -95,7 +95,7 @@ type timeScanWorker struct {
 }
 
 func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
-	return w.scanner.Scan(ctx)
+	return jobs.FaultContext(ctx, w.scanner.Scan(ctx))
 }
 
 // sweepInsertOpts is the shared insert policy for the periodic passes.

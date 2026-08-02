@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -294,7 +295,7 @@ type fxRefreshWorker struct {
 }
 
 func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefreshArgs]) error {
-	return w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy))
+	return jobs.FaultContext(ctx, w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy)))
 }
 
 func newFxRefreshWorker(pool *pgxpool.Pool, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {

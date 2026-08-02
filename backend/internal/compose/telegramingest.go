@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -108,12 +109,12 @@ func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Lo
 func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[TelegramIngestArgs]) error {
 	rawID, err := ids.Parse(job.Args.RawCaptureID)
 	if err != nil {
-		return fmt.Errorf("telegram_ingest: raw capture id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_ingest: raw capture id: %w", err))
 	}
 
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 
 	var payload []byte
@@ -123,7 +124,7 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("telegram_ingest: reading the raw payload: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_ingest: reading the raw payload: %w", err))
 	}
 
 	// job.Args.BotID, never a read of the connection row: the bot that received
@@ -132,7 +133,7 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	// TelegramIngestArgs for what re-keying an already-delivered message costs.
 	raw, err := telegram.BuildRawEnvelope(job.Args.BotID, payload)
 	if err != nil {
-		return fmt.Errorf("telegram_ingest: building the normalize envelope: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_ingest: building the normalize envelope: %w", err))
 	}
 
 	// Everything past the read is a WRITE, and every write in this repo is
@@ -148,10 +149,10 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	// mint an activity. Every other update kind falls through unchanged.
 	membership, isMembership, err := telegram.ParseMembership(raw)
 	if err != nil {
-		return fmt.Errorf("telegram_ingest: parsing membership: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_ingest: parsing membership: %w", err))
 	}
 	if isMembership {
-		return w.applyMembership(actorCtx, job.Args.BotID, membership)
+		return jobs.FaultContext(ctx, w.applyMembership(actorCtx, job.Args.BotID, membership))
 	}
 
 	records, err := telegram.Normalize(actorCtx, raw)
@@ -162,10 +163,10 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 			// (an edited_message, say) — counted, never a fault.
 			return nil
 		}
-		return fmt.Errorf("telegram_ingest: normalizing: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_ingest: normalizing: %w", err))
 	}
 
-	return w.captureRecords(actorCtx, records)
+	return jobs.FaultContext(ctx, w.captureRecords(actorCtx, records))
 }
 
 // captureRecords hands every normalized record to the one guarded Sink,

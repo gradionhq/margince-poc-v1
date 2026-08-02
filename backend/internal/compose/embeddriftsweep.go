@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
 // The embed drift sweep (ADR-0069 §3a, SEARCH-AC-13): the at-least-once
@@ -60,7 +61,7 @@ func (w *embedDriftSweepWorker) Work(ctx context.Context, job *river.Job[EmbedDr
 	if healed > 0 {
 		w.log.InfoContext(ctx, "embed drift sweep healed entities", "healed", healed)
 	}
-	return err
+	return jobs.FaultContext(ctx, err)
 }
 
 // addEmbedDriftSweepJob registers the sweep worker and its periodic tick

@@ -45,6 +45,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -158,7 +159,7 @@ func (w *telegramPollSweepWorker) Work(ctx context.Context, _ *river.Job[Telegra
 			w.log.WarnContext(ctx, "telegram poll enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }
 
 // telegramEnqueuer is the slice of River's insert surface the poller needs,
@@ -220,11 +221,11 @@ func (*telegramPollWorker) Timeout(*river.Job[TelegramPollArgs]) time.Duration {
 func (w *telegramPollWorker) Work(ctx context.Context, job *river.Job[TelegramPollArgs]) error {
 	connID, err := ids.Parse(job.Args.ConnectionID)
 	if err != nil {
-		return fmt.Errorf("telegram_poll: connection id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_poll: connection id: %w", err))
 	}
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 
 	target, err := capture.LoadChannelPollTarget(wsCtx, w.pool, capture.ProviderTelegram, connID)
@@ -234,18 +235,18 @@ func (w *telegramPollWorker) Work(ctx context.Context, job *river.Job[TelegramPo
 		return nil
 	}
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 
 	token, err := w.vault.Get(wsCtx, ids.From[ids.WorkspaceKind](job.Args.Workspace), target.CredentialRef)
 	if err != nil {
-		return fmt.Errorf("telegram_poll: unsealing the bot token for connection %s: %w", connID, err)
+		return jobs.FaultContext(ctx, fmt.Errorf("telegram_poll: unsealing the bot token for connection %s: %w", connID, err))
 	}
 
 	batch, highest, err := w.api.GetUpdates(ctx, string(token),
 		target.PollOffset, telegramPollTimeoutSeconds, telegram.AllowedUpdates())
 	if err != nil {
-		return w.answerPollFailure(wsCtx, target, string(token), err)
+		return jobs.FaultContext(ctx, w.answerPollFailure(wsCtx, target, string(token), err))
 	}
 	if len(batch) == 0 {
 		// The long poll timed out with nothing to report — the ordinary outcome.
@@ -256,7 +257,7 @@ func (w *telegramPollWorker) Work(ctx context.Context, job *river.Job[TelegramPo
 	// numbered, so every refusal is logged. Returning early on highest == 0 would
 	// drop such a batch silently, and it would arrive again on every poll —
 	// unacknowledgeable and invisible.
-	return w.persist(wsCtx, target, batch, highest)
+	return jobs.FaultContext(ctx, w.persist(wsCtx, target, batch, highest))
 }
 
 // persist commits the batch and the new cursor in ONE transaction.

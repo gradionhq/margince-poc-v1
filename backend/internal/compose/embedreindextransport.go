@@ -462,11 +462,11 @@ func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[embedReind
 		// Embedder is nil) — registered regardless (jobs.go's own doc), so
 		// a picked-up job fails clearly here rather than sitting queued
 		// forever behind a job no worker role can ever complete.
-		return fmt.Errorf("embed_reindex: no embed lane configured on this worker role")
+		return jobs.FaultContext(ctx, fmt.Errorf("embed_reindex: no embed lane configured on this worker role"))
 	}
 	err := w.store.ReembedCorpus(ctx, w.embedder, job.Args.Identity)
 	if errors.Is(err, search.ErrIdentityDrift) {
 		return river.JobCancel(err)
 	}
-	return err
+	return jobs.FaultContext(ctx, err)
 }

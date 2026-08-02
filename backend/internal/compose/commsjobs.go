@@ -148,12 +148,12 @@ func sendWorkerScope(wsCtx context.Context) context.Context {
 func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
 	deliveryID, err := ids.Parse(job.Args.DeliveryID)
 	if err != nil {
-		return fmt.Errorf("comms_send_email: delivery id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery id: %w", err))
 	}
 
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 
 	outcome, wait, err := w.dispatcher.DispatchWithWait(sendWorkerScope(wsCtx), deliveryID)
@@ -174,22 +174,22 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// buried under a delay nobody reads as a failure is the one shape this
 		// translation may never take.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err))
 		}
 		return river.JobSnooze(max(wait, minSendSnooze))
 	case comms.OutcomeRetry:
 		if err == nil {
-			return fmt.Errorf("comms_send_email: delivery %s asked to be retried with no cause; River's ladder has nothing to back off on", job.Args.DeliveryID)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s asked to be retried with no cause; River's ladder has nothing to back off on", job.Args.DeliveryID))
 		}
-		return err
+		return jobs.FaultContext(ctx, err)
 	case comms.OutcomeSent, comms.OutcomeParked, comms.OutcomeSkipped:
 		// Finished, each in its own way: the row records which, and there is
 		// nothing left for the ladder to do. A terminal outcome carrying an
 		// error is a broken contract, not a retryable fault — surface it
 		// rather than let it disappear because this branch returns nil.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s reported terminal outcome %q with an error: %w",
-				job.Args.DeliveryID, outcome, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported terminal outcome %q with an error: %w",
+				job.Args.DeliveryID, outcome, err))
 		}
 		return nil
 	default:
@@ -198,10 +198,10 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// reporting only "unknown outcome" would replace the one thing that
 		// says what actually went wrong with a description of the symptom.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q: %w",
-				job.Args.DeliveryID, outcome, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q: %w",
+				job.Args.DeliveryID, outcome, err))
 		}
-		return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome)
+		return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome))
 	}
 }
 

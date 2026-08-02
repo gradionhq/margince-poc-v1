@@ -13,6 +13,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -29,13 +30,13 @@ func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepRe
 				w.log.ErrorContext(workCtx, "site deep read panic recovered",
 					"read", job.Args.SiteReadID.String(), "panic", recovered, "stack", string(debug.Stack()))
 			}
-			workErr = w.fail(workCtx, job.Args.SiteReadID, cause)
+			workErr = jobs.FaultContext(ctx, w.fail(workCtx, job.Args.SiteReadID, cause))
 		}
 	}()
 	err := w.run(workCtx, job.Args)
 	var deferral *ai.BudgetDeferralError
 	if !errors.As(err, &deferral) {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	now := time.Now()
 	if w.now != nil {

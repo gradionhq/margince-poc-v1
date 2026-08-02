@@ -29,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -67,7 +68,7 @@ func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdg
 func (w *graphEdgeReconcileWorker) Work(ctx context.Context, _ *river.Job[GraphEdgeReconcileArgs]) error {
 	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	for _, ws := range workspaces {
 		if err := w.reconcileWorkspace(ctx, ws); err != nil {

@@ -25,6 +25,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -75,7 +76,7 @@ func newParticipantBackfillWorker(pool *pgxpool.Pool, log *slog.Logger) *partici
 func (w *participantBackfillWorker) Work(ctx context.Context, _ *river.Job[ParticipantBackfillArgs]) error {
 	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	for _, ws := range workspaces {
 		recovered, err := w.backfillWorkspace(ctx, ws)

@@ -22,6 +22,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -45,7 +46,7 @@ type captureClassifyWorker struct {
 }
 
 func (w *captureClassifyWorker) Work(ctx context.Context, _ *river.Job[CaptureClassifyArgs]) error {
-	return w.classifier.Run(ctx, 0)
+	return jobs.FaultContext(ctx, w.classifier.Run(ctx, 0))
 }
 
 // CaptureEnrichArgs runs one signature-enrich pass (ADR-0063; §2.9).
@@ -66,7 +67,7 @@ type captureEnrichWorker struct {
 }
 
 func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnrichArgs]) error {
-	return w.enricher.Run(ctx)
+	return jobs.FaultContext(ctx, w.enricher.Run(ctx))
 }
 
 // OrgNamePromotionArgs runs one org-name promotion pass (PO-F-2a).
@@ -87,7 +88,7 @@ type orgNamePromotionWorker struct {
 }
 
 func (w *orgNamePromotionWorker) Work(ctx context.Context, _ *river.Job[OrgNamePromotionArgs]) error {
-	return w.promoter.Run(ctx)
+	return jobs.FaultContext(ctx, w.promoter.Run(ctx))
 }
 
 // CaptureDigestArgs builds the morning digests (CAP-DDL-6; the nightly
@@ -118,7 +119,7 @@ type captureDigestWorker struct {
 func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
 	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	clock := w.now
 	if clock == nil {
@@ -135,7 +136,7 @@ func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDige
 			failures = append(failures, fmt.Errorf("workspace %s: %w", ws.String(), err))
 		}
 	}
-	return errors.Join(failures...)
+	return jobs.FaultContext(ctx, errors.Join(failures...))
 }
 
 // CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
@@ -183,11 +184,11 @@ func (w *captureBackfillWorker) Timeout(*river.Job[CaptureBackfillArgs]) time.Du
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
 	bfID, err := ids.Parse(job.Args.BackfillID)
 	if err != nil {
-		return fmt.Errorf("capture_backfill: backfill id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("capture_backfill: backfill id: %w", err))
 	}
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	for i := 0; i < backfillPagesPerTick; i++ {
 		done, completed, retryAfter, err := w.registry.RunBackfillStep(wsCtx, bfID)
@@ -278,23 +279,23 @@ func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[Count
 	// retain the content of messages the workspace already decided were noise.
 	if w.engine.CanJudge() {
 		if err := w.engine.Run(ctx, 0); err != nil {
-			return err
+			return jobs.FaultContext(ctx, err)
 		}
 	}
 	if err := w.engine.ReconcileLedger(ctx); err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	if err := w.engine.StageReviews(ctx, 0); err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	// After staging, not before: a row whose window closed this tick has had its
 	// last chance to be offered, and closing it first would withdraw an offer
 	// that was about to be re-staged in the same pass.
 	if err := w.engine.AgeOutStaleReviews(ctx, capture.UnsureReviewWindow); err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	if err := w.engine.HideNoiseStragglers(ctx); err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
-	return w.engine.RedactNoise(ctx, capture.NoiseUndoWindow, 0)
+	return jobs.FaultContext(ctx, w.engine.RedactNoise(ctx, capture.NoiseUndoWindow, 0))
 }

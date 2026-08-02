@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -96,20 +97,20 @@ func newCaptureAutoEnrichSweepWorker(pool *pgxpool.Pool, log *slog.Logger) *capt
 func (w *captureAutoEnrichSweepWorker) Work(ctx context.Context, _ *river.Job[CaptureAutoEnrichSweepArgs]) error {
 	rows, err := w.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	var workspaces []ids.WorkspaceID
 	for rows.Next() {
 		var id ids.WorkspaceID
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return err
+			return jobs.FaultContext(ctx, err)
 		}
 		workspaces = append(workspaces, id)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	for _, ws := range workspaces {
 		if err := w.sweepWorkspace(ctx, ws); err != nil {

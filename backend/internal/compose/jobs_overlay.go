@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -132,7 +133,7 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 				"workspace", d.Workspace.String(), "err", recErr)
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }
 
 // isConnectionLevelIncumbentError reports whether err is a WHOLE-connection

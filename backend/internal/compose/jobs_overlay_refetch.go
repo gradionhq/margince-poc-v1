@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -75,9 +76,9 @@ type overlayRefetchWorker struct {
 func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayRefetchArgs]) error {
 	wsCtx, conn, ok, err := w.resolveRefetchTarget(ctx, job)
 	if err != nil || !ok {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
-	return w.refetchAndIngest(wsCtx, conn, job)
+	return jobs.FaultContext(ctx, w.refetchAndIngest(wsCtx, conn, job))
 }
 
 // resolveRefetchTarget resolves the job's workspace-scoped context and

@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
 // CloseDateSweepArgs schedules one close-date hygiene pass (INV-CLOSE-PAST).
@@ -44,7 +45,7 @@ type closeDateSweepWorker struct {
 }
 
 func (w *closeDateSweepWorker) Work(ctx context.Context, _ *river.Job[CloseDateSweepArgs]) error {
-	return w.corrector.Sweep(ctx)
+	return jobs.FaultContext(ctx, w.corrector.Sweep(ctx))
 }
 
 // followUpReconcileWorker delegates a River job to the deals reconciler.
@@ -54,5 +55,5 @@ type followUpReconcileWorker struct {
 }
 
 func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowUpReconcileArgs]) error {
-	return w.reconciler.Reconcile(ctx)
+	return jobs.FaultContext(ctx, w.reconciler.Reconcile(ctx))
 }

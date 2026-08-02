@@ -29,6 +29,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
@@ -68,7 +69,7 @@ func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority
 func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInRematchArgs]) error {
 	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	for _, ws := range workspaces {
 		// Re-key BEFORE matching. A stale company key both misses its account

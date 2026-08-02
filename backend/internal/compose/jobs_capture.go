@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -76,7 +77,7 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 			}
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }
 
 // CaptureSyncArgs syncs ONE connection. Unique by args while incomplete, so
@@ -106,11 +107,11 @@ type captureSyncWorker struct {
 func (w *captureSyncWorker) Work(ctx context.Context, job *river.Job[CaptureSyncArgs]) error {
 	conn, err := ids.Parse(job.Args.ConnectionID)
 	if err != nil {
-		return fmt.Errorf("capture_sync: connection id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("capture_sync: connection id: %w", err))
 	}
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	if err := w.registry.SyncOnce(wsCtx, conn); err != nil {
 		w.log.WarnContext(ctx, "capture connection sync failed",
@@ -156,5 +157,5 @@ func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs
 			w.log.WarnContext(ctx, "gmail watch renewal failed", "connection", d.ID.String(), "err", err)
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }

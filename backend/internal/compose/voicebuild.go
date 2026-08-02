@@ -145,19 +145,19 @@ func voiceBuildWorkerCtx(ctx context.Context, args VoiceBuildArgs) (context.Cont
 func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildArgs]) error {
 	ctx, err := voiceBuildWorkerCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
 	profileID, err := ids.Parse(job.Args.ProfileID)
 	if err != nil {
-		return fmt.Errorf("voice_build: profile id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build: profile id: %w", err))
 	}
 	buildID, err := ids.Parse(job.Args.BuildID)
 	if err != nil {
-		return fmt.Errorf("voice_build: build id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build: build id: %w", err))
 	}
 	input, claimed, err := w.store.ClaimBuild(ctx, profileID, buildID, w.reclaimAfter())
 	if err != nil {
-		return fmt.Errorf("voice_build %s: claim: %w", job.Args.BuildID, err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build %s: claim: %w", job.Args.BuildID, err))
 	}
 	if !claimed {
 		switch input.Build.Status {
@@ -174,8 +174,8 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 	}
 	claimedAt := claimTime(input)
 	if w.brain == nil {
-		return w.fail(ctx, buildID, claimedAt, "model_unavailable",
-			"Voice building is unavailable until an AI provider is configured on the worker role.")
+		return jobs.FaultContext(ctx, w.fail(ctx, buildID, claimedAt, "model_unavailable",
+			"Voice building is unavailable until an AI provider is configured on the worker role."))
 	}
 	if err := w.run(ctx, buildID, input); err != nil {
 		if errors.Is(err, ai.ErrBudgetDeferred) {
@@ -184,14 +184,14 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 			if deferErr := w.store.DeferBuild(terminal, buildID, claimedAt,
 				"The monthly AI budget is exhausted; the build resumes in the next window.",
 				w.deferralDeadline(err)); deferErr != nil {
-				return fmt.Errorf("voice_build %s: defer: %w", job.Args.BuildID, deferErr)
+				return jobs.FaultContext(ctx, fmt.Errorf("voice_build %s: defer: %w", job.Args.BuildID, deferErr))
 			}
 			return nil
 		}
 		// The row carries only the safe detail; the OPERATOR needs the real
 		// cause or a repeated invalid_output is undiagnosable from any log.
 		w.log.WarnContext(ctx, "voice build error", "build", buildID.String(), "err", err)
-		return w.fail(ctx, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err))
+		return jobs.FaultContext(ctx, w.fail(ctx, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err)))
 	}
 	return nil
 }
@@ -362,5 +362,5 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			w.log.WarnContext(ctx, "voice build retry enqueue failed", "build", ref.BuildID.String(), "err", err)
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }
