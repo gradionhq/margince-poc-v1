@@ -11,12 +11,16 @@ package compose
 // field list would be testing the seeding.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestTheProposalCarriesTheExportsSpellingAndNotTheFoldedForms(t *testing.T) {
@@ -66,5 +70,27 @@ func TestAConnectionWithNoEmployerStillReadsAsASentence(t *testing.T) {
 	}
 	if got := employerOrPlaceholder("Acme GmbH"); got != "Acme GmbH" {
 		t.Errorf("a real employer was rewritten to %q", got)
+	}
+}
+
+func TestStagingRefusesAContextWithNoHumanBehindIt(t *testing.T) {
+	// The proposal records WHOSE export raised the question, and that record is
+	// what the audit trail answers "who asked" with. A context carrying no
+	// human cannot stage: writing the proposal anyway would put a question in
+	// somebody's inbox that no trail attributes to anyone.
+	if _, err := withGhostOwnerAsSubject(context.Background()); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("staging without an actor answered %v, want a permission refusal", err)
+	}
+
+	// With a member bound, the subject IS that member.
+	me := ids.NewV7()
+	ctx, err := withGhostOwnerAsSubject(principal.WithActor(context.Background(),
+		principal.Principal{Type: principal.PrincipalHuman, UserID: me}))
+	if err != nil {
+		t.Fatalf("staging as a member: %v", err)
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.OnBehalfOf != me {
+		t.Errorf("the staging subject is %v, want the acting member %s", actor.OnBehalfOf, me)
 	}
 }
