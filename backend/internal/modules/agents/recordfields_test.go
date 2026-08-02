@@ -205,7 +205,7 @@ func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
 }
 
 // dateTimeOccurrences reports, for each `"format":"date-time"` in the flattened
-// schema text, whether the note's splice follows it immediately. schemaParts
+// schema text, whether the note's splice follows it immediately. schemaText
 // drops the interpolated expressions, so a spliced note leaves the literal
 // halves adjoined as `…"date-time"}` — while a note that IS present leaves the
 // marker text that timestampNote itself begins with.
@@ -253,4 +253,31 @@ func schemaText(expr ast.Expr) string {
 	}
 	walk(expr)
 	return literal
+}
+
+// The prefix is not a slug. `cf_` alone names no catalog column, so accepting
+// it would let the one key the check is meant to catch through the one hole it
+// leaves — and a null payload decodes to a nil map with no error and no keys at
+// all, which is the same hole wearing a different shape.
+func TestWriteToolsRefuseTheCustomFieldPrefixWithNoSlug(t *testing.T) {
+	for name, fields := range map[string]string{
+		"bare prefix": `{"full_name":"A","cf_":"x"}`,
+		"null body":   `null`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := rejectUnknownFields(createShapes, "person", json.RawMessage(fields))
+			if err == nil {
+				t.Fatalf("%s was accepted — the value would be discarded with no signal", fields)
+			}
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Errorf("err = %v, want a BadArgsError the tool surface explains", err)
+			}
+		})
+	}
+	// A real slug still passes: whether that field is ACTIVE is the store's
+	// question, and refusing it here would break every workspace that has one.
+	if err := rejectUnknownFields(createShapes, "person", json.RawMessage(`{"full_name":"A","cf_priority":"high"}`)); err != nil {
+		t.Errorf("a real custom-field key was refused: %v", err)
+	}
 }

@@ -112,6 +112,13 @@ const (
 	// has no such protection: it is Sprintf'd raw into generated DDL, so it
 	// must be refused at the request boundary rather than forwarded.
 	codeInvalidCharacters = "invalid_characters"
+
+	// The closed vocabulary refusals: an object, type or status outside the
+	// governed set. Named so the message renderer and the raise sites cannot
+	// drift onto two spellings of the same wire code.
+	codeUnsupportedObject = "unsupported_object"
+	codeUnsupportedType   = "unsupported_type"
+	codeUnsupportedStatus = "unsupported_status"
 )
 
 // validOptionText reports whether a picklist option is safe to carry into
@@ -134,10 +141,10 @@ func validOptionText(s string) bool {
 func Validate(spec FieldSpec) []FieldError {
 	var errs []FieldError
 	if !allowedObjects[spec.Object] {
-		errs = append(errs, FieldError{Field: fieldObject, Code: "unsupported_object"})
+		errs = append(errs, FieldError{Field: fieldObject, Code: codeUnsupportedObject})
 	}
 	if !allowedTypes[spec.Type] {
-		errs = append(errs, FieldError{Field: fieldType, Code: "unsupported_type"})
+		errs = append(errs, FieldError{Field: fieldType, Code: codeUnsupportedType})
 	}
 	if strings.TrimSpace(spec.Label) == "" {
 		errs = append(errs, FieldError{Field: fieldLabel, Code: codeRequired})

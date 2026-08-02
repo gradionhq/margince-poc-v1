@@ -179,7 +179,10 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 	}
 	var unknown []string
 	for key := range submitted {
-		if _, ok := accepted[key]; ok || strings.HasPrefix(key, customFieldPrefix) {
+		// The prefix alone is not a field name: `cf_` names no slug, so it
+		// can match no catalog column and would be discarded like any other
+		// unknown key.
+		if _, ok := accepted[key]; ok || len(key) > len(customFieldPrefix) && strings.HasPrefix(key, customFieldPrefix) {
 			continue
 		}
 		unknown = append(unknown, key)
