@@ -296,7 +296,21 @@ order:**
    `TestARejectionSurvivesTheNextImportAndTheSweep` were deleted without
    replacement. Nothing proves the kind is registered, that the `person:update`
    grant gates the decision, or that a refused connection is not re-proposed.
-8. Smaller: `matchConfirmed`'s comment claims it removes literals that are
+8. **A failed link write permanently consumes the approval.** `Redeem` and
+   `ApplyLinkedInMatch` are separate transactions, so a redeem that commits
+   followed by a failed apply leaves an approved, consumed proposal with no
+   link and no retry path. Same family as item 5.
+9. **Two ghosts with an identical name+employer can both auto-confirm onto the
+   same contact.** The `c.matches = 1` guard counts candidate PEOPLE per ghost,
+   not ghosts per person.
+10. **The `linkedin_match.decided` v1 payload dropped a required field.**
+   `verdict` was removed from a shipped event without a version bump. No
+   external subscriber exists yet; either bump to v2 or restore the field as
+   optional before one does.
+11. **The reach table renders only the API's first page** (default limit 50)
+   with no control for the rest, and its column headers use `--textMuted`,
+   which fails WCAG AA contrast on the card background.
+12. Smaller: `matchConfirmed`'s comment claims it removes literals that are
    still inline at six sites; `approvalsServiceWithEffects` is rebuilt per
    import request and per workspace per sweep; `TestCollapseNever…` and
    `matchRankOrder`'s "how much human judgement" comment are now untrue, since
