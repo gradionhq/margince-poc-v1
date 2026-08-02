@@ -26,12 +26,11 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -60,6 +59,18 @@ type linkedInMatchProposal struct {
 	PersonName        string `json:"person_name"`
 }
 
+// withGhostOwnerAsSubject records the acting member as the subject the
+// proposals are staged for. A context with no human actor cannot stage: a
+// self-only proposal nobody is recorded for is one nobody can ever decide.
+func withGhostOwnerAsSubject(ctx context.Context) (context.Context, error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.UserID == ids.Nil {
+		return nil, apperrors.ErrPermissionDenied
+	}
+	actor.OnBehalfOf = actor.UserID
+	return principal.WithActor(ctx, actor), nil
+}
+
 // linkedInMatchStager is the seam people.Handlers calls after an import. It
 // builds its own approvals service so the transport does not have to hold one.
 func linkedInMatchStager(pool *pgxpool.Pool) func(context.Context) error {
@@ -80,42 +91,37 @@ func StageLinkedInMatches(ctx context.Context, pool *pgxpool.Pool, svc *approval
 	if err != nil {
 		return 0, err
 	}
-	if len(pending) == 0 {
-		return 0, nil
-	}
-	var decided map[ids.UUID]bool
-	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		var err error
-		decided, err = decidedLinkedInMatches(ctx, tx)
-		return err
-	}); err != nil {
+	// The proposal is staged ON BEHALF OF the member whose network produced
+	// it, and that is load-bearing rather than bookkeeping: `linkedin_match` is
+	// a self-only kind, so on_behalf_of is what the inbox compares against to
+	// keep one member's imported address book out of everybody else's queue.
+	// The sweep already runs under a principal carrying it; an interactive
+	// import does not, so it is set here for both.
+	ctx, err = withGhostOwnerAsSubject(ctx)
+	if err != nil {
 		return 0, err
 	}
 	staged := 0
 	for _, m := range pending {
-		// A refusal is durable. Re-proposing a connection somebody already
-		// ruled on would ask the same question after every export refresh,
-		// which is the fastest way to teach a member to approve without
-		// reading.
-		if decided[m.ConnectionID] {
-			continue
-		}
-		if err := stageOneLinkedInMatch(ctx, svc, m); err != nil {
+		proposed, err := stageOneLinkedInMatch(ctx, svc, m)
+		if err != nil {
 			return staged, err
 		}
-		staged++
+		if proposed {
+			staged++
+		}
 	}
 	return staged, nil
 }
 
-func stageOneLinkedInMatch(ctx context.Context, svc *approvals.Service, m people.PendingLinkedInMatch) error {
+func stageOneLinkedInMatch(ctx context.Context, svc *approvals.Service, m people.PendingLinkedInMatch) (bool, error) {
 	canonical, hash, err := diffhash.Object(map[string]any{
 		"connection_id": m.ConnectionID.String(), "person_id": m.PersonID.String(),
 		"connection_name": m.ConnectionName, "connection_company": m.ConnectionCompany,
 		"person_name": m.PersonName,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
 	// The identity is the CONNECTION, not the diff: a later export that changes
 	// the employer string should supersede the stale proposal for the same
@@ -124,9 +130,14 @@ func stageOneLinkedInMatch(ctx context.Context, svc *approvals.Service, m people
 	// a five-thousand-row export re-runs this over every row.
 	identity, err := json.Marshal(map[string]string{"connection_id": m.ConnectionID.String()})
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = svc.Stage(ctx, approvals.StageInput{
+	// StageUnlessDeclined, not Stage. A refusal is durable, and the engine
+	// already owns that memory: it takes the identity lock BEFORE reading the
+	// declined set, which closes the gap a hand-rolled "read the decided ids,
+	// then stage" leaves open — a human rejecting between the two would have
+	// the same question re-asked immediately.
+	_, proposed, err := svc.StageUnlessDeclined(ctx, approvals.StageInput{
 		Kind:           linkedInMatchKind,
 		ProposedChange: canonical,
 		DiffHash:       hash,
@@ -135,12 +146,12 @@ func stageOneLinkedInMatch(ctx context.Context, svc *approvals.Service, m people
 		Identity:       identity,
 		JoinPending:    true,
 		Summary: fmt.Sprintf("%s at %s looks like %s",
-			m.ConnectionName, orDash(m.ConnectionCompany), m.PersonName),
+			m.ConnectionName, employerOrPlaceholder(m.ConnectionCompany), m.PersonName),
 	})
-	return err
+	return proposed, err
 }
 
-func orDash(s string) string {
+func employerOrPlaceholder(s string) string {
 	if s == "" {
 		return "an unnamed employer"
 	}
@@ -169,28 +180,4 @@ func linkedInMatchAcceptEffect(svc *approvals.Service, store *people.Store) appr
 		// grants and recorded against them.
 		return store.ApplyLinkedInMatch(ctx, p.ConnectionID, p.PersonID)
 	}
-}
-
-// decidedLinkedInMatches is the durable-rejection read: the connections this
-// member has already ruled on, so a refused guess is never asked twice.
-func decidedLinkedInMatches(ctx context.Context, tx pgx.Tx) (map[ids.UUID]bool, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT (proposed_change ->> 'connection_id')::uuid
-		  FROM approval
-		 WHERE kind = $1
-		   AND status IN ('approved', 'rejected')
-		   AND proposed_change ? 'connection_id'`, linkedInMatchKind)
-	if err != nil {
-		return nil, fmt.Errorf("compose: reading decided LinkedIn matches: %w", err)
-	}
-	defer rows.Close()
-	out := map[ids.UUID]bool{}
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out[id] = true
-	}
-	return out, rows.Err()
 }
