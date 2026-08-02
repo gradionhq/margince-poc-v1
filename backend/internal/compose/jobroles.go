@@ -25,6 +25,10 @@ var (
 	_ jobs.WorkspaceScoped = ParticipantBackfillWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = LinkedInRematchWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = OrgNamePromotionWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = CaptureClassifyWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = CaptureEnrichWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = CaptureDigestWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = CounterpartyVerdictWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}

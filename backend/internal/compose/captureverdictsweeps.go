@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ReconcileLedger runs the two housekeeping transitions that keep the ledger
@@ -34,25 +35,18 @@ import (
 // retiring is what puts a stranded row in front of the review queue in the first
 // place, and reconciling declines is what keeps staging from re-asking a
 // question that has already been answered.
-func (e *CounterpartyVerdictEngine) ReconcileLedger(ctx context.Context) error {
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
+func (e *CounterpartyVerdictEngine) ReconcileLedgerWorkspace(ctx context.Context) error {
+	wsCtx := e.workspaceCtx(ctx)
+	retired, err := e.pending.RetireExhausted(wsCtx,
+		"no usable verdict within the attempt bound")
 	if err != nil {
 		return err
 	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		retired, err := e.pending.RetireExhausted(wsCtx,
-			"no usable verdict within the attempt bound")
-		if err != nil {
-			return err
-		}
-		if retired > 0 {
-			e.log.InfoContext(ctx, "counterparty verdict: retired exhausted dispositions",
-				"workspace", ws.String(), "count", retired)
-		}
-		if _, err := e.pending.ReconcileDeclined(wsCtx); err != nil {
-			return err
-		}
+	if retired > 0 {
+		e.log.InfoContext(wsCtx, "counterparty verdict: retired exhausted dispositions", "count", retired)
+	}
+	if _, err := e.pending.ReconcileDeclined(wsCtx); err != nil {
+		return err
 	}
 	return nil
 }
@@ -61,33 +55,27 @@ func (e *CounterpartyVerdictEngine) ReconcileLedger(ctx context.Context) error {
 // human. Run after a verdict pass — and independently of it, so a staging that
 // failed while the model was answering is picked up on the next cycle rather
 // than leaving a row nobody can act on.
-func (e *CounterpartyVerdictEngine) StageReviews(ctx context.Context, maxRows int) error {
+func (e *CounterpartyVerdictEngine) StageReviewsWorkspace(ctx context.Context, maxRows int) error {
 	if maxRows <= 0 {
 		maxRows = verdictCatchUpCap
 	}
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
+	wsCtx := e.workspaceCtx(ctx)
+	rows, err := e.pending.AwaitingReview(wsCtx, maxRows)
 	if err != nil {
 		return err
 	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		rows, err := e.pending.AwaitingReview(wsCtx, maxRows)
+	for _, row := range rows {
+		proposalID, err := stageCounterpartyReview(wsCtx, e.approvals, row)
 		if err != nil {
-			return err
+			e.log.WarnContext(wsCtx, "counterparty verdict: staging a review offer failed",
+				"disposition", row.ID.String(), "err", err)
+			continue
 		}
-		for _, row := range rows {
-			proposalID, err := stageCounterpartyReview(wsCtx, e.approvals, row)
-			if err != nil {
-				e.log.WarnContext(ctx, "counterparty verdict: staging a review offer failed",
-					"disposition", row.ID.String(), "err", err)
-				continue
-			}
-			if proposalID.IsZero() {
-				continue
-			}
-			if err := e.pending.LinkProposal(wsCtx, row.ID, proposalID); err != nil {
-				return err
-			}
+		if proposalID.IsZero() {
+			continue
+		}
+		if err := e.pending.LinkProposal(wsCtx, row.ID, proposalID); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -113,8 +101,8 @@ const staleReviewBatch = 200
 //
 // The withdrawal and the ledger write share one transaction, so the inbox can
 // never hold an offer whose accept would resolve nothing.
-func (e *CounterpartyVerdictEngine) AgeOutStaleReviews(ctx context.Context, window time.Duration) error {
-	return e.eachWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
+func (e *CounterpartyVerdictEngine) AgeOutStaleReviewsWorkspace(ctx context.Context, window time.Duration) error {
+	return e.inWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
 		stale, err := e.pending.StaleReviews(wsCtx, window, staleReviewBatch)
 		if err != nil {
 			return err
@@ -178,8 +166,8 @@ func (e *CounterpartyVerdictEngine) ageOutOneReview(ctx context.Context, row cap
 // what is actually outstanding, so a workspace with more noise senders than any
 // page size cannot silently stop covering the oldest of them. Idempotent, and a
 // no-op in the steady state.
-func (e *CounterpartyVerdictEngine) HideNoiseStragglers(ctx context.Context) error {
-	return e.eachWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
+func (e *CounterpartyVerdictEngine) HideNoiseStragglersWorkspace(ctx context.Context) error {
+	return e.inWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
 		due, err := e.pending.NoiseMailToHide(wsCtx, noiseSweepBatch)
 		if err != nil {
 			return err
@@ -212,11 +200,11 @@ func (e *CounterpartyVerdictEngine) HideNoiseStragglers(ctx context.Context) err
 // completed state, which makes a crash mid-sweep cost nothing and a re-run
 // finish the job — where a one-shot marker could be stamped on a row whose
 // content survived, and nothing would ever revisit it.
-func (e *CounterpartyVerdictEngine) RedactNoise(ctx context.Context, window time.Duration, maxRows int) error {
+func (e *CounterpartyVerdictEngine) RedactNoiseWorkspace(ctx context.Context, window time.Duration, maxRows int) error {
 	if maxRows <= 0 {
 		maxRows = noiseSweepBatch
 	}
-	return e.eachWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
+	return e.inWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
 		due, err := e.pending.NoiseMailToRedact(wsCtx, window, maxRows)
 		if err != nil {
 			return err
@@ -264,15 +252,10 @@ const noiseSweepBatch = 500
 // eachWorkspace runs fn under every live workspace's own principal and GUC. The
 // sweeps all share this shape, and sharing it is what keeps a new one from
 // quietly running under the wrong workspace.
-func (e *CounterpartyVerdictEngine) eachWorkspace(ctx context.Context, fn func(context.Context, ids.UUID) error) error {
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
-	if err != nil {
-		return err
+func (e *CounterpartyVerdictEngine) inWorkspace(ctx context.Context, fn func(context.Context, ids.UUID) error) error {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return fmt.Errorf("verdict: a sweep stage requires a workspace-bound context")
 	}
-	for _, ws := range workspaces {
-		if err := fn(e.workspaceCtx(ctx, ws), ws); err != nil {
-			return err
-		}
-	}
-	return nil
+	return fn(e.workspaceCtx(ctx), ws)
 }

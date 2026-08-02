@@ -288,7 +288,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
 
 	if cfg.ClassifyBrain != nil {
-		river.AddWorker(workers, &captureClassifyWorker{
+		river.AddWorker(workers, &captureClassifyWorker{pool: pool})
+		river.AddWorker(workers, &captureClassifyWorkspaceWorker{
 			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
 		})
 		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
@@ -301,7 +302,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	if cfg.EnrichBrain != nil {
-		river.AddWorker(workers, &captureEnrichWorker{
+		river.AddWorker(workers, &captureEnrichWorker{pool: pool})
+		river.AddWorker(workers, &captureEnrichWorkspaceWorker{
 			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
 		})
 		// Daily (the ADR-0063 nightly cadence rides the same job until the
@@ -335,10 +337,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// a brain would mean an AI-less deployment never staged a review for an
 		// existing unsure row and never redacted mail it had already hidden.
 		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
-		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
+		river.AddWorker(workers, &counterpartyVerdictWorker{pool: pool})
+		river.AddWorker(workers, &counterpartyVerdictWorkspaceWorker{engine: verdicts})
 		// Hourly, like classify: the ledger's due-index makes an empty pass one
 		// cheap probe, and a deferred sender should not wait a day to become a
-		// record. The one job runs every stage in dependency order —
+		// record. Each workspace's job runs every stage in dependency order —
 		// judging fills the unsure backlog that staging then offers, and
 		// redaction only ever acts on windows that closed before this tick.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -353,7 +356,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = registerTelegramPoll(workers, periodic, pool, cfg.ChannelVault, cfg.ChannelAPI, log)
 
 	if cfg.GmailRegistry != nil {
-		river.AddWorker(workers, &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log})
+		digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
+		river.AddWorker(workers, digests)
+		river.AddWorker(workers, &captureDigestWorkspaceWorker{digests: digests})
 		// The digest builds daily after the overnight passes; run-on-start
 		// backfills a missed night so mornings are never silently empty.
 		periodic = append(periodic, river.NewPeriodicJob(

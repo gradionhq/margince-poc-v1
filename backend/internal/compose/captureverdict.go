@@ -135,8 +135,7 @@ const verdictActor = "agent:" + verdictReason
 
 // workspaceCtx binds the pass's system principal on one workspace, with a fresh
 // correlation id so every disposition it writes traces back to the run.
-func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context, ws ids.UUID) context.Context {
-	ctx = principal.WithWorkspaceID(ctx, ws)
+func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context) context.Context {
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: verdictActor,
 	})
@@ -154,46 +153,41 @@ type verdictPayload struct {
 	Results []verdictResult `json:"results"`
 }
 
-// Run drains up to maxVerdicts deferred dispositions across every live
-// workspace. A budget stop ends the pass cleanly: what was decided is
-// committed, and the rest stays claimable for the next cycle.
-func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) error {
+// RunWorkspace drains up to maxVerdicts deferred dispositions in the workspace
+// already bound in ctx. A budget stop ends the pass cleanly: what was decided
+// is committed, and the rest stays claimable for the next cycle.
+//
+// The cap is per workspace, not per pass: a shared counter lets one large
+// backlog consume the whole budget and starve every workspace after it.
+func (e *CounterpartyVerdictEngine) RunWorkspace(ctx context.Context, maxVerdicts int) error {
 	if maxVerdicts <= 0 {
 		maxVerdicts = verdictCatchUpCap
 	}
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
-	if err != nil {
-		return err
-	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		// Per workspace, not per pass: a shared counter lets one large backlog
-		// consume the whole budget and starve every workspace after it.
-		resolved := 0
-		for resolved < maxVerdicts {
-			batch, err := e.pending.ClaimDue(wsCtx, verdictClaimSize)
-			if err != nil {
-				return fmt.Errorf("verdict: claiming the disposition backlog: %w", err)
-			}
-			if len(batch) == 0 {
-				break
-			}
-			n, err := e.judgeClaimed(wsCtx, batch)
-			resolved += n
-			if errors.Is(err, ai.ErrBudgetDeferred) {
-				// Every row this pass never reached is refunded: no model saw
-				// them, and with only PendingMaxAttempts to spend, charging for
-				// a budget stop would let two quiet cycles exhaust an address's
-				// allowance without a verdict ever being attempted on its
-				// merits — an infrastructure condition turned into a per-sender
-				// terminal answer nobody asked for.
-				e.releaseBatch(wsCtx, batch)
-				e.log.InfoContext(ctx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
-				return nil
-			}
-			if err != nil {
-				return fmt.Errorf("verdict: draining the disposition backlog: %w", err)
-			}
+	wsCtx := e.workspaceCtx(ctx)
+	resolved := 0
+	for resolved < maxVerdicts {
+		batch, err := e.pending.ClaimDue(wsCtx, verdictClaimSize)
+		if err != nil {
+			return fmt.Errorf("verdict: claiming the disposition backlog: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		n, err := e.judgeClaimed(wsCtx, batch)
+		resolved += n
+		if errors.Is(err, ai.ErrBudgetDeferred) {
+			// Every row this pass never reached is refunded: no model saw
+			// them, and with only PendingMaxAttempts to spend, charging for
+			// a budget stop would let two quiet cycles exhaust an address's
+			// allowance without a verdict ever being attempted on its
+			// merits — an infrastructure condition turned into a per-sender
+			// terminal answer nobody asked for.
+			e.releaseBatch(wsCtx, batch)
+			e.log.InfoContext(wsCtx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("verdict: draining the disposition backlog: %w", err)
 		}
 	}
 	return nil

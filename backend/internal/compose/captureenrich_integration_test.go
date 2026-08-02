@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -88,7 +89,7 @@ func TestSignatureEnrichPass(t *testing.T) {
 		{"field": "linkedin", "value": "linkedin.com/in/bob", "evidence_snippet": "linkedin.com/in/bob", "confidence": 0.9},
 	}}
 	enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
-	if err := enricher.Run(context.Background()); err != nil {
+	if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -129,7 +130,7 @@ func TestSignatureEnrichPass(t *testing.T) {
 		// select them again — and asking would show the model the identical
 		// window and get the identical answer, nightly, forever.
 		before := brain.calls
-		if err := enricher.Run(context.Background()); err != nil {
+		if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 		if brain.calls != before {
@@ -156,7 +157,7 @@ func TestSignatureEnrichPass(t *testing.T) {
 			t.Fatal(err)
 		}
 		before := brain.calls
-		if err := enricher.Run(context.Background()); err != nil {
+		if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 		if brain.calls == before {
@@ -178,7 +179,7 @@ func TestSignatureEnrichPass(t *testing.T) {
 		// She is still a candidate — the org_name her signature may state is
 		// unanswered — so the pass reads her mail and the model returns the
 		// same title it returns for everyone. The human's answer survives it.
-		if err := enricher.Run(context.Background()); err != nil {
+		if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 		var title string
@@ -221,7 +222,7 @@ func TestSignatureEnrichAbsorbsModelFailures(t *testing.T) {
 	t.Run("garbage output fails the candidate, not the pass", func(t *testing.T) {
 		brain := &faultyEnrichBrain{garbage: true}
 		enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
-		if err := enricher.Run(context.Background()); err != nil {
+		if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 			t.Fatalf("a per-candidate model failure must not fail the pass: %v", err)
 		}
 		if brain.calls == 0 {
@@ -236,7 +237,7 @@ func TestSignatureEnrichAbsorbsModelFailures(t *testing.T) {
 	t.Run("a budget stop ends the pass cleanly", func(t *testing.T) {
 		brain := &faultyEnrichBrain{err: ai.ErrBudgetDeferred}
 		enricher := NewCaptureEnricher(e.Pool, brain, slog.New(slog.DiscardHandler))
-		if err := enricher.Run(context.Background()); err != nil {
+		if err := enricher.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 			t.Fatalf("a budget stop must not be an error: %v", err)
 		}
 		if brain.calls != 1 {
