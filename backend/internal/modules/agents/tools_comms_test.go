@@ -7,14 +7,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // recordingComms captures what the tool handed the seam.
@@ -239,5 +242,144 @@ func TestRegisterCommsToolsRegistersTheChannelReply(t *testing.T) {
 
 	if _, ok := r.Spec("send_message"); !ok {
 		t.Error("send_message is not registered; the MCP surface cannot reach the channel reply")
+	}
+}
+
+// multiLinkProvider serves each linked record with its own authority, so a
+// booking that mixes a local record with a mirrored one can be exercised.
+type multiLinkProvider struct {
+	datasource.SystemOfRecordProvider
+	// heldElsewhere names the ids whose authority lives in another system;
+	// everything else reads back as a row this database owns.
+	heldElsewhere map[ids.UUID]bool
+	read          []datasource.EntityRef
+}
+
+func (p *multiLinkProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	p.read = append(p.read, ref)
+	return datasource.Record{
+		Ref: ref, Version: 3, Fields: json.RawMessage(`{}`),
+		Freshness: datasource.FreshnessInfo{Authoritative: !p.heldElsewhere[ref.ID]},
+	}, nil
+}
+
+// sendCtx is one authenticated agent holding the send scope — enough to pass
+// the scope arm of admission and be refused on the tier, which is the refusal
+// staging exists to catch.
+func sendCtx() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
+		PassportID: ids.NewV7(),
+		Scopes:     principal.NewScopeSet(principal.ScopeSend),
+	})
+}
+
+// Both outbound verbs were advertised as confirm-first and could not be
+// confirmed: Registry.Invoke stages only a tool that implements StageInfo, and
+// neither did, so the refusal came back bare and no approval was ever minted.
+// A 🟡 tool a human can never say yes to is a tool that does not work.
+func TestRefusedOutboundCallsReachTheInbox(t *testing.T) {
+	anchor, deal := ids.NewV7(), ids.NewV7()
+	for _, tc := range []struct {
+		tool, args  string
+		wantTarget  string
+		wantSummary string
+	}{
+		{
+			tool:        "send_email",
+			args:        fmt.Sprintf(`{"activity_id":%q,"to":["buyer@example.test"],"subject":"Next steps","body":"b","consent_purpose":"support"}`, anchor),
+			wantTarget:  string(datasource.EntityActivity),
+			wantSummary: `Send an email to buyer@example.test, subject "Next steps"`,
+		},
+		{
+			tool: "book_meeting",
+			args: fmt.Sprintf(`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","subject":"Review","links":[{"entity_type":"deal","entity_id":%q}]}`, deal),
+			// A booking anchors on no row, so the first link is what the
+			// human sees and what the pin is taken from.
+			wantTarget:  "deal",
+			wantSummary: `Book "Review" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z`,
+		},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			approvals := &recordingApprovals{}
+			registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+			RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+
+			_, err := registry.Invoke(sendCtx(), tc.tool, json.RawMessage(tc.args))
+
+			var staged *workflow.StagedApprovalError
+			if !errors.As(err, &staged) {
+				t.Fatalf("Invoke err = %v, want a StagedApprovalError — the refusal must mint an approval, not dead-end", err)
+			}
+			if len(approvals.staged) != 1 {
+				t.Fatalf("staged %d approvals, want 1", len(approvals.staged))
+			}
+			got := approvals.staged[0]
+			if got.Tool != tc.tool {
+				t.Errorf("staged under tool %q, want %q", got.Tool, tc.tool)
+			}
+			if got.TargetType != tc.wantTarget {
+				t.Errorf("TargetType = %q, want %q", got.TargetType, tc.wantTarget)
+			}
+			if got.TargetVersion == nil {
+				t.Error("no version pinned — redemption could not detect the target changing under the approval")
+			}
+			if got.Summary != tc.wantSummary {
+				t.Errorf("Summary = %q, want %q", got.Summary, tc.wantSummary)
+			}
+			if got.DiffHash == "" {
+				t.Error("no diff hash — the approval would not be bound to this exact call")
+			}
+		})
+	}
+}
+
+// A booking with no links stages with no target. The approvals engine serves
+// that (the pin is simply absent), and a slot on a calendar is a real thing to
+// approve even when it names no record.
+func TestABookingThatNamesNoRecordStillStages(t *testing.T) {
+	approvals := &recordingApprovals{}
+	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+	RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+
+	_, err := registry.Invoke(sendCtx(), "book_meeting",
+		json.RawMessage(`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z"}`))
+
+	var staged *workflow.StagedApprovalError
+	if !errors.As(err, &staged) {
+		t.Fatalf("Invoke err = %v, want a StagedApprovalError", err)
+	}
+	if len(approvals.staged) != 1 {
+		t.Fatalf("staged %d approvals, want 1", len(approvals.staged))
+	}
+	got := approvals.staged[0]
+	if got.TargetType != "" || !got.TargetID.IsZero() || got.TargetVersion != nil {
+		t.Errorf("staged target = %q/%v/%v, want none — the booking names no record",
+			got.TargetType, got.TargetID, got.TargetVersion)
+	}
+	if got.Summary != `Book "(no subject)" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z` {
+		t.Errorf("Summary = %q, want the slot named with a placeholder subject", got.Summary)
+	}
+}
+
+// Every link is checked, not just the one the inbox displays. A booking that
+// mixes a local deal with a mirrored organization is exactly what a
+// first-link-only guard would wave through into an approval nobody could
+// release.
+func TestABookingRefusesAMirroredLinkBehindALocalOne(t *testing.T) {
+	local, mirrored := ids.NewV7(), ids.NewV7()
+	p := &multiLinkProvider{heldElsewhere: map[ids.UUID]bool{mirrored: true}}
+
+	_, err := bookMeetingTool{comms: &recordingComms{}, p: p}.StageInfo(context.Background(),
+		json.RawMessage(fmt.Sprintf(
+			`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","links":[{"entity_type":"deal","entity_id":%q},{"entity_type":"organization","entity_id":%q}]}`,
+			local, mirrored)))
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("StageInfo err = %v, want ErrUnsupportedBySoR — the second link was never validated", err)
+	}
+	if len(p.read) != 2 {
+		t.Errorf("read %d links, want both", len(p.read))
 	}
 }

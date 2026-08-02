@@ -71,17 +71,17 @@ type BookMeetingArgs struct {
 }
 
 // RegisterCommsTools wires the five verbs over the injected seam. The provider
-// is the record reader send_message stages against; the other four verbs do not
-// stage and never read it.
+// is the record reader the three 🟡 verbs stage against; draft_email and
+// check_availability propose nothing durable and never read it.
 func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordProvider) {
 	if comms == nil {
 		return
 	}
 	r.Register(draftEmailTool{comms: comms})
-	r.Register(sendEmailTool{comms: comms})
+	r.Register(sendEmailTool{comms: comms, p: p})
 	r.Register(sendMessageTool{comms: comms, p: p})
 	r.Register(checkAvailability{comms: comms})
-	r.Register(bookMeetingTool{comms: comms})
+	r.Register(bookMeetingTool{comms: comms, p: p})
 }
 
 // --- draft_email (🟢: proposes, never sends) ---
@@ -120,7 +120,14 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 
 // --- send_email (🟡: outbound + irreversible) ---
 
-type sendEmailTool struct{ comms Comms }
+// sendEmailTool carries a record reader for the same reason its channel twin
+// does: a 🟡 tool stages through StageInfo, and staging has to pin the version
+// of the row the effect anchors on and refuse one whose authority lives in
+// another system.
+type sendEmailTool struct {
+	comms Comms
+	p     datasource.SystemOfRecordProvider
+}
 
 func (t sendEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
@@ -133,17 +140,57 @@ func (t sendEmailTool) Spec() mcp.ToolSpec {
 			"cc":{"type":"array","items":{"type":"string","format":"email"}},
 			"subject":{"type":"string"},
 			"body":{"type":"string"},
-			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"}},
+			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
 }
 
-func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		ActivityID ids.UUID `json:"activity_id"`
-		SendEmailArgs
+type sendEmailToolArgs struct {
+	ActivityID ids.UUID `json:"activity_id"`
+	SendEmailArgs
+}
+
+// StageInfo puts a refused send in the inbox instead of dead-ending it. The
+// anchor is the thread being replied to: it is the row the effect hangs off,
+// so it is what the redemption version pin re-checks.
+//
+// The recipients are NOT resolved here, and that is the difference from
+// send_message rather than an omission. A mail send names its own addressees
+// in `to`/`cc`, so they travel inside the staged arguments and are covered by
+// the diff_hash — the approved retry can only reach the addresses the human
+// read. A channel reply names none, which is why its recipient has to be
+// resolved server-side and is the open question §4.1 of NEXT-MCP-MISSING
+// records for that verb.
+//
+// What this does not pre-empt, so neither reads as covered: the consent gate's
+// per-purpose verdict and the workspace's mailbox send capability. Both are
+// permanent refusals a human's yes cannot fix, and both need reads this call
+// does not have — staging fetches the anchor for the version pin and nothing
+// else.
+func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args sendEmailToolArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
 	}
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
+	if err != nil {
+		return StageInfo{}, err
+	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
+		// The inbox shows the human the two things that decide a send: who it
+		// reaches and what it says it is about.
+		Summary: fmt.Sprintf("Send an email to %s, subject %q", strings.Join(args.To, ", "), args.Subject),
+	}, nil
+}
+
+func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args sendEmailToolArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
@@ -273,7 +320,13 @@ func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json
 
 // --- book_meeting (🟡: commits a slot + implies an invite) ---
 
-type bookMeetingTool struct{ comms Comms }
+// bookMeetingTool carries a record reader for its staging, like the two send
+// verbs — but it reads the records the booking will ATTACH to rather than one
+// anchor, because a booking has none.
+type bookMeetingTool struct {
+	comms Comms
+	p     datasource.SystemOfRecordProvider
+}
 
 func (t bookMeetingTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
@@ -288,9 +341,60 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}}},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
+}
+
+// StageInfo puts a refused booking in the inbox instead of dead-ending it.
+//
+// A booking anchors on no existing row, so unlike the two send verbs it has no
+// single target handed to it. What it does have is its links, and those are
+// records: EVERY one is read and refused if its authority lives in another
+// system, because redemption's version pin reads our own tables and a
+// mirror-held link has no row there — the same un-releasable approval
+// refuseStagingElsewhere exists to prevent, reached through a different door.
+// Checking every link rather than the one displayed is deliberate: a booking
+// with a local deal and a mirrored organization is exactly the case a
+// first-link-only check would wave through.
+//
+// The first link becomes the displayed target and supplies the pin. A booking
+// with no links stages with no target at all, which the approvals engine
+// serves (the pin is simply absent) — a slot on a calendar is a real thing to
+// approve even when it names no record.
+func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args BookMeetingArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
+	}
+	info := StageInfo{Summary: describeBooking(args)}
+	for i, link := range args.Links {
+		rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(link.EntityType), ID: link.EntityID})
+		if err != nil {
+			return StageInfo{}, err
+		}
+		if err := refuseStagingElsewhere(rec); err != nil {
+			return StageInfo{}, err
+		}
+		if i == 0 {
+			info.TargetType, info.TargetID, info.TargetVersion = link.EntityType, link.EntityID, &rec.Version
+		}
+	}
+	return info, nil
+}
+
+// describeBooking is the one line the inbox shows: when the slot is, and what
+// it is called. The subject is the agent's own text, so it is quoted rather
+// than run into the sentence — and the approvals engine sanitizes every
+// summary at the single staging path regardless.
+func describeBooking(args BookMeetingArgs) string {
+	subject := args.Subject
+	if strings.TrimSpace(subject) == "" {
+		subject = "(no subject)"
+	}
+	return fmt.Sprintf("Book %q from %s to %s",
+		subject, args.Start.Format(time.RFC3339), args.End.Format(time.RFC3339))
 }
 
 func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {

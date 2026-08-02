@@ -51,6 +51,12 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 		"advance_deal":   fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, deal, stage),
 		"progress_deal":  fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q,"note":"n"}`, deal, stage),
 		"send_message":   fmt.Sprintf(`{"activity_id":%q,"body":"b","consent_purpose":"support"}`, activity),
+		"send_email":     fmt.Sprintf(`{"activity_id":%q,"to":["a@example.test"],"subject":"s","body":"b","consent_purpose":"support"}`, activity),
+		// A booking anchors on no row, so its refusal has to come through a
+		// LINK. Arguments with no links would read nothing and pass this walk
+		// while proving nothing.
+		"book_meeting": fmt.Sprintf(
+			`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","subject":"s","links":[{"entity_type":"deal","entity_id":%q}]}`, deal),
 	}
 
 	registry := NewRegistry(&recordingApprovals{}, nil)
