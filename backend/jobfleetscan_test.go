@@ -37,10 +37,15 @@ const fleetScanMarker = "FROM workspace"
 // resolves one workspace by correlated subquery (`WHERE id = d.workspace_id`)
 // and through the GUC (`WHERE id = NULLIF(current_setting(...))`). Any
 // predicate equating id to a single value is a single-row read by
-// construction; a fleet enumeration never writes one. Checked on the marker's
-// own line and the one after it, because the repo splits some query literals
-// across lines.
+// construction — with the exception of a SET-valued RHS, which setPredicates
+// takes back. Checked on the marker's own line and the one after it, because
+// the repo splits some query literals across lines.
 var singleRowPredicates = []string{"WHERE id = ", "WHERE id=", "WHERE w.id = "}
+
+// setPredicates are the RHS spellings that equate id to a SET rather than to
+// one value. They look like a single-row predicate to the prefixes above and
+// are not one: `WHERE id = ANY($1::uuid[])` reads many workspaces.
+var setPredicates = []string{"= ANY", "= any", "IN (", "in ("}
 
 // ratifiedFleetScan is one sanctioned enumeration site. The COUNT is
 // load-bearing: several ratified files hold a legitimate scan alongside code
@@ -138,6 +143,12 @@ func countFleetScans(src string) int {
 			for _, pred := range singleRowPredicates {
 				if strings.Contains(window, pred) {
 					single = true
+					break
+				}
+			}
+			for _, pred := range setPredicates {
+				if strings.Contains(window, pred) {
+					single = false
 					break
 				}
 			}

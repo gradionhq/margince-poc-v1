@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
@@ -56,10 +57,10 @@ func (m refusingMailbox) ResolveChannel(context.Context, string) (connector.Mess
 	return nil, connector.Auth{}, nil
 }
 
-// TestErasingASubjectNeutralizesTheirQueuedSend drives the delivery the way
-// the comms_send_email worker does — through comms.Dispatcher over the scope
-// compose builds — AFTER the subject is erased, and proves the provider is
-// never reached.
+// TestErasingASubjectNeutralizesTheirQueuedSend drives the delivery the way the
+// comms_send_email worker does — through comms.Dispatcher over the scope
+// compose assembles, not one rebuilt here — AFTER the subject is erased, and
+// proves the provider is never reached.
 func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	e := Setup(t)
 	person := seedMailRecipient(t, e)
@@ -82,7 +83,8 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 		consent.NewGate(consent.NewStore(e.Pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)
-	outcome, _, err := dispatcher.DispatchWithWait(e.Admin(), queued.delivery)
+	outcome, _, err := dispatcher.DispatchWithWait(
+		compose.SendWorkerContext(context.Background(), e.WS), queued.delivery)
 	if err != nil {
 		t.Fatalf("the woken job failed with %v; a closed row is not a fault to retry, it is nothing left to do", err)
 	}

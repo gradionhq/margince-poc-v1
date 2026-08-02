@@ -92,8 +92,14 @@ func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) contex
 // incumbent's per-second Search limit. Each connection still gets its own job
 // row, which is the visibility this phase is after.
 func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayReconcileArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
+	if len(due) == 0 {
+		// Nothing to fan out. The client is resolved only past this point
+		// because ClientFromContext panics when there is none, and a tick with
+		// no due connection has no insert to make.
+		return jobs.FaultContext(ctx, enumErr)
+	}
+	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
 		if _, err := client.Insert(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID},
 			workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts)); err != nil {
@@ -148,10 +154,10 @@ func (w *overlayReconcileWorkspaceWorker) Work(ctx context.Context, job *river.J
 	}
 	wsCtx := reconcileWorkerCtx(bound, ids.From[ids.WorkspaceKind](job.Args.Workspace))
 
-	d, err := overlay.ActiveConnection(wsCtx, w.pool)
+	d, err := overlay.DueConnection(wsCtx, w.pool)
 	if errors.Is(err, apperrors.ErrNotFound) {
-		// Disconnected between the dispatcher's scan and this job — the
-		// ordinary race, and there is no mirror left to reconcile.
+		// Disconnected, backed off, or frozen between the dispatcher's scan and
+		// this job — the ordinary race, and there is nothing left to reconcile.
 		return nil
 	}
 	if err != nil {

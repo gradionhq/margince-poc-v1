@@ -18,8 +18,17 @@ import (
 // A worker that bound its own workspace from job.Args could declare one
 // field and bind another, or bind a zero UUID, with the role gate above
 // still green. That is the drift this prevents.
+// workspaceBindFloor guards against a vacuous pass. This gate is a
+// PROHIBITION, so "found nothing" is what success looks like — which means it
+// would also read green if the walker silently matched no files at all. The
+// floor counts the POSITIVE side instead: how many Work methods reach the
+// shared guard. Every workspace-scoped kind routes through it, so a walk that
+// stopped working would fail here rather than pass quietly.
+const workspaceBindFloor = 15
+
 func TestOnlyTheSharedHelperBindsAWorkspace(t *testing.T) {
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
+	guarded := 0
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -32,6 +41,10 @@ func TestOnlyTheSharedHelperBindsAWorkspace(t *testing.T) {
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
+					return true
+				}
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "workspaceJobCtx" {
+					guarded++
 					return true
 				}
 				sel, ok := call.Fun.(*ast.SelectorExpr)
@@ -48,5 +61,9 @@ func TestOnlyTheSharedHelperBindsAWorkspace(t *testing.T) {
 				return false
 			})
 		}
+	}
+	if guarded < workspaceBindFloor {
+		t.Fatalf("only %d Work methods reach workspaceJobCtx, expected at least %d — the walker matched almost nothing and this prohibition would pass vacuously",
+			guarded, workspaceBindFloor)
 	}
 }

@@ -22,6 +22,9 @@ func (w *siteDeepReadWorker) Work(ctx context.Context, job *river.Job[SiteDeepRe
 	// claimed dossier. Recover at the ownership boundary so an unexpected
 	// provider/parser panic becomes a terminal failed read instead of a row
 	// that tells the browser "reading" forever.
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
 	workCtx := deepReadWorkerCtx(ctx, job.Args)
 	defer func() {
 		if recovered := recover(); recovered != nil {

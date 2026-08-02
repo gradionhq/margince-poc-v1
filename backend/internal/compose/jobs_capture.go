@@ -83,7 +83,7 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 // the dispatcher and the (future) push webhook can both enqueue without
 // double-running a mailbox.
 type CaptureSyncArgs struct {
-	Workspace    ids.UUID `json:"workspace_id"`
+	Workspace    ids.UUID `json:"workspace"`
 	ConnectionID string   `json:"connection_id"`
 	Provider     string   `json:"provider"`
 }
@@ -149,8 +149,13 @@ type gmailWatchWorker struct {
 }
 
 func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := w.registry.DueWatches(ctx, "gmail", w.renewWithin)
+	if len(due) == 0 {
+		// As in the overlay dispatcher: ClientFromContext panics when there is
+		// none, and a tick with no due watch has no insert to make.
+		return jobs.FaultContext(ctx, enumErr)
+	}
+	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
 		if _, err := client.Insert(ctx, GmailWatchRenewArgs{
 			Workspace:    d.Workspace.UUID,

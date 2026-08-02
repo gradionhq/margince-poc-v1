@@ -367,6 +367,9 @@ type aiModelRateRefreshWorker struct {
 }
 
 func (w *aiModelRateRefreshWorker) Work(ctx context.Context, job *river.Job[AiModelRateRefreshArgs]) error {
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
 	return jobs.FaultContext(ctx, w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy)))
 }
 

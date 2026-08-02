@@ -15,8 +15,13 @@ import (
 // which is true of a pass that loops the fleet inside one row.
 //
 // The accessor is WorkspaceID rather than a bare field because Go forbids a
-// method and a field of the same name; implementations hold the value in a
-// `Workspace ids.UUID` field tagged `json:"workspace_id"`.
+// method and a field of the same name, so implementations hold the value in a
+// `Workspace ids.UUID` field. The WIRE key is whatever that kind already
+// shipped with: a kind enqueued exactly once (a staged send, a backfill run, a
+// raw capture's ingest) has rows sitting in the queue across a deploy, and
+// renaming its key would decode them to a zero workspace that the binding then
+// refuses on every attempt — stranding the domain row those jobs exist to
+// advance. New kinds use `workspace_id`.
 type WorkspaceScoped interface {
 	river.JobArgs
 	WorkspaceID() ids.UUID

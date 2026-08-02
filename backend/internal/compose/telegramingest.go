@@ -55,7 +55,7 @@ import (
 // re-delivery of one update resolves to the same raw row and therefore the same
 // bot.
 type TelegramIngestArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
+	Workspace ids.UUID `json:"workspace"`
 	// ConnectionID names which connection read the update. The worker resolves
 	// nothing from it — that is the point of BotID — but it is the operational link
 	// between a queued job and the connection an operator is looking at, and the

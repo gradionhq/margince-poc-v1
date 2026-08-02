@@ -114,7 +114,7 @@ func (TelegramPollSweepArgs) FleetWide() {}
 // because a job queue is not a request and carries no tenant to inherit; the
 // cursor deliberately does not, because it moves (see LoadChannelPollTarget).
 type TelegramPollArgs struct {
-	Workspace    ids.UUID `json:"workspace_id"`
+	Workspace    ids.UUID `json:"workspace"`
 	ConnectionID string   `json:"connection_id"`
 }
 

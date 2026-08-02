@@ -29,7 +29,7 @@ const workerFloor = 20
 var nilAfterLogging = map[string]string{
 	"captureSyncWorker":               "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'",
 	"captureBackfillWorker":           "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended",
-	"overlayReconcileWorkspaceWorker": "the only nil-after-logging path is the disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. A genuine sweep failure IS returned — the row fails and stays failed, because this kind takes a single attempt and its retry is the sweep backoff the worker just recorded",
+	"overlayReconcileWorkspaceWorker": "two nil paths, neither a swallowed sweep failure. The disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. And a failed RecordSweepSuccess, which leaves the previous backoff in place — the next due-scan is simply later than it needed to be, never earlier. A genuine sweep failure IS returned; the row fails and stays failed, because this kind takes a single attempt and its retry is the backoff the worker just recorded",
 	"voiceBuildWorker":                "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due",
 }
 
@@ -170,6 +170,20 @@ func namedResultAssignments(fn *ast.FuncDecl) []ast.Expr {
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		stmt, ok := n.(*ast.AssignStmt)
 		if !ok {
+			return true
+		}
+		// A tuple assignment (`x, workErr = f()`) has one Rhs for many Lhs, so
+		// there is no per-index expression to test. It cannot be a sanctioned
+		// return either — jobs.Fault returns one value — so the CALL is what
+		// gets reported, rather than the index being skipped and the path
+		// waved through.
+		if len(stmt.Rhs) == 1 && len(stmt.Lhs) > 1 {
+			for _, lhs := range stmt.Lhs {
+				if ident, ok := lhs.(*ast.Ident); ok && named[ident.Name] {
+					assigned = append(assigned, stmt.Rhs[0])
+					break
+				}
+			}
 			return true
 		}
 		for i, lhs := range stmt.Lhs {
