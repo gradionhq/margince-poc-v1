@@ -285,6 +285,60 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+Note for local work: the parallel integration lane saturates Docker's
+port-forward on some macOS hosts (connections dropped with `tls error: EOF`,
+no Postgres-side `FATAL`). `INTEGRATION_JOBS=1 make test-integration` passes
+every package there; CI shards it twelve ways and is unaffected.
+
+## Session pickup — 2026-08-02 (job observability Phase 0, PR #367)
+
+**River ran 30 job kinds and had no observability at all, and the job layer was
+lying before any screen could report it.** Sixteen kinds looped every workspace
+inside ONE job row, logged each per-workspace failure and returned `nil` — so
+River recorded the sweep as *completed* while individual tenants silently
+failed. Phase 0 splits those into a **dispatcher** (declares `jobs.FleetWide`,
+enumerates the fleet, enqueues one job per workspace, does no tenant work) plus
+a **workspace worker** (declares `jobs.WorkspaceScoped`, does one workspace's
+pass, succeeds or fails as its own `river_job` row).
+
+Four AST fitness gates in `backendarch` hold it: every args type declares
+exactly one role and no `Work` body binds its own workspace
+(`jobrole_test.go`, `jobbinding_test.go`); args carry references, never content
+(`jobargscontent_test.go`); every worker returns through `jobs.Fault`
+(`jobfault_test.go`); and the fleet enumeration happens only at 13 ratified
+sites (`jobfleetscan_test.go`). Each was observed FAILING on a planted
+violation before it landed.
+
+**The one behaviour users may notice:** failures that were previously invisible
+now appear as failed job rows. That is the feature working.
+
+**Two kinds fan out finer than per-workspace** — `gmail_watch_renew` and
+`overlay_reconcile` go per connection, matching the granularity their siblings
+already use. Three were already dispatchers and are untouched. One is deferred
+with a reason: `embed_reindex` does per-workspace work but its marker claim is
+fleet-wide and single-flight, so its fan-out is not the common recipe. It is
+Phase 2 **Category B — deferred, not cleared**.
+
+### What Phase 1 should pick up FIRST, ahead of the metrics work
+
+**Eight workers call the binding guard as a validator and then bind again in a
+per-kind helper.** All three deep reviewers flagged it independently. There is
+no live defect — both reads come from the same args field — but nothing asserts
+they must agree, and the gate cannot see the second binding. The fix is to use
+the returned context and drop the redundant workspace parameter from the module
+seams (`ScanWorkspace`, `SweepWorkspaceEmbeddingDrift`, `RunWorkspace`); it is a
+cross-package signature change and wants its own PR.
+
+Then Phase 1 proper: `job_queue_depth{queue}` is **OPS-MET-2**, a named V1
+metric that was specified and never built. Small and unblocked.
+
+**Phase 2 (an in-app job/operations surface) is blocked upstream** — the spec
+assigns queue observability to Prometheus and has no home for a product screen.
+Raised as `margince-foundation` U2.
+
+The full ledger, including every review finding and the reasoning for each
+deferral, is in this session's `.tmp/job-observability/PROGRESS.md`.
+
 ## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
 
 **Two founder corrections to the surface #358 shipped.** An exact name at a
