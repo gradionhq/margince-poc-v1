@@ -16,12 +16,9 @@ package automation
 // against a real one by the integration suite.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -34,32 +31,6 @@ import (
 // posture closedatesweep.go documents: one workspace's failure is logged,
 // never returned, and never stops the pass from reaching the rest of the
 // fleet.
-func TestScanWorkspacesIsolatesAFailingWorkspace(t *testing.T) {
-	failing := ids.NewV7()
-	healthy := ids.NewV7()
-	var visited []ids.UUID
-
-	var logBuf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logBuf, nil))
-
-	scanWorkspaces([]ids.UUID{failing, healthy}, func(wsID ids.UUID) error {
-		visited = append(visited, wsID)
-		if wsID == failing {
-			return errors.New("boom: this workspace's automation table is unreachable")
-		}
-		return nil
-	}, log)
-
-	if len(visited) != 2 {
-		t.Fatalf("workspaces visited = %v, want both %s and %s", visited, failing, healthy)
-	}
-	if !strings.Contains(logBuf.String(), failing.String()) {
-		t.Errorf("log output %q does not name the failing workspace %s", logBuf.String(), failing)
-	}
-	if strings.Contains(logBuf.String(), healthy.String()) {
-		t.Errorf("log output %q names the healthy workspace — only the failing one's error should be logged", logBuf.String())
-	}
-}
 
 // fakeActivityScan is a DB-free stand-in for the ActivityScan seam: it
 // records the cutoff/limit it was called with and returns a fixed
@@ -84,8 +55,6 @@ func (f *fakeActivityScan) LastTouchBefore(_ context.Context, cutoff time.Time, 
 	return f.candidates, nil
 }
 
-// recordedRunCall is one invocation scanInstanceCandidates's run stub
-// captured, so the test can inspect exactly what TimeScanner would have
 // handed to WorkflowEngine.runOne without ever opening a transaction.
 type recordedRunCall struct {
 	handler workflow.Handler
@@ -99,7 +68,7 @@ type recordedRunCall struct {
 // instance's OwnerID and AutomationID ride along (the Task-13 gate reads
 // OwnerID), and the candidate's Anchor is recoverable from the event's
 // Payload — the anchor a real handler's IdempotencyKey derives its key
-// from.
+
 func TestScanInstanceCandidatesSynthesizesOneEventPerCandidate(t *testing.T) {
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
 	wsID := ids.NewV7()

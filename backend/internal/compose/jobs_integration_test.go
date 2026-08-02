@@ -124,12 +124,13 @@ func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
 		}
 	}()
 
-	// RunOnStart enqueues both periodic passes at boot; wait for the
-	// close-date sweep to complete, then assert the same outcome the direct
-	// Sweep produces.
+	// RunOnStart enqueues both periodic dispatchers at boot; wait for the
+	// close-date WORKSPACE job to complete, then assert the same outcome the
+	// direct per-workspace pass produces. Waiting on the dispatcher would race
+	// the work: a dispatcher completes as soon as its fan-out is enqueued.
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, CloseDateSweepArgs{}.Kind())
+	awaitKindCompleted(waitCtx, t, sub, CloseDateWorkspaceArgs{}.Kind())
 
 	swept := e.readSwept(t, id)
 	if swept.expectedClose == nil || swept.expectedClose.Before(today()) {

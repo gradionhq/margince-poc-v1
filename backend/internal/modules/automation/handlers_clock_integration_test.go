@@ -194,8 +194,9 @@ func TestRenewalReminderScanIsANoOpWhenUnconfigured(t *testing.T) {
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
 	scanner := NewTimeScannerWithClock(engine, &fakeActivityScan{}, func() time.Time { return now }, log)
 
-	if err := scanner.Scan(context.Background()); err != nil {
-		t.Fatalf("Scan: %v", err)
+	ctx := principal.WithWorkspaceID(context.Background(), fx.ws)
+	if err := scanner.ScanWorkspace(ctx, fx.ws); err != nil {
+		t.Fatalf("ScanWorkspace: %v", err)
 	}
 
 	n := fx.count(t, `SELECT count(*) FROM workflow_run WHERE workspace_id = $1 AND handler = $2`, fx.ws, renewalReminderName)

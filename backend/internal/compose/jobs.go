@@ -20,7 +20,6 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
@@ -71,31 +70,6 @@ var activeSweepStates = []rivertype.JobState{
 	rivertype.JobStateRunning,
 	rivertype.JobStateScheduled,
 	rivertype.JobStateRetryable,
-}
-
-// TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
-// coarse ActivityScan pre-filter converging every CLOCK-triggered
-// automation instance (no_activity_reminder today) onto runOne — the
-// same dispatch path event triggers use.
-type TimeScanArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (TimeScanArgs) Kind() string { return "time_scan" }
-
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
-func (TimeScanArgs) FleetWide() {}
-
-// timeScanWorker delegates a River job to the automation module's
-// TimeScanner — River-agnostic by construction (this file's own doc: the
-// adapters are the only code that knows about River).
-type timeScanWorker struct {
-	river.WorkerDefaults[TimeScanArgs]
-	scanner *automation.TimeScanner
-}
-
-func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
-	return jobs.FaultContext(ctx, w.scanner.Scan(ctx))
 }
 
 // sweepInsertOpts is the shared insert policy for the periodic passes.
@@ -260,7 +234,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{pool: pool})
 	river.AddWorker(workers, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
-	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
+	river.AddWorker(workers, &timeScanWorker{pool: pool})
+	river.AddWorker(workers, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
 	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
 	// update in the same transaction as the raw capture row; the worker role only

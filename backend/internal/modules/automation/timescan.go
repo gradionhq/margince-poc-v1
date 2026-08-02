@@ -25,8 +25,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -85,56 +83,19 @@ func NewTimeScanner(engine *WorkflowEngine, scan ActivityScan, log *slog.Logger)
 	return NewTimeScannerWithClock(engine, scan, time.Now, log)
 }
 
-// Scan is one pass over every live workspace, converging every clock
-// automation instance's stale candidates onto runOne. Re-entrant, not
-// exactly-once: the occurrence key (IdempotencyKey, handlers_clock.go)
-// is what makes a redelivered or overlapping pass over the SAME anchor a
-// no-op, not this method's own bookkeeping.
-func (s *TimeScanner) Scan(ctx context.Context) error {
+// ScanWorkspace is one pass over the workspace already bound in ctx: it loads
+// that workspace's enabled clock automations and, for each instance whose
+// handler has an ActivityScan enumerator wired (activityScanHandlers above),
+// converges its stale candidates onto runOne. Re-entrant, not exactly-once —
+// the occurrence key (IdempotencyKey, handlers_clock.go) is what makes a
+// redelivered or overlapping pass over the SAME anchor a no-op.
+//
+// The fleet fan-out lives in the job layer, so a workspace whose pass fails
+// fails its own job row rather than becoming a log line inside a run River
+// recorded as completed.
+func (s *TimeScanner) ScanWorkspace(ctx context.Context, wsID ids.UUID) error {
 	now := s.now()
-	workspaces, err := s.enumerateWorkspaces(ctx)
-	if err != nil {
-		return err
-	}
-	scanWorkspaces(workspaces, func(wsID ids.UUID) error {
-		return s.scanWorkspace(ctx, wsID, now)
-	}, s.log)
-	return nil
-}
-
-// enumerateWorkspaces is the fleet-wide read closedatesweep.go's Sweep
-// also opens with: the workspace table is not itself workspace-scoped, so
-// this one query legitimately addresses the pool directly, before any
-// per-workspace transaction exists to scope inside.
-func (s *TimeScanner) enumerateWorkspaces(ctx context.Context) ([]ids.UUID, error) {
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
-	rows, err := s.engine.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-}
-
-// scanWorkspaces is Scan's per-workspace loop, factored out as a pure
-// function (no pool, no engine) so a DB-free unit test can drive it
-// directly over a fixed workspace list and a stub per-workspace body:
-// the load-bearing behavior under test — one workspace's failure is
-// logged and never aborts the pass — needs no database to prove.
-func scanWorkspaces(workspaces []ids.UUID, scanOne func(wsID ids.UUID) error, log *slog.Logger) {
-	for _, wsID := range workspaces {
-		if err := scanOne(wsID); err != nil {
-			log.Error("time-scan: workspace pass failed", "workspace", wsID, "err", err)
-		}
-	}
-}
-
-// scanWorkspace loads one workspace's enabled clock automations and, for
-// each instance whose handler has an ActivityScan enumerator wired
-// (activityScanHandlers above), converges its stale candidates onto
-// runOne.
-func (s *TimeScanner) scanWorkspace(ctx context.Context, wsID ids.UUID, now time.Time) error {
-	wsCtx := principal.WithWorkspaceID(ctx, wsID)
-	wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:time-scan"})
+	wsCtx := principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:time-scan"})
 	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
 
 	instances, err := s.engine.liveInstances(wsCtx)

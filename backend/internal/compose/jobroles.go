@@ -13,6 +13,9 @@ import "github.com/gradionhq/margince/backend/internal/platform/jobs"
 
 var (
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}
+	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}
