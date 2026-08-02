@@ -34,14 +34,14 @@ type ListInput struct {
 // half inside the lint's complexity budget.
 func (in ListInput) predicate() (string, []any, error) {
 	if !allowedObjects[in.Object] {
-		return "", nil, &ValidationError{Errors: []FieldError{{Field: fieldObject, Code: "unsupported_object"}}}
+		return "", nil, &ValidationError{Errors: []FieldError{{Field: fieldObject, Code: codeUnsupportedObject}}}
 	}
 	status := ""
 	if in.Status != nil {
 		status = *in.Status
 	}
 	if status != "" && status != statusActive && status != statusRetired {
-		return "", nil, &ValidationError{Errors: []FieldError{{Field: fieldStatus, Code: "unsupported_status"}}}
+		return "", nil, &ValidationError{Errors: []FieldError{{Field: fieldStatus, Code: codeUnsupportedStatus}}}
 	}
 
 	args := []any{}

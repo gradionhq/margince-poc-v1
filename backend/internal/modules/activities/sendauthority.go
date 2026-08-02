@@ -42,6 +42,13 @@ func (e *MailboxNotSendCapableError) Error() string {
 	return "reconnect your mailbox to enable sending"
 }
 
+// MessageFault names the condition and no field: no send contract takes a
+// `from` argument, so naming one would hand the caller an input it cannot
+// change. Reconnecting the mailbox is the remedy, and a person has to do it.
+func (e *MailboxNotSendCapableError) MessageFault() (code, message string) {
+	return "mailbox_not_send_capable", e.Error()
+}
+
 // ChannelNotSendCapableError refuses a channel send this installation already
 // knows cannot leave: no live bot is bound for the provider. It maps to 422, and
 // unlike its mail twin the fix usually belongs to an ADMIN rather than to the
@@ -51,6 +58,11 @@ type ChannelNotSendCapableError struct{ Provider string }
 func (e *ChannelNotSendCapableError) Error() string {
 	return "this workspace has no connected " + e.Provider +
 		" bot to send through — an admin connects one in the connector settings"
+}
+
+// FieldFault refuses a send into a channel with no bot authority to post.
+func (e *ChannelNotSendCapableError) FieldFault() (field, code, message string) {
+	return "id", "channel_not_send_capable", e.Error()
 }
 
 // WithSendAuthority returns a store whose send paths pre-flight the credential

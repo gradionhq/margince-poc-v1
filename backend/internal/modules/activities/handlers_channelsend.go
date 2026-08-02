@@ -64,20 +64,5 @@ func writeChannelSendErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("body", "empty_message_body", errEmptyMessageBody.Error()))
 		return
 	}
-	var wrongKind *NotAChannelConversationError
-	if errors.As(err, &wrongKind) {
-		httperr.Write(w, r, httperr.Validation("id", "not_a_channel_conversation", wrongKind.Error()))
-		return
-	}
-	var noBot *ChannelNotSendCapableError
-	if errors.As(err, &noBot) {
-		httperr.Write(w, r, httperr.Validation("id", "channel_not_send_capable", noBot.Error()))
-		return
-	}
-	var recipient *ChannelRecipientError
-	if errors.As(err, &recipient) {
-		httperr.Write(w, r, httperr.Validation("recipient", recipient.Code(), recipient.Error()))
-		return
-	}
 	writeStoreErr(w, r, err)
 }

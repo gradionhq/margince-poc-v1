@@ -185,4 +185,18 @@ type dynamicTool interface {
 // UnknownToolError answers a tools/call for a name outside the surface.
 type UnknownToolError struct{ Name string }
 
-func (e *UnknownToolError) Error() string { return "unknown tool " + e.Name }
+// maxToolNameEcho bounds the caller-supplied name this error quotes back.
+// The name is chosen freely by the model and lands in a transcript that the
+// same run's later prompts read, so an unbounded echo is an unbounded write
+// into those prompts. Generous next to the longest real tool name, short
+// enough that the field cannot carry prose.
+const maxToolNameEcho = 64
+
+// Error renders the echo HERE rather than at each surface, so no consumer —
+// the tool result, the server log, a future transport — can quote the name
+// back raw by forgetting to. Bounded AND escaped: the name is chosen by the
+// model, and a newline in it would otherwise open what reads as a new line of
+// the transcript that the same run's later prompts go on to read.
+func (e *UnknownToolError) Error() string {
+	return "unknown tool " + echoSafe(e.Name, maxToolNameEcho)
+}

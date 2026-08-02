@@ -141,6 +141,11 @@ func (e *NotAChannelConversationError) Error() string {
 	return "a " + e.Kind + " activity is not a messaging-channel conversation; reply on the channel the conversation was held on"
 }
 
+// FieldFault refuses a channel send against a conversation of another kind.
+func (e *NotAChannelConversationError) FieldFault() (field, code, message string) {
+	return "id", "not_a_channel_conversation", e.Error()
+}
+
 // errEmptyMessageBody refuses a reply with nothing in it. A messaging provider
 // rejects a text-less message, so accepting one buys a timeline entry saying the
 // rep answered plus a delivery that walks the entire retry ladder before parking
@@ -171,6 +176,11 @@ func (e *ChannelRecipientError) Error() string {
 	}
 	return "this conversation reaches " + strconv.Itoa(e.Reachable) + " people on " + e.Provider +
 		"; a channel reply addresses exactly one — send it from the person's own record"
+}
+
+// FieldFault carries the recipient code the caller must correct.
+func (e *ChannelRecipientError) FieldFault() (field, code, message string) {
+	return "recipient", e.Code(), e.Error()
 }
 
 // Code names the wire code this refusal answers with. The two cases are

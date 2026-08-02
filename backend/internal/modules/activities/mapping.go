@@ -21,12 +21,22 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
+// FieldFault names the missing required field, on every surface.
+func (e *RequiredFieldError) FieldFault() (field, code, message string) {
+	return e.Field, "required", e.Error()
+}
+
 // ReservedSourceSystemError refuses a client write into the importer's
 // source-system namespace (see activityLogInput). Maps to 422.
 type ReservedSourceSystemError struct{ Value string }
 
 func (e *ReservedSourceSystemError) Error() string {
 	return "source_system " + e.Value + " is reserved for imports"
+}
+
+// FieldFault refuses a client write into the importer's namespace as caller-fixable.
+func (e *ReservedSourceSystemError) FieldFault() (field, code, message string) {
+	return "source_system", "reserved_source_system", e.Error()
 }
 
 // pathID asserts a contract path id as entity K's id — the widening

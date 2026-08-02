@@ -96,6 +96,11 @@ func (e *PartnerFitOverrideReasonRequiredError) Error() string {
 	return "a partner_fit_score override requires a non-empty partner_fit_override_reason"
 }
 
+// FieldFault refuses an unexplained partner-fit override: the reason is the audit trail.
+func (e *PartnerFitOverrideReasonRequiredError) FieldFault() (field, code, message string) {
+	return "partner_fit_override_reason", codeRequired, e.Error()
+}
+
 // partnerFitState is the override pair's column triple as one value.
 type partnerFitState struct {
 	Score          *int16

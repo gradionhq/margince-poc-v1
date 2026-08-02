@@ -161,11 +161,6 @@ func writeCustomFieldErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.NotImplemented(w, r, "custom-field schema changes")
 		return
 	}
-	var verr *ValidationError
-	if errors.As(err, &verr) {
-		httperr.Write(w, r, validationDetails(verr.Errors))
-		return
-	}
 	if errors.Is(err, ErrStructural) {
 		httperr.Write(w, r, structuralChangeRefused())
 		return
@@ -185,27 +180,6 @@ func writeCustomFieldErr(w http.ResponseWriter, r *http.Request, err error) {
 	httperr.Write(w, r, err)
 }
 
-// validationDetails renders the engine's complete field-violation list as
-// the contract's `details.errors[{field,code}]` 422 shape in one round
-// trip — the engine carries no per-field message, so none is fabricated
-// here (unlike httperr.Validation's single-field helper, which always has
-// exactly one message to echo).
-func validationDetails(errs []FieldError) *httperr.DetailedError {
-	wire := make([]map[string]string, len(errs))
-	for i, e := range errs {
-		wire[i] = map[string]string{"field": e.Field, "code": e.Code}
-	}
-	return &httperr.DetailedError{
-		Status:  http.StatusUnprocessableEntity,
-		Code:    "validation_error",
-		Detail:  "One or more fields are invalid.",
-		Details: map[string]any{"errors": wire},
-	}
-}
-
-// structuralChangeRefused is the contract's exact 422 shape for a label
-// judged structural (CUSTOM-FIELDS-AC-4/AC-8) — detail text and
-// details.route match the crm.yaml example verbatim.
 func structuralChangeRefused() *httperr.DetailedError {
 	return &httperr.DetailedError{
 		Status: http.StatusUnprocessableEntity,

@@ -36,6 +36,11 @@ func (e *ProductCurrencyMismatchError) Error() string {
 		"; give the line an explicit unit_price_minor in the offer currency"
 }
 
+// FieldFault refuses a line priced in a currency the offer does not use.
+func (e *ProductCurrencyMismatchError) FieldFault() (field, code, message string) {
+	return "unit_price_minor", "product_currency_mismatch", e.Error()
+}
+
 // OfferLineInputRow is one line as the store consumes it: decimals as
 // exact strings (formatted once at the transport edge), price in minor
 // units, with product-snapshot defaults resolved here.

@@ -20,6 +20,11 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
+// FieldFault names the missing required field, on every surface.
+func (e *RequiredFieldError) FieldFault() (field, code, message string) {
+	return e.Field, "required", e.Error()
+}
+
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed store surface (the route already
 // names the entity, so the assertion lives here, not in the store).

@@ -237,6 +237,11 @@ func (e *InvalidLinkTypeError) Error() string {
 	return "activity link entity_type " + e.EntityType + " is not " + linkVocabulary()
 }
 
+// FieldFault refuses a link to an entity type the timeline does not carry.
+func (e *InvalidLinkTypeError) FieldFault() (field, code, message string) {
+	return "links", "invalid_entity_type", e.Error()
+}
+
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return crmcontracts.Activity{}, err
