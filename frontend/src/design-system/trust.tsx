@@ -85,15 +85,29 @@ export function ConfidenceMeter({
 }
 
 // Provenance is an agent (`agent:capture`), a connector (`connector:gmail`),
-// or the human user — the three shapes captured_by can take.
+// or a human — the shapes captured_by can take, plus the honest fourth for a
+// row that records none of them.
+//
+// `human` carries whether that human is the reader. "Typed by you" over a
+// colleague's entry is a false statement about who to ask, and it was also
+// what an unattributed row said: the two cases a reader most needs kept apart
+// both read as their own handiwork.
 export type Provenance =
   | { kind: "agent"; agent: string }
   | { kind: "connector"; connector: string }
-  | { kind: "human" };
+  | { kind: "human"; self: boolean; userId?: string }
+  | { kind: "unknown" };
 
 export function ProvenanceTag({
   provenance,
-}: Readonly<{ provenance: Provenance }>) {
+  // How a named human renders. The design system has no record lookups, so a
+  // caller that can resolve a user id to a name supplies the element; without
+  // one the tag says a person entered it without claiming which one.
+  renderUser,
+}: Readonly<{
+  provenance: Provenance;
+  renderUser?: (userId: string) => ReactNode;
+}>) {
   const t = useT();
   if (provenance.kind === "agent") {
     return (
@@ -109,8 +123,31 @@ export function ProvenanceTag({
       </span>
     );
   }
+  if (provenance.kind === "unknown") {
+    return (
+      <span className="provenance provenance-unknown">
+        {t("trust.sourceUnknown")}
+      </span>
+    );
+  }
+  if (provenance.self) {
+    return (
+      <span className="provenance provenance-human">
+        {t("trust.typedByYou")}
+      </span>
+    );
+  }
+  const named = provenance.userId ? renderUser?.(provenance.userId) : undefined;
   return (
-    <span className="provenance provenance-human">{t("trust.typedByYou")}</span>
+    <span className="provenance provenance-human">
+      {named ? (
+        <>
+          {t("trust.typedByPrefix")} {named}
+        </>
+      ) : (
+        t("trust.typedByHuman")
+      )}
+    </span>
   );
 }
 
@@ -201,7 +238,7 @@ export function StagedProposal({
     // Either way the original evidence stays attached (§4.4).
     const provenance: Provenance =
       resolution.outcome === "edited"
-        ? { kind: "human" }
+        ? { kind: "human", self: true }
         : { kind: "agent", agent: proposal.agent };
     return (
       <section className="real-card" aria-label={t("trust.resolvedValue")}>
@@ -268,19 +305,69 @@ export function FieldDiff({
 }: Readonly<{ oldValue: string | null; newValue: string | null }>) {
   const t = useT();
   return (
-    <span className="field-diff">
+    // A div, not a span: the long-value side below is a focusable scroll
+    // container, which is flow content and invalid inside phrasing content.
+    // The row still reads as one line — `.field-diff` is inline-flex.
+    <div className="field-diff">
       {oldValue === null ? (
         <span className="field-diff-empty">{t("history.created")}</span>
       ) : (
-        <span className="field-diff-from">{oldValue}</span>
+        <DiffSide
+          className="field-diff-from"
+          value={oldValue}
+          label={t("history.oldValue")}
+        />
       )}
       <ArrowRight className="field-diff-arrow" aria-hidden size={14} />
       {newValue === null ? (
         <span className="field-diff-empty">{t("history.cleared")}</span>
       ) : (
-        <span className="field-diff-to">{newValue}</span>
+        <DiffSide
+          className="field-diff-to"
+          value={newValue}
+          label={t("history.newValue")}
+        />
       )}
-    </span>
+    </div>
+  );
+}
+
+// One side of a diff. A stored value can be a whole jsonb document, so the
+// side is capped and scrolls — and a scroll container that is not focusable is
+// content a keyboard reader cannot reach at all. Long values therefore get a
+// named, tab-reachable container; short ones stay plain text, because a tab
+// stop on every diff in a history is its own obstacle.
+const DIFF_SCROLLS_ABOVE = 160;
+
+function DiffSide({
+  className,
+  value,
+  label,
+}: Readonly<{ className: string; value: string; label: string }>) {
+  if (value.length <= DIFF_SCROLLS_ABOVE) {
+    return <span className={className}>{value}</span>;
+  }
+  return (
+    // The tab stop is the point: WCAG 2.1.1 requires a scrollable region to be
+    // operable by keyboard, and without it the text below the fold cannot be
+    // reached by anyone not using a mouse.
+    //
+    // A div rather than a named `section`, because a named section IS a
+    // landmark — and one history can hold dozens of long diffs, which would
+    // put dozens of regions in a screen reader's landmark list and bury the
+    // page's real ones. The label still names this control; it just does not
+    // claim to be a division of the page.
+    <div
+      className={`${className} field-diff-long`}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the tab stop is what makes the scrolled-out text reachable at all
+      tabIndex={0}
+    >
+      {/* Named for a screen reader without an aria-label, which on a named
+          `section` made every long diff a LANDMARK — one history holds dozens,
+          and they would bury the page's real landmarks in the list. */}
+      <span className="sr-only">{label}</span>
+      {value}
+    </div>
   );
 }
 

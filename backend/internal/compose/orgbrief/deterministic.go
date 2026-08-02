@@ -21,7 +21,7 @@ import (
 // record it came from, exactly as the model path's do, so the card renders
 // and behaves identically whichever wrote it.
 func Deterministic(orgID string, in Input) []Sentence {
-	account := []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
+	account := accountEvidence(orgID)
 	sentences := make([]Sentence, 0, 4)
 
 	sentences = append(sentences, Sentence{Text: identityLine(in), Evidence: account})
@@ -51,7 +51,81 @@ func Deterministic(orgID string, in Input) []Sentence {
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.OpenTasks[0].ID}},
 		})
 	}
+	// Then what the company IS. Same two-part shape the model lane is asked
+	// for, so the card reads the same whichever wrote it.
+	sentences = append(sentences, profileLines(in, account)...)
 	return dedupedSentences(sentences)
+}
+
+// profileLabels turn a stored field name into the question it answers.
+//
+// Label and value are joined with a colon, never grammatically. These values
+// are whatever a human accepted off a site read: some are noun phrases and
+// some are whole sentences in the company's own language, and a lead-in that
+// reads as a sentence stem produced "They sell Als unabhängige Beratung helfen
+// wir…" on a real account. A colon is true of both shapes.
+//
+// The floor states the statement verbatim behind that label — it paraphrases
+// nothing, because a paraphrase nobody can check is worth less than the
+// sentence a human already accepted.
+var profileLabels = map[string]string{
+	"offer_summary":     "What they sell",
+	"icp":               "Who they sell to",
+	"value_proposition": "What they promise",
+	"usp":               "How they differentiate",
+	"customer_pains":    "What they solve",
+	"desired_outcomes":  "What their customers want",
+	"buying_center":     "Who decides there",
+	"sales_motion":      "How they sell",
+}
+
+// deterministicProfileLines bounds the company half of the floor. Two
+// statements say what a company does; eight is the profile card, which the
+// reader can open underneath.
+const deterministicProfileLines = 2
+
+func profileLines(in Input, account []Evidence) []Sentence {
+	out := make([]Sentence, 0, deterministicProfileLines)
+	for _, entry := range in.Profile {
+		if len(out) == deterministicProfileLines {
+			break
+		}
+		label, ok := profileLabels[entry.Field]
+		if !ok {
+			continue
+		}
+		// A stored value of nothing but punctuation reduces to nothing, and a
+		// line reading "What they sell: ." is worse than no line.
+		statement := trimSentence(entry.Value)
+		if statement == "" {
+			continue
+		}
+		out = append(out, Sentence{
+			Text:     fmt.Sprintf("%s: %s", label, statement),
+			Evidence: account,
+		})
+	}
+	return out
+}
+
+// trimSentence renders a stored statement as one sentence: a closing full
+// stop when the value ends without one, and the author's own terminator kept
+// when it has one. Rewriting a "?" into a "." would be an edit to approved
+// text, which is the one thing this half of the brief promises not to do —
+// so only a dangling list separator is stripped.
+func trimSentence(value string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), ";:, ")
+	if trimmed == "" {
+		return trimmed
+	}
+	// "…" included: a statement that trails off already ends, and appending a
+	// full stop to it renders "….".
+	for _, terminator := range []string{".", "!", "?", "…"} {
+		if strings.HasSuffix(trimmed, terminator) {
+			return trimmed
+		}
+	}
+	return trimmed + "."
 }
 
 func identityLine(in Input) string {

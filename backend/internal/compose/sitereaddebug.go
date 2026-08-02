@@ -136,7 +136,11 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
 	if logoFetch != nil {
-		report.Logo = debugLogo(resolveOrganizationLogo(ctx, logoFetch, opts.SeedURL, crawl.SeedAssets))
+		logoSeed := crawl.SeedURL
+		if logoSeed == "" {
+			logoSeed = opts.SeedURL
+		}
+		report.Logo = debugLogo(resolveOrganizationLogo(ctx, logoFetch, logoSeed, crawl.SeedAssets))
 	}
 
 	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)

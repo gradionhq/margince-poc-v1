@@ -223,6 +223,14 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		}
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
+	// From here on the read is about the site that ANSWERED. The seed is a
+	// guess derived from the domain, and the fallback ladder may have reached
+	// the company on www or over http; a proposal, a fact's evidence or a
+	// staged lead that still named the original would cite a URL which served
+	// nothing, and a human confirming it would be confirming a dead link.
+	if crawl.SeedURL != "" {
+		claim.SeedURL = crawl.SeedURL
+	}
 	// The logo lands as soon as the CRAWL succeeded, before anything the model
 	// lane produced is judged: it is a 🟢 display asset (A55) that no human has
 	// to approve, and it is read off the seed page's own markup, so a company

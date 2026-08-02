@@ -4,8 +4,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
 import { AssistantPanel } from "./assistant";
-import { DealsCard, NextSteps, PeopleCard, TagsCard } from "./company360";
-import { MeetingBrief } from "./meetingbrief";
+import {
+  AccountBrief,
+  DealsCard,
+  NextSteps,
+  PeopleCard,
+  TagsCard,
+} from "./company360";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // The company view's cards, rendered straight from a payload rather than
@@ -13,7 +18,6 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // by side: here it is, there is none, and your role cannot read this.
 // A fixed instant, so the brief renders the same lines in every snapshot
 // rather than drifting as the story ages.
-const STORY_NOW = new Date("2026-07-31T09:00:00Z");
 
 const meta: Meta = {
   title: "Screens/Company 360 cards",
@@ -199,6 +203,27 @@ const empty = {
 function Cards({ view }: Readonly<{ view: View }>) {
   installFetchStub({
     "GET /signals": () => jsonResponse({ data: [], page }),
+    // The brief is the card the stories exist to show. Unstubbed it fell
+    // through to the empty fallback, and all three stories rendered the same
+    // blank block instead of the three answers they are here to compare.
+    "GET /organizations/o-1/brief": () =>
+      jsonResponse({
+        organization_id: "o-1",
+        generated_at: "2026-07-13T09:00:00Z",
+        generated_by: "deterministic",
+        sentences: view.people?.data?.length
+          ? [
+              {
+                text: "Relationship strength 62 across 2 known contact(s).",
+                evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+              },
+              {
+                text: "What they sell: managed commerce hosting.",
+                evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+              },
+            ]
+          : [],
+      }),
     // The prepared questions answer from the account; the story serves the
     // deterministic floor, which is what a deployment with no model lane shows.
     "POST /organizations/o-1/ask": () =>
@@ -223,10 +248,10 @@ function Cards({ view }: Readonly<{ view: View }>) {
   return (
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
-        <MeetingBrief view={view} orgId="o-1" now={STORY_NOW} />
+        <AccountBrief orgId="o-1" view={view} enabled />
         <AssistantPanel orgId="o-1" enabled />
         <NextSteps view={view} />
-        <PeopleCard view={view} />
+        <PeopleCard view={view} writable />
         <DealsCard view={view} />
         <TagsCard view={view} />
       </div>

@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { PeopleCard } from "./company360";
 import { CompanyScreen } from "./organizations";
 
 // The company view's honesty rules, which are the whole point of the
@@ -766,4 +767,273 @@ describe("company view — an open task can be acted on", () => {
     );
     expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
   });
+});
+
+// The page said "nobody here is your champion" and gave the reader nowhere to
+// say who is: the roles live on relationship rows written from the deal
+// screen. The warning was true, unactionable and permanent.
+describe("company view — naming the buying committee", () => {
+  it("offers to record a role on the contact, against an open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [
+            { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+          ],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+
+    const set = await screen.findByRole("button", { name: "Set role" });
+    await userEvent.click(set);
+
+    // The two words are defined where they are being chosen, once.
+    expect(
+      screen.getByText(/argues for you when you are not in the room/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: /What is Christian Hagemeyer/ }),
+    ).toBeTruthy();
+  });
+
+  // A role belongs to a DEAL. With nothing open there is nothing to be a
+  // champion of, and offering the verb would invite a write that has no
+  // subject.
+  it("offers nothing when the account has no open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      }),
+    );
+    renderCompany();
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+});
+
+// A role belongs to a deal, so the same person can be champion on one and
+// nobody on another. Rendering the role alone made two badges that read
+// identically — and React saw one key twice.
+describe("company view — a buying role names the deal it is on", () => {
+  const contactOnTwoDeals = {
+    person_id: "p-1",
+    full_name: "Dana Buyer",
+    deal_roles: [
+      { deal_id: "d-1", role: "champion" },
+      { deal_id: "d-2", role: "champion" },
+    ],
+    consent: { marketing_email: "granted" },
+    strength: {
+      score: 62,
+      bucket: "strong",
+      factors: { recency: 1, frequency: 1, reciprocity: 1, direction: 1 },
+    },
+  };
+  const twoOpenDeals = {
+    data: [
+      { deal_id: "d-1", name: "Renewal", status: "open", stalled: false },
+      { deal_id: "d-2", name: "New business", status: "open", stalled: false },
+    ],
+    page: emptyPage,
+    won_lifetime: { amount_minor: 0, currency: "EUR" },
+    lost_count: 0,
+  };
+
+  it("names each deal when the person holds the same role on two of them", async () => {
+    stub(
+      view({
+        people: { data: [contactOnTwoDeals], page: emptyPage },
+        deals: twoOpenDeals,
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion · Renewal")).toBeTruthy();
+    expect(screen.getByText("champion · New business")).toBeTruthy();
+  });
+
+  it("leaves the deal name off when there is only one deal to be on", async () => {
+    stub(
+      view({
+        people: {
+          data: [
+            {
+              ...contactOnTwoDeals,
+              deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            },
+          ],
+          page: emptyPage,
+        },
+        deals: {
+          ...twoOpenDeals,
+          data: [twoOpenDeals.data[0]],
+        },
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion")).toBeTruthy();
+  });
+});
+
+describe("company view — a recorded role reaches the screen", () => {
+  const contact = {
+    person_id: "p-1",
+    full_name: "Christian Hagemeyer",
+    deal_roles: [],
+    consent: {},
+    strength: {
+      score: 0,
+      bucket: "dormant",
+      factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+    },
+  };
+  const withOneOpenDeal = view({
+    deals: {
+      data: [{ deal_id: "d-1", name: "Pilot", status: "open", stalled: false }],
+      page: emptyPage,
+      won_lifetime: { amount_minor: 0, currency: "EUR" },
+      lost_count: 0,
+    },
+    people: { data: [contact], page: emptyPage },
+  });
+
+  it("re-reads the account after the role is saved", async () => {
+    // The committee reading, the missing-role warning and the row's own chips
+    // all come off the 360, so a save that does not re-read it leaves the page
+    // showing the state the rep just changed.
+    const fetched = stub(withOneOpenDeal);
+    renderCompany();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Set role" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        fetched.filter((path) => path.endsWith("/360")).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("offers no role control on an account that takes no writes", async () => {
+    // Archived is read-only: the company page hides edit, merge and archive on
+    // one, so a write dressed as a chip has no business staying. The page
+    // passes its own read-only state down; the card is asserted directly
+    // because that state comes from the record, not from the 360.
+    render(<PeopleCard view={withOneOpenDeal} writable={false} />);
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+
+  it("offers it on an account that does", async () => {
+    render(<PeopleCard view={withOneOpenDeal} writable />);
+
+    expect(
+      await screen.findByRole("button", { name: "Set role" }),
+    ).toBeTruthy();
+  });
+});
+
+it("does not offer a role the contact already holds on that deal", async () => {
+  // The write creates an edge, so picking a held role asks the server for a
+  // second copy of a fact it already has.
+  stub(
+    view({
+      deals: {
+        data: [
+          { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+        ],
+        page: emptyPage,
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Christian Hagemeyer",
+            deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            consent: {},
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: {
+                recency: 0,
+                frequency: 0,
+                reciprocity: 0,
+                direction: 0,
+              },
+            },
+          },
+        ],
+        page: emptyPage,
+      },
+    }),
+  );
+  renderCompany();
+
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Set role" }),
+  );
+  const roles = screen.getByLabelText("Role") as HTMLSelectElement;
+  expect([...roles.options].map((option) => option.value)).not.toContain(
+    "champion",
+  );
 });

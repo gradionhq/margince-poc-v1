@@ -3,6 +3,7 @@ import {
   CheckSquare,
   Mail,
   MessageCircle,
+  PencilLine,
   Phone,
   Send,
   StickyNote,
@@ -216,6 +217,12 @@ export type TimelineEntry = {
   id: string;
   // The backend's activity kinds, not a reduced set: collapsing call, task
   // and the chat kinds into "note" told the reader an email was a note.
+  //
+  // `change` is not an activity: it is a field edit projected from the audit
+  // spine. It rides the same list because what was said to an account and what
+  // was changed about it are one chronology to the person reading them — kept
+  // apart, a rep comparing "we told them X" against "someone set stage to Y"
+  // had to hold two orderings in their head.
   kind:
     | "email"
     | "meeting"
@@ -223,7 +230,8 @@ export type TimelineEntry = {
     | "call"
     | "task"
     | "whatsapp"
-    | "telegram";
+    | "telegram"
+    | "change";
   title: string;
   atIso: string;
   provenance: Provenance;
@@ -255,6 +263,12 @@ export type TimelineEntry = {
    * Art. 17 request, which is why this is optional rather than empty string.
    */
   body?: string | null;
+  /**
+   * Rendered content for a row whose substance is not prose — the old→new
+   * diff on a `change` row. Sits where the body would, so a change reads at
+   * the same place in the row as a message does.
+   */
+  detail?: ReactNode;
 };
 
 const TIMELINE_ICON = {
@@ -265,6 +279,7 @@ const TIMELINE_ICON = {
   task: CheckSquare,
   whatsapp: MessageCircle,
   telegram: Send,
+  change: PencilLine,
 } as const;
 
 export function RecordView({
@@ -465,9 +480,14 @@ function TimelineList({
             <span className="tl-icon">
               <Icon aria-hidden />
             </span>
-            <span className="tl-body">
+            {/* A div, not a span: a change row's detail is a field diff whose
+                long-value side is a focusable region — flow content, invalid
+                inside phrasing content. The row lays out identically, because
+                .tl-body is a flex column either way. */}
+            <div className="tl-body">
               <span className="tl-title">{entry.title}</span>
               {entry.body && <TimelineText text={entry.body} />}
+              {entry.detail}
               <span className="tl-meta">
                 {/* The direction is said in words as well as drawn, so it does
                     not depend on telling two accent colours apart. */}
@@ -482,7 +502,7 @@ function TimelineList({
                 <ProvenanceTag provenance={entry.provenance} />
                 {entry.via}
               </span>
-            </span>
+            </div>
             {entry.actions && (
               <span className="tl-actions">{entry.actions}</span>
             )}

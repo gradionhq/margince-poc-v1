@@ -782,3 +782,113 @@ func TestOnlyAHumanNamespaceYieldsAnOwner(t *testing.T) {
 		}
 	}
 }
+
+// The seed is a GUESS about how a site publishes itself — `https://<domain>`,
+// derived from the imported domain and nothing else. On a real import of 162
+// companies, 37 reads died on that guess having read zero pages, and half of
+// those answered on another host or scheme. The crawl walks the other
+// spellings before it concludes a company has no website.
+
+func TestCrawlReachesASiteThatOnlyServesWWW(t *testing.T) {
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{
+			"https://www.acme.com": {text: readable("home")},
+		},
+		pageErrors: map[string][]error{
+			// The apex answers on neither attempt — the transient retry and
+			// the fallback ladder both have to be crossed to reach the site.
+			"https://acme.com": {errors.New("dial tcp: connection refused"), errors.New("dial tcp: connection refused")},
+		},
+	}
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), "https://acme.com")
+	if err != nil {
+		t.Fatalf("crawl failed although the site answers on www: %v", err)
+	}
+	if len(crawl.Pages) == 0 || crawl.Pages[0].URL != "https://www.acme.com" {
+		t.Fatalf("seed page = %+v, want the www spelling", crawl.Pages)
+	}
+}
+
+func TestCrawlDowngradesToPlainHTTPOnlyAfterEveryHTTPSSpelling(t *testing.T) {
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{"http://acme.com": {text: readable("home")}},
+		pageErrors: map[string][]error{
+			"https://acme.com":     {errors.New("tls: handshake failure"), errors.New("tls: handshake failure")},
+			"https://www.acme.com": {errors.New("tls: handshake failure")},
+		},
+	}
+	crawl, err := testSiteCrawler(site).Crawl(context.Background(), "https://acme.com")
+	if err != nil {
+		t.Fatalf("crawl failed although the site answers over http: %v", err)
+	}
+	if crawl.Pages[0].URL != "http://acme.com" {
+		t.Fatalf("seed page = %q, want the http spelling", crawl.Pages[0].URL)
+	}
+	// https must be exhausted BEFORE the first http attempt: a working https is
+	// always better than the same site in the clear. Comparing positions, not
+	// mere presence — "www was fetched at some point" is also true of an order
+	// that tried http first.
+	firstHTTP := indexOfFetch(site.fetched, "http://acme.com")
+	for _, https := range []string{"https://acme.com", "https://www.acme.com"} {
+		at := indexOfFetch(site.fetched, https)
+		if at < 0 || at > firstHTTP {
+			t.Errorf("fetch order = %v, want %s tried before http://acme.com", site.fetched, https)
+		}
+	}
+}
+
+// robots.txt is a refusal, not a failure to connect. Re-asking the same site
+// under another name would be walking around the answer it gave.
+func TestCrawlNeverWalksTheLadderAroundARobotsRefusal(t *testing.T) {
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{"https://www.acme.com": {text: readable("home")}},
+		pageErrors: map[string][]error{
+			"https://acme.com": {webread.ErrRobotsDisallowed, webread.ErrRobotsDisallowed},
+		},
+	}
+	if _, err := testSiteCrawler(site).Crawl(context.Background(), "https://acme.com"); err == nil {
+		t.Fatal("crawl succeeded despite a robots refusal on the seed")
+	}
+	if slicesContains(site.fetched, "https://www.acme.com") {
+		t.Errorf("fetched %v — a robots refusal must not be retried under another host", site.fetched)
+	}
+}
+
+// indexOfFetch reports where a URL was first asked for, or -1.
+func indexOfFetch(fetched []string, url string) int {
+	for i, s := range fetched {
+		if s == url {
+			return i
+		}
+	}
+	return -1
+}
+
+func slicesContains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCrawlStopsTheLadderWhenAFallbackSpellingRefuses(t *testing.T) {
+	// The bare domain does not answer at all, its www spelling refuses by
+	// robots, and http:// would serve the same site happily. The refusal is
+	// the site's answer for all three: knocking on the next door is still
+	// asking the same company that already said no.
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{"http://acme.com": {text: readable("home")}},
+		pageErrors: map[string][]error{
+			"https://acme.com":     {errors.New("no such host"), errors.New("no such host")},
+			"https://www.acme.com": {webread.ErrRobotsDisallowed},
+		},
+	}
+	if _, err := testSiteCrawler(site).Crawl(context.Background(), "https://acme.com"); err == nil {
+		t.Fatal("crawl succeeded despite a robots refusal on a fallback spelling")
+	}
+	if slicesContains(site.fetched, "http://acme.com") {
+		t.Errorf("fetched %v — a refusal must end the ladder, not move it to another scheme", site.fetched)
+	}
+}

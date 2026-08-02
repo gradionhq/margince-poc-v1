@@ -61,6 +61,12 @@ type siteCrawl struct {
 	// resolve read the declarations instead of asking the site for its home
 	// page a second time.
 	SeedAssets declaredAssets
+	// SeedURL is the spelling that ANSWERED, which is not always the one asked
+	// for: the fallback ladder may have reached the site on www or over http.
+	// Anything derived from the site's address afterwards — /favicon.ico above
+	// all — has to be derived from this one, or it is asking a host that just
+	// proved it serves nothing.
+	SeedURL string
 }
 
 // siteFetcher is the slice of *webread.Fetcher the crawler needs; tests feed
@@ -218,13 +224,7 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 	defer cancel()
 	pacer := c.newPacer()
 
-	seedPage, err := c.fetchPaced(ctx, pacer, seedURL)
-	if transientCrawlError(ctx, err) {
-		// The landing page is the only irreplaceable discovery source. One
-		// immediate retry absorbs a transient edge/CDN timeout while the crawl's
-		// wall deadline still bounds the attempt.
-		seedPage, err = c.fetchPaced(ctx, pacer, seedURL)
-	}
+	seedURL, seedPage, err := c.fetchSeed(ctx, pacer, seedURL)
 	if err != nil {
 		return siteCrawl{}, fmt.Errorf("site read of %s: the seed page itself failed: %w", seedURL, err)
 	}
@@ -383,6 +383,7 @@ func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webr
 		crawl: siteCrawl{
 			Pages:      []crawlPage{{URL: seedURL, Kind: crmcontracts.SiteReadPageKindHome, Text: seedPage.Text, Bytes: seedPage.Bytes}},
 			SeedAssets: declaredAssets{ogImage: seedPage.OGImage, icons: seedPage.Icons},
+			SeedURL:    seedURL,
 		},
 		visited:       visited,
 		seenText:      map[string]bool{seedPage.Text: true},

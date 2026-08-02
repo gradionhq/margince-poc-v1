@@ -127,7 +127,7 @@ describe("RecordView + timeline", () => {
             kind: "note",
             title: "Call notes",
             atIso: "2026-06-14T10:00:00Z",
-            provenance: { kind: "human" },
+            provenance: { kind: "human", self: true },
           },
         ]}
       />,
@@ -197,7 +197,7 @@ describe("RecordView + timeline", () => {
             kind: "email",
             title: "Re: Q3",
             atIso: "2026-07-01T00:00:00Z",
-            provenance: { kind: "human" },
+            provenance: { kind: "human", self: true },
             actions: (
               <button type="button" key="reply">
                 Reply
