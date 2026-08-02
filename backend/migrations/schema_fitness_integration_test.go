@@ -276,9 +276,10 @@ var rowScopedFKDecisions = map[string]string{
 	// activity write, not inside comms. Both send transports stage through
 	// that one path and pass the activity id they just created, never an
 	// externally-supplied reference.
-	"comms_outbound.activity_id":          "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
-	"consent_event.person_id":             "child row: written through the person's own gated paths",
-	"organization_domain.organization_id": "child row: written through the organization's own gated paths",
+	"comms_outbound.activity_id":                     "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
+	"consent_event.person_id":                        "child row: written through the person's own gated paths",
+	"organization_domain.organization_id":            "child row: written through the organization's own gated paths",
+	"organization_relationship_type.organization_id": "child row: written through the organization's own gated paths (the patch that sets relationship types, and the partner upsert)",
 	// The disposition NAMES the organization its own verdict created, in the
 	// same transaction that created it. There is no client-supplied reference
 	// to gate: nothing outside the triage resolve ever writes this column, and

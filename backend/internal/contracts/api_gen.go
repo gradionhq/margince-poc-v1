@@ -3696,6 +3696,72 @@ func (e OrganizationClassification) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationLifecycle.
+const (
+	OrganizationLifecycleCustomer       OrganizationLifecycle = "customer"
+	OrganizationLifecycleDisqualified   OrganizationLifecycle = "disqualified"
+	OrganizationLifecycleFormerCustomer OrganizationLifecycle = "former_customer"
+	OrganizationLifecycleOpportunity    OrganizationLifecycle = "opportunity"
+	OrganizationLifecycleProspect       OrganizationLifecycle = "prospect"
+	OrganizationLifecycleTarget         OrganizationLifecycle = "target"
+	OrganizationLifecycleUnknown        OrganizationLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationLifecycle enum.
+func (e OrganizationLifecycle) Valid() bool {
+	switch e {
+	case OrganizationLifecycleCustomer:
+		return true
+	case OrganizationLifecycleDisqualified:
+		return true
+	case OrganizationLifecycleFormerCustomer:
+		return true
+	case OrganizationLifecycleOpportunity:
+		return true
+	case OrganizationLifecycleProspect:
+		return true
+	case OrganizationLifecycleTarget:
+		return true
+	case OrganizationLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationRelationshipTypes.
+const (
+	OrganizationRelationshipTypesCompetitor       OrganizationRelationshipTypes = "competitor"
+	OrganizationRelationshipTypesCustomer         OrganizationRelationshipTypes = "customer"
+	OrganizationRelationshipTypesInvestor         OrganizationRelationshipTypes = "investor"
+	OrganizationRelationshipTypesOther            OrganizationRelationshipTypes = "other"
+	OrganizationRelationshipTypesPartner          OrganizationRelationshipTypes = "partner"
+	OrganizationRelationshipTypesPortfolioCompany OrganizationRelationshipTypes = "portfolio_company"
+	OrganizationRelationshipTypesSupplier         OrganizationRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationRelationshipTypes enum.
+func (e OrganizationRelationshipTypes) Valid() bool {
+	switch e {
+	case OrganizationRelationshipTypesCompetitor:
+		return true
+	case OrganizationRelationshipTypesCustomer:
+		return true
+	case OrganizationRelationshipTypesInvestor:
+		return true
+	case OrganizationRelationshipTypesOther:
+		return true
+	case OrganizationRelationshipTypesPartner:
+		return true
+	case OrganizationRelationshipTypesPortfolioCompany:
+		return true
+	case OrganizationRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationSizeBand.
 const (
 	OrganizationSizeBandLessThannil OrganizationSizeBand = "<nil>"
@@ -5712,6 +5778,72 @@ func (e UpdateLeadRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for UpdateOrganizationRequestLifecycle.
+const (
+	UpdateOrganizationRequestLifecycleCustomer       UpdateOrganizationRequestLifecycle = "customer"
+	UpdateOrganizationRequestLifecycleDisqualified   UpdateOrganizationRequestLifecycle = "disqualified"
+	UpdateOrganizationRequestLifecycleFormerCustomer UpdateOrganizationRequestLifecycle = "former_customer"
+	UpdateOrganizationRequestLifecycleOpportunity    UpdateOrganizationRequestLifecycle = "opportunity"
+	UpdateOrganizationRequestLifecycleProspect       UpdateOrganizationRequestLifecycle = "prospect"
+	UpdateOrganizationRequestLifecycleTarget         UpdateOrganizationRequestLifecycle = "target"
+	UpdateOrganizationRequestLifecycleUnknown        UpdateOrganizationRequestLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the UpdateOrganizationRequestLifecycle enum.
+func (e UpdateOrganizationRequestLifecycle) Valid() bool {
+	switch e {
+	case UpdateOrganizationRequestLifecycleCustomer:
+		return true
+	case UpdateOrganizationRequestLifecycleDisqualified:
+		return true
+	case UpdateOrganizationRequestLifecycleFormerCustomer:
+		return true
+	case UpdateOrganizationRequestLifecycleOpportunity:
+		return true
+	case UpdateOrganizationRequestLifecycleProspect:
+		return true
+	case UpdateOrganizationRequestLifecycleTarget:
+		return true
+	case UpdateOrganizationRequestLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateOrganizationRequestRelationshipTypes.
+const (
+	UpdateOrganizationRequestRelationshipTypesCompetitor       UpdateOrganizationRequestRelationshipTypes = "competitor"
+	UpdateOrganizationRequestRelationshipTypesCustomer         UpdateOrganizationRequestRelationshipTypes = "customer"
+	UpdateOrganizationRequestRelationshipTypesInvestor         UpdateOrganizationRequestRelationshipTypes = "investor"
+	UpdateOrganizationRequestRelationshipTypesOther            UpdateOrganizationRequestRelationshipTypes = "other"
+	UpdateOrganizationRequestRelationshipTypesPartner          UpdateOrganizationRequestRelationshipTypes = "partner"
+	UpdateOrganizationRequestRelationshipTypesPortfolioCompany UpdateOrganizationRequestRelationshipTypes = "portfolio_company"
+	UpdateOrganizationRequestRelationshipTypesSupplier         UpdateOrganizationRequestRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the UpdateOrganizationRequestRelationshipTypes enum.
+func (e UpdateOrganizationRequestRelationshipTypes) Valid() bool {
+	switch e {
+	case UpdateOrganizationRequestRelationshipTypesCompetitor:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesCustomer:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesInvestor:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesOther:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesPartner:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesPortfolioCompany:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateOrganizationRequestSizeBand.
 const (
 	UpdateOrganizationRequestSizeBandLessThannil UpdateOrganizationRequestSizeBand = "<nil>"
@@ -7116,6 +7248,72 @@ func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
 	case ListOrganizationsParamsCapturedByKindHuman:
 		return true
 	case ListOrganizationsParamsCapturedByKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationsParamsLifecycle.
+const (
+	ListOrganizationsParamsLifecycleCustomer       ListOrganizationsParamsLifecycle = "customer"
+	ListOrganizationsParamsLifecycleDisqualified   ListOrganizationsParamsLifecycle = "disqualified"
+	ListOrganizationsParamsLifecycleFormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
+	ListOrganizationsParamsLifecycleOpportunity    ListOrganizationsParamsLifecycle = "opportunity"
+	ListOrganizationsParamsLifecycleProspect       ListOrganizationsParamsLifecycle = "prospect"
+	ListOrganizationsParamsLifecycleTarget         ListOrganizationsParamsLifecycle = "target"
+	ListOrganizationsParamsLifecycleUnknown        ListOrganizationsParamsLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsLifecycle enum.
+func (e ListOrganizationsParamsLifecycle) Valid() bool {
+	switch e {
+	case ListOrganizationsParamsLifecycleCustomer:
+		return true
+	case ListOrganizationsParamsLifecycleDisqualified:
+		return true
+	case ListOrganizationsParamsLifecycleFormerCustomer:
+		return true
+	case ListOrganizationsParamsLifecycleOpportunity:
+		return true
+	case ListOrganizationsParamsLifecycleProspect:
+		return true
+	case ListOrganizationsParamsLifecycleTarget:
+		return true
+	case ListOrganizationsParamsLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationsParamsRelationshipType.
+const (
+	ListOrganizationsParamsRelationshipTypeCompetitor       ListOrganizationsParamsRelationshipType = "competitor"
+	ListOrganizationsParamsRelationshipTypeCustomer         ListOrganizationsParamsRelationshipType = "customer"
+	ListOrganizationsParamsRelationshipTypeInvestor         ListOrganizationsParamsRelationshipType = "investor"
+	ListOrganizationsParamsRelationshipTypeOther            ListOrganizationsParamsRelationshipType = "other"
+	ListOrganizationsParamsRelationshipTypePartner          ListOrganizationsParamsRelationshipType = "partner"
+	ListOrganizationsParamsRelationshipTypePortfolioCompany ListOrganizationsParamsRelationshipType = "portfolio_company"
+	ListOrganizationsParamsRelationshipTypeSupplier         ListOrganizationsParamsRelationshipType = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsRelationshipType enum.
+func (e ListOrganizationsParamsRelationshipType) Valid() bool {
+	switch e {
+	case ListOrganizationsParamsRelationshipTypeCompetitor:
+		return true
+	case ListOrganizationsParamsRelationshipTypeCustomer:
+		return true
+	case ListOrganizationsParamsRelationshipTypeInvestor:
+		return true
+	case ListOrganizationsParamsRelationshipTypeOther:
+		return true
+	case ListOrganizationsParamsRelationshipTypePartner:
+		return true
+	case ListOrganizationsParamsRelationshipTypePortfolioCompany:
+		return true
+	case ListOrganizationsParamsRelationshipTypeSupplier:
 		return true
 	default:
 		return false
@@ -10727,7 +10925,8 @@ type Organization struct {
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
-	// Classification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+	// Classification RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Classification *OrganizationClassification `json:"classification,omitempty"`
 
 	// ComputedFields S-E15.8c formula-field display rows (RD-AC-6/RD-AC-7/RD-AC-N-1). Populated on
@@ -10740,6 +10939,9 @@ type Organization struct {
 	Id             openapi_types.UUID    `json:"id"`
 	Industry       *string               `json:"industry,omitempty"`
 	LegalName      *string               `json:"legal_name,omitempty"`
+
+	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
 
 	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
 	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
@@ -10760,10 +10962,13 @@ type Organization struct {
 	// A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
 	// partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
 	// forward-compatible.
-	Partner  *Partner                `json:"partner,omitempty"`
-	Raw      *map[string]interface{} `json:"raw,omitempty"`
-	SizeBand *OrganizationSizeBand   `json:"size_band,omitempty"`
-	Source   string                  `json:"source"`
+	Partner *Partner                `json:"partner,omitempty"`
+	Raw     *map[string]interface{} `json:"raw,omitempty"`
+
+	// RelationshipTypes WHAT THE COMPANY IS to us (PO-DDL-4b, ADR-0079/A124). Multi-valued, because a company is legitimately several things at once — the partner program is built on companies that are simultaneously partners and customers. An org IS a partner iff it carries `partner` here AND has a `partner` row; removing the type while that row lives is refused (422).
+	RelationshipTypes *[]OrganizationRelationshipTypes `json:"relationship_types,omitempty"`
+	SizeBand          *OrganizationSizeBand            `json:"size_band,omitempty"`
+	Source            string                           `json:"source"`
 
 	// Strength Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.
 	Strength  *RelationshipStrength `json:"strength,omitempty"`
@@ -10779,8 +10984,14 @@ type Organization struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// OrganizationClassification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+// OrganizationClassification RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
 type OrganizationClassification string
+
+// OrganizationLifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+type OrganizationLifecycle string
+
+// OrganizationRelationshipTypes defines model for Organization.RelationshipTypes.
+type OrganizationRelationshipTypes string
 
 // OrganizationSizeBand defines model for Organization.SizeBand.
 type OrganizationSizeBand string
@@ -13071,14 +13282,26 @@ type UpdateOrganizationRequest struct {
 	DisplayName *string  `json:"display_name,omitempty"`
 
 	// Domains Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
-	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
-	Industry             *string                            `json:"industry,omitempty"`
-	LegalName            *string                            `json:"legal_name,omitempty"`
-	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
-	ParentOrgId          *openapi_types.UUID                `json:"parent_org_id,omitempty"`
-	SizeBand             *UpdateOrganizationRequestSizeBand `json:"size_band,omitempty"`
-	AdditionalProperties map[string]interface{}             `json:"-"`
+	Domains   *[]OrganizationDomainInput `json:"domains,omitempty"`
+	Industry  *string                    `json:"industry,omitempty"`
+	LegalName *string                    `json:"legal_name,omitempty"`
+
+	// Lifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
+	Lifecycle   *UpdateOrganizationRequestLifecycle `json:"lifecycle,omitempty"`
+	OwnerId     *openapi_types.UUID                 `json:"owner_id,omitempty"`
+	ParentOrgId *openapi_types.UUID                 `json:"parent_org_id,omitempty"`
+
+	// RelationshipTypes Replace-set of what the company is to us (add new, archive removed), the same shape as `domains`. Absent = untouched; an empty array clears every type. Removing `partner` while the org still has a `partner` extension row is refused with 422 — the invariant binds both ways, and an invariant nothing enforces is a comment.
+	RelationshipTypes    *[]UpdateOrganizationRequestRelationshipTypes `json:"relationship_types,omitempty"`
+	SizeBand             *UpdateOrganizationRequestSizeBand            `json:"size_band,omitempty"`
+	AdditionalProperties map[string]interface{}                        `json:"-"`
 }
+
+// UpdateOrganizationRequestLifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
+type UpdateOrganizationRequestLifecycle string
+
+// UpdateOrganizationRequestRelationshipTypes defines model for UpdateOrganizationRequest.RelationshipTypes.
+type UpdateOrganizationRequestRelationshipTypes string
 
 // UpdateOrganizationRequestSizeBand defines model for UpdateOrganizationRequest.SizeBand.
 type UpdateOrganizationRequestSizeBand string
@@ -15119,11 +15342,23 @@ type ListOrganizationsParams struct {
 
 	// Domain Lookup by normalized domain (the employer-inference index).
 	Domain *string `form:"domain,omitempty" json:"domain,omitempty"`
-	Q      *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Lifecycle Where the account stands with us (DM-VOCAB-2, ADR-0079/A124).
+	Lifecycle *ListOrganizationsParamsLifecycle `form:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+
+	// RelationshipType Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both.
+	RelationshipType *ListOrganizationsParamsRelationshipType `form:"relationship_type,omitempty" json:"relationship_type,omitempty"`
+	Q                *string                                  `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListOrganizationsParamsCapturedByKind defines parameters for ListOrganizations.
 type ListOrganizationsParamsCapturedByKind string
+
+// ListOrganizationsParamsLifecycle defines parameters for ListOrganizations.
+type ListOrganizationsParamsLifecycle string
+
+// ListOrganizationsParamsRelationshipType defines parameters for ListOrganizations.
+type ListOrganizationsParamsRelationshipType string
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
@@ -19910,6 +20145,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["lifecycle"]; found {
+		err = json.Unmarshal(raw, &a.Lifecycle)
+		if err != nil {
+			return fmt.Errorf("error reading 'lifecycle': %w", err)
+		}
+		delete(object, "lifecycle")
+	}
+
 	if raw, found := object["logo_url"]; found {
 		err = json.Unmarshal(raw, &a.LogoUrl)
 		if err != nil {
@@ -19956,6 +20199,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'raw': %w", err)
 		}
 		delete(object, "raw")
+	}
+
+	if raw, found := object["relationship_types"]; found {
+		err = json.Unmarshal(raw, &a.RelationshipTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'relationship_types': %w", err)
+		}
+		delete(object, "relationship_types")
 	}
 
 	if raw, found := object["size_band"]; found {
@@ -20094,6 +20345,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Lifecycle != nil {
+		object["lifecycle"], err = json.Marshal(a.Lifecycle)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'lifecycle': %w", err)
+		}
+	}
+
 	if a.LogoUrl != nil {
 		object["logo_url"], err = json.Marshal(a.LogoUrl)
 		if err != nil {
@@ -20133,6 +20391,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	if a.RelationshipTypes != nil {
+		object["relationship_types"], err = json.Marshal(a.RelationshipTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'relationship_types': %w", err)
 		}
 	}
 
@@ -21843,6 +22108,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["lifecycle"]; found {
+		err = json.Unmarshal(raw, &a.Lifecycle)
+		if err != nil {
+			return fmt.Errorf("error reading 'lifecycle': %w", err)
+		}
+		delete(object, "lifecycle")
+	}
+
 	if raw, found := object["owner_id"]; found {
 		err = json.Unmarshal(raw, &a.OwnerId)
 		if err != nil {
@@ -21857,6 +22130,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'parent_org_id': %w", err)
 		}
 		delete(object, "parent_org_id")
+	}
+
+	if raw, found := object["relationship_types"]; found {
+		err = json.Unmarshal(raw, &a.RelationshipTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'relationship_types': %w", err)
+		}
+		delete(object, "relationship_types")
 	}
 
 	if raw, found := object["size_band"]; found {
@@ -21921,6 +22202,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Lifecycle != nil {
+		object["lifecycle"], err = json.Marshal(a.Lifecycle)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'lifecycle': %w", err)
+		}
+	}
+
 	if a.OwnerId != nil {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
@@ -21932,6 +22220,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["parent_org_id"], err = json.Marshal(a.ParentOrgId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'parent_org_id': %w", err)
+		}
+	}
+
+	if a.RelationshipTypes != nil {
+		object["relationship_types"], err = json.Marshal(a.RelationshipTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'relationship_types': %w", err)
 		}
 	}
 
@@ -32048,6 +32343,32 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "domain"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "domain", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lifecycle" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lifecycle", r.URL.Query(), &params.Lifecycle, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lifecycle"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lifecycle", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "relationship_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "relationship_type", r.URL.Query(), &params.RelationshipType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "relationship_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "relationship_type", Err: err})
 		}
 		return
 	}
