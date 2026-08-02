@@ -285,6 +285,55 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-02 (capture stops inventing companies, PR #365, merged)
+
+**Capture no longer derives an organization from a mail domain.** The person is
+created exactly as before; the company is withheld until a `domain_triage` site
+read says the domain deserves one. A confident personal/provider/parked verdict
+on the LANDING PAGE stops the crawl there, so a refusal costs one page instead
+of twelve. When no site can be read, the sender-name test decides, defaulting to
+creating the company so a real business with a broken site keeps its record.
+`organization_domain_disposition` (0166) is what makes an answer stick; without
+it a refusal survived exactly one message.
+
+**The consumer-mail list is now a vendored dataset plus the workspace's own.**
+8 758 domains matched down to the registrable eTLD+1, and a Settings surface
+where an admin adds what the shipped list missed or carves out what it wrongly
+claims — read per transaction, so a correction takes effect on the next message.
+The per-user personal-mail exclusion rules are gone entirely (founder decision),
+table and endpoints included, recorded in the contract-breaking allowlist.
+
+**The ~92 uncorroborated `name_source='domain'` organizations already in the dev
+database stay.** Pre-launch, founder's call: the gate applies to new captures
+and nothing retires the existing rows.
+
+**Five review layers each caught what the previous ones missed, and that is the
+thing to carry forward.** A craft pass, a security redteam and Codex ran before
+the PR; the cubic bot then found 32 more, seven of them real defects in code all
+three had already read. Two examples worth remembering:
+
+- A forgeable `From:` header reached a SQL `LIKE` **pattern**. `jane@%` parses
+  (`%` is legal RFC 5322 atext), and the fallback would have planted an
+  employment edge from every person in the workspace onto an attacker-named
+  organization.
+- The FIX for that then blessed a bare public suffix, so `jane@co.uk` did the
+  same thing through a legal input. And two fixes for the bot's findings
+  introduced fresh P1s of their own — attaching to an archived company, and a
+  rollback that could violate a unique index.
+
+Each layer was necessary; none was sufficient. A fix is not evidence of a fix.
+
+**Two flakes were fixed rather than re-run around**, both in tests this branch
+did not touch. `TestSubscriberDeliversAcksAndFiltersWorkspaces` waited on
+`seen >= 1` — the own event's handler — while asserting that BOTH entries were
+acked, so the pending read could land between the two acks. It had failed CI
+twice and would have hit the next branch too.
+
+**Watch for**: `SiteDeepReadArgs.Workspace` was renamed from `WorkspaceID` by
+#367 mid-review. The rebase applied with zero conflicts because the field is set
+in a file that branch never touched, so git gave no signal and CI went red
+across nine shards for one identifier. A clean rebase is not a compiling one.
+
 ## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
 
 **Two founder corrections to the surface #358 shipped.** An exact name at a
@@ -1721,11 +1770,13 @@ this build repo.
 - **Capture no longer creates a company on sight, and the spec still says it
   does.** ADR-0072 §1's tier ladder reads `T1 correspondence-positive → ensure
   NOW, org per T3`, and T3 suppresses organization derivation for consumer mail
-  alone. Everything else derived a company from the domain label, which is where
-  "Kestner" came from — `sebastian@kestner.example` is a man writing from his own
-  domain — and nothing downstream ever removed it. In the dev database 157 of
-  165 organizations were `name_source='domain'` and only 65 had a corroborated
-  legal entity.
+  alone. Everything else derived a company from the domain label. In the dev
+  database that produced companies named after PEOPLE — a private individual
+  writing from a vanity domain built out of their own surname became a company
+  called that surname — and nothing downstream ever removed one. 157 of 165
+  organizations were `name_source='domain'` and only 65 had a corroborated legal
+  entity. (The real addresses are deliberately not written down here; they are
+  third parties' and this file is committed.)
 
   This build now defers instead: the person is created exactly as before, the
   company is withheld, and a triage site read decides whether the domain
@@ -1756,10 +1807,10 @@ this build repo.
   junk record while a wrong refusal costs a real customer their organization,
   silently.
 - **CAP-PARAM-5's "config file, no admin UI" pin is reversed here.** The pinned
-  70-domain baseline had `live.com` and `live.de` but not `live.fr`, so
-  a private mailbox on `live.fr` produced a company called "Live"; it matched the
-  domain string exactly, so `mail.gmx.net` missed a listed `gmx.net`. This build
-  ships a vendored 8 700-domain dataset (goware/emailproviders, MIT, provenance
+  70-domain baseline had `live.com` and `live.de` but not `live.fr`, so a
+  private mailbox there produced a company called "Live"; it matched the domain
+  string exactly, so `mail.gmx.net` missed a listed `gmx.net`. This build
+  ships a vendored 8 758-domain dataset (goware/emailproviders, MIT, provenance
   in `platform/freemail/data/README.md`) matched down to the registrable eTLD+1,
   and moves the deployment delta from `margince.yaml` into a workspace-shared,
   admin-curated list read per transaction. A shipped third-party list is wrong
@@ -1778,7 +1829,39 @@ this build repo.
   company withheld during triage there is neither, so two colleagues at a new
   customer stopped meeting at the fuzzy tier exactly when their records are
   newest and most likely to be twins. This build adds "both addresses sit on the
-  same mail domain" at the same 0.8. The formula in the spec still has two rungs.
+  same LIVE mail domain" at the same 0.8, with two qualifiers the spec has to
+  carry or the rung is wrong in both directions: a consumer-mail domain scores
+  nothing (two people at one mailbox provider share a host, not a job, and
+  scoring it puts every same-named pair of private addresses in the review
+  queue), and the workspace's own carve-outs decide that question, because a
+  `never` entry is an admin asserting the domain IS an employer's. The formula
+  in the spec still has two rungs and no consumer-mail exclusion.
+- **The backfill's `organizations_created` counts a different thing now.** It
+  counted organizations the run created; capture creates none, so it counts
+  domains the run raised a company question for, and a domain becomes a company
+  only if its site later says so. The column keeps its name (additive-only), the
+  UI says "Companies to check", and `costestimate/rules.go` still folds the
+  number into a projected entity count — which is now an upper bound rather than
+  a tally. The spec's backfill counters need the same distinction, or the number
+  reads as a promise the run did not make.
+- **Two triage limits this build knowingly ships, both needing a spec answer.**
+  Neither is a defect against the design as written; both are places the design
+  has no answer yet.
+
+  A `provider` verdict suppresses the company for everyone on that domain,
+  including the people who WORK at the mailbox vendor. Nothing on the vendor's
+  own front page distinguishes its employees from its customers, so the
+  classifier cannot separate them. The human override (create the company by
+  hand; the ledger records it as theirs) reverses it, but only once somebody
+  notices.
+
+  And the triage verdict does not re-check the consumer-mail list at the moment
+  it fires. The deep-read worker builds its people store without the workspace
+  reader, so a domain an admin adds to the list WHILE its crawl is in flight can
+  still get its company. A narrow race with a small consequence, and the fix is
+  either to wire the reader into the worker or to re-check inside
+  `ResolveDomainTriage` — the spec should say which, since it is really a
+  question about when a workspace setting takes effect.
 - **Art. 17 erasure has no organization path (foundation #1215).** `Eraser` in
   `privacy/erasure.go` anonymizes the `person` row and purges its satellites;
   grep `organization` there and it finds nothing, on the standard reading that
