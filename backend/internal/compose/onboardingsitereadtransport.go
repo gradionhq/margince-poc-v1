@@ -279,10 +279,14 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison,
 		found = append(found, out)
 	}
 	comparisons := contractSiteReadComparisons(compared)
+	// Every terminal status the store can hold maps to something. A status
+	// missing from this table renders as the empty string, which is not a
+	// value the contract's enum has and tells a client nothing at all.
 	status := map[string]string{
 		"queued": "queued", siteReadStatusDeferred: siteReadStatusDeferred, "running": "reading", "done": "ready",
-		siteReadWireStatusPartial: siteReadWireStatusPartial,
-		siteReadWireStatusFailed:  siteReadWireStatusFailed,
+		siteReadWireStatusPartial:   siteReadWireStatusPartial,
+		siteReadWireStatusFailed:    siteReadWireStatusFailed,
+		siteReadWireStatusCancelled: string(crmcontracts.CompanySiteReadStatusAbandoned),
 	}[read.Status]
 	if read.ConfirmedAt != nil {
 		status = "confirmed"

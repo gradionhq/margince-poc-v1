@@ -147,6 +147,14 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 
 	var out FreemailDomain
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Serialize this domain's decision before reading the prior state. The
+		// read and the upsert are two statements, so two concurrent adds would
+		// otherwise both see "no prior entry" and both record a creation — one
+		// of them describing a change that never happened. The same
+		// transaction-scoped advisory lock the deferral ceiling uses.
+		if err := lockFreemailDomain(ctx, tx, base); err != nil {
+			return err
+		}
 		var before *string
 		if err := tx.QueryRow(ctx,
 			`SELECT kind FROM capture_freemail_domain WHERE domain = $1`, base).Scan(&before); err != nil &&
@@ -206,6 +214,18 @@ func (s *FreemailDomainStore) Remove(ctx context.Context, id ids.UUID) error {
 	})
 	if err != nil {
 		return fmt.Errorf("capture: withdrawing a consumer-mail entry: %w", err)
+	}
+	return nil
+}
+
+// lockFreemailDomain serializes decisions about ONE domain for the life of the
+// caller's transaction. Keyed on the workspace and the domain, so two admins
+// editing different domains never wait on each other.
+func lockFreemailDomain(ctx context.Context, tx pgx.Tx, domain string) error {
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtext('margince:consumer-mail:' ||
+			current_setting('app.workspace_id', true) || ':' || $1)::bigint)`, domain); err != nil {
+		return fmt.Errorf("capture: serializing the decision about %s: %w", domain, err)
 	}
 	return nil
 }

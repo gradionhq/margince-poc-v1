@@ -16,7 +16,7 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 			// kestner.example: the label is the sender's surname outright.
 			name:    "the surname is the domain",
 			label:   "kestner",
-			persons: []DomainPerson{{FullName: "Sebastian Kestner", EmailLocal: "sebastian"}},
+			persons: []DomainPerson{{FullName: "Sebastian Kestner", EmailLocals: []string{"sebastian"}}},
 			want:    true,
 		},
 		{
@@ -25,25 +25,25 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 			// is why the address and not just the name has to be looked at.
 			name:    "the local part plus the surname is the domain",
 			label:   "rowanmarsh",
-			persons: []DomainPerson{{FullName: "Ines Marsh", EmailLocal: "rowan"}},
+			persons: []DomainPerson{{FullName: "Ines Marsh", EmailLocals: []string{"rowan"}}},
 			want:    true,
 		},
 		{
 			name:    "first and last run together",
 			label:   "olivia-larsen",
-			persons: []DomainPerson{{FullName: "Olivia Larsen", EmailLocal: "info"}},
+			persons: []DomainPerson{{FullName: "Olivia Larsen", EmailLocals: []string{"info"}}},
 			want:    true,
 		},
 		{
 			name:    "last and first run together",
 			label:   "hausen-kai",
-			persons: []DomainPerson{{FullName: "Kai Hausen", EmailLocal: "kai"}},
+			persons: []DomainPerson{{FullName: "Kai Hausen", EmailLocals: []string{"kai"}}},
 			want:    true,
 		},
 		{
 			name:    "a transliterated surname does not match the accented name",
 			label:   "mueller",
-			persons: []DomainPerson{{FullName: "Christina Müller", EmailLocal: "cm"}},
+			persons: []DomainPerson{{FullName: "Christina Müller", EmailLocals: []string{"cm"}}},
 			// "mueller" is a TRANSLITERATION of Müller, not an unaccenting of
 			// it — normalizeName yields "muller". Whether to fold German
 			// digraphs is a question for the whole dedupe metric, not something
@@ -53,7 +53,7 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 		{
 			name:    "a company domain nobody's name explains",
 			label:   "basecom",
-			persons: []DomainPerson{{FullName: "Martin Weiss", EmailLocal: "m.wortmann"}},
+			persons: []DomainPerson{{FullName: "Martin Weiss", EmailLocals: []string{"m.wortmann"}}},
 			want:    false,
 		},
 		{
@@ -64,8 +64,8 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 			name:  "a shared domain is a company, and a stapled employer is not a surname",
 			label: "tvpartner",
 			persons: []DomainPerson{
-				{FullName: "Tomas Vidal - TVPartner", EmailLocal: "guido"},
-				{FullName: "Karin Vogt - TVPartner", EmailLocal: "annett"},
+				{FullName: "Tomas Vidal - TVPartner", EmailLocals: []string{"guido"}},
+				{FullName: "Karin Vogt - TVPartner", EmailLocals: []string{"annett"}},
 			},
 			want: false,
 		},
@@ -74,13 +74,13 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 			// one case where the local part alone equals the label.
 			name:    "a role address on its own domain is not a person",
 			label:   "tvpartner",
-			persons: []DomainPerson{{FullName: "Tomas Vidal", EmailLocal: "tvpartner"}},
+			persons: []DomainPerson{{FullName: "Tomas Vidal", EmailLocals: []string{"tvpartner"}}},
 			want:    false,
 		},
 		{
 			name:    "an employer in parentheses is not a surname either",
 			label:   "cloud-atlas",
-			persons: []DomainPerson{{FullName: "Nikos Adamos (Cloud Atlas)", EmailLocal: "stergios"}},
+			persons: []DomainPerson{{FullName: "Nikos Adamos (Cloud Atlas)", EmailLocals: []string{"stergios"}}},
 			want:    false,
 		},
 		{
@@ -92,7 +92,7 @@ func TestDomainLooksPersonalNeedsEveryKnownPersonToExplainTheLabel(t *testing.T)
 		{
 			name:    "an empty label answers no rather than matching everything",
 			label:   "",
-			persons: []DomainPerson{{FullName: "Sebastian Kestner", EmailLocal: "sebastian"}},
+			persons: []DomainPerson{{FullName: "Sebastian Kestner", EmailLocals: []string{"sebastian"}}},
 			want:    false,
 		},
 	}
@@ -114,7 +114,7 @@ func TestDomainLooksPersonalMisjudgesAnEponymousAgency(t *testing.T) {
 	// baumert.example a site loads, states a company, and the crawl answers first.
 	// The test pins the limit so nobody later mistakes the heuristic for a
 	// standalone rule.
-	if !DomainLooksPersonal("baumert", []DomainPerson{{FullName: "Alexander Baumert", EmailLocal: "alexander"}}) {
+	if !DomainLooksPersonal("baumert", []DomainPerson{{FullName: "Alexander Baumert", EmailLocals: []string{"alexander"}}}) {
 		t.Fatal("the heuristic is expected to misjudge an eponymous agency; if it no longer does, the comment above is stale")
 	}
 }

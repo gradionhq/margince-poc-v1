@@ -130,7 +130,7 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 		  -- actor that ran that read. Counting only 'connector:%' would report
 		  -- zero companies for ever.
 		  (SELECT count(*) FROM organization
-		    WHERE (captured_by LIKE 'connector:%' OR source LIKE 'domain_triage:%')
+		    WHERE (captured_by LIKE 'connector:%' OR source LIKE 'domain\_triage:%')
 		      AND created_at >= $1),
 		  (SELECT count(*) FROM dedupe_candidate WHERE disposition = 'open' AND archived_at IS NULL),
 		  (SELECT count(*) FROM approval WHERE status = 'pending'),

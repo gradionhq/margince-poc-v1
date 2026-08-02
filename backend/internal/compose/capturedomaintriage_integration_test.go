@@ -345,8 +345,8 @@ func spendTriageAttempts(t *testing.T, e *integration.Env, domain string) {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			UPDATE organization_domain_disposition
-			   SET attempts = 2, next_attempt_at = now() - interval '1 day'
-			 WHERE domain = $1`, domain)
+			   SET attempts = $2, next_attempt_at = now() - interval '1 day'
+			 WHERE domain = $1`, domain, people.DomainTriageMaxAttempts)
 		return err
 	}); err != nil {
 		t.Fatal(err)

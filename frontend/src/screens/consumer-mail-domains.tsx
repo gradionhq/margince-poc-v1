@@ -17,7 +17,9 @@ import {
 // more often than a hand-typed list and still wrong sometimes in both
 // directions — so this is where an operator adds what it missed and takes back
 // what it wrongly claimed. Every role reads it; only admin/ops may change it,
-// so the controls are disabled rather than hidden.
+// so the controls are disabled rather than hidden — a rep can see that the
+// list exists and what is on it, which is what makes the capture posture
+// legible to the people whose mail it governs.
 
 type Kind = "extra" | "never";
 
@@ -92,53 +94,53 @@ export function ConsumerMailDomainsCard() {
         title={t("consumerMail.title")}
         sub={t("consumerMail.sub")}
       />
-      {canManage && (
-        <form
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-2)",
-            alignItems: "center",
-            marginBottom: "var(--space-3)",
-          }}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (domain.trim() === "") return;
-            add.mutate(
-              { domain: domain.trim(), kind },
-              { onSuccess: () => setDomain("") },
-            );
-          }}
+      <form
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "var(--space-2)",
+          alignItems: "center",
+          marginBottom: "var(--space-3)",
+        }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!canManage || domain.trim() === "") return;
+          add.mutate(
+            { domain: domain.trim(), kind },
+            { onSuccess: () => setDomain("") },
+          );
+        }}
+      >
+        <input
+          aria-label={t("consumerMail.domainLabel")}
+          data-testid="consumer-mail-domain-input"
+          placeholder={t("consumerMail.domainPlaceholder")}
+          value={domain}
+          disabled={!canManage}
+          onChange={(e) => setDomain(e.target.value)}
+        />
+        <select
+          aria-label={t("consumerMail.kindLabel")}
+          data-testid="consumer-mail-kind-select"
+          value={kind}
+          disabled={!canManage}
+          onChange={(e) => setKind(e.target.value as Kind)}
         >
-          <input
-            aria-label={t("consumerMail.domainLabel")}
-            data-testid="consumer-mail-domain-input"
-            placeholder={t("consumerMail.domainPlaceholder")}
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-          />
-          <select
-            aria-label={t("consumerMail.kindLabel")}
-            data-testid="consumer-mail-kind-select"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as Kind)}
+          <option value="extra">{t("consumerMail.kind.extra")}</option>
+          <option value="never">{t("consumerMail.kind.never")}</option>
+        </select>
+        <button type="submit" disabled={!canManage || add.isPending}>
+          {t("consumerMail.add")}
+        </button>
+        {add.isError && (
+          <span
+            role="alert"
+            style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
           >
-            <option value="extra">{t("consumerMail.kind.extra")}</option>
-            <option value="never">{t("consumerMail.kind.never")}</option>
-          </select>
-          <button type="submit" disabled={add.isPending}>
-            {t("consumerMail.add")}
-          </button>
-          {add.isError && (
-            <span
-              role="alert"
-              style={{ color: "var(--danger)", fontSize: "var(--text-sm)" }}
-            >
-              {add.error.message}
-            </span>
-          )}
-        </form>
-      )}
+            {add.error.message}
+          </span>
+        )}
+      </form>
       {!canManage && (
         <p style={{ color: "var(--text-muted)", fontSize: "var(--text-sm)" }}>
           {t("consumerMail.adminOnly")}
@@ -180,16 +182,14 @@ export function ConsumerMailDomainsCard() {
                       ? t("consumerMail.kind.never")
                       : t("consumerMail.kind.extra")}
                   </span>
-                  {canManage && (
-                    <button
-                      type="button"
-                      aria-label={t("consumerMail.remove")}
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate(entry.id)}
-                    >
-                      <Trash2 aria-hidden size={16} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    aria-label={t("consumerMail.remove")}
+                    disabled={!canManage || remove.isPending}
+                    onClick={() => remove.mutate(entry.id)}
+                  >
+                    <Trash2 aria-hidden size={16} />
+                  </button>
                 </li>
               ))}
             </ul>

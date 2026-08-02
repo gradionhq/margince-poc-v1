@@ -201,7 +201,17 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 // debug run wants the whole read regardless of the verdict — what it reports is
 // what production WOULD have decided.
 func debugTriage(ctx context.Context, brain completer, seed crawlPage) DebugTriage {
-	resp, err := brain.Complete(ctx, triageRequest(seed))
+	req := triageRequest(seed)
+	var resp model.Response
+	var err error
+	// The same validated call classifySeed makes. Without it a malformed reply
+	// is retried in production and downgraded to `unclear` here, so the report
+	// would show a verdict production never reached.
+	if structured, ok := brain.(validatedBrain); ok {
+		resp, err = structured.CompleteValidated(ctx, req, triageShapeValid)
+	} else {
+		resp, err = brain.Complete(ctx, req)
+	}
 	if err != nil {
 		return DebugTriage{Kind: siteKindUnclear, Error: err.Error()}
 	}

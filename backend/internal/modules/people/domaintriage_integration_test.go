@@ -285,7 +285,7 @@ func TestListDueDomainsOffersOnlyTheQuestionsWorthAsking(t *testing.T) {
 		_, err := tx.Exec(ctx, `
 			UPDATE organization_domain_disposition
 			   SET attempts = $1, next_attempt_at = now() - interval '1 day'
-			 WHERE domain = 'exhausted.test'`, domainTriageMaxAttempts)
+			 WHERE domain = 'exhausted.test'`, DomainTriageMaxAttempts)
 		return err
 	}); err != nil {
 		t.Fatal(err)

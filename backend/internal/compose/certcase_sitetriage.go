@@ -111,6 +111,16 @@ func (c *siteTriageCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		}
 	}
 	gated := gateTriageVerdict(trace.Output)
+	// A confidence outside 0..1 is malformed whatever the kind says. Checking
+	// only the kind would let `{"kind":"unclear","confidence":9}` score as a
+	// correct abstention on an `unclear` scenario, crediting the model for
+	// output the gate had to rewrite.
+	if raw.Confidence < 0 || raw.Confidence > 1 {
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeInvalid,
+			Detail: fmt.Sprintf("the reply's confidence %.2f is outside 0 to 1", float64(raw.Confidence)),
+		}
+	}
 	if gated.Kind == siteKindUnclear && raw.Kind != siteKindUnclear {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeInvalid,

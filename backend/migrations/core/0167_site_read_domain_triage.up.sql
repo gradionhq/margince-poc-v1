@@ -24,6 +24,11 @@ ALTER TABLE site_read ADD CONSTRAINT site_read_target_shape CHECK (
 -- One in-flight triage per seed url. The seed is derived from the registrable
 -- domain, so this is per-domain uniqueness: two senders arriving on a new
 -- domain at once buy one crawl, not two.
+--
+-- 'deferred' counts as in flight. A read paused on the AI budget is going to
+-- resume; without it here a second trigger could start a rival crawl for the
+-- same domain and spend a second slot of the day's allowance on it. This is
+-- the same set ListDueDomains excludes, and the two must agree.
 CREATE UNIQUE INDEX uq_site_read_triage_inflight
   ON site_read (workspace_id, seed_url)
-  WHERE target_kind = 'domain_triage' AND status IN ('queued', 'running');
+  WHERE target_kind = 'domain_triage' AND status IN ('queued', 'deferred', 'running');

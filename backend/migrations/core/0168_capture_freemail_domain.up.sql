@@ -27,8 +27,11 @@ CREATE TABLE capture_freemail_domain (
   -- Who added it. The list is workspace-shared, so this is attribution for the
   -- audit trail, never a scope.
   created_by uuid NULL,
+  -- SET NULL names its COLUMN, or an unqualified action would null the
+  -- NOT NULL workspace_id and make deleting a user fail outright.
   CONSTRAINT capture_freemail_domain_created_by_fkey
-    FOREIGN KEY (workspace_id, created_by) REFERENCES app_user (workspace_id, id) ON DELETE SET NULL
+    FOREIGN KEY (workspace_id, created_by) REFERENCES app_user (workspace_id, id)
+    ON DELETE SET NULL (created_by)
 );
 
 -- One verdict per domain: a domain cannot be both added and carved out, and

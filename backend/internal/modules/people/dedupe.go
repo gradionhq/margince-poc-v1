@@ -57,6 +57,16 @@ type PersonCandidate struct {
 	// ChannelIdentities are the messaging-channel keys (provider +
 	// channel user id) an inbound channel message arrives with.
 	ChannelIdentities []connector.ChannelIdentity
+	// ConsumerMail decides whether a shared mail domain says anything about a
+	// shared EMPLOYER. Nil falls back to the shipped baseline, which is right
+	// for every caller that has no transaction-scoped matcher to hand.
+	//
+	// The workspace's own list has to be able to reach here, and specifically
+	// its carve-outs: a `never` entry says "this IS a company's domain,
+	// whatever the shipped list claims", and judging it by the baseline alone
+	// would keep dropping the employer agreement an admin has explicitly
+	// asserted.
+	ConsumerMail *freemail.Matcher
 	// CurrentPrimaryOrgID drives org_match = 1.0 when both sides share
 	// an employer. Nil when the candidate has no known employer yet.
 	CurrentPrimaryOrgID *ids.OrganizationID
@@ -214,11 +224,11 @@ type personCandidateRow struct {
 	fullName string
 	orgID    *ids.OrganizationID
 	// orgDomain is a domain the incumbent's EMPLOYER is registered under;
-	// mailDomain is one their own address sits on. Both say "these two work at
-	// the same place", and the second says it while the employer is still an
-	// open question — which is where a captured counterparty starts.
-	orgDomain  *string
-	mailDomain *string
+	// mailDomains are the ones their own live addresses sit on. Both say "these
+	// two work at the same place", and the second says it while the employer is
+	// still an open question — which is where a captured counterparty starts.
+	orgDomain   *string
+	mailDomains []string
 }
 
 // fuzzyPerson is PO-F-1 tier 2. The candidate set is restricted to
@@ -228,9 +238,15 @@ type personCandidateRow struct {
 func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, p.full_name, r.organization_id, od.domain,
-		       (SELECT split_part(pe.email, '@', 2) FROM person_email pe
-		         WHERE pe.person_id = p.id AND pe.is_primary
-		         LIMIT 1)
+		       -- EVERY live address, not an unordered LIMIT 1: a contact with a
+		       -- work and a personal address has two primaries as far as this
+		       -- query is concerned, and picking either at random would make
+		       -- the employer term depend on the plan Postgres chose. Archived
+		       -- addresses are excluded — an address somebody stopped using is
+		       -- not evidence of where they work now.
+		       (SELECT array_agg(DISTINCT split_part(pe.email, '@', 2))
+		          FROM person_email pe
+		         WHERE pe.person_id = p.id AND pe.archived_at IS NULL)
 		  FROM person p
 		  LEFT JOIN relationship r
 		    ON r.person_id = p.id AND r.kind = 'employment'
@@ -249,7 +265,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 	best := PersonResolution{Decision: DecisionNoMatch}
 	for rows.Next() {
 		var row personCandidateRow
-		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain, &row.mailDomain); err != nil {
+		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain, &row.mailDomains); err != nil {
 			return PersonResolution{}, fmt.Errorf("scan person candidate: %w", err)
 		}
 		confidence := personConfidence(c, row)
@@ -294,8 +310,10 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if row.orgDomain != nil && candidateSharesDomain(c, *row.orgDomain) {
 		return 0.8
 	}
-	if row.mailDomain != nil && sharedEmployerDomain(c, *row.mailDomain) {
-		return 0.8
+	for _, domain := range row.mailDomains {
+		if sharedEmployerDomain(c, domain) {
+			return 0.8
+		}
 	}
 	return 0.0
 }
@@ -306,17 +324,21 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 // job — and scoring it would put every same-named pair of private addresses in
 // the review queue, which is exactly where "same domain" carries least signal.
 //
-// The shipped baseline decides, not the workspace's own list: this runs inside
-// the dedupe ladder, which has no workspace matcher to hand and is reached from
-// paths that never built one. The overlay only ever adds providers the baseline
-// missed, so consulting the baseline alone can leave noise in, never take a real
-// employer agreement away.
+// The candidate's own matcher decides when it carries one, so a workspace that
+// has corrected the shipped list is obeyed here as well as in capture — its
+// carve-outs are assertions that a domain IS an employer's, and honouring them
+// only on the capture side would leave dedupe dropping evidence the admin
+// deliberately restored.
 func sharedEmployerDomain(c PersonCandidate, domain string) bool {
-	return candidateSharesDomain(c, domain) && !consumerMailBaseline.IsConsumer(domain)
+	matcher := c.ConsumerMail
+	if matcher == nil {
+		matcher = consumerMailBaseline
+	}
+	return candidateSharesDomain(c, domain) && !matcher.IsConsumer(domain)
 }
 
-// consumerMailBaseline is the shipped list with no workspace overlay; see
-// sharedEmployerDomain for why the overlay is deliberately not consulted.
+// consumerMailBaseline is the shipped list with no workspace overlay — the
+// answer for a caller that built no matcher.
 var consumerMailBaseline = freemail.New(nil, nil)
 
 // candidateSharesDomain reports whether any candidate email sits on an

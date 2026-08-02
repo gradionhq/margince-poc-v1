@@ -258,6 +258,10 @@ func plantDomainEmployment(ctx context.Context, tx pgx.Tx, domain string, orgID 
 		  AND EXISTS (
 			SELECT 1 FROM person_email pe
 			WHERE pe.person_id = p.id
+			  -- An address somebody no longer uses must not attach them to a
+			  -- new employer: a former colleague would be re-hired by a domain
+			  -- they left.
+			  AND pe.archived_at IS NULL
 			  AND (split_part(pe.email, '@', 2) = $5
 			       -- A literal suffix compare, never LIKE — see PersonsOnDomain.
 			       OR right(split_part(pe.email, '@', 2), length($5) + 1) = '.' || $5))

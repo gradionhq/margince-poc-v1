@@ -12,4 +12,10 @@
 -- it created. The rules were personal boundary settings, not records: nothing
 -- references them, and no CRM row was ever derived from one.
 
+-- A bounded wait for the ACCESS EXCLUSIVE lock. A capture worker still holding
+-- the table at rollout would otherwise make this DROP wait indefinitely, and
+-- every incoming capture read would queue behind it. Failing fast lets the
+-- rollout retry in a quiet window instead of stalling ingestion.
+SET LOCAL lock_timeout = '3s';
+
 DROP TABLE IF EXISTS capture_exclusion_rule;

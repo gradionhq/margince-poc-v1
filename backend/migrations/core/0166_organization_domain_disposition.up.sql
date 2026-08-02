@@ -44,23 +44,32 @@ CREATE TABLE organization_domain_disposition (
   -- verdict creates, exactly as they own an ensure's records today; a domain
   -- nobody is accountable for may not mint rows.
   owner_id uuid NULL,
+  -- SET NULL names its COLUMN: an unqualified SET NULL on a composite key
+  -- nulls workspace_id too, which is NOT NULL, so deleting a user would fail
+  -- instead of clearing the attribution it was meant to clear.
   CONSTRAINT organization_domain_disposition_owner_fkey
-    FOREIGN KEY (workspace_id, owner_id) REFERENCES app_user (workspace_id, id) ON DELETE SET NULL,
+    FOREIGN KEY (workspace_id, owner_id) REFERENCES app_user (workspace_id, id)
+    ON DELETE SET NULL (owner_id),
 
   -- The dossier that answered, and the organization a 'company' verdict made.
-  -- Both nullable and both SET NULL on delete: the verdict outlives its
-  -- evidence, and an archived organization must not drag the answer with it.
   -- Both carry workspace_id in the reference (the composite-FK convention,
   -- 0019) so a cross-workspace target is rejected by the database rather than
-  -- by whichever query happens to remember to check.
+  -- by whichever query happens to remember to check. The verdict outlives its
+  -- EVIDENCE — a deleted dossier only clears the citation — but not its
+  -- subject; see the organization reference below.
   site_read_id    uuid NULL,
   CONSTRAINT organization_domain_disposition_site_read_fkey
     FOREIGN KEY (workspace_id, site_read_id)
-    REFERENCES site_read (workspace_id, id) ON DELETE SET NULL,
+    REFERENCES site_read (workspace_id, id) ON DELETE SET NULL (site_read_id),
   organization_id uuid NULL,
+  -- CASCADE, not SET NULL: a 'company' verdict names the organization it made,
+  -- and the settled-shape CHECK below requires that name. If the organization
+  -- is ever hard-deleted the verdict is no longer true — the domain HAS no
+  -- company — so the honest outcome is that the question becomes askable
+  -- again, which dropping the row achieves and a nulled column would not.
   CONSTRAINT organization_domain_disposition_org_fkey
     FOREIGN KEY (workspace_id, organization_id)
-    REFERENCES organization (workspace_id, id) ON DELETE SET NULL,
+    REFERENCES organization (workspace_id, id) ON DELETE CASCADE,
 
   -- Bounded retries with backoff, the same shape and the same reasons as
   -- capture_auto_enrich_state (0122): a site that will not load must not be

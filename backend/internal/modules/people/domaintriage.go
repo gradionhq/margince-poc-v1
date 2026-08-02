@@ -55,7 +55,11 @@ const (
 // same shape and the same reasoning as the auto-enrich sweep's cursor: a site
 // that will not load must not be re-crawled on every message that arrives.
 const (
-	domainTriageMaxAttempts = 2
+	// DomainTriageMaxAttempts is exported so a test in another package can
+	// drive a domain to the end of its budget by DERIVING the number rather
+	// than restating it: a hard-coded copy stops exercising the exhausted path
+	// the moment this changes, and the two would then agree by coincidence.
+	DomainTriageMaxAttempts = 2
 	domainTriageBackoff     = 7 * 24 * time.Hour
 	// triageReadStaleAfter is when a dossier that still claims to be running
 	// stops being believed. Comfortably past any real crawl — the worker's own
@@ -66,10 +70,15 @@ const (
 
 // DomainDisposition is one domain's standing verdict.
 type DomainDisposition struct {
-	Domain         string
-	Status         string
-	Source         string
-	OwnerID        ids.UUID
+	Domain string
+	Status string
+	Source string
+	// OwnerID is the human whose connection surfaced the domain, and it is a
+	// POINTER because the row's own FK clears it when that human is deleted.
+	// Reading it as a zero uuid would forge an owner no app_user row matches,
+	// and the organization insert would fail the foreign key — leaving the
+	// verdict pending for ever on a domain whose question was answered.
+	OwnerID        *ids.UUID
 	OrganizationID *ids.OrganizationID
 	Attempts       int
 }
@@ -101,7 +110,7 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 	var source *string
 	var orgID *ids.UUID
 	err := tx.QueryRow(ctx, `
-		SELECT domain, status, source, coalesce(owner_id, '00000000-0000-0000-0000-000000000000'::uuid), organization_id, attempts
+		SELECT domain, status, source, owner_id, organization_id, attempts
 		FROM organization_domain_disposition
 		WHERE domain = $1
 		FOR UPDATE`, domain).Scan(&d.Domain, &d.Status, &source, &d.OwnerID, &orgID, &d.Attempts)
@@ -176,7 +185,7 @@ func (s *Store) ListDueDomains(ctx context.Context, limit int) ([]DueDomain, err
 				  AND sr.status IN ('queued', 'deferred', 'running')
 				  AND sr.updated_at > now() - make_interval(secs => $4))
 			ORDER BY d.created_at
-			LIMIT $3`, domainTriageMaxAttempts, TriageSeedScheme, limit, triageReadStaleAfter.Seconds())
+			LIMIT $3`, DomainTriageMaxAttempts, TriageSeedScheme, limit, triageReadStaleAfter.Seconds())
 		if err != nil {
 			return fmt.Errorf("people: listing domains due for triage: %w", err)
 		}
@@ -237,7 +246,7 @@ func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, e
 			  AND next_attempt_at <= now()
 			  AND attempts >= $1
 			ORDER BY created_at
-			LIMIT $2`, domainTriageMaxAttempts, limit)
+			LIMIT $2`, DomainTriageMaxAttempts, limit)
 		if err != nil {
 			return fmt.Errorf("people: listing domains that ran out of triage attempts: %w", err)
 		}
@@ -257,17 +266,47 @@ func (s *Store) ExhaustedDomains(ctx context.Context, limit int) ([]DueDomain, e
 	return out, nil
 }
 
+// RetireStaleTriageRead finishes a triage dossier that still claims to be
+// running long after any real crawl could be. The sweep calls it before it
+// starts a read, because the in-flight unique index would otherwise make the
+// start JOIN the stuck row rather than replace it — the domain would be offered
+// on every pass and nothing would ever move.
+//
+// It is deliberately narrow: only this domain's own triage read, only one past
+// the staleness bound, and only from a live status to `failed`. A read that is
+// merely slow is not touched.
+func (s *Store) RetireStaleTriageRead(ctx context.Context, domain string) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			UPDATE site_read
+			   SET status = 'failed', finished_at = now(), updated_at = now(),
+			       status_code = 'stale_reclaim',
+			       status_detail = 'the read stopped reporting; the sweep retired it so the domain could be asked again'
+			 WHERE target_kind = $1 AND seed_url = $2
+			   AND status IN ('queued', 'deferred', 'running')
+			   AND updated_at <= now() - make_interval(secs => $3)`,
+			TargetKindDomainTriage, TriageSeedURL(domain), triageReadStaleAfter.Seconds()); err != nil {
+			return fmt.Errorf("people: retiring the stale triage dossier for %s: %w", domain, err)
+		}
+		return nil
+	})
+}
+
 // PersonsOnDomain lists the live people the workspace records at a mail domain
 // — the subjects of the sender-name heuristic, and the employees a company
 // verdict plants edges for. Subdomain addresses count: someone at
 // mail.acme.com works at the same place as someone at acme.com.
 func PersonsOnDomain(ctx context.Context, tx pgx.Tx, domain string) ([]DomainPerson, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT p.full_name, split_part(pe.email, '@', 1)
+		SELECT p.id, p.full_name, split_part(pe.email, '@', 1)
 		FROM person_email pe
 		JOIN person p ON p.id = pe.person_id
 		WHERE p.archived_at IS NULL
 		  AND p.merged_into_id IS NULL
+		  -- An address somebody no longer uses does not speak for them. Left
+		  -- in, an old mailbox on this domain could turn a personal-domain
+		  -- refusal into a company, or the reverse.
+		  AND pe.archived_at IS NULL
 		  AND (split_part(pe.email, '@', 2) = $1
 		       -- A literal suffix compare, never LIKE: the domain reaches here
 		       -- from a forgeable header, and '%' in a LIKE pattern would match
@@ -277,13 +316,24 @@ func PersonsOnDomain(ctx context.Context, tx pgx.Tx, domain string) ([]DomainPer
 		return nil, fmt.Errorf("people: listing the people on %s: %w", domain, err)
 	}
 	defer rows.Close()
+	// Grouped by PERSON, not by address: two mailboxes on somebody's own domain
+	// are one human, and counting them as two would demand that each explain
+	// the domain independently.
+	byPerson := map[ids.UUID]int{}
 	var out []DomainPerson
 	for rows.Next() {
-		var p DomainPerson
-		if err := rows.Scan(&p.FullName, &p.EmailLocal); err != nil {
+		var id ids.UUID
+		var name, local string
+		if err := rows.Scan(&id, &name, &local); err != nil {
 			return nil, fmt.Errorf("people: scanning a person on %s: %w", domain, err)
 		}
-		out = append(out, p)
+		at, seen := byPerson[id]
+		if !seen {
+			byPerson[id] = len(out)
+			out = append(out, DomainPerson{FullName: name})
+			at = len(out) - 1
+		}
+		out[at].EmailLocals = append(out[at].EmailLocals, local)
 	}
 	return out, rows.Err()
 }

@@ -165,13 +165,24 @@ func senderPrefix(domain, base string) (string, bool) {
 	return first, first != ""
 }
 
-// normalizedSet lowercases and trims a config list into a set, dropping blanks.
+// normalizedSet folds a config list into a set keyed the way Suppress keys its
+// lookups: the registrable domain, punycoded.
+//
+// Both sides have to fold the same way. Suppress derives its key through
+// freemail.Registrable, which IDNA-folds Unicode labels, so a list entry kept
+// in its Unicode spelling would never match again — and the entry that matters
+// most is `transactional_never`, the operator's escape hatch for a domain that
+// must NOT be suppressed. An entry that silently stops matching there turns a
+// deliberate allowlist into a suppression.
+// It also refuses anything that is not a hostname. `com` as an infra entry
+// would suppress every sender under that suffix, and a malformed one would sit
+// in the config doing nothing while looking configured — freemail.Hostname is
+// the same floor the consumer-mail lists use.
 func normalizedSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
 	for _, v := range values {
-		v = strings.ToLower(strings.TrimSpace(v))
-		if v != "" {
-			set[v] = struct{}{}
+		if base, ok := freemail.Hostname(v); ok {
+			set[base] = struct{}{}
 		}
 	}
 	return set

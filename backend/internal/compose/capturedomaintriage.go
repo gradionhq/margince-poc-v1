@@ -212,6 +212,15 @@ func (w *captureAutoEnrichSweepWorker) sweepDomainTriage(ctx context.Context, da
 			// the next pass takes it.
 			return nil
 		}
+		// A read this sweep can see as due is either absent or STALE — the due
+		// query only admits a domain whose dossier stopped being believed. A
+		// stale one has to be retired before the start, or the start joins the
+		// very row that is stuck and refunds, and the domain is offered again
+		// on every pass for ever without anything moving.
+		if err := w.people.RetireStaleTriageRead(ctx, domain.Domain); err != nil {
+			w.log.WarnContext(ctx, "domain triage: could not retire a stale dossier",
+				"domain", domain.Domain, "err", err)
+		}
 		started, startErr := startDomainTriageRead(ctx, w.people, domain.Domain)
 		if !started {
 			refundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refundTimeout)

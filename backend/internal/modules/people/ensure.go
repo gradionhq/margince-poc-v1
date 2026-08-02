@@ -165,7 +165,16 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		return err
 	}
 	name := counterpartyName(in.DisplayName, in.Email)
-	match, err := DedupePerson(ctx, tx, PersonCandidate{FullName: name, Emails: []string{in.Email}})
+	// The workspace's own consumer-mail list travels with the candidate: the
+	// employer-agreement term must judge a shared domain the same way capture
+	// does, or an admin's carve-out would hold on one side and not the other.
+	consumerMail, err := s.consumerMailMatcher(ctx, tx)
+	if err != nil {
+		return err
+	}
+	match, err := DedupePerson(ctx, tx, PersonCandidate{
+		FullName: name, Emails: []string{in.Email}, ConsumerMail: consumerMail,
+	})
 	if err != nil {
 		return err
 	}
@@ -261,10 +270,14 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 		return err
 	}
 
-	// The employment edge: only when the person has no current primary
-	// employer — capture suggests, it never reassigns someone's company
-	// (the current-primary partial unique is the structural guard; the
-	// NOT EXISTS keeps a concurrent race from surfacing as a 500).
+	return plantEmploymentEdge(ctx, tx, in, res.PersonID, orgID)
+}
+
+// plantEmploymentEdge attaches one person to one company, and only when they
+// have no current primary employer: capture SUGGESTS an employer, it never
+// reassigns somebody's. The current-primary partial unique is the structural
+// guard; the NOT EXISTS keeps a concurrent race from surfacing as a 500.
+func plantEmploymentEdge(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID, orgID ids.OrganizationID) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
 		SELECT $1, 'employment', $2, $3, true, $4, $5
@@ -272,7 +285,7 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 			SELECT 1 FROM relationship
 			WHERE kind = 'employment' AND person_id = $2 AND is_current_primary AND archived_at IS NULL)
 		ON CONFLICT DO NOTHING`,
-		workspaceID(ctx), res.PersonID, orgID, in.Source, in.CapturedBy); err != nil {
+		workspaceID(ctx), personID, orgID, in.Source, in.CapturedBy); err != nil {
 		return fmt.Errorf("people: insert employment edge: %w", err)
 	}
 	return nil
@@ -291,8 +304,15 @@ func adoptDispositionForOrg(ctx context.Context, tx pgx.Tx, domain string, orgID
 		   SET status = $2, source = $3, organization_id = $4,
 		       evidence = 'a human put a company on this domain',
 		       next_attempt_at = NULL, updated_at = now()
-		 WHERE domain = $1 AND (status <> $2 OR organization_id IS DISTINCT FROM $4)`,
-		domain, DomainCompany, DomainSourceHuman, orgID); err != nil {
+		 WHERE domain = $1
+		   AND (status <> $2 OR organization_id IS DISTINCT FROM $4)
+		   -- Only a REFUSAL is a human's to overturn. A no_site row already
+		   -- carrying the organization triage itself created is not: claiming
+		   -- that as "a human put a company on this domain" would rewrite the
+		   -- provenance of a machine decision nobody overruled, and the
+		   -- evidence field exists to say why a company was refused.
+		   AND NOT (source = $5 AND organization_id IS NOT DISTINCT FROM $4)`,
+		domain, DomainCompany, DomainSourceHuman, orgID, DomainSourceHeuristic); err != nil {
 		return fmt.Errorf("people: recording that a human settled %s: %w", domain, err)
 	}
 	return nil
@@ -322,11 +342,17 @@ func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounte
 		return err
 	}
 	if known && prior.Settled() {
-		// Answered — so nothing more to ask, whatever the answer was. A
-		// 'company' verdict cannot reach here at all: the dedupe above would
-		// have found the organization it named. Neither can the no_site variant
-		// that DID create one, for the same reason; what reaches here is a
-		// refusal, or a no_site that created nothing.
+		// Answered while this ensure was running. Taking the lock above is what
+		// ordered the two, and the dedupe that said "no organization" ran
+		// BEFORE it — so a verdict that committed in between created a company
+		// this path has not seen. Attaching to it here is the difference
+		// between the person getting their employer now and waiting for their
+		// next message to notice.
+		if prior.OrganizationID != nil {
+			res.OrganizationID = prior.OrganizationID
+			return plantEmploymentEdge(ctx, tx, in, res.PersonID, *prior.OrganizationID)
+		}
+		// A refusal. No company from this domain, and nothing more to ask.
 		return nil
 	}
 	if known {

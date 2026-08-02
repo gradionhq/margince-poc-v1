@@ -17,12 +17,17 @@ package people
 import "strings"
 
 // DomainPerson is one human the workspace already records on a domain: their
-// name as captured, and the local part of the address they wrote from. Both
+// name as captured, and the local parts of EVERY address they hold on it. Both
 // matter — "Ines Marsh" writing from rowan@rowanmarsh.example is only explained
 // by joining the local part to the surname.
+//
+// The locals are a list because a person often has two mailboxes on their own
+// domain. One entry per ADDRESS would make those look like two different
+// people, and since the test below requires every person to be explained, a
+// second mailbox would silently turn a personal domain into a company.
 type DomainPerson struct {
-	FullName   string
-	EmailLocal string
+	FullName    string
+	EmailLocals []string
 }
 
 // domainPersonalSimilarity is how close a spelling has to be to a name before
@@ -90,8 +95,14 @@ func personLabelCandidates(p DomainPerson) []string {
 		return nil
 	}
 	first, last := parts[0], parts[len(parts)-1]
-	out := []string{last, first + last, last + first}
-	if local := normalizeName(strings.Join(strings.FieldsFunc(p.EmailLocal, isNameSeparator), "")); local != "" {
+	// Every ordering of the whole name, not just first+last: a domain built
+	// from a middle name ("annakatharinaweber") is still that person's own.
+	out := []string{last, strings.Join(parts, ""), last + strings.Join(parts[:len(parts)-1], ""), first + last}
+	for _, raw := range p.EmailLocals {
+		local := normalizeName(strings.Join(strings.FieldsFunc(raw, isNameSeparator), ""))
+		if local == "" {
+			continue
+		}
 		// rowan@rowanmarsh.example against "Ines Marsh": the address carries
 		// the given name the header does not.
 		out = append(out, local+last, last+local)

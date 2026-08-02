@@ -146,6 +146,7 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 			Fields:      deepReadFields(fields),
 			Facts:       extraction.merged.facts,
 			People:      extraction.merged.people,
+			Entities:    siteReadLegalEntities(extraction.merged.entities),
 			Crawl:       crawl,
 		})
 }
@@ -181,7 +182,11 @@ type triagePayload struct {
 	Fields      []people.DeepReadField
 	Facts       []people.DeepReadFact
 	People      []sitePerson
-	Crawl       siteCrawl
+	// Entities is the legal census the read gathered. It has to travel to the
+	// terminal write or the finish overwrites it with an empty list, and the
+	// dossier loses the very entity the organization was named after.
+	Entities []people.SiteReadLegalEntity
+	Crawl    siteCrawl
 }
 
 // settleTriage writes the verdict, then finishes the dossier. The verdict comes
@@ -241,6 +246,14 @@ func (w *siteDeepReadWorker) finishTriageRead(ctx context.Context, args SiteDeep
 		in.ProfileFields = payload.Fields
 		in.Facts = payload.Facts
 		in.People = siteReadPeople(payload.People)
+		in.LegalEntities = payload.Entities
+		// Why the crawl stopped early, or a `partial` dossier says it was
+		// truncated without saying by what — and a page cap reads the same as
+		// a deadline to whoever has to judge the read.
+		if payload.Crawl.Stopped != nil {
+			reason := string(*payload.Crawl.Stopped)
+			in.StoppedReason = &reason
+		}
 		for _, s := range payload.Crawl.Skipped {
 			in.Skipped = append(in.Skipped, people.SiteReadSkip{URL: s.URL, Reason: string(s.Reason)})
 		}
@@ -289,8 +302,13 @@ func (w *siteDeepReadWorker) classifySeed(ctx context.Context, seed crawlPage) (
 // profile lane's display name. Empty when the site named nobody, which is what
 // distinguishes "read a company's site" from "read a site".
 func statedCompanyName(fields []evidencedField, entities []corpusLegalEntity) string {
-	for _, e := range entities {
-		if name := strings.TrimSpace(e.Name); name != "" {
+	// EXACTLY one entity, or none of them. A group publishing several is the
+	// case applyLegalGate already abstains on, and picking whichever happens to
+	// be first in the extraction result would name the company after array
+	// order. With the census ambiguous the profile lane's own display name is
+	// the honest fallback.
+	if len(entities) == 1 {
+		if name := strings.TrimSpace(entities[0].Name); name != "" {
 			return name
 		}
 	}
