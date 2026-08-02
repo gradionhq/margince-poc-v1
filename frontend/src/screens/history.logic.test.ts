@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
-import { distinctFields, groupByField } from "./history.logic";
+import { distinctFields, groupByField, mergeChronology } from "./history.logic";
 
 type FieldHistoryEntry = components["schemas"]["FieldHistoryEntry"];
 
@@ -45,4 +45,112 @@ describe("distinctFields", () => {
       distinctFields([e("name", "1"), e("amount", "2"), e("name", "3")]),
     ).toEqual(["name", "amount"]);
   });
+});
+
+describe("mergeChronology", () => {
+  const row = (at: string) => ({ at });
+  const at = (r: { at: string }) => r.at;
+
+  it("interleaves both feeds newest-first when both are fully loaded", () => {
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01"), row("2026-01-01")], hasMore: false },
+        { rows: [row("2026-02-01")], hasMore: false },
+      ],
+      at,
+    );
+    expect(merged.rows.map(at)).toEqual([
+      "2026-03-01",
+      "2026-02-01",
+      "2026-01-01",
+    ]);
+    expect(merged.truncated).toBe(false);
+  });
+
+  it("cuts at the oldest row of a feed that has more, so the merge has no invisible gaps", () => {
+    // The activity feed stops at 2026-02-01 and has older rows unfetched.
+    // A change from January must NOT render under it: between them sit
+    // activities nobody has loaded.
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01"), row("2026-02-01")], hasMore: true },
+        { rows: [row("2026-02-15"), row("2026-01-01")], hasMore: false },
+      ],
+      at,
+    );
+    expect(merged.rows.map(at)).toEqual(["2026-03-01", "2026-02-15"]);
+    expect(merged.truncated).toBe(true);
+  });
+
+  it("drops the boundary row itself, because the feeds page on (time, id)", () => {
+    // Two activities share a second and the page broke between them. Keeping
+    // rows AT the boundary would render one of them and silently omit the
+    // other — the same invisible gap, one row further down.
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01"), row("2026-02-01")], hasMore: true },
+        { rows: [row("2026-02-01")], hasMore: false },
+      ],
+      at,
+    );
+    expect(merged.rows.map(at)).toEqual(["2026-03-01"]);
+    expect(merged.truncated).toBe(true);
+  });
+
+  it("takes the newest boundary when both feeds have more", () => {
+    // The second feed loaded down to 2026-02-20 and has more, so nothing at
+    // or below that instant is provably complete.
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01"), row("2026-02-01")], hasMore: true },
+        { rows: [row("2026-03-05"), row("2026-02-20")], hasMore: true },
+      ],
+      at,
+    );
+    expect(merged.rows.map(at)).toEqual(["2026-03-05", "2026-03-01"]);
+    expect(merged.truncated).toBe(true);
+  });
+
+  it("shows nothing when a feed has more but has loaded nothing yet", () => {
+    // Its newest row is unknown, so no part of the merge is provably complete
+    // — an empty in-flight state, never a list that looks whole.
+    const merged = mergeChronology(
+      [
+        { rows: [row("2026-03-01")], hasMore: false },
+        { rows: [], hasMore: true },
+      ],
+      at,
+    );
+    expect(merged.rows).toEqual([]);
+    expect(merged.truncated).toBe(true);
+  });
+
+  it("returns an empty, untruncated merge when both feeds are empty and complete", () => {
+    const merged = mergeChronology(
+      [
+        { rows: [], hasMore: false },
+        { rows: [], hasMore: false },
+      ],
+      at,
+    );
+    expect(merged.rows).toEqual([]);
+    expect(merged.truncated).toBe(false);
+  });
+});
+
+// Two feeds are written by two stores. A merge that compares the STRINGS puts
+// "…:00.500Z" before "…:00Z" and a +02:00 offset in the wrong hour entirely —
+// an order the reader has no way to know is wrong.
+it("orders by the instant, not by how the timestamp is spelled", () => {
+  const rows = [
+    { id: "fractional", at: "2026-07-19T09:00:00.500Z" },
+    { id: "offset", at: "2026-07-19T11:30:00+02:00" },
+    { id: "plain", at: "2026-07-19T09:00:00Z" },
+  ];
+  const merged = mergeChronology([{ rows, hasMore: false }], (row) => row.at);
+  expect(merged.rows.map((row) => row.id)).toEqual([
+    "offset",
+    "fractional",
+    "plain",
+  ]);
 });

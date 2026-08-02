@@ -24,6 +24,9 @@ export const en = {
   "trust.dismiss": "Dismiss",
   "trust.save": "Save",
   "trust.typedByYou": "typed by you",
+  "trust.typedByHuman": "typed by a person",
+  "trust.typedByPrefix": "typed by",
+  "trust.sourceUnknown": "source not recorded",
   "trust.agentTag": "agent: {agent}",
   "trust.connectorTag": "via {connector}",
   "trust.dismissed": "Suggestion dismissed.",
@@ -32,6 +35,8 @@ export const en = {
   "trust.editValue": "Edit {description}",
 
   "history.created": "— created —",
+  "history.oldValue": "Previous value",
+  "history.newValue": "New value",
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
   "history.empty": "No changes recorded",
@@ -157,6 +162,8 @@ export const en = {
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
   "record.share": "Share",
+  "record.moreActions": "More actions",
+  "record.fullHistory": "Full history",
 
   "share.title": "Share this record",
   "share.ceiling.pre": "A grant changes who can see ",
@@ -460,15 +467,40 @@ export const en = {
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
+  // The classification values a reader sees. The column stores the enum;
+  // rendering the enum itself ("prospect") told a German reader nothing and
+  // an English one only slightly more.
+  "org.class.prospect": "Prospect",
+  "org.class.customer": "Customer",
+  "org.class.agency": "Agency",
+  "org.class.reseller": "Reseller",
+  "org.class.tech_vendor": "Tech vendor",
+  "org.class.platform": "Platform",
+  "org.class.partner": "Partner",
+  "org.class.competitor": "Competitor",
+  "org.class.other": "Other",
+  "org.class.explain":
+    "How this company relates to you — not a stage in a deal.",
+  "signal.kind.stalled_deal": "Deal stalled",
+  "signal.kind.champion_left": "Champion left",
+  "signal.kind.reengagement": "Worth re-engaging",
+  "signal.kind.buying_intent": "Buying intent",
+  "signal.kind.risk": "Risk",
+  "signal.kind.other": "Other",
   "record.profile": "Profile",
   "record.business": "Business",
-  "co.pulse.strengthLead": "{score} · via",
-  "co.pulse.strengthTail.one": "of 1 contact",
-  "co.pulse.strengthTail.other": "of {count} contacts",
+  "co.pulse.strongestLead": "Strongest contact",
+  "co.pulse.strengthTail.one":
+    "\u2014 the only one here (relationship {score}/100)",
+  "co.pulse.strengthTail.other":
+    "\u2014 of {count} people here (relationship {score}/100)",
+  "co.pulse.strengthExplain":
+    "Relationship strength, 0\u2013100: how much back-and-forth there has been with this account, taken from the contact with the most.",
   "co.pulse.noStrength": "No interactions logged yet",
   "co.pulse.lastTouch": "Last touch {when}",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
+  "co.owner.notInRoster": "Current owner (no longer in the user list)",
   "co.pulse.unowned": "Unassigned",
   "co.since.first": "You are opening this account for the first time.",
   "co.partial":
@@ -492,6 +524,13 @@ export const en = {
   "co.people.consentGranted": "May contact",
   "co.people.consentWithdrawn": "Withdrawn",
   "co.people.consentUnknown": "No consent on file",
+  "co.brief.title": "Before you talk to them",
+  "co.brief.unavailable":
+    "The account reading could not be loaded, so this is not the whole picture.",
+  "co.brief.empty":
+    "There is not enough on this account yet to read anything from it.",
+  "co.brief.rewrite": "Write it again",
+  "co.brief.rewriting": "Writing…",
   "co.brief.by.model": "Written by Margince",
   "co.brief.by.deterministic": "Assembled from your records",
   "co.brief.generatedAt": "as of {when}",
@@ -520,6 +559,7 @@ export const en = {
   "approval.kind.coldstart": "Fill in a new account",
   "approval.kind.enrich": "Enrich from the web",
   "approval.kind.deepread": "Read the company site",
+  "approval.kind.linkedin_match": "LinkedIn match",
   "approval.kind.site_lead": "Add a person found on the site",
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
@@ -595,15 +635,6 @@ export const en = {
   "linkedinImport.suggested": "Awaiting your confirmation",
 
   // The review queue and the reach table (ADR-0078 §2.1b).
-  "linkedinReview.title": "Suggested matches",
-  "linkedinReview.sub":
-    "The matcher thinks these connections are contacts you already have. A name and an employer are not proof, so you decide.",
-  "linkedinReview.empty": "Nothing waiting. Every suggestion has been decided.",
-  "linkedinReview.confirm": "Yes, that is them",
-  "linkedinReview.reject": "Not them",
-  "linkedinReview.hiddenContact": "A contact you cannot see",
-  "linkedinReview.more":
-    "More suggestions are waiting — decide these and the next set appears.",
   "linkedinReach.title": "Where your network reaches",
   "linkedinReach.sub":
     "Accounts on file where you already know somebody, most connections first.",
@@ -624,6 +655,17 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "co.chronology.label": "What to show in the timeline",
+  "co.chronology.activities": "Activities",
+  "co.chronology.changes": "Changes",
+  "co.chronology.all": "All",
+  "co.chronology.changesEmpty":
+    "No field on this record has been changed since it was created.",
+  "co.chronology.allEmpty": "Nothing has happened on this account yet.",
+  "co.chronology.truncated":
+    "Older entries are not shown here — there are more of both kinds than this view can put in order. Pick Activities or Changes to read further back.",
+  "co.chronology.truncatedActivities":
+    "This account has more activities than fit here. Only the most recent ones are listed.",
   "timeline.sent": "Sent",
   "timeline.received": "Received",
   "timeline.textMore": "Read it",
@@ -649,9 +691,19 @@ export const en = {
   "co.reach.answered": "Answered",
   "co.reach.silent": "No reply",
   "co.reach.untried": "Not approached",
+  "co.role.set": "Set role",
+  "co.role.setOn": "What is {name} on this deal?",
+  "co.role.explain":
+    "The champion argues for you when you are not in the room. The economic buyer signs. Naming both is what turns a list of contacts into a picture of the decision.",
+  "co.role.onDeal": "On which deal",
+  "co.role.role": "Role",
   "co.role.champion": "champion",
   "co.role.economic_buyer": "economic buyer",
-  "co.people.missing": "Nobody here is your {roles}.",
+  "co.role.blocker": "blocker",
+  "co.role.influencer": "influencer",
+  "co.role.user": "end user",
+  "co.people.missing":
+    "No {roles} is named on the open deal yet — set one on the contact who is.",
   "co.people.untriedHint": "{count} people here have never been approached.",
   "co.people.untriedHintOne": "One person here has never been approached.",
   "co.evidence.title": "Where this came from",

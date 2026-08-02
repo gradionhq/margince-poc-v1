@@ -223,7 +223,11 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		    -- one account (a role change recorded as a second row) joins twice
 		    -- and is still one candidate; counting the join rows would read
 		    -- that as an ambiguity and refuse a correct suggestion.
-		    SELECT DISTINCT g.id AS ghost_id, p.id AS person_id
+		    SELECT DISTINCT g.id AS ghost_id, p.id AS person_id,
+		           -- Whether the names agree EXACTLY, before folding. The fold
+		           -- is what finds the candidate; this is what decides whether
+		           -- a human still has to look at it.
+		           g.full_name = p.full_name AS exact_name
 		      FROM linkedin_connection g
 		      JOIN person p
 		        ON p.archived_at IS NULL
@@ -263,13 +267,21 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		    -- Now the count is over distinct PEOPLE, which is what ambiguity
 		    -- means. (count(DISTINCT …) is not available as a window function
 		    -- in Postgres, hence the two steps rather than one.)
-		    SELECT ghost_id, person_id,
+		    SELECT ghost_id, person_id, exact_name,
 		           count(*) OVER (PARTITION BY ghost_id) AS matches
 		      FROM pair
 		)
 		UPDATE linkedin_connection g
 		   SET matched_person_id = c.person_id,
-		       match_status = 'suggested',
+		       -- An EXACT name at a matched employer, with no other candidate,
+		       -- is not a guess worth a human's attention: the two strings are
+		       -- the same string, the employer agrees, and nobody else here is
+		       -- called that. Asking about it trains people to click through
+		       -- the queue without reading, which is what makes the genuinely
+		       -- uncertain ones dangerous. A folded-only match — "André" vs
+		       -- "Andre" — still goes to a human, because that is a judgement
+		       -- about whether two spellings are one person.
+		       match_status = CASE WHEN c.exact_name THEN 'confirmed' ELSE 'suggested' END,
 		       updated_at = now()
 		  FROM candidate c
 		 WHERE g.id = c.ghost_id

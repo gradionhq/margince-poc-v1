@@ -122,7 +122,18 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 		//nolint:nilerr // on_budget_exhausted: degrade — the fallback IS the answer, and generated_by reports it
 		return deterministic, crmcontracts.Deterministic, nil
 	}
-	return written, crmcontracts.Model, nil
+	// The company half is APPENDED, not asked for: those statements are
+	// already curated prose a human accepted, so putting them through a model
+	// buys nothing and risks a paraphrase nobody checked. The model writes the
+	// relationship — the part that needs synthesis — and both paths close with
+	// the same quoted description of the company.
+	return append(written, profileLines(in, accountEvidence(orgID))...), crmcontracts.Model, nil
+}
+
+// accountEvidence cites the account itself: the company description is about
+// the company, not about any one deal or message.
+func accountEvidence(orgID string) []Evidence {
+	return []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
 }
 
 // BriefRequest builds the one request this site sends. Exported because the
@@ -134,8 +145,15 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 // written by people outside this workspace. It is fenced with a nonce that
 // writer has never seen, so no subject line can close the span and be read
 // as instruction.
+//
+// The company profile is withheld from the request. Appending those lines
+// afterwards only guarantees the approved wording APPEARS; a model that had
+// read them could still put its own wording next to it, cited to the
+// organization and so accepted by the grounding check. Withholding them is
+// what makes "the model never rewrites the company description" true of the
+// request rather than of the concatenation.
 func BriefRequest(in Input) model.Request {
-	return groundedRequest(briefSystemFor, in)
+	return groundedRequest(briefSystemFor, in.withoutProfile())
 }
 
 // groundedRequest is the one request shape both of this package's sites send:

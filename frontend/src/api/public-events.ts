@@ -529,13 +529,8 @@ export interface components {
             /** @description Whether a profile URL is now stored. False after a member clears the field, which is a deliberate "do not record this". */
             has_profile_url: boolean;
         };
-        /** @description Payload for linkedin_match.decided — a member said whether one of their imported connections is a contact on file. The connection is NOT named: it is a third party who never consented to being in this CRM, and the whole point of keeping the imported rows invisible is defeated if their names travel through the outbox. The verdict and whether a profile URL reached the contact are the auditable facts; the records themselves are reachable through the audit row this event is linked to. */
+        /** @description Payload for linkedin_match.decided — a connection was linked to a contact on file, either by an exact-name match or by a member approving the proposal. It carries NO verdict: a refusal is an approval row that stays rejected and never becomes a link, so there is no "no" to publish. The connection is NOT named: it is a third party who never consented to being in this CRM, and the whole point of keeping the imported rows invisible is defeated if their names travel through the outbox. The verdict and whether a profile URL reached the contact are the auditable facts; the records themselves are reachable through the audit row this event is linked to. */
         PublicEventLinkedinMatchDecided: {
-            /**
-             * @description What the member decided.
-             * @enum {string}
-             */
-            verdict: "confirmed" | "rejected";
             /** @description Whether the decision put a LinkedIn handle on the contact. False on every rejection, and false on a confirmation whose contact already carried one — a value on a record is somebody's statement and is never overwritten. */
             profile_url_written: boolean;
         };
@@ -996,5 +991,4 @@ type ReadonlyArray<T> = [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
 export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.deactivated", "user.reactivated", "role.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
-export const publicEventLinkedinMatchDecidedVerdictValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventLinkedinMatchDecided"]["verdict"]> = ["confirmed", "rejected"];
 export type operations = Record<string, never>;

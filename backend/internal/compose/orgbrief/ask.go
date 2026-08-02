@@ -84,10 +84,15 @@ func askSystemFor(question crmcontracts.OrganizationQuestion, fence promptfence.
 // the same reason BriefRequest is: the certification case must issue the
 // request production issues, because a rebuilt copy stays green through the
 // change that breaks the original.
+// The company profile is withheld here for the same reason BriefRequest
+// withholds it: those statements are approved prose, and none of the three
+// prepared questions asks about them. A model that had read them could
+// paraphrase one into an answer about something else entirely, cited to the
+// organization and so accepted by the grounding check.
 func AskRequest(question crmcontracts.OrganizationQuestion, in Input) model.Request {
 	return groundedRequest(func(fence promptfence.Fence) string {
 		return askSystemFor(question, fence)
-	}, in)
+	}, in.withoutProfile())
 }
 
 // Answer writes the answer to one prepared question. lane may be nil, which

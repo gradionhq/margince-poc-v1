@@ -27,6 +27,7 @@ import {
   throwProblem,
   useMe,
   useSorMode,
+  useViewerId,
 } from "./common";
 import { RecordContextPanel } from "./context";
 import { CreateAction, type CreateField } from "./create";
@@ -231,6 +232,7 @@ async function createLead(
 
 export function LeadsScreen() {
   const t = useT();
+  const viewerId = useViewerId();
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
@@ -309,7 +311,9 @@ export function LeadsScreen() {
                 key: "provenance",
                 header: t("people.capturedBy"),
                 render: (lead: Lead) => (
-                  <ProvenanceTag provenance={provenanceOf(lead.captured_by)} />
+                  <ProvenanceTag
+                    provenance={provenanceOf(lead.captured_by, viewerId)}
+                  />
                 ),
               },
             ]}
@@ -527,6 +531,7 @@ function LeadLifecycle({
 // the terminal-state labelling lives in one place (terminalBadge).
 function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
   const t = useT();
+  const viewerId = useViewerId();
   const terminal = terminalBadge(lead.status);
   return (
     <div
@@ -539,7 +544,7 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
       <Badge>{lead.status}</Badge>
       {lead.company_name && <Badge>{lead.company_name}</Badge>}
       {terminal && <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>}
-      <ProvenanceTag provenance={provenanceOf(lead.captured_by)} />
+      <ProvenanceTag provenance={provenanceOf(lead.captured_by, viewerId)} />
     </div>
   );
 }

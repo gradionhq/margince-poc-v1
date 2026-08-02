@@ -10,6 +10,7 @@ package people
 // write shape.
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -23,6 +24,10 @@ import (
 )
 
 type Handlers struct {
+	// stageMatches turns suggested LinkedIn matches into approvals. See
+	// WithMatchStager for why it is injected.
+	stageMatches func(context.Context) error
+
 	store *Store
 	// blob serves the organization logo's bytes. Nil is a role that stores no
 	// objects: the logo endpoint then answers 501 rather than nil-derefing,
@@ -32,6 +37,18 @@ type Handlers struct {
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
 	return Handlers{store: NewStore(pool)}
+}
+
+// WithMatchStager wires the pass that turns this member's suggested LinkedIn
+// matches into approvals.
+//
+// Injected rather than called directly because the approvals engine is a
+// sibling module and this one never imports a sibling. Nil means a role that
+// stages nothing — the import still runs and still matches; the suggestions
+// simply wait for the hourly sweep, which is composed with the seam.
+func (h Handlers) WithMatchStager(stage func(context.Context) error) Handlers {
+	h.stageMatches = stage
+	return h
 }
 
 // WithBlobstore wires the object store the organization-logo stream reads.

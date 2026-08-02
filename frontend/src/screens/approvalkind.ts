@@ -32,6 +32,7 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   coldstart: "approval.kind.coldstart",
   enrich: "approval.kind.enrich",
   deepread: "approval.kind.deepread",
+  linkedin_match: "approval.kind.linkedin_match",
   site_lead: "approval.kind.site_lead",
   close_date_correction: "approval.kind.close_date_correction",
   deal_follow_up: "approval.kind.deal_follow_up",

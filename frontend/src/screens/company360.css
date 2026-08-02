@@ -118,10 +118,12 @@
   margin-bottom: var(--space-3);
 }
 
-/* The brief leads the middle column: prose, so it reads at body size with
-   its citations inline rather than as a footer of chips. */
+/* The brief leads the middle column: prose, so it reads at body size with its
+   citations inline rather than as a footer of chips, and is set wider and
+   quieter than the cards around it — meant to be read top to bottom once,
+   not scanned. */
 .co-brief {
-  padding: 12px 14px;
+  padding: var(--space-4);
   margin-bottom: var(--space-3);
 }
 .co-brief-lines {
@@ -263,4 +265,20 @@
   flex-wrap: wrap;
   gap: var(--space-2);
   margin-top: var(--space-3);
+}
+
+/* The brief's two footers: what moved since the reader was last here (or that
+   there is no "away" to compare against, plus the withheld-sections caveat),
+   and who wrote the card and when. Both are runs of separate spans, so they
+   need a gap or they run together. */
+.co-prep-foot,
+.co-brief-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.co-prep-foot:empty {
+  display: none;
 }

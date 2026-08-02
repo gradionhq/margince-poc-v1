@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -7,12 +7,14 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
-import { formatDate, formatMoney } from "../format/format";
+import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
 import {
@@ -37,6 +39,40 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+
+// What each signal kind is, in words. The badge rendered the stored enum, so
+// a German reader met `buying_intent` and an English one met an identifier.
+// Typed against the schema union: a kind added upstream fails the build here.
+const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
+  stalled_deal: "signal.kind.stalled_deal",
+  champion_left: "signal.kind.champion_left",
+  reengagement: "signal.kind.reengagement",
+  buying_intent: "signal.kind.buying_intent",
+  risk: "signal.kind.risk",
+  other: "signal.kind.other",
+};
+
+// The deal-stakeholder roles worth a word. `role` is free text on the wire
+// (the enum is an unminted contract extension, DEAL-EXT-5), so an unknown
+// value renders as itself rather than being hidden — a role somebody typed is
+// still a fact about this contact.
+const DEAL_ROLE_LABELS: Record<string, MessageKey> = {
+  champion: "co.role.champion",
+  economic_buyer: "co.role.economic_buyer",
+  blocker: "co.role.blocker",
+  influencer: "co.role.influencer",
+  user: "co.role.user",
+};
+
+export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
+  // Own-property only: `role` is free text off the wire, and a value named
+  // `toString` or `constructor` would otherwise find something on Object's
+  // prototype, pass the truthy check, and render as an empty badge.
+  const key = Object.hasOwn(DEAL_ROLE_LABELS, role)
+    ? DEAL_ROLE_LABELS[role]
+    : undefined;
+  return key ? t(key) : role.replace(/_/g, " ");
+}
 type Section = Organization360["sections_omitted"][number];
 
 // OVERLAY_REFUSAL is the validation code the 360 answers for a workspace
@@ -254,15 +290,24 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
-export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function PeopleCard({
+  view,
+  // Whether this account takes writes at all. An archived record is read-only
+  // — the page hides every other verb on one — so the role control goes too.
+  writable = false,
+}: Readonly<{ view?: Organization360; writable?: boolean }>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
   const truncated = Boolean(view?.people?.page.has_more);
   const dealsReadable =
     Boolean(view?.deals) && view != null && !omitted(view, "deals");
-  const openDealIds = new Set(
-    dealsReadable ? (view?.deals?.data ?? []).map((deal) => deal.deal_id) : [],
-  );
+  const openDeals: OpenDeal[] = dealsReadable
+    ? (view?.deals?.data ?? []).map((deal) => ({
+        id: deal.deal_id,
+        name: deal.name,
+      }))
+    : [];
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
   // Every way the committee picture can be partial, in one flag. An empty
   // `contacts` means "nobody" only when the section was actually READ: a
   // people section the grants withheld, or one this response never carried,
@@ -297,7 +342,12 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
       )}
       <ul className="co-list">
         {contacts.map((contact) => (
-          <ContactRow key={contact.person_id} contact={contact} />
+          <ContactRow
+            key={contact.person_id}
+            contact={contact}
+            openDeals={openDeals}
+            writable={writable}
+          />
         ))}
       </ul>
       {contacts.length === 1 && !truncated && (
@@ -330,9 +380,205 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   );
 }
 
-function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
+// OpenDeal is the slice of an open deal a role can be attached to.
+type OpenDeal = { id: string; name: string };
+
+// everyRoleHeld reports whether this contact already holds every assignable
+// role on every open deal, which is when the verb has nothing left to write.
+function everyRoleHeld(
+  contact: Contact,
+  openDeals: readonly OpenDeal[],
+): boolean {
+  return openDeals.every((deal) => {
+    const held = new Set(
+      contact.deal_roles
+        .filter((entry) => entry.deal_id === deal.id)
+        .map((entry) => entry.role),
+    );
+    return ASSIGNABLE_ROLES.every((role) => held.has(role));
+  });
+}
+
+// The stakeholder roles offered here. `role` is free text on the wire until
+// DEAL-EXT-5 mints the enum upstream, so this list is the UI's own vocabulary
+// — the five the spec names, in the order a rep thinks of them.
+const ASSIGNABLE_ROLES = [
+  "champion",
+  "economic_buyer",
+  "influencer",
+  "blocker",
+  "user",
+] as const;
+
+/**
+ * SetRoleAction records who this person is on a deal.
+ *
+ * The page told a reader "nobody here is your champion" and gave them nowhere
+ * to say who is: the roles live on `relationship` rows written from the deal
+ * screen, which is a different page and a different task. So the warning was
+ * true, unactionable, and permanent.
+ *
+ * The role is recorded HUMAN-set, never inferred. Every CRM surveyed keeps
+ * buyer roles human-tagged — AI may suggest one, but a champion nobody named
+ * is a guess about a relationship, and the whole committee reading is built
+ * on top of it.
+ */
+function SetRoleAction({
+  contact,
+  openDeals,
+}: Readonly<{ contact: Contact; openDeals: readonly OpenDeal[] }>) {
   const t = useT();
-  const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [dealId, setDealId] = useState("");
+  const [role, setRole] = useState<string>(ASSIGNABLE_ROLES[0]);
+  const titleId = useId();
+
+  // A role this contact already holds on the selected deal is not on offer:
+  // the write creates an edge, so picking it again asks the server for a
+  // second copy of a fact that is already recorded.
+  const held = new Set(
+    contact.deal_roles
+      .filter((entry) => entry.deal_id === dealId)
+      .map((entry) => entry.role),
+  );
+  const offered: readonly string[] = ASSIGNABLE_ROLES.filter(
+    (candidate) => !held.has(candidate),
+  );
+  // Changing the deal changes what is left to pick, so the selection follows
+  // the list rather than the list following a stale selection.
+  const picked = offered.includes(role) ? role : offered[0];
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/relationships", {
+        body: {
+          kind: "deal_stakeholder",
+          person_id: contact.person_id,
+          deal_id: dealId,
+          role: picked,
+          is_current_primary: false,
+          source: "manual",
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: async () => {
+      setOpen(false);
+      // The committee reading, the missing-role warning and the row's own
+      // chips all come off the 360, so the account is re-read rather than
+      // patched in place.
+      await queryClient.invalidateQueries({ queryKey: ["organization360"] });
+    },
+  });
+
+  // A role belongs to a deal. With no open deal there is nothing to be a
+  // champion OF, and the card already says so in its own words.
+  //
+  // Nothing left to offer is the same answer: a contact already holding every
+  // role on every open deal would otherwise open a dialog with an empty list
+  // and a dead Save button.
+  if (openDeals.length === 0 || everyRoleHeld(contact, openDeals)) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        small
+        onClick={() => {
+          setDealId(openDeals[0].id);
+          setOpen(true);
+        }}
+      >
+        {t("co.role.set")}
+      </Button>
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId}>
+        <h2 id={titleId} className="t-h2 modal-title">
+          {t("co.role.setOn", { name: contact.full_name })}
+        </h2>
+        {/* What the two words mean, once, where they are being chosen. The
+            page used them as though everyone shares one definition. */}
+        <p className="t-caption">{t("co.role.explain")}</p>
+        <div className="form-stack">
+          <label className="field">
+            <span className="t-label">{t("co.role.onDeal")}</span>
+            <select
+              className="input"
+              value={dealId}
+              onChange={(event) => setDealId(event.target.value)}
+            >
+              {openDeals.map((deal) => (
+                <option key={deal.id} value={deal.id}>
+                  {deal.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="t-label">{t("co.role.role")}</span>
+            <select
+              className="input"
+              value={picked ?? ""}
+              onChange={(event) => setRole(event.target.value)}
+            >
+              {offered.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {dealRoleLabel(candidate, t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {save.isError && (
+            <p className="t-caption form-error">{save.error.message}</p>
+          )}
+          <div className="form-actions">
+            <Button
+              variant="primary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending || dealId === "" || !picked}
+            >
+              {t("record.save")}
+            </Button>
+            <Button onClick={() => setOpen(false)}>{t("fab.close")}</Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function ContactRow({
+  contact,
+  openDeals,
+  writable,
+}: Readonly<{
+  contact: Contact;
+  // The open deals a role can be recorded against. A role belongs to a DEAL,
+  // not to a person: this contact may be the champion on the renewal and
+  // nobody on the new business.
+  openDeals: readonly OpenDeal[];
+  // Read-only accounts still NAME the roles held on them; they just offer no
+  // way to change one.
+  writable: boolean;
+}>) {
+  const t = useT();
+  // Only roles on the deals this card is showing. `deal_roles` carries a
+  // contact's role on CLOSED deals too, and a champion badge read off a deal
+  // that was lost last year describes a pipeline that no longer exists.
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
+  const roles = contact.deal_roles.filter(
+    (entry) => entry.role && openDealIds.has(entry.deal_id),
+  );
+  // Which deal a role is on only matters when there is more than one to
+  // confuse: a person can be champion on the renewal and nobody on the new
+  // business, and two identical badges would say neither.
+  const nameOfDeal = (dealId: string) =>
+    openDeals.length > 1
+      ? openDeals.find((deal) => deal.id === dealId)?.name
+      : undefined;
   const reach = reachOf(contact);
   return (
     <li className="co-row">
@@ -350,10 +596,21 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
         <Badge tone={reach === "answered" ? "success" : undefined}>
           {t(reachLabelKey(reach))}
         </Badge>
-        {roles.map((role) => (
-          <Badge key={role}>{role}</Badge>
-        ))}
+        {roles.map((entry) => {
+          const deal = nameOfDeal(entry.deal_id);
+          return (
+            <Badge key={`${entry.deal_id}:${entry.role}`}>
+              {deal
+                ? `${dealRoleLabel(entry.role, t)} · ${deal}`
+                : dealRoleLabel(entry.role, t)}
+            </Badge>
+          );
+        })}
         <ConsentChip consent={contact.consent} />
+        {/* The page said "nobody here is your champion" and gave no way to
+            say who is: the roles are set on the deal screen, which is a
+            different page and a different task. */}
+        {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
       </span>
     </li>
   );
@@ -578,7 +835,7 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{signal.kind}</Badge>
+              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>
@@ -833,6 +1090,182 @@ function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
       {t(`co.brief.by.${by}`)}
     </Badge>
   );
+}
+
+/**
+ * AccountBrief is what a rep reads before they do anything else on this page:
+ * where this account stands with us, then what the company itself is.
+ *
+ * It replaces reading the record. The page used to answer "what is this
+ * company" with sixteen scraped statements in a rail card, every value a
+ * paragraph — a wall nobody reads before a call. The same statements now feed
+ * two sentences here and stay underneath for whoever wants them.
+ *
+ * Fetched on open, not on request. The server rewrites a brief whose inputs
+ * have moved before it answers, so what renders is always current and an
+ * account nobody has touched costs no model call at all. "Refresh" is for a
+ * reader who wants it rewritten anyway.
+ */
+export function AccountBrief({
+  orgId,
+  view,
+  enabled,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  // The 360 the page already holds. The brief itself is written server-side;
+  // this is for the two things it cannot write — what to DO next, and whether
+  // any of the account was withheld from this reader.
+  view?: Organization360;
+  enabled: boolean;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const queryClient = useQueryClient();
+  const brief = useQuery({
+    queryKey: ["org-brief", orgId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const rewrite = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => queryClient.setQueryData(["org-brief", orgId], data),
+  });
+
+  if (!enabled) {
+    return null;
+  }
+  const written: Brief | undefined = brief.data;
+  // A payload without sentences is a brief this build cannot read, not an
+  // account with nothing to say — the same distinction every card here keeps.
+  const readable = Array.isArray(written?.sentences) ? written : undefined;
+  return (
+    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
+      <h2 className="co-part-label">{t("co.brief.title")}</h2>
+      {brief.isPending && <Skeleton width="100%" height={64} />}
+      {/* Errored, or answered with a payload this build cannot read: both are
+          "no brief to show", and rendering the heading over nothing would be a
+          card that looks broken rather than one that says so. */}
+      {(brief.isError || (!brief.isPending && !readable)) && (
+        <EmptyState>{t("co.brief.unavailable")}</EmptyState>
+      )}
+      {readable && readable.sentences.length === 0 && (
+        <EmptyState>{t("co.brief.empty")}</EmptyState>
+      )}
+      {readable && readable.sentences.length > 0 && (
+        <SentenceList
+          sentences={readable.sentences}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      {readable && (
+        <p className="co-brief-meta">
+          {/* Who wrote it and when, always — a reader weighing a sentence
+              needs both, and an undated summary is one nobody can trust. */}
+          <WrittenBy by={readable.generated_by} />
+          <span className="t-small">
+            {t("co.brief.generatedAt", {
+              when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+            })}
+          </span>
+          <Button
+            small
+            onClick={() => rewrite.mutate()}
+            disabled={rewrite.isPending}
+          >
+            {rewrite.isPending
+              ? t("co.brief.rewriting")
+              : t("co.brief.rewrite")}
+          </Button>
+        </p>
+      )}
+      {rewrite.isError && (
+        <p className="t-caption form-error">{rewrite.error.message}</p>
+      )}
+      {/* What to do about it, in the same block that said what it is. These
+          were two cards — one describing the account, one advising on it —
+          so the reader carried the reading from the first into the second
+          themselves. */}
+      {view && (
+        <SuggestionsSection
+          orgId={orgId}
+          view={view}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      <BriefFooter view={view} />
+    </section>
+  );
+}
+
+// BriefFooter is the reading's own caveats: what moved while the reader was
+// away, and whether any of the account was withheld from them. Split out
+// because it answers questions ABOUT the brief rather than being part of it.
+function BriefFooter({ view }: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const since = sinceLastVisit(view);
+  return (
+    <p className="co-prep-foot">
+      {/* Never both: on a first open the server counts every activity as new,
+          and "14 new items" beside "you are opening this account for the first
+          time" is the page contradicting itself. */}
+      {firstVisit(view) && (
+        <span className="t-caption">{t("co.since.first")}</span>
+      )}
+      {!firstVisit(view) && since > 0 && (
+        <span className="t-caption">
+          {t(
+            since === 1 ? "co.read.newActivityOne" : "co.read.newActivityMany",
+            { count: since },
+          )}
+        </span>
+      )}
+      {/* Withheld sections are named once, about the whole reading, rather
+          than as a refusal beside each line the reader did not get. */}
+      {(view?.sections_omitted?.length ?? 0) > 0 && (
+        <span className="t-caption">{t("co.prep.withheld")}</span>
+      )}
+    </p>
+  );
+}
+
+// sinceLastVisit is how many activities landed since the reader's baseline.
+//
+// Zero and "not counted" are different answers and neither earns a line: a
+// withheld section means nobody counted, and a counted zero means nothing
+// happened — reporting either as news would be a claim the page cannot make.
+function sinceLastVisit(view?: Organization360): number {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return 0;
+  }
+  return view.since_last_visit?.new_activities ?? 0;
+}
+
+// firstVisit is true only when the account HAS a baseline section and it is
+// empty. Read off an absent section it would turn data a reader's grants
+// withheld into a claim about their own history.
+function firstVisit(view?: Organization360): boolean {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return false;
+  }
+  return Boolean(view.since_last_visit) && !view.since_last_visit?.baseline_at;
 }
 
 // The prepared questions, in the order the card offers them: what is open now,

@@ -47,6 +47,7 @@ import {
   throwProblem,
   useMe,
   useSorMode,
+  useViewerId,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
@@ -1532,6 +1533,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const pipelineQuery = usePipeline();
   const me = useMe();
+  const viewerId = useViewerId();
   // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
   // and the deal's stakeholders/offers sub-resources 422/404, and offer
   // creation would write to a mirrored deal. Gate all of it on this.
@@ -1660,13 +1662,17 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               }
               timeline={
                 timelineQuery.isSuccess
-                  ? activityTimeline(timelineQuery.data.data, (activity) => (
-                      <TimelineActions
-                        activity={activity}
-                        entityType="deal"
-                        entityId={id}
-                      />
-                    ))
+                  ? activityTimeline(
+                      timelineQuery.data.data,
+                      viewerId,
+                      (activity) => (
+                        <TimelineActions
+                          activity={activity}
+                          entityType="deal"
+                          entityId={id}
+                        />
+                      ),
+                    )
                   : []
               }
               timelineNotice={overlay ? <OverlayUnavailable /> : undefined}

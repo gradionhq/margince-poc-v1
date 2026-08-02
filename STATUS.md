@@ -54,6 +54,82 @@ one.** The spec already says what to do with the overflow: surface it. When
 workspace's tag vocabulary is over its governed cap, not a silent create that
 may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
 
+## Open — the limits the company-page review named and PR #356 did not fix
+
+Each is real and each is a change of a different size than the PR it was
+raised on.
+
+1. **The owner picker sees one page of users.** `useRoster("user")` reads
+   `GET /users?limit=200` and the edit form offers exactly those. In a
+   workspace past 200 members an owner outside that page cannot be chosen, and
+   the account's current owner shows as "Current owner (no longer in the user
+   list)" when it is really just beyond the window. The fix is a searchable
+   picker backed by a server-side user search, not another page size. The same
+   change should stop fetching the roster on every company open: today it is
+   read whether or not the reader touches the More-actions menu or the owner
+   field.
+2. **The chronology cannot reach older activities.** The Activities filter
+   reports `truncated` when `view.activities.page.has_more` is true, and the
+   "All" filter does the same when the activity feed is the side that still has
+   pages — but neither offers a control to load them. The rows exist and are
+   keyset-paged by time; what is missing is the "load older" affordance.
+3. **The overflow panel is not laid out for zoom or phones.** The panel in
+   `frontend/src/design-system/atoms.css` is a fixed 180px, so at 200% zoom on
+   a narrow viewport it can extend past the record column and be clipped, and
+   on phone layouts it can open behind the fixed bottom navigation. Both are
+   one pass over the panel's width and stacking, in the design system rather
+   than at any call site.
+4. **A site read stores the seed it was asked for, not the one that
+   answered.** The crawl now carries the working spelling forward, so
+   proposals, evidence and the logo all cite the site that served them — but
+   the `site_read` row itself still records the original `https://<domain>`.
+   Re-reading that company starts from the dead spelling again and pays the
+   fallback ladder a second time. Persisting the answered URL is a migration
+   plus a decision about whether the requested URL stays visible.
+5. **The brief's profile vocabulary is spelled out twice.**
+   `briefProfileFields` (orgbrief/input.go, which drives the fingerprint) and
+   the keys of `profileLabels` (orgbrief/deterministic.go, which drives what
+   renders) are two hand-kept lists of the same eight field names, and neither
+   is bound to the generated `CompanyProfileField` vocabulary. A rename
+   upstream drops statements out of briefs silently. Wants one ordered list
+   derived from the contract enum.
+
+## Open defect — field history shows the site-read draft's internals
+
+On a company, the Changes view lists `facts`, `fields`, `source_url`,
+`draft_version`, `site_read_id` and `human_fields`. Those are columns of the
+site-read draft, not of the company: the enrich pipeline writes its audit rows
+under `entity_type='organization'`, so the field-history projection reports
+them as changes to the record. A salesperson has no use for `draft_version`
+going to 28, and one `facts` value on ScaleCommerce runs past ten thousand
+characters.
+
+Three related things WERE fixed on `feat/company-page-clarity` (PR #356) and
+are not this item: the values printed Go's own `map[...]` syntax; the rows
+collided on React keys because one audit row projects one entry per field and
+they all carry the audit id; and a diff side could push the whole history off
+the screen.
+
+The Codex review of PR #356 pointed out that merging changes into the account
+timeline puts this in front of every rep rather than behind a tab, so the
+projection now withholds those keys (`writerBookkeepingKeys` in
+`privacy/fieldhistorydiff.go`). That is a display rule, not the fix: it is a
+named list of the writers' payload keys, and a new writer adding a key has to
+add it there too. Note it is deliberately NOT the privacy `entityFieldMask`,
+which means "hidden exactly as the live value is hidden" — these fields are not
+withheld from anyone, they are simply not fields of the record, and the audit
+spine still shows them to an auditor.
+
+What is left is which entity those audit rows belong to. Re-keying them is a
+data-model question — the erasure cascade and the retention evaluator both key
+on `entity_type` — so it wants an upstream decision, not a patch in the
+projection.
+
+Founder asked on 2026-08-01 whether field history is something an end user
+should see and whether it is valuable. For a human edit it is (Industry:
+Automotive → Manufacturing reads exactly right). For a machine-written draft
+it is not, and that is what most accounts show today.
+
 ## Open — what the company page still gets wrong, seen in the browser
 
 Read on a real account (Habyt, 2026-07-31, `make dev`). The layout problem the
@@ -61,42 +137,23 @@ rework set out to fix IS fixed: three calm columns, email bodies readable,
 disclosures holding the detail. What is left is judgment, and none of it is
 visible from a test.
 
-1. **The header pulse is still cryptic.** It reads `0 · via billing_apac of 1
-   contact`. This is the line the founder called out before the rework
-   ("2 · via X of 3 contacts"); only its plural was fixed. A bare score with no
-   label opens the record.
-2. **One fact, twice, on one screen.** The brief says "billing_apac is your
+Items 1 and 5 of the original five closed on PR #356 (the header pulse now
+names the strongest contact and labels the score; the profile card folded
+under the account brief). Their narrative is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md). What is left:
+
+1. **One fact, twice, on one screen.** The brief says "billing_apac is your
    only way into this account" and the People card says "One contact only — the
    account is single-threaded". Card soup returning in a new place.
-3. **A role mailbox is described as a person.** `billing_apac` is a shared
+2. **A role mailbox is described as a person.** `billing_apac` is a shared
    inbox; "your only way into this account" is a sentence about a human. The
    page has no notion of a role address, so it treats one as a contact.
-4. **The brief reads as an inventory of absences.** On this account: last
+3. **The brief reads as an inventory of absences.** On this account: last
    contact 56 days ago, nothing scheduled, no open deal, nothing won. All true,
    none actionable. A brief should say what to do about the account; the rules
    currently only say what it lacks.
-5. **The profile card is a new wall.** Ten fields, every value a full
-   paragraph, all underlined so everything reads as a link. The facts wall was
-   collapsed and then rebuilt out of profile fields.
 
-## Open decision — the organization brief endpoint has no client
-
-`GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
-removed from the company page because what it produced restated the screen:
-on a live account its two sentences were "you currently have three contacts
-recorded for this account" and "there is one open task due on August 1, 2026",
-both of which the reader could already see, under a heading that promised a
-reading of the account.
-
-The endpoint, its store and `compose/orgbrief` are untouched. Either the
-sentences it generates need to be worth a card of their own — the research on
-account pages says a generated summary must answer a NAMED question and cite
-its source, not narrate the record — or the endpoint should be retired. Not a
-call to make from the frontend.
-
-The client component and its hook were deleted rather than left mounted
-nowhere. `SentenceList`, `Citations` and `WrittenBy` survive: the Ask flow
-uses all three.
+All three are the substance of the brief work below.
 
 ## Open spec collision — the coverage matrix needs what the spec rules out
 
@@ -227,6 +284,94 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
+
+## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
+
+**Two founder corrections to the surface #358 shipped.** An exact name at a
+matched employer now auto-confirms instead of asking, and a match that still
+needs judgement stages as an approval of kind `linkedin_match` instead of
+having its own list/confirm/reject endpoints and its own Settings card. The
+three endpoints and `linkedin-review.tsx` are gone; the reach view and the
+import stay. The removal is recorded in `scripts/contract-breaking-allowlist.txt`.
+
+**A reasoning failure worth not repeating.** I made `linkedin_match` a
+self-only approval kind, arguing the connections "never agreed to be in this
+CRM". That was wrong three ways and is reverted. GDPR does not require consent
+to HOLD business contact data — consent governs reaching out, which is why the
+consent module here is an outbound gate. `site_lead` and captured
+counterparties are the same class of third party and are ordinary approvals.
+And ADR-0078/A123 had already settled it: who-knows-whom is workspace-shared
+metadata, guarded by "you only see edges for a person you can see at all",
+which is exactly the inbox's existing grants-plus-target-visibility rule.
+**Check the ADR before inventing a privacy rule for a feature the ADR
+designed.**
+
+**OPEN — this branch is not finished. Next session should fix, roughly in this
+order:**
+
+1. **The auto-confirm does not perform the write it is documented as
+   performing.** `people/linkedinmatch.go` sets `match_status='confirmed'` for
+   an exact name and stops: no `person_social` handle, no `touchPerson` version
+   bump, no `audit_log`, no `event_outbox`. Three comments
+   (`linkedinmatchapply.go:104`, the test at `linkedinreview_integration_test.go`,
+   and `api/public-events.yaml`'s description of `linkedin_match.decided`) all
+   say it performs the same write the approved path does. It does not. This is
+   a write-shape violation AND a contract lie. Route the auto-confirm through
+   `writeLinkedInHandle` + `auditLinkedInMatch` (an `UPDATE … RETURNING id`
+   feeding the per-row write), or correct all three statements.
+2. **Suggestions from the event-driven matcher never reach the inbox.**
+   `compose/linkedinmatchgen.go` matchPerson/matchWorkspace match and do not
+   stage; staging was added only to the import handler and the hourly sweep.
+   Worse, `linkedinowner.go` `ghostOwners` enumerates owners with
+   `match_status='unmatched'`, so a member whose ghosts are all `suggested` is
+   skipped and their proposals never appear at all. Make staging follow the
+   matcher in one helper all three call sites use.
+3. **A rejection leaves the ghost pointing at the contact the human refused.**
+   Only the approve path has an effect. `match_status` stays `suggested` with
+   `matched_person_id` still set, so reach counts and the Art. 17 sweep still
+   follow the link, and `match_status='rejected'` now has no writer at all —
+   `matchRankOrder` and `linkedinreach.go`'s `<> 'rejected'` are dead branches
+   whose comments describe an unreachable state.
+4. **`LinkedInMatchResult.Suggested` counts auto-confirmed rows.** The tiered
+   `UPDATE` returns one `RowsAffected()` and it is all reported as suggested,
+   so the import summary and both consumer log lines are wrong. `RETURNING
+   (match_status = 'confirmed')` and count the tiers separately.
+5. **A version bump on the target contact permanently destroys the approval.**
+   `person` is in `versionTables` and `linkedin_match` is not in
+   `contextTargetKinds`, so `target_version` is pinned at staging; any
+   unrelated person write inside the 24h TTL makes `Redeem` fail
+   `ErrVersionSkew` AFTER the decision committed. The approval is then
+   `approved`, unconsumed, and un-redecidable (409). Either declare the kind in
+   `contextTargetKinds` or carry the pin into `ApplyLinkedInMatch` as
+   `IfVersion`, the way `closeDateConfirmEffect` does.
+6. **`ApplyLinkedInMatch` has no owner predicate.** The `UPDATE
+   linkedin_connection … WHERE id = $1` does not check `owner_user_id`, so a
+   decider writes another member's connection row. Add it and return
+   `ErrNotFound` otherwise, the existence-hiding shape the module uses.
+7. **No test covers the staged path end to end.** The 227-line
+   `compose/integration/linkedin_review_http_integration_test.go` and
+   `TestARejectionSurvivesTheNextImportAndTheSweep` were deleted without
+   replacement. Nothing proves the kind is registered, that the `person:update`
+   grant gates the decision, or that a refused connection is not re-proposed.
+8. **A failed link write permanently consumes the approval.** `Redeem` and
+   `ApplyLinkedInMatch` are separate transactions, so a redeem that commits
+   followed by a failed apply leaves an approved, consumed proposal with no
+   link and no retry path. Same family as item 5.
+9. **Two ghosts with an identical name+employer can both auto-confirm onto the
+   same contact.** The `c.matches = 1` guard counts candidate PEOPLE per ghost,
+   not ghosts per person.
+10. **The `linkedin_match.decided` v1 payload dropped a required field.**
+   `verdict` was removed from a shipped event without a version bump. No
+   external subscriber exists yet; either bump to v2 or restore the field as
+   optional before one does.
+11. **The reach table renders only the API's first page** (default limit 50)
+   with no control for the rest, and its column headers use `--textMuted`,
+   which fails WCAG AA contrast on the card background.
+12. Smaller: `matchConfirmed`'s comment claims it removes literals that are
+   still inline at six sites; `approvalsServiceWithEffects` is rebuilt per
+   import request and per workspace per sweep; `TestCollapseNever…` and
+   `matchRankOrder`'s "how much human judgement" comment are now untrue, since
+   `confirmed` can be a machine's exact-name guess.
 
 ## Session pickup — 2026-08-01 (the graph's last third, branch `feat/linkedin-onboarding-and-matching`)
 
@@ -1471,6 +1616,57 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     mode, so no caller sets `req.Tools`; the native adapters currently reject a
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
+
+## Upstream spec raises owed from 2026-08-01
+
+From the founder's company-page review. Nothing edited in the spec repo —
+raises only.
+
+1. **The account brief has no spec chapter at all.** `compose/orgbrief`, the
+   `org_brief` table, `GET|POST /organizations/{id}/brief`, `POST
+   /organizations/{id}/ask` and its three prepared questions are all
+   build-side. The per-viewer, input-fingerprinted cache is also a different
+   mechanism from the shared `hash(workspace, task, model, inputs)` result
+   cache that `ai-operational-spec.md` §6 pins, and the relationship between
+   the two is undefined. Now that the brief is the company page's answer to
+   the profile wall, it needs a chapter rather than a note.
+2. **"Prospect" means three things.** It is the default
+   `organization.classification`, informal prose for a lead, and the name of
+   an external persona (PERSONA-PAT). The glossary splits person/organization
+   from Contact/Company but says nothing here. The build USED to ship the enum
+   value raw to the screen; PR #356 added typed display catalogues, so what is
+   owed upstream is the normative terminology rule, not the copy. Also wanted:
+   whether `classification` is human-editable at all.
+   `UpdateOrganizationRequest` carries no such field today — the value is set
+   by the partner extension and by confirmed proposals — so the company page
+   can name a company's type but not change it, which the founder will want.
+3. **Nobody is specified to assign `champion` / `economic_buyer`.**
+   DEAL-AC-11 asserts the roles are "drawn from captured email/meeting
+   participants", but no AI task, formula or capture rule anywhere produces
+   them, and the build sets them manually only. DEAL-EXT-5 (turning `role`
+   into a CHECK-constrained enum) is still an unminted contract extension.
+4. **Referral attribution and commission are not joined up.**
+   `relationship.kind` already carries `referred_by` and the partner extension
+   already carries `margin_tier`, but nothing connects a referral edge to a
+   won deal's margin. Wanted: whether `referred_by` on an organization or deal
+   is the sanctioned way to record who brought the account, and how commission
+   resolves at won time.
+5. **Which entity the site-read draft audits under.** See the field-history
+   defect above: draft columns are written under
+   `entity_type='organization'`, so they surface as changes to the company.
+   Re-keying touches the erasure cascade and the retention evaluator.
+6. **No layout is prescribed for a record detail page.**
+   `web-design-system.md` names "the Record View with a provenance-stamped
+   timeline" and stops. AC-company-1..12 is a screen transcription, not a
+   layout spec, and it still lists a History tab this build has now retired in
+   favour of a timeline filter.
+7. **An account owner cannot be unassigned.** `UpdateOrganizationRequest`
+   types `owner_id` as `[string, 'null']`, but the generated Go binds it to
+   `*openapi_types.UUID`, where a JSON `null` and an omitted field decode to
+   the same nil — so the store cannot tell "clear the owner" from "leave it
+   alone". The edit form now makes the picker required once an account HAS an
+   owner rather than offering a blank option it cannot honour. Wanted:
+   whether unassigning is a real operation, and if so the wire shape for it.
 
 ## Upstream spec raises owed from 2026-07-31
 

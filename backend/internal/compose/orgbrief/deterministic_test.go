@@ -265,3 +265,22 @@ func TestTheLastContactLineAgreesWithItsArticle(t *testing.T) {
 		}
 	}
 }
+
+// A stored value that is nothing but punctuation reduces to nothing, and
+// "What they sell: ." says less than saying nothing.
+func TestProfileLinesSkipAStatementThatIsOnlyPunctuation(t *testing.T) {
+	in := Input{
+		Name: "Acme",
+		Profile: []ProfileIn{
+			{Field: "offer_summary", Value: " ,; "},
+			{Field: "icp", Value: "Mittelstand"},
+		},
+	}
+	lines := profileLines(in, accountEvidence("org-1"))
+	if len(lines) != 1 {
+		t.Fatalf("lines = %+v, want the one statement that says something", lines)
+	}
+	if !strings.Contains(lines[0].Text, "Mittelstand") {
+		t.Errorf("line = %q, want the real statement", lines[0].Text)
+	}
+}

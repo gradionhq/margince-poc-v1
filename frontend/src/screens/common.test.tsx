@@ -269,13 +269,40 @@ describe("provenanceOf", () => {
       kind: "connector",
       connector: "gmail",
     });
-    // Human (and absent) provenance.
-    expect(provenanceOf("human:abc")).toEqual({ kind: "human" });
-    expect(provenanceOf(undefined)).toEqual({ kind: "human" });
     // A bare token with no kind prefix falls back to an agent label.
     expect(provenanceOf("capture")).toEqual({
       kind: "agent",
       agent: "capture",
     });
+  });
+
+  it("only calls a human 'you' when that human is the reader", () => {
+    // "Typed by you" over a colleague's entry is a false statement about who
+    // to ask, so the human branch carries the id and whether it is the
+    // reader's — the tag decides the wording from that, not from the kind.
+    expect(provenanceOf("human:abc", "abc")).toEqual({
+      kind: "human",
+      self: true,
+      userId: "abc",
+    });
+    expect(provenanceOf("human:abc", "someone-else")).toEqual({
+      kind: "human",
+      self: false,
+      userId: "abc",
+    });
+    // No session resolved yet: a caller that cannot say who is reading cannot
+    // claim the reader typed it.
+    expect(provenanceOf("human:abc")).toEqual({
+      kind: "human",
+      self: false,
+      userId: "abc",
+    });
+  });
+
+  it("reports an unrecorded source as unknown rather than as the reader's own typing", () => {
+    // The old fallback made every unattributed row read as "typed by you" —
+    // the one attribution nobody can check.
+    expect(provenanceOf(undefined)).toEqual({ kind: "unknown" });
+    expect(provenanceOf("")).toEqual({ kind: "unknown" });
   });
 });
