@@ -159,7 +159,9 @@ func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs
 			MaxAttempts: sweepWorkspaceMaxAttempts,
 			UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
 		}); err != nil {
-			w.log.WarnContext(ctx, "gmail watch renewal enqueue failed", "connection", d.ID.String(), "err", err)
+			// A refused enqueue means this connection's watch is never renewed,
+			// so it fails the DISPATCHER rather than being logged past.
+			enumErr = errors.Join(enumErr, fmt.Errorf("enqueueing the watch renewal for connection %s: %w", d.ID, err))
 		}
 	}
 	return jobs.FaultContext(ctx, enumErr)

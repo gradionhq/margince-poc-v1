@@ -70,7 +70,7 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	// Drain the boot digest so the next one cannot be it — nor deduped by it.
-	awaitKindCompleted(waitCtx, t, sub, "capture_digest")
+	awaitKindCompleted(waitCtx, t, sub, CaptureDigestWorkspaceArgs{}.Kind())
 
 	// Now schedule the backfill; the worker pages it to done and enqueues the
 	// same-day digest off the completion edge.
@@ -81,7 +81,7 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	}
 	awaitKindCompleted(waitCtx, t, sub, "capture_backfill")
 	// The digest that follows the completed backfill is the payoff wiring.
-	awaitKindCompleted(waitCtx, t, sub, "capture_digest")
+	awaitKindCompleted(waitCtx, t, sub, CaptureDigestWorkspaceArgs{}.Kind())
 }
 
 func TestCaptureOvernightJobsRegisterAndRun(t *testing.T) {

@@ -96,13 +96,23 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
 	for _, d := range due {
 		if _, err := client.Insert(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID},
-			workspaceSweepOpts(overlayReconcileQueue, sweepWorkspaceMaxAttempts)); err != nil {
-			w.log.WarnContext(ctx, "overlay reconcile enqueue failed",
-				"workspace", d.Workspace.String(), "err", err)
+			workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts)); err != nil {
+			// A refused enqueue means this workspace gets no sweep at all, so
+			// it fails the DISPATCHER rather than being logged past: a green
+			// tick over a tenant nobody swept is the shape this phase removes.
+			enumErr = errors.Join(enumErr, fmt.Errorf("enqueueing the reconcile for workspace %s: %w", d.Workspace, err))
 		}
 	}
 	return jobs.FaultContext(ctx, enumErr)
 }
+
+// overlaySweepMaxAttempts is ONE: this kind's retry is the sweep backoff the
+// worker itself records (overlay_sync_state.next_sweep_at — at least minutes
+// out, and longer for a rate limit), and the dispatcher's due-scan is gated on
+// it. River's own ladder does not read that column, so a second rung would
+// re-sweep a throttled incumbent seconds after the worker deliberately paced
+// it. The failed row stays failed and visible; the next due tick is the retry.
+const overlaySweepMaxAttempts = 1
 
 // OverlayReconcileWorkspaceArgs reconciles ONE workspace's incumbent mirror.
 // It names the workspace and nothing else: the connection's incumbent, region,

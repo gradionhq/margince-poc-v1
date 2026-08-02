@@ -117,10 +117,12 @@ func (c *CaptureClassifier) RunWorkspace(ctx context.Context, maxLabels int) err
 			return nil
 		}
 		if err != nil {
-			// One bad batch must not spin on the same rows — log and leave
-			// them for the next cycle.
-			c.log.WarnContext(ctx, "capture classify: batch failed", "err", err)
-			return nil
+			// This workspace's pass FAILS. Before the fan-out a bad batch was
+			// logged and skipped so it could not starve the rest of the fleet;
+			// each workspace now has its own row, so there is no fleet left to
+			// starve and swallowing it would put the green row back. The capped
+			// ladder is what stops it spinning on the same rows.
+			return fmt.Errorf("classify: draining the backlog: %w", err)
 		}
 		if n == 0 {
 			// Every verdict stayed below the floor: the same rows would be

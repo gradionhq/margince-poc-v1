@@ -29,7 +29,7 @@ const workerFloor = 20
 var nilAfterLogging = map[string]string{
 	"captureSyncWorker":               "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'",
 	"captureBackfillWorker":           "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended",
-	"overlayReconcileWorkspaceWorker": "the only nil-after-logging path is the disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. A genuine sweep failure IS returned, and its backoff recorded",
+	"overlayReconcileWorkspaceWorker": "the only nil-after-logging path is the disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. A genuine sweep failure IS returned — the row fails and stays failed, because this kind takes a single attempt and its retry is the sweep backoff the worker just recorded",
 	"voiceBuildWorker":                "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due",
 }
 

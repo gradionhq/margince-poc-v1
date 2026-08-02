@@ -21,6 +21,7 @@ import (
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/riverqueue/river"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
@@ -79,11 +80,15 @@ func TestMorningDigestBuildAndRead(t *testing.T) {
 		t.Fatalf("digest for an unbuilt day → %d, want 404", status)
 	}
 
-	// Idempotent per (user, day): the nightly worker's own re-run (over
-	// every live workspace, today's date) replaces rather than stacks, and
-	// the latest read still answers exactly one row.
-	worker := &captureDigestWorker{registry: b.registry, pool: b.env.Pool, log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: func() time.Time { return today }}
-	if err := worker.Work(context.Background(), nil); err != nil {
+	// Idempotent per (user, day): the nightly worker's own re-run for this
+	// workspace replaces rather than stacks, and the latest read still answers
+	// exactly one row. The WORKSPACE worker is what rebuilds — the dispatcher
+	// beside it only enqueues.
+	dispatcher := &captureDigestWorker{registry: b.registry, pool: b.env.Pool, log: slog.New(slog.NewTextHandler(io.Discard, nil)), now: func() time.Time { return today }}
+	worker := &captureDigestWorkspaceWorker{digests: dispatcher}
+	if err := worker.Work(context.Background(), &river.Job[CaptureDigestWorkspaceArgs]{
+		Args: CaptureDigestWorkspaceArgs{Workspace: b.env.WS},
+	}); err != nil {
 		t.Fatalf("digest worker: %v", err)
 	}
 	if status, _ := b.readDigest(t, nil); status != http.StatusOK {

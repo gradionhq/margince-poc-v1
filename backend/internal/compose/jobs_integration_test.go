@@ -73,7 +73,9 @@ func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileArgs{}.Kind())
+	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
+	// its fan-out is enqueued, so waiting on it would race the work.
+	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileWorkspaceArgs{}.Kind())
 }
 
 // awaitKindCompleted blocks until a job of the given kind reports completion,

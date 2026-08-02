@@ -78,7 +78,9 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichSweepArgs{}.Kind())
+	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
+	// its fan-out is enqueued, so waiting on it would race the work.
+	awaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichWorkspaceArgs{}.Kind())
 
 	// The sweep created a system-requested dossier for the org...
 	var readCount int

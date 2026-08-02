@@ -84,6 +84,12 @@ func (e *CaptureEnricher) RunWorkspace(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// A candidate that fails is logged, not returned, and that survives the
+	// fan-out deliberately: the retry is durable in the DATA rather than in
+	// River. A person whose verdict could not be parsed wrote no evidence
+	// rows, so SignatureCandidates re-selects them on the next pass. Failing
+	// the workspace row for one unparseable reply would retry the whole
+	// candidate set to re-reach the same person.
 	for _, cand := range candidates {
 		if err := e.enrichOne(wsCtx, cand); err != nil {
 			if isBudgetStop(err) {

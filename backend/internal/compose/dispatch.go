@@ -104,10 +104,14 @@ func dispatchPerWorkspace(ctx context.Context, pool *pgxpool.Pool, opts *river.I
 
 // clientInsertMany binds the fan-out to the River client already in context —
 // the shape gmailSyncWorker's dispatcher uses.
+//
+// The client is resolved INSIDE the closure, not when the closure is built:
+// river.ClientFromContext panics when there is none, and a dispatch over an
+// empty fleet never inserts, so resolving eagerly would turn "no workspaces
+// yet" into a panic on a path that has nothing to do.
 func clientInsertMany(ctx context.Context) insertManyFunc {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	return func(ctx context.Context, params []river.InsertManyParams) error {
-		_, err := client.InsertMany(ctx, params)
+		_, err := river.ClientFromContext[pgx.Tx](ctx).InsertMany(ctx, params)
 		return err
 	}
 }
@@ -125,10 +129,20 @@ func clientInsertMany(ctx context.Context) insertManyFunc {
 // second overlay reconcile spending incumbent API quota, a second AI-backed
 // capture pass spending model budget.
 //
-// InsertMany is all-or-nothing, so a failed dispatch enqueued nothing and its
-// retry starts from a clean slate. Logging the failure and carrying on is the
-// swallowed-error shape this whole phase removes, one level up: either the
-// fan-out lands or the dispatcher fails and says so.
+// InsertMany is all-or-nothing, so a dispatch whose INSERT failed enqueued
+// nothing and its retry starts from a clean slate. Logging the failure and
+// carrying on is the swallowed-error shape this whole phase removes, one level
+// up: either the fan-out lands or the dispatcher fails and says so.
+//
+// What this does NOT buy is exactly-once. River is at-least-once: the insert
+// commits in its own transaction, and the dispatcher is marked completed
+// afterwards, so a process that dies between the two is rescued and re-runs the
+// fan-out over children that may already have completed — which ByArgs
+// uniqueness does not suppress, because completed is outside activeSweepStates.
+// The bound on that is the workspace passes themselves: each re-reads its own
+// backlog and a caught-up one costs a probe. A dispatcher whose children are
+// expensive enough to care (overlay, the AI-backed captures) carries its own
+// pacing in the row it works from, not in this helper.
 func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyFunc, opts *river.InsertOpts, argsFor func(ids.UUID) river.JobArgs) error {
 	if len(workspaces) == 0 {
 		return nil
