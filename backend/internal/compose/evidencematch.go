@@ -75,6 +75,7 @@ const (
 	lanePageFacts = "page_facts"
 	laneProfile   = "profile"
 	laneLegal     = "legal"
+	laneTriage    = "triage"
 )
 
 // Drop reasons: why a model-claimed finding did not survive its gate.

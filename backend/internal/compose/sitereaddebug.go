@@ -364,6 +364,8 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 // PREFIX — an equality test would match nothing.
 func extractionLane(system string) string {
 	switch {
+	case strings.HasPrefix(system, triageSystem):
+		return laneTriage
 	case strings.HasPrefix(system, profileSystem):
 		return laneProfile
 	case strings.HasPrefix(system, "You extract company facts from ONE page"):

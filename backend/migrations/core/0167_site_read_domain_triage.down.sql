@@ -5,8 +5,22 @@ DROP INDEX IF EXISTS uq_site_read_triage_inflight;
 -- target_kind must not throw that away, so those rows become what they already
 -- are: ordinary organization reads. Only the unbound ones, which describe a
 -- question no longer askable at this revision, are removed.
+-- FINISHED bound reads only. A triage worker caught between binding its
+-- organization and finishing still holds a live row, and converting that one
+-- could violate uq_site_read_org_inflight when the same organization already
+-- has an active read for this seed — a rollback that fails on a race. An
+-- unfinished read is discarded below with the rest; it evidenced nothing.
 UPDATE site_read SET target_kind = 'organization'
- WHERE target_kind = 'domain_triage' AND organization_id IS NOT NULL;
+ WHERE target_kind = 'domain_triage'
+   AND organization_id IS NOT NULL
+   AND status NOT IN ('queued', 'deferred', 'running')
+   AND NOT EXISTS (
+     SELECT 1 FROM site_read live
+      WHERE live.workspace_id = site_read.workspace_id
+        AND live.organization_id = site_read.organization_id
+        AND live.seed_url = site_read.seed_url
+        AND live.target_kind = 'organization'
+        AND live.status IN ('queued', 'running'));
 
 DELETE FROM site_read WHERE target_kind = 'domain_triage';
 
