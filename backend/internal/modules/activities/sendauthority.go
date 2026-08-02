@@ -49,6 +49,22 @@ func (e *MailboxNotSendCapableError) MessageFault() (code, message string) {
 	return "mailbox_not_send_capable", e.Error()
 }
 
+// NoRecipientsError refuses a mail send that names nobody. It maps to 422 on
+// both surfaces, and unlike its neighbours here the remedy is an argument the
+// caller wrote — so it is a FieldFault, naming the one it has to change.
+type NoRecipientsError struct{}
+
+func (e *NoRecipientsError) Error() string {
+	return "a send needs at least one recipient in `to`"
+}
+
+// FieldFault names `to` rather than the merged recipient list the store works
+// in: `to` is what the caller actually sent, on both transports, and an error
+// naming a field no request body has is an error nobody can act on.
+func (e *NoRecipientsError) FieldFault() (field, code, message string) {
+	return "to", "required", e.Error()
+}
+
 // ChannelNotSendCapableError refuses a channel send this installation already
 // knows cannot leave: no live bot is bound for the provider. It maps to 422, and
 // unlike its mail twin the fix usually belongs to an ADMIN rather than to the

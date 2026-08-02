@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -381,5 +382,57 @@ func TestABookingRefusesAMirroredLinkBehindALocalOne(t *testing.T) {
 	}
 	if len(p.read) != 2 {
 		t.Errorf("read %d links, want both", len(p.read))
+	}
+}
+
+// Staging refuses what execution would refuse anyway. Otherwise the approval
+// is a trap: a human reads it, says yes, the approved retry consumes the
+// one-shot authority, and only then does the store refuse — the yes is spent
+// on something that was never going to happen. Both cases below were found by
+// driving a real session against the surface, which staged all of them.
+func TestStagingRefusesASendOrBookingExecutionWouldRefuse(t *testing.T) {
+	anchor := ids.NewV7()
+	for _, tc := range []struct {
+		name, tool, args, wantNamed string
+	}{
+		{
+			name: "a mail with no addressee reaches nobody",
+			tool: "send_email",
+			args: fmt.Sprintf(`{"activity_id":%q,"to":[],"subject":"s","body":"b","consent_purpose":"support"}`, anchor),
+			// The consent gate answers "every recipient is granted" for an
+			// empty list, so nothing downstream would have caught it.
+			wantNamed: "`to` is empty",
+		},
+		{
+			name:      "a meeting that ends before it starts is not bookable",
+			tool:      "book_meeting",
+			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T14:00:00Z","subject":"s"}`,
+			wantNamed: "does not follow `start`",
+		},
+		{
+			name:      "a meeting of zero length is not bookable either",
+			tool:      "book_meeting",
+			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T15:00:00Z","subject":"s"}`,
+			wantNamed: "does not follow `start`",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approvals := &recordingApprovals{}
+			registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+			RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+
+			_, err := registry.Invoke(sendCtx(), tc.tool, json.RawMessage(tc.args))
+
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Fatalf("Invoke err = %v, want a BadArgsError refusing it before staging", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantNamed) {
+				t.Errorf("err = %q, want it to name %q — the agent wrote the argument and is the one who can fix it", err, tc.wantNamed)
+			}
+			if len(approvals.staged) != 0 {
+				t.Errorf("staged %d approvals for a call that can never execute: %+v", len(approvals.staged), approvals.staged)
+			}
+		})
 	}
 }

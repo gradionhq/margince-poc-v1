@@ -143,6 +143,20 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, err
 	}
+	// A send with no addressee reaches nobody, and NOTHING below would have
+	// said so: the consent gate answers "every recipient is granted" for an
+	// empty list, because every member of an empty set satisfies anything. So
+	// the send ran its whole governed path and handed the provider a message
+	// with no To:. The contract says minItems 1 on both transports, but a
+	// declared schema is documentation here, not a validator, and this is the
+	// one place both transports pass through.
+	//
+	// It sits after authorization, with the other guards, for the reason
+	// stated above: order carries the rule that a caller with no rights over
+	// the anchor learns nothing else about it.
+	if len(in.Recipients) == 0 {
+		return crmcontracts.Activity{}, &NoRecipientsError{}
+	}
 	// The composition guards sit HERE, after authorization: they report a
 	// deployment defect, and a caller who may not send has no business
 	// learning which parts of this installation's send path are wired.

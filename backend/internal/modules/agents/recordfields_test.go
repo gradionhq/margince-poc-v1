@@ -124,7 +124,7 @@ func TestWriteToolsRefuseFieldsTheRecordCannotStore(t *testing.T) {
 			// Naming the field is half of it. The other half is that the
 			// refusal still tells the caller what the type DOES accept —
 			// otherwise it has replaced a silent drop with a dead end.
-			if !strings.Contains(err.Error(), "it accepts") {
+			if !strings.Contains(err.Error(), "accepts") {
 				t.Errorf("err = %q, want it to list the fields the type accepts", err)
 			}
 			if !strings.Contains(err.Error(), customFieldPrefix) {

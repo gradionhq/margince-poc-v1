@@ -14,6 +14,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -165,14 +166,22 @@ type sendEmailToolArgs struct {
 // records for that verb.
 //
 // What this does not pre-empt, so neither reads as covered: the consent gate's
-// per-purpose verdict and the workspace's mailbox send capability. Both are
-// permanent refusals a human's yes cannot fix, and both need reads this call
-// does not have — staging fetches the anchor for the version pin and nothing
-// else.
+// per-purpose verdict, the workspace's mailbox send capability, and whether an
+// address is syntactically deliverable. All are refusals a human's yes cannot
+// fix, and the first two need reads this call does not have — staging fetches
+// the anchor for the version pin and nothing else.
 func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args sendEmailToolArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
+	}
+	// Refuse here what the store refuses at execution. Otherwise staging mints
+	// an approval, a human reads a send with no addressee and says yes, the
+	// approved retry consumes that one-shot authority, and only then does the
+	// store refuse — a "yes" spent on something that was never going to happen.
+	if len(args.To) == 0 {
+		return StageInfo{}, &BadArgsError{Cause: errors.New(
+			"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
 	}
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
 	if err != nil {
@@ -367,6 +376,15 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return StageInfo{}, err
+	}
+	// Refuse here what the store refuses at execution, for the same reason the
+	// mail send does: a human should not be asked to approve a meeting that
+	// ends before it starts, spend the one-shot approval on it, and only then
+	// be told it was never bookable.
+	if !args.End.After(args.Start) {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
+			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
+			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
 	}
 	info := StageInfo{Summary: describeBooking(args)}
 	for i, link := range args.Links {

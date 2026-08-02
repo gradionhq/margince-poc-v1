@@ -380,3 +380,39 @@ func TestReplayingASourceKeyLeavesTheStoredThreadKeyUntouched(t *testing.T) {
 		t.Fatalf("stored thread_key = %q after a replay, want the value the first write set", got)
 	}
 }
+
+// A send that names nobody reaches nobody, and until this guard existed
+// NOTHING said so: the consent gate answers "every recipient is granted" for
+// an empty list, because every member of an empty set satisfies anything. So
+// the send ran its whole governed path — authorization, mailbox pre-flight,
+// consent, deliverability — and handed the provider a message with no To:.
+//
+// The contract declares minItems 1 on both transports, but a declared schema
+// is documentation on this surface rather than a validator, so the refusal has
+// to live where both transports pass through.
+func TestSendEmailRefusesAMessageThatNamesNoRecipient(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	in := sendInput("transactional")
+	in.Recipients, in.Cc = nil, nil
+
+	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager)
+
+	var refusal *NoRecipientsError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("send with no recipients → %v, want a NoRecipientsError", err)
+	}
+	// The remedy is an argument the caller wrote, so the refusal names it —
+	// and names `to`, the field both request bodies actually carry, not the
+	// merged Recipients list this store works in.
+	field, code, _ := refusal.FieldFault()
+	if field != "to" || code != "required" {
+		t.Errorf("FieldFault() = (%q, %q), want (\"to\", \"required\")", field, code)
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Errorf("staged %d deliveries and %d outbound activities for a message with no addressee, want 0 and 0",
+			len(stager.staged), e.outboundCount(t))
+	}
+}

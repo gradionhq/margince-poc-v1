@@ -128,6 +128,15 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	// second one is why a write can look like it worked and not have.
 	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")
 	b.WriteString("which this tool cannot create. ")
+	// The other field a caller reasonably expects and will not find. An
+	// activity DOES carry links — log_activity takes them — so being told the
+	// field is unknown, with no pointer, reads as "this is impossible" rather
+	// than "this is a different verb". Only said where an activity is actually
+	// in scope, so the create tool does not carry advice about a patch.
+	if _, updatable := shapes[datasource.EntityActivity]; updatable {
+		b.WriteString("An activity's links are NOT patchable here: associations move through the ")
+		b.WriteString("relink action, so this tool changes what an activity says, never who it is about. ")
+	}
 	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
 	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
 	b.WriteString("so re-read the record if you are unsure a value landed.")
@@ -192,7 +201,18 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		return nil
 	}
 	sort.Strings(unknown)
-	return &BadArgsError{Cause: fmt.Errorf("%s cannot store %s; it accepts %s (or cf_<slug> for an active custom field)",
+	// "does not accept", not "cannot store". The two are the same thing for a
+	// misspelled field and NOT the same thing for a real one this tool simply
+	// does not patch: an activity stores links — log_activity takes them — so
+	// telling a caller it cannot is false, and it sends them looking for the
+	// wrong fix. The honest claim is about this tool's own vocabulary, which is
+	// all this check ever knew.
+	//
+	// Kept the same length as the claim it replaces, deliberately: the whole
+	// message is bounded at maxBadArgsDetail, and the accepted-field list is
+	// the part that falls off the end — so a longer, truer sentence would buy
+	// accuracy by cutting the names the message exists to teach.
+	return &BadArgsError{Cause: fmt.Errorf("%s does not accept %s; accepts %s (or cf_<slug> for an active custom field)",
 		recordType, strings.Join(unknown, ", "), strings.Join(contractFieldNames(shape), ", "))}
 }
 
