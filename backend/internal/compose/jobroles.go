@@ -16,6 +16,8 @@ var (
 	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = IdempotencyRetentionWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}

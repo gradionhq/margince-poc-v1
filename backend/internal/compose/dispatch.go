@@ -32,6 +32,21 @@ func enumerateWorkspaces(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, e
 	return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
 }
 
+// enumerateEveryWorkspace reads EVERY workspace, archived ones included —
+// unlike the passes that work on behalf of a live tenant. Archiving a
+// workspace does not un-store the snapshots inside it: skipping those rows
+// would keep subject data forever in exactly the workspaces nobody looks at
+// any more, and idempotency_key.workspace_id is ON DELETE RESTRICT, so the
+// leftovers would also refuse the eventual hard delete.
+func enumerateEveryWorkspace(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
+	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; retention reads every tenant, archived included, before any per-workspace tx exists.
+	rows, err := pool.Query(ctx, `SELECT id FROM workspace ORDER BY created_at`)
+	if err != nil {
+		return nil, fmt.Errorf("compose: enumerating every workspace: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+}
+
 // The bounded queues a fanned-out pass lands on. MaxWorkers: 5 bounds only
 // the default queue, and deep_read and rate_refresh already run alongside it
 // on the same process against one pgx pool — so converted sweeps must not

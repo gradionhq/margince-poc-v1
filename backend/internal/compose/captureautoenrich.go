@@ -92,33 +92,38 @@ func newCaptureAutoEnrichSweepWorker(pool *pgxpool.Pool, log *slog.Logger) *capt
 	}
 }
 
-// Work sweeps every live workspace. Per-workspace faults are logged and never
-// abort the pass — one workspace's bad row must not starve the rest.
+// Work is the DISPATCHER: it enumerates the fleet and enqueues one sweep per
+// workspace, and touches no tenant data itself.
 func (w *captureAutoEnrichSweepWorker) Work(ctx context.Context, _ *river.Job[CaptureAutoEnrichSweepArgs]) error {
-	rows, err := w.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
+	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		func(ws ids.UUID) river.JobArgs { return CaptureAutoEnrichWorkspaceArgs{Workspace: ws} }))
+}
+
+// CaptureAutoEnrichWorkspaceArgs is one workspace's auto-enrich pass.
+type CaptureAutoEnrichWorkspaceArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CaptureAutoEnrichWorkspaceArgs) Kind() string { return "capture_auto_enrich_workspace" }
+
+// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
+func (a CaptureAutoEnrichWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// captureAutoEnrichWorkspaceWorker runs one workspace's pass. It reuses the
+// dispatcher's wiring rather than a second copy: the stores, the daily cap and
+// the actor are the pass's, not the fan-out's.
+type captureAutoEnrichWorkspaceWorker struct {
+	river.WorkerDefaults[CaptureAutoEnrichWorkspaceArgs]
+	sweeper *captureAutoEnrichSweepWorker
+}
+
+func (w *captureAutoEnrichWorkspaceWorker) Work(ctx context.Context, job *river.Job[CaptureAutoEnrichWorkspaceArgs]) error {
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	var workspaces []ids.WorkspaceID
-	for rows.Next() {
-		var id ids.WorkspaceID
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return jobs.FaultContext(ctx, err)
-		}
-		workspaces = append(workspaces, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return jobs.FaultContext(ctx, err)
-	}
-	for _, ws := range workspaces {
-		if err := w.sweepWorkspace(ctx, ws); err != nil {
-			w.log.WarnContext(ctx, "capture auto-enrich: workspace sweep failed",
-				"workspace", ws.String(), "err", err)
-		}
-	}
-	return nil
+	return jobs.FaultContext(ctx, w.sweeper.sweepWorkspace(ctx, ids.From[ids.WorkspaceKind](job.Args.Workspace)))
 }
 
 // sweepWorkspace enriches the due orgs of one workspace, respecting the flag
