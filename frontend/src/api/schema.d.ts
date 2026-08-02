@@ -6605,7 +6605,15 @@ export interface components {
             readonly computed_fields?: components["schemas"]["ComputedField"][];
             domains?: components["schemas"]["OrganizationDomain"][];
             /**
-             * @description An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+             * @description WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+             * @enum {string}
+             */
+            lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+            /** @description WHAT THE COMPANY IS to us (PO-DDL-4b, ADR-0079/A124). Multi-valued, because a company is legitimately several things at once — the partner program is built on companies that are simultaneously partners and customers. An org IS a partner iff it carries `partner` here AND has a `partner` row; removing the type while that row lives is refused (422). */
+            relationship_types?: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
+            /**
+             * @deprecated
+             * @description RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
              * @enum {string|null}
              */
             classification?: null | "prospect" | "customer" | "agency" | "reseller" | "tech_vendor" | "platform" | "partner" | "competitor" | "other";
@@ -6673,6 +6681,13 @@ export interface components {
             parent_org_id?: string | null;
             /** @description Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains. */
             domains?: components["schemas"]["OrganizationDomainInput"][];
+            /**
+             * @description Where the account stands with us (ADR-0079/A124). Absent = untouched.
+             * @enum {string}
+             */
+            lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+            /** @description Replace-set of what the company is to us (add new, archive removed), the same shape as `domains`. Absent = untouched; an empty array clears every type. Removing `partner` while the org still has a `partner` extension row is refused with 422 — the invariant binds both ways, and an invariant nothing enforces is a comment. */
+            relationship_types?: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
         } & {
             [key: string]: unknown;
         };
@@ -12266,6 +12281,10 @@ export interface operations {
                 owner_id?: string;
                 /** @description Lookup by normalized domain (the employer-inference index). */
                 domain?: string;
+                /** @description Where the account stands with us (DM-VOCAB-2, ADR-0079/A124). */
+                lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+                /** @description Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both. */
+                relationship_type?: "customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other";
                 q?: string;
             };
             header?: never;
