@@ -42,6 +42,11 @@ type DedupeInputError struct {
 
 func (e *DedupeInputError) Error() string { return "people: " + e.Field + ": " + e.Msg }
 
+// FieldFault names the dedupe argument that was malformed.
+func (e *DedupeInputError) FieldFault() (field, code, message string) {
+	return e.Field, "invalid", e.Error()
+}
+
 // DedupeCandidateRow is one queue row as stored.
 type DedupeCandidateRow struct {
 	ID          ids.UUID

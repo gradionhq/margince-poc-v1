@@ -51,7 +51,7 @@ func projectCheckConstraints(t *testing.T) []string {
 func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 	for _, constraint := range projectCheckConstraints(t) {
 		t.Run(constraint, func(t *testing.T) {
-			err := projectCheckError(constraint)
+			err := projectCheckError(constraint, "")
 			var generic *ProjectConstraintError
 			if errors.As(err, &generic) {
 				t.Fatalf("%s falls through to the generic arm, so the caller is told %q instead of what to fix",
@@ -67,7 +67,7 @@ func TestEveryNamedProjectCheckHasItsOwnRefusal(t *testing.T) {
 // A rule this module has not described yet still answers as a business rule,
 // and says which one — an honest gap beats a 500 that says nothing.
 func TestAnUnnamedProjectCheckStillReadsAsARuleBreach(t *testing.T) {
-	err := projectCheckError("project_some_future_rule")
+	err := projectCheckError("project_some_future_rule", "")
 	var generic *ProjectConstraintError
 	if !errors.As(err, &generic) {
 		t.Fatalf("an undescribed constraint produced %T, want the generic rule breach", err)

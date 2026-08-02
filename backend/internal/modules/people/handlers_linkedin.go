@@ -75,15 +75,6 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 
 	result, err := h.store.ImportLinkedInConnections(r.Context(), file)
 	if err != nil {
-		// A file this importer cannot read at all is the user's mistake and
-		// they can fix it — they picked the wrong file, or edited it in a
-		// spreadsheet until the header no longer parses. Answering 500 would
-		// send them to support for something a sentence can solve.
-		var format *LinkedInFormatError
-		if errors.As(err, &format) {
-			httperr.Write(w, r, httperr.Validation("file", "unreadable_export", format.Reason))
-			return
-		}
 		writeStoreErr(w, r, err)
 		return
 	}

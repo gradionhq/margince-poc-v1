@@ -274,6 +274,11 @@ type BadInputError struct {
 
 func (e *BadInputError) Error() string { return "collections: " + e.Field + ": " + e.Reason }
 
+// FieldFault names the list or tag argument that was rejected.
+func (e *BadInputError) FieldFault() (field, code, message string) {
+	return e.Field, "invalid", e.Reason
+}
+
 func wireList(l listRow) crmcontracts.List {
 	out := crmcontracts.List{
 		Id:         openapi_types.UUID(l.ID.UUID),

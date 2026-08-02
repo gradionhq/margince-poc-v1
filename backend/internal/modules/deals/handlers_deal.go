@@ -46,10 +46,6 @@ func (h Handlers) CreateDeal(w http.ResponseWriter, r *http.Request, _ crmcontra
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	if (req.AmountMinor == nil) != (req.Currency == nil) {
-		httperr.Write(w, r, httperr.Validation("currency", "amount_currency_pair", "amount_minor and currency come together or not at all"))
-		return
-	}
 	in, err := dealCreateInput(req)
 	if err != nil {
 		writeStoreErr(w, r, err)

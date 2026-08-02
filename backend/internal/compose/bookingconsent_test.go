@@ -46,12 +46,8 @@ func isValidation(err error, field string) bool {
 	if !errors.As(err, &de) || de.Code != "validation_error" {
 		return false
 	}
-	errs, ok := de.Details["errors"].([]map[string]string)
-	if !ok {
-		return false
-	}
-	for _, e := range errs {
-		if e["field"] == field {
+	for _, fieldErr := range de.Fields {
+		if fieldErr.Field == field {
 			return true
 		}
 	}

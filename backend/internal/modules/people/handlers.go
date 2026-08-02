@@ -77,46 +77,9 @@ func duplicateID(id ids.UUID) string {
 	return id.String()
 }
 
-// writeScoreOverrideErr maps the §3.1 Commercial-Judgement gesture errors
-// (lead_update.go) onto their 422 wire shapes; false means the error was
-// none of them and the caller keeps mapping.
-func writeScoreOverrideErr(w http.ResponseWriter, r *http.Request, err error) bool {
-	var needsReason *ScoreOverrideReasonRequiredError
-	if errors.As(err, &needsReason) {
-		httperr.Write(w, r, httperr.Validation("score_override_reason", "required", needsReason.Error()))
-		return true
-	}
-	var emptyReason *ScoreOverrideReasonEmptyError
-	if errors.As(err, &emptyReason) {
-		httperr.Write(w, r, httperr.Validation("score_override_reason", "min_length", emptyReason.Error()))
-		return true
-	}
-	var clearConflict *ScoreOverrideClearConflictError
-	if errors.As(err, &clearConflict) {
-		httperr.Write(w, r, httperr.Validation("score", "clear_conflict", clearConflict.Error()))
-		return true
-	}
-	return false
-}
-
 // writeStoreErr maps this module's typed store errors onto the wire
 // codes the contract names, then falls through to the sentinel registry.
 func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
-	var missing *RequiredFieldError
-	if errors.As(err, &missing) {
-		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
-		return
-	}
-	var reserved *ReservedSourceSystemError
-	if errors.As(err, &reserved) {
-		httperr.Write(w, r, httperr.Validation("source_system", "reserved_source_system", reserved.Error()))
-		return
-	}
-	var dedupeInput *DedupeInputError
-	if errors.As(err, &dedupeInput) {
-		httperr.Write(w, r, httperr.Validation(dedupeInput.Field, "invalid", dedupeInput.Error()))
-		return
-	}
 	var bothProjects *BothCompaniesCarryProjectsError
 	if errors.As(err, &bothProjects) {
 		// The names ride the body: "resolve your projects first" is only
@@ -147,14 +110,6 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID.UUID)))
 		return
 	}
-	if wrote := writeScoreOverrideErr(w, r, err); wrote {
-		return
-	}
-	var fitReason *PartnerFitOverrideReasonRequiredError
-	if errors.As(err, &fitReason) {
-		httperr.Write(w, r, httperr.Validation("partner_fit_override_reason", "required", fitReason.Error()))
-		return
-	}
 	var promoted *AlreadyPromotedError
 	if errors.As(err, &promoted) {
 		e := &httperr.DetailedError{
@@ -166,16 +121,6 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 			e.Details = map[string]any{"promoted_person_id": promoted.PersonID.String()}
 		}
 		httperr.Write(w, r, e)
-		return
-	}
-	var needsIdentity *PromoteNeedsIdentityError
-	if errors.As(err, &needsIdentity) {
-		httperr.Write(w, r, httperr.Validation("lead", "identity_required", needsIdentity.Error()))
-		return
-	}
-	var mergeSelf *MergeSelfError
-	if errors.As(err, &mergeSelf) {
-		httperr.Write(w, r, httperr.Validation("target_id", "merge_self", mergeSelf.Error()))
 		return
 	}
 	var alreadyMerged *AlreadyMergedError
@@ -190,11 +135,6 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 			e.Details = map[string]any{"merged_into_id": alreadyMerged.IntoID.String()}
 		}
 		httperr.Write(w, r, e)
-		return
-	}
-	var mergedTarget *MergedTargetError
-	if errors.As(err, &mergedTarget) {
-		httperr.Write(w, r, httperr.Validation("target_id", "merged_target", mergedTarget.Error()))
 		return
 	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a

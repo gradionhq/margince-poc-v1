@@ -36,6 +36,11 @@ func (e *OfferNotSentError) Error() string {
 	return "the offer is " + e.Status + "; this transition applies to a sent offer"
 }
 
+// FieldFault refuses a transition that presupposes the offer was sent.
+func (e *OfferNotSentError) FieldFault() (field, code, message string) {
+	return offerStatusField, "offer_not_sent", e.Error()
+}
+
 // SendOffer runs draft → sent: freezes fx_rate_to_base as of today (422
 // when the daily rate is missing — never rate=1, RT-PR-C2), captures the
 // buyer/issuer snapshots and emits offer.sent. An empty offer has
