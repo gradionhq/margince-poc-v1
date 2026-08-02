@@ -35,6 +35,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -121,6 +123,21 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 		t.Fatalf("send_message result = %+v, want status accepted", sent)
 	}
 
+	// The delivery names THIS activity (channelsend.go's outboundChannelMessage
+	// doc), so the id the tool call handed back must be the same id the staged
+	// delivery anchors on — otherwise the response could name any activity while
+	// the delivery transmits a different one.
+	var deliveryActivity string
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT activity_id::text FROM comms_outbound WHERE channel_user_id IS NOT NULL`).Scan(&deliveryActivity)
+	}); err != nil {
+		t.Fatalf("reading the staged delivery's activity: %v", err)
+	}
+	if deliveryActivity != sent.ActivityID {
+		t.Fatalf("the staged delivery anchors activity %s, want the one the response named (%s)", deliveryActivity, sent.ActivityID)
+	}
+
 	if n := c.stagedChannelDeliveries(t); n != 1 {
 		t.Fatalf("%d channel deliveries staged after the approved retry, want 1", n)
 	}
@@ -135,5 +152,8 @@ func TestSendMessageMCPLoopStagesApprovesAndRedeemsAgainstRealPostgres(t *testin
 	}
 	if n := c.stagedChannelDeliveries(t); n != 1 {
 		t.Fatalf("%d channel deliveries staged after replaying a consumed approval, want still 1", n)
+	}
+	if n := c.outboundActivities(t); n != 1 {
+		t.Fatalf("%d outbound activities logged after replaying a consumed approval, want still 1", n)
 	}
 }

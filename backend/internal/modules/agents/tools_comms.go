@@ -197,6 +197,18 @@ func (t sendMessageTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 	// mints an approval a human can approve, the approved retry consumes that
 	// one-shot approval on redemption, and only then does the store refuse
 	// permanently — a "yes" with no path to actually happening.
+	//
+	// SendMessage has two more permanent refusals this does not guard:
+	// ChannelRecipientError (the conversation reaches nobody, or more than
+	// one person) and ChannelNotSendCapableError (the workspace has no bot
+	// bound for the provider). Both are the same "yes with no path to
+	// actually happening" shape as the two guarded above, but closing them
+	// needs a reachability read this call does not have: the record read
+	// above returns the anchor's fields, not who the conversation resolves
+	// to or whether a bot is bound, and answering either question here would
+	// mean a new datasource seam method plus a database read at staging
+	// time — staging today only reads the anchor already fetched for
+	// version-pinning.
 	if strings.TrimSpace(args.Body) == "" {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("body is empty or whitespace-only; a channel provider rejects a text-less message")}
 	}

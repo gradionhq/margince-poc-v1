@@ -238,14 +238,23 @@ The merge gate (`make check`), the real-Postgres integration lane
 channel-reply route resolved by synthesis at `write`.
 
 A ratchet test (`agentpolicysynthesis_test.go`) now pins every verb that
-still resolves by synthesis into one of two maps: verbs where `write` is
-the right cap, and known outbound holes. Not fixed here, deliberately:
+still resolves by synthesis into one of three maps: verbs where `write` is
+the right cap (`synthesizedVerbs`), known outbound holes (`outboundHoles`),
+and verbs an agent can never actually execute even once approved
+(`deadEndVerbs`). Not fixed here, deliberately:
 
-- **Five outbound verbs are still admitted under `write` by synthesis** —
-  `send_offer`, `enrich`, `reconcile_overlay`, `connect_incumbent`,
-  `disconnect_incumbent`. Closing each means registering a tool and scope
-  for it; `connect_incumbent`/`disconnect_incumbent` additionally need the
-  tier and scope decided together, which nothing has done yet.
+- **Four outbound verbs are still admitted under `write` by synthesis** —
+  `send_offer`, `enrich`, `connect_incumbent`, `reconcile_overlay`. Closing
+  each means registering a tool and scope for it; `connect_incumbent`
+  additionally needs the tier and scope decided together, which nothing has
+  done yet.
+- **`share_record` is a dead end, not an outbound hole.** Its handlers
+  (`identity/grants.go`) reject any principal that is not
+  `PrincipalHuman`, and redemption never changes the redeeming actor's
+  type — so an agent-staged, human-approved `share_record` call is refused
+  at redemption every time. It is pinned in `deadEndVerbs` rather than
+  `outboundHoles` because there is no scope decision that would ever make
+  it succeed.
 - **`send_email` and `book_meeting` are both 🟡 tools with no `StageInfo`.**
   An MCP call to either refuses outright rather than ever staging an
   approval — there is no path to a "yes" for an agent caller today, only
