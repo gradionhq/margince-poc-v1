@@ -26,8 +26,8 @@ var synthesizedVerbs = map[string]string{
 	"draft_offer":           "regenerates a draft in place — no message is transmitted to a counterparty; the AI lane may send the deal's context to the configured model provider, but that is governed by model routing and budget, not the send scope",
 	"relink_activity":       "moves an activity between records; internal and reversible",
 	"render_offer":          "renders a document for the caller; no transmission",
-	"share_record":          "grants and revokes access inside the workspace",
 	"disqualify_lead":       "internal lifecycle change; the row survives disqualification",
+	"disconnect_incumbent":  "revokes the connection row, purges the mirror, and flips the workspace to native mode, all local; the sealed vault credential it deletes afterward is our own Postgres-backed store, not the incumbent — nothing here calls out. Contrast connect_incumbent (outboundHoles), which calls the incumbent's API and writes that credential in the first place",
 }
 
 // outboundHoles are synthesized verbs that DO leave the workspace and are
@@ -36,15 +36,35 @@ var synthesizedVerbs = map[string]string{
 // as the debt it is rather than as approval. Closing one means registering a
 // tool for it (as send_message was) and deleting its line.
 var outboundHoles = map[string]string{
-	"send_offer":           "send",
-	"enrich":               "enrich",
-	"connect_incumbent":    "write is likely right for authenticating a connection, but the tier and scope were never decided together",
-	"disconnect_incumbent": "as connect_incumbent",
-	"reconcile_overlay":    "enrich — the sweep it queues calls overlay.Reconcile's inc.Modified fetch against the incumbent's API and spends its budget",
+	// send_offer only flips the offer's status to sent, freezes fx_rate_to_base
+	// and the buyer/issuer snapshots, and emits offer.sent
+	// (deals/offer_lifecycle.go:39-96) — no delivery, no counterparty
+	// transport. The contract's summary at api/crm.yaml (sendOffer) promises
+	// sending "leaves the workspace"; the implementation does not perform
+	// that leaving. It stays here because a delivery mechanism is the
+	// intended shape (ADR context: an outbound send), not because today's
+	// code egresses — this is a contract/implementation discrepancy to
+	// reconcile upstream, not merely scope-registration debt.
+	"send_offer":        "send — pinned for what the contract promises, though the current implementation performs no delivery (see comment above)",
+	"enrich":            "enrich",
+	"connect_incumbent": "write is likely right for authenticating a connection, but the tier and scope were never decided together",
+	"reconcile_overlay": "enrich — the sweep it queues calls overlay.Reconcile's inc.Modified fetch against the incumbent's API and spends its budget",
+}
+
+// deadEndVerbs are synthesized verbs whose approved-and-redeemed agent call
+// can never execute: the handler behind them requires a human principal, so
+// staging one, having a human approve it, and redeeming it as the agent that
+// staged it always ends in refusal at the store. They are pinned here —
+// distinct from synthesizedVerbs (an internal `write` is the correct cap)
+// and outboundHoles (egress admitted under the wrong scope) — because
+// neither of those labels is true of them: the verb is reachable, resolves
+// at `write` by synthesis, and yet no agent call through it can ever land.
+var deadEndVerbs = map[string]string{
+	"share_record": "createRecordGrant/revokeRecordGrant (identity/grants.go:141,189) reject any principal.Actor whose Type is not PrincipalHuman. Redemption (agents.RedeemAndMark, compose/agentgate.go) marks the context as released but never changes the actor's type — the redeeming caller is still the staging agent — so an agent-staged, human-approved share_record is refused at redemption every time. It is not outbound (the grant never leaves the workspace) and not a legitimate write cap (no agent call through it can succeed), so it belongs in neither other map.",
 }
 
 func TestEverySynthesizedVerbIsPinned(t *testing.T) {
-	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles} {
+	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles, deadEndVerbs} {
 		for verb, reason := range pins {
 			if strings.TrimSpace(reason) == "" {
 				t.Errorf("the pin for %s has no reason — a pin must say why the verb may resolve by synthesis", verb)
@@ -68,6 +88,9 @@ func TestEverySynthesizedVerbIsPinned(t *testing.T) {
 			continue
 		}
 		if _, known := outboundHoles[pol.Tool]; known {
+			continue
+		}
+		if _, deadEnd := deadEndVerbs[pol.Tool]; deadEnd {
 			continue
 		}
 		unexplained = append(unexplained, pol.Tool+" ("+route+")")
@@ -97,7 +120,7 @@ func TestThePinsDescribeVerbsThatStillExist(t *testing.T) {
 		}
 	}
 
-	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles} {
+	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles, deadEndVerbs} {
 		for verb := range pins {
 			if !inTable[verb] {
 				t.Errorf("%s is pinned but no longer appears in the policy table; delete the pin", verb)

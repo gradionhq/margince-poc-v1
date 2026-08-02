@@ -262,6 +262,28 @@ the right cap, and known outbound holes. Not fixed here, deliberately:
   — and on `dispatch.explain`'s reading of all four post-staging — remains
   open.
 
+**Security finding, recorded not fixed: an approved channel send binds the
+message text but not the recipient.** `relink_activity` is `auto_execute`
+(`compose/agentpolicy_gen.go`); it rewrites `activity_link` rows to point a
+conversation at a different person without ever updating the `activity` row
+itself, so the pinned row version a staged `send_message` approval carries
+does not move when the conversation's counterparty changes
+(`activities/lifecycle.go`, the relink insert). `activities.Store.SendMessage`
+resolves the recipient fresh at execution time from those links
+(`reachableOnConversation`), not from anything captured when the approval was
+staged. So an agent can stage "send message M on conversation A", have a
+human approve it, auto-execute a relink that repoints A's person link, then
+redeem the byte-identical approved call — and M delivers to someone the human
+never approved sending to. This is pre-existing (a `write`-scoped passport
+could already do the same over REST before this branch) and affects both the
+REST and MCP transports; this branch neither introduces nor fixes it. The
+missing invariant: a staged send's authority is bound to the message content
+and a version pin on the wrong row. A real fix needs the recipient itself
+resolved at staging time and its identity (not just the conversation's row
+version) bound into the staged authority and rechecked at redemption, and a
+person-link change on an activity to bump that activity's own version so an
+intervening relink invalidates a pin that predates it.
+
 ## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
 
 **"Who on our team knows this contact" is now a stored fact, and the company
