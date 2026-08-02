@@ -250,6 +250,17 @@ the right cap, and known outbound holes. Not fixed here, deliberately:
   An MCP call to either refuses outright rather than ever staging an
   approval — there is no path to a "yes" for an agent caller today, only
   the REST route's own confirm-first gate.
+- **The four channel-send refusals wrap no `apperrors` sentinel.**
+  `errEmptyMessageBody`, `NotAChannelConversationError`,
+  `ChannelNotSendCapableError`, and `ChannelRecipientError` (all in
+  `activities/channelsend.go`) carry none of the fixed sentinels, so on
+  MCP, `dispatch.explain`'s default branch tells an agent "failed for an
+  internal reason... Retry" even for the permanent ones among them, while
+  REST maps the same four to actionable 422s. `StageInfo` now refuses the
+  two an agent trips at staging time (empty body, non-channel anchor)
+  before an approval is ever minted, but the taxonomy gap on the other two
+  — and on `dispatch.explain`'s reading of all four post-staging — remains
+  open.
 
 ## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
 

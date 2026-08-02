@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -63,6 +64,8 @@ func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (jso
 func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (json.RawMessage, error) {
 	return nil, nil
 }
+
+func (stubComms) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
 
 func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
 	return nil, nil

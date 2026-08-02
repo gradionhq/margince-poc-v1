@@ -94,6 +94,11 @@ func (c commsAdapter) SendMessage(ctx context.Context, anchor ids.UUID, in agent
 	return json.Marshal(map[string]any{"activity_id": sent.Id, "status": "accepted"})
 }
 
+// IsChannelKind delegates to activities.IsChannelKind — the same test the
+// store's own SendMessage refuses on — so StageInfo's pre-check and Handle's
+// eventual refusal can never drift onto two different answers for the same kind.
+func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
 func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error) {
 	hostID, err := defaultHost(ctx, host)
 	if err != nil {

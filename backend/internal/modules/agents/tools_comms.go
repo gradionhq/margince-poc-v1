@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,6 +33,12 @@ type Comms interface {
 	// addressee: the recipient is the person the anchor conversation is with,
 	// resolved server-side, so a reply can only reach the human who opened it.
 	SendMessage(ctx context.Context, anchor ids.UUID, in SendMessageArgs) (json.RawMessage, error)
+	// IsChannelKind reports whether an activity kind is a messaging-channel
+	// conversation send_message may reply on. StageInfo needs the exact
+	// answer activities.IsChannelKind gives — the same test the store's own
+	// SendMessage refuses on — but this module may not import activities
+	// directly (modules never import a sibling), so the seam carries it.
+	IsChannelKind(kind string) bool
 	Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error)
 	BookMeeting(ctx context.Context, in BookMeetingArgs) (json.RawMessage, error)
 }
@@ -184,6 +191,24 @@ func (t sendMessageTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 	}
 	if err := refuseStagingElsewhere(rec); err != nil {
 		return StageInfo{}, err
+	}
+	// Refuse here what Handle's eventual SendMessage call would refuse anyway
+	// (errEmptyMessageBody, NotAChannelConversationError): otherwise staging
+	// mints an approval a human can approve, the approved retry consumes that
+	// one-shot approval on redemption, and only then does the store refuse
+	// permanently — a "yes" with no path to actually happening.
+	if strings.TrimSpace(args.Body) == "" {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("body is empty or whitespace-only; a channel provider rejects a text-less message")}
+	}
+	var anchor struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(rec.Fields, &anchor); err != nil {
+		return StageInfo{}, fmt.Errorf("crmagents: activity %s read back with unreadable fields: %w", args.ActivityID, err)
+	}
+	if !t.comms.IsChannelKind(anchor.Kind) {
+		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
+			"activity %s is a %q activity, not a messaging-channel conversation; reply on the channel the conversation was held on", args.ActivityID, anchor.Kind)}
 	}
 	return StageInfo{
 		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,

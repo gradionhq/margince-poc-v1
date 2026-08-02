@@ -44,18 +44,35 @@ func (c *recordingComms) SendMessage(_ context.Context, anchor ids.UUID, in Send
 	return json.RawMessage(`{"status":"accepted"}`), nil
 }
 
+// IsChannelKind mirrors activities.IsChannelKind's answer for this
+// installation's one wired channel provider, without importing that module
+// (agents may not import a sibling): "telegram" is the only kind
+// send_message can ever reply on, so it is the only one this double admits.
+func (c *recordingComms) IsChannelKind(kind string) bool { return kind == "telegram" }
+
 // nativeActivityProvider serves the anchor as a row this database owns —
 // Freshness.Authoritative true, the only case an approval can be released for.
 type nativeActivityProvider struct {
 	datasource.SystemOfRecordProvider
 	version int64
+	// kind is the anchor activity's kind; empty defaults to "telegram" so
+	// existing call sites that don't care about the kind stay a channel.
+	kind string
 }
 
 func (p nativeActivityProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	kind := p.kind
+	if kind == "" {
+		kind = "telegram"
+	}
+	fields, err := json.Marshal(map[string]string{"kind": kind})
+	if err != nil {
+		return datasource.Record{}, err
+	}
 	return datasource.Record{
 		Ref: ref, Version: p.version,
 		Freshness: datasource.FreshnessInfo{Authoritative: true},
-		Fields:    json.RawMessage(`{"kind":"telegram"}`),
+		Fields:    fields,
 	}, nil
 }
 
@@ -147,6 +164,40 @@ func TestSendMessageToolRefusesToStageAMirroredConversation(t *testing.T) {
 		json.RawMessage(`{"activity_id":"`+ids.NewV7().String()+`","body":"b","consent_purpose":"support"}`))
 	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 		t.Errorf("StageInfo err = %v, want ErrUnsupportedBySoR for a mirror-backed conversation", err)
+	}
+}
+
+// An empty (or whitespace-only) body must never mint an approval: Handle's
+// eventual SendMessage call refuses it with errEmptyMessageBody, so a human
+// who approved it would have released a "yes" that can only fail on
+// redemption — the shape StageInfo exists to close off.
+func TestSendMessageToolRefusesToStageAnEmptyBody(t *testing.T) {
+	for name, body := range map[string]string{"empty": "", "whitespace-only": "   "} {
+		t.Run(name, func(t *testing.T) {
+			tool := sendMessageTool{comms: &recordingComms{}, p: nativeActivityProvider{}}
+
+			_, err := tool.StageInfo(context.Background(),
+				json.RawMessage(`{"activity_id":"`+ids.NewV7().String()+`","body":"`+body+`","consent_purpose":"support"}`))
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Errorf("StageInfo err = %v, want *BadArgsError for a %s body", err, name)
+			}
+		})
+	}
+}
+
+// An anchor that is not a messaging-channel conversation (a note, a mail
+// thread, ...) must never mint an approval either: Handle's eventual
+// SendMessage call refuses it with NotAChannelConversationError, the same
+// "yes with no path to happening" shape the empty-body guard closes.
+func TestSendMessageToolRefusesToStageANonChannelAnchor(t *testing.T) {
+	tool := sendMessageTool{comms: &recordingComms{}, p: nativeActivityProvider{kind: "note"}}
+
+	_, err := tool.StageInfo(context.Background(),
+		json.RawMessage(`{"activity_id":"`+ids.NewV7().String()+`","body":"b","consent_purpose":"support"}`))
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Errorf("StageInfo err = %v, want *BadArgsError for a non-channel anchor kind", err)
 	}
 }
 
