@@ -36,14 +36,36 @@ import (
 // orgPos is the bind position carrying the organization id; the caller registers
 // it once and every arm reads the same one.
 func OrgLinkedActivityExists(orgPos int) string {
+	return activityReachesOrg(sprintf("$%d", orgPos))
+}
+
+// OrgLinkedActivityExistsAny is the same walk over a SET of organizations, for
+// a caller that binds an id array rather than one id.
+//
+// The hierarchy roll-up needs it. Its 30-day count used to match
+// activity_link.organization_id alone, which asked a narrower question than the
+// timeline the number is displayed above: capture files mail against the PERSON
+// it was with, so an account's busiest correspondence carries no organization
+// link at all and went uncounted. One walk, two bind shapes — a fourth link
+// added to the model still reaches both.
+//
+// orgsPos is the bind position carrying the organization id array.
+func OrgLinkedActivityExistsAny(orgsPos int) string {
+	return activityReachesOrg(sprintf("ANY($%d)", orgsPos))
+}
+
+// activityReachesOrg is the walk itself. operand is what each arm compares its
+// organization id against — a single bind, or ANY(array) — so the three links
+// are written once and neither caller can drift from the other.
+func activityReachesOrg(operand string) string {
 	return sprintf(`EXISTS (
 		    SELECT 1 FROM activity_link l
 		    LEFT JOIN deal d ON d.id = l.deal_id
 		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
 		      AND r.ended_at IS NULL AND r.archived_at IS NULL
 		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = $%[1]d OR d.organization_id = $%[1]d OR r.organization_id = $%[1]d))`,
-		orgPos)
+		      AND (l.organization_id = %[1]s OR d.organization_id = %[1]s OR r.organization_id = %[1]s))`,
+		operand)
 }
 
 // listActivitiesFilter builds the timeline query's join, WHERE terms and
