@@ -230,7 +230,7 @@ func (h *hubspotWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 				continue
 			}
 		}
-		if err := h.enqueueRefetch(r, wsID.String(), class, ev.ObjectIDString()); err != nil {
+		if err := h.enqueueRefetch(r, wsID.UUID, class, ev.ObjectIDString()); err != nil {
 			h.log.ErrorContext(r.Context(), "overlay webhook: enqueueing re-fetch",
 				"workspace", wsID.String(), "class", class, "id", ev.ObjectIDString(), "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
@@ -277,7 +277,7 @@ func (h *hubspotWebhookHandler) resolveWorkspace(r *http.Request, cache map[stri
 }
 
 // enqueueRefetch schedules the coalesced re-fetch job.
-func (h *hubspotWebhookHandler) enqueueRefetch(r *http.Request, workspace, class, externalID string) error {
+func (h *hubspotWebhookHandler) enqueueRefetch(r *http.Request, workspace ids.UUID, class, externalID string) error {
 	return h.enqueue.Enqueue(r.Context(), OverlayRefetchArgs{
 		Workspace:      workspace,
 		IncumbentClass: class,

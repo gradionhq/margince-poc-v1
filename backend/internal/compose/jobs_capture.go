@@ -42,6 +42,10 @@ type GmailSyncArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (GmailSyncArgs) Kind() string { return "gmail_sync" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (GmailSyncArgs) FleetWide() {}
+
 // gmailSyncWorker is the dispatcher: due-scan, then one insert per
 // connection. Uniqueness on the connection id means a still-running or
 // already-queued sync is not double-enqueued; only a fleet-enumeration
@@ -62,7 +66,7 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 		}
 		for _, d := range due {
 			if _, err := client.Insert(ctx, CaptureSyncArgs{
-				Workspace:    d.Workspace.String(),
+				Workspace:    d.Workspace.UUID,
 				ConnectionID: d.ID.String(),
 				Provider:     desc.Name,
 			}, &river.InsertOpts{
@@ -79,13 +83,16 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 // the dispatcher and the (future) push webhook can both enqueue without
 // double-running a mailbox.
 type CaptureSyncArgs struct {
-	Workspace    string `json:"workspace"`
-	ConnectionID string `json:"connection_id"`
-	Provider     string `json:"provider"`
+	Workspace    ids.UUID `json:"workspace_id"`
+	ConnectionID string   `json:"connection_id"`
+	Provider     string   `json:"provider"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (CaptureSyncArgs) Kind() string { return "capture_sync" }
+
+// WorkspaceID binds this connection's sync to its tenant (jobs.WorkspaceScoped).
+func (a CaptureSyncArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // captureSyncWorker runs one SyncOnce under the connection's workspace. A
 // sync failure returns nil after the registry has recorded it: the sidecar's
@@ -97,15 +104,14 @@ type captureSyncWorker struct {
 }
 
 func (w *captureSyncWorker) Work(ctx context.Context, job *river.Job[CaptureSyncArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("capture_sync: workspace id: %w", err)
-	}
 	conn, err := ids.Parse(job.Args.ConnectionID)
 	if err != nil {
 		return fmt.Errorf("capture_sync: connection id: %w", err)
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return err
+	}
 	if err := w.registry.SyncOnce(wsCtx, conn); err != nil {
 		w.log.WarnContext(ctx, "capture connection sync failed",
 			"connection", job.Args.ConnectionID, "provider", job.Args.Provider, "err", err)
@@ -122,6 +128,10 @@ type GmailWatchArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (GmailWatchArgs) Kind() string { return "gmail_watch_renew" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (GmailWatchArgs) FleetWide() {}
 
 // gmailWatchWorker walks the fleet's active Gmail connections whose watch is
 // missing or nearing expiry and registers/renews each against the configured

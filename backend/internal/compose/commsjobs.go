@@ -36,12 +36,15 @@ import (
 // because comms_outbound is RLS-scoped and a job carries no session: the
 // worker binds this workspace before the dispatcher reads anything.
 type SendEmailArgs struct {
-	Workspace  string `json:"workspace"`
-	DeliveryID string `json:"delivery_id"`
+	Workspace  ids.UUID `json:"workspace_id"`
+	DeliveryID string   `json:"delivery_id"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (SendEmailArgs) Kind() string { return "comms_send_email" }
+
+// WorkspaceID binds this delivery to its tenant (jobs.WorkspaceScoped).
+func (a SendEmailArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // sendMaxAttempts is the retry ladder for one delivery, and it is ONE number
 // on purpose: it is both the MaxAttempts River enqueues the job with and the
@@ -128,7 +131,14 @@ func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { ret
 // the product does not ship — which is exactly how a binding this path depends
 // on goes missing without any test noticing.
 func SendWorkerContext(ctx context.Context, workspaceID ids.UUID) context.Context {
-	wsCtx := principal.WithWorkspaceID(ctx, workspaceID)
+	return sendWorkerScope(principal.WithWorkspaceID(ctx, workspaceID))
+}
+
+// sendWorkerScope is SendWorkerContext's provenance half, over a context whose
+// workspace is already bound. The worker takes this path because its binding
+// comes from the job args' own role declaration, which refuses a zero id — a
+// guarantee re-binding here would quietly discard.
+func sendWorkerScope(wsCtx context.Context) context.Context {
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:comms-send",
 	})
@@ -136,16 +146,17 @@ func SendWorkerContext(ctx context.Context, workspaceID ids.UUID) context.Contex
 }
 
 func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("comms_send_email: workspace id: %w", err)
-	}
 	deliveryID, err := ids.Parse(job.Args.DeliveryID)
 	if err != nil {
 		return fmt.Errorf("comms_send_email: delivery id: %w", err)
 	}
 
-	outcome, wait, err := w.dispatcher.DispatchWithWait(SendWorkerContext(ctx, ws), deliveryID)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return err
+	}
+
+	outcome, wait, err := w.dispatcher.DispatchWithWait(sendWorkerScope(wsCtx), deliveryID)
 	switch outcome {
 	case comms.OutcomePostponed:
 		// A SNOOZE, never a returned error. River restores the attempt on a
@@ -355,7 +366,7 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		return err
 	}
 	return s.runner.EnqueueTx(ctx, tx, SendEmailArgs{
-		Workspace: ws.String(), DeliveryID: id.String(),
+		Workspace: ws, DeliveryID: id.String(),
 	}, sendInsertOpts())
 }
 
@@ -382,7 +393,7 @@ func (s commsStager) StageChannelTx(ctx context.Context, tx pgx.Tx, in activitie
 		return err
 	}
 	return s.runner.EnqueueTx(ctx, tx, SendEmailArgs{
-		Workspace: ws.String(), DeliveryID: id.String(),
+		Workspace: ws, DeliveryID: id.String(),
 	}, sendInsertOpts())
 }
 

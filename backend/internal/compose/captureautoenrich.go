@@ -64,6 +64,10 @@ type CaptureAutoEnrichSweepArgs struct{}
 // Kind is the River job kind for the auto-enrich sweep.
 func (CaptureAutoEnrichSweepArgs) Kind() string { return "capture_auto_enrich_sweep" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (CaptureAutoEnrichSweepArgs) FleetWide() {}
+
 // captureAutoEnrichSweepWorker runs one sweep pass across every workspace.
 type captureAutoEnrichSweepWorker struct {
 	river.WorkerDefaults[CaptureAutoEnrichSweepArgs]
@@ -230,7 +234,7 @@ func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
 	_, joined, err := peopleStore.StartSiteReadQueued(ctx, orgID, seedURL, systemAutoEnrichActor,
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			_, insErr := client.InsertTx(ctx, tx, SiteDeepReadArgs{
-				WorkspaceID:    storekit.MustWorkspace(ctx),
+				Workspace:      storekit.MustWorkspace(ctx),
 				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
 				SeedURL:        read.SeedURL,

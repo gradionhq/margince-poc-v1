@@ -60,6 +60,10 @@ type embedReindexArgs struct {
 // Kind is the stable job identifier River persists in river_job.
 func (embedReindexArgs) Kind() string { return "embed_reindex" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (embedReindexArgs) FleetWide() {}
+
 // errReindexAlreadyRunning signals the confirm callback's own unique-skip
 // outcome (EnqueueTxUnique inserted=false, Task 11) up through the store-
 // owned ClaimAndEnqueueReembedding transaction, so the handler answers

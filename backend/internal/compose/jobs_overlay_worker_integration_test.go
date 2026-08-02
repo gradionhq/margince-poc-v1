@@ -900,7 +900,7 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 			newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
 		}
 		if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
-			Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+			Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 		}); err != nil {
 			t.Fatalf("refetch Work: %v", err)
 		}
@@ -978,7 +978,7 @@ func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
 		newIncumbent: func(_, _ string) overlay.Incumbent { return spy },
 	}
 	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
-		Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+		Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 	}); err != nil {
 		t.Fatalf("refetch Work (shed): %v", err)
 	}

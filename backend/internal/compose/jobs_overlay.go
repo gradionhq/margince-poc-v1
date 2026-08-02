@@ -31,6 +31,10 @@ type OverlayReconcileArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (OverlayReconcileArgs) FleetWide() {}
+
 // overlayReconcileWorker walks every overlay-mode workspace's active
 // incumbent connection (overlay.DueOverlayConnections — the same
 // fleet-walk shape gmailSyncWorker drives via capture.Registry.

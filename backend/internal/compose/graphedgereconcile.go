@@ -39,6 +39,10 @@ type GraphEdgeReconcileArgs struct{}
 // Kind is the River job kind for the interaction-projection reconcile.
 func (GraphEdgeReconcileArgs) Kind() string { return "graph_edge_reconcile" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (GraphEdgeReconcileArgs) FleetWide() {}
+
 // graphEdgeReconcileInterval is daily, matching the staleness bound the
 // migration states. Tightening it would narrow the window at the cost of a
 // full refold per workspace per run; loosening it would make the migration's

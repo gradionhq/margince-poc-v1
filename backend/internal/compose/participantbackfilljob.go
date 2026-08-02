@@ -35,6 +35,10 @@ type ParticipantBackfillArgs struct{}
 // Kind is the River job kind for the participant backfill.
 func (ParticipantBackfillArgs) Kind() string { return "participant_backfill" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (ParticipantBackfillArgs) FleetWide() {}
+
 // participantBackfillBatch is how many activities one statement attributes.
 // Modest on purpose: the pass holds a write transaction for its duration and
 // competes with live capture for the same rows, so a large batch buys

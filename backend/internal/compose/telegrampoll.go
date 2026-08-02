@@ -105,16 +105,23 @@ type TelegramPollSweepArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (TelegramPollSweepArgs) Kind() string { return "telegram_poll_sweep" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (TelegramPollSweepArgs) FleetWide() {}
+
 // TelegramPollArgs polls ONE connection. The workspace travels in the args
 // because a job queue is not a request and carries no tenant to inherit; the
 // cursor deliberately does not, because it moves (see LoadChannelPollTarget).
 type TelegramPollArgs struct {
-	Workspace    string `json:"workspace"`
-	ConnectionID string `json:"connection_id"`
+	Workspace    ids.UUID `json:"workspace_id"`
+	ConnectionID string   `json:"connection_id"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (TelegramPollArgs) Kind() string { return "telegram_poll" }
+
+// WorkspaceID binds this connection's poll to its tenant (jobs.WorkspaceScoped).
+func (a TelegramPollArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // InsertOpts binds the uniqueness to the ARGS TYPE rather than to the one call
 // site that enqueues today, because it is not a scheduling nicety: Telegram
@@ -146,7 +153,7 @@ func (w *telegramPollSweepWorker) Work(ctx context.Context, _ *river.Job[Telegra
 		// No InsertOpts here: TelegramPollArgs declares its own, so an inserter
 		// cannot forget the per-bot uniqueness by omission.
 		if _, err := client.Insert(ctx, TelegramPollArgs{
-			Workspace: d.WorkspaceID.String(), ConnectionID: d.ID.String(),
+			Workspace: d.WorkspaceID, ConnectionID: d.ID.String(),
 		}, nil); err != nil {
 			w.log.WarnContext(ctx, "telegram poll enqueue failed", "connection", d.ID.String(), "err", err)
 		}
@@ -211,15 +218,14 @@ func (*telegramPollWorker) Timeout(*river.Job[TelegramPollArgs]) time.Duration {
 // so the bot a poll actually spoke to is a fact about THIS poll and must be read
 // with the token it used.
 func (w *telegramPollWorker) Work(ctx context.Context, job *river.Job[TelegramPollArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("telegram_poll: workspace id: %w", err)
-	}
 	connID, err := ids.Parse(job.Args.ConnectionID)
 	if err != nil {
 		return fmt.Errorf("telegram_poll: connection id: %w", err)
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return err
+	}
 
 	target, err := capture.LoadChannelPollTarget(wsCtx, w.pool, capture.ProviderTelegram, connID)
 	if errors.Is(err, apperrors.ErrNotFound) {
@@ -231,7 +237,7 @@ func (w *telegramPollWorker) Work(ctx context.Context, job *river.Job[TelegramPo
 		return err
 	}
 
-	token, err := w.vault.Get(wsCtx, ids.From[ids.WorkspaceKind](ws), target.CredentialRef)
+	token, err := w.vault.Get(wsCtx, ids.From[ids.WorkspaceKind](job.Args.Workspace), target.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("telegram_poll: unsealing the bot token for connection %s: %w", connID, err)
 	}
@@ -311,7 +317,7 @@ func (w *telegramPollWorker) persist(wsCtx context.Context, target capture.Chann
 				return err
 			}
 			if err := w.inserter.EnqueueTx(wsCtx, tx, TelegramIngestArgs{
-				Workspace:    target.WorkspaceID.String(),
+				Workspace:    target.WorkspaceID,
 				ConnectionID: target.ID.String(),
 				BotID:        target.ChannelID,
 				RawCaptureID: rawID.String(),

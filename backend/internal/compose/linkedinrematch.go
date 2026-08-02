@@ -40,6 +40,10 @@ type LinkedInRematchArgs struct{}
 // Kind is the River job kind for the LinkedIn re-match sweep.
 func (LinkedInRematchArgs) Kind() string { return "linkedin_rematch" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (LinkedInRematchArgs) FleetWide() {}
+
 // linkedInRematchInterval is hourly rather than daily, because the window it
 // covers is the workspace's first day: an export uploaded during onboarding is
 // waiting on a capture backfill that finishes in minutes, and a rep who

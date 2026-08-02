@@ -32,14 +32,17 @@ import (
 // incomplete: the api enqueue and the deferred-retry sweep converge on one
 // job per build row.
 type VoiceBuildArgs struct {
-	Workspace   string `json:"workspace"`
-	ProfileID   string `json:"profile_id"`
-	BuildID     string `json:"build_id"`
-	RequestedBy string `json:"requested_by"`
+	Workspace   ids.UUID `json:"workspace_id"`
+	ProfileID   string   `json:"profile_id"`
+	BuildID     string   `json:"build_id"`
+	RequestedBy string   `json:"requested_by"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (VoiceBuildArgs) Kind() string { return "voice_build" }
+
+// WorkspaceID binds this build to its tenant (jobs.WorkspaceScoped).
+func (a VoiceBuildArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // VoiceBuildRetryArgs schedules one deferred-build sweep: re-enqueue every
 // budget-deferred build whose next attempt is due.
@@ -47,6 +50,10 @@ type VoiceBuildRetryArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (VoiceBuildRetryArgs) Kind() string { return "voice_build_retry" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (VoiceBuildRetryArgs) FleetWide() {}
 
 // voiceBuildRetryInterval paces the deferred sweep; deferrals are hours
 // long, so a 15-minute scan is prompt without being busywork.
@@ -83,7 +90,7 @@ func WithVoiceBuildEnqueue(inserter *jobs.Runner) Option {
 				return fmt.Errorf("compose: voice build enqueue without an acting principal")
 			}
 			return inserter.EnqueueTx(ctx, tx, VoiceBuildArgs{
-				Workspace:   storekit.MustWorkspace(ctx).String(),
+				Workspace:   storekit.MustWorkspace(ctx),
 				ProfileID:   build.ProfileID.String(),
 				BuildID:     build.ID.String(),
 				RequestedBy: actor.UserID.String(),
@@ -118,15 +125,14 @@ func (w *voiceBuildWorker) reclaimAfter() time.Duration { return voiceBuildTimeo
 // system principal: visibleProfile admits only the profile owner, so the
 // runner acts as the requesting human's system delegate.
 func voiceBuildWorkerCtx(ctx context.Context, args VoiceBuildArgs) (context.Context, error) {
-	ws, err := ids.Parse(args.Workspace)
-	if err != nil {
-		return nil, fmt.Errorf("voice_build: workspace id: %w", err)
-	}
 	requester, err := ids.Parse(args.RequestedBy)
 	if err != nil {
 		return nil, fmt.Errorf("voice_build: requester id: %w", err)
 	}
-	ctx = principal.WithWorkspaceID(ctx, ws)
+	ctx, err = workspaceJobCtx(ctx, args)
+	if err != nil {
+		return nil, err
+	}
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type:       principal.PrincipalSystem,
 		ID:         "agent:voice-builder",
@@ -348,7 +354,7 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			continue
 		}
 		if _, err := client.Insert(ctx, VoiceBuildArgs{
-			Workspace:   ref.Workspace.String(),
+			Workspace:   ref.Workspace,
 			ProfileID:   ref.ProfileID.String(),
 			BuildID:     ref.BuildID.String(),
 			RequestedBy: ref.RequestedBy.String(),

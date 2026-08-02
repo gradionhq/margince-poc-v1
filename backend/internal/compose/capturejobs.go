@@ -32,6 +32,10 @@ type CaptureClassifyArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (CaptureClassifyArgs) Kind() string { return "capture_classify" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (CaptureClassifyArgs) FleetWide() {}
+
 // captureClassifyWorker drives the batched label engine; the engine
 // commits per model call, so a mid-pass crash or budget stop loses
 // nothing and the next tick resumes from the shrunken backlog.
@@ -50,6 +54,10 @@ type CaptureEnrichArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (CaptureEnrichArgs) Kind() string { return "capture_enrich" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (CaptureEnrichArgs) FleetWide() {}
+
 // captureEnrichWorker drives the evidence-gated signature pass; every
 // accepted field is auditable back to its verbatim signature line.
 type captureEnrichWorker struct {
@@ -66,6 +74,10 @@ type OrgNamePromotionArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (OrgNamePromotionArgs) Kind() string { return "org_name_promotion" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (OrgNamePromotionArgs) FleetWide() {}
 
 // orgNamePromotionWorker drives the corroborated-name sweep: a database-only
 // pass over the org_name evidence the enrich job collects.
@@ -84,6 +96,10 @@ type CaptureDigestArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (CaptureDigestArgs) Kind() string { return "capture_digest" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (CaptureDigestArgs) FleetWide() {}
 
 // captureDigestWorker assembles one digest per connected user per
 // workspace; a re-run replaces the day's payload (as-of-now truths).
@@ -125,12 +141,15 @@ func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDige
 // CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
 // args while incomplete: start and any retry converge on one job.
 type CaptureBackfillArgs struct {
-	Workspace  string `json:"workspace"`
-	BackfillID string `json:"backfill_id"`
+	Workspace  ids.UUID `json:"workspace_id"`
+	BackfillID string   `json:"backfill_id"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (CaptureBackfillArgs) Kind() string { return "capture_backfill" }
+
+// WorkspaceID binds this backfill run to its tenant (jobs.WorkspaceScoped).
+func (a CaptureBackfillArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // captureBackfillWorker pages a run to completion, yielding between pages
 // (snooze) so a long mailbox never monopolizes a worker slot. A page error
@@ -162,15 +181,14 @@ func (w *captureBackfillWorker) Timeout(*river.Job[CaptureBackfillArgs]) time.Du
 }
 
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("capture_backfill: workspace id: %w", err)
-	}
 	bfID, err := ids.Parse(job.Args.BackfillID)
 	if err != nil {
 		return fmt.Errorf("capture_backfill: backfill id: %w", err)
 	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return err
+	}
 	for i := 0; i < backfillPagesPerTick; i++ {
 		done, completed, retryAfter, err := w.registry.RunBackfillStep(wsCtx, bfID)
 		if retryAfter > 0 {
@@ -234,6 +252,10 @@ type CounterpartyVerdictArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (CounterpartyVerdictArgs) Kind() string { return "capture_counterparty_verdict" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (CounterpartyVerdictArgs) FleetWide() {}
 
 // counterpartyVerdictWorker drives the disposition ledger's stages in the order
 // they depend on each other: judge what is due, offer to a human what

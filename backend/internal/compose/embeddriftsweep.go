@@ -37,6 +37,10 @@ type EmbedDriftSweepArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (EmbedDriftSweepArgs) Kind() string { return "embed_drift_sweep" }
 
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (EmbedDriftSweepArgs) FleetWide() {}
+
 type embedDriftSweepWorker struct {
 	river.WorkerDefaults[EmbedDriftSweepArgs]
 	store    *search.Store

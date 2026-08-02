@@ -75,7 +75,7 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	// Now schedule the backfill; the worker pages it to done and enqueues the
 	// same-day digest off the completion edge.
 	if err := runner.Enqueue(ctx, CaptureBackfillArgs{
-		Workspace: b.env.WS.String(), BackfillID: run.ID.String(),
+		Workspace: b.env.WS, BackfillID: run.ID.String(),
 	}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}); err != nil {
 		t.Fatalf("enqueue backfill: %v", err)
 	}

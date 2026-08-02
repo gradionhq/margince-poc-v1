@@ -154,7 +154,7 @@ func handleGmailPush(pool *pgxpool.Pool, inserter *jobs.Runner, log *slog.Logger
 		}
 		for _, d := range hits {
 			if err := inserter.Enqueue(ctx, CaptureSyncArgs{
-				Workspace:    d.Workspace.String(),
+				Workspace:    d.Workspace.UUID,
 				ConnectionID: d.ID.String(),
 				Provider:     "gmail",
 			}, &river.InsertOpts{

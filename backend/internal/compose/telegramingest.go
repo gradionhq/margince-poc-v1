@@ -54,7 +54,7 @@ import (
 // re-delivery of one update resolves to the same raw row and therefore the same
 // bot.
 type TelegramIngestArgs struct {
-	Workspace string `json:"workspace"`
+	Workspace ids.UUID `json:"workspace_id"`
 	// ConnectionID names which connection read the update. The worker resolves
 	// nothing from it — that is the point of BotID — but it is the operational link
 	// between a queued job and the connection an operator is looking at, and the
@@ -66,6 +66,9 @@ type TelegramIngestArgs struct {
 
 // Kind names this job to River.
 func (TelegramIngestArgs) Kind() string { return "telegram_ingest" }
+
+// WorkspaceID binds this raw capture's ingest to its tenant (jobs.WorkspaceScoped).
+func (a TelegramIngestArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // telegramIngestWorker consumes TelegramIngestArgs: args → raw
 // payload → Normalize → Sink. sink is the connector.Sink SEAM, not the
@@ -103,16 +106,15 @@ func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Lo
 // as poison would silently lose a customer's message rather than redeliver
 // it (design §6.3).
 func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[TelegramIngestArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("telegram_ingest: workspace id: %w", err)
-	}
 	rawID, err := ids.Parse(job.Args.RawCaptureID)
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: raw capture id: %w", err)
 	}
 
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return err
+	}
 
 	var payload []byte
 	err = database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {

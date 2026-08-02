@@ -66,7 +66,7 @@ func TestClaimTimeReadsTheClaimGeneration(t *testing.T) {
 func TestVoiceBuildWorkerCtxBindsTheOwnerDelegate(t *testing.T) {
 	ws, user := ids.NewV7(), ids.NewV7()
 	ctx, err := voiceBuildWorkerCtx(context.Background(), VoiceBuildArgs{
-		Workspace: ws.String(), ProfileID: ids.NewV7().String(),
+		Workspace: ws, ProfileID: ids.NewV7().String(),
 		BuildID: ids.NewV7().String(), RequestedBy: user.String(),
 	})
 	if err != nil {
@@ -76,12 +76,12 @@ func TestVoiceBuildWorkerCtxBindsTheOwnerDelegate(t *testing.T) {
 		t.Fatal("a valid job must yield a bound context")
 	}
 	if _, err := voiceBuildWorkerCtx(context.Background(), VoiceBuildArgs{
-		Workspace: "not-a-uuid", RequestedBy: user.String(),
+		RequestedBy: user.String(),
 	}); err == nil {
-		t.Fatal("a malformed workspace id must be an explicit error")
+		t.Fatal("args carrying no workspace must be an explicit error — binding a zero id would fail at the first tenant query instead")
 	}
 	if _, err := voiceBuildWorkerCtx(context.Background(), VoiceBuildArgs{
-		Workspace: ws.String(), RequestedBy: "",
+		Workspace: ws, RequestedBy: "",
 	}); err == nil {
 		t.Fatal("a missing requester must be an explicit error — the runner acts as the owner's delegate")
 	}
