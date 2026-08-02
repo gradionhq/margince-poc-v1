@@ -43,6 +43,10 @@ numbers appear here when releases start.
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
   Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.
+- **Embedding drift self-heal** (ADR-0069 §3a): a periodic worker sweep
+  re-embeds entities whose embed event the at-least-once bus lost, with
+  no operator confirm; the preview → confirm reindex remains solely for
+  a changed embed binding, and the ops banner fires only on that case.
 - **GDPR arm**: per-purpose consent with default-deny suppression,
   retention evaluator with DE (GoBD) statutory floors, legal hold,
   Art. 17 erasure with re-capture suppression, Art. 15 SAR assembly.
