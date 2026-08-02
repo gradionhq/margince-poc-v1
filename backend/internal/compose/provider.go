@@ -135,6 +135,8 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 		return p.people.Update(ctx, in)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Update(ctx, in)
+	case datasource.EntityActivity:
+		return p.activities.Update(ctx, in)
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}

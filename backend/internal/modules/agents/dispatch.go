@@ -60,6 +60,9 @@ const (
 	// an MCP tool result ({"type":"text","text":…}) — one spelling for both,
 	// because a typo in either makes a result no client renders.
 	fieldText = "text"
+	// fieldTitle is the display name, carried BOTH at the top level of a
+	// tools/list entry and inside its annotations — one spelling for both.
+	fieldTitle = "title"
 )
 
 // negotiateProtocolVersion answers the client's requested MCP revision when
@@ -147,9 +150,12 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 		resp.Result = map[string]any{
 			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
-			// listChanged: true claims the notification the GET SSE stream
-			// (a later phase) actually fires; nothing else is claimed.
-			"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
+			// listChanged is FALSE because this server has no way to send the
+			// notification: notifications/tools/list_changed travels on the GET
+			// SSE stream, and GET /mcp answers 405 here. The surface really
+			// does change — tools/list is scope-filtered per caller — so the
+			// claim would promise a message that can never arrive.
+			"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":   map[string]any{fieldName: s.name, "version": s.version},
 		}
 	case "ping":
@@ -223,9 +229,27 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 			desc += fmt.Sprintf(" Maps to %s.", spec.OpenAPIOp)
 		}
 		tool := map[string]any{
-			fieldName:     spec.Name,
+			fieldName: spec.Name,
+			// Top-level title outranks annotations.title for display, and both
+			// outrank the name. Registry.Register refuses a title-less tool, so
+			// neither is ever the empty string here.
+			fieldTitle:    spec.Title,
 			"description": desc,
 			"inputSchema": spec.InputSchema,
+			// The two hints this server can state as FACTS, both read off the
+			// spec the admission gate itself enforces rather than restated by
+			// hand: what a tool may change is its scope, and whether it leaves
+			// the workspace is its egress flag.
+			//
+			// destructiveHint and idempotentHint are deliberately absent: their
+			// protocol defaults (destructive, non-idempotent) are already the
+			// conservative reading, and only the looser value would need a
+			// per-tool judgement, with nothing to hold it true.
+			"annotations": map[string]any{
+				fieldTitle:      spec.Title,
+				"readOnlyHint":  spec.ReadOnly(),
+				"openWorldHint": spec.Egress,
+			},
 		}
 		if spec.OutputSchema != nil {
 			tool["outputSchema"] = spec.OutputSchema
@@ -261,7 +285,70 @@ func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[strin
 	if err != nil {
 		return toolError(s.explain(p.Name, err))
 	}
-	return map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
+	return s.result(p.Name, out)
+}
+
+// result renders one successful tool return.
+//
+// The serialized JSON travels in a TextContent block, and — for a tool that
+// declared an outputSchema, which every tool here does — ALSO as
+// structuredContent: the spec makes that a MUST ("Servers MUST provide
+// structured results that conform to this schema"). The text block stays
+// beside it on the spec's own advice, so a client that predates structured
+// content still reads the same answer rather than an empty result.
+//
+// The conformance actually checked is OBJECT-NESS, not the full schema. That
+// is sufficient today only because every outputSchema on this surface is the
+// bare `{"type":"object"}`, for which the two are the same claim. Registration
+// would accept a richer one (required, enum, nested types), and the day a tool
+// declares it, this owes it a real validation pass rather than the shape check
+// below — so the narrower guarantee is written down instead of being inferred
+// from a fleet that happens to be uniform.
+func (s *Dispatcher) result(name string, out json.RawMessage) map[string]any {
+	res := map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
+	if structured, ok := s.structuredContent(name, out); ok {
+		res["structuredContent"] = structured
+	}
+	return res
+}
+
+// structuredContent answers the handler's own bytes when they satisfy the
+// outputSchema the tool advertised, and reports it as a server defect when
+// they do not.
+//
+// It passes those bytes THROUGH rather than re-marshalling a decoded copy.
+// structuredContent and the text block are two renderings of one answer and a
+// client may compare them, while a round trip through map[string]any would
+// widen every integer to a float64 and reorder every key — so the two would
+// disagree on exactly the tools that return a version or a count.
+//
+// A tool that declares an object schema and then answers with something else
+// is OUR defect, not the caller's, and NOTHING detects it before this point:
+// registration checks the declared schema, never a handler's answer, so the
+// two halves of that agreement are held apart — one at boot, one only here, at
+// the moment a real result exists. That is why this branch reports rather than
+// assumes. The member is left off because omitting an optional one beats
+// emitting one that violates the schema this same server just advertised, and
+// the caller still gets the whole answer in the text block.
+func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.RawMessage, bool) {
+	spec, ok := s.registry.Spec(name)
+	if !ok || spec.OutputSchema == nil {
+		return nil, false
+	}
+	// Decoding into map[string]json.RawMessage both proves out is a JSON
+	// object and leaves its bytes untouched. A literal null decodes into a nil
+	// map with no error, so it is refused explicitly rather than passing as an
+	// object with no members.
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(out, &object); err != nil {
+		s.log.Error("mcp: tool declares an object outputSchema but did not return a JSON object", "tool", name, "err", err)
+		return nil, false
+	}
+	if object == nil {
+		s.log.Error("mcp: tool declares an object outputSchema but returned JSON null", "tool", name)
+		return nil, false
+	}
+	return out, true
 }
 
 func toolError(msg string) map[string]any {

@@ -238,7 +238,7 @@ func TestToolListAdvertisesOnlyWhatTheCallersScopesAdmit(t *testing.T) {
 		"send_tool":  principal.ScopeSend,
 	} {
 		registry.Register(&fakeTool{spec: mcp.ToolSpec{
-			Name: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
+			Name: name, Title: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		}})
 	}

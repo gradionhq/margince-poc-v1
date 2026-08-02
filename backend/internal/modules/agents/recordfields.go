@@ -46,16 +46,14 @@ var (
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.CreateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.CreateProjectRequest](),
 	}
-	// No activity entry: update_record's record_type enum does not accept one,
-	// so describing UpdateActivityRequest here would advertise a call the tool
-	// refuses — the opposite of what these lists are for. The contract declares
-	// an update_record/activity mapping that this surface has not implemented;
-	// until it does, the description must match the enum.
+	// An activity patch cannot reach its LINKS: UpdateActivityRequest declares
+	// no link field, so this list has none to describe.
 	updateShapes = map[datasource.EntityType]reflect.Type{
 		datasource.EntityPerson:       reflect.TypeFor[crmcontracts.UpdatePersonRequest](),
 		datasource.EntityOrganization: reflect.TypeFor[crmcontracts.UpdateOrganizationRequest](),
 		datasource.EntityDeal:         reflect.TypeFor[crmcontracts.UpdateDealRequest](),
 		datasource.EntityLead:         reflect.TypeFor[crmcontracts.UpdateLeadRequest](),
+		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.UpdateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.UpdateProjectRequest](),
 	}
 )
@@ -127,6 +125,20 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	// second one is why a write can look like it worked and not have.
 	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")
 	b.WriteString("which this tool cannot create. ")
+	// The other field a caller reasonably expects and will not find. An
+	// activity DOES carry links — log_activity takes them — so being told the
+	// field is unknown, with no pointer, reads as "this is impossible" rather
+	// than "this is a different verb". Only said where an activity is actually
+	// in scope, so the create tool does not carry advice about a patch.
+	if _, updatable := shapes[datasource.EntityActivity]; updatable {
+		// Says what is true and stops. Naming the relink action would be
+		// directing the reader at something this surface does not serve: it is
+		// a REST operation with no tool behind it, so an agent told to use it
+		// has been given an instruction it cannot follow — worse than the
+		// silence, because it reads as a route.
+		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
+		b.WriteString("this tool changes what an activity says, never who it is about. ")
+	}
 	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
 	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
 	b.WriteString("so re-read the record if you are unsure a value landed.")
@@ -191,7 +203,12 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		return nil
 	}
 	sort.Strings(unknown)
-	return &BadArgsError{Cause: fmt.Errorf("%s cannot store %s; it accepts %s (or cf_<slug> for an active custom field)",
+	// The claim is about this tool's VOCABULARY, never about what the record
+	// can store: an activity stores links, so "cannot store links" would be
+	// false and would send the caller looking for the wrong fix. Kept short
+	// because the whole message is bounded at maxBadArgsDetail and the
+	// accepted-field list is what falls off the end.
+	return &BadArgsError{Cause: fmt.Errorf("%s does not accept %s; accepts %s (or cf_<slug> for an active custom field)",
 		recordType, strings.Join(unknown, ", "), strings.Join(contractFieldNames(shape), ", "))}
 }
 

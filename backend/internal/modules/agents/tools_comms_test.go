@@ -7,14 +7,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
 // recordingComms captures what the tool handed the seam.
@@ -240,4 +244,199 @@ func TestRegisterCommsToolsRegistersTheChannelReply(t *testing.T) {
 	if _, ok := r.Spec("send_message"); !ok {
 		t.Error("send_message is not registered; the MCP surface cannot reach the channel reply")
 	}
+}
+
+// multiLinkProvider serves each linked record with its own authority, so a
+// booking that mixes a local record with a mirrored one can be exercised.
+type multiLinkProvider struct {
+	datasource.SystemOfRecordProvider
+	// heldElsewhere names the ids whose authority lives in another system;
+	// everything else reads back as a row this database owns.
+	heldElsewhere map[ids.UUID]bool
+	read          []datasource.EntityRef
+}
+
+func (p *multiLinkProvider) Read(_ context.Context, ref datasource.EntityRef) (datasource.Record, error) {
+	p.read = append(p.read, ref)
+	return datasource.Record{
+		Ref: ref, Version: 3, Fields: json.RawMessage(`{}`),
+		Freshness: datasource.FreshnessInfo{Authoritative: !p.heldElsewhere[ref.ID]},
+	}, nil
+}
+
+// sendCtx is one authenticated agent holding the send scope — enough to pass
+// the scope arm of admission and be refused on the tier, which is the refusal
+// staging exists to catch.
+func sendCtx() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
+		PassportID: ids.NewV7(),
+		Scopes:     principal.NewScopeSet(principal.ScopeSend),
+	})
+}
+
+// Both outbound verbs were advertised as confirm-first and could not be
+// confirmed: Registry.Invoke stages only a tool that implements StageInfo, and
+// neither did, so the refusal came back bare and no approval was ever minted.
+// A 🟡 tool a human can never say yes to is a tool that does not work.
+func TestRefusedOutboundCallsReachTheInbox(t *testing.T) {
+	anchor, deal := ids.NewV7(), ids.NewV7()
+	for _, tc := range []struct {
+		tool, args  string
+		wantTarget  string
+		wantSummary string
+	}{
+		{
+			tool:        "send_email",
+			args:        fmt.Sprintf(`{"activity_id":%q,"to":["buyer@example.test"],"subject":"Next steps","body":"b","consent_purpose":"support"}`, anchor),
+			wantTarget:  string(datasource.EntityActivity),
+			wantSummary: `Send an email to buyer@example.test, subject "Next steps"`,
+		},
+		{
+			tool: "book_meeting",
+			args: fmt.Sprintf(`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","subject":"Review","links":[{"entity_type":"deal","entity_id":%q}]}`, deal),
+			// A booking anchors on no row, so the first link is what the
+			// human sees and what the pin is taken from.
+			wantTarget:  "deal",
+			wantSummary: `Book "Review" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z, attached to 1 record(s)`,
+		},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			approvals := &recordingApprovals{}
+			registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+			RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+
+			_, err := registry.Invoke(sendCtx(), tc.tool, json.RawMessage(tc.args))
+
+			var staged *workflow.StagedApprovalError
+			if !errors.As(err, &staged) {
+				t.Fatalf("Invoke err = %v, want a StagedApprovalError — the refusal must mint an approval, not dead-end", err)
+			}
+			if len(approvals.staged) != 1 {
+				t.Fatalf("staged %d approvals, want 1", len(approvals.staged))
+			}
+			got := approvals.staged[0]
+			if got.Tool != tc.tool {
+				t.Errorf("staged under tool %q, want %q", got.Tool, tc.tool)
+			}
+			if got.TargetType != tc.wantTarget {
+				t.Errorf("TargetType = %q, want %q", got.TargetType, tc.wantTarget)
+			}
+			if got.TargetVersion == nil {
+				t.Error("no version pinned — redemption could not detect the target changing under the approval")
+			}
+			if got.Summary != tc.wantSummary {
+				t.Errorf("Summary = %q, want %q", got.Summary, tc.wantSummary)
+			}
+			if got.DiffHash == "" {
+				t.Error("no diff hash — the approval would not be bound to this exact call")
+			}
+		})
+	}
+}
+
+// Staging refuses what execution would refuse anyway. Otherwise the approval
+// is a trap: a human reads it, says yes, the approved retry consumes the
+// one-shot authority, and only then does the store refuse — the yes is spent
+// on something that was never going to happen. Both cases below were found by
+// driving a real session against the surface, which staged all of them.
+func TestStagingRefusesASendOrBookingExecutionWouldRefuse(t *testing.T) {
+	anchor := ids.NewV7()
+	for _, tc := range []struct {
+		name, tool, args, wantNamed string
+	}{
+		{
+			name:      "a mail with no addressee reaches nobody",
+			tool:      "send_email",
+			args:      fmt.Sprintf(`{"activity_id":%q,"to":[],"subject":"s","body":"b","consent_purpose":"support"}`, anchor),
+			wantNamed: "`to` is empty",
+		},
+		{
+			name:      "a meeting that ends before it starts is not bookable",
+			tool:      "book_meeting",
+			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T14:00:00Z","subject":"s"}`,
+			wantNamed: "does not follow `start`",
+		},
+		{
+			name:      "a meeting of zero length is not bookable either",
+			tool:      "book_meeting",
+			args:      `{"start":"2026-08-10T15:00:00Z","end":"2026-08-10T15:00:00Z","subject":"s"}`,
+			wantNamed: "does not follow `start`",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approvals := &recordingApprovals{}
+			registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+			RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+
+			_, err := registry.Invoke(sendCtx(), tc.tool, json.RawMessage(tc.args))
+
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Fatalf("Invoke err = %v, want a BadArgsError refusing it before staging", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantNamed) {
+				t.Errorf("err = %q, want it to name %q — the agent wrote the argument and is the one who can fix it", err, tc.wantNamed)
+			}
+			if len(approvals.staged) != 0 {
+				t.Errorf("staged %d approvals for a call that can never execute: %+v", len(approvals.staged), approvals.staged)
+			}
+		})
+	}
+}
+
+// A nil comms seam and a nil provider are not the same kind of absence. Without
+// comms there is nothing to offer and registering nothing is right. Without a
+// provider the three 🟡 verbs would still register, advertise themselves on
+// tools/list, and dereference it the first time a call was staged — so wiring
+// fails instead, rather than shipping a surface that panics on its own
+// outbound verbs.
+func TestRegisterCommsToolsDistinguishesTheTwoAbsences(t *testing.T) {
+	noComms := NewRegistry(nil, nil)
+	RegisterCommsTools(noComms, nil, nil)
+	if got := len(noComms.Specs()); got != 0 {
+		t.Errorf("registered %d tools with no comms seam, want 0", got)
+	}
+
+	mustPanic(t, "a provider-less comms surface advertises three sends it cannot stage", func() {
+		RegisterCommsTools(NewRegistry(nil, nil), &recordingComms{}, nil)
+	})
+}
+
+// A human approving from the inbox row reads ONE line. Any argument that
+// changes what gets released and is missing from it is an effect nobody agreed
+// to — the diff_hash binds it faithfully either way, which is exactly what
+// makes an omission from the DISPLAY the problem rather than a harmless
+// abbreviation. The REST admission gate enumerates every body field for this
+// reason; both transports stage the same operation.
+func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
+	host, deal, org := ids.NewV7(), ids.NewV7(), ids.NewV7()
+
+	t.Run("a send names its cc, not only its to", func(t *testing.T) {
+		got := describeSend(sendEmailToolArgs{SendEmailArgs: SendEmailArgs{
+			To: []string{"buyer@example.test"}, Cc: []string{"rival@example.test"}, Subject: "Q3 pricing",
+		}})
+		for _, want := range []string{"buyer@example.test", "rival@example.test", `"Q3 pricing"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("summary %q does not name %q", got, want)
+			}
+		}
+	})
+
+	t.Run("a booking names whose calendar and how many records", func(t *testing.T) {
+		args := BookMeetingArgs{
+			HostUserID: &host, Subject: "Review",
+			Start: time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC),
+			End:   time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC),
+		}
+		got := describeBooking(args, []bookingLink{
+			{EntityType: "deal", EntityID: deal}, {EntityType: "organization", EntityID: org},
+		})
+		for _, want := range []string{host.String(), "2 record(s)", `"Review"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("summary %q does not name %q", got, want)
+			}
+		}
+	})
 }

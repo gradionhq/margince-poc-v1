@@ -14,6 +14,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -71,17 +72,30 @@ type BookMeetingArgs struct {
 }
 
 // RegisterCommsTools wires the five verbs over the injected seam. The provider
-// is the record reader send_message stages against; the other four verbs do not
-// stage and never read it.
+// is the record reader the three 🟡 verbs stage against; draft_email and
+// check_availability propose nothing durable and never read it.
+//
+// A nil comms seam is a legal composition and registers nothing — the verbs
+// simply are not offered. A nil provider is NOT: the three 🟡 verbs would
+// register, advertise themselves on tools/list, and then dereference it the
+// first time a human-approvable call was staged. Failing at wiring time is the
+// difference between a boot that does not start and a surface that offers
+// three sends it panics on, so this asserts rather than silently dropping them
+// — a comms surface missing exactly its outbound verbs is the confusing
+// middle, not a safe default.
 func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordProvider) {
 	if comms == nil {
 		return
 	}
+	if p == nil {
+		//craft:ignore panic-in-domain composition-time wiring assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: RegisterCommsTools needs a record provider — send_email, send_message and book_meeting read the row they stage against")
+	}
 	r.Register(draftEmailTool{comms: comms})
-	r.Register(sendEmailTool{comms: comms})
+	r.Register(sendEmailTool{comms: comms, p: p})
 	r.Register(sendMessageTool{comms: comms, p: p})
 	r.Register(checkAvailability{comms: comms})
-	r.Register(bookMeetingTool{comms: comms})
+	r.Register(bookMeetingTool{comms: comms, p: p})
 }
 
 // --- draft_email (🟢: proposes, never sends) ---
@@ -90,7 +104,7 @@ type draftEmailTool struct{ comms Comms }
 
 func (t draftEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "draft_email", Version: toolVersionV1,
+		Name: "draft_email", Title: "Draft an email reply", Version: toolVersionV1,
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "draftEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id"],"properties":{
@@ -120,11 +134,18 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 
 // --- send_email (🟡: outbound + irreversible) ---
 
-type sendEmailTool struct{ comms Comms }
+// sendEmailTool carries a record reader for the same reason its channel twin
+// does: a 🟡 tool stages through StageInfo, and staging has to pin the version
+// of the row the effect anchors on and refuse one whose authority lives in
+// another system.
+type sendEmailTool struct {
+	comms Comms
+	p     datasource.SystemOfRecordProvider
+}
 
 func (t sendEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "send_email", Version: toolVersionV1,
+		Name: "send_email", Title: "Send an email", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "sendEmail",
 		InputSchema: schema(`{"type":"object","required":["activity_id","to","subject","body","consent_purpose"],"properties":{
@@ -133,17 +154,78 @@ func (t sendEmailTool) Spec() mcp.ToolSpec {
 			"cc":{"type":"array","items":{"type":"string","format":"email"}},
 			"subject":{"type":"string"},
 			"body":{"type":"string"},
-			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"}},
+			"consent_purpose":{"type":"string","description":"Purpose key the recipients must have granted"},
+			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
 }
 
-func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		ActivityID ids.UUID `json:"activity_id"`
-		SendEmailArgs
+type sendEmailToolArgs struct {
+	ActivityID ids.UUID `json:"activity_id"`
+	SendEmailArgs
+}
+
+// StageInfo puts a refused send in the inbox instead of dead-ending it. The
+// anchor is the thread being replied to: it is the row the effect hangs off,
+// so it is what the redemption version pin re-checks.
+//
+// The recipients are NOT resolved here, and that is the difference from
+// send_message rather than an omission. A mail send names its own addressees
+// in `to`/`cc`, so they travel inside the staged arguments and are covered by
+// the diff_hash — the approved retry can only reach the addresses the human
+// read. A channel reply names none, which is why its recipient has to be
+// resolved server-side, and why binding an approval to a recipient is an open
+// question there and a settled one here.
+//
+// What this does not pre-empt, so neither reads as covered: the consent gate's
+// per-purpose verdict, the workspace's mailbox send capability, and whether an
+// address is syntactically deliverable. All are refusals a human's yes cannot
+// fix, and the first two need reads this call does not have — staging fetches
+// the anchor for the version pin and nothing else.
+func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
+	var args sendEmailToolArgs
+	if err := decodeArgs(in, &args); err != nil {
+		return StageInfo{}, err
 	}
+	// Refuse here what the store refuses at execution. Otherwise staging mints
+	// an approval, a human reads a send with no addressee and says yes, the
+	// approved retry consumes that one-shot authority, and only then does the
+	// store refuse — a "yes" spent on something that was never going to happen.
+	if len(args.To) == 0 {
+		return StageInfo{}, &BadArgsError{Cause: errors.New(
+			"`to` is empty; a send with no addressee reaches nobody and would be refused after approval")}
+	}
+	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityActivity, ID: args.ActivityID})
+	if err != nil {
+		return StageInfo{}, err
+	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
+	return StageInfo{
+		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
+		// Every addressee, cc included. A human approving from the inbox row
+		// reads only this line, so an unnamed recipient is a recipient nobody
+		// agreed to — the diff_hash faithfully binds cc either way, which is
+		// precisely what makes omitting it from the display a problem rather
+		// than a harmless abbreviation.
+		Summary: describeSend(args),
+	}, nil
+}
+
+// describeSend is the one line the inbox shows for a mail send: who it
+// reaches, cc included, and what it says it is about.
+func describeSend(args sendEmailToolArgs) string {
+	summary := fmt.Sprintf("Send an email to %s", strings.Join(args.To, ", "))
+	if len(args.Cc) > 0 {
+		summary += fmt.Sprintf(", cc %s", strings.Join(args.Cc, ", "))
+	}
+	return summary + fmt.Sprintf(", subject %q", args.Subject)
+}
+
+func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	var args sendEmailToolArgs
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
@@ -162,7 +244,7 @@ type sendMessageTool struct {
 
 func (t sendMessageTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "send_message", Version: toolVersionV1,
+		Name: "send_message", Title: "Reply on a channel conversation", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "sendMessage",
 		InputSchema: schema(`{"type":"object","required":["activity_id","body","consent_purpose"],"properties":{
@@ -237,66 +319,4 @@ func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 		return nil, err
 	}
 	return t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs)
-}
-
-// --- check_availability (🟢 read) ---
-
-type checkAvailability struct{ comms Comms }
-
-func (t checkAvailability) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "check_availability", Version: toolVersionV1,
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "getAvailability",
-		InputSchema: schema(`{"type":"object","required":["from","to"],"properties":{
-			"host_user_id":{"type":"string","format":"uuid","description":"Defaults to the acting principal's user"},
-			"from":{"type":"string","format":"date-time"` + timestampNote + `},
-			"to":{"type":"string","format":"date-time"` + timestampNote + `},
-			"duration_minutes":{"type":"integer","minimum":15,"maximum":480}},
-			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
-	}
-}
-
-func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		HostUserID      *ids.UUID `json:"host_user_id"`
-		From            time.Time `json:"from"`
-		To              time.Time `json:"to"`
-		DurationMinutes int       `json:"duration_minutes"`
-	}
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	return t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes)
-}
-
-// --- book_meeting (🟡: commits a slot + implies an invite) ---
-
-type bookMeetingTool struct{ comms Comms }
-
-func (t bookMeetingTool) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "book_meeting", Version: toolVersionV1,
-		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
-		OpenAPIOp: "bookMeeting",
-		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
-			"host_user_id":{"type":"string","format":"uuid"},
-			"start":{"type":"string","format":"date-time"` + timestampNote + `},
-			"end":{"type":"string","format":"date-time"` + timestampNote + `},
-			"subject":{"type":"string"},
-			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}}},
-			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
-	}
-}
-
-func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args BookMeetingArgs
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	return t.comms.BookMeeting(ctx, args)
 }
