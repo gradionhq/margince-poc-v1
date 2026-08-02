@@ -179,6 +179,18 @@ const deactivatedUserRevokeReason = "the human who consented was deactivated"
 // every concurrent presentation *and any racing revoke*, and a deadlock —
 // Postgres aborting one side with a 500 — is not serialization. A new path
 // that takes a refresh row before its grant re-opens exactly that hole.
+//
+// app_user sits AHEAD of all three: requireLiveConsentingUser locks it before
+// the grant insert below, DeactivateUser locks it before revoking the human's own
+// passports (users.go), and a consent locks it before the passport it lends
+// (lockConsentingUser, oauth_lend.go). A path that takes a passport or refresh row
+// and then reaches for app_user inverts that chain and deadlocks against a
+// deactivation.
+//
+// Which is why a path that ALREADY holds the grant must not lock app_user at all:
+// it is past app_user's place in the chain, so it reads the human's row unlocked
+// and decides from the grant lock it holds (lockPresentedRefreshToken's
+// FOR UPDATE OF r, g — oauth_refresh.go states why an MVCC read suffices there).
 
 // lockGrant takes that connection-level lock: the FIRST lock any such path
 // acquires. It reads no columns on purpose — a grant's state is read

@@ -136,9 +136,10 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 // that surface has no send to configure.
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
-		store:  sendStore(pool, send),
-		gate:   consent.NewGate(consent.NewStore(pool)),
-		draft:  drafter,
-		stager: send.Delivery,
+		store:         sendStore(pool, send),
+		gate:          consent.NewGate(consent.NewStore(pool)),
+		draft:         drafter,
+		stager:        send.Delivery,
+		channelStager: send.Delivery,
 	}
 }

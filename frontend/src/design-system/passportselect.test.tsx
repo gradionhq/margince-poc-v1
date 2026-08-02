@@ -1,7 +1,4 @@
 /** @vitest-environment jsdom */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,19 +7,14 @@ import { PassportSelect, ScopeChips } from "./passportselect";
 // PassportSelect and ScopeChips are the extracted shapes the tool console's
 // passport filter and the OAuth consent screen (Task 7) both render — these
 // specs pin the behaviour either caller relies on: every option listed, the
-// empty choice gated by `allowEmpty`, the chosen id reported back, and a
-// granted vs. non-granted scope actually distinguishable in the DOM.
+// empty choice gated by `allowEmpty`, the chosen id reported back, and every
+// scope the passport carries actually reaching the DOM.
 
 afterEach(cleanup);
 
 const OPTIONS = [
-  {
-    id: "p1",
-    label: "night agent",
-    scopes: ["read", "write"],
-    granted: ["read"],
-  },
-  { id: "p2", label: "reporter", scopes: ["read"], granted: ["read"] },
+  { id: "p1", label: "night agent", scopes: ["read", "write"] },
+  { id: "p2", label: "reporter", scopes: ["read"] },
 ];
 
 describe("PassportSelect", () => {
@@ -49,45 +41,15 @@ describe("PassportSelect", () => {
 });
 
 describe("ScopeChips", () => {
-  it("dims the scopes a selection does not grant", () => {
-    render(<ScopeChips scopes={["read", "write"]} dim={new Set(["write"])} />);
-    expect(screen.getByText("write").className).toContain("dim");
-  });
-
-  it("does not dim a granted scope, and the two read as different chips", () => {
-    render(<ScopeChips scopes={["read", "write"]} dim={new Set(["write"])} />);
-    const granted = screen.getByText("read");
-    const notGranted = screen.getByText("write");
-    expect(granted.className).not.toContain("dim");
-    expect(notGranted.className).not.toBe(granted.className);
-  });
-
-  it("pairs the dim class with an accessible label, not opacity alone", () => {
-    render(<ScopeChips scopes={["write"]} dim={new Set(["write"])} />);
-    // The visible chip text stays exactly the scope name; the "not granted"
-    // signal reaches assistive tech through a paired sr-only span rather
-    // than a contrast-dropping style on the chip itself.
-    expect(screen.getByText("write").textContent).toBe("write not granted");
-    expect(
-      screen.getByText("write", { selector: "span:not(.sr-only)" }).style
-        .opacity,
-    ).toBe("");
-  });
-
-  // The other half of the same rule. This suite mounts no stylesheet, so the
-  // assertion above can only prove the COMPONENT never dims a chip inline —
-  // the .badge-dim rule could still do it in CSS, which is exactly the
-  // contrast drop a small chip cannot survive (B-EP09.21). Read the rule.
-  it("keeps the dim chip's own stylesheet rule free of opacity", () => {
-    // join, not `new URL(…, import.meta.url)`: Vite rewrites that pattern
-    // into a served asset URL, which node's fs cannot open.
-    const atoms = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), "atoms.css"),
-      "utf8",
-    );
-    const rule = /\.badge-dim\s*\{([^}]*)\}/.exec(atoms);
-    expect(rule).toBeTruthy();
-    const declarations = (rule?.[1] ?? "").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(declarations).not.toMatch(/opacity/);
+  it("renders every scope as one chip, all reading the same", () => {
+    render(<ScopeChips scopes={["read", "write"]} />);
+    const read = screen.getByText("read");
+    const write = screen.getByText("write");
+    // Each chip is exactly its scope name with nothing appended: a connection
+    // gets the scopes of the passport lent to it, so no chip is qualified as
+    // withheld, and neither chip may read as weaker than the other.
+    expect(read.textContent).toBe("read");
+    expect(write.textContent).toBe("write");
+    expect(write.className).toBe(read.className);
   });
 });

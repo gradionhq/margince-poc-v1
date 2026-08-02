@@ -202,6 +202,14 @@ func TestShippedExampleConfigParses(t *testing.T) {
 	if got := strings.Join(cfg.Rates.FxCurrencies, ","); got != "USD,GBP,CHF" {
 		t.Fatalf("example rates.fx_currencies = %q, want the documented USD,GBP,CHF", got)
 	}
+	// The example declares the connector so a local stack serves /mcp without a
+	// hand edit. It is safe to ship on only because the api refuses to boot on
+	// this gate with no --public-base-url; the CODE default stays off
+	// (TestMCPConnectorGateDefaultsOff), which is what protects an installation
+	// that writes its own file.
+	if !cfg.MCP.ConnectorEnabled {
+		t.Fatal("example mcp.connector_enabled must stay true — commenting it out silently costs every local stack the /mcp surface")
+	}
 }
 
 func TestParseRatesFxCurrenciesFailsClosed(t *testing.T) {

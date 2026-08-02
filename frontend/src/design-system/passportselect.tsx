@@ -14,35 +14,18 @@ export type PassportOption = {
   scopes: string[];
 };
 
-// A scope chip row. `dim` names the scopes the current selection does not
-// grant — used by the consent screen to show a requested scope the human is
-// about to add versus one already covered. The distinction reads through a
-// dashed, unfilled outline (an --unfilled shape, not a faded one) plus a
-// screen-reader-only label, deliberately NOT an opacity drop: a struck-through
-// passport row elsewhere in this file already established that dimming a
-// small chip can push it under the AA contrast floor (B-EP09.21), and text
-// colour stays the same --textMeta the filled chip uses either way.
-export function ScopeChips({
-  scopes,
-  dim,
-}: Readonly<{
-  scopes: string[];
-  dim?: ReadonlySet<string>;
-}>) {
-  const t = useT();
+// A scope chip row: every chip a scope the passport carries. There is no
+// "granted versus not" distinction to draw — a connection receives the scopes
+// of the passport lent to it, and the tool console lists a whole passport's
+// scopes — so a chip means one thing on both surfaces.
+export function ScopeChips({ scopes }: Readonly<{ scopes: string[] }>) {
   return (
     <>
-      {scopes.map((scope) => {
-        const isDim = dim?.has(scope) ?? false;
-        return (
-          <span key={scope} className={isDim ? "badge badge-dim" : "badge"}>
-            {scope}
-            {isDim && (
-              <span className="sr-only">{` ${t("passport.scopeNotGranted")}`}</span>
-            )}
-          </span>
-        );
-      })}
+      {scopes.map((scope) => (
+        <span key={scope} className="badge">
+          {scope}
+        </span>
+      ))}
     </>
   );
 }

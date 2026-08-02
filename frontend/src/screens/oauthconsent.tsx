@@ -207,21 +207,6 @@ function ConsentSelector({
   // passport on screen would let the human approve one credential while
   // lending another.
   const effectiveId = selected.id;
-  // Scopes the passport carries beyond what this client would actually get,
-  // dimmed so the human sees the connection may receive less than the
-  // passport allows — never hidden outright.
-  const notGranted = new Set(
-    selected.scopes.filter(
-      (candidate) => !selected.granted.includes(candidate),
-    ),
-  );
-  // The other half of that same disclosure: scopes the CLIENT asked for
-  // that this passport cannot grant at all (never in its own scope set), so
-  // "read" showing solid never reads as "the whole request was satisfied"
-  // when the client also asked for "write".
-  const requestedNotGranted = data.requested.filter(
-    (scope) => !selected.granted.includes(scope),
-  );
 
   return (
     <Card>
@@ -249,29 +234,12 @@ function ConsentSelector({
           marginTop: "var(--space-2)",
         }}
       >
-        <ScopeChips scopes={selected.scopes} dim={notGranted} />
+        {/* Every chip is the grant: the connection receives this passport's
+            scopes, so there is no narrower subset to distinguish and nothing
+            the client asked for that changes them. */}
+        <ScopeChips scopes={selected.scopes} />
       </div>
       <p className="t-small">{t("consent.grantedNote")}</p>
-      {requestedNotGranted.length > 0 && (
-        <div style={{ marginTop: "var(--space-2)" }}>
-          <p className="t-small">
-            {t("consent.requestedNotGranted", { client: data.client_name })}
-          </p>
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-1)",
-              flexWrap: "wrap",
-              marginTop: "var(--space-1)",
-            }}
-          >
-            <ScopeChips
-              scopes={requestedNotGranted}
-              dim={new Set(requestedNotGranted)}
-            />
-          </div>
-        </div>
-      )}
       <p className="t-small">
         {t("consent.expires", {
           date: formatDate(selected.expires_at, locale, viewerZone),
