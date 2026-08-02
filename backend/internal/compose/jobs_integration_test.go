@@ -73,9 +73,11 @@ func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
-	// its fan-out is enqueued, so waiting on it would race the work.
-	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileWorkspaceArgs{}.Kind())
+	// The DISPATCHER is the right kind to wait on here, unlike the close-date
+	// case above: what this proves is that the branch registered the job at
+	// all. No overlay-mode workspace is seeded, so there is no workspace child
+	// to wait for — the fan-out is legitimately empty.
+	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileArgs{}.Kind())
 }
 
 // awaitKindCompleted blocks until a job of the given kind reports completion,
