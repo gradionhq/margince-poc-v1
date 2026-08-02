@@ -141,7 +141,51 @@ func (m moduleSource) implementsFieldFault() map[string]bool {
 // validationMappedTypes finds the types this module's transport maps onto a
 // 422 by hand: an `errors.As(err, &x)` test whose branch calls
 // httperr.Validation, where x was declared as a pointer to a module type.
-func (m moduleSource) validationMappedTypes() map[string]bool {
+// helpersReturning422 names this module's own functions that BUILD a 422
+// DetailedError and return it — customfields.structuralChangeRefused is one.
+// A branch calling such a helper maps its error to a 422 just as surely as one
+// spelling the literal inline, and a detector that reads only the inline forms
+// leaves the same false-clean this gate exists to remove, one indirection away.
+func (m moduleSource) helpersReturning422() map[string]bool {
+	out := map[string]bool{}
+	for _, file := range m.files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil || fn.Recv != nil {
+				continue
+			}
+			if blockBuilds422(fn.Body) {
+				out[fn.Name.Name] = true
+			}
+		}
+	}
+	return out
+}
+
+// blockBuilds422 reports whether the block contains a 422 DetailedError literal.
+func blockBuilds422(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || !isHTTPErrDetailedError(lit.Type) {
+			return true
+		}
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Status" && isUnprocessableEntity(kv.Value) {
+				found = true
+				return false
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func (m moduleSource) validationMappedTypes(helpers map[string]bool) map[string]bool {
 	out := map[string]bool{}
 	for _, file := range m.files {
 		// Local var name → declared type name, for the `var x *T` decls that
@@ -167,7 +211,7 @@ func (m moduleSource) validationMappedTypes() map[string]bool {
 				return true
 			}
 			typeName, ok := declared[target]
-			if !ok || !callsHTTPErrValidation(ifStmt.Body) {
+			if !ok || !mapsTo422(ifStmt.Body, helpers) {
 				return true
 			}
 			out[typeName] = true
@@ -225,6 +269,31 @@ func errorsAsTarget(cond ast.Expr) (string, bool) {
 // multi-field ValidationError — and a detector blind to that reported green on
 // the very leak it was written to catch. A gate that recognizes one spelling of
 // a pattern is a gate that certifies the other spelling.
+func mapsTo422(body *ast.BlockStmt, helpers map[string]bool) bool {
+	if callsHelper(body, helpers) {
+		return true
+	}
+	return callsHTTPErrValidation(body)
+}
+
+// callsHelper reports whether the block calls one of this module's own
+// 422-building helpers.
+func callsHelper(body *ast.BlockStmt, helpers map[string]bool) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if fn, ok := call.Fun.(*ast.Ident); ok && helpers[fn.Name] {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
 func callsHTTPErrValidation(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
@@ -289,7 +358,7 @@ func TestSeamReachableModulesCarryTheirOwnFieldVerdict(t *testing.T) {
 		}
 		obligated++
 		carries := module.implementsFieldFault()
-		mapped := module.validationMappedTypes()
+		mapped := module.validationMappedTypes(module.helpersReturning422())
 
 		names := make([]string, 0, len(mapped))
 		for name := range mapped {

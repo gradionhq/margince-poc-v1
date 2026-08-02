@@ -21,8 +21,10 @@ package agents
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,6 +81,16 @@ func contractFieldNames(t reflect.Type) []string {
 	return names
 }
 
+// describesField reports whether any record type in shapes accepts name.
+func describesField(shapes map[datasource.EntityType]reflect.Type, name string) bool {
+	for _, shape := range shapes {
+		if slices.Contains(contractFieldNames(shape), name) {
+			return true
+		}
+	}
+	return false
+}
+
 // describeRecordFields renders the per-record_type field lists for a tool's
 // `fields` description, in a fixed record_type order so the schema text is
 // byte-stable across processes (a description that reshuffles per boot reads
@@ -103,9 +115,14 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		b.WriteString(strings.Join(contractFieldNames(shape), ", "))
 	}
 	b.WriteString(". A task is record_type=activity with kind=task. ")
-	// Sending it is not an error, but believing it had an effect would be:
-	// every write through this surface stamps its own provenance.
-	b.WriteString("`source` is ignored if you send it — this surface stamps its own provenance. ")
+	// Only where the shapes actually carry `source`. On create it is accepted
+	// and then overwritten, so believing it took effect would be wrong; on
+	// update no request type has it at all, so it is REFUSED as an unknown key
+	// — opposite advice, and the shared sentence used to give the create one to
+	// both. Derived from the shapes so it cannot drift from which tool this is.
+	if describesField(shapes, "source") {
+		b.WriteString("`source` is accepted but overwritten — this surface stamps its own provenance. ")
+	}
 	// The two traps a caller cannot see from the field list alone, and the
 	// second one is why a write can look like it worked and not have.
 	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")
@@ -149,6 +166,12 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		// payload that is not one is the caller's mistake and says so here —
 		// carrying the decoder's own words rather than discarding them.
 		return &BadArgsError{Cause: fmt.Errorf("fields must be a JSON object: %w", err)}
+	}
+	// A literal null decodes into a nil map with NO error and therefore no
+	// unknown keys, so it would pass this check and reach the provider as a
+	// write carrying no fields at all.
+	if submitted == nil {
+		return &BadArgsError{Cause: errors.New("fields must be a JSON object, not null")}
 	}
 	accepted := make(map[string]struct{})
 	for _, name := range contractFieldNames(shape) {

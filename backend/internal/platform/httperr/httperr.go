@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -148,6 +149,26 @@ func clientInputValidation(err error) (error, bool) {
 // because the two halves answer different questions: that one knows a fixed set
 // of shared types by name, while this one knows no types at all — a module opts
 // in by implementing a method, and this reads whatever it declared.
+// maxFaultText bounds each value a module-declared fault contributes to a
+// caller-facing body. The interfaces are implemented across eight modules and
+// their docs ask for no internal detail, but a boundary that only asks is a
+// boundary that leaks the first time someone passes a constraint name or a
+// wrapped driver message through. Long enough for a real explanation, short
+// enough that nothing large rides out.
+const maxFaultText = 300
+
+// boundFaultText caps one caller-facing value from a module-declared fault.
+func boundFaultText(s string) string {
+	if len(s) <= maxFaultText {
+		return s
+	}
+	cut := maxFaultText
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
 func moduleDeclaredFault(err error) (error, bool) {
 	// The plural first: a type that names several bad inputs has nothing
 	// useful to say as a single field, so asking it for one would discard the
@@ -157,7 +178,11 @@ func moduleDeclaredFault(err error) (error, bool) {
 		refusals := fieldFaults.FieldFaults()
 		fields := make([]FieldError, 0, len(refusals))
 		for _, r := range refusals {
-			fields = append(fields, FieldError{Field: r.Field, Code: r.Code, Message: r.Message})
+			fields = append(fields, FieldError{
+				Field:   boundFaultText(r.Field),
+				Code:    boundFaultText(r.Code),
+				Message: boundFaultText(r.Message),
+			})
 		}
 		return &DetailedError{
 			Status: http.StatusUnprocessableEntity,
@@ -170,7 +195,7 @@ func moduleDeclaredFault(err error) (error, bool) {
 	var fieldFault apperrors.FieldFault
 	if errors.As(err, &fieldFault) {
 		field, code, message := fieldFault.FieldFault()
-		return Validation(field, code, message), true
+		return Validation(boundFaultText(field), boundFaultText(code), boundFaultText(message)), true
 	}
 
 	// A refusal with no field to name: it still must classify, or the MCP
@@ -182,8 +207,8 @@ func moduleDeclaredFault(err error) (error, bool) {
 		code, message := messageFault.MessageFault()
 		return &DetailedError{
 			Status: http.StatusUnprocessableEntity,
-			Code:   code,
-			Detail: message,
+			Code:   boundFaultText(code),
+			Detail: boundFaultText(message),
 		}, true
 	}
 
@@ -391,7 +416,14 @@ const fieldErrorsKey = "errors"
 func fieldDetails(fields []FieldError) map[string]any {
 	errs := make([]map[string]string, 0, len(fields))
 	for _, f := range fields {
-		errs = append(errs, map[string]string{"field": f.Field, "code": f.Code, "message": f.Message})
+		entry := map[string]string{"field": f.Field, "code": f.Code}
+		// A multi-field validator may have no per-entry prose (the code IS the
+		// reason). Omitting the key beats shipping "message": "", which reads
+		// as an explanation that came out blank.
+		if f.Message != "" {
+			entry["message"] = f.Message
+		}
+		errs = append(errs, entry)
 	}
 	return map[string]any{fieldErrorsKey: errs}
 }

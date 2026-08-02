@@ -242,7 +242,7 @@ func (e *MissingFxRateError) Error() string {
 // pair — server-side data, not an argument. Naming fx_rate_to_base would tell
 // an agent to correct an input it never sent and cannot supply.
 func (e *MissingFxRateError) MessageFault() (code, message string) {
-	return "fx_rate_unavailable", e.Error()
+	return "fx_rate_unavailable", e.Error() + " — an admin must load the rate for this currency pair before this close can succeed"
 }
 
 // freezeFx resolves the frozen currency→base conversion for a closed

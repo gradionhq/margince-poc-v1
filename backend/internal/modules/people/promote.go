@@ -71,9 +71,12 @@ func (e *PromoteNeedsIdentityError) Error() string {
 	return "lead has neither full_name nor email; enrich it before promoting"
 }
 
-// FieldFault refuses promoting a lead that carries no identity to promote.
-func (e *PromoteNeedsIdentityError) FieldFault() (field, code, message string) {
-	return "lead", "identity_required", e.Error()
+// MessageFault names the condition and no field: the remedy is EITHER of two
+// inputs on the lead record, and `lead` is the record itself, not a request
+// field a caller can set. Naming one of the pair would be wrong half the time,
+// and naming the record would be wrong always.
+func (e *PromoteNeedsIdentityError) MessageFault() (code, message string) {
+	return "identity_required", e.Error()
 }
 
 // PromoteLead graduates a lead into the clean core (features/01 §6.4,

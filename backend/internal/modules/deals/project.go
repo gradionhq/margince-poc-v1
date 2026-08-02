@@ -282,11 +282,6 @@ func projectKeyConflict(err error, key *string) error {
 	return &ProjectKeyTakenError{Key: *key}
 }
 
-// projectCheckError names the schema-side business rules that can still
-// fire after the per-path validations, so a breach reads as a 422 about a
-// rule rather than an opaque server fault. dateField is the date input this
-// request actually carried, so a date-range breach points at the value the
-// caller can change; empty when the path submitted none.
 // submittedDateField names the date input a request carried, preferring the
 // one most likely to be the mover when several arrived: a caller that sent
 // ended_at is closing the project, and that is the date the rule is about.
@@ -303,6 +298,11 @@ func submittedDateField(startedAt, targetEnd, endedAt *time.Time) string {
 	}
 }
 
+// projectCheckError names the schema-side business rules that can still fire
+// after the per-path validations, so a breach reads as a 422 about a rule
+// rather than an opaque server fault. dateField is the date input this request
+// actually carried, so a date-range breach points at the value the caller can
+// change; empty when the path submitted none.
 func projectCheckError(constraint string, dateField string) error {
 	switch constraint {
 	case "project_key_shape":

@@ -183,7 +183,7 @@ func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
 			if fn, ok := call.Fun.(*ast.Ident); !ok || fn.Name != "schema" {
 				return true
 			}
-			literal, _ := schemaParts(call.Args[0])
+			literal := schemaText(call.Args[0])
 			// PER OCCURRENCE, not per schema: an earlier version asked only
 			// whether the schema referenced timestampNote anywhere, so a field
 			// that lost its note passed on a sibling's. Every "date-time" must
@@ -222,11 +222,12 @@ func dateTimeOccurrences(literal string) []bool {
 	}
 }
 
-// schemaParts flattens a schema argument into its concatenated literal text and
-// the set of identifiers it splices in. A schema is either one raw string or a
-// `raw + expr + raw` concatenation, so both halves have to be read to judge it.
-func schemaParts(expr ast.Expr) (literal string, referenced map[string]bool) {
-	referenced = map[string]bool{}
+// schemaText flattens a schema argument into the text a caller would receive.
+// A schema is either one raw string or a `raw + const + raw` concatenation, so
+// the spliced constants are substituted in rather than skipped — the gate reads
+// the rendered result, not the source shape.
+func schemaText(expr ast.Expr) string {
+	var literal string
 	var walk func(ast.Expr)
 	walk = func(e ast.Expr) {
 		switch node := e.(type) {
@@ -238,7 +239,6 @@ func schemaParts(expr ast.Expr) (literal string, referenced map[string]bool) {
 				literal += strings.Trim(node.Value, "`")
 			}
 		case *ast.Ident:
-			referenced[node.Name] = true
 			// timestampNote is a string constant; splice its value in so the
 			// per-occurrence check sees the text a caller would receive.
 			if node.Name == "timestampNote" {
@@ -252,5 +252,5 @@ func schemaParts(expr ast.Expr) (literal string, referenced map[string]bool) {
 		}
 	}
 	walk(expr)
-	return literal, referenced
+	return literal
 }
