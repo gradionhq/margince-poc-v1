@@ -44,12 +44,16 @@ var (
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.CreateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.CreateProjectRequest](),
 	}
+	// No activity entry: update_record's record_type enum does not accept one,
+	// so describing UpdateActivityRequest here would advertise a call the tool
+	// refuses — the opposite of what these lists are for. The contract declares
+	// an update_record/activity mapping that this surface has not implemented;
+	// until it does, the description must match the enum.
 	updateShapes = map[datasource.EntityType]reflect.Type{
 		datasource.EntityPerson:       reflect.TypeFor[crmcontracts.UpdatePersonRequest](),
 		datasource.EntityOrganization: reflect.TypeFor[crmcontracts.UpdateOrganizationRequest](),
 		datasource.EntityDeal:         reflect.TypeFor[crmcontracts.UpdateDealRequest](),
 		datasource.EntityLead:         reflect.TypeFor[crmcontracts.UpdateLeadRequest](),
-		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.UpdateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.UpdateProjectRequest](),
 	}
 )
@@ -99,6 +103,9 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		b.WriteString(strings.Join(contractFieldNames(shape), ", "))
 	}
 	b.WriteString(". A task is record_type=activity with kind=task. ")
+	// Sending it is not an error, but believing it had an effect would be:
+	// every write through this surface stamps its own provenance.
+	b.WriteString("`source` is ignored if you send it — this surface stamps its own provenance. ")
 	// The two traps a caller cannot see from the field list alone, and the
 	// second one is why a write can look like it worked and not have.
 	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")

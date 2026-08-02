@@ -36,19 +36,17 @@ type SendAuthority interface {
 // MailboxNotSendCapableError refuses a MAIL send this installation already knows
 // cannot leave. It maps to 422 with an actionable message: the fix is the
 // user's to make, and naming it is the whole point of checking early.
-// senderField names the wire field a send-authority refusal points at: the
-// mailbox a message would leave from is the half the caller chose.
-const senderField = "from"
-
 type MailboxNotSendCapableError struct{}
 
 func (e *MailboxNotSendCapableError) Error() string {
 	return "reconnect your mailbox to enable sending"
 }
 
-// FieldFault refuses a send from a mailbox this installation knows cannot send.
-func (e *MailboxNotSendCapableError) FieldFault() (field, code, message string) {
-	return senderField, "mailbox_not_send_capable", e.Error()
+// MessageFault names the condition and no field: no send contract takes a
+// `from` argument, so naming one would hand the caller an input it cannot
+// change. Reconnecting the mailbox is the remedy, and a person has to do it.
+func (e *MailboxNotSendCapableError) MessageFault() (code, message string) {
+	return "mailbox_not_send_capable", e.Error()
 }
 
 // ChannelNotSendCapableError refuses a channel send this installation already

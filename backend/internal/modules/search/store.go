@@ -97,7 +97,7 @@ var searchBranches = []searchBranch{
 func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 	query := strings.TrimSpace(in.Query)
 	if query == "" {
-		return Page{}, &BadQueryError{Reason: "q is required"}
+		return Page{}, &BadQueryError{Field: "q", Reason: "q is required"}
 	}
 	limit := clampLimit(in.Limit)
 	types := in.Types
@@ -108,7 +108,7 @@ func (s *Store) Search(ctx context.Context, in Input) (Page, error) {
 	}
 	for _, t := range types {
 		if !knownEntity(t) {
-			return Page{}, &BadQueryError{Reason: fmt.Sprintf("unknown type %q", t)}
+			return Page{}, &BadQueryError{Field: "types", Reason: fmt.Sprintf("unknown type %q", t)}
 		}
 	}
 
@@ -239,8 +239,18 @@ func scanRankedPage(rows pgx.Rows, limit int) (Page, error) {
 	return page, nil
 }
 
-// BadQueryError maps to a 422 at the transport.
-type BadQueryError struct{ Reason string }
+// cursorField names the page-token input, the third query field this error
+// answers for.
+const cursorField = "cursor"
+
+// BadQueryError maps to a 422 at the transport. Field names WHICH query input
+// was wrong: this error answers for q, types and cursor alike, and a per-field
+// taxonomy that named a constant would point two of the three at an input that
+// was fine.
+type BadQueryError struct {
+	Field  string
+	Reason string
+}
 
 // reasonMalformedCursor is the BadQueryError reason for any un-decodable
 // keyset cursor — one spelling so the 422 body never drifts between paths.
@@ -248,9 +258,9 @@ const reasonMalformedCursor = "malformed cursor"
 
 func (e *BadQueryError) Error() string { return "search: " + e.Reason }
 
-// FieldFault refuses a query the index cannot serve, naming q.
+// FieldFault names the query input that was actually wrong.
 func (e *BadQueryError) FieldFault() (field, code, message string) {
-	return "q", "invalid_query", e.Reason
+	return e.Field, "invalid_query", e.Reason
 }
 
 // rankedCursor is the (score, type, id) keyset position. Encoding keeps
@@ -270,19 +280,19 @@ func encodeCursor(c rankedCursor) string {
 func decodeCursor(s string) (rankedCursor, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(s)
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
+		return rankedCursor{}, &BadQueryError{Field: cursorField, Reason: reasonMalformedCursor}
 	}
 	parts := strings.SplitN(string(raw), "|", 3)
 	if len(parts) != 3 {
-		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
+		return rankedCursor{}, &BadQueryError{Field: cursorField, Reason: reasonMalformedCursor}
 	}
 	score, err := strconv.ParseFloat(parts[0], 64)
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
+		return rankedCursor{}, &BadQueryError{Field: cursorField, Reason: reasonMalformedCursor}
 	}
 	id, err := ids.Parse(parts[2])
 	if err != nil {
-		return rankedCursor{}, &BadQueryError{Reason: reasonMalformedCursor}
+		return rankedCursor{}, &BadQueryError{Field: cursorField, Reason: reasonMalformedCursor}
 	}
 	return rankedCursor{Score: score, Type: parts[1], ID: id}, nil
 }

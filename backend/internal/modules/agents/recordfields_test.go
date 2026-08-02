@@ -6,12 +6,15 @@ package agents
 import (
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // The write tools' schemas are JSON handed to a client, and their field
@@ -88,44 +91,6 @@ func TestDescriptionsCarryNoControlCharacters(t *testing.T) {
 	}
 }
 
-// Every date-time argument must SAY that RFC 3339 needs a zone offset. The
-// format keyword alone already cost two refused calls, and the schemas are
-// spliced strings, so a note that broke its schema would be worse than none.
-func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
-	specs := map[string]json.RawMessage{}
-	for _, tool := range []interface{ Spec() mcp.ToolSpec }{
-		logActivity{}, checkAvailability{},
-	} {
-		spec := tool.Spec()
-		specs[spec.Name] = spec.InputSchema
-	}
-	for name, raw := range specs {
-		var parsed struct {
-			Properties map[string]struct {
-				Format      string `json:"format"`
-				Description string `json:"description"`
-			} `json:"properties"`
-		}
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			t.Fatalf("%s InputSchema is not valid JSON: %v\n%s", name, err, raw)
-		}
-		found := 0
-		for field, prop := range parsed.Properties {
-			if prop.Format != "date-time" {
-				continue
-			}
-			found++
-			if !strings.Contains(prop.Description, "offset") {
-				t.Errorf("%s.%s is a date-time with no offset requirement in its description: %q",
-					name, field, prop.Description)
-			}
-		}
-		if found == 0 {
-			t.Errorf("%s exposes no date-time argument — this test is watching the wrong tools", name)
-		}
-	}
-}
-
 // The two writes real sessions lost data to. Both returned 200 with the value
 // discarded: organization_id is not a person field at all, and emails is a
 // person field on CREATE and no field at all on UPDATE — the shape a caller is
@@ -155,6 +120,15 @@ func TestWriteToolsRefuseFieldsTheRecordCannotStore(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.wantNamed) {
 				t.Errorf("err = %q, want it to name %q", err, tc.wantNamed)
 			}
+			// Naming the field is half of it. The other half is that the
+			// refusal still tells the caller what the type DOES accept —
+			// otherwise it has replaced a silent drop with a dead end.
+			if !strings.Contains(err.Error(), "it accepts") {
+				t.Errorf("err = %q, want it to list the fields the type accepts", err)
+			}
+			if !strings.Contains(err.Error(), customFieldPrefix) {
+				t.Errorf("err = %q, want it to mention the custom-field channel", err)
+			}
 		})
 	}
 }
@@ -177,4 +151,106 @@ func TestWriteToolsAcceptRealFieldsAndTheCustomFieldChannel(t *testing.T) {
 	if err := rejectUnknownFields(createShapes, "invoice", json.RawMessage(`{"anything":1}`)); err != nil {
 		t.Errorf("unknown record_type = %v, want it left to the provider", err)
 	}
+}
+
+// Every schema argument declaring a date-time must splice in timestampNote.
+//
+// Derived from the SOURCE of every schema(…) expression in this package, not
+// from a list of tools: the first version of this gate hand-listed two tools
+// and claimed "every", which is how a gate ends up certifying the four it never
+// looked at. A new timestamp argument is covered the moment it is written.
+func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading the package directory: %v", err)
+	}
+	checked := 0
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(fset, name, nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parsing %s: %v", name, parseErr)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 1 {
+				return true
+			}
+			if fn, ok := call.Fun.(*ast.Ident); !ok || fn.Name != "schema" {
+				return true
+			}
+			literal, _ := schemaParts(call.Args[0])
+			// PER OCCURRENCE, not per schema: an earlier version asked only
+			// whether the schema referenced timestampNote anywhere, so a field
+			// that lost its note passed on a sibling's. Every "date-time" must
+			// be followed immediately by the note's splice.
+			for _, occurrence := range dateTimeOccurrences(literal) {
+				checked++
+				if !occurrence {
+					t.Errorf("%s:%d: a date-time argument in this schema does not splice timestampNote directly "+
+						"after its format keyword — the keyword alone does not tell a caller an offset is required",
+						name, fset.Position(call.Pos()).Line)
+				}
+			}
+			return true
+		})
+	}
+	if checked == 0 {
+		t.Fatal("no schema in this package declares a date-time argument — the scan is broken, not the code")
+	}
+}
+
+// dateTimeOccurrences reports, for each `"format":"date-time"` in the flattened
+// schema text, whether the note's splice follows it immediately. schemaParts
+// drops the interpolated expressions, so a spliced note leaves the literal
+// halves adjoined as `…"date-time"}` — while a note that IS present leaves the
+// marker text that timestampNote itself begins with.
+func dateTimeOccurrences(literal string) []bool {
+	const marker = `"format":"date-time"`
+	var out []bool
+	for i := 0; ; {
+		at := strings.Index(literal[i:], marker)
+		if at < 0 {
+			return out
+		}
+		i += at + len(marker)
+		out = append(out, strings.HasPrefix(literal[i:], `,"description":"RFC 3339`))
+	}
+}
+
+// schemaParts flattens a schema argument into its concatenated literal text and
+// the set of identifiers it splices in. A schema is either one raw string or a
+// `raw + expr + raw` concatenation, so both halves have to be read to judge it.
+func schemaParts(expr ast.Expr) (literal string, referenced map[string]bool) {
+	referenced = map[string]bool{}
+	var walk func(ast.Expr)
+	walk = func(e ast.Expr) {
+		switch node := e.(type) {
+		case *ast.BinaryExpr:
+			walk(node.X)
+			walk(node.Y)
+		case *ast.BasicLit:
+			if node.Kind == token.STRING {
+				literal += strings.Trim(node.Value, "`")
+			}
+		case *ast.Ident:
+			referenced[node.Name] = true
+			// timestampNote is a string constant; splice its value in so the
+			// per-occurrence check sees the text a caller would receive.
+			if node.Name == "timestampNote" {
+				literal += timestampNote
+			}
+		case *ast.CallExpr:
+			for _, arg := range node.Args {
+				walk(arg)
+			}
+			walk(node.Fun)
+		}
+	}
+	walk(expr)
+	return literal, referenced
 }

@@ -38,6 +38,45 @@ type FieldFault interface {
 	FieldFault() (field, code, message string)
 }
 
+// FieldRefusal is one entry in a multi-field refusal.
+type FieldRefusal struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+// FieldFaults is FieldFault's plural: a refusal that names SEVERAL bad inputs
+// at once, which a schema validator naturally produces. Collapsing such an
+// error into one field would hide the rest, so it reports them all and the
+// choke point renders every entry.
+//
+// A type implements one or the other, never both. The plural is checked first,
+// because a type carrying a list has nothing useful to say as a single field.
+type FieldFaults interface {
+	error
+	FieldFaults() []FieldRefusal
+}
+
+// MessageFault is for a refusal that is legitimately the caller's business to
+// know about but names NO input the caller can change: an authority or
+// configuration state (no send-capable mailbox), or server-side data the
+// workspace has not loaded (no FX rate for a currency pair).
+//
+// It exists because FieldFault was applied to those cases first, and pointing
+// at a field is worse than pointing at nothing when the field is not an
+// argument of the operation: an agent told to fix `from` on a send that has no
+// `from` argument has been handed a task it cannot perform, and will either
+// retry unchanged or invent a value. Naming the condition and saying a human
+// must act on it is the honest answer.
+//
+// A type implements exactly one of the three fault forms.
+type MessageFault interface {
+	error
+	// MessageFault returns the contract's machine code for the condition and a
+	// message saying who has to do what. Neither may carry internal detail.
+	MessageFault() (code, message string)
+}
+
 // Core sentinels — every store and handler in the system speaks these.
 var (
 	// ErrNotFound: no such resource in this workspace, or outside the

@@ -111,14 +111,23 @@ func (m moduleSource) touchesDatasourceSeam() bool {
 	return false
 }
 
+// faultMethods are the three shapes a module error may use to carry its own
+// verdict: one field, several fields, or a condition that names no field at all.
+// Any of them satisfies the obligation, because any of them makes the refusal
+// classify on every surface.
+var faultMethods = map[string]bool{"FieldFault": true, "FieldFaults": true, "MessageFault": true}
+
 // implementsFieldFault collects the error types in this module that carry
-// their own verdict.
+// their own verdict, by any of the three interface forms.
 func (m moduleSource) implementsFieldFault() map[string]bool {
 	out := map[string]bool{}
 	for _, file := range m.files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Name.Name != "FieldFault" {
+			if !ok {
+				continue
+			}
+			if !faultMethods[fn.Name.Name] {
 				continue
 			}
 			if name := receiverTypeName(fn); name != "" {
@@ -207,25 +216,69 @@ func errorsAsTarget(cond ast.Expr) (string, bool) {
 	return ident.Name, true
 }
 
-// callsHTTPErrValidation reports whether the block hands a 422 to the wire.
+// callsHTTPErrValidation reports whether the block hands a 422 to the wire, by
+// EITHER idiom this codebase uses.
+//
+// Detecting only httperr.Validation was this gate's own false-clean: a module
+// may also build the same 422 as an httperr.DetailedError with
+// StatusUnprocessableEntity — which is exactly how customfields mapped its
+// multi-field ValidationError — and a detector blind to that reported green on
+// the very leak it was written to catch. A gate that recognizes one spelling of
+// a pattern is a gate that certifies the other spelling.
 func callsHTTPErrValidation(body *ast.BlockStmt) bool {
 	found := false
 	ast.Inspect(body, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
-			return true
-		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Validation" {
-			return true
-		}
-		if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "httperr" {
-			found = true
-			return false
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			sel, ok := node.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Validation" {
+				return true
+			}
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "httperr" {
+				found = true
+				return false
+			}
+		case *ast.CompositeLit:
+			if !isHTTPErrDetailedError(node.Type) {
+				return true
+			}
+			for _, elt := range node.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if key, ok := kv.Key.(*ast.Ident); !ok || key.Name != "Status" {
+					continue
+				}
+				if isUnprocessableEntity(kv.Value) {
+					found = true
+					return false
+				}
+			}
 		}
 		return true
 	})
 	return found
+}
+
+// isHTTPErrDetailedError reports whether expr names httperr.DetailedError.
+func isHTTPErrDetailedError(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "DetailedError" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "httperr"
+}
+
+// isUnprocessableEntity reports whether expr is http.StatusUnprocessableEntity.
+func isUnprocessableEntity(expr ast.Expr) bool {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "StatusUnprocessableEntity" {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	return ok && pkg.Name == "http"
 }
 
 func TestSeamReachableModulesCarryTheirOwnFieldVerdict(t *testing.T) {

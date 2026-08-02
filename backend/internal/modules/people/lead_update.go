@@ -61,6 +61,28 @@ func (e *ScoreOverrideReasonRequiredError) FieldFault() (field, code, message st
 	return "score_override_reason", codeRequired, e.Error()
 }
 
+// leadScoreField names the lead's own score input. Its own constant, not the
+// dedupe engine's evidenceScoreKey: those two spell the same word for unrelated
+// reasons, and borrowing one for the other ties this wire contract to a change
+// made for a different feature.
+const leadScoreField = "score"
+
+// ScoreOverrideWithoutScoreError is the mirror of
+// ScoreOverrideReasonRequiredError: a reason arrived with no score to attach it
+// to, so the missing input is the SCORE. Its own type because the two
+// conditions name different fields, and one error for both would tell half the
+// callers to fix an input they had already supplied.
+type ScoreOverrideWithoutScoreError struct{}
+
+func (e *ScoreOverrideWithoutScoreError) Error() string {
+	return "a score_override_reason without a score sets nothing; send the score too"
+}
+
+// FieldFault names the score, which is the input that is missing.
+func (e *ScoreOverrideWithoutScoreError) FieldFault() (field, code, message string) {
+	return leadScoreField, codeRequired, e.Error()
+}
+
 // ScoreOverrideReasonEmptyError rejects an empty-string reason: the
 // contract's clear gesture is JSON null (minLength 1 on the field), so a
 // blank reason is neither a written justification nor a clear — it is
@@ -88,7 +110,7 @@ func (e *ScoreOverrideClearConflictError) Error() string {
 
 // FieldFault refuses setting and clearing the same override in one request.
 func (e *ScoreOverrideClearConflictError) FieldFault() (field, code, message string) {
-	return evidenceScoreKey, "clear_conflict", e.Error()
+	return leadScoreField, "clear_conflict", e.Error()
 }
 
 func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {
@@ -258,7 +280,7 @@ func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateL
 			return false, &ScoreOverrideReasonEmptyError{}
 		}
 		if !overrideInForce {
-			return false, &ScoreOverrideReasonRequiredError{} // a reason without a score sets nothing
+			return false, &ScoreOverrideWithoutScoreError{}
 		}
 		p.Set("score_override_reason", current.ScoreOverrideReason, strings.TrimSpace(*in.ScoreOverrideReason))
 		return false, nil

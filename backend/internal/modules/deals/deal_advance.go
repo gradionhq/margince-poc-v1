@@ -237,9 +237,12 @@ func (e *MissingFxRateError) Error() string {
 	return "no fx_rate from " + e.From + " to " + e.To + " to freeze at close"
 }
 
-// FieldFault surfaces the spec's hard-fail (formulas §6.1): a missing rate is never 1.
-func (e *MissingFxRateError) FieldFault() (field, code, message string) {
-	return "fx_rate_to_base", "fx_rate_unavailable", e.Error()
+// MessageFault names the condition and no field: the spec's hard-fail
+// (formulas §6.1) fires because the workspace holds no rate for this currency
+// pair — server-side data, not an argument. Naming fx_rate_to_base would tell
+// an agent to correct an input it never sent and cannot supply.
+func (e *MissingFxRateError) MessageFault() (code, message string) {
+	return "fx_rate_unavailable", e.Error()
 }
 
 // freezeFx resolves the frozen currency→base conversion for a closed

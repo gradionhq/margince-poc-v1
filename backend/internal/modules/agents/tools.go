@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -97,7 +98,7 @@ const maxBadArgsDetail = 200
 type BadArgsError struct{ Cause error }
 
 func (e *BadArgsError) Error() string {
-	return "arguments: " + boundDetail(e.Cause.Error(), maxBadArgsDetail)
+	return "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
 }
 func (e *BadArgsError) Unwrap() error { return e.Cause }
 
@@ -112,6 +113,35 @@ func boundDetail(s string, n int) string {
 		cut--
 	}
 	return s[:cut] + "…"
+}
+
+// echoSafe prepares caller-authored text for a tool result: bounded, and with
+// every control character rendered as a visible escape.
+//
+// Bounding alone is not enough. A tool result lands in a transcript that later
+// prompts of the same run read, and the author of these strings is the model
+// being prompted — so a newline in a field name can open what reads as a new
+// line of conversation, and an escape byte can move a terminal's cursor.
+// Rendering them keeps what the caller actually wrote while taking away its
+// ability to forge the frame around it.
+func echoSafe(s string, n int) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return boundDetail(b.String(), n)
 }
 
 func schema(s string) json.RawMessage { return json.RawMessage(s) }

@@ -372,12 +372,17 @@ func (s *Dispatcher) explainClassified(tool string, err error) string {
 		s.log.Warn("mcp: tool call refused", "tool", tool, "code", fault.Code, "err", err)
 	}
 
+	// The detail can be the caller's own text (a decode error quotes the field
+	// name it refused), so it gets the same treatment as every other echo on
+	// this surface rather than relying on the classes that produce it to be
+	// short and well-behaved.
+	detail := echoSafe(fault.Detail, maxBadArgsDetail)
 	if fault.Transient() {
-		return "This tool is temporarily unavailable — nothing was changed. (" + faultCodes(fault) + ": " + fault.Detail + ") " +
+		return "This tool is temporarily unavailable — nothing was changed. (" + faultCodes(fault) + ": " + detail + ") " +
 			"The same call can succeed later; wait before retrying, and tell the user if they are waiting on it."
 	}
 	return "This call was refused as issued and nothing was changed; repeating it unchanged will be refused the same way. (" +
-		faultCodes(fault) + ": " + fault.Detail + ") Correct the arguments and call again — or, if this is a governed refusal " +
+		faultCodes(fault) + ": " + detail + ") Correct the arguments and call again — or, if this is a governed refusal " +
 		"rather than a mistake, do not retry: tell the user what is blocking it."
 }
 

@@ -140,10 +140,51 @@ func clientInputValidation(err error) (error, bool) {
 	// that never runs that module's HTTP mapper — the MCP tool surface reaches
 	// the same stores through the datasource seam, and used to report every one
 	// of these as an internal fault with advice to retry.
+	return moduleDeclaredFault(err)
+}
+
+// moduleDeclaredFault answers the errors that carry their OWN verdict, through
+// one of apperrors' three fault interfaces. Split from clientInputValidation
+// because the two halves answer different questions: that one knows a fixed set
+// of shared types by name, while this one knows no types at all — a module opts
+// in by implementing a method, and this reads whatever it declared.
+func moduleDeclaredFault(err error) (error, bool) {
+	// The plural first: a type that names several bad inputs has nothing
+	// useful to say as a single field, so asking it for one would discard the
+	// rest of what it knows.
+	var fieldFaults apperrors.FieldFaults
+	if errors.As(err, &fieldFaults) {
+		refusals := fieldFaults.FieldFaults()
+		fields := make([]FieldError, 0, len(refusals))
+		for _, r := range refusals {
+			fields = append(fields, FieldError{Field: r.Field, Code: r.Code, Message: r.Message})
+		}
+		return &DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "validation_error",
+			Detail: fieldFaults.Error(),
+			Fields: fields,
+		}, true
+	}
+
 	var fieldFault apperrors.FieldFault
 	if errors.As(err, &fieldFault) {
 		field, code, message := fieldFault.FieldFault()
 		return Validation(field, code, message), true
+	}
+
+	// A refusal with no field to name: it still must classify, or the MCP
+	// surface reports a governed condition as an internal fault — but it
+	// carries NO per-field entry, because inventing one would point the caller
+	// at an input that is not theirs to change.
+	var messageFault apperrors.MessageFault
+	if errors.As(err, &messageFault) {
+		code, message := messageFault.MessageFault()
+		return &DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   code,
+			Detail: message,
+		}, true
 	}
 
 	return nil, false
@@ -172,14 +213,23 @@ type Fault struct {
 	InfraCause error
 }
 
+// transientCodes are the refusals that clear ON THEIR OWN: a rate limit whose
+// window elapses, a metered budget that refills. Membership is by CODE and not
+// by status range, because the range lies — a 503 is equally the shape of
+// "not bootstrapped yet" or "misconfigured", which no amount of retrying
+// resolves and which an operator must act on. Telling an agent to wait for one
+// of those spends its whole step budget on a call that was already settled.
+var transientCodes = map[string]struct{}{
+	"rate_limited":               {},
+	"incumbent_budget_exhausted": {},
+}
+
 // Transient reports whether repeating the same call unchanged could succeed
-// later: a rate limit, or a dependency that is temporarily unavailable. Every
-// other classified fault is settled — something must change (the arguments, a
-// human's decision, the workspace's configuration) before a retry means
-// anything, and telling a caller to retry one of those is advice that can only
-// waste its budget.
+// later. Every other classified fault is settled: something must change (the
+// arguments, a human's decision, an operator's) before a retry means anything.
 func (f Fault) Transient() bool {
-	return f.Status == http.StatusTooManyRequests || f.Status >= http.StatusInternalServerError
+	_, ok := transientCodes[f.Code]
+	return ok
 }
 
 // Classify is the ONE decision tree behind the error taxonomy: what err means
@@ -240,9 +290,19 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
 			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
 	}
+	// Fields renders INTO details rather than over it: both are public on
+	// DetailedError, so a handler may legitimately carry extra structured
+	// context alongside a per-field breakdown, and dropping that context on
+	// the floor would be a silent loss of exactly the kind this change exists
+	// to stop.
 	details := fault.Details
 	if len(fault.Fields) > 0 {
-		details = fieldDetails(fault.Fields)
+		merged := make(map[string]any, len(details)+1)
+		for k, v := range details {
+			merged[k] = v
+		}
+		merged[fieldErrorsKey] = fieldDetails(fault.Fields)[fieldErrorsKey]
+		details = merged
 	}
 	writeProblem(w, problem{
 		Status:  fault.Status,
@@ -326,12 +386,14 @@ func Validation(field, code, message string) *DetailedError {
 // fieldDetails renders the per-field breakdown into the contract's
 // `details.errors` body shape. Rendering it here, from Fields, is what keeps
 // the typed list and the wire list the same list.
+const fieldErrorsKey = "errors"
+
 func fieldDetails(fields []FieldError) map[string]any {
 	errs := make([]map[string]string, 0, len(fields))
 	for _, f := range fields {
 		errs = append(errs, map[string]string{"field": f.Field, "code": f.Code, "message": f.Message})
 	}
-	return map[string]any{"errors": errs}
+	return map[string]any{fieldErrorsKey: errs}
 }
 
 // Duplicate is the 409 dedupe shape. existingID is included only when

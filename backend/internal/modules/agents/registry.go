@@ -192,9 +192,11 @@ type UnknownToolError struct{ Name string }
 // enough that the field cannot carry prose.
 const maxToolNameEcho = 64
 
-// Error bounds the echo HERE rather than at each surface, so no consumer —
+// Error renders the echo HERE rather than at each surface, so no consumer —
 // the tool result, the server log, a future transport — can quote the name
-// back unbounded by forgetting to.
+// back raw by forgetting to. Bounded AND escaped: the name is chosen by the
+// model, and a newline in it would otherwise open what reads as a new line of
+// the transcript that the same run's later prompts go on to read.
 func (e *UnknownToolError) Error() string {
-	return "unknown tool " + boundDetail(e.Name, maxToolNameEcho)
+	return "unknown tool " + echoSafe(e.Name, maxToolNameEcho)
 }

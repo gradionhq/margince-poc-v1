@@ -96,7 +96,18 @@ var ErrLastOption = errors.New("customfields: a picklist needs at least one opti
 // the transport can render every problem in one round trip.
 type ValidationError struct{ Errors []FieldError }
 
-func (e *ValidationError) Error() string { return "customfields: validation failed" }
+func (e *ValidationError) Error() string { return "One or more fields are invalid." }
+
+// FieldFaults carries every rejected field, so the MCP tool surface — which
+// reaches this engine through the datasource seam and never runs its HTTP
+// mapper — names them all instead of reporting an internal fault.
+func (e *ValidationError) FieldFaults() []apperrors.FieldRefusal {
+	out := make([]apperrors.FieldRefusal, 0, len(e.Errors))
+	for _, fe := range e.Errors {
+		out = append(out, apperrors.FieldRefusal{Field: fe.Field, Code: fe.Code})
+	}
+	return out
+}
 
 // ColumnTakenError is the cross-workspace column-namespace collision:
 // the physical column namespace on a shared core table is global, so a

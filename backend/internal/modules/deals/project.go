@@ -124,7 +124,7 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 			return crmcontracts.Project{}, apperrors.ErrNotFound
 		}
 		if constraint, ok := storekit.CheckViolation(err); ok {
-			return crmcontracts.Project{}, projectCheckError(constraint)
+			return crmcontracts.Project{}, projectCheckError(constraint, submittedDateField(in.StartedAt, in.TargetEndDate, nil))
 		}
 		return crmcontracts.Project{}, fmt.Errorf("insert project: %w", err)
 	}
@@ -284,15 +284,33 @@ func projectKeyConflict(err error, key *string) error {
 
 // projectCheckError names the schema-side business rules that can still
 // fire after the per-path validations, so a breach reads as a 422 about a
-// rule rather than an opaque server fault.
-func projectCheckError(constraint string) error {
+// rule rather than an opaque server fault. dateField is the date input this
+// request actually carried, so a date-range breach points at the value the
+// caller can change; empty when the path submitted none.
+// submittedDateField names the date input a request carried, preferring the
+// one most likely to be the mover when several arrived: a caller that sent
+// ended_at is closing the project, and that is the date the rule is about.
+func submittedDateField(startedAt, targetEnd, endedAt *time.Time) string {
+	switch {
+	case endedAt != nil:
+		return "ended_at"
+	case startedAt != nil:
+		return "started_at"
+	case targetEnd != nil:
+		return "target_end_date"
+	default:
+		return ""
+	}
+}
+
+func projectCheckError(constraint string, dateField string) error {
 	switch constraint {
 	case "project_key_shape":
 		return &ProjectKeyShapeError{}
 	case "project_closed_reason":
 		return &ClosedReasonRequiredError{}
 	case "project_dates":
-		return &ProjectDateRangeError{}
+		return &ProjectDateRangeError{Field: dateField}
 	default:
 		return &ProjectConstraintError{Constraint: constraint}
 	}
@@ -335,15 +353,25 @@ func (e *ClosedReasonRequiredError) FieldFault() (field, code, message string) {
 }
 
 // ProjectDateRangeError maps to 422: a project cannot end before it started.
-type ProjectDateRangeError struct{}
+//
+// Field names whichever date the CALLER submitted. The rule is enforced by a
+// schema CHECK on the resulting pair, so by the time it fires either date could
+// be the one that moved — and attributing it to a constant would point a PATCH
+// that moved started_at at an ended_at it never sent.
+type ProjectDateRangeError struct{ Field string }
 
 func (e *ProjectDateRangeError) Error() string {
 	return "a project's end date cannot precede its start date"
 }
 
-// FieldFault refuses an end date that precedes the start.
+// FieldFault refuses a date pair whose end precedes its start, naming the date
+// the caller moved.
 func (e *ProjectDateRangeError) FieldFault() (field, code, message string) {
-	return "ended_at", "invalid_date_range", e.Error()
+	field = e.Field
+	if field == "" {
+		field = "ended_at"
+	}
+	return field, "invalid_date_range", e.Error()
 }
 
 // ProjectConstraintError is the honest fallback for a project CHECK this
