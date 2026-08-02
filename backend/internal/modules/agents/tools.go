@@ -246,7 +246,7 @@ func (t createRecord) Spec() mcp.ToolSpec {
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
-			"fields":{"type":"object","description":"The crm.yaml create-request body for the record_type (a task is record_type=activity, kind=task)"}},
+			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
