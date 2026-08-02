@@ -45,7 +45,7 @@ func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Req
 	read, _, err := e.people.StartOnboardingSiteRead(r.Context(), seedURL, requestedBy(r.Context()),
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
-				WorkspaceID: storekit.MustWorkspace(ctx), SiteReadID: read.ID,
+				Workspace: storekit.MustWorkspace(ctx), SiteReadID: read.ID,
 				SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 			}, siteDeepReadInsertOpts())
 		})

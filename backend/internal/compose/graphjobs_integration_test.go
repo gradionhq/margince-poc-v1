@@ -72,8 +72,15 @@ func TestTheBackfillWorkerRecoversHistoryAndThenStops(t *testing.T) {
 	person := seedGraphPerson(t, e, "Legacy Contact")
 	legacyInteraction(t, e, person, "human:"+e.Rep1.String())
 
-	worker := newParticipantBackfillWorker(e.Pool, quietLog())
-	if err := worker.Work(context.Background(), &river.Job[ParticipantBackfillArgs]{}); err != nil {
+	// The WORKSPACE worker is what backfills; the dispatcher beside it only
+	// enumerates and enqueues, and driving it here would need a River client.
+	worker := &participantBackfillWorkspaceWorker{
+		participantBackfillWorker: newParticipantBackfillWorker(e.Pool, quietLog()),
+	}
+	pass := &river.Job[ParticipantBackfillWorkspaceArgs]{
+		Args: ParticipantBackfillWorkspaceArgs{Workspace: e.WS},
+	}
+	if err := worker.Work(context.Background(), pass); err != nil {
 		t.Fatalf("backfill pass: %v", err)
 	}
 
@@ -92,7 +99,7 @@ func TestTheBackfillWorkerRecoversHistoryAndThenStops(t *testing.T) {
 	// makes it safe to re-run after a crash — and what stops the daily
 	// schedule from re-doing the same work forever.
 	before := participants
-	if err := worker.Work(context.Background(), &river.Job[ParticipantBackfillArgs]{}); err != nil {
+	if err := worker.Work(context.Background(), pass); err != nil {
 		t.Fatalf("second backfill pass: %v", err)
 	}
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -129,8 +136,13 @@ func TestTheReconcileWorkerRebuildsTheProjection(t *testing.T) {
 		t.Fatalf("seeding participants: %v", err)
 	}
 
-	worker := newGraphEdgeReconcileWorker(e.Pool, quietLog())
-	if err := worker.Work(context.Background(), &river.Job[GraphEdgeReconcileArgs]{}); err != nil {
+	// The WORKSPACE worker rebuilds; the dispatcher beside it only enqueues.
+	worker := &graphEdgeWorkspaceWorker{
+		graphEdgeReconcileWorker: newGraphEdgeReconcileWorker(e.Pool, quietLog()),
+	}
+	if err := worker.Work(context.Background(), &river.Job[GraphEdgeWorkspaceArgs]{
+		Args: GraphEdgeWorkspaceArgs{Workspace: e.WS},
+	}); err != nil {
 		t.Fatalf("reconcile pass: %v", err)
 	}
 

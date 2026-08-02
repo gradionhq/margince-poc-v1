@@ -117,7 +117,7 @@ func startDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteR
 		t.Fatal("the first start joined — the fixture is not clean")
 	}
 	return read, SiteDeepReadArgs{
-		WorkspaceID:    e.WS,
+		Workspace:      e.WS,
 		OrganizationID: org,
 		SiteReadID:     read.ID,
 		SeedURL:        read.SeedURL,
@@ -260,7 +260,7 @@ func TestDeepReadConcurrentStagingJoinsThePendingProposal(t *testing.T) {
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
 	ctx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS,
+		Workspace:   e.WS,
 		RequestedBy: "human:" + e.Rep1.String(),
 	})
 	readID := ids.NewV7()
@@ -678,7 +678,7 @@ func TestDeepReadStartQueuesOnceAndAReClickJoinsWithoutASecondInsert(t *testing.
 	if !ok {
 		t.Fatalf("enqueued %T, want SiteDeepReadArgs", inserter.inserts[0])
 	}
-	if args.WorkspaceID != e.WS || args.OrganizationID != org ||
+	if args.Workspace != e.WS || args.OrganizationID != org ||
 		args.SiteReadID != ids.UUID(first.ReadId) ||
 		args.SeedURL != "https://acme.example" || args.RequestedBy != "human:"+e.Rep1.String() {
 		t.Fatalf("job args = %+v, want the dossier's own identity and the org's domain as seed", args)

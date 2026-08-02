@@ -271,7 +271,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	run, err := h.registry.StartBackfill(r.Context(), string(provider), userID, months, estimate,
 		func(ctx context.Context, tx pgx.Tx, backfillID ids.UUID) error {
 			enqueueErr = h.inserter.EnqueueTx(ctx, tx, CaptureBackfillArgs{
-				Workspace: ws.String(), BackfillID: backfillID.String(),
+				Workspace: ws, BackfillID: backfillID.String(),
 			}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}})
 			return enqueueErr
 		})

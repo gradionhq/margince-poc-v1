@@ -46,7 +46,7 @@ import (
 // target, the dossier to advance, and the requesting human for the staged
 // proposal's provenance.
 type SiteDeepReadArgs struct {
-	WorkspaceID    ids.UUID `json:"workspace_id"`
+	Workspace      ids.UUID `json:"workspace_id"`
 	OrganizationID ids.UUID `json:"organization_id"`
 	SiteReadID     ids.UUID `json:"site_read_id"`
 	SeedURL        string   `json:"seed_url"`
@@ -59,6 +59,11 @@ type SiteDeepReadArgs struct {
 
 // Kind is the stable job identifier River persists in river_job.
 func (SiteDeepReadArgs) Kind() string { return "site_deep_read" }
+
+// WorkspaceID binds this deep read to its tenant (jobs.WorkspaceScoped).
+// The field is Workspace because Go forbids a field and a method of the
+// same name; the wire key stays workspace_id.
+func (a SiteDeepReadArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // deepReadQueue isolates deep reads from the default queue: a crawl holds a
 // worker for minutes (crawl wall + model calls), so a burst of them on the

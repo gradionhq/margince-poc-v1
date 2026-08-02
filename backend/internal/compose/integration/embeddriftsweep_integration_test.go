@@ -20,14 +20,15 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// TestSweepEmbeddingDriftHealsIdentityMatchedGaps seeds two people under
+// TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps seeds two people under
 // a matched binding — one embedded, one whose embed event was "lost" (no
 // embedding row at all) — and proves the sweep embeds exactly the missing
 // one: one model call, pending drops to 0, and the binding marker is not
 // touched (the sweep is not a reindex and must never stamp the marker).
-func TestSweepEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
+func TestSweepWorkspaceEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -45,9 +46,9 @@ func TestSweepEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 	lostID := e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Lost Event Person', 'manual', 'human:x')`)
 	baselineCalls := len(fake.Calls())
 
-	healed, err := e.store.SweepEmbeddingDrift(ctx, embedder)
+	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
-		t.Fatalf("SweepEmbeddingDrift: %v", err)
+		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}
 	if healed != 1 {
 		t.Fatalf("healed = %d, want 1 (only the entity whose event was lost)", healed)
@@ -77,21 +78,21 @@ func TestSweepEmbeddingDriftHealsIdentityMatchedGaps(t *testing.T) {
 
 	// A second pass over a healed store is a no-op — the sweep is safe to
 	// tick forever.
-	healed, err = e.store.SweepEmbeddingDrift(ctx, embedder)
+	healed, err = e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
-		t.Fatalf("second SweepEmbeddingDrift: %v", err)
+		t.Fatalf("second SweepWorkspaceEmbeddingDrift: %v", err)
 	}
 	if healed != 0 {
 		t.Fatalf("second sweep healed = %d, want 0", healed)
 	}
 }
 
-// TestSweepEmbeddingDriftRefusesTheBindingChangeCase proves the sweep
+// TestSweepWorkspaceEmbeddingDriftRefusesTheBindingChangeCase proves the sweep
 // no-ops — zero model calls, the missing row stays missing — when the
 // configured identity differs from what the store is populated under:
 // that state is the operator's preview→confirm rebuild to trigger, never
 // the sweep's (ADR-0069 §3a keeps the consent gate exactly there).
-func TestSweepEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
+func TestSweepWorkspaceEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -113,9 +114,9 @@ func TestSweepEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
 	}
 
-	healed, err := e.store.SweepEmbeddingDrift(ctx, embedder)
+	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
-		t.Fatalf("SweepEmbeddingDrift: %v", err)
+		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}
 	if healed != 0 {
 		t.Fatalf("healed = %d, want 0 under a changed binding", healed)
@@ -125,11 +126,11 @@ func TestSweepEmbeddingDriftRefusesTheBindingChangeCase(t *testing.T) {
 	}
 }
 
-// TestSweepEmbeddingDriftWaitsOutARunningReindex proves the sweep no-ops
+// TestSweepWorkspaceEmbeddingDriftWaitsOutARunningReindex proves the sweep no-ops
 // while the binding marker reads 'reembedding': the fleet-wide job owns
 // the store for that window, and the sweep re-running underneath it would
 // double-walk the same pending set for nothing.
-func TestSweepEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
+func TestSweepWorkspaceEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -154,9 +155,9 @@ func TestSweepEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
 		t.Fatalf("test setup: EntitiesPending = %d, want 1", pending)
 	}
 
-	healed, err := e.store.SweepEmbeddingDrift(ctx, embedder)
+	healed, err := e.store.SweepWorkspaceEmbeddingDrift(ctx, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if err != nil {
-		t.Fatalf("SweepEmbeddingDrift: %v", err)
+		t.Fatalf("SweepWorkspaceEmbeddingDrift: %v", err)
 	}
 	if healed != 0 {
 		t.Fatalf("healed = %d, want 0 while a reindex job is live", healed)

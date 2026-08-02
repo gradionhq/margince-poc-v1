@@ -106,8 +106,10 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 		t.Fatalf("NewJobRunner: %v", err)
 	}
 	// Subscribe before Start so the RunOnStart completion is never
-	// missed — RunOnStart fires time_scan immediately at boot, and this
-	// channel says exactly when it finished.
+	// missed — RunOnStart fires the time_scan DISPATCHER immediately at boot,
+	// and this channel says exactly when the workspace job it enqueued
+	// finished. Waiting on the dispatcher would race the work: a dispatcher
+	// completes as soon as the fan-out is enqueued, not when it has run.
 	sub, cancelSub := runner.SubscribeCompleted()
 	defer cancelSub()
 
@@ -125,7 +127,7 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, compose.TimeScanArgs{}.Kind())
+	awaitKindCompleted(waitCtx, t, sub, compose.TimeScanWorkspaceArgs{}.Kind())
 
 	// The firing must have cleared Sam's own gate as 'applied', not
 	// 'blocked' — if the seeded role above did not actually grant
