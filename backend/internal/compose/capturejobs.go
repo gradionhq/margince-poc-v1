@@ -196,9 +196,14 @@ type captureDigestWorker struct {
 	now func() time.Time
 }
 
+// Work fans out on the DEFAULT queue, not ai_capture, unlike its three
+// siblings in this file: assembling a digest is a database-only pass — this
+// worker holds no model lane at all — and ai_capture exists to keep long,
+// model-bound work from evicting short jobs. Queueing the morning digest
+// behind two model workers would delay it for no reason.
 func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
 		func(ws ids.UUID) river.JobArgs { return CaptureDigestWorkspaceArgs{Workspace: ws} }))
 }
 

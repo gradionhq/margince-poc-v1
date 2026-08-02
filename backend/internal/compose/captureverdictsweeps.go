@@ -26,7 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// ReconcileLedger runs the two housekeeping transitions that keep the ledger
+// ReconcileLedgerWorkspace runs the two housekeeping transitions that keep the ledger
 // from silently filling up: a row that spent its attempts without ever getting
 // an answer retires to `unsure` so a human can take it, and a row whose offer a
 // human declined closes as `rejected` so it stops holding a slot.
@@ -51,7 +51,7 @@ func (e *CounterpartyVerdictEngine) ReconcileLedgerWorkspace(ctx context.Context
 	return nil
 }
 
-// StageReviews offers every `unsure` disposition without an offer yet to a
+// StageReviewsWorkspace offers every `unsure` disposition without an offer yet to a
 // human. Run after a verdict pass — and independently of it, so a staging that
 // failed while the model was answering is picked up on the next cycle rather
 // than leaving a row nobody can act on.
@@ -85,12 +85,12 @@ func (e *CounterpartyVerdictEngine) StageReviewsWorkspace(ctx context.Context, m
 // pass leaves behind the next tick takes.
 const staleReviewBatch = 200
 
-// AgeOutStaleReviews closes the questions nobody answered. An `unsure` row waits
+// AgeOutStaleReviewsWorkspace closes the questions nobody answered. An `unsure` row waits
 // UnsureReviewWindow for a human; past that the ledger stops asking, and the
 // offer standing in the review queue is withdrawn with it.
 //
 // Without this the queue only ever grows. A staged offer expires after a day and
-// StageReviews honestly re-offers the row, so an unanswered question cycles
+// StageReviewsWorkspace honestly re-offers the row, so an unanswered question cycles
 // forever — holding a slot against the deferral ceiling and against its sender's
 // address the whole time. That is the tail an outsider can lean on: mail from
 // enough fresh addresses and the workspace never defers anyone new again.
@@ -158,7 +158,7 @@ func (e *CounterpartyVerdictEngine) ageOutOneReview(ctx context.Context, row cap
 	return aged, err
 }
 
-// HideNoiseStragglers archives captured mail from judged-noise senders that is
+// HideNoiseStragglersWorkspace archives captured mail from judged-noise senders that is
 // still visible — the messages that arrived after their verdict, and any the
 // verdict transaction did not reach.
 //
@@ -192,7 +192,7 @@ func (e *CounterpartyVerdictEngine) HideNoiseStragglersWorkspace(ctx context.Con
 	})
 }
 
-// RedactNoise is the second stage of the noise disposition: content-keyed, so it
+// RedactNoiseWorkspace is the second stage of the noise disposition: content-keyed, so it
 // covers whatever is outstanding rather than firing once per disposition and
 // retaining everything that sender wrote afterwards.
 //
@@ -249,9 +249,10 @@ func (e *CounterpartyVerdictEngine) RedactNoiseWorkspace(ctx context.Context, wi
 // the coverage.
 const noiseSweepBatch = 500
 
-// eachWorkspace runs fn under every live workspace's own principal and GUC. The
-// sweeps all share this shape, and sharing it is what keeps a new one from
-// quietly running under the wrong workspace.
+// inWorkspace runs fn under the provenance of the workspace already bound in
+// ctx. Each sweep stage goes through it so the actor and correlation id are
+// assembled in one place rather than six, and so a stage cannot run against a
+// context whose workspace nobody bound — it refuses rather than proceeding.
 func (e *CounterpartyVerdictEngine) inWorkspace(ctx context.Context, fn func(context.Context, ids.UUID) error) error {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {

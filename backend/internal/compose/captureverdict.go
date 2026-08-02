@@ -133,8 +133,11 @@ func (e *CounterpartyVerdictEngine) CanJudge() bool { return e.brain != nil }
 // records stamps `agent:` for the same reason.
 const verdictActor = "agent:" + verdictReason
 
-// workspaceCtx binds the pass's system principal on one workspace, with a fresh
-// correlation id so every disposition it writes traces back to the run.
+// workspaceCtx adds the pass's provenance — the system actor its writes are
+// attributed to and a fresh correlation id — to a context whose WORKSPACE the
+// caller has already bound. It does not bind the workspace itself: the job
+// layer does that from the args' own role declaration, and re-binding here
+// would make this a second, independent source of truth for the tenant.
 func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context) context.Context {
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: verdictActor,

@@ -11,7 +11,8 @@ package automation
 // because nothing downstream of runOne can tell a synthesized clock pass
 // from a bus delivery. River-agnostic by construction: this file never
 // imports River (compose/jobs.go's own doc — the adapters are the only
-// code that knows about River); a River periodic job simply calls Scan.
+// code that knows about River); a River dispatcher enqueues one
+// ScanWorkspace per tenant.
 //
 // Mirrors deals/closedatesweep.go's CloseDateCorrector.Sweep shape: fleet-
 // enumerate workspaces (the rls-exempt marker below), then a per-workspace

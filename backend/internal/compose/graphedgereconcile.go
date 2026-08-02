@@ -62,9 +62,10 @@ func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdg
 	return &graphEdgeReconcileWorker{pool: pool, store: search.NewStore(pool), log: log}
 }
 
-// Work rebuilds each workspace's projection in its own transaction. Per
-// workspace rather than globally, so one tenant's failure leaves the others
-// reconciled — and so no single transaction spans the whole installation.
+// Work enumerates the fleet and enqueues one rebuild per workspace; it
+// rebuilds nothing itself. Per workspace rather than globally, so one tenant's
+// failure leaves the others reconciled — and so no single transaction spans
+// the whole installation.
 func (w *graphEdgeReconcileWorker) Work(ctx context.Context, _ *river.Job[GraphEdgeReconcileArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
 		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),

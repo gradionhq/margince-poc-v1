@@ -24,6 +24,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
@@ -95,14 +96,22 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	}
 }
 
-// A worker given a REAL workspace must get past the guard. Without this the
-// suite above would still pass against a worker that refused everything.
-func TestTheWorkspaceGuardAdmitsARealWorkspace(t *testing.T) {
-	ctx, err := workspaceJobCtx(context.Background(), CloseDateWorkspaceArgs{Workspace: ids.NewV7()})
+// A worker given a REAL workspace must get past the guard, bound to THAT
+// workspace. Without the positive case the suite above would still pass
+// against a guard that refused everything; without the identity check it would
+// pass against one that bound the wrong tenant.
+func TestTheWorkspaceGuardBindsTheWorkspaceTheArgsDeclare(t *testing.T) {
+	want := ids.NewV7()
+
+	ctx, err := workspaceJobCtx(context.Background(), CloseDateWorkspaceArgs{Workspace: want})
 	if err != nil {
 		t.Fatalf("the guard refused a workspace it was given: %v", err)
 	}
-	if ctx == nil {
-		t.Fatal("the guard admitted the workspace but returned no context to work under")
+	got, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		t.Fatal("the guard admitted the workspace but bound nothing — every tenant query would fail on an unset GUC")
+	}
+	if got != want {
+		t.Fatalf("the guard bound %s, want the %s its args declared", got, want)
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestFailureStatusCodeClassifiesErrorFamilies(t *testing.T) {
@@ -72,8 +73,15 @@ func TestVoiceBuildWorkerCtxBindsTheOwnerDelegate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ctx == nil {
-		t.Fatal("a valid job must yield a bound context")
+	if bound, ok := principal.WorkspaceID(ctx); !ok || bound != ws {
+		t.Fatalf("the build ran under workspace %v (bound=%t), want the %s its args declared", bound, ok, ws)
+	}
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.ID != "agent:voice-builder" {
+		t.Fatalf("the build's actor is %+v, want the owner-scoped agent:voice-builder delegate", actor)
+	}
+	if actor.OnBehalfOf != user {
+		t.Fatalf("the delegate acts on behalf of %s, want the requesting owner %s", actor.OnBehalfOf, user)
 	}
 	if _, err := voiceBuildWorkerCtx(context.Background(), VoiceBuildArgs{
 		RequestedBy: user.String(),
