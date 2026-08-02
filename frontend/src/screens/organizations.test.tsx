@@ -1151,7 +1151,7 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await screen.findByText("Relationships");
     await userEvent.click(screen.getByText("Relationships"));
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
@@ -1184,7 +1184,7 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await screen.findByText("Relationships");
     await userEvent.click(screen.getByText("Relationships"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
@@ -1238,8 +1238,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
     expect(screen.getByText("12")).toBeTruthy();
@@ -1262,8 +1260,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
 
     await waitFor(() =>
       expect(
@@ -1293,8 +1289,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
 
     await waitFor(() =>
       expect(
@@ -1411,7 +1405,7 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
+    await screen.findByText("Relationships");
     await userEvent.click(screen.getByText("Relationships"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),

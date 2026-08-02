@@ -478,6 +478,9 @@ export const de = {
   "org.industry": "Branche",
   "org.size": "Größe",
   "org.classification": "Typ",
+  // Nur dort angeboten, wo es noch kein Partnerprogramm gibt: der Tab mit dem
+  // Formular erscheint erst, wenn eines besteht — so entsteht das erste.
+  "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
   "org.class.prospect": "Interessent",

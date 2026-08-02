@@ -56,6 +56,7 @@ import {
   RECORD_ZONE,
   SignalsCard,
   TagsCard,
+  useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
@@ -1209,6 +1210,24 @@ function FactsCard({
 const COMPANY_TABS = ["overview", "partner"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
+// Partner is not a permanent tab. It renders the partner programme —
+// certification, role, margin tier — which is a form about a commercial
+// arrangement the overwhelming majority of accounts do not have. A tab that
+// is empty on nearly every record teaches the reader to skip the tab strip.
+//
+// It shows for an account that HAS a partner programme, and for the reader
+// who just asked to set one up (the overflow menu switches the tab, which is
+// what `tab` already carries) — so the only path to a first partner row is
+// still open, and the form stops greeting everyone else.
+function companyTabsFor(
+  org: Organization,
+  tab: CompanyTab,
+): readonly CompanyTab[] {
+  return org.partner || tab === "partner"
+    ? COMPANY_TABS
+    : (["overview"] as const);
+}
+
 // Which slice of the account's chronology is on screen. Activities is what
 // happened WITH them, changes is what happened TO the record; a reader who
 // wants them in one order picks "all".
@@ -1300,7 +1319,12 @@ function CompanyEditAction({
 function CompanyActionBadges({
   org,
   onOpenHistory,
-}: Readonly<{ org: Organization; onOpenHistory: () => void }>) {
+  onSetUpPartner,
+}: Readonly<{
+  org: Organization;
+  onOpenHistory: () => void;
+  onSetUpPartner: () => void;
+}>) {
   const t = useT();
   const overlay = useSorMode() === "overlay";
   // An archived record is read-only: the backend rejects edit/merge/archive
@@ -1383,6 +1407,15 @@ function CompanyActionBadges({
           {writable && !overlay && (
             <ShareAction recordType="organization" recordId={org.id} />
           )}
+          {/* The way in to the partner programme for an account that has none.
+            The tab only shows once there IS one, so without this the first
+            partner row would be unreachable — this is the same form, asked
+            for rather than offered. */}
+          {writable && !overlay && !org.partner && (
+            <Button small onClick={onSetUpPartner}>
+              {t("org.partnerSetUp")}
+            </Button>
+          )}
           {/* The audit spine: who changed this record and when. It reads as an
             inspection of the record rather than part of its story, so it sits
             with the other rare verbs instead of beside the account's own
@@ -1406,6 +1439,10 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
   const view = useOrganization360(id);
+  // Only an assembled 360 counts as a visit: in overlay mode there is no
+  // baseline to advance, and a page that never rendered the account is not
+  // one the reader saw.
+  useAcknowledgeOrganizationView(id, view.data?.state === "ready");
   // The account itself still comes from its own read: the 360 refuses
   // entirely in overlay mode, and the header must render either way.
   const orgQuery = useQuery({
@@ -1456,19 +1493,24 @@ function CompanyRecord({
   // workspace that flipped mode after this page cached its read would
   // otherwise keep serving a native-looking company view.
   const overlay = view.data?.state === "overlay" || sorMode === "overlay";
-  const tabs = (
-    <div className="co-tabs">
-      <SegmentedControl
-        options={COMPANY_TABS}
-        value={tab}
-        onChange={onTab}
-        labels={{
-          overview: t("tab.overview"),
-          partner: t("tab.partner"),
-        }}
-      />
-    </div>
-  );
+  const visibleTabs = companyTabsFor(org, tab);
+  // One tab is not a choice. A segmented control with a single option is a
+  // button that does nothing, so the strip disappears entirely rather than
+  // asking the reader to pick the page they are already on.
+  const tabs =
+    visibleTabs.length > 1 ? (
+      <div className="co-tabs">
+        <SegmentedControl
+          options={visibleTabs}
+          value={tab}
+          onChange={onTab}
+          labels={{
+            overview: t("tab.overview"),
+            partner: t("tab.partner"),
+          }}
+        />
+      </div>
+    ) : null;
 
   // Both tabs render inside ONE page. Partner used to be a different
   // component tree with no rails, so switching tab unmounted both side
@@ -1912,6 +1954,7 @@ function CompanyPage({
         <CompanyActionBadges
           org={org}
           onOpenHistory={() => setAuditOpen(true)}
+          onSetUpPartner={() => onTab("partner")}
         />
       }
       pulse={
