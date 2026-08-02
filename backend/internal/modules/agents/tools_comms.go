@@ -250,8 +250,8 @@ func (t checkAvailability) Spec() mcp.ToolSpec {
 		OpenAPIOp: "getAvailability",
 		InputSchema: schema(`{"type":"object","required":["from","to"],"properties":{
 			"host_user_id":{"type":"string","format":"uuid","description":"Defaults to the acting principal's user"},
-			"from":{"type":"string","format":"date-time"},
-			"to":{"type":"string","format":"date-time"},
+			"from":{"type":"string","format":"date-time"` + timestampNote + `},
+			"to":{"type":"string","format":"date-time"` + timestampNote + `},
 			"duration_minutes":{"type":"integer","minimum":15,"maximum":480}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -282,8 +282,8 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 		OpenAPIOp: "bookMeeting",
 		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
 			"host_user_id":{"type":"string","format":"uuid"},
-			"start":{"type":"string","format":"date-time"},
-			"end":{"type":"string","format":"date-time"},
+			"start":{"type":"string","format":"date-time"` + timestampNote + `},
+			"end":{"type":"string","format":"date-time"` + timestampNote + `},
 			"subject":{"type":"string"},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},

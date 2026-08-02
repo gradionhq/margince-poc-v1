@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // The write tools' schemas are JSON handed to a client, and their field
@@ -79,6 +81,44 @@ func TestDescriptionsCarryNoControlCharacters(t *testing.T) {
 			if r < 0x20 || r == 0x7f {
 				t.Errorf("%s description has control character %q at %d — Go would quote it in a form JSON rejects", name, r, i)
 			}
+		}
+	}
+}
+
+// Every date-time argument must SAY that RFC 3339 needs a zone offset. The
+// format keyword alone already cost two refused calls, and the schemas are
+// spliced strings, so a note that broke its schema would be worse than none.
+func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
+	specs := map[string]json.RawMessage{}
+	for _, tool := range []interface{ Spec() mcp.ToolSpec }{
+		logActivity{}, checkAvailability{},
+	} {
+		spec := tool.Spec()
+		specs[spec.Name] = spec.InputSchema
+	}
+	for name, raw := range specs {
+		var parsed struct {
+			Properties map[string]struct {
+				Format      string `json:"format"`
+				Description string `json:"description"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			t.Fatalf("%s InputSchema is not valid JSON: %v\n%s", name, err, raw)
+		}
+		found := 0
+		for field, prop := range parsed.Properties {
+			if prop.Format != "date-time" {
+				continue
+			}
+			found++
+			if !strings.Contains(prop.Description, "offset") {
+				t.Errorf("%s.%s is a date-time with no offset requirement in its description: %q",
+					name, field, prop.Description)
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s exposes no date-time argument — this test is watching the wrong tools", name)
 		}
 	}
 }

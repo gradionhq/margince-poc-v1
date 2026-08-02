@@ -107,6 +107,14 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	return b.String()
 }
 
+// timestampNote is appended to every date-time argument the tool surface
+// takes. "format": "date-time" is RFC 3339, which REQUIRES a zone offset — but
+// a model reading the bare format keyword writes a local wall-clock time, and
+// the decoder then refuses a value that looks correct. Two failed calls were
+// spent on exactly that before the reason was visible, so the requirement is
+// stated where it is read rather than left implied by a keyword.
+const timestampNote = `,"description":"RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused."`
+
 // jsonString renders s as a JSON string literal so a description built at init
 // time can be spliced into a hand-written schema literal safely.
 //

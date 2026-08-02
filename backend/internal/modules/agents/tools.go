@@ -285,9 +285,9 @@ func (t logActivity) Spec() mcp.ToolSpec {
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":["note","email","call","meeting","task"]},
 			"subject":{"type":"string"},"body":{"type":"string"},
-			"occurred_at":{"type":"string","format":"date-time"},
+			"occurred_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"direction":{"type":"string","enum":["inbound","outbound"]},
-			"due_at":{"type":"string","format":"date-time"},
+			"due_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
