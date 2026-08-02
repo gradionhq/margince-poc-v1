@@ -62,7 +62,6 @@ import {
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
 import { TimelineActions } from "./compose";
-import { ConnectionsCard } from "./connections";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -2153,9 +2152,13 @@ function businessRail({
           }
         />
         <SignalsCard orgId={org.id} />
-        <Disclosure summary={t("co.connections.title")}>
-          <ConnectionsCard orgId={org.id} />
-        </Disclosure>
+        {/* Connections is deliberately not here. It listed the account owner
+            and the same employees the People card already names, against two
+            different strength scales and a bare "2" nobody could read — the
+            page's own answer to a question no reader had asked. The graph read
+            stays (connections.tsx, GET /organizations/{id}/graph): it returns
+            as a per-contact "find a route in", which is the question that IS
+            worth asking, and only where a route actually exists. */}
         <Disclosure summary={t("co.tags.title")}>
           <TagsCard
             view={view}
@@ -2192,9 +2195,6 @@ function businessRail({
   return (
     <>
       <PeopleCard />
-      {/* The connections card reads its own endpoint, so a failed 360 tells it
-          nothing — it still tries, and says so itself if its own read fails. */}
-      <ConnectionsCard orgId={org.id} />
       <DealsCard />
       <SignalsCard orgId={org.id} />
       <TagsCard />

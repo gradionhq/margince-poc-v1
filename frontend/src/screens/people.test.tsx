@@ -638,7 +638,7 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
     render(<PersonScreen id="p-1" />);
 
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    await userEvent.click(screen.getByText("People & companies"));
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -668,7 +668,7 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
     });
     render(<PersonScreen id="p-1" />);
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    await userEvent.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -721,7 +721,7 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
     });
     render(<PersonScreen id="p-1" />);
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    await userEvent.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("remove-relationship")).toBeTruthy(),
     );
@@ -834,7 +834,7 @@ describe("PersonScreen — relationship kinds by scope (P-5)", () => {
     });
     render(<PersonScreen id="p-1" />);
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    await userEvent.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );

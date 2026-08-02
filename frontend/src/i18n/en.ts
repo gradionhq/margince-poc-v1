@@ -221,7 +221,7 @@ export const en = {
   "merge.submit": "Merge",
 
   "tab.overview": "Overview",
-  "tab.relationships": "Relationships",
+  "tab.relationships": "People & companies",
   "tab.partner": "Partner",
   "tab.rollup": "Roll-up",
   "tab.history": "History",
