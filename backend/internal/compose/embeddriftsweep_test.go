@@ -54,10 +54,12 @@ func TestAddEmbedDriftSweepJobRegistersWorkerAndTick(t *testing.T) {
 	river.AddWorker(workers, &embedDriftSweepWorker{})
 }
 
-func TestEmbedDriftSweepWorkerHasNoWallClockTimeout(t *testing.T) {
+func TestEmbedDriftWorkspaceWorkerHasNoWallClockTimeout(t *testing.T) {
 	// Same contract as embedReindexWorker: the pass is bounded by the
-	// pending backlog, not River's 1-minute default.
-	w := &embedDriftSweepWorker{}
+	// pending backlog, not River's 1-minute default. It is the WORKSPACE
+	// worker that holds it — the dispatcher only enqueues, and giving that
+	// an unbounded clock would say the fan-out is the long part.
+	w := &embedDriftWorkspaceWorker{}
 	if d := w.Timeout(nil); d != -1 {
 		t.Fatalf("Timeout = %v, want -1 (no per-job wall clock)", d)
 	}

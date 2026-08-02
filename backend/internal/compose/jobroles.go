@@ -18,6 +18,7 @@ var (
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = IdempotencyRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}
