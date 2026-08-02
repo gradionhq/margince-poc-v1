@@ -467,6 +467,9 @@ export const en = {
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
+  // Offered only where there is no partner programme yet: the tab that holds
+  // the form appears once one exists, so this is how the first one is made.
+  "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
   // an English one only slightly more.

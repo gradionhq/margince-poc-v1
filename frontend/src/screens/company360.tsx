@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -107,6 +107,51 @@ export function useOrganization360(id: string) {
       return { state: "ready", view: data };
     },
   });
+}
+
+// VIEW_ACK_DWELL_MS is how long the account must stay open before the visit
+// counts. Opening a record and bouncing straight back out is not reading it,
+// and an ack from that would mark unread activity as seen.
+const VIEW_ACK_DWELL_MS = 5_000;
+
+/**
+ * useAcknowledgeOrganizationView advances THIS reader's "last seen" baseline
+ * for the account — the thing that makes "N new since your last visit" mean
+ * anything on the next visit. Without it the server keeps answering with no
+ * baseline at all, so every visit reads as the first one.
+ *
+ * The 360 deliberately does not advance the baseline itself (a prefetch must
+ * not be indistinguishable from a visit), so this is the only caller. Leaving
+ * before the dwell elapses cancels the timer: the baseline moves only for a
+ * visit that actually happened, and when in doubt it stays where it is —
+ * showing an item twice is a smaller wrong than hiding one.
+ *
+ * Success does NOT invalidate the 360. The "new since your last visit" line
+ * describes the visit in progress; refetching it out from under the reader
+ * would erase the very thing they opened the page to see.
+ */
+export function useAcknowledgeOrganizationView(id: string, visited: boolean) {
+  const ack = useMutation({
+    mutationFn: async (organizationId: string) => {
+      const { error } = await api.POST("/organizations/{id}/view-ack", {
+        params: { path: { id: organizationId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+  });
+  // The mutation's own error state holds a failure; nothing renders it. A
+  // baseline that did not move costs the reader one repeated line next time,
+  // which is not worth an error banner over the account they came to read.
+  const fire = ack.mutate;
+  useEffect(() => {
+    if (!visited) {
+      return;
+    }
+    const timer = window.setTimeout(() => fire(id), VIEW_ACK_DWELL_MS);
+    return () => window.clearTimeout(timer);
+  }, [id, visited, fire]);
 }
 
 // isOverlayRefusal distinguishes "this workspace reads elsewhere" from every

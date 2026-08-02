@@ -94,7 +94,25 @@ const EMPTY_BRIEF = {
 // otherwise still being served to the next one.
 let briefBody: unknown = EMPTY_BRIEF;
 
-function stub(three60: unknown, status = 200) {
+// partnerOrg is the account that HAS a partner programme, and so carries the
+// second tab. The bare fixture deliberately does not: a Partner tab on an
+// account with no programme is the thing the tab gate removed.
+const partnerOrg = {
+  ...org,
+  partner: {
+    id: "pt-1",
+    workspace_id: "w",
+    organization_id: "o-1",
+    relationship_stage: "active",
+    source: "manual",
+    captured_by: "human:u1",
+    version: 1,
+    created_at: "2026-06-01T08:00:00Z",
+    updated_at: "2026-06-01T08:00:00Z",
+  },
+};
+
+function stub(three60: unknown, status = 200, account: unknown = org) {
   // The paths actually requested. A test proves the page did NOT refetch by
   // counting these rather than by trusting that it did not.
   const fetched: string[] = [];
@@ -113,7 +131,7 @@ function stub(three60: unknown, status = 200) {
         return jsonResponse(briefBody);
       }
       if (pathname.endsWith("/organizations/o-1")) {
-        return jsonResponse(org);
+        return jsonResponse(account);
       }
       if (pathname.endsWith("/pipelines")) {
         // One default pipeline with one OPEN stage — enough for a deal
@@ -370,7 +388,7 @@ describe("company view — consent is per purpose", () => {
 
 describe("company view — the rails belong to the account, not to a tab", () => {
   it("keeps both side columns mounted when the reader switches tab", async () => {
-    stub(view());
+    stub(view(), 200, partnerOrg);
     renderCompany();
 
     await screen.findByRole("complementary", { name: "Business" });
@@ -388,7 +406,7 @@ describe("company view — the rails belong to the account, not to a tab", () =>
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
-    const fetched = stub(view());
+    const fetched = stub(view(), 200, partnerOrg);
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
     const before = fetched.filter((path) => path.endsWith("/360")).length;
@@ -400,7 +418,7 @@ describe("company view — the rails belong to the account, not to a tab", () =>
   });
 
   it("leaves the timeline to the overview rather than repeating it under a form", async () => {
-    stub(view());
+    stub(view(), 200, partnerOrg);
     renderCompany();
     await screen.findByRole("region", { name: "Timeline" });
 
@@ -1036,4 +1054,79 @@ it("does not offer a role the contact already holds on that deal", async () => {
   expect([...roles.options].map((option) => option.value)).not.toContain(
     "champion",
   );
+});
+
+describe("company view — Partner is not a permanent tab", () => {
+  it("shows no tab strip at all on an account with no partner programme", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // One tab is not a choice: the strip goes entirely rather than offering
+    // the reader the page they are already on.
+    expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
+  });
+
+  it("shows both tabs once the account has a programme", async () => {
+    stub(view(), 200, partnerOrg);
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
+  });
+
+  it("keeps the setup form reachable, so a first partner row can still be made", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Set up partner programme" }),
+    );
+
+    // Asking for the form is what puts the tab on screen — without this the
+    // hidden tab would have made the first partner row unreachable.
+    expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
+  });
+});
+
+describe("company view — the visit baseline", () => {
+  it("acknowledges the visit after the reader has stayed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetched = stub(view());
+      renderCompany();
+      await screen.findByRole("complementary", { name: "Business" });
+      expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await waitFor(() =>
+        expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(true),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not acknowledge a visit the reader bounced straight out of", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetched = stub(view());
+      const { unmount } = render(<CompanyScreen id="o-1" />);
+      await screen.findByRole("complementary", { name: "Business" });
+      unmount();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      // Marking unread activity as seen because a record flashed past is the
+      // one failure this baseline must never have.
+      expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
