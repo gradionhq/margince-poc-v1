@@ -54,25 +54,39 @@ one.** The spec already says what to do with the overflow: surface it. When
 workspace's tag vocabulary is over its governed cap, not a silent create that
 may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
 
-## Open — three limits the company-page review named and PR #356 did not fix
+## Open — the limits the company-page review named and PR #356 did not fix
 
-Each is real, each was raised by the review bots on that PR, and each is a
-change of a different size than the PR it was raised on.
+Each is real and each is a change of a different size than the PR it was
+raised on.
 
 1. **The owner picker sees one page of users.** `useRoster("user")` reads
    `GET /users?limit=200` and the edit form offers exactly those. In a
    workspace past 200 members an owner outside that page cannot be chosen, and
    the account's current owner shows as "Current owner (no longer in the user
    list)" when it is really just beyond the window. The fix is a searchable
-   picker backed by a server-side user search, not another page size.
-2. **A site read stores the seed it was asked for, not the one that
+   picker backed by a server-side user search, not another page size. The same
+   change should stop fetching the roster on every company open: today it is
+   read whether or not the reader touches the More-actions menu or the owner
+   field.
+2. **The chronology cannot reach older activities.** The Activities filter
+   reports `truncated` when `view.activities.page.has_more` is true, and the
+   "All" filter does the same when the activity feed is the side that still has
+   pages — but neither offers a control to load them. The rows exist and are
+   keyset-paged by time; what is missing is the "load older" affordance.
+3. **The overflow panel is not laid out for zoom or phones.** The panel in
+   `frontend/src/design-system/atoms.css` is a fixed 180px, so at 200% zoom on
+   a narrow viewport it can extend past the record column and be clipped, and
+   on phone layouts it can open behind the fixed bottom navigation. Both are
+   one pass over the panel's width and stacking, in the design system rather
+   than at any call site.
+4. **A site read stores the seed it was asked for, not the one that
    answered.** The crawl now carries the working spelling forward, so
    proposals, evidence and the logo all cite the site that served them — but
    the `site_read` row itself still records the original `https://<domain>`.
    Re-reading that company starts from the dead spelling again and pays the
    fallback ladder a second time. Persisting the answered URL is a migration
    plus a decision about whether the requested URL stays visible.
-3. **The brief's profile vocabulary is spelled out twice.**
+5. **The brief's profile vocabulary is spelled out twice.**
    `briefProfileFields` (orgbrief/input.go, which drives the fingerprint) and
    the keys of `profileLabels` (orgbrief/deterministic.go, which drives what
    renders) are two hand-kept lists of the same eight field names, and neither
