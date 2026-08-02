@@ -1986,33 +1986,6 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
-// Defines values for ConsentPassportOptionGranted.
-const (
-	ConsentPassportOptionGrantedDraft  ConsentPassportOptionGranted = "draft"
-	ConsentPassportOptionGrantedEnrich ConsentPassportOptionGranted = "enrich"
-	ConsentPassportOptionGrantedRead   ConsentPassportOptionGranted = "read"
-	ConsentPassportOptionGrantedSend   ConsentPassportOptionGranted = "send"
-	ConsentPassportOptionGrantedWrite  ConsentPassportOptionGranted = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentPassportOptionGranted enum.
-func (e ConsentPassportOptionGranted) Valid() bool {
-	switch e {
-	case ConsentPassportOptionGrantedDraft:
-		return true
-	case ConsentPassportOptionGrantedEnrich:
-		return true
-	case ConsentPassportOptionGrantedRead:
-		return true
-	case ConsentPassportOptionGrantedSend:
-		return true
-	case ConsentPassportOptionGrantedWrite:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ConsentPassportOptionScopes.
 const (
 	ConsentPassportOptionScopesDraft  ConsentPassportOptionScopes = "draft"
@@ -2040,33 +2013,6 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	}
 }
 
-// Defines values for ConsentRequestRequested.
-const (
-	ConsentRequestRequestedDraft  ConsentRequestRequested = "draft"
-	ConsentRequestRequestedEnrich ConsentRequestRequested = "enrich"
-	ConsentRequestRequestedRead   ConsentRequestRequested = "read"
-	ConsentRequestRequestedSend   ConsentRequestRequested = "send"
-	ConsentRequestRequestedWrite  ConsentRequestRequested = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentRequestRequested enum.
-func (e ConsentRequestRequested) Valid() bool {
-	switch e {
-	case ConsentRequestRequestedDraft:
-		return true
-	case ConsentRequestRequestedEnrich:
-		return true
-	case ConsentRequestRequestedRead:
-		return true
-	case ConsentRequestRequestedSend:
-		return true
-	case ConsentRequestRequestedWrite:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ContextEntityRefType.
 const (
 	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
@@ -2074,6 +2020,7 @@ const (
 	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
 	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
 	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+	ContextEntityRefTypeUser         ContextEntityRefType = "user"
 )
 
 // Valid indicates whether the value is a known member of the ContextEntityRefType enum.
@@ -2088,6 +2035,8 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeOrganization:
 		return true
 	case ContextEntityRefTypePerson:
+		return true
+	case ContextEntityRefTypeUser:
 		return true
 	default:
 		return false
@@ -9052,19 +9001,15 @@ type ConsentEventActorType string
 // ConsentEventNewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 type ConsentEventNewState string
 
-// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `granted` is
-// `scopes` intersected with what the client requested — it is what this connection
-// would actually receive, and may be narrower than `scopes`.
+// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `scopes` is both
+// what the passport carries and what a connection lending it receives: the client's
+// request does not narrow the grant, so there is no second, smaller set beside it.
 type ConsentPassportOption struct {
-	ExpiresAt time.Time                      `json:"expires_at"`
-	Granted   []ConsentPassportOptionGranted `json:"granted"`
-	Id        openapi_types.UUID             `json:"id"`
-	Label     string                         `json:"label"`
-	Scopes    []ConsentPassportOptionScopes  `json:"scopes"`
+	ExpiresAt time.Time                     `json:"expires_at"`
+	Id        openapi_types.UUID            `json:"id"`
+	Label     string                        `json:"label"`
+	Scopes    []ConsentPassportOptionScopes `json:"scopes"`
 }
-
-// ConsentPassportOptionGranted defines model for ConsentPassportOption.Granted.
-type ConsentPassportOptionGranted string
 
 // ConsentPassportOptionScopes defines model for ConsentPassportOption.Scopes.
 type ConsentPassportOptionScopes string
@@ -9091,21 +9036,25 @@ type ConsentRequest struct {
 	ClientName string `json:"client_name"`
 
 	// Offline The client asked to stay connected without asking again (offline_access).
-	Offline   bool                      `json:"offline"`
-	Passports []ConsentPassportOption   `json:"passports"`
-	Requested []ConsentRequestRequested `json:"requested"`
+	Offline   bool                    `json:"offline"`
+	Passports []ConsentPassportOption `json:"passports"`
 }
-
-// ConsentRequestRequested defines model for ConsentRequest.Requested.
-type ConsentRequestRequested string
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
-	Id   openapi_types.UUID   `json:"id"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Type `user` is a workspace MEMBER, not a record — it appears only in the
+	// `who_knows` section, where the item is a colleague who interacts with the
+	// anchor contact. It carries the member's display name as `summary` and
+	// routes nowhere: a client renders it as a name, not as a link to a record.
 	Type ContextEntityRefType `json:"type"`
 }
 
-// ContextEntityRefType defines model for ContextEntityRef.Type.
+// ContextEntityRefType `user` is a workspace MEMBER, not a record — it appears only in the
+// `who_knows` section, where the item is a colleague who interacts with the
+// anchor contact. It carries the member's display name as `summary` and
+// routes nowhere: a client renders it as a name, not as a link to a record.
 type ContextEntityRefType string
 
 // ContextEvidence defines model for ContextEvidence.
@@ -9707,10 +9656,15 @@ type DealCoverage struct {
 // DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
 // explain the flag rather than assert it.
 type DealCoverageRisk struct {
-	Kind      DealCoverageRiskKind  `json:"kind"`
-	PersonIds *[]openapi_types.UUID `json:"person_ids,omitempty"`
-	Summary   string                `json:"summary"`
-	UserIds   *[]openapi_types.UUID `json:"user_ids,omitempty"`
+	// DaysSinceTouch Days since the deal's last captured touch, on `going_cold` only; null on every
+	// other kind. It carries the number rather than a second `kind`, so the 30-day and
+	// 60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+	// 61 days cannot appear on one surface and not the other.
+	DaysSinceTouch *int                  `json:"days_since_touch,omitempty"`
+	Kind           DealCoverageRiskKind  `json:"kind"`
+	PersonIds      *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary        string                `json:"summary"`
+	UserIds        *[]openapi_types.UUID `json:"user_ids,omitempty"`
 }
 
 // DealCoverageRiskKind defines model for DealCoverageRisk.Kind.
@@ -10122,6 +10076,19 @@ type LeadListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// LinkedInAccount defines model for LinkedInAccount.
+type LinkedInAccount struct {
+	// Connected Whether this member has authorized LinkedIn.
+	Connected   bool       `json:"connected"`
+	ConnectedAt *time.Time `json:"connected_at,omitempty"`
+
+	// Connections How many connections this member's imports currently hold (tombstoned rows excluded).
+	Connections int `json:"connections"`
+
+	// ProfileUrl The member's own public profile — what their imported network is attributed to.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
 // LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
 // `skipped` is reported rather than hidden: a file half-ignored under a success
 // message is worse than a refusal.
@@ -10140,6 +10107,32 @@ type LinkedInImportSummary struct {
 
 	// Suggested Matched by name and employer — plausible, awaiting a human.
 	Suggested int `json:"suggested"`
+}
+
+// LinkedInReachAccount One account this member's network reaches.
+type LinkedInReachAccount struct {
+	// Connections How many of the caller's connections resolved to this account. An account with none is not listed.
+	Connections int `json:"connections"`
+
+	// ContactsOnFile How many of those are already contacts — confirmed matches only. The gap
+	// between this and `connections` is the answer the import was for: people you
+	// know at this account who are not in the CRM.
+	ContactsOnFile int                `json:"contacts_on_file"`
+	DisplayName    string             `json:"display_name"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+}
+
+// LinkedInReachResponse defines model for LinkedInReachResponse.
+type LinkedInReachResponse struct {
+	Accounts []LinkedInReachAccount `json:"accounts"`
+
+	// AccountsTotal Every account reached, not just the page returned — a truncated list read as the whole network would understate reach.
+	AccountsTotal int `json:"accounts_total"`
+
+	// UnresolvedConnections Connections whose employer matched no account on file. Reported because it is
+	// the honest size of what this view cannot show, and because it is the number
+	// that shrinks as accounts are created.
+	UnresolvedConnections int `json:"unresolved_connections"`
 }
 
 // List A static membership set or a dynamic segment. Mirrors the `list` table.
@@ -12401,6 +12394,15 @@ type RunReportRequest struct {
 
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
+
+// SaveLinkedInAccountRequest defines model for SaveLinkedInAccountRequest.
+type SaveLinkedInAccountRequest struct {
+	// Connected Record the authorization. Never revokes an existing one.
+	Connected *bool `json:"connected,omitempty"`
+
+	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
 type SavedView struct {
@@ -14747,11 +14749,19 @@ type ImportLinkedInConnectionsMultipartBody struct {
 	File openapi_types.File `json:"file"`
 }
 
+// GetMyLinkedInReachParams defines parameters for GetMyLinkedInReach.
+type GetMyLinkedInReachParams struct {
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // GetConsentRequestParams defines parameters for GetConsentRequest.
 type GetConsentRequestParams struct {
 	ClientId string `form:"client_id" json:"client_id"`
 
-	// Scope The space-delimited scopes the client requested, including offline_access if asked.
+	// Scope The space-delimited scopes the client requested. Only the offline_access marker in it
+	// is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+	// grants the chosen passport's own.
 	Scope string `form:"scope" json:"scope"`
 }
 
@@ -16695,6 +16705,9 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// SaveMyLinkedInAccountJSONRequestBody defines body for SaveMyLinkedInAccount for application/json ContentType.
+type SaveMyLinkedInAccountJSONRequestBody = SaveLinkedInAccountRequest
 
 // ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
 type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
@@ -22884,9 +22897,18 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Your own LinkedIn account as this CRM records it.
+	// (GET /me/linkedin-account)
+	GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Record or correct your own LinkedIn profile.
+	// (PUT /me/linkedin-account)
+	SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
 	// Import your own LinkedIn connections export.
 	// (POST /me/linkedin-connections)
 	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
+	// Which accounts your imported network reaches.
+	// (GET /me/linkedin-reach)
+	GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams)
 	// What the OAuth consent screen renders for one pending authorization.
 	// (GET /oauth/consent-request)
 	GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams)
@@ -24138,9 +24160,27 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Your own LinkedIn account as this CRM records it.
+// (GET /me/linkedin-account)
+func (_ Unimplemented) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record or correct your own LinkedIn profile.
+// (PUT /me/linkedin-account)
+func (_ Unimplemented) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Import your own LinkedIn connections export.
 // (POST /me/linkedin-connections)
 func (_ Unimplemented) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Which accounts your imported network reaches.
+// (GET /me/linkedin-reach)
+func (_ Unimplemented) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30632,6 +30672,46 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// GetMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ImportLinkedInConnections operation middleware
 func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
 
@@ -30643,6 +30723,45 @@ func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportLinkedInConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyLinkedInReach operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMyLinkedInReachParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInReach(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39504,7 +39623,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-account", wrapper.GetMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/linkedin-account", wrapper.SaveMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-reach", wrapper.GetMyLinkedInReach)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/oauth/consent-request", wrapper.GetConsentRequest)

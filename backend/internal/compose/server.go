@@ -287,8 +287,13 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// workspace's active cf_* columns ride person/organization
 		// payloads (values only — the schema-change engine stays behind
 		// WithSchemaPool; ActiveColumns needs none of it).
-		peopleHandlers: people.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		dealsHandlers:  dealsH,
+		// The match stager is injected here because approvals is a sibling of
+		// people and a module never imports one: compose is where that edge is
+		// made, as it is for every other cross-module dependency.
+		peopleHandlers: people.NewHandlers(pool).
+			WithFieldCatalog(customfields.NewService(pool, nil)).
+			WithMatchStager(linkedInMatchStager(pool)),
+		dealsHandlers: dealsH,
 		activitiesHandlers: activities.NewHandlers(pool).
 			WithConsent(consent.NewGate(consent.NewStore(pool))).
 			// The public booking capture seams (feedback/14): people is the

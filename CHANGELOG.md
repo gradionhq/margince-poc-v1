@@ -33,16 +33,23 @@ numbers appear here when releases start.
   (stage → human decision → single-use redemption).
 - **Consent lends a passport**: `GET /oauth/authorize` redirects to an SPA
   consent screen where the human selects one of their own existing agent
-  passports; the connection receives that passport's scopes intersected
-  with the client's request, carried by a *new* grant-bound passport, so
-  revoking a connection never touches the human's own credential. Deny
+  passports; the connection receives exactly that passport's scopes,
+  carried by a *new* grant-bound passport, so revoking a connection never
+  touches the human's own credential. Deny
   answers the client `access_denied`. A human with no passport is guided
   to mint one and brought back to finish connecting, which means
   `claude mcp add` no longer completes unattended for a fresh account.
-  The lend is recorded in the audit trail.
+  The lend is recorded in the audit trail. Deactivating a member ends
+  their consents that no client redeemed yet, alongside the connections
+  that already exist — so reactivating them later cannot hand out a
+  connection on authority an admin took away.
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
   Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.
+- **Embedding drift self-heal** (ADR-0069 §3a): a periodic worker sweep
+  re-embeds entities whose embed event the at-least-once bus lost, with
+  no operator confirm; the preview → confirm reindex remains solely for
+  a changed embed binding, and the ops banner fires only on that case.
 - **GDPR arm**: per-purpose consent with default-deny suppression,
   retention evaluator with DE (GoBD) statutory floors, legal hold,
   Art. 17 erasure with re-capture suppression, Art. 15 SAR assembly.

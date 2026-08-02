@@ -568,6 +568,7 @@ export const de = {
   "approval.kind.coldstart": "Neuen Account befüllen",
   "approval.kind.enrich": "Aus dem Web anreichern",
   "approval.kind.deepread": "Unternehmensseite lesen",
+  "approval.kind.linkedin_match": "LinkedIn-Zuordnung",
   "approval.kind.site_lead": "Person von der Website aufnehmen",
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
@@ -625,10 +626,37 @@ export const de = {
     "Eigenen Export importieren und sehen, wen das Team bereits kennt",
   "linkedinImport.explainer":
     "LinkedIn stellt Ihnen unter Einstellungen → Datenschutz → Kopie Ihrer Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen: Sie erscheinen weder in Suche noch in Listen oder Kontaktseiten, und niemand kann ihnen schreiben.",
+  "linkedinImport.profileLabel": "Ihre LinkedIn-Profil-URL",
+  "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "linkedinImport.saveProfile": "Profil speichern",
+  "linkedinImport.connectedNote":
+    "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
+  "linkedinImport.notConnectedNote":
+    "Noch nicht verbunden. Mit Ihrer Profil-URL werden importierte Kontakte Ihnen namentlich zugeordnet.",
+  "linkedinImport.whichFile":
+    "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
+  "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
+  "linkedinImport.noMatchesYet":
+    "Noch keine Treffer, und das ist in einem neuen Workspace normal: Ihre Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen Ihrer E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
   "linkedinImport.working": "Export wird gelesen…",
   "linkedinImport.imported": "Kontakte importiert",
   "linkedinImport.confirmed": "Einer Person zugeordnet",
   "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
+
+  // Die Prüfliste und die Reichweiten-Tabelle (ADR-0078 §2.1b).
+  "linkedinReach.title": "Wohin Ihr Netzwerk reicht",
+  "linkedinReach.sub":
+    "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",
+  "linkedinReach.empty":
+    "Noch keine Ihrer Verbindungen arbeitet bei einer erfassten Firma.",
+  "linkedinReach.allUnresolved":
+    "Alle {unresolved} Ihrer Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
+  "linkedinReach.account": "Firma",
+  "linkedinReach.connections": "Sie kennen",
+  "linkedinReach.onFile": "Bereits Personen",
+  "linkedinReach.onFileOf": "{onFile} von {total}",
+  "linkedinReach.footnote":
+    "{shown} von {total} Firmen angezeigt. {unresolved} Verbindungen arbeiten bei einer Firma, die noch nicht erfasst ist.",
   "linkedinImport.skipped": "Übersprungen (kein verwertbarer Name)",
   "co.connections.rel.co_sell_with": "gemeinsamer Vertrieb",
   "co.connections.group.contacts": "Kontakte",
@@ -1217,7 +1245,6 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "passport.select": "Passport",
   "passport.noneOption": "Kein Passport",
-  "passport.scopeNotGranted": "nicht gewährt",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
@@ -2016,6 +2043,39 @@ export const de = {
     "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.linkedin.why":
+    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nntest \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
+  "ob.conv.linkedin.ask":
+    "Das Verbinden kostet eine Autorisierung. Ich lese deine Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",
+  "ob.conv.linkedin.artifactSub":
+    "Damit das CRM dir sagen kann, wer aus deinem Team bereits jemanden beim Kunden kennt.",
+  "ob.conv.linkedin.scope1Lead": "Deine Kontaktliste \u2014",
+  "ob.conv.linkedin.scope1Rest":
+    "Name, Position, Unternehmen und das Datum der Vernetzung.",
+  "ob.conv.linkedin.scope2Lead": "Sonst nichts.",
+  "ob.conv.linkedin.scope2Rest":
+    "Keine Nachrichten, keine Beitr\u00e4ge, keine Profilbesuche, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.scope3Lead": "Dein Netzwerk bleibt deins.",
+  "ob.conv.linkedin.scope3Rest":
+    "Es wird dir zugeordnet, nie dem Unternehmen, und beim Trennen wird es entfernt.",
+  "ob.conv.linkedin.scope4Lead": "Niemand wird kontaktiert.",
+  "ob.conv.linkedin.scope4Rest":
+    "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
+  "ob.conv.linkedin.neverContacts":
+    "Deine Kontakte werden NICHT zu Kontakten im CRM. Sie erscheinen nie in Suche, Listen oder Kontaktseiten, nichts kann ihnen geschrieben werden, und niemand kann sie anmailen. Sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+  "ob.conv.linkedin.profileLabel": "Deine LinkedIn-Profil-URL",
+  "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "ob.conv.linkedin.profileWhy":
+    "N\u00f6tig, damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+  "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
+  "ob.conv.linkedin.appPending":
+    "Hinweis: Unsere LinkedIn-Entwickler-App wartet noch auf Freigabe. Deine Zustimmung und dein Profil werden erfasst, es werden aber noch keine Kontakte synchronisiert. Bis dahin kannst du in den Einstellungen deine eigene Connections.csv hochladen \u2014 das funktioniert heute schon.",
+  "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
+  "ob.conv.linkedin.connected":
+    "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",
+  "ob.conv.linkedin.skipped":
+    "LinkedIn \u00fcbersprungen. Sie k\u00f6nnen es jederzeit in den Einstellungen verbinden.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":
@@ -2237,6 +2297,29 @@ export const de = {
   "strength.none": "Noch keine Interaktionen",
   "strength.inout": "{in} eingehend · {out} ausgehend (90 Tage)",
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
+
+  // Die Beziehungsgraph-Karten (ADR-0078). Die Kollegen-Stufen sind die von
+  // PO-F-3b und unterscheiden sich bewusst von denen der arbeitsbereichsweiten
+  // Karte: beide messen Verschiedenes und dürfen nicht vergleichbar wirken.
+  "network.title": "Wer kennt diese Person bei uns",
+  "network.empty":
+    "Niemand hier hat bisher erfassten Kontakt zu dieser Person.",
+  "network.interactions": "{count} Interaktionen (90 Tage)",
+  "network.neverSpoken": "Kein erfasster Kontakt",
+  "network.bucket.none": "Kein Kontakt",
+  "network.bucket.weak": "Schwach",
+  "network.bucket.moderate": "Mittel",
+  "network.bucket.strong": "Stark",
+  "coverage.title": "Abdeckung",
+  "coverage.clear":
+    "Nichts markiert — dieser Deal besteht alle Abdeckungsprüfungen.",
+  "coverage.daysSinceTouch": "{days} Tage",
+  "coverage.risk.single_threaded_theirs": "Nur ein Kontakt",
+  "coverage.risk.single_threaded_ours": "Von einer Person getragen",
+  "coverage.risk.coverage_gap": "Kein engagierter Fürsprecher",
+  "coverage.risk.champion_left": "Fürsprecher hat gekündigt",
+  "coverage.risk.stakeholder_left": "Stakeholder hat gekündigt",
+  "coverage.risk.going_cold": "Wird kalt",
 
   "cf.title": "Benutzerdefinierte Felder",
   "cf.formSection": "Benutzerdefinierte Felder",
@@ -2829,7 +2912,7 @@ export const de = {
   "consent.asks": "{client} möchte in Margince als du handeln.",
   "consent.lend": "Leih ihm einen deiner Agent-Passports",
   "consent.grantedNote":
-    "Diese Verbindung erhält nur die gezeigten Berechtigungen, auch wenn der Passport mehr erlaubt.",
+    "Diese Verbindung erhält genau die gezeigten Berechtigungen — die dieses Passports.",
   "consent.offline":
     "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
   "consent.approve": "Autorisieren",
@@ -2856,7 +2939,5 @@ export const de = {
     "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
   "consent.invalidBody":
     "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
-  "consent.requestedNotGranted":
-    "{client} hat mehr angefordert, als dieser Passport gewähren kann:",
   "consent.unnamedPassport": "Unbenannter Passport ({id})",
 } as const satisfies Record<MessageKey, string>;

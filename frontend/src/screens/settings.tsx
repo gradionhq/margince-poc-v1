@@ -70,6 +70,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { LinkedInImportCard } from "./linkedin-import";
+import { LinkedInReachCard } from "./linkedin-reach";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
@@ -98,6 +99,11 @@ import "./settings.css";
 // `ai` stays in the personal group: it carries the caller's own agent passports
 // (per-user), so hiding the whole tab from a rep would regress passport minting.
 // The admin-only cards inside it (usage, call trace) are gated per-card already.
+// `integrations` is in the personal group for the same reason and a plainer
+// one: connecting YOUR mailbox and importing YOUR LinkedIn network is work
+// every seat does for itself. Listing it under Organization put a per-user
+// task beneath an admin heading. The org-owned card on the tab (webhooks)
+// gates itself per-card, exactly as the AI tab's do.
 const SETTINGS_TABS = [
   { id: "account", icon: Building2, group: "you" },
   { id: "voice", icon: Mic, group: "you" },
@@ -109,7 +115,7 @@ const SETTINGS_TABS = [
   { id: "rates", icon: Coins, group: "org" },
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
-  { id: "integrations", icon: Webhook, group: "org" },
+  { id: "integrations", icon: Webhook, group: "you" },
   { id: "overlay", icon: Layers, group: "org" },
 ] as const satisfies readonly {
   id: string;
@@ -163,6 +169,10 @@ function tabContent(id: SettingsTabId): ReactNode {
           <ConnectorsCard />
           <CaptureSettingsCard />
           <LinkedInImportCard />
+          {/* No review queue here: a match a human must judge is a proposal,
+              and proposals live in the approvals inbox. This tab shows what the
+              import bought — which accounts the network reaches. */}
+          <LinkedInReachCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
         </>
@@ -194,15 +204,6 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // a rep/manager never sees the Organization group. The server re-checks.
   const isOrgAdmin = canConfigureAutomations(me.data?.roles);
   const tabs = SETTINGS_TABS.filter((entry) => {
-    // Integrations is read-capable by EVERY role (the seeded policy grants
-    // webhook_subscription read to admin/ops/manager/rep/read_only; only
-    // create/rotate/replay are admin/ops-only, and WebhooksCard gates those
-    // per-card). So it is exempt from the org-admin nav filter — a read-only
-    // role must still reach the subscription list + delivery-health views,
-    // and its deep link must not fall back to Account.
-    if (entry.id === "integrations") {
-      return true;
-    }
     // Overlay is exempt for the same reason, plus one of its own: the
     // system-of-record chip in the topbar is deliberately shown to EVERY
     // seat and points here, so hiding the tab would strand any non-admin

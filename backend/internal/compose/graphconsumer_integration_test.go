@@ -14,12 +14,15 @@ package compose
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -234,5 +237,169 @@ func TestCoverageNamesItsColleaguesForTheAgent(t *testing.T) {
 	}
 	if len(answer.Stakeholders) != 1 {
 		t.Errorf("coverage listed %d seats, want 1", len(answer.Stakeholders))
+	}
+}
+
+// The case that made this consumer necessary: a rep types a contact in by hand,
+// months after the LinkedIn export was uploaded, and the ghost attaches without
+// anybody running an import or clicking a button.
+//
+// The trigger is the EVENT, not the writer. Every path that creates a person
+// emits person.created because the write shape puts it in the outbox, so manual
+// entry, mail capture, a site read and a merge all reach this consumer without
+// any of them knowing it exists — and a writer added tomorrow is covered the
+// day it emits its first event.
+func TestAContactAddedLaterMeetsTheGhostThatWasWaiting(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	// The export lands first, on a workspace that knows nobody.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep1)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the ghost: %v", err)
+	}
+
+	// The ghost's owner needs a real person grant: the matcher now runs under
+	// each owner's own authority, so a member the RBAC resolver reports as
+	// holding nothing is skipped. A fixture that only built a context proved
+	// nothing about that path.
+	grantReadPeopleRole(t, e, e.Rep1, "all")
+
+	// Months later a rep adds the contact by hand.
+	person, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
+		FullName: "Dana Buyer", Source: "manual",
+		Emails: []people.PersonEmailInput{{Email: "dana@acme.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("creating the contact: %v", err)
+	}
+
+	// The consumer reacts to the event that create emitted.
+	matcher := NewLinkedInMatchGen(e.Pool, e.People, identity.NewService(e.Pool), slog.New(slog.DiscardHandler))
+	if err := matcher.HandleEvent(context.Background(),
+		envelopeFor(e.WS, "person.created", "person", ids.UUID(person.Id))); err != nil {
+		t.Fatalf("handling person.created: %v", err)
+	}
+
+	var status string
+	var matched *ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT match_status, matched_person_id FROM linkedin_connection
+			  WHERE normalized_name = 'dana buyer'`).Scan(&status, &matched)
+	}); err != nil {
+		t.Fatalf("reading the ghost back: %v", err)
+	}
+	if status != "confirmed" || matched == nil || *matched != ids.UUID(person.Id) {
+		t.Errorf("the ghost is %q → %v, want confirmed → %s — a contact added by "+
+			"hand must meet the connection that was already waiting for them",
+			status, matched, person.Id)
+	}
+}
+
+func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
+	// The background passes have no human, so they used to run as a SYSTEM
+	// principal — which is unbounded by design, so the match had no row scope
+	// at all. That turns a one-row CSV into an existence oracle: upload a
+	// guessed address, wait for the sweep, and read match_status to learn
+	// whether a contact with that address exists somewhere you cannot reach.
+	//
+	// Capture privacy alone does not close it. Most contacts are
+	// visibility='workspace' and protected only by row scope, which is a
+	// property of the READER — so the sweep has to run under each ghost
+	// owner's own authority, and this is the test that says so.
+	e := integration.Setup(t)
+	ctx := context.Background()
+
+	// Both reps hold the SAME role, so the only thing separating them is row
+	// scope — which is what this test is about. A role that reads people with
+	// own-scope: Rep3 may read the contacts they own, and no others.
+	grantReadPeopleRole(t, e, e.Rep3, "own")
+
+	// Rep3's ghost. Rep3 sits in Team2, alone.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep3)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding Rep3's ghost: %v", err)
+	}
+
+	// A contact owned by Rep1, on the OTHER team, carrying the address the
+	// ghost would match on. Not capture-private — the ordinary case.
+	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
+	person, err := e.People.CreatePerson(rep1, people.CreatePersonInput{
+		FullName: "Dana Buyer", Source: "manual",
+		Emails: []people.PersonEmailInput{{Email: "dana@acme.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("creating Rep1's contact: %v", err)
+	}
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE person SET owner_id = $2 WHERE id = $1`, ids.UUID(person.Id), e.Rep1)
+		return err
+	}); err != nil {
+		t.Fatalf("assigning the contact to Rep1: %v", err)
+	}
+
+	// The workspace sweep, the shape an organization event triggers.
+	matcher := NewLinkedInMatchGen(e.Pool, e.People, identity.NewService(e.Pool), slog.New(slog.DiscardHandler))
+	if err := matcher.HandleEvent(ctx,
+		envelopeFor(e.WS, "organization.created", "organization", ids.NewV7())); err != nil {
+		t.Fatalf("sweeping: %v", err)
+	}
+
+	var status string
+	var matched *ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT match_status, matched_person_id FROM linkedin_connection
+			  WHERE normalized_name = 'dana buyer'`).Scan(&status, &matched)
+	}); err != nil {
+		t.Fatalf("reading the ghost back: %v", err)
+	}
+	if status != "unmatched" || matched != nil {
+		t.Errorf("the sweep matched a contact outside the ghost owner's row scope: %q → %v — "+
+			"match_status is then an oracle for records the member cannot read", status, matched)
+	}
+}
+
+// grantReadPeopleRole gives one member a role that reads people at the named
+// row scope.
+//
+// The matcher resolves authority from the DATABASE, not from a test principal,
+// so a fixture that only builds a context proves nothing about which member the
+// sweep will act for.
+func grantReadPeopleRole(t *testing.T, e *integration.Env, user ids.UUID, rowScope string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		var roleID ids.UUID
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO role (workspace_id, key, name, permissions)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'ghost_owner_' || $1, 'Ghost owner test',
+			        format('{"row_scope":"%s","objects":{"person":{"read":true}}}', $1)::jsonb)
+			ON CONFLICT (workspace_id, key) DO UPDATE SET name = EXCLUDED.name
+			RETURNING id`, rowScope).Scan(&roleID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO role_assignment (workspace_id, user_id, role_id)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
+			ON CONFLICT DO NOTHING`, user, roleID)
+		return err
+	}); err != nil {
+		t.Fatalf("granting the %s-scope role: %v", rowScope, err)
 	}
 }

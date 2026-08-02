@@ -515,8 +515,20 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) GetMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInAccount")
+}
+
+func (stubs) SaveMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SaveMyLinkedInAccount")
+}
+
 func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
+}
+
+func (stubs) GetMyLinkedInReach(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMyLinkedInReachParams) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInReach")
 }
 
 func (stubs) GetConsentRequest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetConsentRequestParams) {

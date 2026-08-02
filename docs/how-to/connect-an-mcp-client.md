@@ -16,8 +16,12 @@ mid-session rather than at the next reconnect.
 
 ## Turn the connector on
 
-It is **off by default**: enabling it exposes the OAuth authorization server
-and the tool surface to the internet.
+The **code** default is off: an installation whose deployment file carries no
+`mcp` block serves none of these routes, and each answers `404`. The shipped
+[`config/margince.example.yaml`](../../config/margince.example.yaml) declares
+the gate on and `make dev` seeds `config/margince.yaml` from it, so **a local
+stack serves `/mcp` with no edit**. A deployment writing its own file opts in
+explicitly:
 
 ```yaml
 # config/margince.yaml
@@ -25,11 +29,14 @@ mcp:
   connector_enabled: true
 ```
 
-It also requires `--public-base-url` (or `MARGINCE_PUBLIC_BASE_URL`) as a
+The gate also requires `--public-base-url` (or `MARGINCE_PUBLIC_BASE_URL`) as a
 **bare origin** — no path, query, or fragment. The advertised MCP resource is
-that value with `/mcp` appended, and the api refuses to boot on a value it
-cannot publish. `make dev` passes the flag already, so a local stack just
-works.
+that value with `/mcp` appended, and the api **refuses to boot** on the gate
+without it: the audience a token is checked against and the resource clients
+discover are deployment decisions, never derived from the request `Host`. So an
+installation that copies the example config cannot serve the surface by
+accident — it fails loudly on first start. `make dev` passes the flag
+unconditionally, which is why the local stack just works.
 
 ## Connect
 
@@ -48,11 +55,9 @@ in that browser, the sign-in screen comes first and the consent screen follows
 it — the pending request survives the sign-in.
 
 The consent screen does not grant a client whatever it asked for. It asks the
-signed-in human to **lend one of their own existing agent passports** — the
-connection's scopes come from that passport, intersected with what the client
-requested, so the client can end up with **less** than the passport carries,
-never more. There is a real Deny too: it sends the client `access_denied`
-instead of leaving it hanging.
+signed-in human to **lend one of their own existing agent passports**, and the
+connection gets that passport's scopes. There is a real Deny too: it sends the
+client `access_denied` instead of leaving it hanging.
 
 **A human with no passport yet cannot approve anything.** The screen shows a
 guide instead of an approve control — mint a passport in Settings (the
@@ -62,9 +67,31 @@ account**: it stops at the guide until a passport exists. See
 [mint-a-passport.md](mint-a-passport.md) to create one ahead of time.
 
 Once a passport is lent, the connection is bound to that passport's own seat
-and RBAC — an agent can never exceed the human who granted it. The default
-scope a client requests is the conservative `read draft`; if it needs to write
-or send, lend a passport that already carries that scope (or mint one first).
+and RBAC — an agent can never exceed the human who granted it.
+
+## What a connection actually receives
+
+**The scopes of the passport you selected.** That is the whole rule. Lend a
+`read draft write send enrich` passport and the connection has all five; lend a
+`read` passport and it has one.
+
+What the client asked for on the authorize URL does not change this. Every
+mainstream client — Claude Code, Claude Desktop, Codex, VS Code — sends no
+`scope` parameter at all, so a rule that also capped the grant at the request
+would make every real connection read-only whatever you lent. Your choice of
+passport is the decision, so it is the answer.
+
+The client is still told what it got: the token response reports the granted
+scopes (RFC 6749 §5.1), so a client that asked for less than it received learns
+so rather than guessing.
+
+Two ways to see what a connection has, rather than assume:
+
+- **Before approving**, on the consent screen: the chips under the selected
+  passport are its scopes, and they are the grant.
+- **After connecting**, from the connection itself: `tools/list` returns only
+  the tools the granted scopes can invoke, so the tool list is the proof. A
+  connection that lists no write tool did not receive `write`.
 
 ## A passport as a REST credential
 
@@ -84,9 +111,10 @@ npx @modelcontextprotocol/inspector
 # then, in the UI: Transport = "Streamable HTTP", URL = http://localhost:8080/mcp
 ```
 
-`tools/list` shows only what the presenting passport's scopes could actually
-invoke — a read-only passport does not see the write tools — so the surface an
-inspector reports is the surface that client really has.
+`tools/list` shows only what the connection's granted scopes could actually
+invoke, so the surface an inspector reports is the surface that client really
+has — and since the grant is the lent passport, that list is what the passport
+you chose can reach.
 
 ## Turn it off
 

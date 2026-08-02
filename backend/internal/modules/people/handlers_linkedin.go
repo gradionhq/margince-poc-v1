@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -89,7 +91,25 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 	// what the upload actually achieved. An import that answered "3,000
 	// stored" and left the matches for an invisible nightly pass would look
 	// like it had done nothing.
-	matched, err := h.store.MatchLinkedInConnections(r.Context(), uploaderID(r.Context()))
+	if _, err := h.store.MatchLinkedInConnections(r.Context(), uploaderID(r.Context())); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	// The matches a string comparison could not settle become approvals, in the
+	// one inbox the product already has. Staged HERE rather than on a schedule
+	// so a member who has just uploaded finds the questions waiting instead of
+	// discovering them an hour later.
+	if h.stageMatches != nil {
+		if err := h.stageMatches(r.Context()); err != nil {
+			writeStoreErr(w, r, err)
+			return
+		}
+	}
+	// The TOTALS, not this pass's delta. The matcher only considers ghosts
+	// nobody has decided on, so re-importing the same export truthfully
+	// reports zero new matches while twenty-six sit in the database — and a
+	// card labelled "Matched to a contact" showing 0 in that state is wrong.
+	confirmed, suggested, err := h.store.MyLinkedInMatchTotals(r.Context())
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -98,7 +118,80 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		Rows:      result.Rows,
 		Imported:  result.Imported,
 		Skipped:   result.Skipped,
-		Confirmed: matched.Confirmed,
-		Suggested: matched.Suggested,
+		Confirmed: confirmed,
+		Suggested: suggested,
 	})
+}
+
+// GetMyLinkedInAccount implements GET /me/linkedin-account.
+func (h Handlers) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	account, err := h.store.GetMyLinkedInAccount(r.Context())
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, linkedInAccountWire(account))
+}
+
+// SaveMyLinkedInAccount implements PUT /me/linkedin-account.
+func (h Handlers) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	var body crmcontracts.SaveLinkedInAccountRequest
+	if !httperr.Decode(w, r, &body) {
+		return
+	}
+	account, err := h.store.SaveMyLinkedInAccount(r.Context(), SaveMyLinkedInAccountInput{
+		ProfileURL: derefString(body.ProfileUrl),
+		Connected:  body.Connected != nil && *body.Connected,
+	})
+	if err != nil {
+		var input *DedupeInputError
+		if errors.As(err, &input) {
+			httperr.Write(w, r, httperr.Validation(input.Field, "invalid_profile_url", input.Msg))
+			return
+		}
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, linkedInAccountWire(account))
+}
+
+// GetMyLinkedInReach implements GET /me/linkedin-reach.
+func (h Handlers) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params crmcontracts.GetMyLinkedInReachParams) {
+	reach, err := h.store.MyLinkedInReach(r.Context(), params.Limit)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	accounts := make([]crmcontracts.LinkedInReachAccount, 0, len(reach.Accounts))
+	for _, a := range reach.Accounts {
+		accounts = append(accounts, crmcontracts.LinkedInReachAccount{
+			OrganizationId: openapi_types.UUID(a.OrganizationID),
+			DisplayName:    a.DisplayName,
+			Connections:    a.Connections,
+			ContactsOnFile: a.ContactsOnFile,
+		})
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.LinkedInReachResponse{
+		Accounts:              accounts,
+		AccountsTotal:         reach.AccountsTotal,
+		UnresolvedConnections: reach.UnresolvedConnections,
+	})
+}
+
+// linkedInAccountWire is the one place the account crosses to the wire, so the
+// two handlers cannot describe the same row differently.
+func linkedInAccountWire(a LinkedInAccount) crmcontracts.LinkedInAccount {
+	return crmcontracts.LinkedInAccount{
+		Connected:   a.ConnectedAt != nil,
+		ConnectedAt: a.ConnectedAt,
+		ProfileUrl:  a.ProfileURL,
+		Connections: a.Connections,
+	}
+}
+
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

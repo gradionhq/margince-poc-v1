@@ -39,9 +39,8 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			// HTTP surface takes, for the same reason. EdgesForPerson orders
 			// by last contact, so capping it directly would hand a model the
 			// most RECENT colleagues under the label "who knows them best".
-			// This is the sibling of the /people/{id}/network fix; leaving it
-			// unfixed would have meant the answer depended on whether a human
-			// or an agent asked.
+			// The HTTP path and this one must rank identically, or the answer
+			// depends on who asked rather than on the relationships.
 			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch)
 			if err != nil {
 				return err
@@ -51,7 +50,7 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 			if len(edges) > agentWhoKnowsCap {
 				edges = edges[:agentWhoKnowsCap]
 			}
-			names, err := networkUserNames(ctx, tx, edges)
+			names, err := search.MemberNames(ctx, tx, edges)
 			if err != nil {
 				return err
 			}
@@ -129,10 +128,27 @@ func toAgentCoverage(c network.DealCoverage, names map[ids.UUID]string) agents.D
 		}
 		out.OurSide = append(out.OurSide, colleague)
 	}
-	for _, r := range c.Risks {
-		out.Risks = append(out.Risks, agents.CoverageRisk{
+	out.Risks = toAgentRisks(c.Risks)
+	return out
+}
+
+// toAgentRisks maps the findings onto the tool shape. Spelled once because two
+// tools return risks — the coverage read and the at-risk sweep — and a second
+// copy would be a second place for the day-count rule below to be wrong.
+func toAgentRisks(risks []network.Risk) []agents.CoverageRisk {
+	out := make([]agents.CoverageRisk, 0, len(risks))
+	for _, r := range risks {
+		risk := agents.CoverageRisk{
 			Kind: r.Kind, Summary: r.Summary, PersonIDs: r.PersonIDs, UserIDs: r.UserIDs,
-		})
+		}
+		// Only going-cold carries a day count; a zero on the others would read
+		// as "touched today", which is the opposite of what a departure finding
+		// says about recency.
+		if r.Kind == network.RiskGoingCold {
+			days := r.DaysSinceTouch
+			risk.DaysSinceTouch = &days
+		}
+		out = append(out, risk)
 	}
 	return out
 }
@@ -155,34 +171,6 @@ func requireVisibleDeal(ctx context.Context, tx pgx.Tx, dealID ids.UUID) error {
 	return auth.EnsureVisibleLive(ctx, tx, "deal", dealID)
 }
 
-// networkUserNames resolves colleague names for one answer. The roster is
-// readable by any authenticated member, so naming a colleague on a record the
-// caller can already open discloses nothing new.
-func networkUserNames(ctx context.Context, tx pgx.Tx, edges []search.InteractionEdge) (map[ids.UUID]string, error) {
-	out := map[ids.UUID]string{}
-	if len(edges) == 0 {
-		return out, nil
-	}
-	users := make([]ids.UUID, 0, len(edges))
-	for _, e := range edges {
-		users = append(users, e.UserID)
-	}
-	rows, err := tx.Query(ctx, `SELECT id, display_name FROM app_user WHERE id = ANY($1)`, users)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id ids.UUID
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, err
-		}
-		out[id] = name
-	}
-	return out, rows.Err()
-}
-
 // coverageUserNames resolves the display names for a coverage answer's
 // colleagues.
 func coverageUserNames(ctx context.Context, tx pgx.Tx, c network.DealCoverage) (map[ids.UUID]string, error) {
@@ -190,5 +178,5 @@ func coverageUserNames(ctx context.Context, tx pgx.Tx, c network.DealCoverage) (
 	for _, e := range c.OurSide {
 		edges = append(edges, search.InteractionEdge{UserID: e.UserID})
 	}
-	return networkUserNames(ctx, tx, edges)
+	return search.MemberNames(ctx, tx, edges)
 }

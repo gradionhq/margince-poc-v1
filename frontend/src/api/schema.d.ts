@@ -225,9 +225,10 @@ export interface paths {
         /**
          * What the OAuth consent screen renders for one pending authorization.
          * @description Session-authenticated. Resolves the requesting client from the database and lists the
-         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, not
-         *     already bound to a connection, and overlapping the requested scopes. Human-only — an
-         *     agent must never read or drive a consent screen.
+         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, and not
+         *     already bound to a connection. What the client asked for excludes none of them, because
+         *     a lend grants the passport's own scopes. Human-only — an agent must never read or drive
+         *     a consent screen.
          */
         get: operations["getConsentRequest"];
         put?: never;
@@ -4895,6 +4896,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/linkedin-reach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which accounts your imported network reaches.
+         * @description The account-level payoff of importing an export, and the one answer the ghosts
+         *     exist to give: for each organization on file, how many of your connections work
+         *     there, and how many of those are already contacts.
+         *
+         *     Ranked by connection count, then by name, so two reads of an unchanged network
+         *     return the same order.
+         *
+         *     Only organizations the caller can READ appear, under the ordinary organization
+         *     row scope. A connection whose employer resolved to no account is not reported
+         *     here — there is no account to name — which is why the totals on this response and
+         *     on the import summary differ and are both true.
+         */
+        get: operations["getMyLinkedInReach"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/linkedin-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your own LinkedIn account as this CRM records it.
+         * @description Always the CALLER's row, never anybody else's. A colleague's professional
+         *     network is theirs, and no seat — including admin — reads or edits another
+         *     member's LinkedIn account through this API.
+         *
+         *     A member who has never been asked has no row, and that is not an error: the
+         *     response is simply not connected. The connection count is reported either
+         *     way, because an export can be uploaded from Settings without ever going
+         *     through the onboarding step.
+         */
+        get: operations["getMyLinkedInAccount"];
+        /**
+         * Record or correct your own LinkedIn profile.
+         * @description The profile URL is what the imported network is attributed to, so a member
+         *     can see and fix it. An empty `profile_url` CLEARS the stored value — a
+         *     member emptying the field means "do not record this", not "leave it".
+         *
+         *     `connected` records the authorization and never revokes one: disconnecting
+         *     is a deliberate act of its own, not a side effect of editing a URL.
+         */
+        put: operations["saveMyLinkedInAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -6993,6 +7060,13 @@ export interface components {
             summary: string;
             person_ids?: string[];
             user_ids?: string[];
+            /**
+             * @description Days since the deal's last captured touch, on `going_cold` only; null on every
+             *     other kind. It carries the number rather than a second `kind`, so the 30-day and
+             *     60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+             *     61 days cannot appear on one surface and not the other.
+             */
+            days_since_touch?: number | null;
         };
         DealCoverage: {
             /** Format: uuid */
@@ -7000,6 +7074,28 @@ export interface components {
             stakeholders: components["schemas"]["DealCoverageSeat"][];
             our_side: components["schemas"]["PersonNetworkColleague"][];
             risks: components["schemas"]["DealCoverageRisk"][];
+        };
+        LinkedInAccount: {
+            /** @description Whether this member has authorized LinkedIn. */
+            connected: boolean;
+            /** Format: date-time */
+            connected_at?: string | null;
+            /**
+             * Format: uri
+             * @description The member's own public profile — what their imported network is attributed to.
+             */
+            profile_url?: string | null;
+            /** @description How many connections this member's imports currently hold (tombstoned rows excluded). */
+            connections: number;
+        };
+        SaveLinkedInAccountRequest: {
+            /** @description Absolute http(s) URL. Empty clears the stored value. */
+            profile_url?: string;
+            /**
+             * @description Record the authorization. Never revokes an existing one.
+             * @default false
+             */
+            connected: boolean;
         };
         /**
          * @description What one import did, in the terms someone asked to trust it would check.
@@ -7017,6 +7113,98 @@ export interface components {
             confirmed: number;
             /** @description Matched by name and employer — plausible, awaiting a human. */
             suggested: number;
+        };
+        /**
+         * @description One imported connection, in the terms a human needs to judge the matcher's guess.
+         *     It is NOT a contact and never becomes one: it carries no id a record route
+         *     accepts, no timeline, and nothing can write to it.
+         *
+         *     The ORIGINAL name and company are what is shown, never the folded forms the
+         *     matcher compares on — a person confirming a match has to see what LinkedIn
+         *     actually said.
+         */
+        LinkedInConnection: {
+            /** Format: uuid */
+            id: string;
+            full_name: string;
+            /** @description Their headline role, as the export spelled it. */
+            position?: string | null;
+            company_name?: string | null;
+            /**
+             * @description Present only when this connection allowed their address to be exported. Its
+             *     presence is why a row confirmed itself; its absence is why most did not.
+             */
+            email?: string | null;
+            /** Format: date */
+            connected_on?: string | null;
+            /** @enum {string} */
+            match_status: "unmatched" | "suggested" | "confirmed" | "rejected";
+            /**
+             * Format: uuid
+             * @description The contact this is suggested to be, or confirmed as. Null when the matcher found nobody.
+             */
+            matched_person_id?: string | null;
+            /**
+             * @description The suggested contact's name, resolved under the caller's person row scope.
+             *     Null when the caller cannot read that contact — the suggestion is then not
+             *     actionable and the surface says so, rather than naming a record through a
+             *     side door.
+             */
+            matched_person_name?: string | null;
+            /** Format: uuid */
+            matched_org_id?: string | null;
+            matched_org_name?: string | null;
+        };
+        LinkedInConnectionListResponse: {
+            data: components["schemas"]["LinkedInConnection"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description An empty body accepts the matcher's own suggestion. `person_id` overrides it,
+         *     which is how a human corrects a wrong guess rather than rejecting it and losing
+         *     the connection entirely.
+         */
+        ConfirmLinkedInMatchRequest: {
+            /**
+             * Format: uuid
+             * @description The contact to link to. Omitted means the already-suggested one.
+             */
+            person_id?: string | null;
+        };
+        /** @description One decision's outcome, including what it did to the contact. */
+        LinkedInMatchDecision: {
+            connection: components["schemas"]["LinkedInConnection"];
+            /**
+             * @description Whether the confirmation wrote a LinkedIn handle onto the contact. False when
+             *     the contact already carried one (never overwritten), when the member has
+             *     recorded no profile URL of their own, and on every rejection.
+             */
+            profile_url_written: boolean;
+        };
+        /** @description One account this member's network reaches. */
+        LinkedInReachAccount: {
+            /** Format: uuid */
+            organization_id: string;
+            display_name: string;
+            /** @description How many of the caller's connections resolved to this account. An account with none is not listed. */
+            connections: number;
+            /**
+             * @description How many of those are already contacts — confirmed matches only. The gap
+             *     between this and `connections` is the answer the import was for: people you
+             *     know at this account who are not in the CRM.
+             */
+            contacts_on_file: number;
+        };
+        LinkedInReachResponse: {
+            accounts: components["schemas"]["LinkedInReachAccount"][];
+            /** @description Every account reached, not just the page returned — a truncated list read as the whole network would understate reach. */
+            accounts_total: number;
+            /**
+             * @description Connections whose employer matched no account on file. Reported because it is
+             *     the honest size of what this view cannot show, and because it is the number
+             *     that shrinks as accounts are created.
+             */
+            unresolved_connections: number;
         };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
@@ -8855,8 +9043,14 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         ContextEntityRef: {
-            /** @enum {string} */
-            type: "person" | "organization" | "deal" | "lead" | "activity";
+            /**
+             * @description `user` is a workspace MEMBER, not a record — it appears only in the
+             *     `who_knows` section, where the item is a colleague who interacts with the
+             *     anchor contact. It carries the member's display name as `summary` and
+             *     routes nowhere: a client renders it as a name, not as a link to a record.
+             * @enum {string}
+             */
+            type: "person" | "organization" | "deal" | "lead" | "activity" | "user";
             /** Format: uuid */
             id: string;
         };
@@ -10795,16 +10989,15 @@ export interface components {
             expires_at: string;
         };
         /**
-         * @description One passport the signed-in human may lend to the requesting client. `granted` is
-         *     `scopes` intersected with what the client requested — it is what this connection
-         *     would actually receive, and may be narrower than `scopes`.
+         * @description One passport the signed-in human may lend to the requesting client. `scopes` is both
+         *     what the passport carries and what a connection lending it receives: the client's
+         *     request does not narrow the grant, so there is no second, smaller set beside it.
          */
         ConsentPassportOption: {
             /** Format: uuid */
             id: string;
             label: string;
             scopes: ("read" | "draft" | "write" | "send" | "enrich")[];
-            granted: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** Format: date-time */
             expires_at: string;
         };
@@ -10816,7 +11009,6 @@ export interface components {
          */
         ConsentRequest: {
             client_name: string;
-            requested: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** @description The client asked to stay connected without asking again (offline_access). */
             offline: boolean;
             passports: components["schemas"]["ConsentPassportOption"][];
@@ -11578,7 +11770,11 @@ export interface operations {
         parameters: {
             query: {
                 client_id: string;
-                /** @description The space-delimited scopes the client requested, including offline_access if asked. */
+                /**
+                 * @description The space-delimited scopes the client requested. Only the offline_access marker in it
+                 *     is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+                 *     grants the chosen passport's own.
+                 */
                 scope: string;
             };
             header?: never;
@@ -21619,6 +21815,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LinkedInImportSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyLinkedInReach: {
+        parameters: {
+            query?: {
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The accounts this member's network reaches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInReachResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's LinkedIn account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    saveMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLinkedInAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
                 };
             };
             401: components["responses"]["Unauthorized"];

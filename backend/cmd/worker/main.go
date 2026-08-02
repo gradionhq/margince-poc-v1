@@ -35,6 +35,8 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -175,6 +177,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		edges := search.NewGraphEdgeGen(search.NewStore(pool))
 		_, _ = fmt.Fprintln(stdout, "worker maintaining interaction edges")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:graph-edge", edges.HandleEvent, logger, 0) })
+	}
+
+	// The LinkedIn ghost matcher (ADR-0078 §8b): a ghost attaches the moment
+	// its contact exists, whoever created them. Deterministic like the edge
+	// projection above, so it runs on every worker.
+	{
+		matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(pool), identity.NewService(pool), logger)
+		_, _ = fmt.Fprintln(stdout, "worker matching LinkedIn connections as contacts appear")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:linkedin-match", matcher.HandleEvent, logger, 0) })
 	}
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)

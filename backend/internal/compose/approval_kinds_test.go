@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,6 +34,7 @@ type stubApprovals struct{}
 func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }
+
 func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {
 	return 0, false, nil
 }
@@ -44,6 +46,7 @@ type stubRetriever struct{}
 func (stubRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
 	return nil, nil
 }
+
 func (stubRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
 	return retrieval.Context{}, nil
 }
@@ -53,12 +56,21 @@ type stubComms struct{}
 func (stubComms) DraftEmail(context.Context, ids.UUID, string) (string, string, error) {
 	return "", "", nil
 }
+
 func (stubComms) SendEmail(context.Context, ids.UUID, agents.SendEmailArgs) (json.RawMessage, error) {
 	return nil, nil
 }
+
+func (stubComms) SendMessage(context.Context, ids.UUID, agents.SendMessageArgs) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (stubComms) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
 func (stubComms) Availability(context.Context, *ids.UUID, time.Time, time.Time, int) (json.RawMessage, error) {
 	return nil, nil
 }
+
 func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawMessage, error) {
 	return nil, nil
 }
@@ -67,7 +79,7 @@ func TestEveryConfirmationRequiredToolHasADecisionGrantMapping(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 	agents.RegisterIntentTools(registry, stubRetriever{})
-	agents.RegisterCommsTools(registry, stubComms{})
+	agents.RegisterCommsTools(registry, stubComms{}, nil)
 
 	for _, spec := range registry.Specs() {
 		if spec.Tier == mcp.TierAutoExecute {

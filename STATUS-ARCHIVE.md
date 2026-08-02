@@ -153,6 +153,22 @@ for what that decided and what it still owes upstream.
 
 ## Landed arcs
 
+**Embedding drift self-heals; the reindex banner means one thing — PR #360
+(2026-08-01).** The `Reindex needed` shell banner was firing with no binding
+change: 42 entities had acked embed events and no embedding row (a worker died
+between ack and write — an expected loss class on the at-least-once bus), and
+the only recovery was an admin confirming a reindex they never caused. The spec
+was amended first (ADR-0069 §3a, foundation #1220, closing #1219): the derived
+signal's two operands get different governance. Identity-matched drift now
+self-heals — `search.Store.SweepEmbeddingDrift` re-embeds exactly the pending
+set the status endpoint reports, driven by a 15-minute run-on-start River job,
+no-oping when the identities differ or a reindex is live and never touching the
+binding marker. The binding change keeps its preview → confirm flow untouched,
+and `EmbedReindexBanner` keys on `configured_identity ≠ populated_identity`
+alone. This also closed the open item "the reindex banner is ops jargon on
+every page": the drift case no longer banners at all, and what remains is an
+unfinished operator action only an admin/ops reader ever sees.
+
 **The company page's second pass — PRs #351 and #352 (2026-07-31).** #351
 fixed defects a review of the page's rule engines found after the page had
 already merged. All were one failure: a sentence the reader can disprove from

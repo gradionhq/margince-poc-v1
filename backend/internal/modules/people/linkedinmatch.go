@@ -55,12 +55,17 @@ type LinkedInMatchResult struct {
 // never revisited, so a nightly pass cannot overturn a person's decision, and
 // a rejection is permanent rather than something the next import forgets.
 func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (LinkedInMatchResult, error) {
-	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+	// READ, not update. The matcher writes only to the caller's own ghost rows;
+	// it never touches a person, and the person grant it does need is the one
+	// that says which contacts this member may be shown. Demanding update also
+	// broke the per-owner sweep for any member whose role reads people without
+	// editing them — their network would silently never be matched.
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return LinkedInMatchResult{}, err
 	}
 	var out LinkedInMatchResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		confirmed, err := matchGhostsByEmail(ctx, tx, owner)
+		confirmed, err := matchGhostsByEmail(ctx, tx, owner, ids.Nil)
 		if err != nil {
 			return err
 		}
@@ -71,7 +76,7 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (L
 		if err := matchGhostOrganizations(ctx, tx); err != nil {
 			return err
 		}
-		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, owner)
+		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, owner, ids.Nil)
 		if err != nil {
 			return err
 		}
@@ -81,12 +86,71 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (L
 	return out, err
 }
 
+// MatchLinkedInConnectionsForPerson matches the unmatched ghosts against ONE
+// contact, and it is the path that matters most in practice.
+//
+// A workspace does not learn its contacts all at once. An export is uploaded
+// during onboarding, and the people it could match are created over the
+// following hours and weeks — by mail capture, by a site read, by a rep typing
+// a name in. Every one of those is a chance to attach a ghost that the upload
+// could not have attached, and asking each writer to remember to call the
+// matcher would guarantee that one of them forgets.
+//
+// So the trigger is the EVENT every writer already emits. person.created and
+// person.updated flow through the outbox because the write shape puts them
+// there, and the cg:graph-edge consumer turns them into this call. Manual
+// entry, capture, site read, merge and import all reach it without any of them
+// knowing this function exists.
+//
+// Scoped to the one person so the cost is proportional to the change: a
+// workspace-wide pass per person event would re-scan every unmatched ghost
+// thousands of times during a capture backfill.
+func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, person ids.UUID) (LinkedInMatchResult, error) {
+	// READ, not update. The matcher writes only to the caller's own ghost rows;
+	// it never touches a person, and the person grant it does need is the one
+	// that says which contacts this member may be shown. Demanding update also
+	// broke the per-owner sweep for any member whose role reads people without
+	// editing them — their network would silently never be matched.
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return LinkedInMatchResult{}, err
+	}
+	var out LinkedInMatchResult
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		confirmed, err := matchGhostsByEmail(ctx, tx, ids.Nil, person)
+		if err != nil {
+			return err
+		}
+		out.Confirmed = confirmed
+		if err := matchGhostOrganizations(ctx, tx); err != nil {
+			return err
+		}
+		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, ids.Nil, person)
+		out.Suggested = suggested
+		return err
+	})
+	return out, err
+}
+
+// ghostOwnerCapturePrivacy is the capture-privacy arm of the boundary, carried
+// on the match itself.
+//
+// It is a property of the ROW — visibility='owner' means the importing member
+// alone, not even an admin — so it cannot come from the caller's scope clause
+// and has to be rendered against the GHOST's owner. Row scope is the other arm
+// and is a property of the READER; it arrives through auth.ScopeClauseFor,
+// which is why the background sweep must run under each owner's real principal
+// (compose/linkedinmatchgen.go, compose/linkedinrematch.go). A system principal
+// is unbounded by design, so a sweep that ran as one would have neither arm:
+// upload a guessed address, wait, and read match_status to learn whether a
+// contact you cannot see exists.
+const ghostOwnerCapturePrivacy = `(p.visibility <> 'owner' OR p.owner_id = g.owner_user_id)`
+
 // matchGhostsByEmail confirms the ghosts whose address is already a known
 // contact's address. This is the one automatic confirmation, and it is
 // automatic for the same reason capture's dedupe is: an address identifies a
 // person, and treating it as a suggestion would ask a human to re-confirm a
 // fact the system is already certain of everywhere else.
-func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
+func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UUID) (int, error) {
 	// The person row scope, on the MATCH itself. Without it the matcher links
 	// a ghost to a contact the uploader cannot see — and then reports a
 	// confirmed count, which turns a one-row CSV into an oracle: upload a
@@ -95,6 +159,10 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, er
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	ownerPos := arg(nullableOwner(owner))
+	// The same nullable-parameter shape as the owner filter: a zero id means
+	// "every candidate", so one query serves both the sweep and the per-person
+	// call rather than two spellings of the same match drifting apart.
+	personPos := arg(nullableOwner(onlyPerson))
 	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return 0, err
@@ -115,7 +183,9 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, er
 		   -- Only an undecided ghost. A human's confirm or reject stands.
 		   AND g.match_status = 'unmatched'
 		   AND ($%[1]d::uuid IS NULL OR g.owner_user_id = $%[1]d)
-		   AND (%[2]s)`, ownerPos, visible), args...)
+		   AND ($%[3]d::uuid IS NULL OR p.id = $%[3]d)
+		   AND `+ghostOwnerCapturePrivacy+`
+		   AND (%[2]s)`, ownerPos, visible, personPos), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: matching LinkedIn connections by address: %w", err)
 	}
@@ -133,10 +203,11 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, er
 // It also refuses to propose a person some other ghost is already confirmed
 // against: one contact cannot be two different LinkedIn connections of the
 // same colleague, and offering that choice invites a wrong click.
-func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
+func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UUID) (int, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	ownerPos := arg(nullableOwner(owner))
+	personPos := arg(nullableOwner(onlyPerson))
 	// Same reason as the email arm: a suggestion against an invisible contact
 	// both creates a link the uploader may not make and reports its existence.
 	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
@@ -152,7 +223,11 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		    -- one account (a role change recorded as a second row) joins twice
 		    -- and is still one candidate; counting the join rows would read
 		    -- that as an ambiguity and refuse a correct suggestion.
-		    SELECT DISTINCT g.id AS ghost_id, p.id AS person_id
+		    SELECT DISTINCT g.id AS ghost_id, p.id AS person_id,
+		           -- Whether the names agree EXACTLY, before folding. The fold
+		           -- is what finds the candidate; this is what decides whether
+		           -- a human still has to look at it.
+		           g.full_name = p.full_name AS exact_name
 		      FROM linkedin_connection g
 		      JOIN person p
 		        ON p.archived_at IS NULL
@@ -163,7 +238,10 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		       AND lower(f_unaccent(p.full_name)) = g.normalized_name
 		      JOIN relationship r
 		        ON r.person_id = p.id AND r.kind = 'employment'
-		       AND r.ended_at IS NULL AND r.archived_at IS NULL
+		       -- Still employed TODAY, the same test the coverage and intro
+		       -- reads take: a future end date is still employment.
+		       AND r.archived_at IS NULL
+		       AND (r.ended_at IS NULL OR r.ended_at > current_date)
 		     WHERE g.match_status = 'unmatched'
 		       AND g.tombstoned_at IS NULL
 		       -- The employer is matched through matched_org_id, which the
@@ -171,7 +249,12 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		       -- it here in SQL would mean a second spelling of the
 		       -- legal-suffix strip, and two spellings of a normalizer drift.
 		       AND ($%[1]d::uuid IS NULL OR g.owner_user_id = $%[1]d)
+		       -- Narrowing to ONE contact must not narrow the ambiguity check:
+		       -- the pair set below still sees every same-named candidate, so
+		       -- a per-person call cannot suggest a link the sweep would have
+		       -- refused as ambiguous. It filters the RESULT, not the pairs.
 		       AND (%[2]s)
+		       AND `+ghostOwnerCapturePrivacy+`
 		       AND g.matched_org_id IS NOT NULL
 		       AND r.organization_id = g.matched_org_id
 		       AND NOT EXISTS (
@@ -184,20 +267,33 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		    -- Now the count is over distinct PEOPLE, which is what ambiguity
 		    -- means. (count(DISTINCT …) is not available as a window function
 		    -- in Postgres, hence the two steps rather than one.)
-		    SELECT ghost_id, person_id,
+		    SELECT ghost_id, person_id, exact_name,
 		           count(*) OVER (PARTITION BY ghost_id) AS matches
 		      FROM pair
 		)
 		UPDATE linkedin_connection g
 		   SET matched_person_id = c.person_id,
-		       match_status = 'suggested',
+		       -- An EXACT name at a matched employer, with no other candidate,
+		       -- is not a guess worth a human's attention: the two strings are
+		       -- the same string, the employer agrees, and nobody else here is
+		       -- called that. Asking about it trains people to click through
+		       -- the queue without reading, which is what makes the genuinely
+		       -- uncertain ones dangerous. A folded-only match — "André" vs
+		       -- "Andre" — still goes to a human, because that is a judgement
+		       -- about whether two spellings are one person.
+		       match_status = CASE WHEN c.exact_name THEN 'confirmed' ELSE 'suggested' END,
 		       updated_at = now()
 		  FROM candidate c
 		 WHERE g.id = c.ghost_id
 		   -- Ambiguity is not a suggestion. Two contacts of the same name at
 		   -- the same employer is exactly the case a human must resolve, and
 		   -- picking one would be a guess wearing a confirmation's clothes.
-		   AND c.matches = 1`, ownerPos, visible), args...)
+		   AND c.matches = 1
+		   -- The per-person narrowing, applied to the RESULT and not to the
+		   -- pair set above: the ambiguity count must still see every
+		   -- same-named candidate, or a per-person call would suggest a link
+		   -- the workspace-wide sweep correctly refuses.
+		   AND ($%[3]d::uuid IS NULL OR c.person_id = $%[3]d)`, ownerPos, visible, personPos), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: suggesting LinkedIn connection matches: %w", err)
 	}
@@ -211,92 +307,6 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 // people here are LinkedIn-connected to someone at Acme" is actionable on its
 // own — it tells a rep the door is not cold — and it is true whether or not
 // any of those three is a contact in the CRM.
-func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
-	// Resolved in Go rather than SQL because the account key is
-	// NormalizeOrgName — case- and accent-folded AND stripped of its trailing
-	// legal suffix, so a connection at "Acme GmbH" reaches the account stored
-	// as "Acme". Reproducing that strip in SQL would be a second spelling of
-	// the PO-PARAM-1 suffix list, and two spellings of a normalizer drift
-	// until they disagree about a customer's name.
-	orgs, err := orgKeys(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if len(orgs) == 0 {
-		return nil
-	}
-	rows, err := tx.Query(ctx, `
-		SELECT id, company_name FROM linkedin_connection
-		 WHERE company_name IS NOT NULL AND tombstoned_at IS NULL`)
-	if err != nil {
-		return fmt.Errorf("people: reading LinkedIn connections to place: %w", err)
-	}
-	var ghostIDs, orgIDs []ids.UUID
-	for rows.Next() {
-		var ghost ids.UUID
-		var company string
-		if err := rows.Scan(&ghost, &company); err != nil {
-			rows.Close()
-			return err
-		}
-		if org, known := orgs[NormalizeOrgName(company)]; known {
-			ghostIDs = append(ghostIDs, ghost)
-			orgIDs = append(orgIDs, org)
-		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(ghostIDs) == 0 {
-		return nil
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE linkedin_connection g
-		   SET matched_org_id = t.org_id, updated_at = now()
-		  FROM unnest($1::uuid[], $2::uuid[]) AS t(ghost_id, org_id)
-		 WHERE g.id = t.ghost_id AND g.matched_org_id IS DISTINCT FROM t.org_id`,
-		ghostIDs, orgIDs); err != nil {
-		return fmt.Errorf("people: attaching LinkedIn connections to accounts: %w", err)
-	}
-	return nil
-}
-
-// orgKeys is every live account by its normalized name. An ambiguous key —
-// two accounts that normalize the same — is dropped rather than picked
-// between: attaching a colleague's network to the wrong account is a worse
-// answer than attaching it to none.
-func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]ids.UUID, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT id, display_name FROM organization WHERE archived_at IS NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("people: reading accounts for LinkedIn placement: %w", err)
-	}
-	defer rows.Close()
-	out := map[string]ids.UUID{}
-	ambiguous := map[string]bool{}
-	for rows.Next() {
-		var id ids.UUID
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return nil, err
-		}
-		key := NormalizeOrgName(name)
-		if key == "" {
-			continue
-		}
-		if _, seen := out[key]; seen {
-			ambiguous[key] = true
-			continue
-		}
-		out[key] = id
-	}
-	for key := range ambiguous {
-		delete(out, key)
-	}
-	return out, rows.Err()
-}
-
 // OrganizationLinkedInReach counts, per colleague, how many of their LinkedIn
 // connections work at one account — the weaker, clearly-labelled evidence tier
 // beside real interaction history.

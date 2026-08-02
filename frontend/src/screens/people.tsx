@@ -42,6 +42,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
+import { PersonNetworkCard } from "./network";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
 import { StrengthCard } from "./strength";
@@ -619,6 +620,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             {tab === "overview" && (
               <>
                 <StrengthCard kind="person" id={person.id} />
+                <PersonNetworkCard id={person.id} />
                 <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
                 <RecordContextPanel entityType="person" id={person.id} />

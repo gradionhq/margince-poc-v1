@@ -17,6 +17,7 @@ import {
   conversationReducer,
   initialConversationState,
 } from "./conversation-machine";
+import { LinkedInAct } from "./linkedin-act";
 import { restorePlan, type VoiceRestoreProbe } from "./restore";
 import { ResultsAct } from "./results-act";
 import type { WizardPersistInput } from "./use-wizard-state";
@@ -106,7 +107,11 @@ function actCheckpoint(
   if ((prev === "vo.result" || prev === "vo.skipped") && next === "re.recap") {
     return { nextStep: 2 };
   }
-  if (prev === "re.recap" && next === "cn.consent") {
+  // The server's step vocabulary has no LinkedIn step, so the checkpoint
+  // fires when the act is ANSWERED rather than when it opens. Recording step 3
+  // on the way in would restore a reload straight to the inbox and the network
+  // would never be asked for at all.
+  if (prev === "ln.why" && next === "cn.consent") {
     return { nextStep: 3 };
   }
   return null;
@@ -324,6 +329,9 @@ export function OnboardingConversationScreen() {
           profile={existing.data ?? null}
           voiceBuilt={voiceBuilt}
         />
+      )}
+      {state.act === "linkedin" && (
+        <LinkedInAct state={state} dispatch={dispatch} />
       )}
       {(state.act === "connect" || state.act === "done") && (
         <ConnectAct

@@ -7,10 +7,9 @@ package integration
 
 // The consent DECISION (POST /oauth/authorize), as distinct from the screen's
 // read model next door in oauth_consent_integration_test.go: the human lends one
-// of their own passports and the connection receives that passport's authority
-// intersected with what the client asked for, or the human refuses and the
-// client is told. Which passport was lent is recorded in the audit trail,
-// because no column anywhere holds it.
+// of their own passports and the connection receives exactly that passport's
+// scopes, or the human refuses and the client is told. Which passport was lent
+// is recorded in the audit trail, because no column anywhere holds it.
 
 import (
 	"context"
@@ -34,7 +33,7 @@ func (o *oauthEnv) approve(t *testing.T, extra url.Values, passportID string) (s
 }
 
 // approveWithPassport lends a passport the CALLER minted and returns the code
-// the client's redirect carries — so a test can lend authority WIDER or NARROWER
+// the client's redirect carries — so a test can lend authority wider or narrower
 // than the request and assert on what the connection actually receives.
 func (o *oauthEnv) approveWithPassport(t *testing.T, extra url.Values, passportID string) string {
 	t.Helper()
@@ -75,33 +74,48 @@ func (o *oauthEnv) denyRaw(t *testing.T, extra url.Values) (int, string) {
 	return status, location
 }
 
-// The connection receives the INTERSECTION of the lent passport's scopes and
-// the client's request (I1). Both ceilings are asserted separately, because
-// either one alone would pass a server that enforced only the other: a request
-// narrower than the passport must cap at the request, and a passport narrower
-// than the request must cap at the passport.
-func TestApproveGrantsTheIntersectionOfPassportAndRequest(t *testing.T) {
+// The connection receives exactly the lent passport's scopes. The client asks
+// for LESS than the passport carries here — the case every mainstream MCP client
+// produces, since they send no scope parameter at all and the authorize parser
+// then defaults to read — and the grant is the passport's full set regardless.
+// The old intersection rule capped this at the request, which is what made the
+// 🟡 write half of the tool surface unreachable through a real client.
+//
+// Asserted on three independent records of the same grant, because any one of
+// them alone could hold the request instead: the token response's scope, the
+// minted credential's own scopes column, and the grant row the exchange wrote.
+func TestApproveGrantsExactlyTheLentPassportsScopes(t *testing.T) {
 	o := setupOAuth(t)
 	passport := o.mintPassport(t, "broad", []string{"read", "write", "send"})
 
-	code := o.approveWithPassport(t, url.Values{"scope": {"read write"}}, passport)
+	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, passport)
 	status, body := o.exchange(t, url.Values{"code": {code}})
 	if status != http.StatusOK {
 		t.Fatalf("token → %d %v", status, body)
 	}
-	if scope, _ := body["scope"].(string); scope != "read write" {
-		t.Fatalf("granted scope = %q, want %q", scope, "read write")
+	// RFC 6749 §5.1: the response reports the scopes actually GRANTED, so a
+	// client that asked for less still learns what it got. That honesty is what
+	// makes the wider grant safe to hand over without asking.
+	if scope, _ := body["scope"].(string); scope != "read write send" {
+		t.Fatalf("granted scope = %q, want %q: the client asked for read, but the human lent all three",
+			scope, "read write send")
 	}
+	minted, _ := body["access_token"].(string)
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM passport WHERE token_hash = $1
+		   AND scopes = ARRAY['read','write','send']::text[]`,
+		sha256Hex(minted))
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM oauth_grant WHERE scopes = ARRAY['read','write','send']::text[]`)
 	// The lent passport is UNTOUCHED: the connection got its own credential, so
 	// revoking the connection must not kill the human's REST credential (I3).
 	assertOwnerCount(t, o, 1,
 		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NULL AND oauth_grant_id IS NULL`,
 		passport)
 
-	// A passport NARROWER than the request lends only what it carries. The
-	// assertion is on the minted credential's own scopes column, not on what
-	// the client asked for: a code row that stored the request instead of the
-	// intersection would hand this connection a write it was never lent.
+	// The passport is the WHOLE answer, not a floor added to the request: a
+	// client asking for MORE than the passport carries still gets only the
+	// passport. Without this half, granting the union of the two would pass.
 	narrow := o.mintPassport(t, "narrow", []string{"read"})
 	code = o.approveWithPassport(t, url.Values{"scope": {"read write"}}, narrow)
 	status, body = o.exchange(t, url.Values{"code": {code}})
@@ -109,12 +123,9 @@ func TestApproveGrantsTheIntersectionOfPassportAndRequest(t *testing.T) {
 		t.Fatalf("token → %d %v", status, body)
 	}
 	if scope, _ := body["scope"].(string); scope != "read" {
-		t.Fatalf("granted scope = %q, want %q: the lent passport carries no write", scope, "read")
+		t.Fatalf("granted scope = %q, want %q: the lent passport carries no write, however loudly the client asked",
+			scope, "read")
 	}
-	minted, _ := body["access_token"].(string)
-	assertOwnerCount(t, o, 1,
-		`SELECT count(*) FROM passport WHERE token_hash = $1 AND scopes = ARRAY['read']::text[]`,
-		sha256Hex(minted))
 }
 
 // lendAudit is the audit row's after image for a lend — typed, so a missing or
@@ -138,9 +149,9 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 	ctx := context.Background()
 	lent := o.mintPassport(t, "lendable", []string{"read", "write", "send"})
 
-	// Deliberately narrower than the passport, so the audited scopes can only be
-	// the intersection: auditing the request would read "read" too, but auditing
-	// the PASSPORT would read "read write send".
+	// The request is deliberately narrower than the passport, so the audited
+	// scopes can only be the authority actually handed over: auditing the
+	// request would read "read", the passport reads "read write send".
 	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, lent)
 
 	// The human whose authority was lent, derived from the row the flow itself
@@ -189,9 +200,11 @@ func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 	if after.ClientID != o.clientID {
 		t.Fatalf("audited client_id = %q, want %q", after.ClientID, o.clientID)
 	}
-	// The authority actually handed over, not what the passport carries.
-	if !slices.Equal(after.Scopes, []string{"read"}) {
-		t.Fatalf("audited scopes = %v, want [read] — the intersection, not the passport's own", after.Scopes)
+	// The authority actually handed over, which is the lent passport's own —
+	// never the client's narrower request.
+	if !slices.Equal(after.Scopes, []string{"read", "write", "send"}) {
+		t.Fatalf("audited scopes = %v, want [read write send] — the lent passport's own, not the client's request",
+			after.Scopes)
 	}
 	if after.RefreshAllowed {
 		t.Fatal("audited refresh_allowed is true although no renewal was requested")
@@ -229,12 +242,127 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 	// The refusal has to come BEFORE anything durable exists. The code row and
 	// the audit row naming the lend are the two a consent POST can write, so both
 	// must be absent — a lend check that ran after the code was minted would
-	// leave a row carrying the full requested scopes for a passport that may not
-	// be lent at all, and the pair being absent TOGETHER is what makes them one
-	// transaction rather than two writes that usually both happen.
+	// leave a row granting authority for a passport that may not be lent at all,
+	// and the pair being absent TOGETHER is what makes them one transaction
+	// rather than two writes that usually both happen.
 	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
 	assertOwnerCount(t, o, 0,
 		`SELECT count(*) FROM audit_log WHERE entity_type = 'oauth_authorization_code'`)
+}
+
+// The boundary of the lend's atomic re-check, stated as behaviour rather than
+// left to a comment. The consent commits the code and the lent passport's row
+// lock together, so a revocation racing the POST cannot produce a code
+// (identity's oauth_lend_lock_integration_test.go). Once the code EXISTS the
+// question is different: nothing on oauth_authorization_code names the passport,
+// so the exchange has nothing to re-check and the code redeems for its five
+// minutes.
+//
+// That is deliberate, and this test is where it is deliberate: the connection's
+// credential is a NEW grant-bound passport, and revoking the lent one is not the
+// switch that ends connections derived from it — ending a connection goes through
+// its grant. What the exchange DOES re-check is the human. So the day someone
+// records the lent passport on the code row, this test is what tells them they are
+// changing the meaning of a lend, not fixing a race.
+func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
+	o := setupOAuth(t)
+	lent := o.mintPassport(t, "revoked-after-consent", []string{"read", "write"})
+	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, lent)
+
+	o.revokePassport(t, lent)
+
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusOK {
+		t.Fatalf("token → %d %v, want 200: the code carries no reference to the lent passport, so revoking it after consent cannot reach this exchange",
+			status, body)
+	}
+	minted, _ := body["access_token"].(string)
+	if !o.accessTokenWorks(t, minted) {
+		t.Fatal("the connection's own credential has no authority although the exchange succeeded")
+	}
+	// The scopes are still the ones the human approved when the passport was
+	// alive: a dead template is not a narrower one.
+	if scope, _ := body["scope"].(string); scope != "read write" {
+		t.Fatalf("granted scope = %q, want %q", scope, "read write")
+	}
+	// And the credential the human killed stayed killed — the connection did not
+	// resurrect it, it was issued its own.
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NOT NULL`, lent)
+}
+
+// The HUMAN is the other half of that boundary, and it falls the other way.
+// Deactivation is the switch an admin reaches for when someone's authority must
+// end, and the test above is exactly why a pending code would otherwise slip
+// past it: the code holds the lent scopes and the human's id, and while they are
+// deactivated the exchange refuses on the human alone. So the gap only opens on
+// the way back — a code minted minutes before the deactivation, redeemed after a
+// reactivation, would build a whole connection on a consent given under
+// authority that was taken away in between, with nobody consenting again.
+//
+// That is the same thing DeactivateUser's grant cascade exists to stop, and the
+// reactivation is what makes this test prove it: without one the exchange
+// refuses on the live-human check whatever the code row says, and the assertion
+// would pass against a deactivation that touched no code at all.
+func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
+	o := setupOAuth(t)
+	lent := o.mintPassport(t, "pending-at-deactivation", []string{"read", "write"})
+	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, lent)
+
+	// The consenting human is the bootstrap admin, and the last active admin may
+	// not be deactivated — the organization would lose user administration with
+	// no way back. A second admin is what the guard is protecting against, so
+	// inviting one is what lets the real endpoint run.
+	var second userWire
+	if status := o.call(t, "POST", "/v1/users", anyMap{
+		"email": "second-admin@fable.test", "display_name": "Second Admin", "role": "admin",
+	}, nil, &second); status != http.StatusCreated {
+		t.Fatalf("inviting a second admin → %d", status)
+	}
+	granter := o.userIDByEmail(t, "granter@fable.test")
+	if status := o.call(t, "POST", "/v1/users/"+granter+"/deactivate", anyMap{
+		"reason": "left the company",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("deactivate → %d", status)
+	}
+
+	// Reactivated the way ReactivateUser does — it flips this one column and
+	// restores nothing else. Driven over SQL rather than the endpoint because
+	// the deactivation just revoked the only session this suite can call with,
+	// and whether an admin can log in is not what this test is about.
+	if _, err := o.owner.Exec(context.Background(),
+		`UPDATE app_user SET status = 'active' WHERE id = $1`, granter); err != nil {
+		t.Fatalf("reactivating the human: %v", err)
+	}
+
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusBadRequest || body["error"] != "invalid_grant" {
+		t.Fatalf("token → %d %v, want 400 invalid_grant: the consent behind this code ended when its human was deactivated",
+			status, body)
+	}
+	// Refused because the code's own window was closed, not because something
+	// downstream happened to catch it — and refused without spending the row, so
+	// the refusal reads as "this code was never valid again" rather than as a
+	// redemption that failed late.
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM oauth_authorization_code
+		   WHERE user_id = $1 AND consumed_at IS NULL AND expires_at <= now()`, granter)
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+	assertOwnerCount(t, o, 0,
+		`SELECT count(*) FROM passport WHERE oauth_grant_id IS NOT NULL`)
+}
+
+// userIDByEmail resolves a member the suite created through the API but whose id
+// it never saw, read as the owner because the acting session may already be gone
+// by the time the assertion needs it.
+func (o *oauthEnv) userIDByEmail(t *testing.T, email string) string {
+	t.Helper()
+	var id string
+	if err := o.owner.QueryRow(context.Background(),
+		`SELECT id FROM app_user WHERE email = $1`, email).Scan(&id); err != nil {
+		t.Fatalf("resolving %s: %v", email, err)
+	}
+	return id
 }
 
 // Deny is a first-class answer: the client is TOLD, per RFC 6749 §4.1.2.1,

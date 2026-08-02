@@ -15,9 +15,10 @@ package agents
 //   - update_record stages through stageConflicts, not StageInfo, so it is
 //     invisible here; TestUpdateRecordRefusesStagingForATargetHeldElsewhere is
 //     its pin, and that test fails if its guard is removed.
-//   - the walk builds only RegisterCoreTools. Every stageable tool lives there
-//     today; one registered by another family would escape, which is what the
-//     count assertion below is for — it changes the moment the core set does.
+//   - the walk builds only RegisterCoreTools and RegisterCommsTools. Every
+//     stageable tool lives in one of the two today; one registered by a third
+//     family would escape, which is what the count assertion below is for — it
+//     changes the moment either set does.
 
 import (
 	"context"
@@ -42,13 +43,14 @@ func (elsewhereProvider) Read(_ context.Context, ref datasource.EntityRef) (data
 }
 
 func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
-	person, lead, deal, stage := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
+	person, lead, deal, stage, activity := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
 	args := map[string]string{
 		"archive_record": fmt.Sprintf(`{"record_type":"person","id":%q}`, person),
 		"promote_lead":   fmt.Sprintf(`{"lead_id":%q,"trigger":"meeting_booked"}`, lead),
 		"merge_records":  fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, ids.NewV7(), person),
 		"advance_deal":   fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q}`, deal, stage),
 		"progress_deal":  fmt.Sprintf(`{"deal_id":%q,"to_stage_id":%q,"note":"n"}`, deal, stage),
+		"send_message":   fmt.Sprintf(`{"activity_id":%q,"body":"b","consent_purpose":"support"}`, activity),
 	}
 
 	registry := NewRegistry(&recordingApprovals{}, nil)
@@ -56,6 +58,7 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 	// before advance_deal/progress_deal reach StageSemantic, so its answer is
 	// never read on this path.
 	RegisterCoreTools(registry, elsewhereProvider{}, fixedStages{semantic: "won"}, nil, noConflicts{})
+	RegisterCommsTools(registry, &recordingComms{}, elsewhereProvider{})
 
 	// registry.tools IS the universe — walking Specs() and looking the name back
 	// up adds a miss branch that could silently hide a tool from this pin.

@@ -178,12 +178,20 @@ func wireCoverage(c DealCoverage, names map[ids.UUID]string) crmcontracts.DealCo
 		out.OurSide = append(out.OurSide, colleague)
 	}
 	for _, r := range c.Risks {
-		out.Risks = append(out.Risks, crmcontracts.DealCoverageRisk{
+		risk := crmcontracts.DealCoverageRisk{
 			Kind:      crmcontracts.DealCoverageRiskKind(r.Kind),
 			Summary:   r.Summary,
 			PersonIds: wireIDs(r.PersonIDs),
 			UserIds:   wireIDs(r.UserIDs),
-		})
+		}
+		// Only going-cold carries a day count. Sending a zero on the others
+		// would read as "touched today", which is the opposite of the truth on
+		// a departure finding that says nothing about recency at all.
+		if r.Kind == RiskGoingCold {
+			days := r.DaysSinceTouch
+			risk.DaysSinceTouch = &days
+		}
+		out.Risks = append(out.Risks, risk)
 	}
 	return out
 }

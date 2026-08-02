@@ -84,7 +84,7 @@ func TestSendMessageRefusesWithNoGoogleAppConfiguredAndNoBotBound(t *testing.T) 
 	c := setupChannelSendNoGmail(t)
 	// No connectBot call: this workspace has bound no bot for telegram.
 
-	status, code, detail := c.sendReply(t, "transactional", nil)
+	status, code, detail := c.sendReply(t, "transactional", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusUnprocessableEntity || code != "channel_not_send_capable" {
 		t.Fatalf("reply with no Google app configured and no bot bound → %d %q, want 422 channel_not_send_capable", status, code)
@@ -105,7 +105,7 @@ func TestSendMessageAcceptsWithNoGoogleAppConfiguredButABotBound(t *testing.T) {
 	c := setupChannelSendNoGmail(t)
 	c.connectBot(t)
 
-	status, code, detail := c.sendReply(t, "transactional", nil)
+	status, code, detail := c.sendReply(t, "transactional", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusAccepted {
 		t.Fatalf("reply with a bot bound and no Google app configured → %d %q (%s), want 202", status, code, detail)
