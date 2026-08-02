@@ -1771,7 +1771,7 @@ this build repo.
   that survives is the workspace's own consumer-mail list, which every
   connection in the installation shares. The store, the pure matcher, the Sink
   gate, the three endpoints, the settings card and the table are gone (migration
-  0160), and `connector.ExclusionAttrs` with them — nothing else read it. The
+  0165), and `connector.ExclusionAttrs` with them — nothing else read it. The
   spec still specifies all of it.
 - **PO-F-1's employer-agreement term needed a third rung.** `orgMatch` scored a
   shared employer row (1.0) or a shared `organization_domain` (0.8). With the

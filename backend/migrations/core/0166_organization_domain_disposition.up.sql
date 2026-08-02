@@ -1,4 +1,4 @@
--- 0161: the per-domain organization verdict — what a mail domain is allowed to
+-- 0166: the per-domain organization verdict — what a mail domain is allowed to
 -- create.
 --
 -- Capture used to derive an organization from every counterparty domain that

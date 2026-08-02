@@ -1,4 +1,4 @@
--- 0160: retire the per-user personal-mail exclusion rule set (RC-2,
+-- 0165: retire the per-user personal-mail exclusion rule set (RC-2,
 -- capture.md CAP-DDL-3 / CAP-WIRE-2).
 --
 -- The feature let each connected human keep chosen mail out of the CRM by
