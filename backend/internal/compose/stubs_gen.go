@@ -515,8 +515,32 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) GetMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInAccount")
+}
+
+func (stubs) SaveMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SaveMyLinkedInAccount")
+}
+
+func (stubs) ListMyLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListMyLinkedInConnectionsParams) {
+	httperr.NotImplemented(w, r, "ListMyLinkedInConnections")
+}
+
 func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
+}
+
+func (stubs) ConfirmLinkedInMatch(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ConfirmLinkedInMatch")
+}
+
+func (stubs) RejectLinkedInMatch(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RejectLinkedInMatch")
+}
+
+func (stubs) GetMyLinkedInReach(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMyLinkedInReachParams) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInReach")
 }
 
 func (stubs) GetConsentRequest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetConsentRequestParams) {

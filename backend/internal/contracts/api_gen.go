@@ -2020,6 +2020,7 @@ const (
 	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
 	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
 	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+	ContextEntityRefTypeUser         ContextEntityRefType = "user"
 )
 
 // Valid indicates whether the value is a known member of the ContextEntityRefType enum.
@@ -2034,6 +2035,8 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeOrganization:
 		return true
 	case ContextEntityRefTypePerson:
+		return true
+	case ContextEntityRefTypeUser:
 		return true
 	default:
 		return false
@@ -3237,6 +3240,30 @@ func (e LeadStatus) Valid() bool {
 	case LeadStatusPromoted:
 		return true
 	case LeadStatusWorking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LinkedInConnectionMatchStatus.
+const (
+	LinkedInConnectionMatchStatusConfirmed LinkedInConnectionMatchStatus = "confirmed"
+	LinkedInConnectionMatchStatusRejected  LinkedInConnectionMatchStatus = "rejected"
+	LinkedInConnectionMatchStatusSuggested LinkedInConnectionMatchStatus = "suggested"
+	LinkedInConnectionMatchStatusUnmatched LinkedInConnectionMatchStatus = "unmatched"
+)
+
+// Valid indicates whether the value is a known member of the LinkedInConnectionMatchStatus enum.
+func (e LinkedInConnectionMatchStatus) Valid() bool {
+	switch e {
+	case LinkedInConnectionMatchStatusConfirmed:
+		return true
+	case LinkedInConnectionMatchStatusRejected:
+		return true
+	case LinkedInConnectionMatchStatusSuggested:
+		return true
+	case LinkedInConnectionMatchStatusUnmatched:
 		return true
 	default:
 		return false
@@ -6890,28 +6917,28 @@ func (e ListDealsParamsStatus) Valid() bool {
 
 // Defines values for ListDealOffersParamsStatus.
 const (
-	Accepted   ListDealOffersParamsStatus = "accepted"
-	Draft      ListDealOffersParamsStatus = "draft"
-	Expired    ListDealOffersParamsStatus = "expired"
-	Rejected   ListDealOffersParamsStatus = "rejected"
-	Sent       ListDealOffersParamsStatus = "sent"
-	Superseded ListDealOffersParamsStatus = "superseded"
+	ListDealOffersParamsStatusAccepted   ListDealOffersParamsStatus = "accepted"
+	ListDealOffersParamsStatusDraft      ListDealOffersParamsStatus = "draft"
+	ListDealOffersParamsStatusExpired    ListDealOffersParamsStatus = "expired"
+	ListDealOffersParamsStatusRejected   ListDealOffersParamsStatus = "rejected"
+	ListDealOffersParamsStatusSent       ListDealOffersParamsStatus = "sent"
+	ListDealOffersParamsStatusSuperseded ListDealOffersParamsStatus = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListDealOffersParamsStatus enum.
 func (e ListDealOffersParamsStatus) Valid() bool {
 	switch e {
-	case Accepted:
+	case ListDealOffersParamsStatusAccepted:
 		return true
-	case Draft:
+	case ListDealOffersParamsStatusDraft:
 		return true
-	case Expired:
+	case ListDealOffersParamsStatusExpired:
 		return true
-	case Rejected:
+	case ListDealOffersParamsStatusRejected:
 		return true
-	case Sent:
+	case ListDealOffersParamsStatusSent:
 		return true
-	case Superseded:
+	case ListDealOffersParamsStatusSuperseded:
 		return true
 	default:
 		return false
@@ -7074,6 +7101,30 @@ func (e ListListsParamsEntityType) Valid() bool {
 	case ListListsParamsEntityTypeOrganization:
 		return true
 	case ListListsParamsEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListMyLinkedInConnectionsParamsMatchStatus.
+const (
+	ListMyLinkedInConnectionsParamsMatchStatusConfirmed ListMyLinkedInConnectionsParamsMatchStatus = "confirmed"
+	ListMyLinkedInConnectionsParamsMatchStatusRejected  ListMyLinkedInConnectionsParamsMatchStatus = "rejected"
+	ListMyLinkedInConnectionsParamsMatchStatusSuggested ListMyLinkedInConnectionsParamsMatchStatus = "suggested"
+	ListMyLinkedInConnectionsParamsMatchStatusUnmatched ListMyLinkedInConnectionsParamsMatchStatus = "unmatched"
+)
+
+// Valid indicates whether the value is a known member of the ListMyLinkedInConnectionsParamsMatchStatus enum.
+func (e ListMyLinkedInConnectionsParamsMatchStatus) Valid() bool {
+	switch e {
+	case ListMyLinkedInConnectionsParamsMatchStatusConfirmed:
+		return true
+	case ListMyLinkedInConnectionsParamsMatchStatusRejected:
+		return true
+	case ListMyLinkedInConnectionsParamsMatchStatusSuggested:
+		return true
+	case ListMyLinkedInConnectionsParamsMatchStatusUnmatched:
 		return true
 	default:
 		return false
@@ -7406,22 +7457,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -8920,6 +8971,14 @@ type ConfirmCompanySiteReadRequest struct {
 	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
 
+// ConfirmLinkedInMatchRequest An empty body accepts the matcher's own suggestion. `person_id` overrides it,
+// which is how a human corrects a wrong guess rather than rejecting it and losing
+// the connection entirely.
+type ConfirmLinkedInMatchRequest struct {
+	// PersonId The contact to link to. Omitted means the already-suggested one.
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+}
+
 // ConnectChannelRequest defines model for ConnectChannelRequest.
 type ConnectChannelRequest struct {
 	// BotToken The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
@@ -9039,11 +9098,19 @@ type ConsentRequest struct {
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
-	Id   openapi_types.UUID   `json:"id"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Type `user` is a workspace MEMBER, not a record — it appears only in the
+	// `who_knows` section, where the item is a colleague who interacts with the
+	// anchor contact. It carries the member's display name as `summary` and
+	// routes nowhere: a client renders it as a name, not as a link to a record.
 	Type ContextEntityRefType `json:"type"`
 }
 
-// ContextEntityRefType defines model for ContextEntityRef.Type.
+// ContextEntityRefType `user` is a workspace MEMBER, not a record — it appears only in the
+// `who_knows` section, where the item is a colleague who interacts with the
+// anchor contact. It carries the member's display name as `summary` and
+// routes nowhere: a client renders it as a name, not as a link to a record.
 type ContextEntityRefType string
 
 // ContextEvidence defines model for ContextEvidence.
@@ -9645,10 +9712,15 @@ type DealCoverage struct {
 // DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
 // explain the flag rather than assert it.
 type DealCoverageRisk struct {
-	Kind      DealCoverageRiskKind  `json:"kind"`
-	PersonIds *[]openapi_types.UUID `json:"person_ids,omitempty"`
-	Summary   string                `json:"summary"`
-	UserIds   *[]openapi_types.UUID `json:"user_ids,omitempty"`
+	// DaysSinceTouch Days since the deal's last captured touch, on `going_cold` only; null on every
+	// other kind. It carries the number rather than a second `kind`, so the 30-day and
+	// 60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+	// 61 days cannot appear on one surface and not the other.
+	DaysSinceTouch *int                  `json:"days_since_touch,omitempty"`
+	Kind           DealCoverageRiskKind  `json:"kind"`
+	PersonIds      *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary        string                `json:"summary"`
+	UserIds        *[]openapi_types.UUID `json:"user_ids,omitempty"`
 }
 
 // DealCoverageRiskKind defines model for DealCoverageRisk.Kind.
@@ -10060,6 +10132,61 @@ type LeadListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// LinkedInAccount defines model for LinkedInAccount.
+type LinkedInAccount struct {
+	// Connected Whether this member has authorized LinkedIn.
+	Connected   bool       `json:"connected"`
+	ConnectedAt *time.Time `json:"connected_at,omitempty"`
+
+	// Connections How many connections this member's imports currently hold (tombstoned rows excluded).
+	Connections int `json:"connections"`
+
+	// ProfileUrl The member's own public profile — what their imported network is attributed to.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
+// LinkedInConnection One imported connection, in the terms a human needs to judge the matcher's guess.
+// It is NOT a contact and never becomes one: it carries no id a record route
+// accepts, no timeline, and nothing can write to it.
+//
+// The ORIGINAL name and company are what is shown, never the folded forms the
+// matcher compares on — a person confirming a match has to see what LinkedIn
+// actually said.
+type LinkedInConnection struct {
+	CompanyName *string             `json:"company_name,omitempty"`
+	ConnectedOn *openapi_types.Date `json:"connected_on,omitempty"`
+
+	// Email Present only when this connection allowed their address to be exported. Its
+	// presence is why a row confirmed itself; its absence is why most did not.
+	Email          *string                       `json:"email,omitempty"`
+	FullName       string                        `json:"full_name"`
+	Id             openapi_types.UUID            `json:"id"`
+	MatchStatus    LinkedInConnectionMatchStatus `json:"match_status"`
+	MatchedOrgId   *openapi_types.UUID           `json:"matched_org_id,omitempty"`
+	MatchedOrgName *string                       `json:"matched_org_name,omitempty"`
+
+	// MatchedPersonId The contact this is suggested to be, or confirmed as. Null when the matcher found nobody.
+	MatchedPersonId *openapi_types.UUID `json:"matched_person_id,omitempty"`
+
+	// MatchedPersonName The suggested contact's name, resolved under the caller's person row scope.
+	// Null when the caller cannot read that contact — the suggestion is then not
+	// actionable and the surface says so, rather than naming a record through a
+	// side door.
+	MatchedPersonName *string `json:"matched_person_name,omitempty"`
+
+	// Position Their headline role, as the export spelled it.
+	Position *string `json:"position,omitempty"`
+}
+
+// LinkedInConnectionMatchStatus defines model for LinkedInConnection.MatchStatus.
+type LinkedInConnectionMatchStatus string
+
+// LinkedInConnectionListResponse defines model for LinkedInConnectionListResponse.
+type LinkedInConnectionListResponse struct {
+	Data []LinkedInConnection `json:"data"`
+	Page PageInfo             `json:"page"`
+}
+
 // LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
 // `skipped` is reported rather than hidden: a file half-ignored under a success
 // message is worse than a refusal.
@@ -10078,6 +10205,49 @@ type LinkedInImportSummary struct {
 
 	// Suggested Matched by name and employer — plausible, awaiting a human.
 	Suggested int `json:"suggested"`
+}
+
+// LinkedInMatchDecision One decision's outcome, including what it did to the contact.
+type LinkedInMatchDecision struct {
+	// Connection One imported connection, in the terms a human needs to judge the matcher's guess.
+	// It is NOT a contact and never becomes one: it carries no id a record route
+	// accepts, no timeline, and nothing can write to it.
+	//
+	// The ORIGINAL name and company are what is shown, never the folded forms the
+	// matcher compares on — a person confirming a match has to see what LinkedIn
+	// actually said.
+	Connection LinkedInConnection `json:"connection"`
+
+	// ProfileUrlWritten Whether the confirmation wrote a LinkedIn handle onto the contact. False when
+	// the contact already carried one (never overwritten), when the member has
+	// recorded no profile URL of their own, and on every rejection.
+	ProfileUrlWritten bool `json:"profile_url_written"`
+}
+
+// LinkedInReachAccount One account this member's network reaches.
+type LinkedInReachAccount struct {
+	// Connections How many of the caller's connections resolved to this account. An account with none is not listed.
+	Connections int `json:"connections"`
+
+	// ContactsOnFile How many of those are already contacts — confirmed matches only. The gap
+	// between this and `connections` is the answer the import was for: people you
+	// know at this account who are not in the CRM.
+	ContactsOnFile int                `json:"contacts_on_file"`
+	DisplayName    string             `json:"display_name"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+}
+
+// LinkedInReachResponse defines model for LinkedInReachResponse.
+type LinkedInReachResponse struct {
+	Accounts []LinkedInReachAccount `json:"accounts"`
+
+	// AccountsTotal Every account reached, not just the page returned — a truncated list read as the whole network would understate reach.
+	AccountsTotal int `json:"accounts_total"`
+
+	// UnresolvedConnections Connections whose employer matched no account on file. Reported because it is
+	// the honest size of what this view cannot show, and because it is the number
+	// that shrinks as accounts are created.
+	UnresolvedConnections int `json:"unresolved_connections"`
 }
 
 // List A static membership set or a dynamic segment. Mirrors the `list` table.
@@ -12339,6 +12509,15 @@ type RunReportRequest struct {
 
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
+
+// SaveLinkedInAccountRequest defines model for SaveLinkedInAccountRequest.
+type SaveLinkedInAccountRequest struct {
+	// Connected Record the authorization. Never revokes an existing one.
+	Connected *bool `json:"connected,omitempty"`
+
+	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
 type SavedView struct {
@@ -14679,10 +14858,39 @@ type ListListMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListMyLinkedInConnectionsParams defines parameters for ListMyLinkedInConnections.
+type ListMyLinkedInConnectionsParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// MatchStatus Omitted means NO filter — every one of the caller's live connections. This is
+	// the one no-filter input; any value is a selection.
+	MatchStatus *ListMyLinkedInConnectionsParamsMatchStatus `form:"match_status,omitempty" json:"match_status,omitempty"`
+}
+
+// ListMyLinkedInConnectionsParamsMatchStatus defines parameters for ListMyLinkedInConnections.
+type ListMyLinkedInConnectionsParamsMatchStatus string
+
 // ImportLinkedInConnectionsMultipartBody defines parameters for ImportLinkedInConnections.
 type ImportLinkedInConnectionsMultipartBody struct {
 	// File LinkedIn `Connections.csv`.
 	File openapi_types.File `json:"file"`
+}
+
+// GetMyLinkedInReachParams defines parameters for GetMyLinkedInReach.
+type GetMyLinkedInReachParams struct {
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetConsentRequestParams defines parameters for GetConsentRequest.
@@ -16636,8 +16844,14 @@ type CreateListJSONRequestBody = CreateListRequest
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
 
+// SaveMyLinkedInAccountJSONRequestBody defines body for SaveMyLinkedInAccount for application/json ContentType.
+type SaveMyLinkedInAccountJSONRequestBody = SaveLinkedInAccountRequest
+
 // ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
 type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
+
+// ConfirmLinkedInMatchJSONRequestBody defines body for ConfirmLinkedInMatch for application/json ContentType.
+type ConfirmLinkedInMatchJSONRequestBody = ConfirmLinkedInMatchRequest
 
 // CreateOfferTemplateJSONRequestBody defines body for CreateOfferTemplate for application/json ContentType.
 type CreateOfferTemplateJSONRequestBody = CreateOfferTemplateRequest
@@ -22824,9 +23038,27 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Your own LinkedIn account as this CRM records it.
+	// (GET /me/linkedin-account)
+	GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Record or correct your own LinkedIn profile.
+	// (PUT /me/linkedin-account)
+	SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Your own imported connections, for reviewing the matcher's suggestions.
+	// (GET /me/linkedin-connections)
+	ListMyLinkedInConnections(w http.ResponseWriter, r *http.Request, params ListMyLinkedInConnectionsParams)
 	// Import your own LinkedIn connections export.
 	// (POST /me/linkedin-connections)
 	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
+	// Confirm that this connection is that contact.
+	// (POST /me/linkedin-connections/{id}/confirm)
+	ConfirmLinkedInMatch(w http.ResponseWriter, r *http.Request, id Id)
+	// Say this connection is not that contact.
+	// (POST /me/linkedin-connections/{id}/reject)
+	RejectLinkedInMatch(w http.ResponseWriter, r *http.Request, id Id)
+	// Which accounts your imported network reaches.
+	// (GET /me/linkedin-reach)
+	GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams)
 	// What the OAuth consent screen renders for one pending authorization.
 	// (GET /oauth/consent-request)
 	GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams)
@@ -24078,9 +24310,45 @@ func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Your own LinkedIn account as this CRM records it.
+// (GET /me/linkedin-account)
+func (_ Unimplemented) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record or correct your own LinkedIn profile.
+// (PUT /me/linkedin-account)
+func (_ Unimplemented) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Your own imported connections, for reviewing the matcher's suggestions.
+// (GET /me/linkedin-connections)
+func (_ Unimplemented) ListMyLinkedInConnections(w http.ResponseWriter, r *http.Request, params ListMyLinkedInConnectionsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Import your own LinkedIn connections export.
 // (POST /me/linkedin-connections)
 func (_ Unimplemented) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Confirm that this connection is that contact.
+// (POST /me/linkedin-connections/{id}/confirm)
+func (_ Unimplemented) ConfirmLinkedInMatch(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Say this connection is not that contact.
+// (POST /me/linkedin-connections/{id}/reject)
+func (_ Unimplemented) RejectLinkedInMatch(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Which accounts your imported network reaches.
+// (GET /me/linkedin-reach)
+func (_ Unimplemented) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30572,6 +30840,111 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// GetMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyLinkedInConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListMyLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyLinkedInConnectionsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "match_status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "match_status", r.URL.Query(), &params.MatchStatus, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "match_status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "match_status", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyLinkedInConnections(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ImportLinkedInConnections operation middleware
 func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
 
@@ -30583,6 +30956,109 @@ func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportLinkedInConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmLinkedInMatch operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmLinkedInMatch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmLinkedInMatch(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RejectLinkedInMatch operation middleware
+func (siw *ServerInterfaceWrapper) RejectLinkedInMatch(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RejectLinkedInMatch(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyLinkedInReach operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMyLinkedInReachParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInReach(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39444,7 +39920,25 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-account", wrapper.GetMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/linkedin-account", wrapper.SaveMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-connections", wrapper.ListMyLinkedInConnections)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/linkedin-connections/{id}/confirm", wrapper.ConfirmLinkedInMatch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/linkedin-connections/{id}/reject", wrapper.RejectLinkedInMatch)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-reach", wrapper.GetMyLinkedInReach)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/oauth/consent-request", wrapper.GetConsentRequest)

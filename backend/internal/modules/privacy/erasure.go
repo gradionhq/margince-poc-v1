@@ -229,6 +229,13 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		WHERE id = $1`, nullColumnAssignments(personCustom)), personID, erasedName); err != nil {
 		return nil, err
 	}
+	// Read BEFORE the delete: the LinkedIn ghost sweep further down identifies
+	// rows by this address, and person_social is about to stop holding it.
+	linkedInHandles, err := collectStrings(ctx, tx,
+		`SELECT handle FROM person_social WHERE person_id = $1 AND platform = 'linkedin'`, personID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}
@@ -301,6 +308,10 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		DELETE FROM linkedin_connection g
 		 WHERE g.matched_person_id = $1
 		    OR (g.email IS NOT NULL AND g.email = ANY($2))
+		    -- The LinkedIn address, passed in rather than joined: person_social
+		    -- is cleared earlier in this same transaction, so a join here would
+		    -- read an empty table and miss every ghost identified only by URL.
+		    OR (g.profile_url IS NOT NULL AND g.profile_url = ANY($4))
 		    -- Name + employer, matched on the NAME the ghost carries rather
 		    -- than on its derived matched_org_id. That column is set by a
 		    -- matcher that runs on upload: a ghost imported before its account
@@ -317,7 +328,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		               AND (r.organization_id = g.matched_org_id
 		                    OR lower(f_unaccent(o.display_name)) = g.normalized_company
 		                    OR lower(f_unaccent(o.display_name)) LIKE g.normalized_company || ' %')))`,
-		personID, emails, subjectName); err != nil {
+		personID, emails, subjectName, linkedInHandles); err != nil {
 		return nil, err
 	}
 	// The interaction projection (CG-DDL-1) is derived, but derived from data
