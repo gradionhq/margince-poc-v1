@@ -317,6 +317,11 @@ func (e *ProjectKeyShapeError) Error() string {
 	return "a project key must start with a letter and use only letters, digits, hyphen or underscore (2-24 characters)"
 }
 
+// FieldFault refuses a project key outside the contract's shape.
+func (e *ProjectKeyShapeError) FieldFault() (field, code, message string) {
+	return "key", "invalid_key", e.Error()
+}
+
 // ClosedReasonRequiredError maps to 422 closed_reason_required.
 type ClosedReasonRequiredError struct{}
 
@@ -324,11 +329,21 @@ func (e *ClosedReasonRequiredError) Error() string {
 	return "closing a project requires a reason"
 }
 
+// FieldFault refuses closing a project with no reason recorded.
+func (e *ClosedReasonRequiredError) FieldFault() (field, code, message string) {
+	return "reason", "closed_reason_required", e.Error()
+}
+
 // ProjectDateRangeError maps to 422: a project cannot end before it started.
 type ProjectDateRangeError struct{}
 
 func (e *ProjectDateRangeError) Error() string {
 	return "a project's end date cannot precede its start date"
+}
+
+// FieldFault refuses an end date that precedes the start.
+func (e *ProjectDateRangeError) FieldFault() (field, code, message string) {
+	return "ended_at", "invalid_date_range", e.Error()
 }
 
 // ProjectConstraintError is the honest fallback for a project CHECK this
@@ -341,6 +356,11 @@ func (e *ProjectConstraintError) Error() string {
 	return "the project violates the " + e.Constraint + " rule"
 }
 
+// FieldFault names the violated database rule as the business rule it is.
+func (e *ProjectConstraintError) FieldFault() (field, code, message string) {
+	return e.Constraint, "constraint_violated", e.Error()
+}
+
 // DealProjectOrgMismatchError maps to 422: a deal and the project it
 // belongs to must name the same company. Raised by the
 // deal_project_same_org constraint trigger, which is the only place the
@@ -349,4 +369,9 @@ type DealProjectOrgMismatchError struct{}
 
 func (e *DealProjectOrgMismatchError) Error() string {
 	return "a deal and its project must belong to the same company"
+}
+
+// FieldFault refuses linking a deal to a project under a different organization.
+func (e *DealProjectOrgMismatchError) FieldFault() (field, code, message string) {
+	return "project_id", "project_organization_mismatch", e.Error()
 }

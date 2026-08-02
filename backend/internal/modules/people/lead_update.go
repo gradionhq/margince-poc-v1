@@ -56,6 +56,11 @@ func (e *ScoreOverrideReasonRequiredError) Error() string {
 	return "a score override requires a non-empty score_override_reason"
 }
 
+// FieldFault refuses a score override with no stated reason.
+func (e *ScoreOverrideReasonRequiredError) FieldFault() (field, code, message string) {
+	return "score_override_reason", codeRequired, e.Error()
+}
+
 // ScoreOverrideReasonEmptyError rejects an empty-string reason: the
 // contract's clear gesture is JSON null (minLength 1 on the field), so a
 // blank reason is neither a written justification nor a clear — it is
@@ -66,6 +71,11 @@ func (e *ScoreOverrideReasonEmptyError) Error() string {
 	return "score_override_reason must not be empty; pass null to clear the override"
 }
 
+// FieldFault refuses a score-override reason that is present but blank.
+func (e *ScoreOverrideReasonEmptyError) FieldFault() (field, code, message string) {
+	return "score_override_reason", "min_length", e.Error()
+}
+
 // ScoreOverrideClearConflictError rejects a null score arriving together
 // with a written reason: null says "drop the override", the reason says
 // "keep one" — honoring either would silently discard the other half of
@@ -74,6 +84,11 @@ type ScoreOverrideClearConflictError struct{}
 
 func (e *ScoreOverrideClearConflictError) Error() string {
 	return "a null score clears the override; it cannot be combined with a score_override_reason"
+}
+
+// FieldFault refuses setting and clearing the same override in one request.
+func (e *ScoreOverrideClearConflictError) FieldFault() (field, code, message string) {
+	return evidenceScoreKey, "clear_conflict", e.Error()
 }
 
 func (s *Store) UpdateLead(ctx context.Context, id ids.LeadID, in UpdateLeadInput) (crmcontracts.Lead, error) {

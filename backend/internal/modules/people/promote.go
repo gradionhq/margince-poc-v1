@@ -71,6 +71,11 @@ func (e *PromoteNeedsIdentityError) Error() string {
 	return "lead has neither full_name nor email; enrich it before promoting"
 }
 
+// FieldFault refuses promoting a lead that carries no identity to promote.
+func (e *PromoteNeedsIdentityError) FieldFault() (field, code, message string) {
+	return "lead", "identity_required", e.Error()
+}
+
 // PromoteLead graduates a lead into the clean core (features/01 §6.4,
 // ADR-0008): if the lead's email matches a live person it MERGES into
 // that person — never a duplicate — else it creates one, carrying the

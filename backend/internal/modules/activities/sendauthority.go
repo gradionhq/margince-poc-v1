@@ -36,10 +36,19 @@ type SendAuthority interface {
 // MailboxNotSendCapableError refuses a MAIL send this installation already knows
 // cannot leave. It maps to 422 with an actionable message: the fix is the
 // user's to make, and naming it is the whole point of checking early.
+// senderField names the wire field a send-authority refusal points at: the
+// mailbox a message would leave from is the half the caller chose.
+const senderField = "from"
+
 type MailboxNotSendCapableError struct{}
 
 func (e *MailboxNotSendCapableError) Error() string {
 	return "reconnect your mailbox to enable sending"
+}
+
+// FieldFault refuses a send from a mailbox this installation knows cannot send.
+func (e *MailboxNotSendCapableError) FieldFault() (field, code, message string) {
+	return senderField, "mailbox_not_send_capable", e.Error()
 }
 
 // ChannelNotSendCapableError refuses a channel send this installation already
@@ -51,6 +60,11 @@ type ChannelNotSendCapableError struct{ Provider string }
 func (e *ChannelNotSendCapableError) Error() string {
 	return "this workspace has no connected " + e.Provider +
 		" bot to send through — an admin connects one in the connector settings"
+}
+
+// FieldFault refuses a send into a channel with no bot authority to post.
+func (e *ChannelNotSendCapableError) FieldFault() (field, code, message string) {
+	return "id", "channel_not_send_capable", e.Error()
 }
 
 // WithSendAuthority returns a store whose send paths pre-flight the credential

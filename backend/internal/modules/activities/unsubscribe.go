@@ -87,6 +87,11 @@ func (e *SharedUnsubscribeTokenError) Error() string {
 	return "a send that carries an unsubscribe link reaches one addressee at a time — re-issue it once per recipient, with no cc"
 }
 
+// FieldFault refuses a second addressee: one rendered message carries one recipient's token.
+func (e *SharedUnsubscribeTokenError) FieldFault() (field, code, message string) {
+	return "recipients", "shared_unsubscribe_token", e.Error()
+}
+
 // redactedToken stands in for the recipient's preference token in the copy of
 // the message the workspace RECORDS. The token is a bearer credential over
 // that person's consent record — on the anonymous public edge it reads their

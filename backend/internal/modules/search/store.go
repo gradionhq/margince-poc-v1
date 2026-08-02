@@ -248,6 +248,11 @@ const reasonMalformedCursor = "malformed cursor"
 
 func (e *BadQueryError) Error() string { return "search: " + e.Reason }
 
+// FieldFault refuses a query the index cannot serve, naming q.
+func (e *BadQueryError) FieldFault() (field, code, message string) {
+	return "q", "invalid_query", e.Reason
+}
+
 // rankedCursor is the (score, type, id) keyset position. Encoding keeps
 // full float64 precision (strconv 'g' -1) — a rounded score would skip
 // or repeat rows on the boundary.

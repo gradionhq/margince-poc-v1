@@ -180,6 +180,11 @@ type ParamError struct {
 
 func (e *ParamError) Error() string { return e.Field + ": " + e.Reason }
 
+// FieldFault names the automation parameter that was rejected.
+func (e *ParamError) FieldFault() (field, code, message string) {
+	return e.Field, "invalid", e.Reason
+}
+
 // assignLeadOwnerName mirrors people.assignLeadOwnerName: the catalog
 // key MUST equal the backing handler's Spec().Name, but a module never
 // imports a sibling (ADR-0054 §9) — so this is its own copy of the

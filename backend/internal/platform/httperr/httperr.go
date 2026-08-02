@@ -131,6 +131,21 @@ func clientInputValidation(err error) (error, bool) {
 		return Validation("entity_type", "unsupported_entity_type", unservedEntity.Error()), true
 	}
 
+	// A module's own typed refusal, carrying its verdict on the error itself
+	// (apperrors.FieldFault). LAST on purpose: every branch above names the
+	// same shape more precisely for a type this one would also match, so the
+	// specific mapping wins and this is the general fallback.
+	//
+	// This is what lets a module-owned refusal answer identically on a surface
+	// that never runs that module's HTTP mapper — the MCP tool surface reaches
+	// the same stores through the datasource seam, and used to report every one
+	// of these as an internal fault with advice to retry.
+	var fieldFault apperrors.FieldFault
+	if errors.As(err, &fieldFault) {
+		field, code, message := fieldFault.FieldFault()
+		return Validation(field, code, message), true
+	}
+
 	return nil, false
 }
 

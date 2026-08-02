@@ -355,12 +355,26 @@ func (e *PastCloseDateError) Error() string {
 	return "an open deal cannot claim a close date in the past; pick today or later"
 }
 
+// FieldFault refuses an expected close date already in the past.
+func (e *PastCloseDateError) FieldFault() (field, code, message string) {
+	return "expected_close_date", "close_date_past", e.Error()
+}
+
 // AmountCurrencyPairError maps to 422: amount_minor and currency come
 // together or not at all (data-model §6 money rules).
+// currencyField names the wire field a money-pair refusal points at: amount and
+// currency are atomic, and the currency is the half a caller can supply.
+const currencyField = "currency"
+
 type AmountCurrencyPairError struct{}
 
 func (e *AmountCurrencyPairError) Error() string {
 	return "amount_minor and currency come together or not at all"
+}
+
+// FieldFault refuses an amount without its currency (or the reverse) — the pair is atomic.
+func (e *AmountCurrencyPairError) FieldFault() (field, code, message string) {
+	return currencyField, "amount_currency_pair", e.Error()
 }
 
 // TerminalStageOnCreateError maps to 422: create on an open stage, then
@@ -369,6 +383,11 @@ type TerminalStageOnCreateError struct{ Semantic string }
 
 func (e *TerminalStageOnCreateError) Error() string {
 	return "deals cannot be created on a " + e.Semantic + " stage; create open, then advance"
+}
+
+// FieldFault refuses creating a deal directly into a won/lost stage.
+func (e *TerminalStageOnCreateError) FieldFault() (field, code, message string) {
+	return "stage_id", "terminal_stage_on_create", e.Error()
 }
 
 func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.Deal, error) {

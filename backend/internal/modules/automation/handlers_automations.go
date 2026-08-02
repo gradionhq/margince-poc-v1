@@ -9,7 +9,6 @@ package automation
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
@@ -321,11 +320,6 @@ func runActionKinds(trace json.RawMessage) []string {
 }
 
 func writeAutomationErr(w http.ResponseWriter, r *http.Request, err error) {
-	var param *ParamError
-	if errors.As(err, &param) {
-		httperr.Write(w, r, httperr.Validation(param.Field, "invalid", param.Reason))
-		return
-	}
 	httperr.Write(w, r, err)
 }
 

@@ -50,6 +50,11 @@ type FxRateValidationError struct {
 
 func (e *FxRateValidationError) Error() string { return e.Message }
 
+// FieldFault carries the rate field and code the caller must correct.
+func (e *FxRateValidationError) FieldFault() (field, code, message string) {
+	return e.Field, e.Code, e.Error()
+}
+
 func fxInvalid(field, code, message string) error {
 	return &FxRateValidationError{Field: field, Code: code, Message: message}
 }

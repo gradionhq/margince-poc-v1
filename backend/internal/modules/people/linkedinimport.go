@@ -166,6 +166,11 @@ func (e *LinkedInFormatError) Error() string {
 	return "people: unreadable LinkedIn export: " + e.Reason
 }
 
+// FieldFault refuses an export file this importer cannot read.
+func (e *LinkedInFormatError) FieldFault() (field, code, message string) {
+	return "file", "unreadable_export", e.Reason
+}
+
 // linkedInRow is one connection, normalized.
 type linkedInRow struct {
 	fullName    string

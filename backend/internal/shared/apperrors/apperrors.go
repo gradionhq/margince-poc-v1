@@ -12,6 +12,32 @@ package apperrors
 
 import "errors"
 
+// FieldFault is implemented by a typed error that refuses a SPECIFIC input:
+// it names the contract field the caller must change, the contract's stable
+// machine code for the refusal, and what to fix.
+//
+// It exists because the verdict belongs to the error, not to the transport
+// that happens to be carrying it. Every module used to spell its own typed
+// refusals out again in an HTTP-side mapper (`writeStoreErr` and friends), so
+// a refusal was a 422 naming the field on REST and — on the MCP tool surface,
+// which reaches the same stores through the datasource seam and never runs
+// those mappers — an unclassified error reported as an internal server fault
+// with advice to retry. Implementing this instead makes the refusal legible
+// wherever it travels, including to a surface that did not exist when the
+// error type was written.
+//
+// A module opts in by adding the method; httperr's choke point does the rest.
+// The narrower typed errors in shared (values.ParseError, storekit's list
+// vocabularies, datasource's seam refusals) keep their own dedicated branches,
+// which take precedence over this one.
+type FieldFault interface {
+	error
+	// FieldFault returns the offending field's contract path, the contract's
+	// machine code for this refusal, and a message saying what to fix. All
+	// three reach the caller, so none of them may carry internal detail.
+	FieldFault() (field, code, message string)
+}
+
 // Core sentinels — every store and handler in the system speaks these.
 var (
 	// ErrNotFound: no such resource in this workspace, or outside the

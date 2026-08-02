@@ -39,11 +39,21 @@ func (e *StagePipelineMismatchError) Error() string {
 	return "stage " + e.StageID.String() + " does not belong to the deal's pipeline"
 }
 
+// FieldFault refuses a target stage that belongs to another pipeline.
+func (e *StagePipelineMismatchError) FieldFault() (field, code, message string) {
+	return "to_stage_id", "stage_not_in_pipeline", e.Error()
+}
+
 // LostReasonRequiredError maps to 422 on advancing to a lost stage
 // without a reason (deal_lost_reason CHECK, features/01 §3.1).
 type LostReasonRequiredError struct{}
 
 func (e *LostReasonRequiredError) Error() string { return "lost_reason is required to close as lost" }
+
+// FieldFault refuses closing as lost with no reason recorded.
+func (e *LostReasonRequiredError) FieldFault() (field, code, message string) {
+	return "lost_reason", "lost_reason_required", e.Error()
+}
 
 // AdvanceDeal moves a deal one stage, deriving won/lost from the target
 // stage's semantic (never from client-supplied status), appending the
@@ -225,6 +235,11 @@ type MissingFxRateError struct{ From, To string }
 
 func (e *MissingFxRateError) Error() string {
 	return "no fx_rate from " + e.From + " to " + e.To + " to freeze at close"
+}
+
+// FieldFault surfaces the spec's hard-fail (formulas §6.1): a missing rate is never 1.
+func (e *MissingFxRateError) FieldFault() (field, code, message string) {
+	return "fx_rate_to_base", "fx_rate_unavailable", e.Error()
 }
 
 // freezeFx resolves the frozen currency→base conversion for a closed
