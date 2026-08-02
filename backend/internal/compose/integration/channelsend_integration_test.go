@@ -22,6 +22,7 @@ package integration
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -181,10 +182,10 @@ func (c *channelSendEnv) connectBot(t *testing.T) {
 	}
 }
 
-// sendReply posts the reply and returns the status plus the problem's first
-// validation code — the words the rep is shown, which is where the "what do I do
-// about it" has to live.
-func (c *channelSendEnv) sendReply(t *testing.T, purpose string, headers map[string]string) (status int, code, message string) {
+// sendReply posts a reply with the given body and returns the status plus the
+// problem's first validation code — the words the rep is shown, which is
+// where the "what do I do about it" has to live.
+func (c *channelSendEnv) sendReply(t *testing.T, purpose, body string, headers map[string]string) (status int, code, message string) {
 	t.Helper()
 	var answer struct {
 		Code    string `json:"code"`
@@ -197,12 +198,32 @@ func (c *channelSendEnv) sendReply(t *testing.T, purpose string, headers map[str
 		} `json:"details"`
 	}
 	status = c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", anyMap{
-		"body": "Yes — shipping Monday.", "consent_purpose": purpose,
+		"body": body, "consent_purpose": purpose,
 	}, headers, &answer)
 	if errs := answer.Details.Errors; len(errs) > 0 {
 		return status, errs[0].Code, errs[0].Message
 	}
 	return status, answer.Code, answer.Detail
+}
+
+// mintPassport issues an agent passport under the given scopes and returns its bearer token.
+func (c *channelSendEnv) mintPassport(t *testing.T, scopes []string) string {
+	t.Helper()
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := c.call(t, "POST", "/v1/passports", anyMap{"label": "reply agent", "scopes": scopes}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+	return minted.Token
+}
+
+// sendReplyAs mints a passport under the given scopes and sends the reply as
+// that agent — the two-step pattern both scope tests below share.
+func (c *channelSendEnv) sendReplyAs(t *testing.T, scopes []string, purpose string) (status int, code, message string) {
+	t.Helper()
+	token := c.mintPassport(t, scopes)
+	return c.sendReply(t, purpose, "Yes — shipping Monday.", map[string]string{"Authorization": "Bearer " + token})
 }
 
 // stagedChannelDeliveries counts channel-shaped comms_outbound rows — the fact a
@@ -233,22 +254,40 @@ func (c *channelSendEnv) outboundActivities(t *testing.T) int {
 	return n
 }
 
-// An agent caller meets the 🟡 gate: outbound and irreversible, so it may propose
-// the send and may not perform it. The refusal has to happen before the message
-// is staged — an agent that could stage one has already sent it as far as the
-// customer is concerned.
+// assertNoOutboundEffect fails if a refusal left behind a staged delivery or a
+// logged outbound activity — the two facts every refusal path in this suite
+// must NOT produce, named by the caller's description of the refusal.
+func (c *channelSendEnv) assertNoOutboundEffect(t *testing.T, refusal string) {
+	t.Helper()
+	if n := c.stagedChannelDeliveries(t); n != 0 {
+		t.Fatalf("%d deliveries staged behind %s, want 0", n, refusal)
+	}
+	if n := c.outboundActivities(t); n != 0 {
+		t.Fatalf("%d outbound activities logged behind %s, want 0", n, refusal)
+	}
+}
+
+// A write-only passport may not reach an outbound verb at all: the scope cap
+// the granting human set is checked before the tier question is asked.
+func TestSendMessageRefusesAWriteOnlyPassport(t *testing.T) {
+	c := setupChannelSend(t)
+
+	status, code, _ := c.sendReplyAs(t, []string{"read", "write"}, "transactional")
+
+	if status != http.StatusForbidden || code != "scope_exceeds_grantor" {
+		t.Fatalf("write-only passport reply → %d %q, want 403 scope_exceeds_grantor", status, code)
+	}
+	c.assertNoOutboundEffect(t, "a scope-refused send")
+}
+
+// A send-scoped agent caller meets the 🟡 gate: it may propose the send and may
+// not perform it. The refusal has to happen before the message is staged — an
+// agent that could stage one has already sent it as far as the customer is
+// concerned.
 func TestSendMessageRequiresAnApprovalTokenForAnAgentCaller(t *testing.T) {
 	c := setupChannelSend(t)
-	var minted struct {
-		Token string `json:"token"`
-	}
-	if status := c.call(t, "POST", "/v1/passports", anyMap{
-		"label": "reply agent", "scopes": []string{"read", "write"},
-	}, nil, &minted); status != http.StatusCreated {
-		t.Fatalf("issue passport → %d", status)
-	}
 
-	status, code, detail := c.sendReply(t, "transactional", map[string]string{"Authorization": "Bearer " + minted.Token})
+	status, code, detail := c.sendReplyAs(t, []string{"read", "send"}, "transactional")
 
 	if status != http.StatusForbidden || code != "approval_required" {
 		t.Fatalf("agent reply with no approval token → %d %q, want 403 approval_required", status, code)
@@ -258,12 +297,7 @@ func TestSendMessageRequiresAnApprovalTokenForAnAgentCaller(t *testing.T) {
 	if !strings.Contains(detail, "X-Approval-Token") {
 		t.Fatalf("refusal detail %q does not tell the agent how to redeem an approval", detail)
 	}
-	if n := c.stagedChannelDeliveries(t); n != 0 {
-		t.Fatalf("%d deliveries staged behind a refused agent send, want 0", n)
-	}
-	if n := c.outboundActivities(t); n != 0 {
-		t.Fatalf("%d outbound activities logged behind a refused agent send, want 0", n)
-	}
+	c.assertNoOutboundEffect(t, "a refused agent send")
 }
 
 // The human's own action IS the approval (ADR-0055), so their reply carries no
@@ -273,7 +307,7 @@ func TestSendMessageRequiresAnApprovalTokenForAnAgentCaller(t *testing.T) {
 func TestSendMessageAcceptsAHumanCallerWithoutAToken(t *testing.T) {
 	c := setupChannelSend(t)
 
-	status, code, detail := c.sendReply(t, "transactional", nil)
+	status, code, detail := c.sendReply(t, "transactional", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusAccepted {
 		t.Fatalf("human reply → %d %q (%s), want 202", status, code, detail)
@@ -318,7 +352,7 @@ func TestSendMessageRefusesWhenNoBotIsBoundForTheChannel(t *testing.T) {
 		t.Fatalf("disconnecting the bot: %v", err)
 	}
 
-	status, code, detail := c.sendReply(t, "transactional", nil)
+	status, code, detail := c.sendReply(t, "transactional", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusUnprocessableEntity || code != "channel_not_send_capable" {
 		t.Fatalf("reply with no bot bound → %d %q, want 422 channel_not_send_capable", status, code)
@@ -341,33 +375,18 @@ func TestSendMessageRefusesAnEmptyBody(t *testing.T) {
 	c := setupChannelSend(t)
 
 	for _, body := range []string{"", "   \n\t "} {
-		var answer struct {
-			Details struct {
-				Errors []struct {
-					Code    string `json:"code"`
-					Message string `json:"message"`
-				} `json:"errors"`
-			} `json:"details"`
-		}
-		status := c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", anyMap{
-			"body": body, "consent_purpose": "transactional",
-		}, nil, &answer)
+		status, code, message := c.sendReply(t, "transactional", body, nil)
 
 		if status != http.StatusUnprocessableEntity {
 			t.Fatalf("reply with body %q → %d, want 422", body, status)
 		}
-		if len(answer.Details.Errors) == 0 || answer.Details.Errors[0].Code != "empty_message_body" {
-			t.Fatalf("reply with body %q answered %+v, want an empty_message_body validation error", body, answer.Details.Errors)
+		if code != "empty_message_body" {
+			t.Fatalf("reply with body %q answered code %q, want an empty_message_body validation error", body, code)
 		}
-		if detail := answer.Details.Errors[0].Message; !strings.Contains(detail, "type") {
-			t.Fatalf("refusal detail %q does not tell the rep what to do", detail)
+		if !strings.Contains(message, "type") {
+			t.Fatalf("refusal detail %q does not tell the rep what to do", message)
 		}
-		if n := c.stagedChannelDeliveries(t); n != 0 {
-			t.Fatalf("%d deliveries staged behind an empty body %q, want 0", n, body)
-		}
-		if n := c.outboundActivities(t); n != 0 {
-			t.Fatalf("%d outbound activities logged behind an empty body %q, want 0", n, body)
-		}
+		c.assertNoOutboundEffect(t, fmt.Sprintf("an empty body %q", body))
 	}
 }
 
@@ -378,17 +397,12 @@ func TestSendMessageRefusesAnEmptyBody(t *testing.T) {
 func TestSendMessageRefusesWithoutConsentForThePurpose(t *testing.T) {
 	c := setupChannelSend(t)
 
-	status, code, _ := c.sendReply(t, "marketing_email", nil)
+	status, code, _ := c.sendReply(t, "marketing_email", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusConflict || code != "consent_not_granted" {
 		t.Fatalf("reply under an ungranted purpose → %d %q, want 409 consent_not_granted", status, code)
 	}
-	if n := c.stagedChannelDeliveries(t); n != 0 {
-		t.Fatalf("%d deliveries staged behind a suppressed reply, want 0", n)
-	}
-	if n := c.outboundActivities(t); n != 0 {
-		t.Fatalf("%d outbound activities logged behind a suppressed reply, want 0", n)
-	}
+	c.assertNoOutboundEffect(t, "a suppressed reply")
 }
 
 // A person who blocked the bot cannot be reached, and blocking does NOT archive
@@ -404,7 +418,7 @@ func TestSendMessageRefusesAnUnreachablePerson(t *testing.T) {
 		t.Fatalf("blocking the identity: %v", err)
 	}
 
-	status, code, detail := c.sendReply(t, "transactional", nil)
+	status, code, detail := c.sendReply(t, "transactional", "Yes — shipping Monday.", nil)
 
 	if status != http.StatusUnprocessableEntity || code != "person_unreachable" {
 		t.Fatalf("reply to a blocked person → %d %q, want 422 person_unreachable", status, code)
@@ -412,12 +426,7 @@ func TestSendMessageRefusesAnUnreachablePerson(t *testing.T) {
 	if !strings.Contains(detail, "blocked") {
 		t.Fatalf("refusal detail %q does not say why the person cannot be reached", detail)
 	}
-	if n := c.stagedChannelDeliveries(t); n != 0 {
-		t.Fatalf("%d deliveries staged behind an unreachable recipient, want 0", n)
-	}
-	if n := c.outboundActivities(t); n != 0 {
-		t.Fatalf("%d outbound activities logged behind an unreachable recipient, want 0", n)
-	}
+	c.assertNoOutboundEffect(t, "an unreachable recipient")
 }
 
 // Without the outbound activity the UI's optimistic append vanishes the moment

@@ -228,6 +228,71 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-01 (channel reply governance, branch `feat/channel-send-tool`)
+
+**The channel reply is now a governed, stageable tool.** `POST
+/v1/activities/{id}/send-message` is admitted under the `send` scope, at
+`TierConfirmationRequired`, through a registered `send_message` tool whose
+`StageInfo` pins the conversation's row version — the same posture
+`send_offer` and outbound mail already carry, closing the gap where the
+channel-reply route resolved by synthesis at `write`.
+
+A ratchet test (`agentpolicysynthesis_test.go`) now pins every verb that
+still resolves by synthesis into one of three maps: verbs where `write` is
+the right cap (`synthesizedVerbs`), known outbound holes (`outboundHoles`),
+and verbs an agent can never actually execute even once approved
+(`deadEndVerbs`). Not fixed here, deliberately:
+
+- **Four outbound verbs are still admitted under `write` by synthesis** —
+  `send_offer`, `enrich`, `connect_incumbent`, `reconcile_overlay`. Closing
+  each means registering a tool and scope for it; `connect_incumbent`
+  additionally needs the tier and scope decided together, which nothing has
+  done yet.
+- **`share_record` is a dead end, not an outbound hole.** Its handlers
+  (`identity/grants.go`) reject any principal that is not
+  `PrincipalHuman`, and redemption never changes the redeeming actor's
+  type — so an agent-staged, human-approved `share_record` call is refused
+  at redemption every time. It is pinned in `deadEndVerbs` rather than
+  `outboundHoles` because there is no scope decision that would ever make
+  it succeed.
+- **`send_email` and `book_meeting` are both 🟡 tools with no `StageInfo`.**
+  An MCP call to either refuses outright rather than ever staging an
+  approval — there is no path to a "yes" for an agent caller today, only
+  the REST route's own confirm-first gate.
+- **The four channel-send refusals wrap no `apperrors` sentinel.**
+  `errEmptyMessageBody`, `NotAChannelConversationError`,
+  `ChannelNotSendCapableError`, and `ChannelRecipientError` (all in
+  `activities/channelsend.go`) carry none of the fixed sentinels, so on
+  MCP, `dispatch.explain`'s default branch tells an agent "failed for an
+  internal reason... Retry" even for the permanent ones among them, while
+  REST maps the same four to actionable 422s. `StageInfo` now refuses the
+  two an agent trips at staging time (empty body, non-channel anchor)
+  before an approval is ever minted, but the taxonomy gap on the other two
+  — and on `dispatch.explain`'s reading of all four post-staging — remains
+  open.
+
+**Security finding, recorded not fixed: an approved channel send binds the
+message text but not the recipient.** `relink_activity` is `auto_execute`
+(`compose/agentpolicy_gen.go`); it rewrites `activity_link` rows to point a
+conversation at a different person without ever updating the `activity` row
+itself, so the pinned row version a staged `send_message` approval carries
+does not move when the conversation's counterparty changes
+(`activities/lifecycle.go`, the relink insert). `activities.Store.SendMessage`
+resolves the recipient fresh at execution time from those links
+(`reachableOnConversation`), not from anything captured when the approval was
+staged. So an agent can stage "send message M on conversation A", have a
+human approve it, auto-execute a relink that repoints A's person link, then
+redeem the byte-identical approved call — and M delivers to someone the human
+never approved sending to. This is pre-existing (a `write`-scoped passport
+could already do the same over REST before this branch) and affects both the
+REST and MCP transports; this branch neither introduces nor fixes it. The
+missing invariant: a staged send's authority is bound to the message content
+and a version pin on the wrong row. A real fix needs the recipient itself
+resolved at staging time and its identity (not just the conversation's row
+version) bound into the staged authority and rechecked at redemption, and a
+person-link change on an activity to bump that activity's own version so an
+intervening relink invalidates a pin that predates it.
+
 ## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
 
 **"Who on our team knows this contact" is now a stored fact, and the company
