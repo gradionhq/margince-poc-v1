@@ -323,3 +323,78 @@ func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
 		t.Fatalf("budget spent = %d, want 0 — the slot must come back even when the capture was cancelled", n)
 	}
 }
+
+// dispositionOf reads a domain's standing verdict, or "" when it has none.
+func dispositionOf(t *testing.T, e *integration.Env, domain string) string {
+	t.Helper()
+	var status string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT coalesce(max(status), '') FROM organization_domain_disposition WHERE domain = $1`,
+			domain).Scan(&status)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return status
+}
+
+// spendAttempts drives a domain to the end of its retry budget and makes it due,
+// which is the state a site that never loads leaves behind.
+func spendTriageAttempts(t *testing.T, e *integration.Env, domain string) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE organization_domain_disposition
+			   SET attempts = 2, next_attempt_at = now() - interval '1 day'
+			 WHERE domain = $1`, domain)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The sweep must CLOSE a question no crawl will ever answer. A domain that spent
+// every attempt drops out of the due scan, so leaving it pending would strand
+// its people without a company and with nothing on the row to say why — the
+// person is created either way, and only the company waits on this.
+func TestTriageSweepSettlesADomainThatRanOutOfAttempts(t *testing.T) {
+	e := integration.Setup(t)
+	setAutoEnrich(t, e, true)
+	openQuestion(t, e, "unreachable.example")
+	spendTriageAttempts(t, e, "unreachable.example")
+
+	worker := newCaptureAutoEnrichSweepWorker(e.Pool, slog.New(slog.DiscardHandler))
+	if err := worker.sweepDomainTriage(e.Admin(), 50); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if got := dispositionOf(t, e, "unreachable.example"); got == "pending" || got == "" {
+		t.Fatalf("disposition = %q after the sweep, want it settled", got)
+	}
+	if stillDue(t, e, "unreachable.example") {
+		t.Fatal("a settled domain is still being offered for a crawl")
+	}
+}
+
+// A domain with attempts left is left alone by the settle pass — settling it
+// early would answer from no evidence a crawl could still have gathered.
+func TestTriageSweepLeavesADomainThatStillHasAttempts(t *testing.T) {
+	e := integration.Setup(t)
+	setAutoEnrich(t, e, true)
+	openQuestion(t, e, "waiting.example")
+
+	worker := newCaptureAutoEnrichSweepWorker(e.Pool, slog.New(slog.DiscardHandler))
+	// The enqueue needs an ambient River client this process has none of, so
+	// the read cannot start and its budget slot is refunded. That is the path
+	// under test: a sweep that cannot queue must leave the question open.
+	if err := worker.sweepDomainTriage(e.Admin(), 50); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if got := dispositionOf(t, e, "waiting.example"); got != "pending" {
+		t.Fatalf("disposition = %q, want it still pending", got)
+	}
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — a slot that bought no crawl must come back", n)
+	}
+}
