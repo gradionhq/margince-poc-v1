@@ -21,6 +21,10 @@ var (
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}
 	_ jobs.WorkspaceScoped = OverlayReconcileWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = GraphEdgeWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = ParticipantBackfillWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = LinkedInRematchWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = OrgNamePromotionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureSyncArgs{}
 	_ jobs.WorkspaceScoped = FxRateRefreshArgs{}
 	_ jobs.WorkspaceScoped = AiModelRateRefreshArgs{}

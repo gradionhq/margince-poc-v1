@@ -80,15 +80,42 @@ func (OrgNamePromotionArgs) Kind() string { return "org_name_promotion" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (OrgNamePromotionArgs) FleetWide() {}
 
-// orgNamePromotionWorker drives the corroborated-name sweep: a database-only
-// pass over the org_name evidence the enrich job collects.
+// orgNamePromotionWorker is the dispatcher for the corroborated-name sweep.
 type orgNamePromotionWorker struct {
 	river.WorkerDefaults[OrgNamePromotionArgs]
-	promoter *OrgNamePromoter
+	pool *pgxpool.Pool
 }
 
 func (w *orgNamePromotionWorker) Work(ctx context.Context, _ *river.Job[OrgNamePromotionArgs]) error {
-	return jobs.FaultContext(ctx, w.promoter.Run(ctx))
+	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		func(ws ids.UUID) river.JobArgs { return OrgNamePromotionWorkspaceArgs{Workspace: ws} }))
+}
+
+// OrgNamePromotionWorkspaceArgs is one workspace's org-name promotion pass.
+type OrgNamePromotionWorkspaceArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (OrgNamePromotionWorkspaceArgs) Kind() string { return "org_name_promotion_workspace" }
+
+// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
+func (a OrgNamePromotionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// orgNamePromotionWorkspaceWorker runs one workspace's pass: a database-only
+// walk over the org_name evidence the enrich job collects.
+type orgNamePromotionWorkspaceWorker struct {
+	river.WorkerDefaults[OrgNamePromotionWorkspaceArgs]
+	promoter *OrgNamePromoter
+}
+
+func (w *orgNamePromotionWorkspaceWorker) Work(ctx context.Context, job *river.Job[OrgNamePromotionWorkspaceArgs]) error {
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, w.promoter.RunWorkspace(wsCtx, job.Args.Workspace))
 }
 
 // CaptureDigestArgs builds the morning digests (CAP-DDL-6; the nightly

@@ -23,9 +23,17 @@ import (
 // addGraphJobs registers the graph workers and returns their periodic
 // schedules for the caller to append.
 func addGraphJobs(workers *river.Workers, pool *pgxpool.Pool, log *slog.Logger) []*river.PeriodicJob {
-	river.AddWorker(workers, newParticipantBackfillWorker(pool, log))
-	river.AddWorker(workers, newGraphEdgeReconcileWorker(pool, log))
-	river.AddWorker(workers, newLinkedInRematchWorker(pool, people.NewStore(pool), identity.NewService(pool), log))
+	// Each pass is a dispatcher plus a workspace worker; only the dispatcher
+	// gets a periodic entry, and the workspace worker reuses its wiring.
+	participants := newParticipantBackfillWorker(pool, log)
+	river.AddWorker(workers, participants)
+	river.AddWorker(workers, &participantBackfillWorkspaceWorker{participantBackfillWorker: participants})
+	graphEdges := newGraphEdgeReconcileWorker(pool, log)
+	river.AddWorker(workers, graphEdges)
+	river.AddWorker(workers, &graphEdgeWorkspaceWorker{graphEdgeReconcileWorker: graphEdges})
+	rematch := newLinkedInRematchWorker(pool, people.NewStore(pool), identity.NewService(pool), log)
+	river.AddWorker(workers, rematch)
+	river.AddWorker(workers, &linkedInRematchWorkspaceWorker{linkedInRematchWorker: rematch})
 	return []*river.PeriodicJob{
 		// The interaction-participant backfill: daily, run-on-start so an
 		// installation upgrading into ACT-DDL-3 recovers its history on the

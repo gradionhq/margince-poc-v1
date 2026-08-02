@@ -318,7 +318,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// enrich pass already wrote, so it needs no model. Gating it on a brain
 		// would leave an AI-less deployment unable to act on signatures it had
 		// already collected.
-		river.AddWorker(workers, &orgNamePromotionWorker{promoter: NewOrgNamePromoter(pool, log)})
+		river.AddWorker(workers, &orgNamePromotionWorker{pool: pool})
+		river.AddWorker(workers, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
 		// Daily, after the enrich pass has had a night to collect signatures;
 		// run-on-start so a deployment with a backlog acts on it immediately.
 		periodic = append(periodic, river.NewPeriodicJob(

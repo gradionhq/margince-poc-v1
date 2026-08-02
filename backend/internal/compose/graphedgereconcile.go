@@ -66,17 +66,34 @@ func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdg
 // workspace rather than globally, so one tenant's failure leaves the others
 // reconciled — and so no single transaction spans the whole installation.
 func (w *graphEdgeReconcileWorker) Work(ctx context.Context, _ *river.Job[GraphEdgeReconcileArgs]) error {
-	workspaces, err := liveWorkspaceIDs(ctx, w.pool)
-	if err != nil {
+	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
+		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		func(ws ids.UUID) river.JobArgs { return GraphEdgeWorkspaceArgs{Workspace: ws} }))
+}
+
+// GraphEdgeWorkspaceArgs is one workspace's interaction-projection rebuild.
+type GraphEdgeWorkspaceArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+// Kind is the stable job identifier River persists in river_job.
+func (GraphEdgeWorkspaceArgs) Kind() string { return "graph_edge_workspace" }
+
+// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
+func (a GraphEdgeWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
+
+// graphEdgeWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
+// wiring rather than a second copy of it.
+type graphEdgeWorkspaceWorker struct {
+	river.WorkerDefaults[GraphEdgeWorkspaceArgs]
+	*graphEdgeReconcileWorker
+}
+
+func (w *graphEdgeWorkspaceWorker) Work(ctx context.Context, job *river.Job[GraphEdgeWorkspaceArgs]) error {
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	for _, ws := range workspaces {
-		if err := w.reconcileWorkspace(ctx, ws); err != nil {
-			w.log.WarnContext(ctx, "graph-edge reconcile: workspace rebuild failed",
-				"workspace", ws.String(), "err", err)
-		}
-	}
-	return nil
+	return jobs.FaultContext(ctx, w.reconcileWorkspace(ctx, job.Args.Workspace))
 }
 
 func (w *graphEdgeReconcileWorker) reconcileWorkspace(ctx context.Context, ws ids.UUID) error {
