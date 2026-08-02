@@ -26,7 +26,12 @@ const workerFloor = 20
 // That shape is EXACTLY the defect this phase removes — a tenant failure
 // becoming a green River row — so each entry states the durable retry policy
 // that makes it honest here. A worker not listed must return its failure.
-var nilAfterLogging = map[string]string{}
+var nilAfterLogging = map[string]string{
+	"captureSyncWorker":               "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'",
+	"captureBackfillWorker":           "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended",
+	"overlayReconcileWorkspaceWorker": "the only nil-after-logging path is the disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. A genuine sweep failure IS returned, and its backoff recorded",
+	"voiceBuildWorker":                "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due",
+}
 
 func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
@@ -92,7 +97,10 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	}
 }
 
-// errorLogsAndReturnsNil reports whether fn both error-logs and returns nil.
+// errorLogsAndReturnsNil reports whether fn both logs a failure and returns
+// nil. Warn counts as well as Error: the defect is the SHAPE — a tenant's
+// failure becoming a green River row — and the level a worker happened to log
+// it at does not change what the operator sees in the job list.
 // A heuristic, and deliberately a broad one: the cost of a false positive is
 // writing one waiver with a rationale, while the cost of a false negative is
 // a tenant failure that never surfaces anywhere.
@@ -102,7 +110,8 @@ func errorLogsAndReturnsNil(fn *ast.FuncDecl) bool {
 		switch v := n.(type) {
 		case *ast.CallExpr:
 			if sel, ok := v.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel.Name == "Error" || sel.Sel.Name == "ErrorContext" {
+				switch sel.Sel.Name {
+				case "Error", "ErrorContext", "Warn", "WarnContext":
 					logs = true
 				}
 			}
