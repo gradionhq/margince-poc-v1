@@ -260,6 +260,9 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	if err := rejectUnknownFields(createShapes, args.RecordType, args.Fields); err != nil {
+		return nil, err
+	}
 	ref, err := t.p.Create(ctx, datasource.CreateInput{
 		EntityType: datasource.EntityType(args.RecordType),
 		Fields:     args.Fields,

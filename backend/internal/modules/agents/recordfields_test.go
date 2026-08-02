@@ -5,9 +5,12 @@ package agents
 
 import (
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -120,5 +123,58 @@ func TestEveryTimestampArgumentDocumentsItsOffset(t *testing.T) {
 		if found == 0 {
 			t.Errorf("%s exposes no date-time argument — this test is watching the wrong tools", name)
 		}
+	}
+}
+
+// The two writes real sessions lost data to. Both returned 200 with the value
+// discarded: organization_id is not a person field at all, and emails is a
+// person field on CREATE and no field at all on UPDATE — the shape a caller is
+// most likely to get wrong, because it exists next door.
+func TestWriteToolsRefuseFieldsTheRecordCannotStore(t *testing.T) {
+	cases := []struct {
+		name       string
+		shapes     map[datasource.EntityType]reflect.Type
+		recordType string
+		fields     string
+		wantNamed  string
+	}{
+		{"organization_id on a person create", createShapes, "person", `{"full_name":"A","organization_id":"x"}`, "organization_id"},
+		{"emails on a person update", updateShapes, "person", `{"emails":["a@b.c"]}`, "emails"},
+		{"a typo next to a real field", createShapes, "organization", `{"displayname":"Firecrawl"}`, "displayname"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := rejectUnknownFields(tc.shapes, tc.recordType, json.RawMessage(tc.fields))
+			if err == nil {
+				t.Fatalf("%s was accepted — the value would be discarded with no signal", tc.wantNamed)
+			}
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Fatalf("err = %v, want a BadArgsError the tool surface explains", err)
+			}
+			if !strings.Contains(err.Error(), tc.wantNamed) {
+				t.Errorf("err = %q, want it to name %q", err, tc.wantNamed)
+			}
+		})
+	}
+}
+
+// What must still pass: real fields, and the custom-field channel. Whether a
+// cf_ field is ACTIVE is the store's ratified question — refusing it here
+// would break every workspace that defined one.
+func TestWriteToolsAcceptRealFieldsAndTheCustomFieldChannel(t *testing.T) {
+	for _, fields := range []string{
+		`{"full_name":"Alex Nucci","title":"VP","emails":[{"email":"a@b.c"}]}`,
+		`{"full_name":"Alex Nucci","cf_priority":"high"}`,
+		`{}`,
+	} {
+		if err := rejectUnknownFields(createShapes, "person", json.RawMessage(fields)); err != nil {
+			t.Errorf("rejectUnknownFields(%s) = %v, want accepted", fields, err)
+		}
+	}
+	// An unknown record_type is the provider's refusal to make: it answers
+	// with the vocabulary it serves, which this check cannot.
+	if err := rejectUnknownFields(createShapes, "invoice", json.RawMessage(`{"anything":1}`)); err != nil {
+		t.Errorf("unknown record_type = %v, want it left to the provider", err)
 	}
 }

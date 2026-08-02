@@ -79,6 +79,9 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
+	if err := rejectUnknownFields(updateShapes, args.RecordType, args.Fields); err != nil {
+		return nil, err
+	}
 	if ApprovalRedeemed(ctx) {
 		// The dispatch layer consumed an approval bound to exactly this
 		// call — the human already released the overwrite it performs.

@@ -20,6 +20,8 @@ package agents
 // reflecting off it means the tool describes exactly what the decoder accepts.
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strconv"
@@ -105,6 +107,59 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
 	b.WriteString("so re-read the record if you are unsure a value landed.")
 	return b.String()
+}
+
+// customFieldPrefix is the only shape an extra key may take: the
+// customfields engine derives every column it adds as cf_<slug>, so a key
+// without that prefix is not a custom field under any workspace's catalog.
+const customFieldPrefix = "cf_"
+
+// rejectUnknownFields refuses a `fields` payload carrying keys the record type
+// cannot store, naming them and the ones it accepts.
+//
+// This lives at the TOOL, not in the store, and that placement is the whole
+// point. The store's silence is contract-conformant: the write bodies declare
+// additionalProperties: true, and storekit's package doc ratifies
+// drop-on-mismatch. So REST may keep accepting-and-discarding, while the tool
+// surface — whose caller cannot see a response body it did not think to
+// re-read — refuses up front instead of reporting success for a write it did
+// not perform. Two sessions lost data to that silence: organization_id on a
+// person create, and emails on a person UPDATE, which is a real field on
+// create and no field at all on update.
+//
+// A cf_-prefixed key passes: whether that custom field is active in this
+// workspace is the store's ratified question, not a shape this tool can judge.
+func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordType string, fields json.RawMessage) error {
+	shape, ok := shapes[datasource.EntityType(recordType)]
+	if !ok {
+		// An unknown record_type is the provider's refusal to make, and it
+		// names the served vocabulary when it does.
+		return nil
+	}
+	var submitted map[string]json.RawMessage
+	if err := json.Unmarshal(fields, &submitted); err != nil {
+		// `fields` is a JSON object in every record type's contract, so a
+		// payload that is not one is the caller's mistake and says so here —
+		// carrying the decoder's own words rather than discarding them.
+		return &BadArgsError{Cause: fmt.Errorf("fields must be a JSON object: %w", err)}
+	}
+	accepted := make(map[string]struct{})
+	for _, name := range contractFieldNames(shape) {
+		accepted[name] = struct{}{}
+	}
+	var unknown []string
+	for key := range submitted {
+		if _, ok := accepted[key]; ok || strings.HasPrefix(key, customFieldPrefix) {
+			continue
+		}
+		unknown = append(unknown, key)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return &BadArgsError{Cause: fmt.Errorf("%s cannot store %s; it accepts %s (or cf_<slug> for an active custom field)",
+		recordType, strings.Join(unknown, ", "), strings.Join(contractFieldNames(shape), ", "))}
 }
 
 // timestampNote is appended to every date-time argument the tool surface
