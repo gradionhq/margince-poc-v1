@@ -1722,7 +1722,7 @@ this build repo.
   does.** ADR-0072 §1's tier ladder reads `T1 correspondence-positive → ensure
   NOW, org per T3`, and T3 suppresses organization derivation for consumer mail
   alone. Everything else derived a company from the domain label, which is where
-  "Herpertz" came from — `sebastian@herpertz.net` is a man writing from his own
+  "Kestner" came from — `sebastian@kestner.example` is a man writing from his own
   domain — and nothing downstream ever removed it. In the dev database 157 of
   165 organizations were `name_source='domain'` and only 65 had a corroborated
   legal entity.
@@ -1757,7 +1757,7 @@ this build repo.
   silently.
 - **CAP-PARAM-5's "config file, no admin UI" pin is reversed here.** The pinned
   70-domain baseline had `live.com` and `live.de` but not `live.fr`, so
-  `ludovic.toison@live.fr` produced a company called "Live"; it matched the
+  a private mailbox on `live.fr` produced a company called "Live"; it matched the
   domain string exactly, so `mail.gmx.net` missed a listed `gmx.net`. This build
   ships a vendored 8 700-domain dataset (goware/emailproviders, MIT, provenance
   in `platform/freemail/data/README.md`) matched down to the registrable eTLD+1,

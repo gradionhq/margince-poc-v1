@@ -123,10 +123,10 @@ func TestTriageStatusMapsOntoTheLedgersVocabulary(t *testing.T) {
 
 func TestTriageDomainOfRecoversTheDomainFromItsSeed(t *testing.T) {
 	cases := map[string]string{
-		"https://herpertz.net":     "herpertz.net",
-		"https://mail.acme.co.uk":  "acme.co.uk",
-		"https://richardnguyen.me": "richardnguyen.me",
-		"":                         "",
+		"https://kestner.example":    "kestner.example",
+		"https://mail.acme.co.uk":    "acme.co.uk",
+		"https://rowanmarsh.example": "rowanmarsh.example",
+		"":                           "",
 	}
 	for seed, want := range cases {
 		if got := triageDomainOf(seed); got != want {

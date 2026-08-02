@@ -13,7 +13,7 @@
 -- Workspace-shared, admin-curated: whether a domain can name a company is a
 -- statement about the domain, not about whoever happens to be reading the mail.
 -- This is the surviving domain control after the per-user personal-mail
--- exclusion rules were withdrawn (0160).
+-- exclusion rules were withdrawn (0165).
 
 CREATE TABLE capture_freemail_domain (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),

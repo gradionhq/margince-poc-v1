@@ -29,7 +29,7 @@ func (e *dedupeEnv) openTriage(ctx context.Context, t *testing.T, email, display
 	if err != nil {
 		t.Fatalf("ensure %s: %v", email, err)
 	}
-	if res.OrgCreated || res.OrganizationID != nil {
+	if res.OrganizationID != nil {
 		t.Fatalf("ensure %s = %+v, want NO company from an unjudged domain", email, res)
 	}
 	var open int
@@ -74,7 +74,7 @@ func TestCompanyVerdictCreatesTheOrganizationAndWiresEveryoneWaitingOnIt(t *test
 
 	// Two colleagues wrote in while the question was open. Both have people
 	// rows and neither has an employer.
-	first := e.openTriageFirst(ctx, t, "manuel@basecom.test", "Manuel Wortmann", "basecom.test")
+	first := e.openTriageFirst(ctx, t, "martin@basecom.test", "Martin Weiss", "basecom.test")
 	second := e.openTriage(ctx, t, "petra@basecom.test", "Petra Klein", "basecom.test")
 	if second.TriagePending {
 		t.Fatal("the second sender on a domain must not re-open a question that is already open")
@@ -154,11 +154,11 @@ func TestPersonalVerdictRefusesTheCompanyForGood(t *testing.T) {
 	ctx := e.as()
 
 	// The case that started this: a man's own domain, carrying his name.
-	e.openTriageFirst(ctx, t, "sebastian@herpertz.test", "Sebastian Herpertz", "herpertz.test")
-	readID := e.startTriageRead(ctx, t, "herpertz.test")
+	e.openTriageFirst(ctx, t, "sebastian@kestner.test", "Sebastian Kestner", "kestner.test")
+	readID := e.startTriageRead(ctx, t, "kestner.test")
 
 	if _, err := e.store.ResolveDomainTriage(ctx, ResolveDomainTriageInput{
-		Domain: "herpertz.test", Status: DomainPersonal, Source: DomainSourceSiteRead,
+		Domain: "kestner.test", Status: DomainPersonal, Source: DomainSourceSiteRead,
 		Evidence: "the site is a personal page naming the domain's owner", ReadID: readID,
 	}); err != nil {
 		t.Fatalf("resolve: %v", err)
@@ -169,12 +169,12 @@ func TestPersonalVerdictRefusesTheCompanyForGood(t *testing.T) {
 	var nextAttempt *string
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx,
-			`SELECT count(*) FROM organization_domain WHERE domain = 'herpertz.test'`).Scan(&orgs); err != nil {
+			`SELECT count(*) FROM organization_domain WHERE domain = 'kestner.test'`).Scan(&orgs); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `
 			SELECT status, next_attempt_at::text FROM organization_domain_disposition
-			WHERE domain = 'herpertz.test'`).Scan(&status, &nextAttempt)
+			WHERE domain = 'kestner.test'`).Scan(&status, &nextAttempt)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -191,11 +191,11 @@ func TestPersonalVerdictRefusesTheCompanyForGood(t *testing.T) {
 	}
 
 	// The refusal has to survive the next message, or it buys nothing.
-	again, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "post@herpertz.test", "Sebastian Herpertz", "herpertz.test"))
+	again, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "post@kestner.test", "Sebastian Kestner", "kestner.test"))
 	if err != nil {
 		t.Fatalf("ensure after the verdict: %v", err)
 	}
-	if again.TriagePending || again.OrgCreated || again.OrganizationID != nil {
+	if again.TriagePending || again.OrganizationID != nil {
 		t.Fatalf("ensure after a personal verdict = %+v, want person only, no company, no new question", again)
 	}
 	if !again.PersonCreated {

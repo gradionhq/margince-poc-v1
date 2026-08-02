@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -57,7 +56,8 @@ const (
 const freemailDomainObject = captureSettingsObject
 
 // ValidFreemailEntry vets one entry and returns the domain in the form the
-// matcher keys on — its registrable eTLD+1. An operator typing "mail.gmx.net"
+// matcher keys on — its registrable eTLD+1, derived by the same gate the
+// capture path uses. An operator typing "mail.gmx.net"
 // means gmx.net, and storing the subdomain would leave an entry that never
 // matches anything.
 //
@@ -67,8 +67,11 @@ func ValidFreemailEntry(domain, kind string) (string, error) {
 	if kind != FreemailKindExtra && kind != FreemailKindNever {
 		return "", fmt.Errorf("capture: %q is not a consumer-mail entry kind (extra|never)", kind)
 	}
-	base := freemail.Registrable(domain)
-	if base == "" || !strings.Contains(base, ".") {
+	// The SAME floor the mail path uses. An admin typing "co.uk" as a carve-out
+	// would otherwise take every UK domain out of the consumer-mail baseline,
+	// and two paths judging one thing must not judge it differently.
+	base, ok := freemail.Hostname(domain)
+	if !ok {
 		return "", fmt.Errorf("capture: %q is not a mail domain", domain)
 	}
 	return base, nil

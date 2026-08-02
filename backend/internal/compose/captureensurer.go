@@ -42,14 +42,12 @@ func newCounterpartyStore(pool *pgxpool.Pool) *people.Store {
 // channel counterparty by a provider identity.
 type peopleEnsurer struct {
 	store *people.Store
-	// enrich queues the web dossier for a company this ensure just minted. It
-	// lives HERE rather than in capture because capture must not know that
-	// website reads exist — the seam it owns says "make the counterparty real",
-	// and what a new company is then worth is the composition's business.
-	enrich *autoEnrichTrigger
 	// triage queues the read that decides whether a domain this ensure just met
-	// deserves a company at all. It is the counterpart of enrich, one step
-	// earlier: enrich asks what a company IS, triage asks whether there is one.
+	// deserves a company at all — and, when the answer is yes, creates it and
+	// fills it from the same crawl. It lives HERE rather than in capture
+	// because capture must not know that website reads exist: the seam it owns
+	// says "make the counterparty real", and what a new domain is then worth is
+	// the composition's business.
 	triage *domainTriageTrigger
 	// log reports a failed identity-review enqueue (raiseIdentityConflict) —
 	// the one fault on this path that must never become a returned error,
@@ -75,13 +73,6 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 	}
 	if err != nil {
 		return capture.EnsureOutcome{}, err
-	}
-	// A NEW company is the trigger, not every captured mail: an organization
-	// that already existed has either been enriched or been deliberately left
-	// alone, and re-asking on every message from it would spend the day's cap on
-	// companies nobody learned anything new about.
-	if res.OrgCreated && res.OrganizationID != nil {
-		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
 	}
 	// The ensure left this domain's organization question open. Nothing is
 	// created until it is answered, so queueing the read that answers it is not

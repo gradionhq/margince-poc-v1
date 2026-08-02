@@ -115,10 +115,16 @@ func (s *Store) ResolveUnreadableDomainTriage(ctx context.Context, in ResolveDom
 
 // markDispositionUnevidenced downgrades a company answer nothing corroborated
 // to no_site: the organization stands, and the ledger says why it exists.
+//
+// Guarded on the answer this call itself just wrote. Unguarded it would also
+// rewrite a `company` a HUMAN settled (adoptDispositionForOrg), turning their
+// deliberate override into "nothing evidenced this" — the exact overwrite
+// settleDisposition is guarded to prevent.
 func markDispositionUnevidenced(ctx context.Context, tx pgx.Tx, domain string) error {
 	if _, err := tx.Exec(ctx, `
 		UPDATE organization_domain_disposition SET status = $2, updated_at = now()
-		 WHERE domain = $1`, domain, DomainNoSite); err != nil {
+		 WHERE domain = $1 AND status = $3 AND source = $4`,
+		domain, DomainNoSite, DomainCompany, DomainSourceHeuristic); err != nil {
 		return fmt.Errorf("people: recording that %s was never evidenced: %w", domain, err)
 	}
 	return nil
@@ -134,6 +140,15 @@ func (s *Store) resolveDomainTriageTx(ctx context.Context, tx pgx.Tx, in Resolve
 	}
 	if !known {
 		return ResolveDomainTriageResult{}, fmt.Errorf("people: %s has no open disposition to resolve", in.Domain)
+	}
+	if prior.Settled() {
+		// Already answered. A worker that resolved this and then died before
+		// recording its dossier gets its whole run replayed by the reclaim, and
+		// without this a domain settled `personal` would reach the create path
+		// on the second pass and get the organization the first pass refused —
+		// while settleDisposition's own pending-guard kept the ledger saying
+		// `personal`. The answer stands; the replay is a no-op.
+		return ResolveDomainTriageResult{OrganizationID: prior.OrganizationID}, nil
 	}
 	if in.Status != DomainCompany {
 		return ResolveDomainTriageResult{}, settleDisposition(ctx, tx, in, nil)

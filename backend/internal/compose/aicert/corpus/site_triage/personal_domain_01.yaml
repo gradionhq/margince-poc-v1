@@ -4,14 +4,14 @@ site: triage
 source: hand_authored
 sanitized_by: hand_authored/claude-opus-5
 fixture:
-  url: https://herpertz.example
+  url: https://kestner.example
   text: |
-    herpertz.example
+    kestner.example
 
-    Dr. Ulrich Herpertz — lymphforum.example
+    Dr. Ulrike Kestner — lymphforum.example
 
-    Eigentümer der Domain herpertz.example ist: Sebastian Herpertz
-    Kontakt: E-Mail an sebastian [at] herpertz.example
+    Eigentümer der Domain kestner.example ist: Sebastian Kestner
+    Kontakt: E-Mail an sebastian [at] kestner.example
 
     Diese Seite dient ausschließlich privaten Zwecken.
 expect:

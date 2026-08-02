@@ -118,15 +118,15 @@ func triageState(t *testing.T, e *integration.Env, domain string) (status, readS
 func TestTriageStopsAtTheLandingPageForAPersonalDomain(t *testing.T) {
 	e := integration.Setup(t)
 	site := &fakeSite{pages: map[string]fakeSitePage{
-		seedURL:                {text: readable("Sebastian Herpertz.") + " Eigentuemer der Domain ist Sebastian Herpertz. Kontakt per E-Mail."},
-		seedURL + "/impressum": {text: readable("Impressum.") + " Sebastian Herpertz, Privatperson."},
+		seedURL:                {text: readable("Sebastian Kestner.") + " Eigentuemer der Domain ist Sebastian Kestner. Kontakt per E-Mail."},
+		seedURL + "/impressum": {text: readable("Impressum.") + " Sebastian Kestner, Privatperson."},
 	}}
 	// The extraction brain would happily invent a company from this page. It
 	// must never be asked: the classification stops the read first.
-	extract := &triageBrainFake{verdict: `{"fields":[{"f":"display_name","v":"Herpertz","e":"s0","c":0.9}]}`}
+	extract := &triageBrainFake{verdict: `{"fields":[{"f":"display_name","v":"Kestner","e":"s0","c":0.9}]}`}
 	triage := &triageBrainFake{verdict: `{"kind":"personal","confidence":0.95,"reason":"the page names only the domain's owner"}`}
 
-	args := openTriageQuestion(t, e, triageTestDomain, "sebastian@"+triageTestDomain, "Sebastian Herpertz")
+	args := openTriageQuestion(t, e, triageTestDomain, "sebastian@"+triageTestDomain, "Sebastian Kestner")
 	worker := newTriageTestWorker(e, site, extract, triage)
 	if err := worker.run(e.As(e.Rep1, nil, integration.AdminPerms), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -156,7 +156,7 @@ func TestTriageReadsOnAndCreatesTheCompanyTheSiteNames(t *testing.T) {
 	e := integration.Setup(t)
 	triage := &triageBrainFake{verdict: `{"kind":"company","confidence":0.95,"reason":"the page sells a product"}`}
 
-	args := openTriageQuestion(t, e, triageTestDomain, "manuel@"+triageTestDomain, "Manuel Wortmann")
+	args := openTriageQuestion(t, e, triageTestDomain, "manuel@"+triageTestDomain, "Martin Weiss")
 	worker := newTriageTestWorker(e, acmeDeepSite(), acmeDeepBrain(), triage)
 	if err := worker.run(e.As(e.Rep1, nil, integration.AdminPerms), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -239,8 +239,8 @@ func TestTriageWithoutAModelRefusesADomainThatIsTheSendersName(t *testing.T) {
 	// Same no-model path, but the domain IS the sender's surname. The name test
 	// is the last line before a company is created by default, and here it
 	// holds.
-	const domain = "wortmann.example"
-	args := openTriageQuestion(t, e, domain, "manuel@"+domain, "Manuel Wortmann")
+	const domain = "weiss.example"
+	args := openTriageQuestion(t, e, domain, "martin@"+domain, "Martin Weiss")
 	worker := newTriageTestWorker(e, acmeDeepSite(), acmeDeepBrain(), nil)
 	if err := worker.run(e.As(e.Rep1, nil, integration.AdminPerms), args); err != nil {
 		t.Fatalf("run: %v", err)

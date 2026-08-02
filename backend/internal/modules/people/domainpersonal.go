@@ -18,7 +18,7 @@ import "strings"
 
 // DomainPerson is one human the workspace already records on a domain: their
 // name as captured, and the local part of the address they wrote from. Both
-// matter — "Phu Nguyen" writing from richard@richardnguyen.me is only explained
+// matter — "Ines Marsh" writing from rowan@rowanmarsh.example is only explained
 // by joining the local part to the surname.
 type DomainPerson struct {
 	FullName   string
@@ -26,14 +26,14 @@ type DomainPerson struct {
 }
 
 // domainPersonalSimilarity is how close a spelling has to be to a name before
-// it counts as that name. High on purpose: "steireif" IS Alexander Steireif's
+// it counts as that name. High on purpose: "baumert" IS Alexander Baumert's
 // surname and that domain is a real agency, so the heuristic must not also
 // start matching near-misses — it already stands on thin evidence.
 const domainPersonalSimilarity = 0.94
 
 // DomainLooksPersonal reports whether the domain's registrable label is a
-// natural person's name. label is that label alone ("herpertz" from
-// herpertz.net), not the full domain.
+// natural person's name. label is that label alone ("kestner" from
+// kestner.example), not the full domain.
 //
 // The answer is yes only when EVERY known person on the domain is explained by
 // it. One person whose name is the domain is a personal domain; two people with
@@ -76,7 +76,7 @@ func personExplainsLabel(label string, p DomainPerson) bool {
 // plausibly renders it. Order does not matter; the caller takes any match.
 //
 // The local part NEVER stands alone as a candidate. A role address on its own
-// domain — ffpv@ffpv.de — would otherwise read as a personal domain, when a
+// domain — tvpartner@tvpartner.example — would otherwise read as a personal domain, when a
 // mailbox named after the company is if anything the opposite signal. It counts
 // only joined to a name part, which is the case a display name cannot explain
 // by itself.
@@ -92,7 +92,7 @@ func personLabelCandidates(p DomainPerson) []string {
 	first, last := parts[0], parts[len(parts)-1]
 	out := []string{last, first + last, last + first}
 	if local := normalizeName(strings.Join(strings.FieldsFunc(p.EmailLocal, isNameSeparator), "")); local != "" {
-		// richard@richardnguyen.me against "Phu Nguyen": the address carries
+		// rowan@rowanmarsh.example against "Ines Marsh": the address carries
 		// the given name the header does not.
 		out = append(out, local+last, last+local)
 	}
@@ -100,8 +100,8 @@ func personLabelCandidates(p DomainPerson) []string {
 }
 
 // nameWithoutAffiliation keeps the part of a display name that is the person,
-// dropping the employer people staple onto it — "Guido Frings - FFPV",
-// "Stergios Gaidatzis (Cloud Motion)", "Ed Sander @ ChinaTechTrip". Without
+// dropping the employer people staple onto it — "Tomas Vidal - TVPartner",
+// "Nikos Adamos (Cloud Atlas)", "Ed Sander @ ChinaTechTrip". Without
 // this the company reads as the surname, and a domain named after the COMPANY
 // would then look like it was named after the person.
 func nameWithoutAffiliation(name string) string {

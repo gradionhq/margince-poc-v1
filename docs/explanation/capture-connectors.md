@@ -76,8 +76,8 @@ One pipeline concern runs *inside* the Sink, before anything is written:
   erased address stays dead (A13).
 
   The **company** is not created here. Capture used to derive an organization from every non-consumer
-  mail domain, which manufactured companies named after people (`sebastian@herpertz.net` became
-  "Herpertz"). It now records an open question in `organization_domain_disposition` and a `domain_triage`
+  mail domain, which manufactured companies named after people (`sebastian@kestner.example` became
+  "Kestner"). It now records an open question in `organization_domain_disposition` and a `domain_triage`
   site read answers it: a `company` verdict creates the organization from what the site states, and a
   `personal` / `provider` verdict refuses one for good. Consumer mail is answered by its own domain and
   asks nothing — the shipped baseline plus the workspace's own `capture_freemail_domain` list.

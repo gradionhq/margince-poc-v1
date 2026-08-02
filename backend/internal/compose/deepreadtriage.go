@@ -115,6 +115,14 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 		return deferErr
 	}
 
+	// The seed was a guess derived from the mail domain; the crawl's fallback
+	// ladder may have reached the site on another host or scheme. Everything
+	// this read cites — the dossier's source url, the staged leads' — must name
+	// the url that ANSWERED, or a human confirming one would confirm a dead
+	// link. The sibling lane adopts it for the same reason.
+	if crawl.SeedURL != "" {
+		claim.SeedURL = crawl.SeedURL
+	}
 	fields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, fields)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
@@ -202,6 +210,12 @@ func (w *siteDeepReadWorker) settleTriage(ctx context.Context, args SiteDeepRead
 	// Site people stage as leads onto the organization the verdict just made —
 	// strangers stay staged (NEVER-8), exactly as on the auto-enrich lane.
 	claim := people.SiteReadClaim{OrganizationID: &res.OrganizationID.UUID, SeedURL: payload.SeedURL}
+	// The logo, on the same terms as every other company (A55): a 🟢 display
+	// asset read off the seed page's own markup. Nothing else would ever give
+	// these organizations one — the auto-enrich sweep only offers rows with
+	// name_source='domain' and no finished read, and a triage company has
+	// neither — so skipping it here means faceless forever.
+	w.resolveLogo(ctx, args, claim, payload.Crawl)
 	for _, person := range payload.People {
 		if _, _, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person); err != nil {
 			w.log.WarnContext(ctx, "domain triage: staging a site person failed",

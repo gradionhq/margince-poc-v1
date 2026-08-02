@@ -36,6 +36,11 @@ type SiteReadDebugOptions struct {
 	Brain   completer
 	// FactBrain serves the page-parallel fact lane (nil ⇒ Brain).
 	FactBrain completer
+	// TriageBrain serves the domain-triage classification (nil ⇒ FactBrain,
+	// then Brain). Its own lane on purpose: the classifier rides a cheap-first
+	// ladder in production, and tuning its prompt against the profile lane's
+	// premium-only binding would tune it against a model that never runs it.
+	TriageBrain completer
 	// IncludePageText carries each fetched page's reduced text into the
 	// report (DebugPage.Text) — for the --dump-pages flag; off by default
 	// because page text dwarfs everything else in the JSON.
@@ -120,6 +125,11 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		factInner = opts.Brain
 	}
 	recFacts := &recordingBrain{inner: factInner, log: log}
+	triageInner := opts.TriageBrain
+	if triageInner == nil {
+		triageInner = factInner
+	}
+	recTriage := &recordingBrain{inner: triageInner, log: log}
 	var dropped []DebugDrop
 	extract := evidenceExtractor{fetch: pageFetch, brain: rec, factBrain: recFacts, drops: func(sourceURL string, d droppedFinding) {
 		dropped = append(dropped, DebugDrop{
@@ -155,7 +165,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
 	if len(crawl.Pages) > 0 {
-		report.Triage = debugTriage(ctx, rec, crawl.Pages[0])
+		report.Triage = debugTriage(ctx, recTriage, crawl.Pages[0])
 	}
 	if logoFetch != nil {
 		logoSeed := crawl.SeedURL
@@ -288,7 +298,7 @@ func pageOfRequest(req model.Request) string {
 // retries, budget bands, secret stripping).
 //
 //nolint:ireturn // the completer seam is the point: three providers (routed, override, fake) behind the one interface every consumer takes.
-func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, facts completer, banner string, err error) {
+func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, facts, triage completer, banner string, err error) {
 	selected := 0
 	for _, on := range []bool{routingPath != "", modelOverride != "", fake} {
 		if on {
@@ -296,28 +306,29 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 		}
 	}
 	if selected != 1 {
-		return nil, nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
+		return nil, nil, nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
 	}
 	switch {
 	case fake:
 		client := ai.NewFakeClient()
-		return client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
+		return client, client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 		router, err := ai.NewLocalRouter(cfg)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 		return routerBrain{router: router, task: ai.TaskSiteExtract},
 			routerBrain{router: router, task: ai.TaskSiteFactExtract},
+			routerBrain{router: router, task: ai.TaskSiteTriage},
 			"routing " + routingPath, nil
 	default:
 		provider, modelName, found := strings.Cut(modelOverride, ":")
 		if !found || provider == "" || modelName == "" {
-			return nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
+			return nil, nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
 		}
 		router, err := ai.NewLocalRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
@@ -325,12 +336,13 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
 		})
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
-		// One pinned model serves both lanes: each task's ladder falls
+		// One pinned model serves every lane: each task's ladder falls
 		// through to the one bound tier.
 		lane := func(task ai.Task) completer { return routerBrain{router: router, task: task} }
-		return lane(ai.TaskSiteExtract), lane(ai.TaskSiteFactExtract), "model override " + modelOverride, nil
+		return lane(ai.TaskSiteExtract), lane(ai.TaskSiteFactExtract), lane(ai.TaskSiteTriage),
+			"model override " + modelOverride, nil
 	}
 }
 

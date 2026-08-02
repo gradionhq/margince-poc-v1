@@ -53,10 +53,22 @@ func Registrable(domain string) string {
 // chose — and one of those uses put it in a LIKE pattern, where `%` matched
 // every address in the workspace.
 //
+// It requires the public-suffix list to DERIVE the registrable domain rather
+// than reusing Registrable's honest passthrough, because that passthrough
+// returns a bare public suffix unchanged. "co.uk" would otherwise pass as if it
+// were a company's own domain, and it is the whole right-hand side of the
+// employment-edge suffix compare: one forged `jane@co.uk` would then re-employ
+// every *.co.uk contact in the workspace. An unknown or intranet TLD still
+// passes — "acme.internal" derives cleanly — so nothing legitimate is lost.
+//
 // This is the gate; callers that only need normalization keep using Registrable.
 func Hostname(domain string) (string, bool) {
-	base := Registrable(domain)
-	if base == "" || len(base) > maxHostnameLen || !strings.Contains(base, ".") {
+	normalized := normalize(domain)
+	if normalized == "" || len(normalized) > maxHostnameLen {
+		return "", false
+	}
+	base, err := publicsuffix.EffectiveTLDPlusOne(normalized)
+	if err != nil || base == "" || !strings.Contains(base, ".") {
 		return "", false
 	}
 	for _, label := range strings.Split(base, ".") {

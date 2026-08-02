@@ -45,7 +45,7 @@ func TestIsConsumerCoversTheDefectsAHandPinnedListLeft(t *testing.T) {
 	// A company domain must never be one, least of all the personal domains
 	// that started this: they are a person's own domain, not a mailbox vendor.
 	company := []string{
-		"herpertz.net", "richardnguyen.me", "acme.example", "gradion.com",
+		"kestner.example", "rowanmarsh.example", "acme.example", "gradion.com",
 		"gmail.com.example", // suffix trickery is not a match
 		"",
 	}
@@ -148,7 +148,7 @@ func TestHostnameRefusesWhatAForgedHeaderCanCarry(t *testing.T) {
 
 	// Real domains still pass, in the registrable form the matcher keys on.
 	for domain, want := range map[string]string{
-		"herpertz.net":      "herpertz.net",
+		"kestner.example":   "kestner.example",
 		"MAIL.GMX.NET":      "gmx.net",
 		"news.acme.co.uk":   "acme.co.uk",
 		"xn--mll-hoa.email": "xn--mll-hoa.email",
@@ -157,6 +157,36 @@ func TestHostnameRefusesWhatAForgedHeaderCanCarry(t *testing.T) {
 	} {
 		got, ok := Hostname(domain)
 		if !ok || got != want {
+			t.Errorf("Hostname(%q) = %q,%v, want %q,true", domain, got, ok, want)
+		}
+	}
+}
+
+func TestHostnameRefusesABarePublicSuffix(t *testing.T) {
+	// A public suffix is not a company's domain, and it becomes the WHOLE
+	// right-hand side of the employment-edge suffix compare. Blessing "co.uk"
+	// would let one forged `jane@co.uk` re-employ every *.co.uk contact in the
+	// workspace — the same row-widening the LIKE-pattern bug had, reached
+	// through a legal input instead of a metacharacter.
+	for _, suffix := range []string{
+		"co.uk", "com.br", "ne.jp", "co.jp", "com.au", "co.za",
+		"github.io", "web.app", "com", "uk",
+	} {
+		if got, ok := Hostname(suffix); ok {
+			t.Errorf("Hostname(%q) = %q, true — a public suffix is not a registrable domain", suffix, got)
+		}
+	}
+
+	// One label in front of the suffix is a real domain, and an unknown or
+	// intranet TLD still derives cleanly — refusing those would cost real
+	// companies their records.
+	for domain, want := range map[string]string{
+		"acme.co.uk":      "acme.co.uk",
+		"mail.acme.co.uk": "acme.co.uk",
+		"acme.internal":   "acme.internal",
+		"acme.com":        "acme.com",
+	} {
+		if got, ok := Hostname(domain); !ok || got != want {
 			t.Errorf("Hostname(%q) = %q,%v, want %q,true", domain, got, ok, want)
 		}
 	}

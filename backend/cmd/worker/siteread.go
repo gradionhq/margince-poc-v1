@@ -138,7 +138,7 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 	}
 	slog.SetDefault(slog.New(handler))
 
-	profileBrain, factBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
+	profileBrain, factBrain, triageBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
 	if err != nil {
 		return err
 	}
@@ -153,6 +153,7 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 			Caps:            caps,
 			Brain:           profileBrain,
 			FactBrain:       factBrain,
+			TriageBrain:     triageBrain,
 			IncludePageText: cfg.dumpDir != "",
 			Progress: func(phase string, done, total int) {
 				_, _ = fmt.Fprintf(stdout, "  %s %d/%d\n", phase, done, total)

@@ -55,7 +55,7 @@ func TestEnsureCounterpartyReusesTheExactIncumbent(t *testing.T) {
 	if !first.PersonCreated {
 		t.Fatalf("first ensure = %+v, want the person created", first)
 	}
-	if first.OrgCreated || first.OrganizationID != nil {
+	if first.OrganizationID != nil {
 		t.Fatalf("first ensure = %+v, want NO organization from an unjudged domain", first)
 	}
 	if !first.TriagePending || first.TriageDomain != "ensure.test" {
@@ -71,9 +71,6 @@ func TestEnsureCounterpartyReusesTheExactIncumbent(t *testing.T) {
 	}
 	if second.PersonCreated || second.PersonID != first.PersonID {
 		t.Fatalf("second ensure = %+v, want the incumbent %s reused", second, first.PersonID)
-	}
-	if second.OrgCreated {
-		t.Fatal("second ensure created an organization the verdict never authorized")
 	}
 	var questions int
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
@@ -138,7 +135,7 @@ func TestEnsureCounterpartyAsksNothingAboutConsumerMail(t *testing.T) {
 	if !res.PersonCreated {
 		t.Fatal("a consumer-mail counterparty is still a person")
 	}
-	if res.OrgCreated || res.TriagePending {
+	if res.OrganizationID != nil || res.TriagePending {
 		t.Fatalf("ensure = %+v, want no company and no question for consumer mail", res)
 	}
 	var questions int

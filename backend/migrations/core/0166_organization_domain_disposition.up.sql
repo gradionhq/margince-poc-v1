@@ -2,9 +2,9 @@
 -- create.
 --
 -- Capture used to derive an organization from every counterparty domain that
--- was not consumer mail. A personal domain is neither: sebastian@herpertz.net
+-- was not consumer mail. A personal domain is neither: sebastian@kestner.example
 -- is a person whose own domain carries his name, and naming a company
--- "Herpertz" after it manufactures junk that no later evidence removes.
+-- "Kestner" after it manufactures junk that no later evidence removes.
 --
 -- The ladder now defers instead. A domain nothing is yet known about produces
 -- the person and a 'pending' row here; a triage site read answers what the

@@ -143,7 +143,6 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 	ensurer := peopleEnsurer{
 		store:  newCounterpartyStore(pool),
-		enrich: newAutoEnrichTrigger(pool, cfg.logger()),
 		triage: newDomainTriageTrigger(pool, cfg.logger()),
 		log:    cfg.logger(),
 	}

@@ -79,10 +79,13 @@ type EnsureCounterpartyInput struct {
 // EnsureCounterpartyResult reports what the ensure did — every flag maps to
 // rows the caller can count honestly.
 type EnsureCounterpartyResult struct {
-	PersonID       ids.PersonID
-	PersonCreated  bool
+	PersonID      ids.PersonID
+	PersonCreated bool
+	// OrganizationID is the company this counterparty was ATTACHED to, never
+	// one this ensure made: capture no longer creates organizations at all, so
+	// there is no created-flag to report. A domain with no company yet reports
+	// TriagePending instead.
 	OrganizationID *ids.OrganizationID
-	OrgCreated     bool
 	DedupeRecorded bool
 
 	// TriagePending reports that this ensure OPENED a domain's organization
@@ -301,12 +304,8 @@ func adoptDispositionForOrg(ctx context.Context, tx pgx.Tx, domain string, orgID
 // Nothing is created here on purpose. The person is already committed and the
 // message is already on their timeline; what is withheld is a company row that
 // nothing yet justifies. ADR-0063's create-on-sight is what manufactured
-// "Herpertz" from a man's own domain, and no later evidence removed it.
+// "Kestner" from a man's own domain, and no later evidence removed it.
 func (s *Store) deferOrgToTriage(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, base string, res *EnsureCounterpartyResult) error {
-	// Consumer mail is answered by the domain itself and needs no crawl to
-	// settle. The sink's tier ladder usually catches it first; this repeats the
-	// check because the verdict engine and the review-queue accept reach this
-	// same chokepoint without passing through that ladder.
 	// Consumer mail is answered by the domain itself and needs no crawl to
 	// settle. The sink's tier ladder usually catches it first; this repeats the
 	// check because the verdict engine and the review-queue accept reach this
