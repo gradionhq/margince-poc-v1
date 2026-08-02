@@ -3,17 +3,13 @@
 
 package automation
 
-// DB-free proofs for TimeScanner's two pure building blocks
-// (timescan.go): scanWorkspaces (the per-workspace error-isolation loop)
-// and scanInstanceCandidates (the event-synthesis step). Both are free
-// functions specifically because TimeScanner.Scan itself always opens a
-// real Postgres connection (fleet enumeration, then a per-workspace
-// transaction for liveInstances/runOne) — exactly like
-// deals/closedatesweep.go's Sweep, which carries no unit test of its own
-// at all. Factoring the DB-free pieces out lets this suite prove the
-// load-bearing behavior (isolation, fresh provenance, the anchor
-// contract) without a database, while the full Scan wiring is proven
-// against a real one by the integration suite.
+// DB-free proofs for scanInstanceCandidates, TimeScanner's event-synthesis
+// step. It is a free function specifically because ScanWorkspace itself always
+// opens a real Postgres transaction (liveInstances, then runOne), so factoring
+// the synthesis out lets this suite prove the load-bearing behaviour — fresh
+// provenance per candidate, and the anchor contract the occurrence key derives
+// from — without a database. The surrounding wiring is proven against a real
+// one by the integration suite.
 
 import (
 	"context"
@@ -26,11 +22,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
-
-// TestScanWorkspacesIsolatesAFailingWorkspace proves the fleet-pass
-// posture closedatesweep.go documents: one workspace's failure is logged,
-// never returned, and never stops the pass from reaching the rest of the
-// fleet.
 
 // fakeActivityScan is a DB-free stand-in for the ActivityScan seam: it
 // records the cutoff/limit it was called with and returns a fixed
@@ -55,6 +46,8 @@ func (f *fakeActivityScan) LastTouchBefore(_ context.Context, cutoff time.Time, 
 	return f.candidates, nil
 }
 
+// recordedRunCall is one invocation scanInstanceCandidates's run stub
+// captured, so the test can inspect exactly what TimeScanner would have
 // handed to WorkflowEngine.runOne without ever opening a transaction.
 type recordedRunCall struct {
 	handler workflow.Handler
@@ -68,7 +61,7 @@ type recordedRunCall struct {
 // instance's OwnerID and AutomationID ride along (the Task-13 gate reads
 // OwnerID), and the candidate's Anchor is recoverable from the event's
 // Payload — the anchor a real handler's IdempotencyKey derives its key
-
+// from.
 func TestScanInstanceCandidatesSynthesizesOneEventPerCandidate(t *testing.T) {
 	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
 	wsID := ids.NewV7()

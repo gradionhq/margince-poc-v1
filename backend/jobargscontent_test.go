@@ -9,6 +9,13 @@ package backendarch
 // while the job holds an id and not a copy: args carrying a body or an
 // address would be a second store of subject data that Art. 17 never
 // reaches, sitting in a table with no workspace column and no RLS.
+//
+// This gate is a HABIT GUARD, not a proof of that property. It matches field
+// NAMES against a word list, so it catches the shapes someone reaches for
+// without thinking (Body, RecipientEmail, Subject) and would miss a field
+// named Snippet, Note or Domain carrying the same thing. A positive assertion
+// — every args field is an id, or an explicitly waived scalar — would be the
+// proof; this is the cheap version that stops the common case.
 
 import (
 	"go/ast"
@@ -25,9 +32,11 @@ var contentWords = []string{
 	"name", "payload", "phone", "subject", "text",
 }
 
-// contentFieldWaivers are ratified exceptions, keyed "Type.Field". A
-// waiver without a rationale is itself a finding, and a waiver matching no
-// remaining field is stale and fails.
+// contentFieldWaivers are ratified exceptions, keyed "Type.Field". EMPTY is
+// the expected steady state — a job names a row and the worker reads it, so a
+// real exception should be rare enough to argue about. The validation below
+// exists so that when one does appear it cannot arrive without a rationale, or
+// outlive the field it was written for.
 var contentFieldWaivers = map[string]string{}
 
 func TestJobArgsCarryReferencesNotContent(t *testing.T) {

@@ -6,6 +6,7 @@ package jobs
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,8 +25,14 @@ func TestFaultRendersAKnownSentinelAsItsFixedSentence(t *testing.T) {
 
 func TestFaultNeverLeaksTheCauseText(t *testing.T) {
 	cause := errors.New("smtp 550 5.1.1 <someone@example.com> user unknown")
-	if got := Fault(cause).Error(); got == cause.Error() {
-		t.Fatal("Fault returned the cause verbatim; an unrecognised cause must collapse to the generic sentence")
+	got := Fault(cause).Error()
+	if got != unrecognised {
+		t.Fatalf("Fault rendered %q, want the fixed generic sentence — an unrecognised cause must collapse, not be paraphrased", got)
+	}
+	// The address is the thing that may never reach river_job.errors, so assert
+	// its absence rather than merely that the sentence differs from the cause.
+	if strings.Contains(got, "someone@example.com") {
+		t.Fatalf("the wire sentence carries the refused address: %q", got)
 	}
 }
 

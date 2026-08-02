@@ -37,29 +37,10 @@ func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (OverlayReconcileArgs) FleetWide() {}
 
-// overlayReconcileWorker walks every overlay-mode workspace's active
-// incumbent connection (overlay.DueOverlayConnections — the same
-// fleet-walk shape gmailSyncWorker drives via capture.Registry.
-// DueConnections) and runs overlay.Reconcile per object class. A single
-// workspace's or object class's failure is logged and skipped, never
-// aborting the pass; only a fleet-enumeration failure is returned (so
-// River retries the tick, mirroring gmailSyncWorker's own contract).
-//
-// Building the per-workspace incumbent adapter HERE — via newIncumbent
-// (hubspotIncumbentFactory in production) from the due connection's own
-// vaulted token + region — answers the seam left open by
-// compose/overlay.go's NewOverlayProvider (which wires FreshnessReader
-// with inc:nil, "a per-workspace credential lookup the Dispatcher — one
-// process-wide instance shared by every workspace — has no seam to
-// thread per call"). That gap is NOT closed by this worker:
-// NewOverlayProvider serves cmd/api's live HTTP reads under ONE shared
-// Provider/FreshnessReader instance across every tenant, so a genuinely
-// per-request-workspace adapter there needs its own construction-time
-// change, out of scope for the poller. This worker's adapter is built
-// fresh per due connection, per tick, and discarded after — it never
-// leaks into cmd/api's force-fresh path. The factory is injected (not a
-// hardcoded hubspot.NewAdapter) so the whole sweep is drivable against a
-// fake incumbent in a test.
+// overlayReconcileWorker is the poller's DISPATCHER: it runs the due-scan
+// (overlay.DueOverlayConnections — the same fleet-walk shape gmailSyncWorker
+// drives via capture.Registry.DueConnections) and enqueues one reconcile per
+// due connection. It sweeps nothing itself.
 type overlayReconcileWorker struct {
 	river.WorkerDefaults[OverlayReconcileArgs]
 	pool *pgxpool.Pool
@@ -69,12 +50,11 @@ type overlayReconcileWorker struct {
 // reconcileWorkerCtx builds the per-workspace scope one due connection's
 // sweep runs under. Reconcile's emit path (overlay/reconcile.go's
 // emitMirrorConflict, via storekit.LogSystem/Emit) requires a bound
-// actor AND correlation id — WorkspaceID alone is not enough. Mirrors
-// deals.CloseDateCorrector.Sweep's own per-workspace scope construction
-// (closedatesweep.go) exactly, the sibling system job that already
-// carries this same requirement. Extracted to its own function (rather
-// than inlined in Work's loop) so a unit test can assert the binding
-// directly, without standing up River or a due-connections fixture.
+// actor AND correlation id — WorkspaceID alone is not enough. The sibling
+// system jobs carry the same requirement and build the same scope
+// (compose/jobs_deals.go). Extracted to its own function so a unit test can
+// assert the binding directly, without standing up River or a
+// due-connections fixture.
 func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) context.Context {
 	wsCtx := principal.WithWorkspaceID(ctx, workspaceID.UUID)
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:overlay-reconcile"})
@@ -137,6 +117,22 @@ func (a OverlayReconcileWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 
 // overlayReconcileWorkspaceWorker runs one workspace's reconcile and records
 // its outcome against the sweep backoff.
+//
+// Building the per-workspace incumbent adapter HERE — via newIncumbent
+// (hubspotIncumbentFactory in production) from the due connection's own
+// vaulted token + region — answers the seam left open by
+// compose/overlay.go's NewOverlayProvider (which wires FreshnessReader
+// with inc:nil, "a per-workspace credential lookup the Dispatcher — one
+// process-wide instance shared by every workspace — has no seam to
+// thread per call"). That gap is NOT closed by this worker:
+// NewOverlayProvider serves cmd/api's live HTTP reads under ONE shared
+// Provider/FreshnessReader instance across every tenant, so a genuinely
+// per-request-workspace adapter there needs its own construction-time
+// change, out of scope for the poller. This worker's adapter is built
+// fresh per due connection, per tick, and discarded after — it never
+// leaks into cmd/api's force-fresh path. The factory is injected (not a
+// hardcoded hubspot.NewAdapter) so the whole sweep is drivable against a
+// fake incumbent in a test.
 type overlayReconcileWorkspaceWorker struct {
 	river.WorkerDefaults[OverlayReconcileWorkspaceArgs]
 	pool         *pgxpool.Pool

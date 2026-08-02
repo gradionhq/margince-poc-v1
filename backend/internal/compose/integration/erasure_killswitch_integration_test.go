@@ -83,6 +83,11 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 		consent.NewGate(consent.NewStore(e.Pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)
+	// The dispatch runs under the scope compose assembles, which is the half of
+	// the worker this test is about: what stops the send has to be the ROW, not
+	// the caller. The worker's own binding — that it takes the workspace from
+	// its args' role declaration and refuses a zero one — is proven without a
+	// database in compose's workspace-guard suite, so it is not restated here.
 	outcome, _, err := dispatcher.DispatchWithWait(
 		compose.SendWorkerContext(context.Background(), e.WS), queued.delivery)
 	if err != nil {
@@ -90,7 +95,7 @@ func TestErasingASubjectNeutralizesTheirQueuedSend(t *testing.T) {
 	}
 	// Skipped, not sent and not retryable: the worker maps this to a completed
 	// job row. The kill switch is that the provider was never reached at all —
-	// refusingSender is what actually proves it, and it fails the test from
+	// refusingMailbox is what actually proves it, and it fails the test from
 	// inside the call rather than through a counter asserted afterwards.
 	if outcome != comms.OutcomeSkipped {
 		t.Fatalf("the woken job reported outcome %q, want %q — the delivery the scrub closed has nothing to transmit",

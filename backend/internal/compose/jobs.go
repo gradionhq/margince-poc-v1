@@ -3,12 +3,13 @@
 
 package compose
 
-// River wiring for the worker's scheduled passes: the job args and the
-// worker adapters that delegate to the deals correctors, plus NewJobRunner
-// which registers them as periodic jobs. The adapters are the only code
-// that knows about River — the deals module's Sweep/Reconcile methods stay
-// the River-agnostic seam, which is what makes swapping the old ticker
-// loops for River behaviour-preserving.
+// The job runner's assembly: NewJobRunner, the queue set, the uniqueness
+// window every periodic pass shares, and the wiring of each module's workers
+// and ticks. The per-concern job files beside it (jobs_deals.go,
+// jobs_capture.go, jobs_overlay.go, jobs_automation.go, jobs_retention.go)
+// own the args types and worker adapters themselves; those adapters are the
+// only code in the tree that knows about River, which is what keeps every
+// module's own pass River-agnostic.
 
 import (
 	"log/slog"

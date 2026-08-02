@@ -72,7 +72,10 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 			}, &river.InsertOpts{
 				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
 			}); err != nil {
-				w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "provider", desc.Name, "err", err)
+				// A refused enqueue means this connection is never synced, so
+				// it fails the DISPATCHER — the same posture as the watch
+				// dispatcher below, which this one is the mirror of.
+				enumErr = errors.Join(enumErr, fmt.Errorf("enqueueing the sync for connection %s: %w", d.ID, err))
 			}
 		}
 	}

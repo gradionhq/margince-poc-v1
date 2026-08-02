@@ -289,8 +289,12 @@ func TestOverlayRefetchWorkerRejectsArgsNamingNoWorkspace(t *testing.T) {
 	err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
 		Args: OverlayRefetchArgs{IncumbentClass: "contacts", ExternalID: "1"},
 	})
-	if err != nil {
-		t.Errorf("args naming no workspace must return nil (not retryable), got %v", err)
+	// Cancelled rather than failed: the payload is a permanent defect, so a
+	// retry ladder would spend three attempts to reach the same answer. It is
+	// not nil either — a completed row would say the re-fetch happened.
+	var cancel *river.JobCancelError
+	if !errors.As(err, &cancel) {
+		t.Errorf("args naming no workspace must cancel the job, got %v", err)
 	}
 }
 

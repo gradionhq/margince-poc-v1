@@ -120,8 +120,12 @@ func (c *CaptureClassifier) RunWorkspace(ctx context.Context, maxLabels int) err
 			// This workspace's pass FAILS. Before the fan-out a bad batch was
 			// logged and skipped so it could not starve the rest of the fleet;
 			// each workspace now has its own row, so there is no fleet left to
-			// starve and swallowing it would put the green row back. The capped
-			// ladder is what stops it spinning on the same rows.
+			// starve and swallowing it would put the green row back.
+			//
+			// The cost is named rather than hidden: the backlog read re-selects
+			// the same rows, so a message that reliably breaks a batch is asked
+			// about MaxAttempts times per tick instead of once. The capped
+			// ladder and the workspace's model budget are what bound it.
 			return fmt.Errorf("classify: draining the backlog: %w", err)
 		}
 		if n == 0 {

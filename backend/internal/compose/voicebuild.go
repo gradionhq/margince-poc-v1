@@ -143,10 +143,13 @@ func voiceBuildWorkerCtx(ctx context.Context, args VoiceBuildArgs) (context.Cont
 }
 
 func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildArgs]) error {
-	ctx, err := voiceBuildWorkerCtx(ctx, job.Args)
+	// Into its own variable: voiceBuildWorkerCtx returns (nil, err) on a
+	// refusal, and assigning over ctx would hand that nil to the fault below.
+	buildCtx, err := voiceBuildWorkerCtx(ctx, job.Args)
 	if err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
+	ctx = buildCtx
 	profileID, err := ids.Parse(job.Args.ProfileID)
 	if err != nil {
 		return jobs.FaultContext(ctx, fmt.Errorf("voice_build: profile id: %w", err))

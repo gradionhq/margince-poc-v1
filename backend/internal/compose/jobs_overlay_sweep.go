@@ -29,9 +29,10 @@ type sweepDeps struct {
 	log   *slog.Logger
 }
 
-// sweepMustStop reports whether err is either the disconnect-race fence's
-// clean-stop signal (overlay.ErrConnectionGone) or a connection-level
-// incumbent failure (isConnectionLevelIncumbentError) — the two conditions
+// sweepMustStop reports whether err is the disconnect-race fence's clean-stop
+// signal (overlay.ErrConnectionGone), a sealed snapshot
+// (overlay.ErrMirrorFrozen), or a connection-level incumbent failure
+// (isConnectionLevelIncumbentError) — the three conditions
 // every phase of sweepObjectClass propagates to abort the whole sweep,
 // rather than logging and skipping just this object class. One predicate so
 // every phase checks the identical condition, rather than each phase

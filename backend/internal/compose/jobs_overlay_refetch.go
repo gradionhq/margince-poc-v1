@@ -92,9 +92,13 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 // clean stop, non-nil for a retryable failure) without reaching the
 // fetch/ingest step.
 func (w *overlayRefetchWorker) resolveRefetchTarget(ctx context.Context, job *river.Job[OverlayRefetchArgs]) (wsCtx context.Context, conn overlay.DueOverlayConnection, ok bool, err error) {
-	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
-		w.log.ErrorContext(ctx, "overlay refetch: job args carry no workspace", "err", err)
-		return nil, overlay.DueOverlayConnection{}, false, nil
+	if _, bindErr := workspaceJobCtx(ctx, job.Args); bindErr != nil {
+		// CANCELLED, not completed and not retried. Args that name no workspace
+		// are a permanent defect — three attempts change nothing — but
+		// returning nil would record a green row over a re-fetch that never
+		// happened, which is the shape the binding guard exists to make loud.
+		// A cancel is the one disposition that is both terminal and visible.
+		return nil, overlay.DueOverlayConnection{}, false, river.JobCancel(bindErr)
 	}
 	wsID := ids.From[ids.WorkspaceKind](job.Args.Workspace)
 	wsCtx = reconcileWorkerCtx(ctx, wsID)
