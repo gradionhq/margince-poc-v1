@@ -330,8 +330,8 @@ acked, so the pending read could land between the two acks. It had failed CI
 twice and would have hit the next branch too.
 
 **Watch for**: `SiteDeepReadArgs.Workspace` was renamed from `WorkspaceID` by
-#367 mid-review. The rebase applied with zero conflicts because the field is set
-in a file that branch never touched, so git gave no signal and CI went red
+PR #367 mid-review. The rebase applied with zero conflicts because the field is
+set in a file that branch never touched, so git gave no signal and CI went red
 across nine shards for one identifier. A clean rebase is not a compiling one.
 
 ## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
