@@ -595,15 +595,6 @@ export const en = {
   "linkedinImport.suggested": "Awaiting your confirmation",
 
   // The review queue and the reach table (ADR-0078 §2.1b).
-  "linkedinReview.title": "Suggested matches",
-  "linkedinReview.sub":
-    "The matcher thinks these connections are contacts you already have. A name and an employer are not proof, so you decide.",
-  "linkedinReview.empty": "Nothing waiting. Every suggestion has been decided.",
-  "linkedinReview.confirm": "Yes, that is them",
-  "linkedinReview.reject": "Not them",
-  "linkedinReview.hiddenContact": "A contact you cannot see",
-  "linkedinReview.more":
-    "More suggestions are waiting — decide these and the next set appears.",
   "linkedinReach.title": "Where your network reaches",
   "linkedinReach.sub":
     "Accounts on file where you already know somebody, most connections first.",

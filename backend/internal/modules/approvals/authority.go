@@ -73,6 +73,10 @@ var decisionGrants = map[string][]struct {
 	// team page) captures them as a LEAD through the capture sink — the
 	// effect is a lead create, so deciding it needs that grant.
 	"site_lead": {{"lead", principal.ActionCreate}},
+	// Approving a LinkedIn match links an imported connection to a contact and
+	// writes that contact's LinkedIn address — a person write, so deciding it
+	// needs the grant the write itself takes.
+	"linkedin_match": {{"person", principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it

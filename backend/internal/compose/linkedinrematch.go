@@ -130,7 +130,11 @@ func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID)
 			}
 			total.Confirmed += matched.Confirmed
 			total.Suggested += matched.Suggested
-			return nil
+			// A suggestion is only useful once somebody can see it, and the
+			// member who owns it is not necessarily importing today: the sweep
+			// stages under the same authority it matched under.
+			_, err = StageLinkedInMatches(ownerCtx, w.pool, approvalsServiceWithEffects(w.pool), w.store)
+			return err
 		})
 	return total, err
 }

@@ -86,6 +86,26 @@ func TestTheRealLinkedInExportParses(t *testing.T) {
 	}
 }
 
+func TestAnExactNameAtAMatchedEmployerConfirmsWithoutAsking(t *testing.T) {
+	// The export says "Andreas Müller" and so does the contact — the same
+	// string, at an employer that resolved, with nobody else here called that.
+	// Asking a human about it teaches them to click through the queue without
+	// reading, which is what makes the uncertain ones dangerous.
+	e := setupDedupe(t)
+	org := e.seedOrgNamed(t, "Acme GmbH")
+	andreas := e.seedContact(t, "Andreas Müller")
+	e.employ(t, andreas, org)
+
+	e.importExport(t)
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+	if status, person := e.ghostStatus(t, "Andreas Müller"); status != "confirmed" || person == nil || *person != andreas.UUID {
+		t.Errorf("an exact name at a matched employer is %q → %v, want confirmed → %s",
+			status, person, andreas)
+	}
+}
+
 func TestAnAddressMatchConfirmsAndANameMatchOnlySuggests(t *testing.T) {
 	e := setupDedupe(t)
 	org := e.seedOrgNamed(t, "Acme GmbH")
@@ -95,8 +115,10 @@ func TestAnAddressMatchConfirmsAndANameMatchOnlySuggests(t *testing.T) {
 	e.seedEmail(t, dana, "dana@acme.test")
 	e.employ(t, dana, org)
 	// Andreas is a known contact at the same employer, but the export has no
-	// address for him — name and employer are all there is.
-	andreas := e.seedContact(t, "Andreas Müller")
+	// address for him — name and employer are all there is. The CRM spells him
+	// without the umlaut, so the fold finds the candidate and the strings still
+	// disagree: whether two spellings are one person is a human's judgement.
+	andreas := e.seedContact(t, "Andreas Muller")
 	e.employ(t, andreas, org)
 
 	e.importExport(t)
