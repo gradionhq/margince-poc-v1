@@ -60,10 +60,8 @@ const (
 	// an MCP tool result ({"type":"text","text":…}) — one spelling for both,
 	// because a typo in either makes a result no client renders.
 	fieldText = "text"
-	// fieldTitle is the display name, carried at the top level of a tools/list
-	// entry AND inside its annotations. The protocol's display precedence is
-	// title > annotations.title > name, so a typo in either spelling silently
-	// demotes the tool to showing its identifier.
+	// fieldTitle is the display name, carried BOTH at the top level of a
+	// tools/list entry and inside its annotations — one spelling for both.
 	fieldTitle = "title"
 )
 
@@ -154,14 +152,9 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
 			// listChanged is FALSE because this server has no way to send the
 			// notification: notifications/tools/list_changed travels on the GET
-			// SSE stream, and GET /mcp answers 405 here. Declaring the
-			// capability would promise a message that can never arrive.
-			//
-			// The surface really does change — tools/list is scope-filtered per
-			// caller, so a re-scoped or revoked passport sees a different list —
-			// and a client is entitled to treat the list as static until told
-			// otherwise. That makes this a capability to EARN by building the
-			// stream, not one to claim ahead of it.
+			// SSE stream, and GET /mcp answers 405 here. The surface really
+			// does change — tools/list is scope-filtered per caller — so the
+			// claim would promise a message that can never arrive.
 			"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":   map[string]any{fieldName: s.name, "version": s.version},
 		}
@@ -248,13 +241,10 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 			// hand: what a tool may change is its scope, and whether it leaves
 			// the workspace is its egress flag.
 			//
-			// destructiveHint and idempotentHint are deliberately absent. Their
+			// destructiveHint and idempotentHint are deliberately absent: their
 			// protocol defaults (destructive, non-idempotent) are already the
-			// conservative reading, and the looser value is the one that would
-			// need a per-tool judgement with nothing enforcing it — 25 claims
-			// no gate could hold true. They are display hints in any case: the
-			// spec is explicit that a client must never make tool-use decisions
-			// from annotations it received from the server.
+			// conservative reading, and only the looser value would need a
+			// per-tool judgement, with nothing to hold it true.
 			"annotations": map[string]any{
 				fieldTitle:      spec.Title,
 				"readOnlyHint":  spec.ReadOnly(),
@@ -325,11 +315,13 @@ func (s *Dispatcher) result(name string, out json.RawMessage) map[string]any {
 // disagree on exactly the tools that return a version or a count.
 //
 // A tool that declares an object schema and then answers with something else
-// is OUR defect, not the caller's: TestEveryToolDeclaresAnObjectOutputSchema
-// holds one half of that agreement, so the two can only diverge if a handler
-// changed. It is logged for the operator and the member is left off, because
-// omitting an optional member beats emitting one that violates the schema this
-// same server advertised on tools/list.
+// is OUR defect, not the caller's, and NOTHING detects it before this point:
+// registration checks the declared schema, never a handler's answer, so the
+// two halves of that agreement are held apart — one at boot, one only here, at
+// the moment a real result exists. That is why this branch reports rather than
+// assumes. The member is left off because omitting an optional one beats
+// emitting one that violates the schema this same server just advertised, and
+// the caller still gets the whole answer in the text block.
 func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.RawMessage, bool) {
 	spec, ok := s.registry.Spec(name)
 	if !ok || spec.OutputSchema == nil {
@@ -341,9 +333,6 @@ func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.R
 	// object with no members.
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(out, &object); err != nil {
-		// Covers both halves of the same defect — an array or scalar, which
-		// parses but is not an object, and malformed bytes, which do not parse
-		// at all. The decoder's own words distinguish them for the operator.
 		s.log.Error("mcp: tool declares an object outputSchema but did not return a JSON object", "tool", name, "err", err)
 		return nil, false
 	}

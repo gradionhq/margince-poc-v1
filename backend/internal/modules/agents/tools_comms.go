@@ -74,9 +74,22 @@ type BookMeetingArgs struct {
 // RegisterCommsTools wires the five verbs over the injected seam. The provider
 // is the record reader the three 🟡 verbs stage against; draft_email and
 // check_availability propose nothing durable and never read it.
+//
+// A nil comms seam is a legal composition and registers nothing — the verbs
+// simply are not offered. A nil provider is NOT: the three 🟡 verbs would
+// register, advertise themselves on tools/list, and then dereference it the
+// first time a human-approvable call was staged. Failing at wiring time is the
+// difference between a boot that does not start and a surface that offers
+// three sends it panics on, so this asserts rather than silently dropping them
+// — a comms surface missing exactly its outbound verbs is the confusing
+// middle, not a safe default.
 func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordProvider) {
 	if comms == nil {
 		return
+	}
+	if p == nil {
+		//craft:ignore panic-in-domain composition-time wiring assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: RegisterCommsTools needs a record provider — send_email, send_message and book_meeting read the row they stage against")
 	}
 	r.Register(draftEmailTool{comms: comms})
 	r.Register(sendEmailTool{comms: comms, p: p})
@@ -162,8 +175,8 @@ type sendEmailToolArgs struct {
 // in `to`/`cc`, so they travel inside the staged arguments and are covered by
 // the diff_hash — the approved retry can only reach the addresses the human
 // read. A channel reply names none, which is why its recipient has to be
-// resolved server-side and is the open question §4.1 of NEXT-MCP-MISSING
-// records for that verb.
+// resolved server-side, and why binding an approval to a recipient is an open
+// question there and a settled one here.
 //
 // What this does not pre-empt, so neither reads as covered: the consent gate's
 // per-purpose verdict, the workspace's mailbox send capability, and whether an
@@ -192,10 +205,23 @@ func (t sendEmailTool) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	}
 	return StageInfo{
 		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,
-		// The inbox shows the human the two things that decide a send: who it
-		// reaches and what it says it is about.
-		Summary: fmt.Sprintf("Send an email to %s, subject %q", strings.Join(args.To, ", "), args.Subject),
+		// Every addressee, cc included. A human approving from the inbox row
+		// reads only this line, so an unnamed recipient is a recipient nobody
+		// agreed to — the diff_hash faithfully binds cc either way, which is
+		// precisely what makes omitting it from the display a problem rather
+		// than a harmless abbreviation.
+		Summary: describeSend(args),
 	}, nil
+}
+
+// describeSend is the one line the inbox shows for a mail send: who it
+// reaches, cc included, and what it says it is about.
+func describeSend(args sendEmailToolArgs) string {
+	summary := fmt.Sprintf("Send an email to %s", strings.Join(args.To, ", "))
+	if len(args.Cc) > 0 {
+		summary += fmt.Sprintf(", cc %s", strings.Join(args.Cc, ", "))
+	}
+	return summary + fmt.Sprintf(", subject %q", args.Subject)
 }
 
 func (t sendEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
@@ -293,132 +319,4 @@ func (t sendMessageTool) Handle(ctx context.Context, in json.RawMessage) (json.R
 		return nil, err
 	}
 	return t.comms.SendMessage(ctx, args.ActivityID, args.SendMessageArgs)
-}
-
-// --- check_availability (🟢 read) ---
-
-type checkAvailability struct{ comms Comms }
-
-func (t checkAvailability) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "check_availability", Title: "Check calendar availability", Version: toolVersionV1,
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "getAvailability",
-		InputSchema: schema(`{"type":"object","required":["from","to"],"properties":{
-			"host_user_id":{"type":"string","format":"uuid","description":"Defaults to the acting principal's user"},
-			"from":{"type":"string","format":"date-time"` + timestampNote + `},
-			"to":{"type":"string","format":"date-time"` + timestampNote + `},
-			"duration_minutes":{"type":"integer","minimum":15,"maximum":480}},
-			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
-	}
-}
-
-func (t checkAvailability) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		HostUserID      *ids.UUID `json:"host_user_id"`
-		From            time.Time `json:"from"`
-		To              time.Time `json:"to"`
-		DurationMinutes int       `json:"duration_minutes"`
-	}
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	return t.comms.Availability(ctx, args.HostUserID, args.From, args.To, args.DurationMinutes)
-}
-
-// --- book_meeting (🟡: commits a slot + implies an invite) ---
-
-// bookMeetingTool carries a record reader for its staging, like the two send
-// verbs — but it reads the records the booking will ATTACH to rather than one
-// anchor, because a booking has none.
-type bookMeetingTool struct {
-	comms Comms
-	p     datasource.SystemOfRecordProvider
-}
-
-func (t bookMeetingTool) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "book_meeting", Title: "Book a meeting", Version: toolVersionV1,
-		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
-		OpenAPIOp: "bookMeeting",
-		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
-			"host_user_id":{"type":"string","format":"uuid"},
-			"start":{"type":"string","format":"date-time"` + timestampNote + `},
-			"end":{"type":"string","format":"date-time"` + timestampNote + `},
-			"subject":{"type":"string"},
-			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
-			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
-			"additionalProperties":false}`),
-		OutputSchema: schema(`{"type":"object"}`),
-	}
-}
-
-// StageInfo puts a refused booking in the inbox instead of dead-ending it.
-//
-// A booking anchors on no existing row, so unlike the two send verbs it has no
-// single target handed to it. What it does have is its links, and those are
-// records: EVERY one is read and refused if its authority lives in another
-// system, because redemption's version pin reads our own tables and a
-// mirror-held link has no row there — the same un-releasable approval
-// refuseStagingElsewhere exists to prevent, reached through a different door.
-// Checking every link rather than the one displayed is deliberate: a booking
-// with a local deal and a mirrored organization is exactly the case a
-// first-link-only check would wave through.
-//
-// The first link becomes the displayed target and supplies the pin. A booking
-// with no links stages with no target at all, which the approvals engine
-// serves (the pin is simply absent) — a slot on a calendar is a real thing to
-// approve even when it names no record.
-func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
-	var args BookMeetingArgs
-	if err := decodeArgs(in, &args); err != nil {
-		return StageInfo{}, err
-	}
-	// Refuse here what the store refuses at execution, for the same reason the
-	// mail send does: a human should not be asked to approve a meeting that
-	// ends before it starts, spend the one-shot approval on it, and only then
-	// be told it was never bookable.
-	if !args.End.After(args.Start) {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
-			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
-	}
-	info := StageInfo{Summary: describeBooking(args)}
-	for i, link := range args.Links {
-		rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(link.EntityType), ID: link.EntityID})
-		if err != nil {
-			return StageInfo{}, err
-		}
-		if err := refuseStagingElsewhere(rec); err != nil {
-			return StageInfo{}, err
-		}
-		if i == 0 {
-			info.TargetType, info.TargetID, info.TargetVersion = link.EntityType, link.EntityID, &rec.Version
-		}
-	}
-	return info, nil
-}
-
-// describeBooking is the one line the inbox shows: when the slot is, and what
-// it is called. The subject is the agent's own text, so it is quoted rather
-// than run into the sentence — and the approvals engine sanitizes every
-// summary at the single staging path regardless.
-func describeBooking(args BookMeetingArgs) string {
-	subject := args.Subject
-	if strings.TrimSpace(subject) == "" {
-		subject = "(no subject)"
-	}
-	return fmt.Sprintf("Book %q from %s to %s",
-		subject, args.Start.Format(time.RFC3339), args.End.Format(time.RFC3339))
-}
-
-func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args BookMeetingArgs
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	return t.comms.BookMeeting(ctx, args)
 }

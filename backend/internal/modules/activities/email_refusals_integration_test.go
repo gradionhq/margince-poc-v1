@@ -381,38 +381,55 @@ func TestReplayingASourceKeyLeavesTheStoredThreadKeyUntouched(t *testing.T) {
 	}
 }
 
-// A send that names nobody reaches nobody, and until this guard existed
-// NOTHING said so: the consent gate answers "every recipient is granted" for
-// an empty list, because every member of an empty set satisfies anything. So
-// the send ran its whole governed path — authorization, mailbox pre-flight,
-// consent, deliverability — and handed the provider a message with no To:.
+// A send whose To: line resolves to nobody must refuse, and the interesting
+// cases are the ones where the MERGED recipient list is non-empty: Recipients
+// is To+Cc together for the consent gate, while the transmitted To: is derived
+// by subtracting every Cc address. Guarding the merged list would pass all
+// three of these and still hand the provider a message with no addressee.
 //
 // The contract declares minItems 1 on both transports, but a declared schema
 // is documentation on this surface rather than a validator, so the refusal has
 // to live where both transports pass through.
-func TestSendEmailRefusesAMessageThatNamesNoRecipient(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	stager := &recordingStager{}
-	in := sendInput("transactional")
-	in.Recipients, in.Cc = nil, nil
+func TestSendEmailRefusesAMessageWhoseAddresseeLineIsEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		recipients, cc []string
+	}{
+		{name: "nobody at all", recipients: nil, cc: nil},
+		// Merged is non-empty; every addressee is a cc, so To: empties out.
+		{name: "cc only", recipients: []string{"boss@example.test"}, cc: []string{"boss@example.test"}},
+		// Same address in two cases — normalization collapses them, so the
+		// subtraction removes the only To:.
+		{
+			name:       "the one addressee is also cc'd in another case",
+			recipients: []string{"Buyer@Example.Test"}, cc: []string{"buyer@example.test"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := setupSend(t)
+			anchor := e.seedAnchor(t, "", "")
+			stager := &recordingStager{}
+			in := sendInput("transactional")
+			in.Recipients, in.Cc = tc.recipients, tc.cc
 
-	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager)
+			_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+				e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager)
 
-	var refusal *NoRecipientsError
-	if !errors.As(err, &refusal) {
-		t.Fatalf("send with no recipients → %v, want a NoRecipientsError", err)
-	}
-	// The remedy is an argument the caller wrote, so the refusal names it —
-	// and names `to`, the field both request bodies actually carry, not the
-	// merged Recipients list this store works in.
-	field, code, _ := refusal.FieldFault()
-	if field != "to" || code != "required" {
-		t.Errorf("FieldFault() = (%q, %q), want (\"to\", \"required\")", field, code)
-	}
-	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
-		t.Errorf("staged %d deliveries and %d outbound activities for a message with no addressee, want 0 and 0",
-			len(stager.staged), e.outboundCount(t))
+			var refusal *NoRecipientsError
+			if !errors.As(err, &refusal) {
+				t.Fatalf("send → %v, want a NoRecipientsError", err)
+			}
+			// The remedy is an argument the caller wrote, so the refusal names
+			// `to` — the field both request bodies carry, not the merged
+			// Recipients list this store works in.
+			field, code, _ := refusal.FieldFault()
+			if field != "to" || code != "required" {
+				t.Errorf("FieldFault() = (%q, %q), want (\"to\", \"required\")", field, code)
+			}
+			if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+				t.Errorf("staged %d deliveries and %d outbound activities for a message with no addressee, want 0 and 0",
+					len(stager.staged), e.outboundCount(t))
+			}
+		})
 	}
 }

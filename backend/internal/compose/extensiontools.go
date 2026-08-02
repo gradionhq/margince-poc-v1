@@ -4,6 +4,7 @@
 package compose
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -84,11 +85,12 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 			tools = append(tools, extensionTool{
 				spec: mcp.ToolSpec{
 					Name: tool.Name,
-					// The extension surface declares no display name, so the
-					// tool's own identifier is the honest one — the same thing
-					// a client falls back to when no title is offered, said
-					// explicitly rather than left blank.
-					Title:         tool.Name,
+					// A unit that declares a title gets it; one that does not
+					// is listed under its verb, which is what a client falls
+					// back to anyway. Optional rather than required on
+					// purpose: making a display string mandatory would refuse
+					// to boot an otherwise valid third-party unit over a label.
+					Title:         cmp.Or(tool.Title, tool.Name),
 					Version:       tool.Version,
 					RequiredScope: scope,
 					Tier:          tier,

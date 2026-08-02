@@ -75,11 +75,19 @@ func (stubComms) BookMeeting(context.Context, agents.BookMeetingArgs) (json.RawM
 	return nil, nil
 }
 
+// stubSoR satisfies the record reader the 🟡 comms verbs stage against. This
+// walk only reads Specs(), so nothing calls it — but RegisterCommsTools now
+// refuses a nil provider at wiring time, because a surface that advertises
+// three sends and panics on them is worse than one that will not boot.
+type stubSoR struct {
+	datasource.SystemOfRecordProvider
+}
+
 func TestEveryConfirmationRequiredToolHasADecisionGrantMapping(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 	agents.RegisterIntentTools(registry, stubRetriever{})
-	agents.RegisterCommsTools(registry, stubComms{}, nil)
+	agents.RegisterCommsTools(registry, stubComms{}, stubSoR{})
 
 	for _, spec := range registry.Specs() {
 		if spec.Tier == mcp.TierAutoExecute {

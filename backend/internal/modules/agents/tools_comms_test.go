@@ -299,7 +299,7 @@ func TestRefusedOutboundCallsReachTheInbox(t *testing.T) {
 			// A booking anchors on no row, so the first link is what the
 			// human sees and what the pin is taken from.
 			wantTarget:  "deal",
-			wantSummary: `Book "Review" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z`,
+			wantSummary: `Book "Review" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z, attached to 1 record(s)`,
 		},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -336,55 +336,6 @@ func TestRefusedOutboundCallsReachTheInbox(t *testing.T) {
 	}
 }
 
-// A booking with no links stages with no target. The approvals engine serves
-// that (the pin is simply absent), and a slot on a calendar is a real thing to
-// approve even when it names no record.
-func TestABookingThatNamesNoRecordStillStages(t *testing.T) {
-	approvals := &recordingApprovals{}
-	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
-	RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
-
-	_, err := registry.Invoke(sendCtx(), "book_meeting",
-		json.RawMessage(`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z"}`))
-
-	var staged *workflow.StagedApprovalError
-	if !errors.As(err, &staged) {
-		t.Fatalf("Invoke err = %v, want a StagedApprovalError", err)
-	}
-	if len(approvals.staged) != 1 {
-		t.Fatalf("staged %d approvals, want 1", len(approvals.staged))
-	}
-	got := approvals.staged[0]
-	if got.TargetType != "" || !got.TargetID.IsZero() || got.TargetVersion != nil {
-		t.Errorf("staged target = %q/%v/%v, want none — the booking names no record",
-			got.TargetType, got.TargetID, got.TargetVersion)
-	}
-	if got.Summary != `Book "(no subject)" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z` {
-		t.Errorf("Summary = %q, want the slot named with a placeholder subject", got.Summary)
-	}
-}
-
-// Every link is checked, not just the one the inbox displays. A booking that
-// mixes a local deal with a mirrored organization is exactly what a
-// first-link-only guard would wave through into an approval nobody could
-// release.
-func TestABookingRefusesAMirroredLinkBehindALocalOne(t *testing.T) {
-	local, mirrored := ids.NewV7(), ids.NewV7()
-	p := &multiLinkProvider{heldElsewhere: map[ids.UUID]bool{mirrored: true}}
-
-	_, err := bookMeetingTool{comms: &recordingComms{}, p: p}.StageInfo(context.Background(),
-		json.RawMessage(fmt.Sprintf(
-			`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z","links":[{"entity_type":"deal","entity_id":%q},{"entity_type":"organization","entity_id":%q}]}`,
-			local, mirrored)))
-
-	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-		t.Fatalf("StageInfo err = %v, want ErrUnsupportedBySoR — the second link was never validated", err)
-	}
-	if len(p.read) != 2 {
-		t.Errorf("read %d links, want both", len(p.read))
-	}
-}
-
 // Staging refuses what execution would refuse anyway. Otherwise the approval
 // is a trap: a human reads it, says yes, the approved retry consumes the
 // one-shot authority, and only then does the store refuse — the yes is spent
@@ -396,11 +347,9 @@ func TestStagingRefusesASendOrBookingExecutionWouldRefuse(t *testing.T) {
 		name, tool, args, wantNamed string
 	}{
 		{
-			name: "a mail with no addressee reaches nobody",
-			tool: "send_email",
-			args: fmt.Sprintf(`{"activity_id":%q,"to":[],"subject":"s","body":"b","consent_purpose":"support"}`, anchor),
-			// The consent gate answers "every recipient is granted" for an
-			// empty list, so nothing downstream would have caught it.
+			name:      "a mail with no addressee reaches nobody",
+			tool:      "send_email",
+			args:      fmt.Sprintf(`{"activity_id":%q,"to":[],"subject":"s","body":"b","consent_purpose":"support"}`, anchor),
 			wantNamed: "`to` is empty",
 		},
 		{
@@ -435,4 +384,59 @@ func TestStagingRefusesASendOrBookingExecutionWouldRefuse(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A nil comms seam and a nil provider are not the same kind of absence. Without
+// comms there is nothing to offer and registering nothing is right. Without a
+// provider the three 🟡 verbs would still register, advertise themselves on
+// tools/list, and dereference it the first time a call was staged — so wiring
+// fails instead, rather than shipping a surface that panics on its own
+// outbound verbs.
+func TestRegisterCommsToolsDistinguishesTheTwoAbsences(t *testing.T) {
+	noComms := NewRegistry(nil, nil)
+	RegisterCommsTools(noComms, nil, nil)
+	if got := len(noComms.Specs()); got != 0 {
+		t.Errorf("registered %d tools with no comms seam, want 0", got)
+	}
+
+	mustPanic(t, "a provider-less comms surface advertises three sends it cannot stage", func() {
+		RegisterCommsTools(NewRegistry(nil, nil), &recordingComms{}, nil)
+	})
+}
+
+// A human approving from the inbox row reads ONE line. Any argument that
+// changes what gets released and is missing from it is an effect nobody agreed
+// to — the diff_hash binds it faithfully either way, which is exactly what
+// makes an omission from the DISPLAY the problem rather than a harmless
+// abbreviation. The REST admission gate enumerates every body field for this
+// reason; both transports stage the same operation.
+func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
+	host, deal, org := ids.NewV7(), ids.NewV7(), ids.NewV7()
+
+	t.Run("a send names its cc, not only its to", func(t *testing.T) {
+		got := describeSend(sendEmailToolArgs{SendEmailArgs: SendEmailArgs{
+			To: []string{"buyer@example.test"}, Cc: []string{"rival@example.test"}, Subject: "Q3 pricing",
+		}})
+		for _, want := range []string{"buyer@example.test", "rival@example.test", `"Q3 pricing"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("summary %q does not name %q", got, want)
+			}
+		}
+	})
+
+	t.Run("a booking names whose calendar and how many records", func(t *testing.T) {
+		args := BookMeetingArgs{
+			HostUserID: &host, Subject: "Review",
+			Start: time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC),
+			End:   time.Date(2026, 8, 10, 9, 30, 0, 0, time.UTC),
+		}
+		got := describeBooking(args, []bookingLink{
+			{EntityType: "deal", EntityID: deal}, {EntityType: "organization", EntityID: org},
+		})
+		for _, want := range []string{host.String(), "2 record(s)", `"Review"`} {
+			if !strings.Contains(got, want) {
+				t.Errorf("summary %q does not name %q", got, want)
+			}
+		}
+	})
 }

@@ -45,11 +45,10 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	return datasource.NewRecord(r, v, v.Version)
 }
 
-// Update patches an activity's own fields. What it deliberately does NOT
-// serve is the links: an activity's associations move through the relink verb,
-// which is a different governed action with its own audit action, and
-// UpdateActivityRequest carries no link field at all. So this cannot change
-// who an activity is about — only what it says and when it happened.
+// Update patches an activity's own fields. UpdateActivityRequest carries no
+// link field, so this cannot change who an activity is about — only what it
+// says and when it happened; associations are the relink verb's, with its own
+// audit action.
 func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	if in.Ref.Type != datasource.EntityActivity {
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}

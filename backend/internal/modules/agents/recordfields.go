@@ -46,11 +46,8 @@ var (
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.CreateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.CreateProjectRequest](),
 	}
-	// An activity is updatable but not archivable or mergeable through these
-	// tools, which is why the two maps are not the same set. What an activity
-	// patch cannot reach is its LINKS: those move through the relink verb,
-	// which is a separate governed action, and UpdateActivityRequest declares
-	// no link field for this list to describe.
+	// An activity patch cannot reach its LINKS: UpdateActivityRequest declares
+	// no link field, so this list has none to describe.
 	updateShapes = map[datasource.EntityType]reflect.Type{
 		datasource.EntityPerson:       reflect.TypeFor[crmcontracts.UpdatePersonRequest](),
 		datasource.EntityOrganization: reflect.TypeFor[crmcontracts.UpdateOrganizationRequest](),
@@ -134,8 +131,13 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	// than "this is a different verb". Only said where an activity is actually
 	// in scope, so the create tool does not carry advice about a patch.
 	if _, updatable := shapes[datasource.EntityActivity]; updatable {
-		b.WriteString("An activity's links are NOT patchable here: associations move through the ")
-		b.WriteString("relink action, so this tool changes what an activity says, never who it is about. ")
+		// Says what is true and stops. Naming the relink action would be
+		// directing the reader at something this surface does not serve: it is
+		// a REST operation with no tool behind it, so an agent told to use it
+		// has been given an instruction it cannot follow — worse than the
+		// silence, because it reads as a route.
+		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
+		b.WriteString("this tool changes what an activity says, never who it is about. ")
 	}
 	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
 	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
@@ -201,17 +203,11 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		return nil
 	}
 	sort.Strings(unknown)
-	// "does not accept", not "cannot store". The two are the same thing for a
-	// misspelled field and NOT the same thing for a real one this tool simply
-	// does not patch: an activity stores links — log_activity takes them — so
-	// telling a caller it cannot is false, and it sends them looking for the
-	// wrong fix. The honest claim is about this tool's own vocabulary, which is
-	// all this check ever knew.
-	//
-	// Kept the same length as the claim it replaces, deliberately: the whole
-	// message is bounded at maxBadArgsDetail, and the accepted-field list is
-	// the part that falls off the end — so a longer, truer sentence would buy
-	// accuracy by cutting the names the message exists to teach.
+	// The claim is about this tool's VOCABULARY, never about what the record
+	// can store: an activity stores links, so "cannot store links" would be
+	// false and would send the caller looking for the wrong fix. Kept short
+	// because the whole message is bounded at maxBadArgsDetail and the
+	// accepted-field list is what falls off the end.
 	return &BadArgsError{Cause: fmt.Errorf("%s does not accept %s; accepts %s (or cf_<slug> for an active custom field)",
 		recordType, strings.Join(unknown, ", "), strings.Join(contractFieldNames(shape), ", "))}
 }

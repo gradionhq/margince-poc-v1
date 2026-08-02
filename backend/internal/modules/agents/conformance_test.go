@@ -24,7 +24,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
 // echoTool answers with whatever bytes it was built with, so a test can put an
@@ -90,6 +92,48 @@ func textBlock(t *testing.T, res map[string]any) string {
 		t.Fatalf("content block carries no text: %#v", content[0])
 	}
 	return text
+}
+
+// inertRetriever grounds the intent tools. Nothing here calls it — these walks
+// read Specs() — but the registrars refuse a nil seam, which is the point: a
+// surface that cannot ground its answer registers no tool, so a nil would
+// silently shrink the very set these walks claim to cover.
+type inertRetriever struct{}
+
+func (inertRetriever) Search(context.Context, retrieval.Query) ([]retrieval.Hit, error) {
+	return nil, nil
+}
+
+func (inertRetriever) AssembleContext(context.Context, datasource.EntityRef, retrieval.AssembleOptions) (retrieval.Context, error) {
+	return retrieval.Context{}, nil
+}
+
+// fullRegistry builds EVERY tool the product ships, through all six
+// registrars.
+//
+// Building only some of them is how a walk lies: three of the six families
+// (network, slipping, intents) carry their own hand-written JSON schema
+// literals, and a walk that skips them certifies eight tools it never looked
+// at — which is exactly the failure TestTheWholeToolListEncodes exists to
+// catch. Every seam here is non-nil for the same reason: each registrar
+// registers nothing when its seam is absent, so a nil would shrink the set
+// silently rather than fail.
+func fullRegistry(t *testing.T) *Registry {
+	t.Helper()
+	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
+	RegisterCoreTools(r, nil, nil, nil, nil)
+	RegisterReportTool(r, nil)
+	RegisterIntentTools(r, inertRetriever{})
+	RegisterSlippingTools(r,
+		func(context.Context) ([]SlippingDeal, error) { return nil, nil },
+		func(context.Context, SlippingDeal) (ids.UUID, string, error) { return ids.UUID{}, "", nil })
+	RegisterNetworkTools(r,
+		func(context.Context, ids.UUID) ([]KnownColleague, error) { return nil, nil },
+		func(context.Context, ids.UUID) (DealCoverageAnswer, error) { return DealCoverageAnswer{}, nil },
+		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
+		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })
+	RegisterCommsTools(r, &recordingComms{}, &multiLinkProvider{})
+	return r
 }
 
 // The MUST: a declared outputSchema obliges structured results. The text block
@@ -316,8 +360,16 @@ func TestAssertObjectSchemasNamesTheToolAndTheType(t *testing.T) {
 	if err := assertObjectSchemas(objectSpec("read_record", principal.ScopeRead)); err != nil {
 		t.Errorf("assertObjectSchemas rejected an object schema: %v", err)
 	}
-	if err := assertObjectSchemas(mcp.ToolSpec{Name: "no_schema"}); err != nil {
-		t.Errorf("assertObjectSchemas rejected an absent schema: %v", err)
+	// An absent OUTPUT schema is a choice — the tool promises no shape, so
+	// tools/call owes it no structured content. An absent INPUT schema is not:
+	// the protocol requires one.
+	noOutput := objectSpec("no_output", principal.ScopeRead)
+	noOutput.OutputSchema = nil
+	if err := assertObjectSchemas(noOutput); err != nil {
+		t.Errorf("assertObjectSchemas rejected an absent OutputSchema: %v", err)
+	}
+	if err := assertObjectSchemas(mcp.ToolSpec{Name: "no_input"}); err == nil {
+		t.Error("assertObjectSchemas accepted a tool with no InputSchema; MCP requires one")
 	}
 }
 
@@ -325,12 +377,7 @@ func TestAssertObjectSchemasNamesTheToolAndTheType(t *testing.T) {
 // ships has to carry a title, and Register is what makes that true for tools
 // registered anywhere else too — including an extension's.
 func TestEveryCoreToolCarriesADisplayTitle(t *testing.T) {
-	registry := NewRegistry(nil, nil)
-	RegisterCoreTools(registry, nil, nil, nil, nil)
-	RegisterReportTool(registry, nil)
-	RegisterCommsTools(registry, &recordingComms{}, nil)
-
-	specs := registry.Specs()
+	specs := fullRegistry(t).Specs()
 	if len(specs) == 0 {
 		t.Fatal("no tools registered — this walk would pass vacuously")
 	}
@@ -369,11 +416,7 @@ func TestAnInBandToolErrorCarriesNoStructuredContent(t *testing.T) {
 // that is the failure — a live tools/list answering 500 while every unit test
 // was green, which is how it was actually found.
 func TestTheWholeToolListEncodes(t *testing.T) {
-	registry := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
-	RegisterCoreTools(registry, nil, nil, nil, nil)
-	RegisterReportTool(registry, nil)
-	RegisterCommsTools(registry, &recordingComms{}, nil)
-	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test")
+	s := NewDispatcher(fullRegistry(t), bindAuthenticated, "margince-crm", "test")
 
 	listed := s.toolList(scopedAgentCtx(
 		principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite, principal.ScopeSend))

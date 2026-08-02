@@ -125,50 +125,44 @@ func MintMessageID(domain string) string {
 	return fmt.Sprintf("%s@%s", ids.NewV7(), domain)
 }
 
-// SendEmail runs the governed send: anchor visibility → write grant →
-// wiring guards → mailbox pre-flight → consent gate → deliverability → the
-// outbound activity and its delivery, committed together in the write shape.
+// refuseUnsendable runs every guard between the anchor read and the write.
 //
 // The ORDER is the invariant, not a sequence of independent checks:
 // AUTHORIZATION REFUSES BEFORE CONSENT ANSWERS. A caller with no rights over
 // the anchor must get the row-scope answer and nothing else — a 500 that names
 // the delivery wiring, or a consent verdict, both tell them something about a
-// record and a person they may not read. Every guard below is fail-closed; only
-// their order carries this rule.
-func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
-	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
-	if err != nil {
-		return crmcontracts.Activity{}, err
-	}
+// record and a person they may not read. Every guard is fail-closed; only
+// their order carries this rule, which is why they are one function and not
+// scattered through the send.
+func (s *Store) refuseUnsendable(ctx context.Context, in SendEmailInput, gate ConsentGate, stager DeliveryStager) error {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
-		return crmcontracts.Activity{}, err
+		return err
 	}
-	// A send with no addressee reaches nobody, and NOTHING below would have
-	// said so: the consent gate answers "every recipient is granted" for an
-	// empty list, because every member of an empty set satisfies anything. So
-	// the send ran its whole governed path and handed the provider a message
-	// with no To:. The contract says minItems 1 on both transports, but a
-	// declared schema is documentation here, not a validator, and this is the
-	// one place both transports pass through.
+	// Guard the To: LINE, not the merged list, because they are not the same
+	// thing and only the first one goes on the wire. Recipients is To+Cc
+	// merged for the consent gate; toRecipients derives the actual To: by
+	// subtracting every Cc address. So a cc-only send, and a send whose single
+	// `to` is also cc'd in another case, both leave a non-empty merged list
+	// and an empty addressee line.
 	//
-	// It sits after authorization, with the other guards, for the reason
-	// stated above: order carries the rule that a caller with no rights over
-	// the anchor learns nothing else about it.
-	if len(in.Recipients) == 0 {
-		return crmcontracts.Activity{}, &NoRecipientsError{}
+	// The consent gate does refuse a wholly empty list, but with
+	// ErrConsentNotGranted — which reads as "this person opted out" for a call
+	// that named nobody at all. A FieldFault pointing at `to` is the difference
+	// between a caller who can fix their argument and one who goes looking for
+	// a consent record that was never the problem.
+	if len(toRecipients(in.Recipients, in.Cc)) == 0 {
+		return &NoRecipientsError{}
 	}
-	// The composition guards sit HERE, after authorization: they report a
-	// deployment defect, and a caller who may not send has no business
-	// learning which parts of this installation's send path are wired.
+	// The composition guards report a deployment defect, and a caller who may
+	// not send has no business learning which parts of this installation's
+	// send path are wired — hence their position, not their existence.
 	if gate == nil {
-		// Fail closed: a send surface without its suppression gate is a
-		// wiring defect, not an implicit allow.
-		return crmcontracts.Activity{}, fmt.Errorf("send path has no consent authority wired: %w", apperrors.ErrConsentNotGranted)
+		return fmt.Errorf("send path has no consent authority wired: %w", apperrors.ErrConsentNotGranted)
 	}
 	if stager == nil {
-		// Same spirit: a send nothing will ever transmit must refuse, not
-		// leave a timeline entry claiming a message went out.
-		return crmcontracts.Activity{}, errNoDeliveryStager
+		// A send nothing will ever transmit must refuse, not leave a timeline
+		// entry claiming a message went out.
+		return errNoDeliveryStager
 	}
 	// The mailbox pre-flight is the SENDER's own authority and precedes the
 	// consent gate for the same reason authorization does: a user who holds no
@@ -176,12 +170,23 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	// recipients' consent state.
 	capable, err := s.canSend(ctx, SendProvider)
 	if err != nil {
-		return crmcontracts.Activity{}, err
+		return err
 	}
 	if !capable {
-		return crmcontracts.Activity{}, &MailboxNotSendCapableError{}
+		return &MailboxNotSendCapableError{}
 	}
-	if err := gate.RequireGrantedForEmails(ctx, in.Recipients, in.ConsentPurpose); err != nil {
+	return gate.RequireGrantedForEmails(ctx, in.Recipients, in.ConsentPurpose)
+}
+
+// SendEmail runs the governed send: anchor visibility → the guard sequence
+// above → deliverability → the outbound activity and its delivery, committed
+// together in the write shape.
+func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
+	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	if err := s.refuseUnsendable(ctx, in, gate, stager); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 

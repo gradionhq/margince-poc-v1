@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -68,7 +69,10 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s carries a TierResolver but is not TierDynamic", spec.Name))
 	}
-	if spec.Title == "" {
+	// TrimSpace, because a blank title is worse than none: a client takes it
+	// over the name (title outranks name for display) and renders an empty
+	// heading, where an absent one would at least have fallen back.
+	if strings.TrimSpace(spec.Title) == "" {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
 	}
@@ -206,11 +210,18 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 // something the dispatcher has been taught to honour, and failing at boot
 // beats advertising a shape the results miss.
 func assertObjectSchemas(spec mcp.ToolSpec) error {
+	if spec.InputSchema == nil {
+		// The protocol requires one. A tool taking no arguments still declares
+		// `{"type":"object"}`; nil would put a bare null on tools/list.
+		return fmt.Errorf("%s declares no InputSchema; MCP requires every tool to advertise an object input schema", spec.Name)
+	}
 	for _, s := range []struct {
 		field string
 		raw   json.RawMessage
 	}{
 		{field: "InputSchema", raw: spec.InputSchema},
+		// Optional: a tool promising no output shape owes tools/call no
+		// structured content.
 		{field: "OutputSchema", raw: spec.OutputSchema},
 	} {
 		if s.raw == nil {

@@ -49,13 +49,15 @@ func (e *MailboxNotSendCapableError) MessageFault() (code, message string) {
 	return "mailbox_not_send_capable", e.Error()
 }
 
-// NoRecipientsError refuses a mail send that names nobody. It maps to 422 on
-// both surfaces, and unlike its neighbours here the remedy is an argument the
-// caller wrote — so it is a FieldFault, naming the one it has to change.
+// NoRecipientsError refuses a mail send whose To: line resolves to nobody —
+// either because none was given, or because every addressee was also cc'd and
+// the derivation subtracted them all. It maps to 422 on both surfaces, and
+// unlike its neighbours here the remedy is an argument the caller wrote, so it
+// is a FieldFault naming the one they have to change.
 type NoRecipientsError struct{}
 
 func (e *NoRecipientsError) Error() string {
-	return "a send needs at least one recipient in `to`"
+	return "a send needs at least one addressee in `to` that is not also in `cc`"
 }
 
 // FieldFault names `to` rather than the merged recipient list the store works
