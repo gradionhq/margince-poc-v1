@@ -226,7 +226,7 @@ export const de = {
   "merge.submit": "Zusammenführen",
 
   "tab.overview": "Übersicht",
-  "tab.relationships": "Beziehungen",
+  "tab.relationships": "Personen & Firmen",
   "tab.partner": "Partner",
   "tab.rollup": "Roll-up",
   "tab.history": "Verlauf",

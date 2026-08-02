@@ -1151,8 +1151,8 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await screen.findByText("Relationships");
-    await userEvent.click(screen.getByText("Relationships"));
+    await screen.findByText("People & companies");
+    await userEvent.click(screen.getByText("People & companies"));
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1184,8 +1184,8 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await screen.findByText("Relationships");
-    await userEvent.click(screen.getByText("Relationships"));
+    await screen.findByText("People & companies");
+    await userEvent.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1405,8 +1405,8 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await screen.findByText("Relationships");
-    await userEvent.click(screen.getByText("Relationships"));
+    await screen.findByText("People & companies");
+    await userEvent.click(screen.getByText("People & companies"));
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
