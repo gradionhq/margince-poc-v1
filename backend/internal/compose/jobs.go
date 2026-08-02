@@ -400,7 +400,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		if meter == nil {
 			meter = failClosedOverlayMeter()
 		}
-		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, log: log})
+		river.AddWorker(workers, &overlayReconcileWorkspaceWorker{
+			pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+			newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+		})
 		// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
 		// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one
 		// record through the same store the poller uses. Registered whenever
