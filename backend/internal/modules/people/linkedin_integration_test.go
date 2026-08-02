@@ -231,7 +231,9 @@ func TestAnUnmatchedGhostStillNamesTheSubject(t *testing.T) {
 	org := e.seedOrgNamed(t, "Acme GmbH")
 	// Andreas is a contact at Acme. The export names him, but carries no
 	// address, so the matcher only SUGGESTS — it never confirms.
-	andreas := e.seedContact(t, "Andreas Müller")
+	// Spelled without the umlaut, so the match stays a SUGGESTION: an exact
+	// name would confirm itself and this test is about the undecided case.
+	andreas := e.seedContact(t, "Andreas Muller")
 	e.employ(t, andreas, org)
 	e.importExport(t)
 	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
@@ -290,7 +292,9 @@ func TestAContactTheWorkspaceLearnsAboutLaterIsStillMatched(t *testing.T) {
 
 	// Capture then does its work: the account and the contact appear.
 	org := e.seedOrgNamed(t, "Acme GmbH")
-	andreas := e.seedContact(t, "Andreas Müller")
+	// Fold-only spelling keeps this one a SUGGESTION: an exact name confirms
+	// itself, and the sweep's two-tier report is what this test pins.
+	andreas := e.seedContact(t, "Andreas Muller")
 	e.employ(t, andreas, org)
 	dana := e.seedContact(t, "Dana Buyer")
 	e.seedEmail(t, dana, "dana@acme.test")
