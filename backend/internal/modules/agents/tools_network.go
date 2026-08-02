@@ -144,7 +144,7 @@ type whoKnowsTool struct{ list WhoKnowsLister }
 
 func (t whoKnowsTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "who_knows", Version: toolVersionV1,
+		Name: "who_knows", Title: "Who knows this contact", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPersonNetwork",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -189,7 +189,7 @@ type accountCoverageTool struct{ read CoverageReader }
 
 func (t accountCoverageTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "account_coverage", Version: toolVersionV1,
+		Name: "account_coverage", Title: "Relationship coverage on a deal", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getDealCoverage",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -223,7 +223,7 @@ type introPathTool struct{ list IntroPathLister }
 
 func (t introPathTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "intro_path_to", Version: toolVersionV1,
+		Name: "intro_path_to", Title: "Find a warm introduction path", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getOrganizationGraph",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -271,7 +271,7 @@ type atRiskTool struct{ list AtRiskLister }
 
 func (t atRiskTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "at_risk_relationships", Version: toolVersionV1,
+		Name: "at_risk_relationships", Title: "Relationships going cold", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + getDealCoverage",
 		// No arguments. The question is about the caller's own book, and the

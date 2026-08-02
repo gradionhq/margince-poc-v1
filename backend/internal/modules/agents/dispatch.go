@@ -147,9 +147,17 @@ func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 		resp.Result = map[string]any{
 			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
-			// listChanged: true claims the notification the GET SSE stream
-			// (a later phase) actually fires; nothing else is claimed.
-			"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
+			// listChanged is FALSE because this server has no way to send the
+			// notification: notifications/tools/list_changed travels on the GET
+			// SSE stream, and GET /mcp answers 405 here. Declaring the
+			// capability would promise a message that can never arrive.
+			//
+			// The surface really does change — tools/list is scope-filtered per
+			// caller, so a re-scoped or revoked passport sees a different list —
+			// and a client is entitled to treat the list as static until told
+			// otherwise. That makes this a capability to EARN by building the
+			// stream, not one to claim ahead of it.
+			"capabilities": map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":   map[string]any{fieldName: s.name, "version": s.version},
 		}
 	case "ping":
@@ -223,9 +231,30 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 			desc += fmt.Sprintf(" Maps to %s.", spec.OpenAPIOp)
 		}
 		tool := map[string]any{
-			fieldName:     spec.Name,
+			fieldName: spec.Name,
+			// Top-level title outranks annotations.title for display, and both
+			// outrank the name. Registry.Register refuses a title-less tool, so
+			// neither is ever the empty string here.
+			"title":       spec.Title,
 			"description": desc,
 			"inputSchema": spec.InputSchema,
+			// The two hints this server can state as FACTS, both read off the
+			// spec the admission gate itself enforces rather than restated by
+			// hand: what a tool may change is its scope, and whether it leaves
+			// the workspace is its egress flag.
+			//
+			// destructiveHint and idempotentHint are deliberately absent. Their
+			// protocol defaults (destructive, non-idempotent) are already the
+			// conservative reading, and the looser value is the one that would
+			// need a per-tool judgement with nothing enforcing it — 25 claims
+			// no gate could hold true. They are display hints in any case: the
+			// spec is explicit that a client must never make tool-use decisions
+			// from annotations it received from the server.
+			"annotations": map[string]any{
+				"title":         spec.Title,
+				"readOnlyHint":  spec.ReadOnly(),
+				"openWorldHint": spec.Egress,
+			},
 		}
 		if spec.OutputSchema != nil {
 			tool["outputSchema"] = spec.OutputSchema
@@ -261,7 +290,63 @@ func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[strin
 	if err != nil {
 		return toolError(s.explain(p.Name, err))
 	}
-	return map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
+	return s.result(p.Name, out)
+}
+
+// result renders one successful tool return.
+//
+// The serialized JSON travels in a TextContent block, and — for a tool that
+// declared an outputSchema, which every tool here does — ALSO as
+// structuredContent: the spec makes that a MUST ("Servers MUST provide
+// structured results that conform to this schema"). The text block stays
+// beside it on the spec's own advice, so a client that predates structured
+// content still reads the same answer rather than an empty result.
+func (s *Dispatcher) result(name string, out json.RawMessage) map[string]any {
+	res := map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
+	if structured, ok := s.structuredContent(name, out); ok {
+		res["structuredContent"] = structured
+	}
+	return res
+}
+
+// structuredContent answers the handler's own bytes when they satisfy the
+// outputSchema the tool advertised, and reports it as a server defect when
+// they do not.
+//
+// It passes those bytes THROUGH rather than re-marshalling a decoded copy.
+// structuredContent and the text block are two renderings of one answer and a
+// client may compare them, while a round trip through map[string]any would
+// widen every integer to a float64 and reorder every key — so the two would
+// disagree on exactly the tools that return a version or a count.
+//
+// A tool that declares an object schema and then answers with something else
+// is OUR defect, not the caller's: TestEveryToolDeclaresAnObjectOutputSchema
+// holds one half of that agreement, so the two can only diverge if a handler
+// changed. It is logged for the operator and the member is left off, because
+// omitting an optional member beats emitting one that violates the schema this
+// same server advertised on tools/list.
+func (s *Dispatcher) structuredContent(name string, out json.RawMessage) (json.RawMessage, bool) {
+	spec, ok := s.registry.Spec(name)
+	if !ok || spec.OutputSchema == nil {
+		return nil, false
+	}
+	// Decoding into map[string]json.RawMessage both proves out is a JSON
+	// object and leaves its bytes untouched. A literal null decodes into a nil
+	// map with no error, so it is refused explicitly rather than passing as an
+	// object with no members.
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(out, &object); err != nil {
+		// Covers both halves of the same defect — an array or scalar, which
+		// parses but is not an object, and malformed bytes, which do not parse
+		// at all. The decoder's own words distinguish them for the operator.
+		s.log.Error("mcp: tool declares an object outputSchema but did not return a JSON object", "tool", name, "err", err)
+		return nil, false
+	}
+	if object == nil {
+		s.log.Error("mcp: tool declares an object outputSchema but returned JSON null", "tool", name)
+		return nil, false
+	}
+	return out, true
 }
 
 func toolError(msg string) map[string]any {

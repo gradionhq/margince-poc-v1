@@ -33,7 +33,7 @@ type archiveRecord struct {
 
 func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "archive_record", Version: toolVersionV1,
+		Name: "archive_record", Title: "Archive a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -96,7 +96,7 @@ type promoteLead struct {
 
 func (t promoteLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "promote_lead", Version: toolVersionV1,
+		Name: "promote_lead", Title: "Promote a lead to a person", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "promoteLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id","trigger"],"properties":{
@@ -177,7 +177,7 @@ type mergeRecords struct {
 
 func (t mergeRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "merge_records", Version: toolVersionV1,
+		Name: "merge_records", Title: "Merge two records", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "mergePerson/mergeOrganization",
 		InputSchema: schema(`{"type":"object","required":["record_type","source_id","target_id"],"properties":{

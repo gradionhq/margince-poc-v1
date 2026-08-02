@@ -70,7 +70,7 @@ type whatsSlippingThisWeek struct {
 
 func (t whatsSlippingThisWeek) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "whats_slipping_this_week", Version: toolVersionV1,
+		Name: "whats_slipping_this_week", Title: "What's slipping this week", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -120,7 +120,7 @@ type draftFollowUpsFor struct {
 
 func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "draft_follow_ups_for", Version: toolVersionV1,
+		Name: "draft_follow_ups_for", Title: "Draft follow-ups", Version: toolVersionV1,
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + draftEmail + logActivity",
 		InputSchema: schema(`{"type":"object","required":["segment"],"properties":{

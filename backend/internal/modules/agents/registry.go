@@ -62,6 +62,14 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s carries a TierResolver but is not TierDynamic", spec.Name))
 	}
+	if spec.Title == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
+	}
+	if err := assertObjectSchema(spec); err != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: " + err.Error())
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.tools[spec.Name]; dup {
@@ -172,6 +180,34 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// assertObjectSchema holds the promise tools/call has to keep. A declared
+// outputSchema obliges the server to answer with structured content that
+// conforms to it, and the dispatcher can only do that for an OBJECT — a JSON
+// array or scalar has nowhere to land in structuredContent, which the protocol
+// types as an object.
+//
+// So the schema is checked at the one door every tool comes through, rather
+// than at the dispatcher, where a mismatch would already be a served response.
+// A schema written some other way (a $ref, a bare allOf) fails here on purpose:
+// it is not wrong, but it is not something the dispatcher has been taught to
+// honour, and failing at boot beats advertising a shape the results miss.
+func assertObjectSchema(spec mcp.ToolSpec) error {
+	if spec.OutputSchema == nil {
+		return nil
+	}
+	var declared struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(spec.OutputSchema, &declared); err != nil {
+		return fmt.Errorf("%s has an OutputSchema that is not valid JSON: %w", spec.Name, err)
+	}
+	if declared.Type != "object" {
+		return fmt.Errorf("%s declares OutputSchema type %q; tools/call can only return structuredContent for an object schema",
+			spec.Name, declared.Type)
+	}
+	return nil
 }
 
 // dynamicTool is implemented by TierDynamic tools that need more than the

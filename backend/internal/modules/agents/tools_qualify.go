@@ -33,7 +33,7 @@ type qualifyLead struct {
 
 func (t qualifyLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "qualify_lead", Version: toolVersionV1,
+		Name: "qualify_lead", Title: "Qualify a lead", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getLead + updateLead",
 		InputSchema: schema(`{"type":"object","required":["record_id"],"properties":{

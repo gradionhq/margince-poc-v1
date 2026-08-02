@@ -154,7 +154,7 @@ type searchRecords struct {
 
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "search_records", Version: toolVersionV1,
+		Name: "search_records", Title: "Search records", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -237,7 +237,7 @@ type readRecord struct {
 
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "read_record", Version: toolVersionV1,
+		Name: "read_record", Title: "Read a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -271,7 +271,7 @@ type createRecord struct {
 
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "create_record", Version: toolVersionV1,
+		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
@@ -312,7 +312,7 @@ type logActivity struct {
 
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "log_activity", Version: toolVersionV1,
+		Name: "log_activity", Title: "Log an activity", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
@@ -360,7 +360,7 @@ type advanceDeal struct {
 
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "advance_deal", Version: toolVersionV1,
+		Name: "advance_deal", Title: "Advance a deal to a stage", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,
