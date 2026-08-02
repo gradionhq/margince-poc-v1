@@ -129,6 +129,11 @@ type JobRunnerConfig struct {
 	// DeepReadFactBrain serves the page-parallel fact lane
 	// (modelPath.SiteFactExtract); nil falls back to DeepReadBrain.
 	DeepReadFactBrain completer
+	// DeepReadTriageBrain serves the domain-triage classification
+	// (modelPath.SiteTriage). Nil is a role that cannot classify: a triage read
+	// then settles its domain from what the workspace already knows rather than
+	// leaving the question open forever.
+	DeepReadTriageBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
@@ -199,7 +204,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
 	// The voice build is not periodic — the api enqueues one job per created
 	// build; only the deferred-retry sweep ticks. Both register even with a
 	// nil brain so a queued build fails actionably instead of rotting.

@@ -78,7 +78,11 @@ var tableOwners = map[string]string{
 	// every night.
 	"person_signature_enrich_state": "internal/modules/people",
 	"organization_fact":             "internal/modules/people",
-	"site_read":                     "internal/modules/people",
+	// What a mail domain is allowed to create. It governs ORGANIZATION
+	// creation, which people owns, so the verdict lives with the records it
+	// authorizes rather than with the capture path that asks the question.
+	"organization_domain_disposition": "internal/modules/people",
+	"site_read":                       "internal/modules/people",
 	// DH-DDL-1: the pair verdicts live with the ONE dedupe implementation.
 	"dedupe_candidate": "internal/modules/people",
 	// deals (incl. the E03 offer engine: rate-card + versioned offers)
@@ -128,7 +132,6 @@ var tableOwners = map[string]string{
 	// capture
 	"raw_capture":                  "internal/modules/capture",
 	"capture_connection":           "internal/modules/capture",
-	"capture_exclusion_rule":       "internal/modules/capture",
 	"capture_sync_state":           "internal/modules/capture",
 	"capture_backfill":             "internal/modules/capture",
 	"workspace_email_domain":       "internal/modules/capture",
@@ -136,6 +139,9 @@ var tableOwners = map[string]string{
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
+	// The workspace's own additions to and carve-outs from the shipped
+	// consumer-mail baseline (CAP-PARAM-5).
+	"capture_freemail_domain": "internal/modules/capture",
 	// The workspace's bot channel: credentials, webhook secret and connection
 	// status. It is a connection, so it sits with capture_connection under the
 	// ONE connector.Sink rather than with the identities it delivers.

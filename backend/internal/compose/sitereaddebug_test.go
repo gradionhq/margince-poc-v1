@@ -87,9 +87,13 @@ func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
 		t.Fatalf("the census must be reported: %+v", report.Extraction.LegalEntities)
 	}
 
-	// Two fact-bearing pages (home, impressum) + the profile call.
-	if got := len(report.ModelCalls); got != 3 {
-		t.Fatalf("recorded %d model calls, want 3 (2 page + 1 profile): %+v", got, report.ModelCalls)
+	// Two fact-bearing pages (home, impressum), the profile call, and the
+	// domain-triage classification the debug run reports for every seed.
+	if got := len(report.ModelCalls); got != 4 {
+		t.Fatalf("recorded %d model calls, want 4 (2 page + 1 profile + 1 triage): %+v", got, report.ModelCalls)
+	}
+	if report.Triage.Kind == "" {
+		t.Error("the report carries no triage verdict — tuning that prompt is what this tool is for")
 	}
 	lanes := map[string]int{}
 	for _, call := range report.ModelCalls {

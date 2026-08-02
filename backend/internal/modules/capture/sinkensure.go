@@ -38,8 +38,13 @@ type CounterpartyEnsurer interface {
 // its own pages; without them the run can only guess from a clock window, and a
 // guess credits it with every other connection's captures.
 type EnsureOutcome struct {
-	PersonCreated       bool
-	OrganizationCreated bool
+	PersonCreated bool
+	// CompanyQueued reports that this counterparty's domain was put in the
+	// queue for an organization verdict. Capture no longer creates companies
+	// itself — it withholds one until a site read says the domain deserves it —
+	// so counting creations here would report zero for every run and hide the
+	// work it actually did.
+	CompanyQueued bool
 }
 
 // EnsureRequest names one captured message's counterparty for the resolver.
@@ -54,16 +59,16 @@ type EnsureRequest struct {
 	SuppressOrg bool // free-mail domain: person yes, company no
 }
 
-// WithEnsurer returns a copy wired to the counterparty auto-create path:
-// freemail decides which domains never derive a company (CAP-PARAM-5), and
+// WithEnsurer returns a copy wired to the counterparty auto-create path.
 // transactional decides which senders are mail infrastructure that derive no
-// counterparty at all while the activity stands (CAP-PARAM-6, ADR-0072). A nil
-// ensurer keeps capture activity-only (a role that wired no resolver); a nil
-// transactional list simply runs no T2 suppression.
-func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList, transactional *TransactionalList) *Sink {
+// counterparty at all while the activity stands (CAP-PARAM-6, ADR-0072); which
+// domains never derive a company (CAP-PARAM-5) is read per transaction from the
+// workspace's own list, so there is nothing to wire for it. A nil ensurer keeps
+// capture activity-only (a role that wired no resolver); a nil transactional
+// list simply runs no T2 suppression.
+func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, transactional *TransactionalList) *Sink {
 	c := *s
 	c.ensurer = ensurer
-	c.freemail = freemail
 	c.transactional = transactional
 	return &c
 }
@@ -187,10 +192,12 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	}
 	decision.create = decision.create || alreadyKnown
 
-	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
-	// company — gmail.com is not an organization whatever else is true of it.
-	// Its domain already says what it is, so it is not the ambiguous class.
-	if s.freemail != nil && s.freemail.IsFreemail(cp.Domain) {
+	// T3 free-mail (CAP-PARAM-5).
+	consumer, err := consumerMailSender(ctx, tx, cp.Domain)
+	if err != nil {
+		return counterpartyDecision{}, err
+	}
+	if consumer {
 		decision.create, decision.suppressOrg = true, true
 	}
 
@@ -198,6 +205,23 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		return counterpartyDecision{}, s.deferAmbiguous(ctx, tx, rec, row)
 	}
 	return decision, nil
+}
+
+// consumerMailSender answers T3: is this sender a personal mailbox rather than
+// somebody at a company? gmail.com is not an organization whatever else is true
+// of it, so its domain already says what it is and it is not the ambiguous
+// class — the person is created and the company suppressed.
+//
+// The workspace's own additions and carve-outs are read on the CALLER's
+// transaction, not cached at composition time: an admin correcting a wrong
+// baseline entry means the very next message, and a cache would make them wait
+// without saying so.
+func consumerMailSender(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
+	consumerMail, err := MatcherTx(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	return consumerMail.IsConsumer(domain), nil
 }
 
 // deferAmbiguous is T4: a first-time sender nothing about this address yet calls

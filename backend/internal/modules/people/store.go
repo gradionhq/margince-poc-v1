@@ -14,6 +14,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
@@ -30,10 +31,40 @@ type Store struct {
 	// catalog is the fieldcatalog seam (custom-field columns); nil means
 	// no catalog is wired and every read/write runs core-columns-only.
 	catalog fieldcatalog.Reader
+	// consumerMail answers which domains can never name a company. The
+	// counterparty ensure needs the same answer capture's tier ladder does — the
+	// verdict engine and the review-queue accept enter the ensure without
+	// passing through that ladder — and the two modules cannot import each
+	// other, so compose injects the one reader. It takes the CALLER's
+	// transaction: the ensure is already inside one, and the list is workspace
+	// config that must not be cached into staleness. Nil falls back to the
+	// shipped baseline with no workspace overlay.
+	consumerMail ConsumerMailReader
 }
+
+// ConsumerMailReader builds the workspace's consumer-mail matcher on a
+// transaction the caller owns. Compose injects capture's implementation.
+type ConsumerMailReader func(context.Context, pgx.Tx) (*freemail.Matcher, error)
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// WithConsumerMail wires the reader for the workspace's own consumer-mail
+// additions and carve-outs. Omitting it leaves the shipped baseline, which is
+// the correct answer for every domain the workspace has said nothing about.
+func (s *Store) WithConsumerMail(read ConsumerMailReader) *Store {
+	s.consumerMail = read
+	return s
+}
+
+// consumerMailMatcher builds the matcher for this transaction, or the bare
+// baseline when no reader was wired.
+func (s *Store) consumerMailMatcher(ctx context.Context, tx pgx.Tx) (*freemail.Matcher, error) {
+	if s.consumerMail == nil {
+		return freemail.New(nil, nil), nil
+	}
+	return s.consumerMail(ctx, tx)
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog in

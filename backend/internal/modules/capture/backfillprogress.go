@@ -155,14 +155,18 @@ func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if c == nil {
 		return
 	}
-	people, organizations := 0, 0
+	people, companies := 0, 0
 	if outcome.PersonCreated {
 		people = 1
 	}
-	if outcome.OrganizationCreated {
-		organizations = 1
+	// The company column counts domains this run QUEUED for a verdict, not
+	// companies it created — capture creates none. A run that met twelve new
+	// domains did that work whether or not the crawls have answered yet, and
+	// reporting zero would hide it.
+	if outcome.CompanyQueued {
+		companies = 1
 	}
-	if people == 0 && organizations == 0 {
+	if people == 0 && companies == 0 {
 		// Resolved onto rows that already existed — on a widen re-import that is
 		// nearly every message.
 		return
@@ -173,7 +177,7 @@ func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 		_, execErr := tx.Exec(countCtx, `
 			UPDATE capture_backfill
 			SET people_created = people_created + $2, organizations_created = organizations_created + $3
-			WHERE id = $1`, c.backfillID, people, organizations)
+			WHERE id = $1`, c.backfillID, people, companies)
 		return execErr
 	})
 	if err != nil {

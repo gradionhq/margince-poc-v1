@@ -82,7 +82,6 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	ensurer := &recordingChannelEnsurer{}
 	sink := capture.NewSink(pool).
 		WithEnsurer(refusingMailEnsurer{t: t},
-			capture.NewFreemailList([]string{"gmail.com"}),
 			capture.NewTransactionalList([]string{"sendgrid.net"}, nil)).
 		WithChannelEnsurer(ensurer)
 
@@ -166,12 +165,11 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 		t.Fatalf("the capture gates left %v behind for a channel record, want nothing", breadcrumbs)
 	}
 
-	// The two list gates, asked what the mail path would ask them: both hold
-	// populated lists, and an absent domain matches nothing rather than
-	// everything.
-	if capture.NewFreemailList([]string{"gmail.com"}).IsFreemail(rec.Counterparty.Domain) {
-		t.Fatal("the free-mail gate matched an absent domain")
-	}
+	// The transactional gate, asked what the mail path would ask it: it holds a
+	// populated list, and a channel record's absent domain matches nothing
+	// rather than everything. The consumer-mail gate is not asked at all here —
+	// it reads the workspace list on the capture transaction, and a channel
+	// record never reaches that ladder.
 	if suppress, reason := capture.NewTransactionalList([]string{"sendgrid.net"}, nil).
 		Suppress(capture.TransactionalInput{Domain: rec.Counterparty.Domain}); suppress {
 		t.Fatalf("the transactional gate suppressed an absent domain (%s)", reason)

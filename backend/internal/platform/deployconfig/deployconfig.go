@@ -87,22 +87,6 @@ func (c CompanyContext) OnboardingEnabled() bool {
 	return c.EffectiveRollout() == CompanyContextOnboarding
 }
 
-// Capture is the deployment's mail-capture pipeline tuning (ADR-0063).
-type Capture struct {
-	// FreemailExtra appends deployment-specific consumer mail domains to
-	// the pinned baseline blocklist (CAP-PARAM-5): mail from these domains
-	// still creates the person, never a company.
-	FreemailExtra []string `yaml:"freemail_extra"`
-	// TransactionalExtra appends deployment-specific mail-infrastructure
-	// eSLDs to the pinned baseline (CAP-PARAM-6, ADR-0072): mail from these
-	// senders keeps the activity but derives no counterparty at all.
-	TransactionalExtra []string `yaml:"transactional_extra"`
-	// TransactionalNever is the operator allowlist of registrable domains
-	// that must never be suppressed as transactional (CAP-PARAM-6) — it wins
-	// over every baseline/prefix rule.
-	TransactionalNever []string `yaml:"transactional_never"`
-}
-
 // Organization names the installation's singleton organization. Consumed
 // only when the organization is created; it never reconciles into an
 // existing installation (§6.3 of the ratified concept).

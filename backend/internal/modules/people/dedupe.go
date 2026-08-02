@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -56,6 +57,16 @@ type PersonCandidate struct {
 	// ChannelIdentities are the messaging-channel keys (provider +
 	// channel user id) an inbound channel message arrives with.
 	ChannelIdentities []connector.ChannelIdentity
+	// ConsumerMail decides whether a shared mail domain says anything about a
+	// shared EMPLOYER. Nil falls back to the shipped baseline, which is right
+	// for every caller that has no transaction-scoped matcher to hand.
+	//
+	// The workspace's own list has to be able to reach here, and specifically
+	// its carve-outs: a `never` entry says "this IS a company's domain,
+	// whatever the shipped list claims", and judging it by the baseline alone
+	// would keep dropping the employer agreement an admin has explicitly
+	// asserted.
+	ConsumerMail *freemail.Matcher
 	// CurrentPrimaryOrgID drives org_match = 1.0 when both sides share
 	// an employer. Nil when the candidate has no known employer yet.
 	CurrentPrimaryOrgID *ids.OrganizationID
@@ -209,10 +220,15 @@ func exactPersonByEmail(ctx context.Context, tx pgx.Tx, emails []string) (ids.Pe
 
 // personCandidateRow is one row of the restricted candidate set.
 type personCandidateRow struct {
-	id        ids.PersonID
-	fullName  string
-	orgID     *ids.OrganizationID
-	orgDomain *string
+	id       ids.PersonID
+	fullName string
+	orgID    *ids.OrganizationID
+	// orgDomain is a domain the incumbent's EMPLOYER is registered under;
+	// mailDomains are the ones their own live addresses sit on. Both say "these
+	// two work at the same place", and the second says it while the employer is
+	// still an open question — which is where a captured counterparty starts.
+	orgDomain   *string
+	mailDomains []string
 }
 
 // fuzzyPerson is PO-F-1 tier 2. The candidate set is restricted to
@@ -221,7 +237,16 @@ type personCandidateRow struct {
 // of walking the workspace.
 func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, p.full_name, r.organization_id, od.domain
+		SELECT p.id, p.full_name, r.organization_id, od.domain,
+		       -- EVERY live address, not an unordered LIMIT 1: a contact with a
+		       -- work and a personal address has two primaries as far as this
+		       -- query is concerned, and picking either at random would make
+		       -- the employer term depend on the plan Postgres chose. Archived
+		       -- addresses are excluded — an address somebody stopped using is
+		       -- not evidence of where they work now.
+		       (SELECT array_agg(DISTINCT split_part(pe.email, '@', 2))
+		          FROM person_email pe
+		         WHERE pe.person_id = p.id AND pe.archived_at IS NULL)
 		  FROM person p
 		  LEFT JOIN relationship r
 		    ON r.person_id = p.id AND r.kind = 'employment'
@@ -240,7 +265,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 	best := PersonResolution{Decision: DecisionNoMatch}
 	for rows.Next() {
 		var row personCandidateRow
-		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain); err != nil {
+		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain, &row.mailDomains); err != nil {
 			return PersonResolution{}, fmt.Errorf("scan person candidate: %w", err)
 		}
 		confidence := personConfidence(c, row)
@@ -268,8 +293,16 @@ func personConfidence(c PersonCandidate, row personCandidateRow) float64 {
 		dedupeOrgDomainWeight*orgMatch(c, row)
 }
 
-// orgMatch is PO-F-1's employer agreement term, most-specific first: a
-// shared employer row beats a shared email domain.
+// orgMatch is PO-F-1's employer agreement term, most-specific first: a shared
+// employer row beats a shared company domain, which beats two addresses simply
+// sitting on the same domain.
+//
+// That last rung is what keeps the term alive for a captured counterparty.
+// Capture creates the person and withholds the company until a site read judges
+// the domain, so for the whole time that question is open there is no employer
+// row and no organization_domain to agree about — and two colleagues at a new
+// customer would stop meeting at the fuzzy tier just when their records are
+// newest and most likely to be twins.
 func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if c.CurrentPrimaryOrgID != nil && row.orgID != nil && *c.CurrentPrimaryOrgID == *row.orgID {
 		return 1.0
@@ -277,8 +310,36 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if row.orgDomain != nil && candidateSharesDomain(c, *row.orgDomain) {
 		return 0.8
 	}
+	for _, domain := range row.mailDomains {
+		if sharedEmployerDomain(c, domain) {
+			return 0.8
+		}
+	}
 	return 0.0
 }
+
+// sharedEmployerDomain reports whether two addresses sitting on the same mail
+// domain says anything about a shared EMPLOYER. On a consumer mailbox provider
+// it says nothing at all — two people at gmail.com share a mail host, not a
+// job — and scoring it would put every same-named pair of private addresses in
+// the review queue, which is exactly where "same domain" carries least signal.
+//
+// The candidate's own matcher decides when it carries one, so a workspace that
+// has corrected the shipped list is obeyed here as well as in capture — its
+// carve-outs are assertions that a domain IS an employer's, and honouring them
+// only on the capture side would leave dedupe dropping evidence the admin
+// deliberately restored.
+func sharedEmployerDomain(c PersonCandidate, domain string) bool {
+	matcher := c.ConsumerMail
+	if matcher == nil {
+		matcher = consumerMailBaseline
+	}
+	return candidateSharesDomain(c, domain) && !matcher.IsConsumer(domain)
+}
+
+// consumerMailBaseline is the shipped list with no workspace overlay — the
+// answer for a caller that built no matcher.
+var consumerMailBaseline = freemail.New(nil, nil)
 
 // candidateSharesDomain reports whether any candidate email sits on an
 // organization domain the incumbent is mapped to.

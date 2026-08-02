@@ -1718,6 +1718,67 @@ caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
 
+- **Capture no longer creates a company on sight, and the spec still says it
+  does.** ADR-0072 §1's tier ladder reads `T1 correspondence-positive → ensure
+  NOW, org per T3`, and T3 suppresses organization derivation for consumer mail
+  alone. Everything else derived a company from the domain label, which is where
+  "Kestner" came from — `sebastian@kestner.example` is a man writing from his own
+  domain — and nothing downstream ever removed it. In the dev database 157 of
+  165 organizations were `name_source='domain'` and only 65 had a corroborated
+  legal entity.
+
+  This build now defers instead: the person is created exactly as before, the
+  company is withheld, and a triage site read decides whether the domain
+  deserves one. The spec owes four things.
+
+  **A fifth tier.** The ladder needs the rung between T3 and T4: a domain that
+  is neither consumer mail nor already judged creates the person and opens an
+  organization question, creating nothing until it is answered.
+
+  **A new table.** `organization_domain_disposition`, one row per (workspace,
+  registrable domain), holding `pending | company | personal | provider |
+  no_site` plus what answered and the bounded-retry cursor. Without it a refusal
+  survives exactly one message.
+
+  **A third `site_read.target_kind`.** `domain_triage` starts with no
+  organization, the shape onboarding already has, and binds one only if the
+  verdict says so.
+
+  **A `provider` class that is not "is this a company?".** `live.fr` is
+  Microsoft's, a real company, and emphatically not the sender's employer. A
+  reader who asks only whether the site belongs to a company answers yes and
+  misattributes everyone with a mailbox there. The site_triage task and its
+  certification corpus carry this distinction; the spec does not yet.
+
+  Also owed: whether the false-refusal direction is release-blocking. It is
+  treated as such here (the corpus's `false_refusal_01` sits at a higher band
+  than its siblings) because a wrong company answer costs one visible, deletable
+  junk record while a wrong refusal costs a real customer their organization,
+  silently.
+- **CAP-PARAM-5's "config file, no admin UI" pin is reversed here.** The pinned
+  70-domain baseline had `live.com` and `live.de` but not `live.fr`, so
+  a private mailbox on `live.fr` produced a company called "Live"; it matched the
+  domain string exactly, so `mail.gmx.net` missed a listed `gmx.net`. This build
+  ships a vendored 8 700-domain dataset (goware/emailproviders, MIT, provenance
+  in `platform/freemail/data/README.md`) matched down to the registrable eTLD+1,
+  and moves the deployment delta from `margince.yaml` into a workspace-shared,
+  admin-curated list read per transaction. A shipped third-party list is wrong
+  in both directions and neither error can wait for a release or for shell
+  access. The spec still says config file, no admin UI.
+- **RC-2 / CAP-DDL-3 / CAP-WIRE-2 personal-mail exclusions are removed.** Founder
+  decision: the feature should not exist. A per-user boundary on a
+  workspace-shared record set was the wrong scope, and the domain-level control
+  that survives is the workspace's own consumer-mail list, which every
+  connection in the installation shares. The store, the pure matcher, the Sink
+  gate, the three endpoints, the settings card and the table are gone (migration
+  0165), and `connector.ExclusionAttrs` with them — nothing else read it. The
+  spec still specifies all of it.
+- **PO-F-1's employer-agreement term needed a third rung.** `orgMatch` scored a
+  shared employer row (1.0) or a shared `organization_domain` (0.8). With the
+  company withheld during triage there is neither, so two colleagues at a new
+  customer stopped meeting at the fuzzy tier exactly when their records are
+  newest and most likely to be twins. This build adds "both addresses sit on the
+  same mail domain" at the same 0.8. The formula in the spec still has two rungs.
 - **Art. 17 erasure has no organization path (foundation #1215).** `Eraser` in
   `privacy/erasure.go` anonymizes the `person` row and purges its satellites;
   grep `organization` there and it finds nothing, on the standard reading that

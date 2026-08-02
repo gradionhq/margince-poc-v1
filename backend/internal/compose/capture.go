@@ -13,7 +13,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,7 +25,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -60,12 +58,15 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 
 // CaptureConfig is the deployment's capture list-config, threaded from
 // margince.yaml's `capture:` block into the Sink's suppression gates: the
-// CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
-// additions plus its allowlist (ADR-0072) — plus the process logger the Sink's
-// post-commit steps report through. The zero value is the pinned baselines with
-// no deployment additions and the default logger.
+// CAP-PARAM-6 transactional/ESP additions plus its allowlist (ADR-0072) — plus
+// the process logger the Sink's post-commit steps report through. The zero
+// value is the pinned baseline with no deployment additions and the default
+// logger.
+//
+// The consumer-mail list (CAP-PARAM-5) is deliberately NOT here: it is the
+// workspace's own, edited in the settings surface and read per transaction, so
+// a correction takes effect on the next message instead of the next restart.
 type CaptureConfig struct {
-	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
 	// Logger carries the process logger to the post-commit steps the Sink
@@ -94,10 +95,17 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 }
 
 // CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
-// compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
+// compose suppression config the Sink gates read (CAP-PARAM-6, ADR-0072).
+//
+// Every role that boots with a config file goes through here, which is why the
+// stale-key warnings are reported here: a setting that is still accepted but no
+// longer acts must say so once, at boot, or an operator goes on believing the
+// file governs something it does not.
 func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
+	for _, warning := range c.Warnings() {
+		log.Warn("capture configuration: " + warning)
+	}
 	return CaptureConfig{
-		FreemailExtra:      c.FreemailExtra,
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
 		Logger:             log,
@@ -128,125 +136,30 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 }
 
 // newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
-// merge-stager, the exclusion gate, and the counterparty auto-create
-// resolver attached. Every capture path shares this spelling: the connector
+// merge-stager and the counterparty auto-create resolver attached. Every
+// capture path shares this spelling: the connector
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
-	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger()), log: cfg.logger()}
+	ensurer := peopleEnsurer{
+		store:  newCounterpartyStore(pool),
+		triage: newDomainTriageTrigger(pool, cfg.logger()),
+		log:    cfg.logger(),
+	}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
-		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
-		// any write, so it covers EVERY connector (imap one-shot, gmail
-		// sync) uniformly (capture.md CAP-DDL-3, AC1.3).
-		WithExclusions(capture.NewExclusions(pool)).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
 		// chokepoint — composed here so capture never imports people. The
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
 		WithEnsurer(ensurer,
-			capture.NewFreemailList(cfg.FreemailExtra),
 			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
 		// The channel twin of the line above (telegram-oa design §6.4): an
 		// inbound channel message reaches the SAME module through its own
 		// contract — one adapter serving two seams, so the two ensures cannot
 		// drift onto different dedupe implementations.
 		WithChannelEnsurer(ensurer)
-}
-
-// peopleEnsurer adapts the people module's auto-create engine onto
-// capture's resolver seams — the mail one and the channel one. Both land in the
-// same module because both must resolve through the same dedupe chokepoint; the
-// contracts differ because a mail counterparty is named by an address and a
-// channel counterparty by a provider identity.
-type peopleEnsurer struct {
-	store *people.Store
-	// enrich queues the web dossier for a company this ensure just minted. It
-	// lives HERE rather than in capture because capture must not know that
-	// website reads exist — the seam it owns says "make the counterparty real",
-	// and what a new company is then worth is the composition's business.
-	enrich *autoEnrichTrigger
-	// log reports a failed identity-review enqueue (raiseIdentityConflict) —
-	// the one fault on this path that must never become a returned error,
-	// because that would fail the capture that found it.
-	log *slog.Logger
-}
-
-func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
-	res, err := p.store.EnsureCounterparty(ctx, people.EnsureCounterpartyInput{
-		Email:       in.Email,
-		DisplayName: in.DisplayName,
-		Domain:      in.Domain,
-		OwnerID:     in.OwnerID,
-		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
-		Source:      in.Source,
-		CapturedBy:  in.CapturedBy,
-		SuppressOrg: in.SuppressOrg,
-	})
-	if errors.Is(err, people.ErrCounterpartySuppressed) {
-		// A13: the erased address stays dead — a deliberate no-op, not a
-		// fault for the reconcile queue, and nothing was created to count.
-		return capture.EnsureOutcome{}, nil
-	}
-	if err != nil {
-		return capture.EnsureOutcome{}, err
-	}
-	// A NEW company is the trigger, not every captured mail: an organization
-	// that already existed has either been enriched or been deliberately left
-	// alone, and re-asking on every message from it would spend the day's cap on
-	// companies nobody learned anything new about.
-	if res.OrgCreated && res.OrganizationID != nil {
-		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
-	}
-	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
-}
-
-// EnsureChannelCounterparty is the same adaptation for an inbound channel
-// message (telegram-oa design §6.4). No company is derived and so no web
-// dossier is queued: a channel identity carries no domain, and there is nothing
-// for the enrich trigger to read a website from.
-func (p peopleEnsurer) EnsureChannelCounterparty(ctx context.Context, in capture.EnsureChannelRequest) (capture.EnsureOutcome, error) {
-	res, err := p.store.EnsureChannelCounterparty(ctx, people.EnsureChannelCounterpartyInput{
-		Identity:    in.Identity,
-		DisplayName: in.DisplayName,
-		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
-		Source:      in.Source,
-		CapturedBy:  in.CapturedBy,
-	})
-	if errors.Is(err, people.ErrCounterpartySuppressed) {
-		// A13 on the channel key: an erased subject stays dead — a deliberate
-		// no-op, not a fault for the reconcile queue, and nothing was created
-		// to count.
-		return capture.EnsureOutcome{}, nil
-	}
-	if err != nil {
-		return capture.EnsureOutcome{}, err
-	}
-	if res.Conflict != nil {
-		p.raiseIdentityConflict(ctx, *res.Conflict, in.Source, in.CapturedBy)
-	}
-	return capture.EnsureOutcome{PersonCreated: res.PersonCreated}, nil
-}
-
-// raiseIdentityConflict is the D8 identity-review half of routing (design
-// §7.3): the ensure above already routed the message deterministically and
-// wrote nothing onto the rival, so what remains is telling a human "these two
-// records may be one person." It runs in its own transaction (EnqueueIdentityConflict),
-// AFTER the ensure's own commit, and deliberately swallows nothing into
-// silence — a failure is logged with the pair and both lanes so it is
-// actionable — but never returns an error: the message that surfaced this
-// conflict is already on the timeline, and it must stay there even when this
-// write does not succeed. Every later message from the same conflicting
-// identity retries this call, and dedupequeue's own pair index absorbs the
-// repeat (EnqueueIdentityConflict's own contract), so a transient failure
-// here self-heals on the next message rather than needing a retry queue.
-func (p peopleEnsurer) raiseIdentityConflict(ctx context.Context, conflict people.LaneConflict, source, capturedBy string) {
-	if _, err := p.store.EnqueueIdentityConflict(ctx, conflict, source, capturedBy); err != nil {
-		p.log.ErrorContext(ctx, "capture: identity-conflict review failed to enqueue",
-			"routed_to", conflict.RoutedTo.String(), "routed_lane", conflict.RoutedLane,
-			"rival", conflict.Rival.String(), "rival_lane", conflict.RivalLane, "err", err)
-	}
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

@@ -5,13 +5,17 @@
 
 package compose
 
-// The enrich-on-capture trigger's decisions (ADR-0072/A118 §9).
+// The triage-on-capture trigger's decisions.
 //
 // What these cover is the part that can go wrong quietly: which gates run, in
 // which order, and — for every way the trigger gives up — whether the
-// organization is left in a state the daily sweep still finds. That contract is
-// the entire reason the trigger is allowed to be best-effort, so it is the thing
+// domain is left in a state the daily sweep still finds. That contract is the
+// entire reason the trigger is allowed to be best-effort, so it is the thing
 // worth holding.
+//
+// These held the enrich-on-capture trigger until capture stopped creating
+// organizations; the gates, their order and the shared budget counter are the
+// same, and the trigger they now guard is the one that still runs.
 //
 // The budget counter these gates spend from is tested here too, next to the
 // trigger that shares it with the sweep.
@@ -30,19 +34,35 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// stillDue reports whether the sweep would pick this organization up.
-func stillDue(t *testing.T, e *integration.Env, org ids.OrganizationID) bool {
+// openQuestion puts a domain in the state the ensure ladder leaves it: the
+// company question recorded and unanswered, owned by a real human.
+func openQuestion(t *testing.T, e *integration.Env, domain string) {
 	t.Helper()
-	due, err := capture.NewAutoEnrichStore(e.Pool).ListDueOrgs(e.Admin(), 50)
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_domain_disposition (workspace_id, domain, status, owner_id)
+			VALUES ($1, $2, 'pending', $3)`, e.WS, domain, e.Rep1)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// stillDue reports whether the sweep would still pick this domain up. Every way
+// the trigger gives up has to leave it true — that is the whole contract that
+// lets the trigger be best-effort.
+func stillDue(t *testing.T, e *integration.Env, domain string) bool {
+	t.Helper()
+	due, err := people.NewStore(e.Pool).ListDueDomains(e.Admin(), 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range due {
-		if d.OrganizationID == org {
+		if d.Domain == domain {
 			return true
 		}
 	}
@@ -66,26 +86,26 @@ func budgetSpent(t *testing.T, e *integration.Env) int {
 		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget`)
 }
 
-func TestEnrichOnCaptureRespectsTheSettingBeforeSpendingAnything(t *testing.T) {
+func TestTriageOnCaptureRespectsTheSettingBeforeSpendingAnything(t *testing.T) {
 	e := integration.Setup(t)
 	setAutoEnrich(t, e, false)
-	org := insertDomainOrg(t, e, "switched-off.example")
+	openQuestion(t, e, "switched-off.example")
 
-	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
-	trigger.organizationCaptured(e.Admin(), org, "switched-off.example")
+	trigger := newDomainTriageTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	trigger.domainPending(e.Admin(), "switched-off.example")
 
 	if n := budgetSpent(t, e); n != 0 {
 		t.Fatalf("%d budget slots spent with the setting off — the flag must be read before the budget", n)
 	}
-	if !stillDue(t, e, org) {
-		t.Fatal("the organization was retired from the sweep by a trigger that did nothing")
+	if !stillDue(t, e, "switched-off.example") {
+		t.Fatal("the domain was retired from the sweep by a trigger that did nothing")
 	}
 }
 
-func TestEnrichOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
+func TestTriageOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
 	e := integration.Setup(t)
 	setAutoEnrich(t, e, true)
-	org := insertDomainOrg(t, e, "capped.example")
+	openQuestion(t, e, "capped.example")
 
 	// A cap of its own, not the shipped 500: filling the real one costs 500
 	// round trips to demonstrate a bound that behaves identically at three, and
@@ -102,14 +122,14 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
 		}
 	}
 
-	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	trigger := newDomainTriageTrigger(e.Pool, slog.New(slog.DiscardHandler))
 	trigger.dailyCap = testCap
-	trigger.organizationCaptured(e.Admin(), org, "capped.example")
+	trigger.domainPending(e.Admin(), "capped.example")
 
 	if n := budgetSpent(t, e); n != testCap {
 		t.Fatalf("budget spent = %d, want the cap %d — the trigger must not spend past it", n, testCap)
 	}
-	if !stillDue(t, e, org) {
+	if !stillDue(t, e, "capped.example") {
 		t.Fatal("a capped trigger retired the organization — it must stay due for a later sweep")
 	}
 }
@@ -118,15 +138,15 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
 // the sweep. This drives the give-up that is hardest to reason about — the read
 // itself failing to start — by running with no ambient River client, which is
 // exactly what a missing queue looks like from here.
-func TestEnrichOnCaptureLeavesTheOrgToTheSweepWhenTheReadCannotStart(t *testing.T) {
+func TestTriageOnCaptureLeavesTheOrgToTheSweepWhenTheReadCannotStart(t *testing.T) {
 	e := integration.Setup(t)
 	setAutoEnrich(t, e, true)
-	org := insertDomainOrg(t, e, "no-queue.example")
+	openQuestion(t, e, "no-queue.example")
 
-	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
-	trigger.organizationCaptured(e.Admin(), org, "no-queue.example")
+	trigger := newDomainTriageTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	trigger.domainPending(e.Admin(), "no-queue.example")
 
-	if !stillDue(t, e, org) {
+	if !stillDue(t, e, "no-queue.example") {
 		t.Fatal("a trigger that could not start the read retired the organization anyway")
 	}
 	// And the slot it reserved goes back. Reserving before starting is what makes
@@ -140,21 +160,20 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepWhenTheReadCannotStart(t *testing.
 // There is nothing to read without a domain, so nothing is reserved. The gate is
 // first because it is the only one that needs no query; this asserts the spend,
 // which is the part that matters, not the query count.
-func TestEnrichOnCaptureIgnoresAnEmptyDomain(t *testing.T) {
+func TestTriageOnCaptureIgnoresAnEmptyDomain(t *testing.T) {
 	e := integration.Setup(t)
 	setAutoEnrich(t, e, true)
-	org := insertDomainOrg(t, e, "nodomain.example")
 
-	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
-	trigger.organizationCaptured(e.Admin(), org, "")
+	trigger := newDomainTriageTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	trigger.domainPending(e.Admin(), "")
 
 	if n := budgetSpent(t, e); n != 0 {
-		t.Fatalf("%d budget slots spent for an organization with no domain to read", n)
+		t.Fatalf("%d budget slots spent for a counterparty with no domain to read", n)
 	}
 }
 
 // Reserve-before-spend means a caller sometimes holds a slot it turns out not to
-// need — two paths racing on one organization both reserve, and the in-flight
+// need — two paths racing on one domain both reserve, and the in-flight
 // uniqueness index lets only one of them start a read. The refund is what keeps
 // the day's allowance eroding a slot at a time, with the shortfall growing with
 // exactly the concurrency the cap is meant to be indifferent to.
@@ -294,13 +313,88 @@ func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
 	// Through the shared rule both the trigger and the sweep use. With no River
 	// client the read cannot start, so this is the refund path — on a context
 	// that is already dead.
-	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
-	err = startEnrichOrRefund(cancelled, trigger.people, trigger.autoEnrich,
-		insertDomainOrg(t, e, "cancelled.example"), "cancelled.example", slot)
+	openQuestion(t, e, "cancelled.example")
+	trigger := newDomainTriageTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	err = trigger.startOrRefund(cancelled, "cancelled.example", slot)
 	if err == nil {
 		t.Fatal("expected the start to fail on a cancelled context")
 	}
 	if n := budgetSpent(t, e); n != 0 {
 		t.Fatalf("budget spent = %d, want 0 — the slot must come back even when the capture was cancelled", n)
+	}
+}
+
+// dispositionOf reads a domain's standing verdict, or "" when it has none.
+func dispositionOf(t *testing.T, e *integration.Env, domain string) string {
+	t.Helper()
+	var status string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT coalesce(max(status), '') FROM organization_domain_disposition WHERE domain = $1`,
+			domain).Scan(&status)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return status
+}
+
+// spendAttempts drives a domain to the end of its retry budget and makes it due,
+// which is the state a site that never loads leaves behind.
+func spendTriageAttempts(t *testing.T, e *integration.Env, domain string) {
+	t.Helper()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE organization_domain_disposition
+			   SET attempts = $2, next_attempt_at = now() - interval '1 day'
+			 WHERE domain = $1`, domain, people.DomainTriageMaxAttempts)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The sweep must CLOSE a question no crawl will ever answer. A domain that spent
+// every attempt drops out of the due scan, so leaving it pending would strand
+// its people without a company and with nothing on the row to say why — the
+// person is created either way, and only the company waits on this.
+func TestTriageSweepSettlesADomainThatRanOutOfAttempts(t *testing.T) {
+	e := integration.Setup(t)
+	setAutoEnrich(t, e, true)
+	openQuestion(t, e, "unreachable.example")
+	spendTriageAttempts(t, e, "unreachable.example")
+
+	worker := newCaptureAutoEnrichSweepWorker(e.Pool, slog.New(slog.DiscardHandler))
+	if err := worker.sweepDomainTriage(e.Admin(), 50); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if got := dispositionOf(t, e, "unreachable.example"); got == "pending" || got == "" {
+		t.Fatalf("disposition = %q after the sweep, want it settled", got)
+	}
+	if stillDue(t, e, "unreachable.example") {
+		t.Fatal("a settled domain is still being offered for a crawl")
+	}
+}
+
+// A domain with attempts left is left alone by the settle pass — settling it
+// early would answer from no evidence a crawl could still have gathered.
+func TestTriageSweepLeavesADomainThatStillHasAttempts(t *testing.T) {
+	e := integration.Setup(t)
+	setAutoEnrich(t, e, true)
+	openQuestion(t, e, "waiting.example")
+
+	worker := newCaptureAutoEnrichSweepWorker(e.Pool, slog.New(slog.DiscardHandler))
+	// The enqueue needs an ambient River client this process has none of, so
+	// the read cannot start and its budget slot is refunded. That is the path
+	// under test: a sweep that cannot queue must leave the question open.
+	if err := worker.sweepDomainTriage(e.Admin(), 50); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+
+	if got := dispositionOf(t, e, "waiting.example"); got != "pending" {
+		t.Fatalf("disposition = %q, want it still pending", got)
+	}
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — a slot that bought no crawl must come back", n)
 	}
 }

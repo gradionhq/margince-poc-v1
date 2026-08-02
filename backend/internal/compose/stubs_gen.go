@@ -223,16 +223,16 @@ func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemI
 	httperr.NotImplemented(w, r, "SnoozeBriefItem")
 }
 
-func (stubs) ListCaptureExclusions(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "ListCaptureExclusions")
+func (stubs) ListConsumerMailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListConsumerMailDomains")
 }
 
-func (stubs) CreateCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "CreateCaptureExclusion")
+func (stubs) AddConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "AddConsumerMailDomain")
 }
 
-func (stubs) DeleteCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "DeleteCaptureExclusion")
+func (stubs) RemoveConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RemoveConsumerMailDomain")
 }
 
 func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {

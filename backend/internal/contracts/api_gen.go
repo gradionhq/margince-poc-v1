@@ -147,6 +147,24 @@ func (e ActivityLinkEntityType) Valid() bool {
 	}
 }
 
+// Defines values for AddConsumerMailDomainRequestKind.
+const (
+	AddConsumerMailDomainRequestKindExtra AddConsumerMailDomainRequestKind = "extra"
+	AddConsumerMailDomainRequestKindNever AddConsumerMailDomainRequestKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the AddConsumerMailDomainRequestKind enum.
+func (e AddConsumerMailDomainRequestKind) Valid() bool {
+	switch e {
+	case AddConsumerMailDomainRequestKindExtra:
+		return true
+	case AddConsumerMailDomainRequestKindNever:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AddListMemberRequestEntityType.
 const (
 	AddListMemberRequestEntityTypeDeal         AddListMemberRequestEntityType = "deal"
@@ -1047,27 +1065,6 @@ func (e CaptureConnectionStatus) Valid() bool {
 	case CaptureConnectionStatusError:
 		return true
 	case CaptureConnectionStatusReauthRequired:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CaptureExclusionRuleKind.
-const (
-	CaptureExclusionRuleKindLabel           CaptureExclusionRuleKind = "label"
-	CaptureExclusionRuleKindRecipientDomain CaptureExclusionRuleKind = "recipient_domain"
-	CaptureExclusionRuleKindSenderDomain    CaptureExclusionRuleKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CaptureExclusionRuleKind enum.
-func (e CaptureExclusionRuleKind) Valid() bool {
-	switch e {
-	case CaptureExclusionRuleKindLabel:
-		return true
-	case CaptureExclusionRuleKindRecipientDomain:
-		return true
-	case CaptureExclusionRuleKindSenderDomain:
 		return true
 	default:
 		return false
@@ -2013,6 +2010,24 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	}
 }
 
+// Defines values for ConsumerMailDomainKind.
+const (
+	ConsumerMailDomainKindExtra ConsumerMailDomainKind = "extra"
+	ConsumerMailDomainKindNever ConsumerMailDomainKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the ConsumerMailDomainKind enum.
+func (e ConsumerMailDomainKind) Valid() bool {
+	switch e {
+	case ConsumerMailDomainKindExtra:
+		return true
+	case ConsumerMailDomainKindNever:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContextEntityRefType.
 const (
 	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
@@ -2142,27 +2157,6 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CreateCaptureExclusionRequestKind.
-const (
-	CreateCaptureExclusionRequestKindLabel           CreateCaptureExclusionRequestKind = "label"
-	CreateCaptureExclusionRequestKindRecipientDomain CreateCaptureExclusionRequestKind = "recipient_domain"
-	CreateCaptureExclusionRequestKindSenderDomain    CreateCaptureExclusionRequestKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CreateCaptureExclusionRequestKind enum.
-func (e CreateCaptureExclusionRequestKind) Valid() bool {
-	switch e {
-	case CreateCaptureExclusionRequestKindLabel:
-		return true
-	case CreateCaptureExclusionRequestKindRecipientDomain:
-		return true
-	case CreateCaptureExclusionRequestKindSenderDomain:
 		return true
 	default:
 		return false
@@ -7572,6 +7566,16 @@ type ActivityListResponse struct {
 	Page PageInfo   `json:"page"`
 }
 
+// AddConsumerMailDomainRequest defines model for AddConsumerMailDomainRequest.
+type AddConsumerMailDomainRequest struct {
+	// Domain A mail domain; normalized to its registrable form before it is stored.
+	Domain string                           `json:"domain"`
+	Kind   AddConsumerMailDomainRequestKind `json:"kind"`
+}
+
+// AddConsumerMailDomainRequestKind defines model for AddConsumerMailDomainRequest.Kind.
+type AddConsumerMailDomainRequestKind string
+
 // AddListMemberRequest defines model for AddListMemberRequest.
 type AddListMemberRequest struct {
 	EntityId   openapi_types.UUID             `json:"entity_id"`
@@ -8395,28 +8399,6 @@ type CaptureConsent struct {
 	Wording *string `json:"wording,omitempty"`
 }
 
-// CaptureExclusionRule One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
-// produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
-// filtering DSL — a small typed (kind, value) pair, per connected user.
-type CaptureExclusionRule struct {
-	CreatedAt *time.Time         `json:"created_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
-
-	// Kind Match a sender domain, a recipient domain, or a mail label.
-	Kind CaptureExclusionRuleKind `json:"kind"`
-
-	// Value The normalized domain (e.g. `personal-family.example`) or the provider mail-label name.
-	Value string `json:"value"`
-}
-
-// CaptureExclusionRuleKind Match a sender domain, a recipient domain, or a mail label.
-type CaptureExclusionRuleKind string
-
-// CaptureExclusionRuleListResponse defines model for CaptureExclusionRuleListResponse.
-type CaptureExclusionRuleListResponse struct {
-	Data []CaptureExclusionRule `json:"data"`
-}
-
 // CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
 // changed only by admin/ops.
 type CaptureSettings struct {
@@ -9040,6 +9022,29 @@ type ConsentRequest struct {
 	Passports []ConsentPassportOption `json:"passports"`
 }
 
+// ConsumerMailDomain One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+// consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+// that claimed it. Either way the domain is stored in its registrable form, which is what
+// the matcher keys on.
+type ConsumerMailDomain struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Domain The registrable domain (e.g. `gmx.net`).
+	Domain string             `json:"domain"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// Kind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+	Kind ConsumerMailDomainKind `json:"kind"`
+}
+
+// ConsumerMailDomainKind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+type ConsumerMailDomainKind string
+
+// ConsumerMailDomainListResponse defines model for ConsumerMailDomainListResponse.
+type ConsumerMailDomainListResponse struct {
+	Data []ConsumerMailDomain `json:"data"`
+}
+
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
 	Id openapi_types.UUID `json:"id"`
@@ -9126,15 +9131,6 @@ type CreateAutomationRequest struct {
 	Name   string                 `json:"name"`
 	Params map[string]interface{} `json:"params"`
 }
-
-// CreateCaptureExclusionRequest defines model for CreateCaptureExclusionRequest.
-type CreateCaptureExclusionRequest struct {
-	Kind  CreateCaptureExclusionRequestKind `json:"kind"`
-	Value string                            `json:"value"`
-}
-
-// CreateCaptureExclusionRequestKind defines model for CreateCaptureExclusionRequest.Kind.
-type CreateCaptureExclusionRequestKind string
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
 type CreateConsentPurposeRequest struct {
@@ -16610,8 +16606,8 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 // SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
 type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
-// CreateCaptureExclusionJSONRequestBody defines body for CreateCaptureExclusion for application/json ContentType.
-type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
+// AddConsumerMailDomainJSONRequestBody defines body for AddConsumerMailDomain for application/json ContentType.
+type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
 
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
@@ -22678,15 +22674,15 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
-	// List the calling user's personal-mail exclusion rules (RC-2).
-	// (GET /capture/exclusions)
-	ListCaptureExclusions(w http.ResponseWriter, r *http.Request)
-	// Add a personal-mail exclusion rule (RC-2).
-	// (POST /capture/exclusions)
-	CreateCaptureExclusion(w http.ResponseWriter, r *http.Request)
-	// Remove a personal-mail exclusion rule (RC-2).
-	// (DELETE /capture/exclusions/{id})
-	DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id)
+	// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+	// (GET /capture/consumer-mail-domains)
+	ListConsumerMailDomains(w http.ResponseWriter, r *http.Request)
+	// Add a consumer-mail domain, or carve one out (admin/ops).
+	// (POST /capture/consumer-mail-domains)
+	AddConsumerMailDomain(w http.ResponseWriter, r *http.Request)
+	// Withdraw a consumer-mail list entry (admin/ops).
+	// (DELETE /capture/consumer-mail-domains/{id})
+	RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
@@ -23722,21 +23718,21 @@ func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List the calling user's personal-mail exclusion rules (RC-2).
-// (GET /capture/exclusions)
-func (_ Unimplemented) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+// (GET /capture/consumer-mail-domains)
+func (_ Unimplemented) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Add a personal-mail exclusion rule (RC-2).
-// (POST /capture/exclusions)
-func (_ Unimplemented) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// Add a consumer-mail domain, or carve one out (admin/ops).
+// (POST /capture/consumer-mail-domains)
+func (_ Unimplemented) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Remove a personal-mail exclusion rule (RC-2).
-// (DELETE /capture/exclusions/{id})
-func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id) {
+// Withdraw a consumer-mail list entry (admin/ops).
+// (DELETE /capture/consumer-mail-domains/{id})
+func (_ Unimplemented) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27397,8 +27393,8 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// ListCaptureExclusions operation middleware
-func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+// ListConsumerMailDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -27407,7 +27403,7 @@ func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, 
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCaptureExclusions(w, r)
+		siw.Handler.ListConsumerMailDomains(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27417,8 +27413,8 @@ func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// CreateCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// AddConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -27427,7 +27423,7 @@ func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCaptureExclusion(w, r)
+		siw.Handler.AddConsumerMailDomain(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27437,8 +27433,8 @@ func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// RemoveConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -27459,7 +27455,7 @@ func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteCaptureExclusion(w, r, id)
+		siw.Handler.RemoveConsumerMailDomain(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39404,13 +39400,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/capture/exclusions", wrapper.ListCaptureExclusions)
+		r.Get(options.BaseURL+"/capture/consumer-mail-domains", wrapper.ListConsumerMailDomains)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/capture/exclusions", wrapper.CreateCaptureExclusion)
+		r.Post(options.BaseURL+"/capture/consumer-mail-domains", wrapper.AddConsumerMailDomain)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/capture/exclusions/{id}", wrapper.DeleteCaptureExclusion)
+		r.Delete(options.BaseURL+"/capture/consumer-mail-domains/{id}", wrapper.RemoveConsumerMailDomain)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)

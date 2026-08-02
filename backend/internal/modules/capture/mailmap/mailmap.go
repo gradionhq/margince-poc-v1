@@ -42,11 +42,9 @@ type Message struct {
 	from             string
 	to               string
 	counterparty     string
-	counterpartyName string   // display name from the counterparty's header — untrusted text
-	threadKey        string   // conversation identity: References root / In-Reply-To / own Message-ID
-	senderDomain     string   // lowercased domain of From — for the RC-2 gate
-	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
-	autoReply        bool     // a reply nobody chose to write: kept off the timeline
+	counterpartyName string // display name from the counterparty's header — untrusted text
+	threadKey        string // conversation identity: References root / In-Reply-To / own Message-ID
+	autoReply        bool   // a reply nobody chose to write: kept off the timeline
 	// machineTouched is the BROADER question — did any machine have a hand in
 	// this? It never drops a message; it only refuses the outbound attestation,
 	// so a responder's reply cannot vouch for an address the owner never chose.
@@ -126,8 +124,6 @@ func Parse(raw []byte, owner string) (Message, error) {
 		counterparty:     counterparty,
 		counterpartyName: counterpartyName,
 		threadKey:        threadKey(header.Get("References"), header.Get("In-Reply-To"), messageID),
-		senderDomain:     domainOf(from),
-		recipientDomains: domainsOf(toList),
 		autoReply:        autoReply,
 		machineTouched:   machineTouched,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
@@ -200,14 +196,6 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 		Source:     source,
 		CapturedBy: "connector:" + connectorName,
 		Raw:        raw,
-		// The RC-2 exclusion gate reads these in the ONE Sink before any
-		// write; labels are left empty here (RFC822 carries none — a
-		// provider label feed is a follow-up), so only domain rules bite
-		// on mail read over imap/gmail-raw today.
-		Match: connector.ExclusionAttrs{
-			SenderDomain:     m.senderDomain,
-			RecipientDomains: m.recipientDomains,
-		},
 		Counterparty: connector.Counterparty{
 			Email:           strings.ToLower(strings.TrimSpace(m.counterparty)),
 			DisplayName:     m.counterpartyName,
@@ -228,25 +216,6 @@ func domainOf(addr string) string {
 		return addr[idx+1:]
 	}
 	return ""
-}
-
-// domainsOf returns the lowercased, de-duplicated domains of an address
-// list, order-preserving — every recipient's domain the RC-2 gate may match.
-func domainsOf(list []*mail.Address) []string {
-	var out []string
-	seen := map[string]struct{}{}
-	for _, a := range list {
-		d := domainOf(a.Address)
-		if d == "" {
-			continue
-		}
-		if _, dup := seen[d]; dup {
-			continue
-		}
-		seen[d] = struct{}{}
-		out = append(out, d)
-	}
-	return out
 }
 
 // extractText returns the message's plain-text body. It prefers a

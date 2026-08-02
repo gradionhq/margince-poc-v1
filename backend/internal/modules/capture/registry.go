@@ -254,7 +254,14 @@ func (r *Registry) seedInternalDomain(ctx context.Context, tx pgx.Tx, cursor []b
 	if !found || domain == "" {
 		return nil
 	}
-	if r.sink != nil && r.sink.freemail != nil && r.sink.freemail.IsFreemail(domain) {
+	// A gmail.com mailbox does not make gmail.com internal. Read on this
+	// transaction like every other consumer-mail check, so a workspace that has
+	// corrected its list is obeyed here too.
+	consumerMail, err := MatcherTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if consumerMail.IsConsumer(domain) {
 		return nil
 	}
 	if _, err := tx.Exec(ctx, `

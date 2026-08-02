@@ -31,10 +31,8 @@ import (
 type Sink struct {
 	pool           *pgxpool.Pool
 	stager         MergeStager
-	exclusions     ExclusionRules
 	ensurer        CounterpartyEnsurer
 	channelEnsurer ChannelCounterpartyEnsurer
-	freemail       *FreemailList
 	transactional  *TransactionalList
 }
 
@@ -79,15 +77,6 @@ func (s *Sink) WithStager(stager MergeStager) *Sink {
 	return &c
 }
 
-// WithExclusions returns a copy wired to the RC-2 personal-mail exclusion
-// gate (CAP-DDL-3): before any write, a record matching the capturing
-// user's rules produces zero rows and one capture.skipped event.
-func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
-	c := *s
-	c.exclusions = rules
-	return &c
-}
-
 var _ connector.Sink = (*Sink)(nil)
 
 // Upsert lands one normalized record: raw original + domain row +
@@ -114,14 +103,6 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
 	case shapeNone, shapeMail, shapeChannel:
 		// Well-formed; the channel arm is gated inside the transaction below.
-	}
-
-	// The RC-2 exclusion gate runs BEFORE any write — including the raw
-	// original — so an excluded (personal) message leaves ZERO rows
-	// anywhere and the skip is the only trace (AC1.3, EVT-SEM-10). It lives
-	// here, in the ONE writer, so every connector inherits it.
-	if err := s.gateExclusion(ctx, rec); err != nil {
-		return datasource.EntityRef{}, err
 	}
 
 	var ref datasource.EntityRef

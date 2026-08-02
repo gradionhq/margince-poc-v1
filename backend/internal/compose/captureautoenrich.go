@@ -135,6 +135,13 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 	if err != nil {
 		return err
 	}
+	// The open domain questions are swept whatever the setting says. With
+	// crawling off the worker settles each one from what the workspace already
+	// knows; skipping them would leave every person captured under that setting
+	// without a company, permanently.
+	if err := w.sweepDomainTriage(wsCtx, w.dailyCap); err != nil {
+		return err
+	}
 	if !settings.AutoEnrich {
 		return nil
 	}

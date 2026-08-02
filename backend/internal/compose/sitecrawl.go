@@ -226,7 +226,7 @@ func (c *siteCrawler) CrawlStream(ctx context.Context, seedURL string, onPage fu
 
 	seedURL, seedPage, err := c.fetchSeed(ctx, pacer, seedURL)
 	if err != nil {
-		return siteCrawl{}, fmt.Errorf("site read of %s: the seed page itself failed: %w", seedURL, err)
+		return siteCrawl{}, err
 	}
 	seedParsed, err := url.Parse(seedURL)
 	if err != nil {
@@ -341,34 +341,6 @@ func untakenCandidates(queue []crawlCandidate, taken []bool) []crawlCandidate {
 }
 
 // fetchPaced is one polite fetch: pacer slot in, fetch, slot out.
-func (c *siteCrawler) fetchPaced(ctx context.Context, pacer crawlPacer, rawURL string) (webread.Page, error) {
-	if err := pacer.Wait(ctx); err != nil {
-		return webread.Page{}, err
-	}
-	defer pacer.Done()
-	return c.fetch.FetchPage(ctx, rawURL)
-}
-
-// crawlRun is one crawl's working state: the report being built plus the
-// dedupe sets that keep the walk from re-reading anything.
-type crawlRun struct {
-	crawler *siteCrawler
-	pacer   crawlPacer
-	seedURL string
-
-	crawl         siteCrawl
-	onPage        func(crawlPage)
-	queue         []crawlCandidate
-	visited       map[string]bool
-	seenText      map[string]bool
-	canonicalDone map[string]bool
-	probeKindDone map[crmcontracts.SiteReadPageKind]bool
-	// impressumRead counts committed legal pages: the locale bypass that
-	// keeps the entity census honest is bounded by it (legalCensusOpen).
-	impressumRead int
-	totalBytes    int
-}
-
 func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webread.Page) *crawlRun {
 	visited := map[string]bool{seedURL: true}
 	if normalizedSeed, ok := normalizeCandidate(seedURL); ok {

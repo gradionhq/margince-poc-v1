@@ -25,10 +25,13 @@ import (
 )
 
 const (
-	siteReadStatusDeferred    = "deferred"
-	siteReadWireStatusDone    = "done"
-	siteReadWireStatusFailed  = "failed"
-	siteReadWireStatusPartial = "partial"
+	siteReadStatusDeferred = "deferred"
+	siteReadWireStatusDone = "done"
+	// A read that ended without a fault: stopped by a decision rather than by
+	// something going wrong. A failure is something to investigate; this is not.
+	siteReadWireStatusCancelled = "cancelled"
+	siteReadWireStatusFailed    = "failed"
+	siteReadWireStatusPartial   = "partial"
 )
 
 func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Request) {
@@ -276,10 +279,14 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison,
 		found = append(found, out)
 	}
 	comparisons := contractSiteReadComparisons(compared)
+	// Every terminal status the store can hold maps to something. A status
+	// missing from this table renders as the empty string, which is not a
+	// value the contract's enum has and tells a client nothing at all.
 	status := map[string]string{
 		"queued": "queued", siteReadStatusDeferred: siteReadStatusDeferred, "running": "reading", "done": "ready",
-		siteReadWireStatusPartial: siteReadWireStatusPartial,
-		siteReadWireStatusFailed:  siteReadWireStatusFailed,
+		siteReadWireStatusPartial:   siteReadWireStatusPartial,
+		siteReadWireStatusFailed:    siteReadWireStatusFailed,
+		siteReadWireStatusCancelled: string(crmcontracts.CompanySiteReadStatusAbandoned),
 	}[read.Status]
 	if read.ConfirmedAt != nil {
 		status = "confirmed"

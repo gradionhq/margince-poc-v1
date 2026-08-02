@@ -36,6 +36,11 @@ type SiteReadDebugOptions struct {
 	Brain   completer
 	// FactBrain serves the page-parallel fact lane (nil ⇒ Brain).
 	FactBrain completer
+	// TriageBrain serves the domain-triage classification (nil ⇒ FactBrain,
+	// then Brain). Its own lane on purpose: the classifier rides a cheap-first
+	// ladder in production, and tuning its prompt against the profile lane's
+	// premium-only binding would tune it against a model that never runs it.
+	TriageBrain completer
 	// IncludePageText carries each fetched page's reduced text into the
 	// report (DebugPage.Text) — for the --dump-pages flag; off by default
 	// because page text dwarfs everything else in the JSON.
@@ -70,6 +75,25 @@ type SiteReadDebugReport struct {
 	// ExtractionDurationMs is the parallel extraction's wall clock —
 	// with the crawl duration, the read's whole latency story.
 	ExtractionDurationMs int64 `json:"extraction_duration_ms"`
+	// Triage is what the domain-triage classifier made of the landing page.
+	// It is reported for EVERY debug run, including seeds that would never be
+	// triaged in production, because tuning that prompt is the whole reason to
+	// point this tool at a personal domain or a mailbox vendor.
+	Triage DebugTriage `json:"triage"`
+}
+
+// DebugTriage is the seed-page classification and what it would have cost.
+type DebugTriage struct {
+	Kind       string  `json:"kind"`
+	Confidence float64 `json:"confidence"`
+	Reason     string  `json:"reason"`
+	// Aborts reports whether this verdict would have stopped the crawl after
+	// the landing page — the saving the classifier exists to buy.
+	Aborts bool `json:"aborts"`
+	// Error is the classification call's own failure, if it had one. A failed
+	// classification is not a failed read: production falls through to the
+	// full crawl, and so does this.
+	Error string `json:"error,omitempty"`
 }
 
 // RunSiteReadDebug runs one full deep read in memory and reports every
@@ -101,6 +125,11 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		factInner = opts.Brain
 	}
 	recFacts := &recordingBrain{inner: factInner, log: log}
+	triageInner := opts.TriageBrain
+	if triageInner == nil {
+		triageInner = factInner
+	}
+	recTriage := &recordingBrain{inner: triageInner, log: log}
 	var dropped []DebugDrop
 	extract := evidenceExtractor{fetch: pageFetch, brain: rec, factBrain: recFacts, drops: func(sourceURL string, d droppedFinding) {
 		dropped = append(dropped, DebugDrop{
@@ -135,6 +164,9 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.ModelLaneError = extraction.err.Error()
 	}
 	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
+	if len(crawl.Pages) > 0 {
+		report.Triage = debugTriage(ctx, recTriage, crawl.Pages[0])
+	}
 	if logoFetch != nil {
 		logoSeed := crawl.SeedURL
 		if logoSeed == "" {
@@ -162,6 +194,34 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.Warnings = append(report.Warnings, warning)
 	}
 	return report, nil
+}
+
+// debugTriage runs the domain-triage classifier over the landing page the crawl
+// already read. It classifies AFTER the fact here rather than before, because a
+// debug run wants the whole read regardless of the verdict — what it reports is
+// what production WOULD have decided.
+func debugTriage(ctx context.Context, brain completer, seed crawlPage) DebugTriage {
+	req := triageRequest(seed)
+	var resp model.Response
+	var err error
+	// The same validated call classifySeed makes. Without it a malformed reply
+	// is retried in production and downgraded to `unclear` here, so the report
+	// would show a verdict production never reached.
+	if structured, ok := brain.(validatedBrain); ok {
+		resp, err = structured.CompleteValidated(ctx, req, triageShapeValid)
+	} else {
+		resp, err = brain.Complete(ctx, req)
+	}
+	if err != nil {
+		return DebugTriage{Kind: siteKindUnclear, Error: err.Error()}
+	}
+	verdict := gateTriageVerdict(resp.Text)
+	return DebugTriage{
+		Kind:       verdict.Kind,
+		Confidence: float64(verdict.Confidence),
+		Reason:     verdict.Reason,
+		Aborts:     verdict.Aborts(),
+	}
 }
 
 // recordingBrain decorates the injected brain with per-call telemetry
@@ -248,7 +308,7 @@ func pageOfRequest(req model.Request) string {
 // retries, budget bands, secret stripping).
 //
 //nolint:ireturn // the completer seam is the point: three providers (routed, override, fake) behind the one interface every consumer takes.
-func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, facts completer, banner string, err error) {
+func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, facts, triage completer, banner string, err error) {
 	selected := 0
 	for _, on := range []bool{routingPath != "", modelOverride != "", fake} {
 		if on {
@@ -256,28 +316,29 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 		}
 	}
 	if selected != 1 {
-		return nil, nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
+		return nil, nil, nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
 	}
 	switch {
 	case fake:
 		client := ai.NewFakeClient()
-		return client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
+		return client, client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 		router, err := ai.NewLocalRouter(cfg)
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
 		return routerBrain{router: router, task: ai.TaskSiteExtract},
 			routerBrain{router: router, task: ai.TaskSiteFactExtract},
+			routerBrain{router: router, task: ai.TaskSiteTriage},
 			"routing " + routingPath, nil
 	default:
 		provider, modelName, found := strings.Cut(modelOverride, ":")
 		if !found || provider == "" || modelName == "" {
-			return nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
+			return nil, nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
 		}
 		router, err := ai.NewLocalRouter(ai.RoutingConfig{
 			Profile:    ai.ProfileCloudFrontier,
@@ -285,12 +346,13 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
 		})
 		if err != nil {
-			return nil, nil, "", err
+			return nil, nil, nil, "", err
 		}
-		// One pinned model serves both lanes: each task's ladder falls
+		// One pinned model serves every lane: each task's ladder falls
 		// through to the one bound tier.
 		lane := func(task ai.Task) completer { return routerBrain{router: router, task: task} }
-		return lane(ai.TaskSiteExtract), lane(ai.TaskSiteFactExtract), "model override " + modelOverride, nil
+		return lane(ai.TaskSiteExtract), lane(ai.TaskSiteFactExtract), lane(ai.TaskSiteTriage),
+			"model override " + modelOverride, nil
 	}
 }
 
@@ -302,6 +364,8 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 // PREFIX — an equality test would match nothing.
 func extractionLane(system string) string {
 	switch {
+	case strings.HasPrefix(system, triageSystem):
+		return laneTriage
 	case strings.HasPrefix(system, profileSystem):
 		return laneProfile
 	case strings.HasPrefix(system, "You extract company facts from ONE page"):

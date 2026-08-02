@@ -1689,7 +1689,7 @@ export const de = {
   "backfill.countCaptured": "Erfasst",
   "backfill.statEmails": "E-Mails erfasst",
   "backfill.statPeople": "Personen",
-  "backfill.statCompanies": "Firmen",
+  "backfill.statCompanies": "Firmen zu prüfen",
   "backfill.errorNote":
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
@@ -1818,24 +1818,21 @@ export const de = {
   "connectors.telegramReplaceCta": "Token ersetzen",
   "connectors.telegramConnectedAs": "Verbunden als @{username}.",
 
-  // Persönliche Mail-Ausschlüsse (RC-2, Task 8).
-  "exclusions.title": "Ausschlüsse für persönliche Mails",
-  "exclusions.sub":
-    "Bestimmte Mails vollständig aus deinem CRM heraushalten. Eine passende Nachricht erzeugt null CRM-Datensätze — nichts wird erfasst und dann versteckt, es wird schlicht nie erfasst.",
-  "exclusions.kind.senderDomain": "Mail von dieser Domain",
-  "exclusions.kind.recipientDomain": "Mail an diese Domain",
-  "exclusions.kind.label": "Mail mit diesem Label",
-  "exclusions.new": "Neue Regel",
-  "exclusions.none": "Noch keine Ausschlussregeln.",
-  "exclusions.modalTitle": "Ausschlussregel hinzufügen",
-  "exclusions.fieldKind": "Regeltyp",
-  "exclusions.value": "Wert",
-  "exclusions.add": "Hinzufügen",
-  "exclusions.alreadyPresent": "Diese Regel ist bereits in deiner Liste.",
-  "exclusions.remove": "Entfernen",
-  "exclusions.removeTitle": "Diese Regel entfernen?",
-  "exclusions.removeConfirm":
-    "Mails, die auf diese Regel passen, werden nicht mehr ausgeschlossen — neue Nachrichten werden wieder normal erfasst.",
+  // Die Consumer-Mail-Liste des Workspace (CAP-PARAM-5).
+  "consumerMail.title": "Consumer-Mail-Domains",
+  "consumerMail.sub":
+    "Mail von einem privaten Postfach legt weiterhin die Person an — nur eben keine Firma. Margince liefert eine Liste dieser Anbieter mit; ergänze, was fehlt, oder nimm eine Domain wieder heraus, die zu Unrecht darauf steht.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "anbieter.example",
+  "consumerMail.kindLabel": "Was diese Domain ist",
+  "consumerMail.kind.extra": "Consumer-Mail — niemals eine Firma",
+  "consumerMail.kind.never":
+    "Eine echte Firma — mitgelieferte Liste ignorieren",
+  "consumerMail.add": "Hinzufügen",
+  "consumerMail.remove": "Entfernen",
+  "consumerMail.none":
+    "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
+  "consumerMail.adminOnly": "Diese Liste kann nur eine Administratorin ändern.",
 
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",

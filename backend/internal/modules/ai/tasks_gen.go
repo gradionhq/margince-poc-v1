@@ -32,6 +32,8 @@ const (
 	TaskSiteExtract Task = "site_extract"
 	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads. Its response schema varies in SHAPE per call with the page menu (ADR-0074).
 	TaskSiteFactExtract Task = "site_fact_extract"
+	// TaskSiteTriage is what a mail domain's own site says it IS, before any organization is created from it: a company, one person's site, or a mailbox vendor selling addresses to the public. Runs on the SEED PAGE ALONE and leads with a fast tier because its whole job is to stop the crawl early — a personal page answered here costs one page instead of twelve. The provider class is the live.fr trap: that site belongs to a real company (Microsoft's) which is emphatically not the sender's employer.
+	TaskSiteTriage Task = "site_triage"
 	// TaskSummarize is Two sites on the company view, both grounded prose over what the VIEWER can already see, assembled per viewer because visibility is per viewer. org_brief — the standing account brief: what this account is, where it stands, what changed. org_ask — the prepared questions behind Ask Margince: the question is chosen from a fixed list rather than typed, because each one names the records its answer must be written from, which is what lets every sentence cite a record the reader could open themselves.
 	TaskSummarize Task = "summarize"
 	// TaskTranscript is Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands.
@@ -64,7 +66,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "0039dc4008cd9b73a53a56c62fe8012035423af87a7ee44f58cbd90fcc4c9c04"
+const TaskContractHash = "ab33ae477426873d6665dc8f928941d1d2adb9901b29ea761984c658bae3f60a"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -85,6 +87,7 @@ func AllTasks() []Task {
 		TaskRateExtract,
 		TaskSiteExtract,
 		TaskSiteFactExtract,
+		TaskSiteTriage,
 		TaskSummarize,
 		TaskTranscript,
 		TaskVoiceBuild,
@@ -108,6 +111,7 @@ var taskLadders = map[Task][]Tier{
 	TaskRateExtract:                {TierPremium, TierCheapCloud},
 	TaskSiteExtract:                {TierPremium},
 	TaskSiteFactExtract:            {TierCheapCloud, TierPremium},
+	TaskSiteTriage:                 {TierCheapCloud, TierPremium},
 	TaskSummarize:                  {TierCheapCloud, TierPremium},
 	TaskTranscript:                 {TierCheapCloud, TierPremium},
 	TaskVoiceBuild:                 {TierCheapCloud, TierPremium},
@@ -139,6 +143,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskRateExtract:                ExecutionModeBackground,
 	TaskSiteExtract:                ExecutionModeBackground,
 	TaskSiteFactExtract:            ExecutionModeBackground,
+	TaskSiteTriage:                 ExecutionModeBackground,
 	TaskSummarize:                  ExecutionModeInteractive,
 	TaskTranscript:                 ExecutionModeInteractive,
 	TaskVoiceBuild:                 ExecutionModeBackground,
@@ -177,6 +182,7 @@ var taskStatus = map[Task]string{
 	TaskRateExtract:                "shipped",
 	TaskSiteExtract:                "shipped",
 	TaskSiteFactExtract:            "shipped",
+	TaskSiteTriage:                 "shipped",
 	TaskSummarize:                  "shipped",
 	TaskTranscript:                 "planned",
 	TaskVoiceBuild:                 "shipped",
@@ -242,6 +248,9 @@ var taskSites = map[Task][]Site{
 	TaskSiteFactExtract: {
 		{Name: "page_facts", Kind: "one_shot"},
 	},
+	TaskSiteTriage: {
+		{Name: "triage", Kind: "one_shot"},
+	},
 	TaskSummarize: {
 		{Name: "org_brief", Kind: "one_shot"},
 		{Name: "org_ask", Kind: "one_shot"},
@@ -293,6 +302,7 @@ var taskCompanyContext = map[Task]CompanyContextPolicy{
 	TaskRateExtract:                {TokenBudget: 0, Conditional: false},
 	TaskSiteExtract:                {TokenBudget: 0, Conditional: false},
 	TaskSiteFactExtract:            {TokenBudget: 0, Conditional: false},
+	TaskSiteTriage:                 {TokenBudget: 0, Conditional: false},
 	TaskSummarize:                  {Scopes: []string{"identity"}, TokenBudget: 300, Conditional: true},
 	TaskTranscript:                 {TokenBudget: 0, Conditional: false},
 	TaskVoiceBuild:                 {TokenBudget: 0, Conditional: false},

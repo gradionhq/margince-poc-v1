@@ -1659,7 +1659,9 @@ export const en = {
   "backfill.countCaptured": "Captured",
   "backfill.statEmails": "Emails captured",
   "backfill.statPeople": "People",
-  "backfill.statCompanies": "Companies",
+  // The count is domains this run raised a company question for, not
+  // companies created — a domain becomes one only if its site says so.
+  "backfill.statCompanies": "Companies to check",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
@@ -1788,26 +1790,21 @@ export const en = {
   "connectors.telegramReplaceCta": "Replace token",
   "connectors.telegramConnectedAs": "Connected as @{username}.",
 
-  // Personal-mail exclusions (RC-2, Task 8): a reachable UI for a privacy
-  // control that already had live mail syncing and no button — human-only,
-  // an agent must not widen or narrow a human's personal-mail boundary.
-  "exclusions.title": "Personal-mail exclusions",
-  "exclusions.sub":
-    "Keep specific mail out of your CRM entirely. A matching message produces zero CRM rows — nothing is captured and then hidden, it's simply never captured.",
-  "exclusions.kind.senderDomain": "mail from this domain",
-  "exclusions.kind.recipientDomain": "mail to this domain",
-  "exclusions.kind.label": "mail with this label",
-  "exclusions.new": "New rule",
-  "exclusions.none": "No exclusion rules yet.",
-  "exclusions.modalTitle": "Add an exclusion rule",
-  "exclusions.fieldKind": "Rule type",
-  "exclusions.value": "Value",
-  "exclusions.add": "Add",
-  "exclusions.alreadyPresent": "This rule already exists in your list.",
-  "exclusions.remove": "Remove",
-  "exclusions.removeTitle": "Remove this rule?",
-  "exclusions.removeConfirm":
-    "Mail matching this rule will stop being excluded — new messages will be captured normally again.",
+  // The workspace's own consumer-mail list (CAP-PARAM-5): what the shipped
+  // baseline missed, and what it got wrong. Admin-curated and shared, because
+  // whether a domain can name a company is a fact about the domain.
+  "consumerMail.title": "Consumer mail domains",
+  "consumerMail.sub":
+    "Mail from a consumer mailbox still creates the person — it just never creates a company. Margince ships a list of these providers; add what it missed, or take back a domain it wrongly claimed.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "provider.example",
+  "consumerMail.kindLabel": "What this domain is",
+  "consumerMail.kind.extra": "Consumer mail — never a company",
+  "consumerMail.kind.never": "A real company — ignore the shipped list",
+  "consumerMail.add": "Add",
+  "consumerMail.remove": "Remove",
+  "consumerMail.none": "Nothing added. The shipped list decides every domain.",
+  "consumerMail.adminOnly": "Only an admin can change this list.",
 
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",

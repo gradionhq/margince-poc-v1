@@ -1,0 +1,32 @@
+name: a_mailbox_vendor_is_not_the_senders_employer
+task: site_triage
+site: triage
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  url: https://mailhost.example
+  text: |
+    Mailhost — Your free email address
+
+    Sign up for a free mailbox in under a minute. 20 GB of storage,
+    spam protection, calendar and contacts included. Already have an
+    account? Log in.
+
+    Free plan · Premium 3.99/month · Business plans from 9.99/month
+    Webmail · Apps for iOS and Android · Help centre
+
+    Mailhost is a service of Mailhost Group SE, Munich.
+expect:
+  outcome: accepted
+  answer: provider
+  rubric: >
+    A consumer mailbox vendor's own site. The trap is that it IS a real company
+    (Mailhost Group SE, named right there), so a reader who asks only "is this a
+    company?" answers yes — and the CRM then records that vendor as the employer
+    of everyone who happens to have a mailbox there. "provider" scores high.
+    "company" scores low: it is the live.fr defect, and it silently misattributes
+    every person on the domain. "unclear" scores middling.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
