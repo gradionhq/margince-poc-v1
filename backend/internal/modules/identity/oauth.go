@@ -12,7 +12,6 @@ package identity
 // revocation binds mid-session exactly like the A1 path.
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -29,9 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -303,10 +300,13 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The human LENDS one of their own passports rather than granting scopes ad
-	// hoc, so the code carries the INTERSECTION of that passport's authority and
-	// the client's request — never wider than either one. resolveLend states why
-	// that intersection is re-computed here instead of taken from the form.
-	lent, lendable, err := h.svc.resolveLend(r.Context(), id, req.Scopes, r.PostForm.Get("passport_id"))
+	// hoc, so the code carries exactly that passport's authority — the client's
+	// request is not a second ceiling. mintLentAuthorizationCode is the whole
+	// decision in one transaction: it states why the passport is re-resolved here
+	// instead of taken from the form, and why that re-check and the code write
+	// cannot be two transactions.
+	code, lendable, err := h.svc.mintLentAuthorizationCode(
+		r.Context(), id, r.PostForm.Get("passport_id"), req)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -324,94 +324,8 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 			r.PostForm.Get(consentScreenParamNonce), consentErrorUnlendable)
 		return
 	}
-	req.Scopes = lent.Scopes
-
-	code, err := h.mintAuthorizationCode(r, req, id, lent.ID)
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
 	clearConsentCookie(w)
 	redirectToClient(w, r, req, url.Values{"code": {code}})
-}
-
-// mintAuthorizationCode writes the single-use code the consent produced and
-// returns the plaintext courier the client will redeem; only its hash is
-// stored. The scopes it records are the ones the human actually lent — the
-// intersection, never the client's request.
-//
-// The offline_access marker's durable home is oauth_grant.refresh_allowed, and
-// no grant exists until the code is redeemed — so it rides in this
-// unconstrained scopes column to survive the round trip instead of dying here.
-// The exchange re-derives the boolean from it and strips it before any scope
-// reaches the passport (oauth_token.go).
-//
-// The code row and the audit row naming the lend commit TOGETHER: which
-// passport a human handed to a client is the central authority fact of this
-// flow, and a code that existed without it would be a lend nobody could trace.
-func (h Handlers) mintAuthorizationCode(
-	r *http.Request, req authorizeRequest, id Identity, lentID ids.PassportID,
-) (string, error) {
-	code, err := randomToken()
-	if err != nil {
-		return "", err
-	}
-	storedScopes := req.Scopes
-	if req.Offline {
-		storedScopes = append(append([]string{}, req.Scopes...), scopeOfflineAccess)
-	}
-	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
-		var codeID ids.UUID
-		if err := tx.QueryRow(r.Context(), `
-			INSERT INTO oauth_authorization_code
-			  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval)
-			RETURNING id`,
-			hashOAuthCode(code), req.ClientID, id.UserID, storedScopes, req.CodeChallenge,
-			req.RedirectURI, req.Resource, authCodeTTL.String()).Scan(&codeID); err != nil {
-			return err
-		}
-		return auditLend(r.Context(), tx, codeID, req, lentID)
-	})
-	if err != nil {
-		return "", err
-	}
-	return code, nil
-}
-
-// auditLend records WHICH of the human's passports was lent to this client,
-// and the authority that went with it. Neither oauth_authorization_code nor
-// oauth_grant has a column for the passport, so this row is the only place the
-// question "which of my passports did I lend to this connection?" can be
-// answered afterwards.
-//
-// The after image is the authority actually handed over — the intersected
-// scopes, never the client's request — and refresh_allowed beside them, the
-// same pair issueGrant records when the code is later redeemed, so the consent
-// and its redemption read as one story. The actor is stamped by storekit from
-// the authenticated principal; the session middleware bound it, so it can never
-// come from the request body. Only the code's hash is ever stored, and the
-// plaintext courier appears in no audit field.
-//
-// No outbox event rides with it. The events.md §5 catalog is closed and defines
-// no oauth-consent verb — exactly as it defines none for oauth_grant, which is
-// why issueGrant audits without emitting too (oauth_grant.go). The one type
-// that would fit structurally, audit.appended, is declared in the contract as
-// having no emit site and none planned for V1, so emitting it would need the
-// contract changed first: raised upstream (P3) rather than filled here with a
-// type that means something else.
-func auditLend(
-	ctx context.Context, tx pgx.Tx, codeID ids.UUID, req authorizeRequest, lentID ids.PassportID,
-) error {
-	_, err := storekit.Audit(ctx, tx, "create", "oauth_authorization_code", codeID, nil,
-		map[string]any{
-			auditFieldPassportID:     lentID,
-			auditFieldClientID:       req.ClientID,
-			auditFieldScopes:         req.Scopes,
-			auditFieldRefreshAllowed: req.Offline,
-		})
-	return err
 }
 
 var (
@@ -431,11 +345,19 @@ func oauthError(w http.ResponseWriter, status int, code, description string) {
 // ever got that far.
 const scopeOfflineAccess = "offline_access"
 
-// parseOAuthScopes splits and validates the space-delimited scope
-// parameter. offline reports whether the caller asked for offline_access;
-// the returned scopes never include it, so every downstream consumer that
-// treats scopes as passport authority (the consent list, the passport
-// mint) sees only the closed read|draft|write|send|enrich vocabulary.
+// parseOAuthScopes splits the space-delimited scope parameter and refuses
+// anything outside the closed read|draft|write|send|enrich vocabulary — the
+// refusal is what this function is for, since it happens before any code
+// exists. offline reports whether the caller asked for offline_access, and the
+// returned scopes never include it: it buys the connection's lifetime, and a
+// scope list is read as record authority wherever it travels.
+//
+// The scopes themselves grant nothing. A consent hands over the passport the
+// human lent — the lent passport's own scopes are what the code records
+// (lockLentPassport, oauth_consent.go), and the consent screen offers passports
+// without consulting the request — so what survives of this list is the string
+// the screen posts back (formScope, oauth_consentscreen.go), which carries the
+// offline marker home.
 func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	if strings.TrimSpace(raw) == "" {
 		return []string{string(principal.ScopeRead)}, false, nil
@@ -454,11 +376,14 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	// the only marker that can cause this, since anything else unknown
 	// already errored above — carries no authority to deny outright: it is
 	// the same "nothing asked for" situation as the blank-string case
-	// above, not a client mistake. Defaulting on the empty OUTCOME (rather
-	// than special-casing "offline_access" as the one literal request that
-	// defaults) means no path ever mints a zero-scope passport that
-	// silently fails every later tool call, whatever future marker-style
-	// scope might someday reduce the parsed list to nothing.
+	// above, not a client mistake. The condition is the empty OUTCOME
+	// rather than the literal "offline_access", so any future marker-style
+	// scope that reduces the list to nothing answers the same way.
+	//
+	// The default decides nothing about authority: it cannot reach a passport
+	// mint on any path. All it settles is that the scope parameter travelling
+	// to the consent screen, and re-parsed when that screen posts back, names
+	// read rather than nothing.
 	if len(scopes) == 0 {
 		scopes = []string{string(principal.ScopeRead)}
 	}

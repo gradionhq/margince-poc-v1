@@ -30,14 +30,13 @@ func TestOfflineAccessIsAMarkerAndNeverAPassportScope(t *testing.T) {
 	}
 }
 
-// TestOfflineAccessAloneDefaultsToReadRatherThanMintingAnEmptyPassport pins
-// the outcome, not the literal: a scope string that names no access scope
-// once offline_access is peeled off must default exactly like an absent
-// scope parameter does — not error, and not return an empty slice. An
-// empty slice would reach IssuePassport as "zero scopes", which mints a
-// passport Gate.Admit then refuses on every tool call: a connector that
-// completes the whole handshake and then silently fails everything.
-func TestOfflineAccessAloneDefaultsToReadRatherThanMintingAnEmptyPassport(t *testing.T) {
+// TestOfflineAccessAloneDefaultsToReadLikeAnAbsentScopeParameter pins the
+// outcome, not the literal: a scope string that names no access scope once
+// offline_access is peeled off must default exactly like an absent scope
+// parameter does — not error, and not return an empty slice. The two spellings
+// of "nothing asked for" reach the consent handoff as one scope string, so the
+// round trip through the screen re-parses to what the GET already parsed.
+func TestOfflineAccessAloneDefaultsToReadLikeAnAbsentScopeParameter(t *testing.T) {
 	scopes, offline, err := parseOAuthScopes("offline_access")
 	if err != nil {
 		t.Fatalf("offline_access alone must be accepted: %v", err)

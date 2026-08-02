@@ -1136,7 +1136,6 @@ export const en = {
     "an agent acts as you, never above you — every call re-checks your RBAC",
   "passport.select": "Passport",
   "passport.noneOption": "No passport",
-  "passport.scopeNotGranted": "not granted",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",
@@ -2746,7 +2745,7 @@ export const en = {
   "consent.asks": "{client} wants to act in Margince as you.",
   "consent.lend": "Lend it one of your agent passports",
   "consent.grantedNote":
-    "This connection will get only the scopes shown, even if the passport allows more.",
+    "This connection gets exactly the scopes shown — the ones this passport carries.",
   "consent.offline":
     "It will stay connected without asking again, renewing access until you revoke it.",
   "consent.approve": "Authorize",
@@ -2774,8 +2773,6 @@ export const en = {
   "consent.invalidTitle": "This connection request could not be completed",
   "consent.invalidBody":
     "This installation will not authorize the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
-  "consent.requestedNotGranted":
-    "{client} asked for more than this passport can grant:",
   "consent.unnamedPassport": "Unnamed passport ({id})",
 } as const;
 

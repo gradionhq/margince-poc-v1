@@ -1986,33 +1986,6 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
-// Defines values for ConsentPassportOptionGranted.
-const (
-	ConsentPassportOptionGrantedDraft  ConsentPassportOptionGranted = "draft"
-	ConsentPassportOptionGrantedEnrich ConsentPassportOptionGranted = "enrich"
-	ConsentPassportOptionGrantedRead   ConsentPassportOptionGranted = "read"
-	ConsentPassportOptionGrantedSend   ConsentPassportOptionGranted = "send"
-	ConsentPassportOptionGrantedWrite  ConsentPassportOptionGranted = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentPassportOptionGranted enum.
-func (e ConsentPassportOptionGranted) Valid() bool {
-	switch e {
-	case ConsentPassportOptionGrantedDraft:
-		return true
-	case ConsentPassportOptionGrantedEnrich:
-		return true
-	case ConsentPassportOptionGrantedRead:
-		return true
-	case ConsentPassportOptionGrantedSend:
-		return true
-	case ConsentPassportOptionGrantedWrite:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ConsentPassportOptionScopes.
 const (
 	ConsentPassportOptionScopesDraft  ConsentPassportOptionScopes = "draft"
@@ -2034,33 +2007,6 @@ func (e ConsentPassportOptionScopes) Valid() bool {
 	case ConsentPassportOptionScopesSend:
 		return true
 	case ConsentPassportOptionScopesWrite:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for ConsentRequestRequested.
-const (
-	ConsentRequestRequestedDraft  ConsentRequestRequested = "draft"
-	ConsentRequestRequestedEnrich ConsentRequestRequested = "enrich"
-	ConsentRequestRequestedRead   ConsentRequestRequested = "read"
-	ConsentRequestRequestedSend   ConsentRequestRequested = "send"
-	ConsentRequestRequestedWrite  ConsentRequestRequested = "write"
-)
-
-// Valid indicates whether the value is a known member of the ConsentRequestRequested enum.
-func (e ConsentRequestRequested) Valid() bool {
-	switch e {
-	case ConsentRequestRequestedDraft:
-		return true
-	case ConsentRequestRequestedEnrich:
-		return true
-	case ConsentRequestRequestedRead:
-		return true
-	case ConsentRequestRequestedSend:
-		return true
-	case ConsentRequestRequestedWrite:
 		return true
 	default:
 		return false
@@ -9052,19 +8998,15 @@ type ConsentEventActorType string
 // ConsentEventNewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 type ConsentEventNewState string
 
-// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `granted` is
-// `scopes` intersected with what the client requested — it is what this connection
-// would actually receive, and may be narrower than `scopes`.
+// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `scopes` is both
+// what the passport carries and what a connection lending it receives: the client's
+// request does not narrow the grant, so there is no second, smaller set beside it.
 type ConsentPassportOption struct {
-	ExpiresAt time.Time                      `json:"expires_at"`
-	Granted   []ConsentPassportOptionGranted `json:"granted"`
-	Id        openapi_types.UUID             `json:"id"`
-	Label     string                         `json:"label"`
-	Scopes    []ConsentPassportOptionScopes  `json:"scopes"`
+	ExpiresAt time.Time                     `json:"expires_at"`
+	Id        openapi_types.UUID            `json:"id"`
+	Label     string                        `json:"label"`
+	Scopes    []ConsentPassportOptionScopes `json:"scopes"`
 }
-
-// ConsentPassportOptionGranted defines model for ConsentPassportOption.Granted.
-type ConsentPassportOptionGranted string
 
 // ConsentPassportOptionScopes defines model for ConsentPassportOption.Scopes.
 type ConsentPassportOptionScopes string
@@ -9091,13 +9033,9 @@ type ConsentRequest struct {
 	ClientName string `json:"client_name"`
 
 	// Offline The client asked to stay connected without asking again (offline_access).
-	Offline   bool                      `json:"offline"`
-	Passports []ConsentPassportOption   `json:"passports"`
-	Requested []ConsentRequestRequested `json:"requested"`
+	Offline   bool                    `json:"offline"`
+	Passports []ConsentPassportOption `json:"passports"`
 }
-
-// ConsentRequestRequested defines model for ConsentRequest.Requested.
-type ConsentRequestRequested string
 
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
@@ -14751,7 +14689,9 @@ type ImportLinkedInConnectionsMultipartBody struct {
 type GetConsentRequestParams struct {
 	ClientId string `form:"client_id" json:"client_id"`
 
-	// Scope The space-delimited scopes the client requested, including offline_access if asked.
+	// Scope The space-delimited scopes the client requested. Only the offline_access marker in it
+	// is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+	// grants the chosen passport's own.
 	Scope string `form:"scope" json:"scope"`
 }
 

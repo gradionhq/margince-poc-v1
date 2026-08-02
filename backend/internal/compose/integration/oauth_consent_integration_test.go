@@ -7,9 +7,10 @@ package integration
 
 // The consent screen's read model (GET /oauth/consent-request): which of the
 // signed-in human's passports may be lent to the requesting client. Each
-// exclusion the query enforces — own passports only, alive, unbound, and
-// overlapping the request — is asserted separately, so a query that dropped
-// one filter would still fail a test that only counted rows.
+// exclusion the query enforces — own passports only, alive, unbound — is
+// asserted separately, so a query that dropped one filter would still fail a
+// test that only counted rows. What the client requested is NOT an exclusion,
+// which is its own test below.
 
 import (
 	"context"
@@ -64,27 +65,23 @@ func (o *oauthEnv) consentRequest(t *testing.T, scope string) consentRequestWire
 }
 
 type consentRequestWire struct {
-	ClientName string   `json:"client_name"`
-	Requested  []string `json:"requested"`
-	Offline    bool     `json:"offline"`
+	ClientName string `json:"client_name"`
+	Offline    bool   `json:"offline"`
 	Passports  []struct {
-		ID      string   `json:"id"`
-		Label   string   `json:"label"`
-		Scopes  []string `json:"scopes"`
-		Granted []string `json:"granted"`
+		ID     string   `json:"id"`
+		Label  string   `json:"label"`
+		Scopes []string `json:"scopes"`
 	} `json:"passports"`
 }
 
-// A passport is lendable only if it is THIS human's, still alive, not already
-// bound to a connection, and overlaps what the client asked for. Each exclusion
-// is asserted separately: a query that dropped one filter would still pass a
-// test that only counted rows.
+// A passport is lendable only if it is THIS human's, still alive, and not
+// already bound to a connection. Each exclusion is asserted separately: a query
+// that dropped one filter would still pass a test that only counted rows.
 func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	o := setupOAuth(t)
 	ctx := context.Background()
 
 	o.mintPassport(t, "lendable", []string{"read", "write"})
-	o.mintPassport(t, "no-overlap", []string{"enrich"})
 	revoked := o.mintPassport(t, "revoked", []string{"read"})
 	o.revokePassport(t, revoked)
 	bound := o.mintPassport(t, "bound", []string{"read"})
@@ -107,25 +104,36 @@ func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	if !slices.Equal(labels, []string{"lendable"}) {
 		t.Fatalf("selectable passports = %v, want only [lendable]", labels)
 	}
-	// granted is the INTERSECTION, not the passport's own scopes.
-	if got := got.Passports[0].Granted; !slices.Equal(got, []string{"read", "write"}) {
-		t.Fatalf("granted = %v, want [read write]", got)
+	// The scopes offered are the passport's own — the screen has one set to show,
+	// because the connection receives exactly it.
+	if got := got.Passports[0].Scopes; !slices.Equal(got, []string{"read", "write"}) {
+		t.Fatalf("scopes = %v, want [read write]", got)
 	}
 }
 
-// A passport whose scopes exceed the request lends only the overlap: a client
-// must never receive authority it did not ask for (I1).
-func TestSelectablePassportsNarrowsToTheRequest(t *testing.T) {
+// What the client asked for excludes nothing and narrows nothing: a passport
+// grants its own scopes, so one that overlaps the request in NOTHING is still
+// offered, and one WIDER than the request is offered at its full width. Both
+// halves matter — the old intersection rule would have dropped the first from
+// the list entirely and shown the second only its overlap.
+func TestSelectablePassportsIgnoresWhatTheClientRequested(t *testing.T) {
 	o := setupOAuth(t)
 	o.mintPassport(t, "broad", []string{"read", "write", "send"})
+	o.mintPassport(t, "disjoint", []string{"enrich"})
 
 	got := o.consentRequest(t, "read")
 
-	if len(got.Passports) != 1 {
-		t.Fatalf("passports = %d, want 1", len(got.Passports))
+	offered := map[string][]string{}
+	for _, option := range got.Passports {
+		offered[option.Label] = option.Scopes
 	}
-	if granted := got.Passports[0].Granted; !slices.Equal(granted, []string{"read"}) {
-		t.Fatalf("granted = %v, want only [read] — the client asked for no more", granted)
+	if !slices.Equal(offered["broad"], []string{"read", "write", "send"}) {
+		t.Errorf("broad passport offers %v, want [read write send] — the request does not trim it",
+			offered["broad"])
+	}
+	if !slices.Equal(offered["disjoint"], []string{"enrich"}) {
+		t.Errorf("disjoint passport offers %v, want [enrich] — a passport sharing no scope with the request is still the human's to lend",
+			offered["disjoint"])
 	}
 }
 

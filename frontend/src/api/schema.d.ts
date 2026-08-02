@@ -225,9 +225,10 @@ export interface paths {
         /**
          * What the OAuth consent screen renders for one pending authorization.
          * @description Session-authenticated. Resolves the requesting client from the database and lists the
-         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, not
-         *     already bound to a connection, and overlapping the requested scopes. Human-only — an
-         *     agent must never read or drive a consent screen.
+         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, and not
+         *     already bound to a connection. What the client asked for excludes none of them, because
+         *     a lend grants the passport's own scopes. Human-only — an agent must never read or drive
+         *     a consent screen.
          */
         get: operations["getConsentRequest"];
         put?: never;
@@ -10795,16 +10796,15 @@ export interface components {
             expires_at: string;
         };
         /**
-         * @description One passport the signed-in human may lend to the requesting client. `granted` is
-         *     `scopes` intersected with what the client requested — it is what this connection
-         *     would actually receive, and may be narrower than `scopes`.
+         * @description One passport the signed-in human may lend to the requesting client. `scopes` is both
+         *     what the passport carries and what a connection lending it receives: the client's
+         *     request does not narrow the grant, so there is no second, smaller set beside it.
          */
         ConsentPassportOption: {
             /** Format: uuid */
             id: string;
             label: string;
             scopes: ("read" | "draft" | "write" | "send" | "enrich")[];
-            granted: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** Format: date-time */
             expires_at: string;
         };
@@ -10816,7 +10816,6 @@ export interface components {
          */
         ConsentRequest: {
             client_name: string;
-            requested: ("read" | "draft" | "write" | "send" | "enrich")[];
             /** @description The client asked to stay connected without asking again (offline_access). */
             offline: boolean;
             passports: components["schemas"]["ConsentPassportOption"][];
@@ -11578,7 +11577,11 @@ export interface operations {
         parameters: {
             query: {
                 client_id: string;
-                /** @description The space-delimited scopes the client requested, including offline_access if asked. */
+                /**
+                 * @description The space-delimited scopes the client requested. Only the offline_access marker in it
+                 *     is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+                 *     grants the chosen passport's own.
+                 */
                 scope: string;
             };
             header?: never;

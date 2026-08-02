@@ -32,20 +32,6 @@
   background: var(--accentLight);
   color: var(--accent);
 }
-/* A scope the current selection does not grant: an unfilled, dashed outline
- * rather than a faded fill. Text keeps the same --textMeta the filled chip
- * uses (it is a shape change, not a contrast drop) — paired with a
- * screen-reader-only label (ScopeChips) for parity without visual noise. */
-.badge-dim {
-  background: transparent;
-  /* An outline, not a border: the base .badge carries none, so a border would
-     grow the dim chip 2px past the filled chips beside it and shift its text
-     off their baseline. The negative offset draws the dash inside the chip's
-     own box, following its border-radius. */
-  outline: 1px dashed var(--borderStrong);
-  outline-offset: -1px;
-}
-
 .card {
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);

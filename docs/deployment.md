@@ -84,6 +84,12 @@ existing installation. Likewise mount an `ai-routing.yaml`
 ([`config/ai-routing.example.yaml`](../config/ai-routing.example.yaml)) and point
 `MARGINCE_AI_ROUTING` at it to enable AI.
 
+The example config declares the MCP connector (`mcp.connector_enabled: true`)
+so a local stack works unedited. A deployment that mounts it as-is therefore
+serves `/mcp` and `/oauth/*`, and **must** set `MARGINCE_PUBLIC_BASE_URL` — the
+api refuses to boot on that gate without it. Remove the `mcp` block to keep the
+connector off; the code default is off, so an absent block exposes nothing.
+
 Your `margince.yaml`'s `password_file` **must point to where the entrypoint writes
 `MARGINCE_ADMIN_PASSWORD`** — by default `secrets/admin-password` (i.e.
 `/app/secrets/admin-password`, the api's working dir is `/app`). Set that value in

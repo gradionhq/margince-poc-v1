@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // connectorEnv is the harness for the remote connector: the composed api
@@ -162,6 +164,20 @@ func TestMCPIsServedAtTheAPIOriginWithDiscovery(t *testing.T) {
 	asDoc := env.getJSON(t, "/.well-known/oauth-authorization-server")
 	if asDoc["issuer"] != env.origin || asDoc["token_endpoint"] != env.origin+"/oauth/token" {
 		t.Fatalf("authorization-server metadata = %v, want issuer+token endpoint on %s", asDoc, env.origin)
+	}
+	// The resource must also tell a client what it may ASK for here (RFC 9728
+	// §2), and a scope absent from this document is one no client will ever
+	// name. So the mutating verbs have to be visible for a client to be able to
+	// request them at all — what a connection then receives is the passport the
+	// human lends, which this document neither widens nor narrows.
+	advertised, ok := doc["scopes_supported"].([]any)
+	if !ok {
+		t.Fatalf("resource metadata = %v, want a scopes_supported a client can request from", doc)
+	}
+	for _, want := range []principal.Scope{principal.ScopeWrite, principal.ScopeSend, principal.ScopeEnrich} {
+		if !slices.Contains(advertised, any(string(want))) {
+			t.Errorf("resource scopes_supported = %v, want the grantable scope %q", advertised, want)
+		}
 	}
 }
 

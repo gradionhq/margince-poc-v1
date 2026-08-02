@@ -425,9 +425,10 @@ paths:
       summary: What the OAuth consent screen renders for one pending authorization.
       description: |
         Session-authenticated. Resolves the requesting client from the database and lists the
-        passports the signed-in human may lend to it: their own, unrevoked, unexpired, not
-        already bound to a connection, and overlapping the requested scopes. Human-only — an
-        agent must never read or drive a consent screen.
+        passports the signed-in human may lend to it: their own, unrevoked, unexpired, and not
+        already bound to a connection. What the client asked for excludes none of them, because
+        a lend grants the passport's own scopes. Human-only — an agent must never read or drive
+        a consent screen.
       parameters:
         - name: client_id
           in: query
@@ -436,7 +437,10 @@ paths:
         - name: scope
           in: query
           required: true
-          description: The space-delimited scopes the client requested, including offline_access if asked.
+          description: |
+            The space-delimited scopes the client requested. Only the offline_access marker in it
+            is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+            grants the chosen passport's own.
           schema: { type: string }
       responses:
         '200':
@@ -14311,17 +14315,14 @@ components:
     ConsentPassportOption:
       type: object
       description: |
-        One passport the signed-in human may lend to the requesting client. `granted` is
-        `scopes` intersected with what the client requested — it is what this connection
-        would actually receive, and may be narrower than `scopes`.
-      required: [id, label, scopes, granted, expires_at]
+        One passport the signed-in human may lend to the requesting client. `scopes` is both
+        what the passport carries and what a connection lending it receives: the client's
+        request does not narrow the grant, so there is no second, smaller set beside it.
+      required: [id, label, scopes, expires_at]
       properties:
         id: { type: string, format: uuid }
         label: { type: string }
         scopes:
-          type: array
-          items: { type: string, enum: [read, draft, write, send, enrich] }
-        granted:
           type: array
           items: { type: string, enum: [read, draft, write, send, enrich] }
         expires_at: { type: string, format: date-time }
@@ -14332,12 +14333,9 @@ components:
         from the request URL, so no caller can put words on a consent screen. The consent
         nonce is NOT here: it reaches the screen in the redirect fragment, because the
         consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
-      required: [client_name, requested, offline, passports]
+      required: [client_name, offline, passports]
       properties:
         client_name: { type: string }
-        requested:
-          type: array
-          items: { type: string, enum: [read, draft, write, send, enrich] }
         offline:
           type: boolean
           description: The client asked to stay connected without asking again (offline_access).

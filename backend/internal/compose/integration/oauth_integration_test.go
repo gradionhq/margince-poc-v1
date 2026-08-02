@@ -200,11 +200,12 @@ func requestedScopes(scope string) []string {
 // passports, and the nonce-bound POST is the consent whose redirect carries the
 // code.
 //
-// The lent passport carries exactly the scopes this request asked for, so the
-// intersection the connection receives is the request itself: a caller here is
-// asserting about the request it made, with the lend contributing no narrowing
-// of its own. A test whose subject IS the narrowing mints a passport that
-// differs from the request and lends it through approveWithPassport.
+// The passport it mints carries exactly the scopes this request asked for, so
+// the connection receives the request itself — not because the request bounds
+// anything (it does not; the grant is the passport's own scopes) but because
+// the two are deliberately made equal here, letting a caller assert about the
+// scopes it named. A test whose subject IS the gap between request and passport
+// mints one that differs and lends it through approveWithPassport.
 func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	t.Helper()
 	form := o.armConsent(t, extra)

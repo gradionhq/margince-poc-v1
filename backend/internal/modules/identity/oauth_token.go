@@ -154,9 +154,9 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 			return err
 		}
 
-		// offline_access rode the code's scopes column (oauth.go's
-		// oauthAuthorize) because that table has no marker column of its
-		// own. Here it becomes what it always meant — refresh_allowed on
+		// offline_access rode the code's scopes column (oauth_lend.go's
+		// writeAuthorizationCode) because that table has no marker column of
+		// its own. Here it becomes what it always meant — refresh_allowed on
 		// the grant — and leaves the scope list: it is session lifetime,
 		// not authority over any record, and validScopes has no entry for
 		// it, so a passport carrying it would be refused outright.

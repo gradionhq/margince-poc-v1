@@ -1158,7 +1158,6 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "passport.select": "Passport",
   "passport.noneOption": "Kein Passport",
-  "passport.scopeNotGranted": "nicht gewährt",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
@@ -2770,7 +2769,7 @@ export const de = {
   "consent.asks": "{client} möchte in Margince als du handeln.",
   "consent.lend": "Leih ihm einen deiner Agent-Passports",
   "consent.grantedNote":
-    "Diese Verbindung erhält nur die gezeigten Berechtigungen, auch wenn der Passport mehr erlaubt.",
+    "Diese Verbindung erhält genau die gezeigten Berechtigungen — die dieses Passports.",
   "consent.offline":
     "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
   "consent.approve": "Autorisieren",
@@ -2797,7 +2796,5 @@ export const de = {
     "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
   "consent.invalidBody":
     "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
-  "consent.requestedNotGranted":
-    "{client} hat mehr angefordert, als dieser Passport gewähren kann:",
   "consent.unnamedPassport": "Unbenannter Passport ({id})",
 } as const satisfies Record<MessageKey, string>;
