@@ -91,12 +91,13 @@ func StageLinkedInMatches(ctx context.Context, pool *pgxpool.Pool, svc *approval
 	if err != nil {
 		return 0, err
 	}
-	// The proposal is staged ON BEHALF OF the member whose network produced
-	// it, and that is load-bearing rather than bookkeeping: `linkedin_match` is
-	// a self-only kind, so on_behalf_of is what the inbox compares against to
-	// keep one member's imported address book out of everybody else's queue.
-	// The sweep already runs under a principal carrying it; an interactive
-	// import does not, so it is set here for both.
+	// Staged ON BEHALF OF the member whose network produced it, so the audit
+	// trail records whose export raised the question. It grants nothing and
+	// withholds nothing: who may decide is the inbox's ordinary rule — the
+	// grants the effect needs, and visibility of the CONTACT the proposal is
+	// about. ADR-0078/A123 settles that deliberately: who-knows-whom is
+	// workspace-shared metadata, guarded by "you only see edges for a person
+	// you can see at all", which is exactly what that rule already applies.
 	ctx, err = withGhostOwnerAsSubject(ctx)
 	if err != nil {
 		return 0, err
