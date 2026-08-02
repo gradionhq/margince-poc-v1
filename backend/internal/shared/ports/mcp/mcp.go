@@ -60,13 +60,20 @@ type ToolSpec struct {
 // readOnlyHint.
 //
 // DERIVED from RequiredScope rather than declared, because the scope model
-// already answers this question and the gate already enforces that answer:
-// read and draft are the two non-mutating grants (a draft is returned, never
-// committed), and every other scope exists to change something. A second,
-// hand-set copy could disagree with the scope actually enforced, and the hint
-// is the half that would be believed.
+// already answers this question and the gate already enforces that answer. A
+// second, hand-set copy could disagree with the scope actually enforced, and
+// the hint is the half that would be believed.
+//
+// ScopeRead and nothing else. Draft is NOT read-only: the scope covers both
+// draft_email, which returns a proposal and writes nothing, and
+// draft_follow_ups_for, which persists a draft activity on the deal's
+// timeline through the same provider write path every other tool rides. One
+// scope, two behaviours — so the scope cannot answer the question for it, and
+// the conservative half is the only honest one. Reporting a tool that writes
+// as read-only is a false claim; reporting draft_email as writing costs it a
+// hint the protocol defaults to false anyway.
 func (s ToolSpec) ReadOnly() bool {
-	return s.RequiredScope == principal.ScopeRead || s.RequiredScope == principal.ScopeDraft
+	return s.RequiredScope == principal.ScopeRead
 }
 
 // RiskTier is the autonomy class (A34/ADR-0026). AutoExecute and ConfirmationRequired are

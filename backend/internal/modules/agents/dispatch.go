@@ -296,6 +296,14 @@ func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[strin
 // structured results that conform to this schema"). The text block stays
 // beside it on the spec's own advice, so a client that predates structured
 // content still reads the same answer rather than an empty result.
+//
+// The conformance actually checked is OBJECT-NESS, not the full schema. That
+// is sufficient today only because every outputSchema on this surface is the
+// bare `{"type":"object"}`, for which the two are the same claim. Registration
+// would accept a richer one (required, enum, nested types), and the day a tool
+// declares it, this owes it a real validation pass rather than the shape check
+// below — so the narrower guarantee is written down instead of being inferred
+// from a fleet that happens to be uniform.
 func (s *Dispatcher) result(name string, out json.RawMessage) map[string]any {
 	res := map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
 	if structured, ok := s.structuredContent(name, out); ok {

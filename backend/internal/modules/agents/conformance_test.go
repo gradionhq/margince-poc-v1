@@ -287,11 +287,17 @@ func TestToolListCarriesTitleAndDerivedAnnotations(t *testing.T) {
 }
 
 // ReadOnly is derived from the scope the admission gate enforces, so the hint
-// and the authority cannot disagree.
+// and the authority cannot disagree — and it claims read-only ONLY where the
+// scope proves it, because a tool that writes and says it does not is a lie a
+// client acts on.
 func TestReadOnlyIsDerivedFromTheEnforcedScope(t *testing.T) {
 	for scope, want := range map[principal.Scope]bool{
-		principal.ScopeRead:   true,
-		principal.ScopeDraft:  true,
+		principal.ScopeRead: true,
+		// Draft is NOT read-only. The scope covers draft_email, which returns
+		// a proposal, AND draft_follow_ups_for, which persists a draft
+		// activity — so it cannot answer the question, and only the
+		// conservative half is honest.
+		principal.ScopeDraft:  false,
 		principal.ScopeWrite:  false,
 		principal.ScopeSend:   false,
 		principal.ScopeEnrich: false,
@@ -433,5 +439,30 @@ func TestTheWholeToolListEncodes(t *testing.T) {
 	}
 	if _, err := json.Marshal(map[string]any{"tools": listed}); err != nil {
 		t.Fatalf("the tools/list result does not encode: %v", err)
+	}
+}
+
+// The hint has to be true of every tool it is emitted for, which is a stronger
+// claim than "the derivation looks right": a scope shared by a tool that writes
+// and one that does not cannot carry it. draft_follow_ups_for persists a draft
+// activity through the same provider write path every other tool rides, so
+// ScopeDraft answering read-only would put a false claim on the wire for it.
+func TestNoWritingToolIsAdvertisedAsReadOnly(t *testing.T) {
+	writers := map[string]bool{
+		// Persists a draft activity on the deal's timeline.
+		"draft_follow_ups_for": true,
+	}
+	saw := 0
+	for _, spec := range fullRegistry(t).Specs() {
+		if !writers[spec.Name] {
+			continue
+		}
+		saw++
+		if spec.ReadOnly() {
+			t.Errorf("%s writes but advertises readOnlyHint true", spec.Name)
+		}
+	}
+	if saw != len(writers) {
+		t.Errorf("checked %d of %d known writers — a name here no longer registers, so this pin is stale", saw, len(writers))
 	}
 }
