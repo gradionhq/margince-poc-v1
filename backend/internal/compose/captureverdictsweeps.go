@@ -36,19 +36,18 @@ import (
 // place, and reconciling declines is what keeps staging from re-asking a
 // question that has already been answered.
 func (e *CounterpartyVerdictEngine) ReconcileLedgerWorkspace(ctx context.Context) error {
-	wsCtx := e.workspaceCtx(ctx)
-	retired, err := e.pending.RetireExhausted(wsCtx,
-		"no usable verdict within the attempt bound")
-	if err != nil {
+	return e.inWorkspace(ctx, func(wsCtx context.Context, _ ids.UUID) error {
+		retired, err := e.pending.RetireExhausted(wsCtx,
+			"no usable verdict within the attempt bound")
+		if err != nil {
+			return err
+		}
+		if retired > 0 {
+			e.log.InfoContext(wsCtx, "counterparty verdict: retired exhausted dispositions", "count", retired)
+		}
+		_, err = e.pending.ReconcileDeclined(wsCtx)
 		return err
-	}
-	if retired > 0 {
-		e.log.InfoContext(wsCtx, "counterparty verdict: retired exhausted dispositions", "count", retired)
-	}
-	if _, err := e.pending.ReconcileDeclined(wsCtx); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 // StageReviewsWorkspace offers every `unsure` disposition without an offer yet to a
@@ -59,26 +58,27 @@ func (e *CounterpartyVerdictEngine) StageReviewsWorkspace(ctx context.Context, m
 	if maxRows <= 0 {
 		maxRows = verdictCatchUpCap
 	}
-	wsCtx := e.workspaceCtx(ctx)
-	rows, err := e.pending.AwaitingReview(wsCtx, maxRows)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		proposalID, err := stageCounterpartyReview(wsCtx, e.approvals, row)
+	return e.inWorkspace(ctx, func(wsCtx context.Context, _ ids.UUID) error {
+		rows, err := e.pending.AwaitingReview(wsCtx, maxRows)
 		if err != nil {
-			e.log.WarnContext(wsCtx, "counterparty verdict: staging a review offer failed",
-				"disposition", row.ID.String(), "err", err)
-			continue
-		}
-		if proposalID.IsZero() {
-			continue
-		}
-		if err := e.pending.LinkProposal(wsCtx, row.ID, proposalID); err != nil {
 			return err
 		}
-	}
-	return nil
+		for _, row := range rows {
+			proposalID, err := stageCounterpartyReview(wsCtx, e.approvals, row)
+			if err != nil {
+				e.log.WarnContext(wsCtx, "counterparty verdict: staging a review offer failed",
+					"disposition", row.ID.String(), "err", err)
+				continue
+			}
+			if proposalID.IsZero() {
+				continue
+			}
+			if err := e.pending.LinkProposal(wsCtx, row.ID, proposalID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // staleReviewBatch bounds one age-out pass. The backlog is a query, so what a
@@ -250,9 +250,14 @@ func (e *CounterpartyVerdictEngine) RedactNoiseWorkspace(ctx context.Context, wi
 const noiseSweepBatch = 500
 
 // inWorkspace runs fn under the provenance of the workspace already bound in
-// ctx. Each sweep stage goes through it so the actor and correlation id are
-// assembled in one place rather than six, and so a stage cannot run against a
-// context whose workspace nobody bound — it refuses rather than proceeding.
+// ctx. ALL SIX stages of the pass go through it — judging, ledger reconcile,
+// staging, age-out, hiding and redaction — so the actor and correlation id are
+// assembled once rather than six times, and so no stage can run against a
+// context whose workspace nobody bound: it refuses rather than proceeding.
+//
+// The refusal matters because these stages are exported and a caller other
+// than the worker could reach them; the worker's own binding guard is upstream
+// of it, not a substitute for it.
 func (e *CounterpartyVerdictEngine) inWorkspace(ctx context.Context, fn func(context.Context, ids.UUID) error) error {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {

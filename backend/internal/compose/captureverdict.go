@@ -166,34 +166,35 @@ func (e *CounterpartyVerdictEngine) RunWorkspace(ctx context.Context, maxVerdict
 	if maxVerdicts <= 0 {
 		maxVerdicts = verdictCatchUpCap
 	}
-	wsCtx := e.workspaceCtx(ctx)
-	resolved := 0
-	for resolved < maxVerdicts {
-		batch, err := e.pending.ClaimDue(wsCtx, verdictClaimSize)
-		if err != nil {
-			return fmt.Errorf("verdict: claiming the disposition backlog: %w", err)
+	return e.inWorkspace(ctx, func(wsCtx context.Context, _ ids.UUID) error {
+		resolved := 0
+		for resolved < maxVerdicts {
+			batch, err := e.pending.ClaimDue(wsCtx, verdictClaimSize)
+			if err != nil {
+				return fmt.Errorf("verdict: claiming the disposition backlog: %w", err)
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			n, err := e.judgeClaimed(wsCtx, batch)
+			resolved += n
+			if errors.Is(err, ai.ErrBudgetDeferred) {
+				// Every row this pass never reached is refunded: no model saw
+				// them, and with only PendingMaxAttempts to spend, charging for
+				// a budget stop would let two quiet cycles exhaust an address's
+				// allowance without a verdict ever being attempted on its
+				// merits — an infrastructure condition turned into a per-sender
+				// terminal answer nobody asked for.
+				e.releaseBatch(wsCtx, batch)
+				e.log.InfoContext(wsCtx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
+				return nil
+			}
+			if err != nil {
+				return fmt.Errorf("verdict: draining the disposition backlog: %w", err)
+			}
 		}
-		if len(batch) == 0 {
-			return nil
-		}
-		n, err := e.judgeClaimed(wsCtx, batch)
-		resolved += n
-		if errors.Is(err, ai.ErrBudgetDeferred) {
-			// Every row this pass never reached is refunded: no model saw
-			// them, and with only PendingMaxAttempts to spend, charging for
-			// a budget stop would let two quiet cycles exhaust an address's
-			// allowance without a verdict ever being attempted on its
-			// merits — an infrastructure condition turned into a per-sender
-			// terminal answer nobody asked for.
-			e.releaseBatch(wsCtx, batch)
-			e.log.InfoContext(wsCtx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("verdict: draining the disposition backlog: %w", err)
-		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // judgeClaimed judges each claimed row on its OWN model call, and applies each
