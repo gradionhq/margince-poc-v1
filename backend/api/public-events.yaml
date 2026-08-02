@@ -1217,21 +1217,19 @@ components:
       x-entity-type: user
       x-version: 1
       description: >-
-        Payload for linkedin_match.decided — a member said whether one of their
-        imported connections is a contact on file. The connection is NOT named:
+        Payload for linkedin_match.decided — a connection was linked to a contact
+        on file, either by an exact-name match or by a member approving the
+        proposal. It carries NO verdict: a refusal is an approval row that stays
+        rejected and never becomes a link, so there is no "no" to publish. The
+        connection is NOT named:
         it is a third party who never consented to being in this CRM, and the
         whole point of keeping the imported rows invisible is defeated if their
         names travel through the outbox. The verdict and whether a profile URL
         reached the contact are the auditable facts; the records themselves are
         reachable through the audit row this event is linked to.
       required:
-        - verdict
         - profile_url_written
       properties:
-        verdict:
-          type: string
-          enum: [confirmed, rejected]
-          description: What the member decided.
         profile_url_written:
           type: boolean
           description: >-

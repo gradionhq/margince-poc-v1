@@ -9,24 +9,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for PublicEventLinkedinMatchDecidedVerdict.
-const (
-	Confirmed PublicEventLinkedinMatchDecidedVerdict = "confirmed"
-	Rejected  PublicEventLinkedinMatchDecidedVerdict = "rejected"
-)
-
-// Valid indicates whether the value is a known member of the PublicEventLinkedinMatchDecidedVerdict enum.
-func (e PublicEventLinkedinMatchDecidedVerdict) Valid() bool {
-	switch e {
-	case Confirmed:
-		return true
-	case Rejected:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for SubscribableEventType.
 const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
@@ -564,17 +546,11 @@ type PublicEventLinkedinAccountChanged struct {
 	HasProfileUrl bool `json:"has_profile_url"`
 }
 
-// PublicEventLinkedinMatchDecided Payload for linkedin_match.decided — a member said whether one of their imported connections is a contact on file. The connection is NOT named: it is a third party who never consented to being in this CRM, and the whole point of keeping the imported rows invisible is defeated if their names travel through the outbox. The verdict and whether a profile URL reached the contact are the auditable facts; the records themselves are reachable through the audit row this event is linked to.
+// PublicEventLinkedinMatchDecided Payload for linkedin_match.decided — a connection was linked to a contact on file, either by an exact-name match or by a member approving the proposal. It carries NO verdict: a refusal is an approval row that stays rejected and never becomes a link, so there is no "no" to publish. The connection is NOT named: it is a third party who never consented to being in this CRM, and the whole point of keeping the imported rows invisible is defeated if their names travel through the outbox. The verdict and whether a profile URL reached the contact are the auditable facts; the records themselves are reachable through the audit row this event is linked to.
 type PublicEventLinkedinMatchDecided struct {
 	// ProfileUrlWritten Whether the decision put a LinkedIn handle on the contact. False on every rejection, and false on a confirmation whose contact already carried one — a value on a record is somebody's statement and is never overwritten.
 	ProfileUrlWritten bool `json:"profile_url_written"`
-
-	// Verdict What the member decided.
-	Verdict PublicEventLinkedinMatchDecidedVerdict `json:"verdict"`
 }
-
-// PublicEventLinkedinMatchDecidedVerdict What the member decided.
-type PublicEventLinkedinMatchDecidedVerdict string
 
 // PublicEventLinkedinNetworkImported Payload for linkedin_network.imported — a member uploaded their own LinkedIn connections export. ONE event for the import act, never one per row: an export is thousands of rows, a per-row event would bury every other event in the stream, and the auditable fact is that a member imported their network at all. No connection is named in the payload: the imported rows are third parties who never consented to being in this CRM, and publishing their names would defeat the point of keeping them invisible everywhere else.
 type PublicEventLinkedinNetworkImported struct {

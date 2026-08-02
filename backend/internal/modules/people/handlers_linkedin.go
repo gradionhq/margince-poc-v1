@@ -14,7 +14,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -96,6 +95,16 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		writeStoreErr(w, r, err)
 		return
 	}
+	// The matches a string comparison could not settle become approvals, in the
+	// one inbox the product already has. Staged HERE rather than on a schedule
+	// so a member who has just uploaded finds the questions waiting instead of
+	// discovering them an hour later.
+	if h.stageMatches != nil {
+		if err := h.stageMatches(r.Context()); err != nil {
+			writeStoreErr(w, r, err)
+			return
+		}
+	}
 	// The TOTALS, not this pass's delta. The matcher only considers ghosts
 	// nobody has decided on, so re-importing the same export truthfully
 	// reports zero new matches while twenty-six sit in the database — and a
@@ -146,66 +155,11 @@ func (h Handlers) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) 
 	httperr.WriteJSON(w, http.StatusOK, linkedInAccountWire(account))
 }
 
-// ListMyLinkedInConnections implements GET /me/linkedin-connections.
-func (h Handlers) ListMyLinkedInConnections(w http.ResponseWriter, r *http.Request, params crmcontracts.ListMyLinkedInConnectionsParams) {
-	in := ListMyLinkedInConnectionsInput{Cursor: params.Cursor, Limit: params.Limit}
-	if params.MatchStatus != nil {
-		status := string(*params.MatchStatus)
-		in.MatchStatus = &status
-	}
-	rows, page, err := h.store.ListMyLinkedInConnections(r.Context(), in)
-	if err != nil {
-		writeLinkedInReviewErr(w, r, err)
-		return
-	}
-	data := make([]crmcontracts.LinkedInConnection, 0, len(rows))
-	for _, row := range rows {
-		data = append(data, linkedInConnectionWire(row))
-	}
-	httperr.WriteJSON(w, http.StatusOK, crmcontracts.LinkedInConnectionListResponse{
-		Data: data,
-		Page: linkedInPageWire(page),
-	})
-}
-
-// ConfirmLinkedInMatch implements POST /me/linkedin-connections/{id}/confirm.
-func (h Handlers) ConfirmLinkedInMatch(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	// The body is OPTIONAL — an empty request accepts the matcher's own
-	// suggestion, which is the common case and should not require a payload.
-	var body crmcontracts.ConfirmLinkedInMatchRequest
-	// ContentLength is -1 on a chunked request, so testing for > 0 silently
-	// dropped the caller's person_id and confirmed the matcher's guess instead.
-	// Anything other than a declared-empty body is decoded.
-	if r.ContentLength != 0 && !httperr.Decode(w, r, &body) {
-		return
-	}
-	var person ids.UUID
-	if body.PersonId != nil {
-		person = ids.UUID(*body.PersonId)
-	}
-	decision, err := h.store.ConfirmLinkedInMatch(r.Context(), ids.UUID(id), person)
-	if err != nil {
-		writeLinkedInReviewErr(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, linkedInDecisionWire(decision))
-}
-
-// RejectLinkedInMatch implements POST /me/linkedin-connections/{id}/reject.
-func (h Handlers) RejectLinkedInMatch(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	decision, err := h.store.RejectLinkedInMatch(r.Context(), ids.UUID(id))
-	if err != nil {
-		writeLinkedInReviewErr(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, linkedInDecisionWire(decision))
-}
-
 // GetMyLinkedInReach implements GET /me/linkedin-reach.
 func (h Handlers) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params crmcontracts.GetMyLinkedInReachParams) {
 	reach, err := h.store.MyLinkedInReach(r.Context(), params.Limit)
 	if err != nil {
-		writeLinkedInReviewErr(w, r, err)
+		writeStoreErr(w, r, err)
 		return
 	}
 	accounts := make([]crmcontracts.LinkedInReachAccount, 0, len(reach.Accounts))
@@ -222,67 +176,6 @@ func (h Handlers) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, par
 		AccountsTotal:         reach.AccountsTotal,
 		UnresolvedConnections: reach.UnresolvedConnections,
 	})
-}
-
-// writeLinkedInReviewErr maps the review paths' input errors to 422 and leaves
-// everything else to the shared store mapping. A bad match_status or a
-// connection with nothing to confirm is the caller's mistake and they can fix
-// it from the message; answering 500 would send them to support.
-func writeLinkedInReviewErr(w http.ResponseWriter, r *http.Request, err error) {
-	var input *DedupeInputError
-	if errors.As(err, &input) {
-		httperr.Write(w, r, httperr.Validation(input.Field, "invalid_value", input.Msg))
-		return
-	}
-	writeStoreErr(w, r, err)
-}
-
-// linkedInConnectionWire is the one place a ghost crosses to the wire, so no
-// handler can describe one differently — and so the fields that must NOT cross
-// (the folded name and company the matcher compares on) are absent in exactly
-// one place rather than remembered in four.
-func linkedInConnectionWire(row LinkedInConnectionRow) crmcontracts.LinkedInConnection {
-	out := crmcontracts.LinkedInConnection{
-		Id:                openapi_types.UUID(row.ID),
-		FullName:          row.FullName,
-		Position:          row.Position,
-		CompanyName:       row.CompanyName,
-		Email:             row.Email,
-		MatchStatus:       crmcontracts.LinkedInConnectionMatchStatus(row.MatchStatus),
-		MatchedPersonName: row.MatchedPersonName,
-		MatchedOrgName:    row.MatchedOrgName,
-	}
-	if row.MatchedPerson != nil {
-		id := openapi_types.UUID(*row.MatchedPerson)
-		out.MatchedPersonId = &id
-	}
-	if row.MatchedOrg != nil {
-		id := openapi_types.UUID(*row.MatchedOrg)
-		out.MatchedOrgId = &id
-	}
-	if row.ConnectedOn != nil {
-		out.ConnectedOn = &openapi_types.Date{Time: *row.ConnectedOn}
-	}
-	return out
-}
-
-// linkedInPageWire renders the keyset page. An absent cursor is OMITTED rather
-// than sent as an empty string: the contract types it as nullable, and a client
-// that reads "" as a cursor would ask for a page that does not exist.
-func linkedInPageWire(page storekit.Page) crmcontracts.PageInfo {
-	out := crmcontracts.PageInfo{HasMore: page.HasMore}
-	if page.NextCursor != "" {
-		cursor := page.NextCursor
-		out.NextCursor = &cursor
-	}
-	return out
-}
-
-func linkedInDecisionWire(d LinkedInMatchDecision) crmcontracts.LinkedInMatchDecision {
-	return crmcontracts.LinkedInMatchDecision{
-		Connection:        linkedInConnectionWire(d.Connection),
-		ProfileUrlWritten: d.ProfileURLWritten,
-	}
 }
 
 // linkedInAccountWire is the one place the account crosses to the wire, so the

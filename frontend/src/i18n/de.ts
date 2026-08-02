@@ -530,6 +530,7 @@ export const de = {
   "approval.kind.coldstart": "Neuen Account befüllen",
   "approval.kind.enrich": "Aus dem Web anreichern",
   "approval.kind.deepread": "Unternehmensseite lesen",
+  "approval.kind.linkedin_match": "LinkedIn-Zuordnung",
   "approval.kind.site_lead": "Person von der Website aufnehmen",
   "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
@@ -605,15 +606,6 @@ export const de = {
   "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
 
   // Die Prüfliste und die Reichweiten-Tabelle (ADR-0078 §2.1b).
-  "linkedinReview.title": "Vorgeschlagene Zuordnungen",
-  "linkedinReview.sub":
-    "Der Abgleich hält diese Kontakte für Personen, die Sie bereits haben. Name und Arbeitgeber sind kein Beweis — Sie entscheiden.",
-  "linkedinReview.empty": "Nichts offen. Jeder Vorschlag wurde entschieden.",
-  "linkedinReview.confirm": "Ja, das ist sie",
-  "linkedinReview.reject": "Nicht dieselbe Person",
-  "linkedinReview.hiddenContact": "Eine Person, die Sie nicht sehen dürfen",
-  "linkedinReview.more":
-    "Weitere Vorschl\u00e4ge warten \u2014 entscheide diese, dann erscheinen die n\u00e4chsten.",
   "linkedinReach.title": "Wohin Ihr Netzwerk reicht",
   "linkedinReach.sub":
     "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",

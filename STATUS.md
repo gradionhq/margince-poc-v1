@@ -228,6 +228,94 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
+
+**Two founder corrections to the surface #358 shipped.** An exact name at a
+matched employer now auto-confirms instead of asking, and a match that still
+needs judgement stages as an approval of kind `linkedin_match` instead of
+having its own list/confirm/reject endpoints and its own Settings card. The
+three endpoints and `linkedin-review.tsx` are gone; the reach view and the
+import stay. The removal is recorded in `scripts/contract-breaking-allowlist.txt`.
+
+**A reasoning failure worth not repeating.** I made `linkedin_match` a
+self-only approval kind, arguing the connections "never agreed to be in this
+CRM". That was wrong three ways and is reverted. GDPR does not require consent
+to HOLD business contact data — consent governs reaching out, which is why the
+consent module here is an outbound gate. `site_lead` and captured
+counterparties are the same class of third party and are ordinary approvals.
+And ADR-0078/A123 had already settled it: who-knows-whom is workspace-shared
+metadata, guarded by "you only see edges for a person you can see at all",
+which is exactly the inbox's existing grants-plus-target-visibility rule.
+**Check the ADR before inventing a privacy rule for a feature the ADR
+designed.**
+
+**OPEN — this branch is not finished. Next session should fix, roughly in this
+order:**
+
+1. **The auto-confirm does not perform the write it is documented as
+   performing.** `people/linkedinmatch.go` sets `match_status='confirmed'` for
+   an exact name and stops: no `person_social` handle, no `touchPerson` version
+   bump, no `audit_log`, no `event_outbox`. Three comments
+   (`linkedinmatchapply.go:104`, the test at `linkedinreview_integration_test.go`,
+   and `api/public-events.yaml`'s description of `linkedin_match.decided`) all
+   say it performs the same write the approved path does. It does not. This is
+   a write-shape violation AND a contract lie. Route the auto-confirm through
+   `writeLinkedInHandle` + `auditLinkedInMatch` (an `UPDATE … RETURNING id`
+   feeding the per-row write), or correct all three statements.
+2. **Suggestions from the event-driven matcher never reach the inbox.**
+   `compose/linkedinmatchgen.go` matchPerson/matchWorkspace match and do not
+   stage; staging was added only to the import handler and the hourly sweep.
+   Worse, `linkedinowner.go` `ghostOwners` enumerates owners with
+   `match_status='unmatched'`, so a member whose ghosts are all `suggested` is
+   skipped and their proposals never appear at all. Make staging follow the
+   matcher in one helper all three call sites use.
+3. **A rejection leaves the ghost pointing at the contact the human refused.**
+   Only the approve path has an effect. `match_status` stays `suggested` with
+   `matched_person_id` still set, so reach counts and the Art. 17 sweep still
+   follow the link, and `match_status='rejected'` now has no writer at all —
+   `matchRankOrder` and `linkedinreach.go`'s `<> 'rejected'` are dead branches
+   whose comments describe an unreachable state.
+4. **`LinkedInMatchResult.Suggested` counts auto-confirmed rows.** The tiered
+   `UPDATE` returns one `RowsAffected()` and it is all reported as suggested,
+   so the import summary and both consumer log lines are wrong. `RETURNING
+   (match_status = 'confirmed')` and count the tiers separately.
+5. **A version bump on the target contact permanently destroys the approval.**
+   `person` is in `versionTables` and `linkedin_match` is not in
+   `contextTargetKinds`, so `target_version` is pinned at staging; any
+   unrelated person write inside the 24h TTL makes `Redeem` fail
+   `ErrVersionSkew` AFTER the decision committed. The approval is then
+   `approved`, unconsumed, and un-redecidable (409). Either declare the kind in
+   `contextTargetKinds` or carry the pin into `ApplyLinkedInMatch` as
+   `IfVersion`, the way `closeDateConfirmEffect` does.
+6. **`ApplyLinkedInMatch` has no owner predicate.** The `UPDATE
+   linkedin_connection … WHERE id = $1` does not check `owner_user_id`, so a
+   decider writes another member's connection row. Add it and return
+   `ErrNotFound` otherwise, the existence-hiding shape the module uses.
+7. **No test covers the staged path end to end.** The 227-line
+   `compose/integration/linkedin_review_http_integration_test.go` and
+   `TestARejectionSurvivesTheNextImportAndTheSweep` were deleted without
+   replacement. Nothing proves the kind is registered, that the `person:update`
+   grant gates the decision, or that a refused connection is not re-proposed.
+8. **A failed link write permanently consumes the approval.** `Redeem` and
+   `ApplyLinkedInMatch` are separate transactions, so a redeem that commits
+   followed by a failed apply leaves an approved, consumed proposal with no
+   link and no retry path. Same family as item 5.
+9. **Two ghosts with an identical name+employer can both auto-confirm onto the
+   same contact.** The `c.matches = 1` guard counts candidate PEOPLE per ghost,
+   not ghosts per person.
+10. **The `linkedin_match.decided` v1 payload dropped a required field.**
+   `verdict` was removed from a shipped event without a version bump. No
+   external subscriber exists yet; either bump to v2 or restore the field as
+   optional before one does.
+11. **The reach table renders only the API's first page** (default limit 50)
+   with no control for the rest, and its column headers use `--textMuted`,
+   which fails WCAG AA contrast on the card background.
+12. Smaller: `matchConfirmed`'s comment claims it removes literals that are
+   still inline at six sites; `approvalsServiceWithEffects` is rebuilt per
+   import request and per workspace per sweep; `TestCollapseNever…` and
+   `matchRankOrder`'s "how much human judgement" comment are now untrue, since
+   `confirmed` can be a machine's exact-name guess.
+
 ## Session pickup — 2026-08-01 (the graph's last third, branch `feat/linkedin-onboarding-and-matching`)
 
 **The three risk rules that were named but never fired now fire, and the graph

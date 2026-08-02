@@ -4865,23 +4865,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Your own imported connections, for reviewing the matcher's suggestions.
-         * @description Always the CALLER's own connections. An export is a list of third parties who
-         *     never agreed to be in anyone's CRM, so no seat — including admin — reads
-         *     another member's address book through this API.
-         *
-         *     The list exists because the matcher's middle tier needs a human. An exact email
-         *     match confirms itself, but LinkedIn only exports an address for the connections
-         *     who allowed it, so on a real export almost every candidate arrives as a
-         *     SUGGESTION: this ghost is probably this contact, on name and employer, and
-         *     somebody has to say yes. Without this list those suggestions were inert.
-         *
-         *     Tombstoned connections — present in an earlier export and gone from the latest —
-         *     are excluded. They are kept in the table so a re-import cannot resurrect a link a
-         *     human rejected, not so they can be reviewed again.
-         */
-        get: operations["listMyLinkedInConnections"];
+        get?: never;
         put?: never;
         /**
          * Import your own LinkedIn connections export.
@@ -4906,76 +4890,6 @@ export interface paths {
          *     name suggests nothing. Nothing here ever creates a person.
          */
         post: operations["importLinkedInConnections"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/me/linkedin-connections/{id}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm that this connection is that contact.
-         * @description Accepts the matcher's suggestion, or names a different contact outright. Either
-         *     way the decision is a HUMAN's: this is the one route by which a name-and-employer
-         *     guess becomes a link the product relies on.
-         *
-         *     **Confirming writes the LinkedIn profile URL onto the contact**, as a
-         *     `linkedin` social handle. That is the point of confirming — a contact you are
-         *     connected to should carry the connection — and it is the one place a ghost
-         *     contributes anything to a real record. Nothing else crosses: the ghost is still
-         *     not a person, still invisible to search and lists, and no name, employer or
-         *     connection date is copied.
-         *
-         *     An existing LinkedIn handle on the contact is NEVER overwritten. A value already
-         *     on the record is somebody's statement, and a match confirmation is not grounds to
-         *     replace it; `profile_url_written` reports which happened, so a disagreement is
-         *     visible rather than silently resolved.
-         *
-         *     Confirming is idempotent. Re-confirming an already-confirmed connection is not an
-         *     error — it is the same answer to the same question.
-         */
-        post: operations["confirmLinkedInMatch"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/me/linkedin-connections/{id}/reject": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Say this connection is not that contact.
-         * @description Clears the suggested contact and records the refusal. A rejection is DURABLE: the
-         *     re-match sweep only ever revisits unmatched connections, and a re-import folds the
-         *     stronger decision forward, so the same wrong guess is never put in front of the
-         *     same person twice.
-         *
-         *     Rejecting says nothing about the account link. `matched_org_id` is a separate,
-         *     weaker claim — that this connection works at this company — and a wrong person
-         *     does not make the employer wrong.
-         */
-        post: operations["rejectLinkedInMatch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -21875,48 +21789,6 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
-    listMyLinkedInConnections: {
-        parameters: {
-            query?: {
-                /**
-                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
-                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-                 *     together with a `sort` that differs from the one the cursor was minted under returns
-                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
-                 */
-                cursor?: components["parameters"]["Cursor"];
-                /** @description Max items in the page. */
-                limit?: components["parameters"]["Limit"];
-                /**
-                 * @description Omitted means NO filter — every one of the caller's live connections. This is
-                 *     the one no-filter input; any value is a selection.
-                 */
-                match_status?: "unmatched" | "suggested" | "confirmed" | "rejected";
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description A page of the caller's connections. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LinkedInConnectionListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
     importLinkedInConnections: {
         parameters: {
             query?: never;
@@ -21948,63 +21820,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
-        };
-    };
-    confirmLinkedInMatch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ConfirmLinkedInMatchRequest"];
-            };
-        };
-        responses: {
-            /** @description The confirmed connection. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LinkedInMatchDecision"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    rejectLinkedInMatch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The rejected connection. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LinkedInMatchDecision"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
         };
     };
     getMyLinkedInReach: {
