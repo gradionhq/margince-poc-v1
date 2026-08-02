@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -280,4 +281,71 @@ func TestWriteToolsRefuseTheCustomFieldPrefixWithNoSlug(t *testing.T) {
 	if err := rejectUnknownFields(createShapes, "person", json.RawMessage(`{"full_name":"A","cf_priority":"high"}`)); err != nil {
 		t.Errorf("a real custom-field key was refused: %v", err)
 	}
+}
+
+// The record_type enum a write tool advertises and the shapes it can actually
+// decode are two spellings of one set, written in two places — a literal
+// inside the schema string, and the keys of the shapes map. §8.2b of
+// NEXT-MCP-MISSING is what happens when they drift: the contract declared
+// update_record/activity, the shapes map deliberately omitted it to match an
+// enum that omitted it too, and an activity became un-updatable over the tool
+// surface while REST served the patch fine.
+//
+// Derived rather than listed, so a record type added to either place fails
+// here until it is added to both.
+func TestWriteToolEnumsMatchTheShapesTheyCanDecode(t *testing.T) {
+	for _, tc := range []struct {
+		tool   string
+		schema json.RawMessage
+		shapes map[datasource.EntityType]reflect.Type
+	}{
+		{"create_record", createRecord{}.Spec().InputSchema, createShapes},
+		{"update_record", updateRecord{}.Spec().InputSchema, updateShapes},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			advertised := recordTypeEnum(t, tc.tool, tc.schema)
+			decodable := make(map[string]bool, len(tc.shapes))
+			for recordType := range tc.shapes {
+				decodable[string(recordType)] = true
+			}
+
+			for _, recordType := range advertised {
+				if !decodable[recordType] {
+					t.Errorf("%s advertises record_type %q but describes no fields for it — "+
+						"a caller reading the enum would send a patch the description never explains",
+						tc.tool, recordType)
+				}
+				if !slices.Contains(datasource.EntityTypes(), datasource.EntityType(recordType)) {
+					t.Errorf("%s advertises record_type %q, which is outside the datasource vocabulary — "+
+						"no provider could serve it", tc.tool, recordType)
+				}
+			}
+			for recordType := range decodable {
+				if !slices.Contains(advertised, recordType) {
+					t.Errorf("%s can decode %q but does not advertise it — the capability exists and no caller can reach it",
+						tc.tool, recordType)
+				}
+			}
+		})
+	}
+}
+
+// recordTypeEnum reads the record_type enum out of a tool's advertised schema,
+// which is the string a client actually reads.
+func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
+	t.Helper()
+	var parsed struct {
+		Properties struct {
+			RecordType struct {
+				Enum []string `json:"enum"`
+			} `json:"record_type"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("%s InputSchema is not valid JSON: %v", tool, err)
+	}
+	if len(parsed.Properties.RecordType.Enum) == 0 {
+		t.Fatalf("%s advertises no record_type enum — this walk would pass vacuously", tool)
+	}
+	return parsed.Properties.RecordType.Enum
 }

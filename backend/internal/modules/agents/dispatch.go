@@ -60,6 +60,11 @@ const (
 	// an MCP tool result ({"type":"text","text":…}) — one spelling for both,
 	// because a typo in either makes a result no client renders.
 	fieldText = "text"
+	// fieldTitle is the display name, carried at the top level of a tools/list
+	// entry AND inside its annotations. The protocol's display precedence is
+	// title > annotations.title > name, so a typo in either spelling silently
+	// demotes the tool to showing its identifier.
+	fieldTitle = "title"
 )
 
 // negotiateProtocolVersion answers the client's requested MCP revision when
@@ -235,7 +240,7 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 			// Top-level title outranks annotations.title for display, and both
 			// outrank the name. Registry.Register refuses a title-less tool, so
 			// neither is ever the empty string here.
-			"title":       spec.Title,
+			fieldTitle:    spec.Title,
 			"description": desc,
 			"inputSchema": spec.InputSchema,
 			// The two hints this server can state as FACTS, both read off the
@@ -251,7 +256,7 @@ func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 			// spec is explicit that a client must never make tool-use decisions
 			// from annotations it received from the server.
 			"annotations": map[string]any{
-				"title":         spec.Title,
+				fieldTitle:      spec.Title,
 				"readOnlyHint":  spec.ReadOnly(),
 				"openWorldHint": spec.Egress,
 			},

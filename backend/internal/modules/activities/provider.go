@@ -45,6 +45,28 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 	return datasource.NewRecord(r, v, v.Version)
 }
 
+// Update patches an activity's own fields. What it deliberately does NOT
+// serve is the links: an activity's associations move through the relink verb,
+// which is a different governed action with its own audit action, and
+// UpdateActivityRequest carries no link field at all. So this cannot change
+// who an activity is about — only what it says and when it happened.
+func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
+	if in.Ref.Type != datasource.EntityActivity {
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
+	}
+	raw, err := datasource.RawFields(in.Patch)
+	if err != nil {
+		return datasource.EntityRef{}, err
+	}
+	var req crmcontracts.UpdateActivityRequest
+	if err := datasource.StrictDecode(raw, &req); err != nil {
+		return datasource.EntityRef{}, err
+	}
+	v, err := p.store.UpdateActivity(ctx, ids.From[ids.ActivityKind](in.Ref.ID),
+		activityUpdateInput(req, in.IfVersion))
+	return ref(datasource.EntityActivity, v.Id), err
+}
+
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
 	if in.EntityType != datasource.EntityActivity {
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}

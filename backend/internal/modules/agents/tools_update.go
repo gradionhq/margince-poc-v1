@@ -47,9 +47,9 @@ func (t updateRecord) Spec() mcp.ToolSpec {
 		Name: "update_record", Title: "Update a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierAutoExecute,
-		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateProject",
+		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateActivity/updateProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"id":{"type":"string","format":"uuid"},
 			"fields":{"type":"object","description":` + jsonString("Only sent fields change. Fields a human last edited are not applied: they are staged for approval and named in the result's staged_approval. "+describeRecordFields(updateShapes)) + `},
 			"if_version":{"type":"integer","description":"Optimistic-concurrency guard: the last-seen record version"},

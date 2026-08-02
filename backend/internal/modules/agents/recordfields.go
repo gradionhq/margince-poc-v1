@@ -46,16 +46,17 @@ var (
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.CreateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.CreateProjectRequest](),
 	}
-	// No activity entry: update_record's record_type enum does not accept one,
-	// so describing UpdateActivityRequest here would advertise a call the tool
-	// refuses — the opposite of what these lists are for. The contract declares
-	// an update_record/activity mapping that this surface has not implemented;
-	// until it does, the description must match the enum.
+	// An activity is updatable but not archivable or mergeable through these
+	// tools, which is why the two maps are not the same set. What an activity
+	// patch cannot reach is its LINKS: those move through the relink verb,
+	// which is a separate governed action, and UpdateActivityRequest declares
+	// no link field for this list to describe.
 	updateShapes = map[datasource.EntityType]reflect.Type{
 		datasource.EntityPerson:       reflect.TypeFor[crmcontracts.UpdatePersonRequest](),
 		datasource.EntityOrganization: reflect.TypeFor[crmcontracts.UpdateOrganizationRequest](),
 		datasource.EntityDeal:         reflect.TypeFor[crmcontracts.UpdateDealRequest](),
 		datasource.EntityLead:         reflect.TypeFor[crmcontracts.UpdateLeadRequest](),
+		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.UpdateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.UpdateProjectRequest](),
 	}
 )

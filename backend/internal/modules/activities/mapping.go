@@ -56,6 +56,23 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 	return &v
 }
 
+// activityUpdateInput maps the contract patch onto the store's input. Both
+// transports go through it — the HTTP handler and the datasource seam's
+// Update — so an activity patch cannot mean one thing over REST and another
+// over the tool surface, which is the whole point of the seam.
+func activityUpdateInput(req crmcontracts.UpdateActivityRequest, ifVersion *int64) UpdateActivityInput {
+	return UpdateActivityInput{
+		Subject:    req.Subject,
+		Body:       req.Body,
+		OccurredAt: req.OccurredAt,
+		DueAt:      req.DueAt,
+		RemindAt:   req.RemindAt,
+		AssigneeID: idArg[ids.UserKind](req.AssigneeId),
+		IsDone:     req.IsDone,
+		IfVersion:  ifVersion,
+	}
+}
+
 func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput, error) {
 	if req.Kind == "" {
 		return LogActivityInput{}, &RequiredFieldError{Field: "kind"}
