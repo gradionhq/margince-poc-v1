@@ -147,7 +147,7 @@ func startDomainTriageRead(ctx context.Context, peopleStore *people.Store, domai
 	_, joined, err := peopleStore.StartDomainTriageSiteRead(ctx, domain, systemDomainTriageActor,
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			_, insErr := client.InsertTx(ctx, tx, SiteDeepReadArgs{
-				WorkspaceID: storekit.MustWorkspace(ctx),
+				Workspace:   storekit.MustWorkspace(ctx),
 				SiteReadID:  read.ID,
 				SeedURL:     read.SeedURL,
 				RequestedBy: read.RequestedBy,
