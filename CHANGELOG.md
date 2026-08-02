@@ -39,7 +39,10 @@ numbers appear here when releases start.
   answers the client `access_denied`. A human with no passport is guided
   to mint one and brought back to finish connecting, which means
   `claude mcp add` no longer completes unattended for a fresh account.
-  The lend is recorded in the audit trail.
+  The lend is recorded in the audit trail. Deactivating a member ends
+  their consents that no client redeemed yet, alongside the connections
+  that already exist — so reactivating them later cannot hand out a
+  connection on authority an admin took away.
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
   Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.

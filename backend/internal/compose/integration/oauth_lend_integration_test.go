@@ -291,6 +291,80 @@ func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
 		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NOT NULL`, lent)
 }
 
+// The HUMAN is the other half of that boundary, and it falls the other way.
+// Deactivation is the switch an admin reaches for when someone's authority must
+// end, and the test above is exactly why a pending code would otherwise slip
+// past it: the code holds the lent scopes and the human's id, and while they are
+// deactivated the exchange refuses on the human alone. So the gap only opens on
+// the way back — a code minted minutes before the deactivation, redeemed after a
+// reactivation, would build a whole connection on a consent given under
+// authority that was taken away in between, with nobody consenting again.
+//
+// That is the same thing DeactivateUser's grant cascade exists to stop, and the
+// reactivation is what makes this test prove it: without one the exchange
+// refuses on the live-human check whatever the code row says, and the assertion
+// would pass against a deactivation that touched no code at all.
+func TestAPendingConsentDoesNotSurviveItsHumansDeactivation(t *testing.T) {
+	o := setupOAuth(t)
+	lent := o.mintPassport(t, "pending-at-deactivation", []string{"read", "write"})
+	code := o.approveWithPassport(t, url.Values{"scope": {"read"}}, lent)
+
+	// The consenting human is the bootstrap admin, and the last active admin may
+	// not be deactivated — the organization would lose user administration with
+	// no way back. A second admin is what the guard is protecting against, so
+	// inviting one is what lets the real endpoint run.
+	var second userWire
+	if status := o.call(t, "POST", "/v1/users", anyMap{
+		"email": "second-admin@fable.test", "display_name": "Second Admin", "role": "admin",
+	}, nil, &second); status != http.StatusCreated {
+		t.Fatalf("inviting a second admin → %d", status)
+	}
+	granter := o.userIDByEmail(t, "granter@fable.test")
+	if status := o.call(t, "POST", "/v1/users/"+granter+"/deactivate", anyMap{
+		"reason": "left the company",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("deactivate → %d", status)
+	}
+
+	// Reactivated the way ReactivateUser does — it flips this one column and
+	// restores nothing else. Driven over SQL rather than the endpoint because
+	// the deactivation just revoked the only session this suite can call with,
+	// and whether an admin can log in is not what this test is about.
+	if _, err := o.owner.Exec(context.Background(),
+		`UPDATE app_user SET status = 'active' WHERE id = $1`, granter); err != nil {
+		t.Fatalf("reactivating the human: %v", err)
+	}
+
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusBadRequest || body["error"] != "invalid_grant" {
+		t.Fatalf("token → %d %v, want 400 invalid_grant: the consent behind this code ended when its human was deactivated",
+			status, body)
+	}
+	// Refused because the code's own window was closed, not because something
+	// downstream happened to catch it — and refused without spending the row, so
+	// the refusal reads as "this code was never valid again" rather than as a
+	// redemption that failed late.
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM oauth_authorization_code
+		   WHERE user_id = $1 AND consumed_at IS NULL AND expires_at <= now()`, granter)
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+	assertOwnerCount(t, o, 0,
+		`SELECT count(*) FROM passport WHERE oauth_grant_id IS NOT NULL`)
+}
+
+// userIDByEmail resolves a member the suite created through the API but whose id
+// it never saw, read as the owner because the acting session may already be gone
+// by the time the assertion needs it.
+func (o *oauthEnv) userIDByEmail(t *testing.T, email string) string {
+	t.Helper()
+	var id string
+	if err := o.owner.QueryRow(context.Background(),
+		`SELECT id FROM app_user WHERE email = $1`, email).Scan(&id); err != nil {
+		t.Fatalf("resolving %s: %v", email, err)
+	}
+	return id
+}
+
 // Deny is a first-class answer: the client is TOLD, per RFC 6749 §4.1.2.1,
 // rather than left hanging on a closed tab.
 func TestDenyRedirectsToTheClientWithAccessDenied(t *testing.T) {

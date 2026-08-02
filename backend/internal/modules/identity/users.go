@@ -239,7 +239,8 @@ type DeactivateUserInput struct {
 // DeactivateUser flips the user to 'deactivated' and hard-revokes
 // everything that borrows their authority — every live session, every
 // OAuth connection they consented to (grant, refresh chain and the
-// passports under it), and every locally minted passport — in ONE
+// passports under it), every consent not yet redeemed into one, and
+// every locally minted passport — in ONE
 // transaction with the audit row and the user.deactivated event (§5.6a:
 // the cascade seam — per-call re-auth already refuses a deactivated
 // principal, the event lets caches and fan-outs drop access without
@@ -287,6 +288,25 @@ func (s *Service) DeactivateUser(ctx context.Context, actor Identity, in Deactiv
 		// bulk passport UPDATE ahead of it would take a passport lock first and
 		// deadlock against a rotation racing this deactivation.
 		if err := s.revokeGrantsOfUserTx(ctx, tx, in.UserID, deactivatedUserRevokeReason); err != nil {
+			return err
+		}
+		// The consent nobody redeemed yet ends here too. An authorization code
+		// carries the lent scopes and the human's id, and redemption re-checks
+		// only that the human is live (requireLiveConsentingUser) — so a code
+		// minted in the minutes before this deactivation would survive it and
+		// build a whole connection the moment the human is reactivated, on a
+		// consent given under authority an admin has since taken away. That is
+		// the same "reactivating the human restores full authority with no new
+		// consent" the cascade above exists to prevent; a code is only shorter
+		// lived, not different in kind.
+		//
+		// The window is ended rather than the row marked consumed: nothing
+		// redeemed it, and a consumed_at would claim an exchange that never
+		// happened to everyone who reads the row afterwards.
+		if _, err := tx.Exec(ctx,
+			`UPDATE oauth_authorization_code SET expires_at = now()
+			  WHERE user_id = $1 AND consumed_at IS NULL AND expires_at > now()`,
+			in.UserID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,

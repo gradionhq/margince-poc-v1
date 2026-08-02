@@ -27,6 +27,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -171,16 +172,33 @@ func (e *lendEnv) codesAndLendAudits(t *testing.T) (codes, audits int) {
 // real consent waits, which the blocking case below is about.
 func lockWaitBoundedService(t *testing.T) *Service {
 	t.Helper()
-	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
-	if dsn == "" {
-		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	pool, err := database.NewPool(context.Background(), dsn+"?lock_timeout=250ms")
+	pool, err := database.NewPool(context.Background(), lockBoundedDSN(t, 250*time.Millisecond))
 	if err != nil {
 		t.Fatalf("opening the lock-bounded pool: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	return NewService(pool)
+}
+
+// lockBoundedDSN adds lock_timeout to the test DSN through the URL's query, not
+// by concatenation: an operator whose database needs `?sslmode=require` already
+// spends the one `?`, and a second one would make the whole parameter list
+// unparseable — a failure that would read as the lock case breaking rather than
+// as the DSN being malformed.
+func lockBoundedDSN(t *testing.T, bound time.Duration) string {
+	t.Helper()
+	dsn := os.Getenv("MARGINCE_TEST_APP_DSN")
+	if dsn == "" {
+		t.Fatal("MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme == "" {
+		t.Fatalf("MARGINCE_TEST_APP_DSN is not a postgres:// URL, so the lock bound cannot be added to it: %q", dsn)
+	}
+	q := u.Query()
+	q.Set("lock_timeout", bound.String())
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // A consent must CONTEND for the lent passport's row. The transaction below holds
