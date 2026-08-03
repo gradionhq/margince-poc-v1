@@ -6949,8 +6949,18 @@ export interface components {
              */
             as_of: string;
             organization: components["schemas"]["Organization"];
+            /**
+             * Format: date-time
+             * @description When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+             */
+            last_inbound_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
+             */
+            last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];

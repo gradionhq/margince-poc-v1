@@ -10733,12 +10733,28 @@ components:
           format: date-time
           description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
         organization: { $ref: '#/components/schemas/Organization' }
+        last_inbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When they last wrote to us, over the same three-link walk the timeline uses (the
+            activity's own link, its deal's organization, the employer of the contact it is filed
+            against). Null means nothing inbound was ever captured — which is a fact about the
+            account, not a missing field. Absent entirely when the caller has no activity grant,
+            named in `sections_omitted` as `last_touch`.
+        last_outbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded
+            into one "last touch": which direction went last is the whole question — an account we
+            mailed a fortnight ago with no reply is not the same as one that just wrote to us.
         sections_omitted:
           type: array
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch]
         people:
           type: object
           required: [data, page]

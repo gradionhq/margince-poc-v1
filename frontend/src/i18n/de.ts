@@ -502,15 +502,16 @@ export const de = {
   "signal.kind.other": "Sonstiges",
   "record.profile": "Profil",
   "record.business": "Geschäft",
-  "co.pulse.strongestLead": "St\u00e4rkster Kontakt",
-  "co.pulse.strengthTail.one":
-    "\u2014 der einzige hier (Beziehung {score}/100)",
-  "co.pulse.strengthTail.other":
-    "\u2014 von {count} Personen hier (Beziehung {score}/100)",
-  "co.pulse.strengthExplain":
-    "Beziehungsst\u00e4rke, 0\u2013100: wie viel Austausch es mit diesem Account gab \u2014 gemessen an dem Kontakt, mit dem es den meisten gab.",
+  "co.pulse.strongestLead": "Zugang \u00fcber",
+  "co.pulse.strengthTail.one": "\u2014 der einzige Kontakt hier",
+  "co.pulse.strengthTail.other": "\u2014 von {count} Kontakten hier",
   "co.pulse.noStrength": "Noch keine Interaktionen erfasst",
-  "co.pulse.lastTouch": "Letzter Kontakt {when}",
+  // Zwei Zeitpunkte, nie zu einem "letzter Kontakt" verschmolzen: wer zuletzt
+  // geschrieben hat, ist die eigentliche Frage.
+  "co.pulse.lastInbound": "Sie schrieben {when}",
+  "co.pulse.lastOutbound": "Wir schrieben {when}",
+  "co.pulse.noInbound": "Sie haben nie geschrieben",
+  "co.pulse.noOutbound": "Wir haben nie geschrieben",
   "co.pulse.neverTouched": "Noch nie kontaktiert",
   "co.pulse.owner": "Betreut von",
   "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",

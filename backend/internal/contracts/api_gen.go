@@ -3799,6 +3799,7 @@ func (e OrganizationSizeBand) Valid() bool {
 const (
 	Organization360SectionsOmittedActivities       Organization360SectionsOmitted = "activities"
 	Organization360SectionsOmittedDeals            Organization360SectionsOmitted = "deals"
+	Organization360SectionsOmittedLastTouch        Organization360SectionsOmitted = "last_touch"
 	Organization360SectionsOmittedListMemberships  Organization360SectionsOmitted = "list_memberships"
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
@@ -3815,6 +3816,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedActivities:
 		return true
 	case Organization360SectionsOmittedDeals:
+		return true
+	case Organization360SectionsOmittedLastTouch:
 		return true
 	case Organization360SectionsOmittedListMemberships:
 		return true
@@ -10996,8 +10999,14 @@ type Organization360 struct {
 	AsOf time.Time `json:"as_of"`
 
 	// Deals The account's open deals plus the two lifetime figures the header needs.
-	Deals           *Organization360Deals `json:"deals,omitempty"`
-	ListMemberships *[]List               `json:"list_memberships,omitempty"`
+	Deals *Organization360Deals `json:"deals,omitempty"`
+
+	// LastInboundAt When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
+	LastOutboundAt  *time.Time `json:"last_outbound_at,omitempty"`
+	ListMemberships *[]List    `json:"list_memberships,omitempty"`
 	NextSteps       *struct {
 		Data []Organization360NextStep `json:"data"`
 		Page PageInfo                  `json:"page"`

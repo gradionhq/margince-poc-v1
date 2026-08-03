@@ -305,3 +305,78 @@ func TestSinceLastVisitCountsMailRolledUpThroughAContact(t *testing.T) {
 			view.SinceLastVisit.BaselineAt, org360Clock)
 	}
 }
+
+// accountMailDirectedAt seeds one message with an explicit direction, which is
+// the whole point of the pair below: the same last-touch date means opposite
+// things depending on who wrote it.
+func accountMailDirectedAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, direction string, at time.Time) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
+		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, $2, 'email', $3, $4, $5, $5, 'manual', 'human:x')`,
+		id, ws, direction, subject, at); err != nil {
+		t.Fatalf("seeding %q: %v", subject, err)
+	}
+	return id
+}
+
+// TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks pins the pair
+// that replaced the header's 0-100 score (AC-company-2). One "last touch"
+// would collapse the only distinction that matters — an account we mailed a
+// fortnight ago with no reply reads identically to one that just wrote to us.
+func TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+
+	org := e.SeedOrg(t, "Scale Commerce", &e.Rep1)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	employee := e.SeedPerson(t, "Christian Contact", &e.Rep1)
+	employAt(t, e, employee, org, nil)
+
+	// The newest inbound reaches the account only through its contact, which
+	// is how capture files real mail — a direct-link-only reading would miss it.
+	oldInbound := accountMailDirectedAt(t, owner, e.WS, "old reply", "inbound", org360Clock.Add(-90*time.Hour))
+	linkToOrg(t, e, oldInbound, org)
+	newInbound := accountMailDirectedAt(t, owner, e.WS, "their reply", "inbound", org360Clock.Add(-30*time.Hour))
+	LinkActivity(t, owner, e.WS, newInbound, "person", employee)
+	outbound := accountMailDirectedAt(t, owner, e.WS, "our nudge", "outbound", org360Clock.Add(-2*time.Hour))
+	linkToOrg(t, e, outbound, org)
+
+	view, err := svc.Assemble(rep, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.LastInboundAt == nil || !view.LastInboundAt.Equal(org360Clock.Add(-30*time.Hour)) {
+		t.Errorf("last inbound = %v, want the contact-linked reply at -30h", view.LastInboundAt)
+	}
+	if view.LastOutboundAt == nil || !view.LastOutboundAt.Equal(org360Clock.Add(-2*time.Hour)) {
+		t.Errorf("last outbound = %v, want our nudge at -2h", view.LastOutboundAt)
+	}
+}
+
+// TestLastTouchIsNullRatherThanZeroWhenNothingWasCaptured keeps "we have never
+// heard from them" distinct from "we never looked". Null is the account's
+// answer; an absent section would be the caller's.
+func TestLastTouchIsNullRatherThanZeroWhenNothingWasCaptured(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+
+	org := e.SeedOrg(t, "Silent Co", &e.Rep1)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	outbound := accountMailDirectedAt(t, owner, e.WS, "our first mail", "outbound", org360Clock.Add(-time.Hour))
+	linkToOrg(t, e, outbound, org)
+
+	view, err := svc.Assemble(rep, ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.LastInboundAt != nil {
+		t.Errorf("last inbound = %v, want null — they have never written", view.LastInboundAt)
+	}
+	if view.LastOutboundAt == nil {
+		t.Error("last outbound is null, but we mailed them an hour ago")
+	}
+}

@@ -32,6 +32,7 @@ const (
 	sectionDeals           = crmcontracts.Organization360SectionsOmitted("deals")
 	sectionStrength        = crmcontracts.Organization360SectionsOmitted("strength")
 	sectionActivities      = crmcontracts.Organization360SectionsOmitted("activities")
+	sectionLastTouch       = crmcontracts.Organization360SectionsOmitted("last_touch")
 	sectionTags            = crmcontracts.Organization360SectionsOmitted("tags")
 	sectionListMemberships = crmcontracts.Organization360SectionsOmitted("list_memberships")
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
@@ -93,6 +94,7 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionStrength, a.readStrength},
 		{sectionDeals, a.readDeals},
 		{sectionActivities, a.readTimeline},
+		{sectionLastTouch, a.readLastTouch},
 		{sectionNextSteps, a.readNextSteps},
 		{sectionTags, a.readTags},
 		{sectionListMemberships, a.readListMemberships},
@@ -236,6 +238,44 @@ func (a *assembly) readTimeline() error {
 		return err
 	}
 	a.out.Activities = &crmcontracts.ActivityListResponse{Data: data, Page: pageInfo(page)}
+	return nil
+}
+
+// readLastTouch answers which direction went last, and when — the pair that
+// replaced the header's 0-100 score (AC-company-2, ADR-0079 arc).
+//
+// Two timestamps rather than one "last touch", because which side wrote last
+// IS the question: an account we mailed a fortnight ago with no reply and one
+// that wrote to us this morning have the same last-touch date and opposite
+// meanings.
+//
+// It walks the same three links the timeline does (activities.OrgLinkedActivityExists),
+// so the header can never disagree with the list under it, and
+// it carries the caller's activity row scope, so a rep sees the last message
+// THEY may read rather than the account's true last message.
+func (a *assembly) readLastTouch() error {
+	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
+		return err
+	}
+	args := []any{a.orgID.UUID}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
+	if err != nil {
+		return err
+	}
+	where := "a.archived_at IS NULL AND " + activities.OrgLinkedActivityExists(1)
+	if scope != "" {
+		where += " AND " + scope
+	}
+	var inbound, outbound *time.Time
+	if err := a.tx.QueryRow(a.ctx, `
+		SELECT max(a.occurred_at) FILTER (WHERE a.direction = 'inbound'),
+		       max(a.occurred_at) FILTER (WHERE a.direction = 'outbound')
+		FROM activity a WHERE `+where, args...).Scan(&inbound, &outbound); err != nil {
+		return err
+	}
+	a.out.LastInboundAt = inbound
+	a.out.LastOutboundAt = outbound
 	return nil
 }
 

@@ -1564,28 +1564,38 @@ function CompanyPulse({
   const { locale } = useLocale();
   const viewerId = useViewerId();
   const strength = view?.strength;
-  // The strength section is what carries BOTH the score and the last touch.
-  // Withheld or absent, the line says nothing about either: "never
-  // contacted" read off missing data is a business conclusion the page has
-  // no basis for, and it is the one a rep would act on.
-  const strengthKnown = Boolean(
-    view && !view.sections_omitted?.includes("strength"),
+  // Withheld or absent, the line says nothing at all: "never contacted" read
+  // off missing data is a business conclusion the page has no basis for, and
+  // it is the one a rep would act on.
+  const touchKnown = Boolean(
+    view && !view.sections_omitted?.includes("last_touch"),
   );
+  const inbound = view?.last_inbound_at;
+  const outbound = view?.last_outbound_at;
+  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
   return (
     <>
       {strength && <StrengthPulse strength={strength} />}
-      {strengthKnown && (
-        <span>
-          {strength?.last_interaction
-            ? t("co.pulse.lastTouch", {
-                when: formatDateTime(
-                  strength.last_interaction,
-                  locale,
-                  RECORD_ZONE,
-                ),
-              })
-            : t("co.pulse.neverTouched")}
-        </span>
+      {/* Both directions, side by side. Folding them into one "last touch"
+          hides the only distinction a reader acts on: an account we mailed a
+          fortnight ago with no reply and one that wrote to us this morning
+          have the same last-touch date and opposite meanings. */}
+      {touchKnown && !inbound && !outbound && (
+        <span>{t("co.pulse.neverTouched")}</span>
+      )}
+      {touchKnown && (inbound || outbound) && (
+        <>
+          <span>
+            {inbound
+              ? t("co.pulse.lastInbound", { when: when(inbound) })
+              : t("co.pulse.noInbound")}
+          </span>
+          <span>
+            {outbound
+              ? t("co.pulse.lastOutbound", { when: when(outbound) })
+              : t("co.pulse.noOutbound")}
+          </span>
+        </>
       )}
       {/* The owner, named as the owner. Unlabelled it read as one more
           person in a row of people, and the reader had no way to tell the
@@ -1615,11 +1625,20 @@ function CompanyPulse({
   );
 }
 
-// StrengthPulse renders the score and, when there is one, the contact who
-// carries it. The contributor's NAME is a live lookup, so the sentence is
-// assembled from two translated halves around it rather than interpolating
-// an empty placeholder and appending the name after the full stop — which
-// broke word order in English and worse in German.
+// StrengthPulse names the contact who carries the relationship — the way in —
+// and no longer renders a 0-100 score (AC-company-2, ADR-0079 arc).
+//
+// The number was PO-F-3's MAX over the account's contacts, and PO-F-3 is a
+// decayed count of recent two-way messages. So one talkative contact spoke for
+// the whole account, a long low-volume relationship scored near zero, and the
+// header showed "Relationship 2/100" as though it were a verdict. The factors
+// are still computed and still shown in the relationship detail, where each is
+// traceable to the messages behind it; only the single number is withheld.
+//
+// The contributor's NAME is a live lookup, so the sentence is assembled from
+// two translated halves around it rather than interpolating an empty
+// placeholder and appending the name after the full stop — which broke word
+// order in English and worse in German.
 function StrengthPulse({
   strength,
 }: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
@@ -1629,18 +1648,15 @@ function StrengthPulse({
     // relationship to attribute and no number worth leading with.
     return <span>{t("co.pulse.noStrength")}</span>;
   }
-  // The person, then the number — and the number says what it measures.
-  // "2 · via Christian Hagemeyer of 3 contacts" led with a bare score nobody
-  // could scale and buried the one fact a rep acts on: who the way in is.
   return (
-    <span title={t("co.pulse.strengthExplain")}>
+    <span>
       {t("co.pulse.strongestLead")}{" "}
       <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
       {t(
         strength.contact_count === 1
           ? "co.pulse.strengthTail.one"
           : "co.pulse.strengthTail.other",
-        { count: strength.contact_count, score: strength.score },
+        { count: strength.contact_count },
       )}
     </span>
   );
