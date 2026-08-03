@@ -49,10 +49,9 @@ func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelP
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
-	// The webhook retry sweep is gated on the signing key, and it must say so
-	// by name: an api that HAS the key still accepts subscriptions and parks
-	// failed deliveries, while a worker booted without it re-attempts none of
-	// them. This line is the one place that split-brain is visible.
+	// Gated on the signing key, and it must say so by name: an api that HAS the
+	// key still accepts subscriptions and parks failed deliveries, while a
+	// worker booted without it re-attempts none of them.
 	webhookNote := "webhook retry off (no --webhook-key: parked deliveries are NOT re-attempted)"
 	if cfg.webhookKey != "" {
 		webhookNote = fmt.Sprintf("webhook retry every %s", cfg.webhookRetryInterval)

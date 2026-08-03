@@ -114,8 +114,10 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.sendRateWindow, "send-rate-window", 0, "window the outbound per-mailbox rate limit is measured over; 0 takes the built-in default")
 	fs.DurationVar(&cfg.sendMaxAge, "send-max-age", 0, "how long a staged send may be deferred before it parks with a reason; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
-	// A fleet fan-out, so it takes the fleet-dispatch floor rather than the few
-	// seconds an in-process ticker could afford (compose.WebhookRetryConfig).
+	// A fleet fan-out — one job row per live workspace per tick — so the default
+	// is tens of seconds, not the few an in-process ticker could afford. Taken
+	// verbatim as the River schedule; compose clamps nothing
+	// (compose.WebhookRetryConfig.Interval).
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 30*time.Second, "how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")

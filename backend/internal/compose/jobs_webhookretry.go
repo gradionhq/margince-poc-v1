@@ -45,13 +45,17 @@ const (
 // configuration.
 type WebhookRetryConfig struct {
 	// Interval is the dispatcher's cadence — the operator-facing
-	// --webhook-retry-interval. It paces the FLEET fan-out, not one
-	// delivery's backoff: the per-delivery schedule is the exponential
-	// ladder the delivery engine already owns, and this dial only decides
-	// how promptly an elapsed backoff is noticed. That is why its floor is
-	// the fleet-dispatch floor (dispatchScanInterval) rather than the few
-	// seconds a single tenant's ticker could afford — every tick inserts one
-	// row per live workspace whether or not that workspace has anything due.
+	// --webhook-retry-interval, taken verbatim as the River schedule. Nothing
+	// here clamps it: whatever an operator sets is what River schedules on.
+	//
+	// It paces the FLEET fan-out, not one delivery's backoff: the per-delivery
+	// schedule is the exponential ladder the delivery engine already owns, and
+	// this dial only decides how promptly an elapsed backoff is noticed. Every
+	// tick inserts one row per live workspace whether or not that workspace has
+	// anything due, which is why its DEFAULT is tens of seconds rather than the
+	// few a single tenant's ticker could afford. That default happens to equal
+	// dispatchScanInterval and is not derived from it — the two are separate
+	// passes with separate costs, and moving one does not move the other.
 	//
 	// Non-positive means this role schedules no retry dispatch; see
 	// addWebhookRetryJobs for who is allowed to mean that.

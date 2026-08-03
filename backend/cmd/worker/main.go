@@ -197,14 +197,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key is
-	// configured: without one there is nothing to sign a delivery with. ONE
-	// deliverer serves both lanes — the cg:webhooks consumer that fans matching
-	// events to subscribers (owner-scoped, so a webhook never delivers an event
-	// its owner may not see, BYO-EVT-4) and the River retry sweep the runner
-	// below schedules — so this role holds one signing cipher and one outbound
-	// transport, not two that could drift apart. Built before the runner
-	// because the runner is what schedules the sweep.
+	// ONE deliverer serves both outbound-webhook lanes (E10/S-E10.6): the
+	// cg:webhooks consumer started here and the River retry sweep the runner
+	// below schedules. That shared instance is why it is built before the
+	// runner rather than after it.
 	var webhookDeliverer *webhooks.Deliverer
 	if cfg.webhookKey != "" {
 		webhookDeliverer, err = compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
@@ -324,9 +320,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// The GDPR retention fan-out's cadence: --retention-interval is the
 		// schedule source, now read by River rather than by a ticker.
 		PrivacyRetention: compose.PrivacyRetentionConfig{Interval: cfg.retentionInterval},
-		// The retry sweep's cadence and the engine it re-sends through. A nil
-		// deliverer (no --webhook-key) registers neither half: nothing could
-		// sign the re-attempt anyway.
+		// A nil deliverer (no --webhook-key) registers neither half.
 		WebhookRetry: compose.WebhookRetryConfig{
 			Interval: cfg.webhookRetryInterval, Deliverer: webhookDeliverer,
 		},

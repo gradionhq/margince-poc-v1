@@ -79,8 +79,7 @@ type JobRunnerConfig struct {
 	// PrivacyRetention carries the GDPR retention dispatcher's cadence
 	// (jobs_privacyretention.go).
 	PrivacyRetention PrivacyRetentionConfig
-	// WebhookRetry carries the outbound-webhook retry dispatcher's cadence
-	// and the delivery engine its workspace pass re-sends through
+	// WebhookRetry: the retry dispatcher's cadence and its delivery engine
 	// (jobs_webhookretry.go).
 	WebhookRetry  WebhookRetryConfig
 	GmailRegistry *capture.Registry
@@ -304,8 +303,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The GDPR retention pass registers itself the same way
 	// (jobs_privacyretention.go).
 	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
-	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go) —
-	// workers and tick only when a signing key gave this role a deliverer.
+	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
 	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
 
 	if cfg.ClassifyBrain != nil {
@@ -467,11 +465,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// still gets its own job row, which is the observability this phase
 			// is after; per-workspace PARALLELISM is not.
 			overlayReconcileQueue: {MaxWorkers: 1},
-			// The webhook retry sweep dials endpoints this deployment does
-			// not control, a full batch of them per workspace and one after
-			// the other, so it gets its own bounded pool for the same reason
-			// deep reads do — and a small one, because the fleet's retries
-			// must not become the process's whole outbound load.
+			// A full batch of sequential calls to endpoints this deployment
+			// does not control: long and outbound-bound, so the same posture
+			// deep reads take (webhookRetryQueue).
 			webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
 		},
 		Workers:      workers,

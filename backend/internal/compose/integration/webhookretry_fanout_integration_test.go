@@ -101,6 +101,46 @@ func parkOneDelivery(t *testing.T, we *webhookEnv, deliverer *webhooks.Deliverer
 	assertDeliveryStatus(t, we, subID, "retrying", 1)
 }
 
+// parkDueDeliveryIn plants a live subscription and an already-due parked
+// delivery in a workspace OTHER than the harness's own, so a second tenant has
+// real work for a sweep to find. A tenant with nothing due never reads a
+// delivery row at all, which would leave any claim about its sweep resting on a
+// scan that never happened.
+//
+// It copies the harness subscription's sealed secret rather than minting one:
+// the deployment key seals it with nothing bound to a tenant or a subscription,
+// so the copy signs and POSTs exactly as the original does. The owner
+// connection is a superuser and so bypasses RLS, which is what lets one
+// statement write into a workspace this process has no bound context for.
+func parkDueDeliveryIn(t *testing.T, we *webhookEnv, owner *pgx.Conn, ws ids.UUID, targetURL string, dueAt time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	var sealed string
+	if err := owner.QueryRow(ctx,
+		`SELECT signing_secret_ref FROM webhook_subscription WHERE workspace_id = $1`,
+		we.wsID).Scan(&sealed); err != nil {
+		t.Fatalf("reading the harness subscription's sealed secret: %v", err)
+	}
+	user, sub := ids.NewV7(), ids.NewV7()
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO app_user (id, workspace_id, email, display_name)
+		VALUES ($1, $2, $3, 'Sweep Fixture')`, user, ws, "sweep-"+ws.String()+"@example.test"); err != nil {
+		t.Fatalf("seeding the subscription owner in %s: %v", ws, err)
+	}
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO webhook_subscription (id, workspace_id, owner_id, target_url, event_types, signing_secret_ref)
+		VALUES ($1, $2, $3, $4, ARRAY['deal.created'], $5)`, sub, ws, user, targetURL, sealed); err != nil {
+		t.Fatalf("seeding the subscription in %s: %v", ws, err)
+	}
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO webhook_delivery (workspace_id, subscription_id, event_id, event_type, payload,
+		                              status, attempts, next_retry_at)
+		VALUES ($1, $2, $3, 'deal.created', '{}', 'retrying', 1, $4)`,
+		ws, sub, ids.NewV7(), dueAt); err != nil {
+		t.Fatalf("parking the due delivery in %s: %v", ws, err)
+	}
+}
+
 // TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed is the
 // characterization: a tenant whose due-retry scan hits a database error must
 // reach its caller as an error. A sweep that reported success over it leaves
@@ -115,6 +155,10 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	now := time.Now().UTC()
 	deliverer := newTestDeliverer(we, &now, rcv.server.Client())
 	parkOneDelivery(t, we, deliverer, rcv)
+	// The healthy tenant gets real due work of its own, so its sweep below
+	// actually scans and re-attempts. Without a row it would read nothing, and
+	// an assertion about a scan that never ran proves nothing about isolation.
+	parkDueDeliveryIn(t, we, owner, healthy, rcv.server.URL+"/hook", now)
 
 	// One healthy pass first: it proves the parked delivery is reachable by a
 	// sweep at this clock reading, so the "not re-attempted" assertion below
@@ -137,11 +181,16 @@ func TestWebhookRetryReportsTheWorkspaceWhoseDueScanFailed(t *testing.T) {
 	if err == nil {
 		t.Fatal("a workspace whose due-retry scan failed reported success — every delivery parked in that tenant stays parked and nothing records that the sweep never scanned")
 	}
+
 	// The fault is one tenant's, and the pass now takes the tenant it is given:
-	// the healthy workspace's sweep is unaffected by the victim's failure, which
-	// is what the old fleet loop's swallowed error was justified by.
+	// with the policy still armed, the healthy tenant scans its own due row and
+	// re-attempts it. The receiver hit is the load-bearing half — a pass that
+	// returned nil without delivering would have scanned nothing.
 	if err := deliverer.SweepOnce(webhookSweepCtx(healthy)); err != nil {
-		t.Fatalf("the healthy tenant's sweep: %v", err)
+		t.Fatalf("the healthy tenant's sweep, while the victim's is faulted: %v", err)
+	}
+	if got := rcv.count.Load(); got != 3 {
+		t.Fatalf("the endpoint saw %d attempts, want one more from the healthy tenant's sweep — its pass reported success without scanning", got)
 	}
 }
 
@@ -207,13 +256,22 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	}
 }
 
+// dispatchGapBound is what separates "scheduled on the configured interval"
+// from "scheduled on some larger constant". The suite configures 2s, so a
+// correct schedule lands its second dispatch inside this with ample slack,
+// while the constants actually in reach — dispatchScanInterval, and this flag's
+// own 30s default, the likeliest miswiring of all — do not. It bounds the GAP
+// between dispatches rather than the whole run, because a deadline on the run
+// would also pass for any constant smaller than the deadline.
+const dispatchGapBound = 6 * time.Second
+
 // TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval pins the half of the
 // schedule a boot pass hides. RunOnStart fires once whatever the cadence is, so
 // a dispatcher wired to a constant instead of the operator's
 // --webhook-retry-interval looks identical at boot and then never runs again —
 // every parked delivery in the fleet stranded, with every gate green. Two
-// dispatches inside this window can only happen if the configured interval is
-// what River is scheduling on.
+// dispatches less than dispatchGapBound apart can only happen if a cadence far
+// shorter than the constants above is what River is scheduling on.
 func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	we := setupWebhooks(t)
 	now := time.Now().UTC()
@@ -227,20 +285,39 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 			Interval: 2 * time.Second, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
 		},
 	})
+	// Generous compared with the gap bound: a run this slow is a sick machine,
+	// and the assertion that decides the outcome is the gap below, not this.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.WebhookRetryArgs{}.Kind()
-	dispatched := make(map[int64]struct{}, 2)
+	dispatched := make(map[int64]time.Time, 2)
+	var first, second time.Time
 	for len(dispatched) < 2 {
 		select {
 		case <-waitCtx.Done():
 			t.Fatalf("saw %d of 2 %s dispatches: %v — the sweep fired at boot and then never again, so the operator's interval is not what schedules it",
 				len(dispatched), kind, waitCtx.Err())
 		case ev := <-completed:
-			if ev != nil && ev.Job != nil && ev.Job.Kind == kind {
-				dispatched[ev.Job.ID] = struct{}{}
+			if ev == nil || ev.Job == nil || ev.Job.Kind != kind {
+				continue
+			}
+			if _, seen := dispatched[ev.Job.ID]; seen {
+				continue
+			}
+			// The arrival of the completion, not the job's own timestamps:
+			// what is under test is that a SECOND dispatch happened soon, and
+			// the observer's clock is what the reader can trust here.
+			dispatched[ev.Job.ID] = time.Now()
+			if len(dispatched) == 1 {
+				first = dispatched[ev.Job.ID]
+			} else {
+				second = dispatched[ev.Job.ID]
 			}
 		}
+	}
+	if gap := second.Sub(first); gap > dispatchGapBound {
+		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured 2s interval but some larger constant, and the 30s default is the one that would look exactly like this",
+			kind, gap, dispatchGapBound)
 	}
 }
 
