@@ -48,6 +48,10 @@ func TestFactSuspectReasonNamesTheContradictionAndStaysQuietOtherwise(t *testing
 
 		// Fields with no rule stay silent rather than guessing.
 		{"a service, which has no shape to check", crmcontracts.OrganizationFactFieldService, "Managed hosting", ""},
+		// Phone punctuation with no digits behind it is not a phone number,
+		// and must not drag a location into the flag.
+		{"punctuation that is not a number", crmcontracts.OrganizationFactFieldLocation, "(.....)", ""},
+		{"a short internal extension is not enough", crmcontracts.OrganizationFactFieldLocation, "12-345", ""},
 		{"an empty value is nothing to judge", crmcontracts.OrganizationFactFieldPhone, "   ", ""},
 	}
 	for _, tc := range cases {

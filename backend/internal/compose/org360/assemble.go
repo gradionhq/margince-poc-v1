@@ -267,16 +267,39 @@ func (a *assembly) readLastTouch() error {
 	if scope != "" {
 		where += " AND " + scope
 	}
-	var inbound, outbound *time.Time
-	if err := a.tx.QueryRow(a.ctx, `
-		SELECT max(a.occurred_at) FILTER (WHERE a.direction = 'inbound'),
-		       max(a.occurred_at) FILTER (WHERE a.direction = 'outbound')
-		FROM activity a WHERE `+where, args...).Scan(&inbound, &outbound); err != nil {
+	// Two ordered LIMIT-1 arms in ONE round trip, rather than two FILTERed
+	// max() aggregates. An aggregate has to see every qualifying row before it
+	// can answer; each arm here stops at the first, so the cost is bounded by
+	// how far back the newest message of that direction is rather than by the
+	// account's whole history.
+	rows, err := a.tx.Query(a.ctx, `
+		(SELECT 'inbound' AS direction, a.occurred_at FROM activity a
+		  WHERE `+where+` AND a.direction = 'inbound'
+		  ORDER BY a.occurred_at DESC LIMIT 1)
+		UNION ALL
+		(SELECT 'outbound', a.occurred_at FROM activity a
+		  WHERE `+where+` AND a.direction = 'outbound'
+		  ORDER BY a.occurred_at DESC LIMIT 1)`, args...)
+	if err != nil {
 		return err
 	}
-	a.out.LastInboundAt = inbound
-	a.out.LastOutboundAt = outbound
-	return nil
+	defer rows.Close()
+	for rows.Next() {
+		var direction string
+		var at time.Time
+		if err := rows.Scan(&direction, &at); err != nil {
+			return err
+		}
+		// A direction with no message returns no row at all, which is how the
+		// null reaches the wire: nothing of that direction was ever captured.
+		when := at
+		if direction == "inbound" {
+			a.out.LastInboundAt = &when
+			continue
+		}
+		a.out.LastOutboundAt = &when
+	}
+	return rows.Err()
 }
 
 func (a *assembly) readNextSteps() error {

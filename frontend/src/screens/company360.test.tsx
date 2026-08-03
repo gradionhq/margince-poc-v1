@@ -95,22 +95,12 @@ const EMPTY_BRIEF = {
 let briefBody: unknown = EMPTY_BRIEF;
 
 // partnerOrg is the account that HAS a partner programme, and so carries the
-// second tab. The bare fixture deliberately does not: a Partner tab on an
-// account with no programme is the thing the tab gate removed.
-const partnerOrg = {
-  ...org,
-  partner: {
-    id: "pt-1",
-    workspace_id: "w",
-    organization_id: "o-1",
-    relationship_stage: "active",
-    source: "manual",
-    captured_by: "human:u1",
-    version: 1,
-    created_at: "2026-06-01T08:00:00Z",
-    updated_at: "2026-06-01T08:00:00Z",
-  },
-};
+// second tab. Partnerhood is read off the relationship type rather than the
+// extension row, because the Organization read never selects that row — the
+// two are equivalent, since the store enforces the invariant both ways.
+// The bare fixture deliberately carries neither: a Partner tab on an account
+// with no programme is the thing the tab gate removed.
+const partnerOrg = { ...org, relationship_types: ["partner"] };
 
 function stub(three60: unknown, status = 200, account: unknown = org) {
   // The paths actually requested. A test proves the page did NOT refetch by
@@ -1133,10 +1123,12 @@ describe("company view — the visit baseline", () => {
 
 describe("company view — where the account stands, and what it is to us", () => {
   it("shows the lifecycle and every relationship type as separate badges", async () => {
+    // Not "partner": that type also raises the Partner tab, and the badge and
+    // the tab would then share a label, which tells the test nothing.
     stub(view(), 200, {
       ...org,
       lifecycle: "former_customer",
-      relationship_types: ["partner", "supplier"],
+      relationship_types: ["customer", "supplier"],
     });
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
@@ -1144,7 +1136,7 @@ describe("company view — where the account stands, and what it is to us", () =
     // The retired classification held ONE value, which is how an account whose
     // contract had ended still read as "Prospect" while it was also a partner.
     expect(screen.getByText("Former customer")).toBeTruthy();
-    expect(screen.getByText("Partner")).toBeTruthy();
+    expect(screen.getByText("Customer")).toBeTruthy();
     expect(screen.getByText("Supplier")).toBeTruthy();
   });
 

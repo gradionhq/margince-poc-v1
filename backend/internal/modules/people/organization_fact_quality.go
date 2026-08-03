@@ -30,10 +30,11 @@ import (
 )
 
 var (
-	// Enough digits to be a phone number, and the punctuation phone numbers
-	// actually use. Deliberately requires 7+ digits: a street number and a
-	// postcode together do not reach it.
-	phoneShaped = regexp.MustCompile(`^[+()\d][\d\s()./+-]{5,}$`)
+	// The punctuation phone numbers actually use, and nothing else. Shape
+	// alone is not enough — "(....)" matches it — so the digit COUNT is
+	// checked separately below.
+	phoneCharsOnly = regexp.MustCompile(`^[+()\d][\d\s()./+-]{5,}$`)
+	digit          = regexp.MustCompile(`\d`)
 	// A four-digit year in the range a company can plausibly have been founded.
 	yearShaped = regexp.MustCompile(`^(1[5-9]\d{2}|20\d{2})$`)
 	// A range, a bare count, or a count with a qualifier — "11-50", "200",
@@ -41,6 +42,14 @@ var (
 	// one long enough to be a sentence.
 	sizeShaped = regexp.MustCompile(`\d`)
 )
+
+// phoneShaped is a value made only of phone punctuation AND carrying enough
+// digits to be a number. Seven is the floor because a house number and a
+// postcode together must not reach it, or every German street address would
+// be flagged as a phone number.
+func phoneShaped(v string) bool {
+	return phoneCharsOnly.MatchString(v) && len(digit.FindAllString(v, -1)) >= 7
+}
 
 // factSuspectReason reports why a fact's value contradicts its field, or an
 // empty string when it does not. Pure, so the rules are testable without a
@@ -54,11 +63,11 @@ func factSuspectReason(field crmcontracts.OrganizationFactField, value string) s
 	case crmcontracts.OrganizationFactFieldLocation:
 		// The one seen in the wild: a contact page's phone number filed as a
 		// location, because that page's menu offers both fields.
-		if phoneShaped.MatchString(v) {
+		if phoneShaped(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonPhoneShapedLocation)
 		}
 	case crmcontracts.OrganizationFactFieldPhone:
-		if !phoneShaped.MatchString(v) {
+		if !phoneShaped(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonNotAPhone)
 		}
 	case crmcontracts.OrganizationFactFieldFoundedYear:

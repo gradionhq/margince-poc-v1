@@ -330,6 +330,9 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set(ownerIDColumn, current.OwnerId, *in.OwnerID)
 	}
 	if in.Lifecycle != nil {
+		if err := checkLifecycle(*in.Lifecycle); err != nil {
+			return nil, err
+		}
 		p.Set("lifecycle", lifecycleValue(current.Lifecycle), *in.Lifecycle)
 	}
 	if in.ParentOrgID != nil {

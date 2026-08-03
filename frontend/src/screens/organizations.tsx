@@ -103,23 +103,6 @@ import {
 // firmographics card, and timeline stay exactly as they were.
 
 type Organization = components["schemas"]["Organization"];
-type Classification = NonNullable<Organization["classification"]>;
-
-// How the classification column reads to a person. The column stores the
-// enum; printing the enum itself put "prospect" in front of a German reader
-// and told an English one only slightly more. Typed against the schema union,
-// so a value added upstream fails the build here rather than leaking raw.
-const CLASSIFICATION_LABELS: Record<Classification, MessageKey> = {
-  prospect: "org.class.prospect",
-  customer: "org.class.customer",
-  agency: "org.class.agency",
-  reseller: "org.class.reseller",
-  tech_vendor: "org.class.tech_vendor",
-  platform: "org.class.platform",
-  partner: "org.class.partner",
-  competitor: "org.class.competitor",
-  other: "org.class.other",
-};
 
 // Where the account stands with us, and what it is to us (ADR-0079/A124).
 // Typed against the schema unions, so a value added upstream fails the build
@@ -341,11 +324,9 @@ const companyCreateFields: CreateField[] = [
 // The edit form, built per-render because the owner options are the live user
 // roster.
 //
-// Classification is NOT here. `UpdateOrganizationRequest` carries no such
-// field — the value is set by the partner extension and by confirmed
-// proposals — so a select for it would collect an answer and drop it. The
-// badge names the value; changing it needs a contract that does not exist
-// yet (raised in STATUS.md).
+// Stage and relationship types ARE here now: the retired classification could
+// not be edited from anywhere, because the update contract carried no such
+// field.
 // The two vocabularies that replaced classification (ADR-0079/A124): where the
 // account stands with us, and what it is to us. Kept in wire order so the
 // select reads as a progression rather than an alphabet.
@@ -518,12 +499,13 @@ export function CompaniesScreen() {
               },
               {
                 key: "class",
-                header: t("org.classification"),
+                header: t("org.lifecycle"),
+                // classification is retired and no longer written by anything,
+                // so a column reading it would show whatever it happened to
+                // hold when the split shipped, forever.
                 render: (org: Organization) =>
-                  org.classification ? (
-                    <Badge>
-                      {t(CLASSIFICATION_LABELS[org.classification])}
-                    </Badge>
+                  org.lifecycle && org.lifecycle !== "unknown" ? (
+                    <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
                   ) : null,
               },
               {
@@ -1336,7 +1318,13 @@ function companyTabsFor(
   org: Organization,
   tab: CompanyTab,
 ): readonly CompanyTab[] {
-  return org.partner || tab === "partner"
+  // Gated on the relationship type, not on `org.partner`: the Organization
+  // read does not select the extension row, so that field is always absent
+  // and every partner would lose the tab. The type is equivalent and IS
+  // returned — an org carries it exactly when it has a programme, which the
+  // store enforces in both directions (ADR-0079/A124).
+  const isPartner = (org.relationship_types ?? []).includes("partner");
+  return isPartner || tab === "partner"
     ? COMPANY_TABS
     : (["overview"] as const);
 }
@@ -1532,11 +1520,13 @@ function CompanyActionBadges({
             The tab only shows once there IS one, so without this the first
             partner row would be unreachable — this is the same form, asked
             for rather than offered. */}
-          {writable && !overlay && !org.partner && (
-            <Button small onClick={onSetUpPartner}>
-              {t("org.partnerSetUp")}
-            </Button>
-          )}
+          {writable &&
+            !overlay &&
+            !(org.relationship_types ?? []).includes("partner") && (
+              <Button small onClick={onSetUpPartner}>
+                {t("org.partnerSetUp")}
+              </Button>
+            )}
           {/* The audit spine: who changed this record and when. It reads as an
             inspection of the record rather than part of its story, so it sits
             with the other rare verbs instead of beside the account's own

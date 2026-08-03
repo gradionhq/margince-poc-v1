@@ -190,6 +190,29 @@ func TestPartnerPromotionWritesTheTypeAndThePatchCannotTakeItAway(t *testing.T) 
 	}
 }
 
+func TestNamingAnAccountAPartnerWithoutAProgrammeIsRefused(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Aspiring Partner GmbH", Source: "manual",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+
+	// The invariant binds both ways. Guarding only the removal left this half
+	// open: the account would carry the label while every partner API — which
+	// reads the extension table — went on saying it is not one.
+	claim := []string{"partner"}
+	if _, err := e.store.UpdateOrganization(ctx, orgID, UpdateOrganizationInput{RelationshipTypes: &claim}); err == nil {
+		t.Fatal("an account with no partner programme was named a partner")
+	}
+	if live := liveTypesOf(ctx, t, e, orgID); len(live) != 0 {
+		t.Fatalf("the refused patch still wrote %+v", live)
+	}
+}
+
 func TestArchivingAnAccountRetiresItsRelationshipTypes(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := asAdmin(e)

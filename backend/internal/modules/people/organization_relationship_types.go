@@ -162,15 +162,21 @@ func reconcileOrgRelationshipTypes(
 	for _, t := range desired {
 		desiredSet[t] = true
 	}
-	if !desiredSet[relationshipTypePartner] {
-		isPartner, err := hasPartnerRow(ctx, tx, orgID)
-		if err != nil {
-			return nil, err
-		}
-		if isPartner {
-			return nil, httperr.Validation("relationship_types", "partner_row_exists",
-				"this company has a partner programme, so it stays a partner — remove the programme first")
-		}
+	// The invariant binds BOTH ways, so it is checked both ways. Guarding only
+	// the removal left the other half open: a patch could name this company a
+	// partner with no programme behind it, and every partner API — which reads
+	// the extension table — would go on saying it is not one.
+	isPartner, err := hasPartnerRow(ctx, tx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case isPartner && !desiredSet[relationshipTypePartner]:
+		return nil, httperr.Validation("relationship_types", "partner_row_exists",
+			"this company has a partner programme, so it stays a partner — remove the programme first")
+	case !isPartner && desiredSet[relationshipTypePartner]:
+		return nil, httperr.Validation("relationship_types", "partner_row_missing",
+			"a partner is a company with a partner programme — set one up first")
 	}
 
 	liveSet := make(map[string]bool, len(live))
@@ -255,4 +261,25 @@ func lifecycleValue(l *crmcontracts.OrganizationLifecycle) string {
 		return string(crmcontracts.OrganizationLifecycleUnknown)
 	}
 	return string(*l)
+}
+
+// validLifecycles is the closed vocabulary, checked before the database sees
+// it so a bad value is a 422 naming the field rather than a CHECK violation.
+var validLifecycles = map[string]bool{
+	string(crmcontracts.OrganizationLifecycleUnknown):        true,
+	string(crmcontracts.OrganizationLifecycleTarget):         true,
+	string(crmcontracts.OrganizationLifecycleProspect):       true,
+	string(crmcontracts.OrganizationLifecycleOpportunity):    true,
+	string(crmcontracts.OrganizationLifecycleCustomer):       true,
+	string(crmcontracts.OrganizationLifecycleFormerCustomer): true,
+	string(crmcontracts.OrganizationLifecycleDisqualified):   true,
+}
+
+// checkLifecycle refuses a value outside the vocabulary.
+func checkLifecycle(value string) error {
+	if validLifecycles[value] {
+		return nil
+	}
+	return httperr.Validation("lifecycle", "invalid_enum",
+		fmt.Sprintf("%q is not a lifecycle", value))
 }
