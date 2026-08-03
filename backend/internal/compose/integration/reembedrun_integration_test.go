@@ -250,7 +250,9 @@ func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
 		t.Fatalf("a forced confirm over a marker nothing is moving: %v", err)
 	}
 	// The taken-over marker belongs to the new run outright: the wedged run's
-	// pending set is gone, so its own straggler could only act on nothing.
+	// pending set is gone, so its own straggler's BOOKKEEPING moves nothing.
+	// It says nothing about that straggler's embedding work, which a steal does
+	// not stop (search.ReembedClaim.StealAfter).
 	if err := e.store.FinishWorkspaceReembedding(ctx, stuck.Run, ids.From[ids.WorkspaceKind](e.WS)); err != nil {
 		t.Fatalf("the dispossessed run's straggler must be a no-op, got: %v", err)
 	}

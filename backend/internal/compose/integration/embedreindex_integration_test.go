@@ -302,9 +302,9 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	if st.EntitiesPending < 1 {
 		t.Fatalf("entities_pending = %d, want >= 1 (the seeded stale row)", st.EntitiesPending)
 	}
-	// updated_at is the "reindexing since" clock the SPA reads; it must be a
-	// real RFC3339 instant on the wire, not a zeroed/absent field — the
-	// binding row's updated_at is stamped on seed and every CAS.
+	// updated_at is the last-progress instant the SPA renders an age from; it
+	// must be a real RFC3339 instant on the wire, not a zeroed/absent field —
+	// the binding row's updated_at is stamped on seed and every CAS.
 	if _, err := time.Parse(time.RFC3339, st.UpdatedAt); err != nil {
 		t.Fatalf("status.updated_at = %q, want a parseable RFC3339 instant: %v", st.UpdatedAt, err)
 	}

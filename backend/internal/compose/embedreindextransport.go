@@ -25,6 +25,7 @@ package compose
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"time"
@@ -60,6 +61,22 @@ const reembeddingStatus = "reembedding"
 // minutes. An hour leaves fifty minutes of margin over that sum, so no healthy
 // run is ever near it however long its corpus takes.
 const reembedStaleAfter = time.Hour
+
+// humanStaleWindow renders the steal window for the operator-facing 409.
+// Duration.String spells an hour "1h0m0s", which is exact and unreadable; whole
+// hours get words instead. Anything else falls back to the exact form on
+// purpose: a clumsy-looking string is better than a rounded one that no longer
+// names the window actually enforced.
+func humanStaleWindow(d time.Duration) string {
+	switch {
+	case d == time.Hour:
+		return "an hour"
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d hours", d/time.Hour)
+	default:
+		return d.String()
+	}
+}
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
 // needs: the insert rides the claim's own transaction, so a claim that
@@ -242,7 +259,7 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 			// The window is rendered from the constant that enforces it: a
 			// message naming its own duration is a message that lies the day
 			// reembedStaleAfter moves.
-			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + reembedStaleAfter.String(),
+			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + humanStaleWindow(reembedStaleAfter),
 		})
 		return
 	}
