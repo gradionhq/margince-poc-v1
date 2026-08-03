@@ -277,3 +277,60 @@ func assertDecidableInTheInbox(t *testing.T, e *env, approvalID, wantTargetType 
 	}
 	t.Fatalf("the staged approval is not in the pending inbox (%d rows) — nobody can act on it", len(inbox.Data))
 }
+
+// An approval stays decidable after its target edge is archived out from under it.
+//
+// EnsureRelationshipVisible deliberately does NOT filter archived rows, unlike
+// Store.GetRelationship, which does. That asymmetry is the whole reason a human can
+// still REJECT a staged archive of an edge somebody removed in the meantime — and
+// nothing gated it, so the next author adding `AND r.archived_at IS NULL` for
+// symmetry with the read verb would take the guarantee away with every test green.
+//
+// This is the case that makes the deviation load-bearing rather than a comment.
+func TestAnApprovalStaysDecidableAfterItsEdgeIsArchived(t *testing.T) {
+	e := setupRelationships(t)
+
+	var edge struct {
+		ID string `json:"id"`
+	}
+	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+		"kind": "employment", "person_id": e.personID, "organization_id": e.orgID,
+		"role": "cfo", "source": "ui",
+	}, nil, &edge); status != http.StatusCreated {
+		t.Fatalf("create employment → %d", status)
+	}
+
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := e.call(t, "POST", "/v1/passports", anyMap{
+		"label": "archived edge agent", "scopes": []string{"read", "write"},
+	}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+
+	var problem struct {
+		Detail string `json:"detail"`
+	}
+	if status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil,
+		map[string]string{"Authorization": "Bearer " + minted.Token}, &problem); status != http.StatusForbidden {
+		t.Fatalf("agent archive → %d, want 403 approval_required", status)
+	}
+	approvalID := extractStagedApprovalID(t, problem.Detail)
+
+	// The human archives the edge themselves, which is exactly the race the
+	// approval was staged into: the target is gone before anyone decided.
+	if status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("human archive → %d", status)
+	}
+
+	// The staged row must STILL be visible and rejectable. If it were not, the
+	// approval would sit pending until its TTL with no way to clear it.
+	assertDecidableInTheInbox(t, e.env, approvalID, "relationship")
+	if got := e.call(t, "POST", "/v1/approvals/"+approvalID+"/reject", anyMap{
+		"reason": "already archived",
+	}, nil, nil); got != http.StatusOK {
+		t.Errorf("rejecting an approval whose edge was archived → %d, want 200 — a human must be able to "+
+			"clear authority whose target is gone", got)
+	}
+}

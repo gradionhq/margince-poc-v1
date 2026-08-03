@@ -328,13 +328,43 @@ func TestAPassportReadsTheSameRefusalAsASessionForAnOmittedStage(t *testing.T) {
 	// And an unreadable body is a DIFFERENT fault: answering "to_stage_id is
 	// required" for JSON that never parsed points the caller at a field that may
 	// well be there.
-	malformed := postRawBody(t, e, "/v1/deals/"+deal+"/advance", "{not json", bearer)
-	if malformed.status != http.StatusUnprocessableEntity {
-		t.Fatalf("a malformed body → %d, want 422", malformed.status)
-	}
-	if malformed.problem.Detail == asPassport.Detail {
-		t.Errorf("an unreadable body and an omitted key answer the same sentence %q — two faults, one message",
-			malformed.problem.Detail)
+	// Three faults, three answers — and the middle one is the trap. A body that is
+	// perfectly readable JSON carrying a to_stage_id the UUID decoder refuses fails
+	// the SAME json.Unmarshal as a body that is not JSON at all, so one branch for
+	// both tells a caller to hunt a syntax error that is not there while the value
+	// they can actually see and fix goes unnamed.
+	for name, tc := range map[string]struct {
+		body      string
+		wantField string
+		// distinctFrom is the omitted-key sentence: every one of these must differ
+		// from it, or the fault they name is one the caller cannot tell apart.
+		distinctFrom string
+	}{
+		"not JSON at all":        {"{not json", "body", asPassport.Detail},
+		"empty body":             {"", "body", asPassport.Detail},
+		"valid JSON, not a UUID": {`{"to_stage_id":"banana"}`, "to_stage_id", asPassport.Detail},
+		"valid JSON, a number":   {`{"to_stage_id":12345}`, "to_stage_id", asPassport.Detail},
+		"valid JSON, an array":   {`[]`, "to_stage_id", asPassport.Detail},
+	} {
+		t.Run(name, func(t *testing.T) {
+			answer := postRawBody(t, e, "/v1/deals/"+deal+"/advance", tc.body, bearer)
+			if answer.status != http.StatusUnprocessableEntity {
+				t.Fatalf("→ %d, want 422: %+v", answer.status, answer.problem)
+			}
+			if !namesField(answer.problem, tc.wantField) {
+				t.Errorf("names %+v, want the field %q", answer.problem.Details.Errors, tc.wantField)
+			}
+			if answer.problem.Detail == tc.distinctFrom {
+				t.Errorf("answers the omitted-key sentence %q for a different fault — the caller cannot "+
+					"tell which mistake they made", answer.problem.Detail)
+			}
+			// The specific lie this closes: claiming the body was unreadable when it
+			// parsed fine.
+			if tc.wantField == "to_stage_id" && strings.Contains(answer.problem.Detail, "not readable JSON") {
+				t.Errorf("body %q is valid JSON and the refusal says %q — the caller is sent hunting a "+
+					"syntax error that does not exist", tc.body, answer.problem.Detail)
+			}
+		})
 	}
 }
 

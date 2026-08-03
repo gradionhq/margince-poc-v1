@@ -29,9 +29,6 @@ func TestAnUncoveredDealAnswersEmptyArraysNotNulls(t *testing.T) {
 		t.Fatalf("marshalling the coverage answer: %v", err)
 	}
 	for _, member := range []string{`"stakeholders":[]`, `"our_side":[]`, `"risks":[]`} {
-		if !json.Valid(raw) {
-			t.Fatalf("unreadable payload %s", raw)
-		}
 		if !strings.Contains(string(raw), member) {
 			t.Errorf("payload = %s, want %s — a null reads to a model as \"unknown\", which is a "+
 				"different claim from \"nobody\"", raw, member)

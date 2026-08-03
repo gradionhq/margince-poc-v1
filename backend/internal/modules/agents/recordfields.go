@@ -160,15 +160,24 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 	if describesField(shapes, "counterparty_org_id") {
 		b.WriteString("A person's employer is a relationship, not a field on the person: ")
 		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
-		b.WriteString("Each kind requires its OWN endpoint pair and rejects any other — ")
+		// REQUIRES, not "and rejects any other". The schema's shape CHECKs pin the
+		// pair each kind must have and forbid the endpoints that would contradict
+		// it, but they do not forbid every irrelevant one — an employment edge will
+		// accept a stray counterparty_org_id. Promising more than the constraints
+		// deliver would be a description a caller could disprove.
+		b.WriteString("Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — ")
 		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
 		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
 		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
-		// An edge is returned only by the call that WRITES it: read_record and
-		// search_records do not serve `relationship` (the contract has no
-		// single-relationship GET), so an id thrown away is an id nothing on this
-		// surface will hand back.
-		b.WriteString("Keep the id a relationship write returns — no read tool serves an edge. ")
+		// An edge is not searchable: search_records' record_type enum has no
+		// relationship, and there is no list-relationships tool. So the id a write
+		// returns is the only handle on the edge this surface will give out.
+		//
+		// It deliberately does NOT say "no read tool serves an edge" — read_record
+		// answers a relationship by id even though its enum does not advertise one
+		// (the contract has no single-relationship GET), and a description a caller
+		// can disprove in one call costs more than the silence it replaced.
+		b.WriteString("An edge is not searchable, so keep the id a relationship write returns. ")
 	} else {
 		// The patch tool still owes the reader the pointer, because a person's
 		// employer is the field they will look for first and not find.

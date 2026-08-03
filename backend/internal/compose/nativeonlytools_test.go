@@ -278,21 +278,27 @@ func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 	}
 }
 
-// Every nativeOnly… guard in this file must be pinned by the wiring suite.
+// Every nativeOnly… guard in this file must name the tool(s) it guards, and the
+// wiring pin must cover exactly those tools.
 //
 // The unit specs above prove what a guard DOES given a mode; only
 // integration/overlay_toolsurface_integration_test.go proves a guard is actually
-// wired, and its map is written by hand. That map has been wrong exactly this way
-// before — intro_path_to and at_risk_relationships carried guards it had never
-// examined — so the obligation is derived here instead of being remembered:
+// wired, and its map is written by hand. So the obligation is derived here:
 // declaring a guard enrols its tool.
 //
-// The guard→tool link cannot be read off a type (a decorator is invisible from the
-// tool spec), so it is read off the DECLARATION: the doc comment of every
-// nativeOnly… function must name the tool or tools it guards, and each of those
-// names must appear in the pin. That makes the comment load-bearing rather than
-// decorative, which is the point — a guard whose comment does not say what it
-// guards cannot be checked by anything.
+// The guard→tool link cannot be read off a type — a decorator is invisible from
+// the tool spec — so it is read off the DECLARATION's doc comment. That makes the
+// comment load-bearing, which is the point, but a comment is prose and prose can
+// be wrong in two ways this gate has to close:
+//
+//   - a guard that is a TYPE rather than a func (nativeOnlyRetriever is one, and it
+//     guards two of the eight pinned tools), which a FuncDecl-only walk never sees;
+//   - a doc that names SOME pinned tool rather than its own, which a
+//     does-it-mention-any check passes.
+//
+// Hence a bijection: every pinned tool is named by exactly one guard, and every
+// guard names at least one pinned tool. That also forces a guard handed to two
+// tools to name both — nativeOnlySlippingLister is one.
 func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
 	const guardFile = "nativeonlytools.go"
 	fset := token.NewFileSet()
@@ -302,31 +308,71 @@ func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
 	}
 	pinned := pinnedNativeOnlyTools(t)
 
-	guards := 0
+	// guard name → the doc comment that must name its tools. Both declaration
+	// shapes, because a guard may be a decorator func OR a decorator type.
+	docs := map[string]string{}
 	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || !strings.HasPrefix(fn.Name.Name, "nativeOnly") {
-			continue
-		}
-		guards++
-		doc := fn.Doc.Text()
-		named := []string{}
-		for tool := range pinned {
-			if strings.Contains(doc, tool) {
-				named = append(named, tool)
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if strings.HasPrefix(d.Name.Name, nativeOnlyPrefix) {
+				docs[d.Name.Name] = d.Doc.Text()
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || !strings.HasPrefix(ts.Name.Name, nativeOnlyPrefix) {
+					continue
+				}
+				// A single-spec GenDecl carries the doc; a grouped one leaves it
+				// on the spec.
+				doc := ts.Doc.Text()
+				if doc == "" {
+					doc = d.Doc.Text()
+				}
+				docs[ts.Name.Name] = doc
 			}
 		}
-		if len(named) == 0 {
-			t.Errorf("%s guards something the wiring pin does not cover. Its doc comment must name the "+
-				"tool(s) it guards, and each must appear in nativeOnlyAgentTools "+
+	}
+	if len(docs) == 0 {
+		t.Fatalf("no %s… declaration found in %s — the walk is reading the wrong file", nativeOnlyPrefix, guardFile)
+	}
+
+	namedBy := map[string][]string{}
+	for guard, doc := range docs {
+		named := 0
+		for tool := range pinned {
+			if strings.Contains(doc, tool) {
+				namedBy[tool] = append(namedBy[tool], guard)
+				named++
+			}
+		}
+		if named == 0 {
+			t.Errorf("%s names no tool the wiring pin covers. Its doc comment must name the tool(s) it "+
+				"guards, and each must appear in nativeOnlyAgentTools "+
 				"(compose/integration/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
-				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", fn.Name.Name, doc)
+				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", guard, doc)
 		}
 	}
-	if guards == 0 {
-		t.Fatalf("no nativeOnly… declaration found in %s — the walk is reading the wrong file", guardFile)
+
+	// The other direction, which is what catches a doc naming the wrong tool: a
+	// pinned tool no guard claims is either unguarded or guarded by a decorator
+	// whose comment points somewhere else.
+	for tool := range pinned {
+		switch len(namedBy[tool]) {
+		case 1:
+		case 0:
+			t.Errorf("the wiring pin covers %q and no nativeOnly… guard's doc names it — either the tool "+
+				"has no mode guard at all, or the guard that decorates it describes a different tool", tool)
+		default:
+			t.Errorf("%q is named by %v — two guards claiming one tool means at least one comment is "+
+				"describing something it does not decorate", tool, namedBy[tool])
+		}
 	}
 }
+
+// nativeOnlyPrefix is the naming convention the walk above depends on: a mode
+// guard in this file is named for what it guards against, not for what it wraps.
+const nativeOnlyPrefix = "nativeOnly"
 
 // pinnedNativeOnlyTools reads the tool names out of the integration suite's pin.
 // Parsed rather than duplicated: a copy here would be a third hand-kept list, and

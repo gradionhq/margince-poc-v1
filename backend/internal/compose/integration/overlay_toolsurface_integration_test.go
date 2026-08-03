@@ -48,12 +48,12 @@ import (
 // record lookup, so a not-found in place of the sentinel means the guard runs
 // late.
 //
-// This map is HAND-KEPT, and that is its weakness: "which tools read native
-// tables" is not visible from a tool spec, so a newly guarded tool joins this
-// pin only because someone remembered. It has been wrong that way before —
-// intro_path_to and at_risk_relationships carried nativeOnly guards that this
-// gate had never examined. Whoever adds a nativeOnly… wrapper in
-// compose/nativeonlytools.go adds its tool here in the same change.
+// Every `nativeOnly…` guard in compose/nativeonlytools.go must name its tool
+// here, and every tool here must be named by exactly one guard —
+// TestEveryNativeOnlyGuardNamesAToolThePinCovers holds the two in step. So a
+// newly guarded tool is enrolled by the gate rather than by being remembered,
+// which is what "which tools read native tables is not visible from a tool spec"
+// otherwise costs.
 func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 	return map[string]string{
 		"run_report":               `{"report":"deals-by-stage"}`,

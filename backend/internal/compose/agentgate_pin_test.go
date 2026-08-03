@@ -199,14 +199,24 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 // class is enumerated rather than invisible, and so it can only shrink — a NEW
 // confirm-first record type joins it deliberately or fails the gate below.
 var undecidableConfirmFirstTypes = map[string]string{
-	"list":                 "approvals.targetVisible has no `list` arm — a staged list change is invisible in the inbox and cannot be decided",
-	"tag":                  "no `tag` arm; same effect",
-	"project":              "no `project` arm, though the row is owner-scoped exactly like a deal — this one is a straightforward auth.VisibleTo addition",
-	"record_grant":         "no `record_grant` arm; share_record is also a dead end at redemption (see synthesizedVerbs' deadEndVerbs)",
-	"saved_view":           "no `saved_view` arm",
-	"offer_template":       "no `offer_template` arm",
-	"overlay_connection":   "no `overlay_connection` arm",
-	"webhook_subscription": "no `webhook_subscription` arm",
+	"list": "archiveList stages against a list; a curator cannot release or reject the deletion of " +
+		"their own segment. The row is owner-scoped, so this is an auth.VisibleTo arm.",
+	"tag": "archiveTag — same shape and the same one-line fix as `list`.",
+	"record_grant": "createRecordGrant/revokeRecordGrant. Left waived rather than fixed because " +
+		"visibility is not the only gap: share_record ALSO dead-ends at redemption (deadEndVerbs in " +
+		"agentpolicysynthesis_test.go — the grant verbs reject any non-human principal, so an " +
+		"agent-staged, human-approved grant is refused as the redeeming agent every time). An arm here " +
+		"would make the row decidable and the operation would still never land, which is worse than an " +
+		"honest dead end. Answer the redemption question first.",
+	"saved_view": "archiveSavedView; the owner cannot release the deletion of their own view. " +
+		"Owner-scoped, so an auth.VisibleTo arm.",
+	"offer_template": "archiveOfferTemplate; workspace-shared config with no row scope, so it wants " +
+		"the targetExists floor `product` and `custom_field` already use, not a scope probe.",
+	"overlay_connection": "disconnectIncumbent stages against the connection row, so nobody can " +
+		"approve cutting the workspace back to native mode — the one transition an operator most needs " +
+		"to confirm deliberately.",
+	"webhook_subscription": "archiveWebhookSubscription; the subscription owner cannot release the " +
+		"deletion of their own endpoint. Owner-scoped.",
 }
 
 // Every confirm-first operation that names a concrete record type must stage a

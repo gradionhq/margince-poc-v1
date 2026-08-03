@@ -188,9 +188,11 @@ func nativeOnlyPipelines(mode overlayModeChecker, list agents.PipelineLister) ag
 	}
 }
 
-// nativeOnlySlippingLister guards whats_slipping_this_week, whose candidate
-// set is the native deals store. The mirror serves no stage or pipeline
-// dial, so there is no overlay query to fall back to.
+// nativeOnlySlippingLister guards whats_slipping_this_week AND
+// draft_follow_ups_for — both, because RegisterSlippingTools hands this one
+// lister to each of them, so the drafter's candidate set is the same guarded
+// read. The candidates come from the native deals store, and the mirror serves no
+// stage or pipeline dial, so there is no overlay query to fall back to.
 func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingLister) agents.SlippingLister {
 	return func(ctx context.Context) ([]agents.SlippingDeal, error) {
 		overlay, err := mode.isOverlayUncached(ctx)

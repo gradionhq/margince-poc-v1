@@ -355,12 +355,27 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
-	// Two different faults, so two different answers. An unreadable body is not
-	// an omitted key, and telling the caller "to_stage_id is required" when the
-	// JSON never parsed points them at a field that may well be there.
+	// THREE faults, three answers, and the order matters because each later check
+	// presumes the earlier one passed.
+	//
+	// json.Unmarshal alone cannot tell them apart: it fails identically for a body
+	// that is not JSON and for a body that is perfectly good JSON carrying a
+	// to_stage_id the UUID decoder refuses. Answering "not readable JSON" to the
+	// second sends the caller hunting a syntax error that is not there, while the
+	// real fault — a value they can see and fix — goes unnamed.
+	if !json.Valid(body) {
+		// malformed_json, the code httperr.Decode answers on the session half of
+		// this same route — one mistake must not carry two machine codes keyed on
+		// which credential the caller presented.
+		return mcp.TierResolverInput{}, httperr.Validation("body", "malformed_json",
+			"the request body is not readable JSON")
+	}
 	if err := json.Unmarshal(body, &args); err != nil {
+		// Valid JSON the shape refuses: a non-object, or a to_stage_id that is not
+		// a UUID string. Naming the field is right for both — the fix is to send an
+		// object carrying a canonical UUID there.
 		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "invalid",
-			"the request body is not readable JSON, so the target stage cannot be resolved")
+			"to_stage_id must be a canonical UUID string on a JSON object body")
 	}
 	// The omission goes through the one implementation, so a passport reaching
 	// this gate and a session reaching advanceDealInput read the SAME sentence.

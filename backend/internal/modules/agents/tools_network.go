@@ -206,6 +206,20 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if err != nil {
 		return nil, err
 	}
+	// At the BOUNDARY, not only in whichever implementation built the answer.
+	// CoverageReader is a func seam: a second implementation satisfies it without
+	// passing through compose's builder, and "no seats, nobody on our side" is the
+	// most useful thing this tool says — a model handed null reads it as "unknown"
+	// and hedges about coverage the server was certain of.
+	if answer.Stakeholders == nil {
+		answer.Stakeholders = []CoverageSeat{}
+	}
+	if answer.OurSide == nil {
+		answer.OurSide = []KnownColleague{}
+	}
+	if answer.Risks == nil {
+		answer.Risks = []CoverageRisk{}
+	}
 	return json.Marshal(answer)
 }
 

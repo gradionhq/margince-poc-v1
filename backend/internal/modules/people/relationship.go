@@ -96,8 +96,16 @@ type CreateRelationshipInput struct {
 }
 
 func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInput) (relationshipRow, error) {
+	// A SUPPLIED kind outside the vocabulary is a different fault from an omitted
+	// one, and they used to answer the same sentence: a caller who sent
+	// kind="EMPLOYMENT" was told `kind` is required, which is factually wrong about
+	// a field they can see in their own request. The case-sensitivity trap makes
+	// that land in practice, so the refusal names the allowed set.
+	if in.Kind == "" {
+		return relationshipRow{}, &RequiredFieldError{Field: relationshipKindField}
+	}
 	if !relationshipKinds[in.Kind] {
-		return relationshipRow{}, &RequiredFieldError{Field: "kind"}
+		return relationshipRow{}, &RelationshipKindError{Kind: in.Kind}
 	}
 	anchorObject, _ := relationshipAnchor(in.Kind)
 	if err := auth.Require(ctx, "relationship", principal.ActionCreate); err != nil {

@@ -34,10 +34,10 @@ var decisionGrants = map[string][]struct {
 	Object string
 	Action principal.Action
 }{
-	"advance_deal": {{"deal", principal.ActionUpdate}},
+	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
-	"progress_deal":  {{"deal", principal.ActionUpdate}},
+	"progress_deal":  {{tableDeal, principal.ActionUpdate}},
 	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
@@ -88,7 +88,7 @@ var decisionGrants = map[string][]struct {
 	"org_name_promotion": {{"organization", principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
-	"close_date_correction": {{"deal", principal.ActionUpdate}},
+	"close_date_correction": {{tableDeal, principal.ActionUpdate}},
 	// Confirming an overnight follow-up proposal (features/07 §8a) creates
 	// the drafted task activity; the target deal's visibility gates who
 	// may see and decide it (targetVisible), the create grant gates the
@@ -117,13 +117,24 @@ var kindDecidedEvents = map[string]decidedEcho{
 }
 
 // The target types this package names in more than one place. They are the
-// `target_entity_type` vocabulary the staged rows carry, and each is spoken by
-// both the decision-grant map and the visibility probe — one spelling, so a
-// typo in either cannot silently make a kind undecidable.
+// `target_entity_type` vocabulary the staged rows carry, and this package spells
+// each in several places — the visibility probe's classification, the
+// decision-grant map, and the version-table whitelist. One spelling, because a
+// typo makes a target undecidable in the first and unpinnable in the last, and
+// neither failure announces itself.
 const (
 	targetOffer        = "offer"
 	targetProduct      = "product"
 	targetRelationship = "relationship"
+	// The row-scoped record tables. Named as a SET rather than one at a time: this
+	// package spells them in the probe classification, the decision-grant map and
+	// the version-table whitelist, and a typo makes a target undecidable in the
+	// first and unpinnable in the last without announcing either.
+	tablePerson       = "person"
+	tableOrganization = "organization"
+	tableDeal         = "deal"
+	tableLead         = "lead"
+	tableProject      = "project"
 )
 
 // selfOnlyKinds are the staging kinds whose proposal is nobody's business but
@@ -178,7 +189,7 @@ const (
 
 func probeFor(targetType string) targetProbe {
 	switch targetType {
-	case "person", "organization", "deal", "lead":
+	case tablePerson, tableOrganization, tableDeal, tableLead, tableProject:
 		return probeOwnScope
 	case targetOffer, "signal", objectActivity, targetRelationship:
 		return probeInheritedScope
@@ -285,10 +296,12 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		if err != nil {
 			return false, err
 		}
-		return auth.VisibleTo(ctx, tx, "deal", dealID)
+		return auth.VisibleTo(ctx, tx, tableDeal, dealID)
 	}
-	ensure := auth.EnsureSignalVisible
+	var ensure func(context.Context, pgx.Tx, ids.UUID) error
 	switch targetType {
+	case "signal":
+		ensure = auth.EnsureSignalVisible
 	case objectActivity:
 		ensure = auth.EnsureActivityVisible
 	case targetRelationship:
@@ -296,6 +309,15 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		// spelling in platform/auth because people's own reads and this probe are
 		// two readers of the same rule.
 		ensure = auth.EnsureRelationshipVisible
+	default:
+		// TOTAL on purpose. A signal default read as "whatever is left", so a type
+		// added to probeFor's inherited-scope arm — which looks like the whole act
+		// of enrolling one — would have been probed against the SIGNAL table: a
+		// wrong-scope answer rather than a closed one, from the branch that exists
+		// to be closed. probeFor is the one source only if this cannot silently
+		// disagree with it.
+		return false, fmt.Errorf(
+			"crmapprovals: %q is classified as inherited-scope with no parent probe", targetType)
 	}
 	switch err := ensure(ctx, tx, targetID); {
 	case err == nil:

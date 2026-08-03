@@ -55,8 +55,9 @@ var FieldTypes = []string{TypeText, TypeNumber, TypeDate, TypeCurrency, TypePick
 // column exists, and every read drops the value. The two exclusions are named
 // rather than left to be inferred from an absence:
 //
-//   - activity — no store wiring, no wire carriage. The already-shipped defect
-//     above; naming it here is what closes it.
+//   - activity — no store wiring, no wire carriage, so a custom field on an
+//     activity can be created and never read back. That has been true since it
+//     shipped, hidden only by the SPA's picker; naming it here is what closes it.
 //   - relationship — same two gaps. Custom fields on edges is deliberately its
 //     own future change, because it opens a question no gate here can answer: a
 //     `relationship` row is EXCLUDED from piiTables today, judged against a

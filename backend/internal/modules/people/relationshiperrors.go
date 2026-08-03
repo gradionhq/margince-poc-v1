@@ -4,6 +4,10 @@
 package people
 
 import (
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -25,7 +29,10 @@ import (
 type RelationshipShapeError struct{ Kind string }
 
 func (e *RelationshipShapeError) Error() string {
-	return "a " + e.Kind + " relationship does not take this combination of endpoints"
+	// No indefinite article: "a employment relationship" is wrong for the two
+	// kinds that begin with a vowel, and picking one per kind is a rule about
+	// English that the refusal does not need.
+	return "kind " + strconv.Quote(e.Kind) + " does not take this combination of endpoints"
 }
 
 // MessageFault names the condition and what to check, with no field: the
@@ -35,6 +42,40 @@ func (e *RelationshipShapeError) MessageFault() (code, message string) {
 	return "relationship_shape_invalid",
 		e.Error() + " — check which person/organization/deal/project fields this kind requires"
 }
+
+// relationshipKindField is the wire path both kind refusals name: the omitted-kind
+// RequiredFieldError and the invalid-kind one below.
+const relationshipKindField = "kind"
+
+// RelationshipKindError refuses a kind outside the closed vocabulary.
+//
+// FieldFault on `kind`: unlike the shape error next door, this one HAS a single
+// offending argument, and the fix is to change that one value — so the message
+// names the set to choose from rather than leaving the caller to guess which
+// spelling the server wanted.
+type RelationshipKindError struct{ Kind string }
+
+func (e *RelationshipKindError) Error() string {
+	return "`" + relationshipKindField + "` " + strconv.Quote(e.Kind) + " is not a relationship kind; use one of " + relationshipKindList
+}
+
+// FieldFault names kind and the contract's code for a value outside an enum.
+func (e *RelationshipKindError) FieldFault() (field, code, message string) {
+	return relationshipKindField, "invalid_value", e.Error()
+}
+
+// relationshipKindList renders the vocabulary from relationshipKinds rather than
+// restating it, so a kind added to the map cannot be missing from the refusal
+// that teaches it. Sorted, because a map's order would make the message differ
+// between processes for one rule.
+var relationshipKindList = func() string {
+	kinds := make([]string, 0, len(relationshipKinds))
+	for kind := range relationshipKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return strings.Join(kinds, ", ")
+}()
 
 // RelationshipDatesError refuses an edge that ended before it started.
 type RelationshipDatesError struct{}

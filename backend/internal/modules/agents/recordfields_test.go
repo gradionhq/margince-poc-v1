@@ -362,8 +362,9 @@ func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
 	patch := describeRecordFields(updateShapes)
 
 	// The pairing rule is create-only: naming a pair is a thing only a create can
-	// do.
-	const pairingRule = "Each kind requires its OWN endpoint pair"
+	// do. Keyed on the stable CLAIM, not on the sentence — a reworded advisory is
+	// not a regression, a missing one is.
+	const pairingRule = "endpoint pair"
 	if !strings.Contains(create, pairingRule) {
 		t.Errorf("create_record's description does not state the per-kind endpoint pairing rule, which "+
 			"is invisible from a flat field list: %q", create)

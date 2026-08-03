@@ -52,17 +52,23 @@ func AssertNamesField(t *testing.T, err error, field string) {
 		"on and what a model reads back", field, fault.Fields, field)
 }
 
-// AssertNamesOmittedID is AssertNamesField for the specific case of a required
-// body id the caller left out. It adds the one thing that case owes on top: the
-// status must be 422 and not the 404 it used to be, because a not-found sends the
-// caller looking for a record they never named.
+// AssertNamesOmittedID is AssertNamesField for a required body id the caller left
+// out, and it pins the status EXACTLY rather than to the 4xx band.
+//
+// 422 is the claim: the body was well-formed and one required value was absent. A
+// 404 is the specific answer this guard class exists to stop — it sends the caller
+// looking for a record they never named — but a 400 or a 409 would be wrong too,
+// and the local copies this replaced all asserted the exact code. A consolidation
+// that widened the assertion would have quietly weakened six suites.
 func AssertNamesOmittedID(t *testing.T, err error, field string) {
 	t.Helper()
 	AssertNamesField(t, err, field)
-	if err == nil {
-		return
+	fault, ok := httperr.Classify(err)
+	if !ok {
+		return // AssertNamesField has already failed the test on this
 	}
-	if fault, ok := httperr.Classify(err); ok && fault.Status == http.StatusNotFound {
-		t.Errorf("an omitted %s answered 404 — that is the defect this guard closes, not the fix", field)
+	if fault.Status != http.StatusUnprocessableEntity {
+		t.Errorf("an omitted %s answered status %d, want exactly 422 — the body is well-formed and one "+
+			"required value is missing", field, fault.Status)
 	}
 }
