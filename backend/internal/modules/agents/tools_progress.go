@@ -45,7 +45,7 @@ func (t progressDeal) Spec() mcp.ToolSpec {
 		OpenAPIOp:    "advanceDeal + logActivity",
 		InputSchema: schema(`{"type":"object","required":["deal_id","to_stage_id"],"properties":{
 			"deal_id":{"type":"string","format":"uuid"},
-			"to_stage_id":{"type":"string","format":"uuid"},
+			"to_stage_id":{"type":"string","format":"uuid"` + stageIDNote + `},
 			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},
 			"note":{"type":"string","description":"Logged as a note on the deal's timeline after the move"},
 			"if_version":{"type":"integer"},

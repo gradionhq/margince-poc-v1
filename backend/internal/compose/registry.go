@@ -70,6 +70,12 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// cached mode. See overlayModeChecker for why that distinction is typed.
 	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
+	// Pipeline config, and it registers next to the core CRUD set because it is
+	// what makes two of those verbs reachable: create_record for a deal and
+	// advance_deal both name ids no other tool yields. Config is not a record,
+	// so it rides its own seam rather than the datasource one — and that seam
+	// needs the overlay guard the record verbs get from the Dispatcher for free.
+	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.

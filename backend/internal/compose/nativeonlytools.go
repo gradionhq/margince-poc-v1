@@ -167,6 +167,25 @@ func nativeOnlyAtRisk(mode overlayModeChecker, list agents.AtRiskLister) agents.
 	}
 }
 
+// nativeOnlyPipelines guards list_pipelines. The mirror holds no pipeline
+// projection — an incumbent's pipelines and stages are never mirrored — so the
+// native tables hold none of an overlay workspace's configuration and the
+// unguarded answer would be "this workspace has no pipelines". A caller
+// believing that concludes the deal verbs are unusable, when what is true is
+// that this capability is not served in overlay mode.
+func nativeOnlyPipelines(mode overlayModeChecker, list agents.PipelineLister) agents.PipelineLister {
+	return func(ctx context.Context) ([]agents.Pipeline, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if overlay {
+			return nil, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx)
+	}
+}
+
 // nativeOnlySlippingLister guards whats_slipping_this_week, whose candidate
 // set is the native deals store. The mirror serves no stage or pipeline
 // dial, so there is no overlay query to fall back to.

@@ -121,6 +121,15 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	if describesField(shapes, "source") {
 		b.WriteString("`source` is accepted but overwritten — this surface stamps its own provenance. ")
 	}
+	// Where the two ids a deal cannot be born without come from. Naming them as
+	// required (which the mapping does) without saying that is what made
+	// create_record/deal unusable: a caller was told exactly what it needed and
+	// had nowhere to get it. Keyed on the field, so this sentence appears on the
+	// tool whose shapes actually declare it and not on the patch tool.
+	if describesField(shapes, "pipeline_id") {
+		b.WriteString("A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else ")
+		b.WriteString("on this surface yields them, and neither is defaultable. ")
+	}
 	// The two traps a caller cannot see from the field list alone, and the
 	// second one is why a write can look like it worked and not have.
 	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")
@@ -226,6 +235,16 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 // spent on exactly that before the reason was visible, so the requirement is
 // stated where it is read rather than left implied by a keyword.
 const timestampNote = `,"description":"RFC 3339 with a zone offset — 2026-07-31T16:35:00+07:00 or 2026-07-31T09:35:00Z. A bare local time without an offset is refused."`
+
+// stageIDNote is appended to every stage-id argument the tool surface takes.
+// Two tools declared it as a bare format:uuid, which named the requirement
+// without making it obtainable: the id lives in pipeline configuration, and
+// until list_pipelines existed nothing on this surface yielded one. Saying where
+// it comes from is the difference between a correct refusal and a dead end. The
+// semantic half is here because it is what decides the tier — a caller that
+// picks a stage without reading it cannot tell an immediate move from one that
+// will wait on a human.
+const stageIDNote = `,"description":"The target stage. Obtain it from list_pipelines — no other tool yields a stage id. That stage's semantic decides what happens next: open executes immediately, won or lost is staged for a human's approval."`
 
 // jsonString renders s as a JSON string literal so a description built at init
 // time can be spliced into a hand-written schema literal safely.

@@ -156,6 +156,54 @@ func TestRetrieverServesNativeMode(t *testing.T) {
 	}
 }
 
+// --- list_pipelines ---
+
+func TestPipelineListerRefusesInOverlayMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		called = true
+		return nil, nil
+	}
+
+	_, err := nativeOnlyPipelines(overlayMode(), inner)(context.Background())
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("err = %v, want ErrUnsupportedBySoR", err)
+	}
+	if called {
+		t.Error("the native pipeline read ran for an overlay workspace — the native tables hold none " +
+			"of its configuration, so the answer would be 'this workspace has no pipelines'")
+	}
+}
+
+func TestPipelineListerServesNativeMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		called = true
+		return nil, nil
+	}
+
+	if _, err := nativeOnlyPipelines(nativeMode(), inner)(context.Background()); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !called {
+		t.Error("native mode did not reach the pipeline read")
+	}
+}
+
+func TestPipelineListerRefusesWhenModeCannotBeResolved(t *testing.T) {
+	// An unresolved mode refuses rather than defaulting to native: guessing
+	// wrong in that direction is the silent break the guard exists to stop.
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		t.Error("the native pipeline read ran without a resolved system-of-record mode")
+		return nil, nil
+	}
+
+	if _, err := nativeOnlyPipelines(unresolvableMode(), inner)(context.Background()); err == nil {
+		t.Fatal("err = nil, want the mode-resolution failure")
+	}
+}
+
 // --- whats_slipping_this_week ---
 
 func TestSlippingListerRefusesInOverlayMode(t *testing.T) {

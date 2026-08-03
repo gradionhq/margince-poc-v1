@@ -390,7 +390,7 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 		OpenAPIOp:     "advanceDeal",
 		InputSchema: schema(`{"type":"object","required":["deal_id","to_stage_id"],"properties":{
 			"deal_id":{"type":"string","format":"uuid"},
-			"to_stage_id":{"type":"string","format":"uuid"},
+			"to_stage_id":{"type":"string","format":"uuid"` + stageIDNote + `},
 			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},
