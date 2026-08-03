@@ -76,7 +76,7 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 				return conflict
 			}
 			if constraint, ok := storekit.CheckViolation(err); ok {
-				return projectCheckError(constraint)
+				return projectCheckError(constraint, submittedDateField(in.StartedAt, in.TargetEndDate, in.EndedAt))
 			}
 			return fmt.Errorf("apply project patch: %w", err)
 		}

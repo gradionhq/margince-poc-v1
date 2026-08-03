@@ -19,6 +19,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -33,13 +34,16 @@ import (
 // ONE re-fetch rather than N. IncumbentClass is the HubSpot object class
 // (contacts/companies/deals/leads); ExternalID is the mirror external id.
 type OverlayRefetchArgs struct {
-	Workspace      string `json:"workspace"`
-	IncumbentClass string `json:"incumbent_class"`
-	ExternalID     string `json:"external_id"`
+	Workspace      ids.UUID `json:"workspace_id"`
+	IncumbentClass string   `json:"incumbent_class"`
+	ExternalID     string   `json:"external_id"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
+
+// WorkspaceID binds this mirror re-fetch to its tenant (jobs.WorkspaceScoped).
+func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // overlayRefetchWorker executes one webhook-driven single-record re-fetch: it
 // resolves the workspace's active connection, builds a live incumbent adapter
@@ -72,9 +76,9 @@ type overlayRefetchWorker struct {
 func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayRefetchArgs]) error {
 	wsCtx, conn, ok, err := w.resolveRefetchTarget(ctx, job)
 	if err != nil || !ok {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
-	return w.refetchAndIngest(wsCtx, conn, job)
+	return jobs.FaultContext(ctx, w.refetchAndIngest(wsCtx, conn, job))
 }
 
 // resolveRefetchTarget resolves the job's workspace-scoped context and
@@ -88,12 +92,15 @@ func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayR
 // clean stop, non-nil for a retryable failure) without reaching the
 // fetch/ingest step.
 func (w *overlayRefetchWorker) resolveRefetchTarget(ctx context.Context, job *river.Job[OverlayRefetchArgs]) (wsCtx context.Context, conn overlay.DueOverlayConnection, ok bool, err error) {
-	wsID, err := ids.ParseAs[ids.WorkspaceKind](job.Args.Workspace)
-	if err != nil {
-		w.log.ErrorContext(ctx, "overlay refetch: unparseable workspace id in job args",
-			"workspace", job.Args.Workspace, "err", err)
-		return nil, overlay.DueOverlayConnection{}, false, nil
+	if _, bindErr := workspaceJobCtx(ctx, job.Args); bindErr != nil {
+		// CANCELLED, not completed and not retried. Args that name no workspace
+		// are a permanent defect — three attempts change nothing — but
+		// returning nil would record a green row over a re-fetch that never
+		// happened, which is the shape the binding guard exists to make loud.
+		// A cancel is the one disposition that is both terminal and visible.
+		return nil, overlay.DueOverlayConnection{}, false, river.JobCancel(bindErr)
 	}
+	wsID := ids.From[ids.WorkspaceKind](job.Args.Workspace)
 	wsCtx = reconcileWorkerCtx(ctx, wsID)
 	conn, err = overlay.ActiveConnection(wsCtx, w.pool)
 	if err != nil {

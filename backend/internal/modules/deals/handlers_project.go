@@ -143,6 +143,12 @@ func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInp
 	if err != nil {
 		return CreateProjectInput{}, err
 	}
+	// A project belongs to a company, and the contract makes organization_id
+	// required — but an absent key decodes to the zero UUID, which reaches
+	// EnsureLinkTarget and comes back as a bare not-found naming no argument.
+	if err := requireBodyID("organization_id", req.OrganizationId); err != nil {
+		return CreateProjectInput{}, err
+	}
 	in := CreateProjectInput{
 		Name:           name,
 		Key:            req.Key,
@@ -220,31 +226,6 @@ func writeProjectErr(w http.ResponseWriter, r *http.Request, err error) bool {
 			existing = keyTaken.ExistingID.String()
 		}
 		httperr.Write(w, r, httperr.Duplicate("project_key_taken", existing))
-		return true
-	}
-	var keyShape *ProjectKeyShapeError
-	if errors.As(err, &keyShape) {
-		httperr.Write(w, r, httperr.Validation("key", "invalid_key", keyShape.Error()))
-		return true
-	}
-	var closedReason *ClosedReasonRequiredError
-	if errors.As(err, &closedReason) {
-		httperr.Write(w, r, httperr.Validation("reason", "closed_reason_required", closedReason.Error()))
-		return true
-	}
-	var dateRange *ProjectDateRangeError
-	if errors.As(err, &dateRange) {
-		httperr.Write(w, r, httperr.Validation("ended_at", "invalid_date_range", dateRange.Error()))
-		return true
-	}
-	var orgMismatch *DealProjectOrgMismatchError
-	if errors.As(err, &orgMismatch) {
-		httperr.Write(w, r, httperr.Validation("project_id", "project_organization_mismatch", orgMismatch.Error()))
-		return true
-	}
-	var constraintErr *ProjectConstraintError
-	if errors.As(err, &constraintErr) {
-		httperr.Write(w, r, httperr.Validation(constraintErr.Constraint, "constraint_violated", constraintErr.Error()))
 		return true
 	}
 	return false

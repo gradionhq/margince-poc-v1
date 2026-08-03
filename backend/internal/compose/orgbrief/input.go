@@ -17,16 +17,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
-// promptVersion changes whenever the prompt or the shape of the assembled
-// input changes. It rides the fingerprint, so a deploy that rewrites the
-// prompt invalidates every cached brief rather than serving text written to
-// the old instructions.
-const promptVersion = "org-brief-v1"
+// promptVersion changes whenever ANYTHING about how a brief is written
+// changes: the model prompt, the shape of the assembled input, or the wording
+// the deterministic floor produces. It rides the fingerprint, so such a deploy
+// invalidates every cached brief rather than serving text written the old way.
+//
+// The floor's wording counts because the floor's OUTPUT is what gets cached. A
+// deploy that reworded it and left this alone kept serving the old sentences
+// to every account whose facts had not moved — which is most of them.
+const promptVersion = "org-brief-v4"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned
@@ -44,25 +50,46 @@ type Input struct {
 	// the 360 converts to at each deal's frozen close-time rate. It has no
 	// relation to whatever the open deals are priced in, so it must never be
 	// labelled with theirs.
-	WonCurrency string    `json:"won_currency,omitempty"`
-	LostCount   int       `json:"lost_count"`
-	OpenTasks   []NamedIn `json:"open_tasks,omitempty"`
-	Recent      []ActIn   `json:"recent,omitempty"`
+	WonCurrency string   `json:"won_currency,omitempty"`
+	LostCount   int      `json:"lost_count"`
+	OpenTasks   []TaskIn `json:"open_tasks,omitempty"`
+	Recent      []ActIn  `json:"recent,omitempty"`
 	// SectionsOmitted names what the reader could NOT see. It rides the
 	// fingerprint so two readers with different grants never share a cached
 	// brief, and it tells the writer to stay silent about those sections
 	// rather than inferring around the gap.
 	SectionsOmitted []string `json:"sections_omitted,omitempty"`
+
+	// Profile is what the COMPANY is — what it sells, to whom, how it
+	// differentiates — as opposed to everything above, which is how it stands
+	// with us. Curated statements a site read produced and a human accepted,
+	// so the brief can describe the company without inventing a word about it.
+	Profile []ProfileIn `json:"profile,omitempty"`
 }
 
 // NamedIn is a record the brief may write about and must be able to cite:
-// contacts and open tasks carry their ids for the same reason deals and
-// activities do. Names alone invited the prompt to make a claim about a
-// person or a task that no citation could ground, so the sentence was
-// dropped and the reader lost a true statement.
+// contacts carry their ids for the same reason deals and activities do. Names
+// alone invited the prompt to make a claim about a person that no citation
+// could ground, so the sentence was dropped and the reader lost a true
+// statement.
 type NamedIn struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// TaskIn is one open task the brief may write about.
+//
+// It carries the due date because a task sentence without one names a chore
+// and says nothing about when it is wanted, and neither writer may infer that
+// — the deterministic one has no other source for it, and the model must not
+// guess it.
+type TaskIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Due is RFC3339 in UTC, empty when the task carries no due date. The
+	// format is fixed so two due dates compare as strings the way the instants
+	// they name compare.
+	Due string `json:"due,omitempty"`
 }
 
 // DealIn is one open deal as the brief reads it.
@@ -153,9 +180,11 @@ func foldTasks(view crmcontracts.Organization360, in *Input) {
 		return
 	}
 	for _, step := range view.NextSteps.Data {
-		in.OpenTasks = append(in.OpenTasks, NamedIn{
-			ID: step.ActivityId.String(), Name: step.Subject,
-		})
+		task := TaskIn{ID: step.ActivityId.String(), Name: step.Subject}
+		if step.DueAt != nil {
+			task.Due = step.DueAt.UTC().Format(time.RFC3339)
+		}
+		in.OpenTasks = append(in.OpenTasks, task)
 	}
 }
 
@@ -199,4 +228,80 @@ func Fingerprint(in Input, routingVersion string) (string, error) {
 	}
 	sum := sha256.Sum256([]byte(promptVersion + "\x00" + routingVersion + "\x00" + string(encoded)))
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// ProfileIn is one curated statement about the company. The field name rides
+// along because it is what the statement ANSWERS — "who they sell to" reads
+// very differently from "what they sell", and the value alone loses that.
+type ProfileIn struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
+// briefProfileFields is the subset worth putting in front of a salesperson,
+// in the order a person would ask. The store holds sixteen fields; the rest
+// are registry and address detail that describe a legal entity rather than a
+// business, and a brief that recited them would read like a company register.
+var briefProfileFields = []string{
+	"offer_summary",
+	"icp",
+	"value_proposition",
+	"usp",
+	"customer_pains",
+	"desired_outcomes",
+	"buying_center",
+	"sales_motion",
+}
+
+// briefProfileValueMax bounds one statement, in CHARACTERS. These are prose
+// fields with no length cap of their own, and a single essay would crowd out
+// every other fact the card is written from.
+const briefProfileValueMax = 400
+
+// withoutProfile is the Input as the model may see it. The company profile is
+// the reader's own approved prose, quoted after the model runs; a copy in the
+// prompt would let the model rewrite it (see BriefRequest).
+func (in Input) withoutProfile() Input {
+	in.Profile = nil
+	return in
+}
+
+// foldProfile takes the curated statements in a fixed order, so the same
+// account fingerprints the same way whatever order the store returned.
+func (in *Input) foldProfile(fields []crmcontracts.CompanyProfileField) {
+	byField := make(map[string]string, len(fields))
+	for _, field := range fields {
+		value := truncateRunes(strings.TrimSpace(field.Value), briefProfileValueMax)
+		if value == "" {
+			continue
+		}
+		byField[string(field.Field)] = value
+	}
+	for _, name := range briefProfileFields {
+		if value, ok := byField[name]; ok {
+			in.Profile = append(in.Profile, ProfileIn{Field: name, Value: value})
+		}
+	}
+}
+
+// truncateRunes cuts at a character boundary. A byte slice through German
+// prose splits the umlaut that straddles the limit, and the broken sequence
+// reaches the reader as the replacement character — from a field whose whole
+// promise is that it shows their own approved words.
+func truncateRunes(value string, limit int) string {
+	if utf8.RuneCountInString(value) <= limit {
+		return value
+	}
+	kept := 0
+	for offset := range value {
+		if kept == limit-1 {
+			// The ellipsis says the statement was cut, and counts against the
+			// limit rather than pushing past it. Without it the card shows an
+			// approved sentence that stops mid-thought and reads as though the
+			// author wrote it that way.
+			return value[:offset] + "…"
+		}
+		kept++
+	}
+	return value
 }

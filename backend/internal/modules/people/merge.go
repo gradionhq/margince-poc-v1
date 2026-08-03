@@ -55,6 +55,11 @@ type MergeSelfError struct{}
 
 func (e *MergeSelfError) Error() string { return "source and target of a merge must differ" }
 
+// FieldFault refuses a merge whose source and target are the same record.
+func (e *MergeSelfError) FieldFault() (field, code, message string) {
+	return "target_id", "merge_self", e.Error()
+}
+
 // AlreadyMergedError maps to 409: the source was already merged away; the
 // pointer names where it went.
 type AlreadyMergedError struct {
@@ -70,6 +75,11 @@ type MergedTargetError struct{ Kind string }
 
 func (e *MergedTargetError) Error() string {
 	return "merge target " + e.Kind + " is archived; the survivor must be live"
+}
+
+// FieldFault refuses merging INTO a record that was itself already merged away.
+func (e *MergedTargetError) FieldFault() (field, code, message string) {
+	return "target_id", "merged_target", e.Error()
 }
 
 // relinkCounts is the event payload's accounting (events.md §person.merged):
@@ -244,6 +254,17 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 	}
 	if err := mergeConsent(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("merge consent: %w", err)
+	}
+	// The channel identities follow the survivor, or the human behind them
+	// keeps writing into the record nobody reads any more. No survivor-wins
+	// rule is needed here, unlike the email and phone slots above: the unique
+	// key spans (provider, channel_user_id) WITHOUT person_id, so the two
+	// halves cannot both hold the same identity live and the relink cannot
+	// collide.
+	if _, err := tx.Exec(ctx, `
+		UPDATE person_channel_identity SET person_id = $2
+		WHERE person_id = $1 AND archived_at IS NULL`, sourceID, targetID); err != nil {
+		return counts, fmt.Errorf("relink channel identities: %w", err)
 	}
 	// The promotion outcome pointer follows the survivor so a
 	// re-promote 409 names a live person.

@@ -122,7 +122,7 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 // not a direct RenewWatch call.
 func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 	e := setupSearch(t)
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 
@@ -174,7 +174,9 @@ func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitWatchKindCompleted(waitCtx, t, sub, compose.GmailWatchArgs{}.Kind())
+	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
+	// its fan-out is enqueued, so waiting on it would race the work.
+	awaitWatchKindCompleted(waitCtx, t, sub, compose.GmailWatchRenewArgs{}.Kind())
 
 	if exp := readWatchExpiry(t, e, connID); exp == nil || !exp.After(time.Now()) {
 		t.Fatalf("scheduled watch job did not set a future watch_expires_at: %v", exp)

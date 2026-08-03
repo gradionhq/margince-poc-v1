@@ -36,9 +36,9 @@ const SendScope = "https://www.googleapis.com/auth/gmail.send"
 // Reconnecting is the fix, so the caller parks rather than retries.
 var ErrSendScopeMissing = fmt.Errorf("gmail: this connection was not granted the send scope: %w", connector.ErrAuthRejected)
 
-var _ connector.Sender = (*Connector)(nil)
+var _ connector.EmailSender = (*Connector)(nil)
 
-// Send transmits one message as the connected mailbox owner.
+// SendEmail transmits one message as the connected mailbox owner.
 //
 // On a retry it first asks Gmail whether this message identity already exists.
 // Job delivery is at-least-once and Gmail does not deduplicate on Message-ID, so
@@ -63,9 +63,9 @@ var _ connector.Sender = (*Connector)(nil)
 // outside this package, in River delivering one job per delivery. The delivery
 // store deliberately carries no in-flight status and no claim, so two
 // concurrent attempts on the same delivery would both observe it pending and
-// both call Send here — the one-job-per-delivery assumption, not this lookup,
-// is what keeps that from happening in practice.
-func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
+// both call SendEmail here — the one-job-per-delivery assumption, not this
+// lookup, is what keeps that from happening in practice.
+func (c *Connector) SendEmail(ctx context.Context, auth connector.Auth, msg connector.EmailMessage) (connector.SendReceipt, error) {
 	// Before anything reaches Google: a message with no usable identity cannot
 	// be found again by the prior-send lookup above, so transmitting it would
 	// mail the recipient once per retry with nothing able to tell that it had
@@ -122,8 +122,8 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 // What comes back is CHECKED before it is reported. These are remote bytes —
 // up to the response cap — and the string parsed out of them becomes a natural
 // key, a thread key and a log field on the strength of this return alone. So it
-// must satisfy connector.ValidMessageID, the same predicate Send refuses to
-// transmit an outbound message without: one addr-spec, no control characters,
+// must satisfy connector.ValidMessageID, the same predicate SendEmail refuses
+// to transmit an outbound message without: one addr-spec, no control characters,
 // bounded length. Anything else is reported as no identity at all rather than
 // adopted, which is the already-ratified no-op.
 //
@@ -135,8 +135,8 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 // one place in this package where an error is deliberately not propagated, and
 // TestSendSucceedsWithNoIdentityWhenTheReadBackFails is what keeps it that way.
 //
-// A connection granted send-but-not-read makes this structurally dead: Send
-// verifies only SendScope, so the read-back 403s and degrades as above.
+// A connection granted send-but-not-read makes this structurally dead:
+// SendEmail verifies only SendScope, so the read-back 403s and degrades as above.
 func (c *Connector) stampedIdentity(ctx context.Context, access, owner, providerMessageID string) string {
 	sent, err := c.api.GetRaw(ctx, access, providerMessageID)
 	if err != nil {
@@ -176,7 +176,7 @@ func bracket(id string) string {
 // buildRFC822 renders the provider-neutral message as the wire format Gmail
 // accepts: header order follows RFC 5322's origination-first sequence, body is
 // text/plain UTF-8.
-func buildRFC822(from string, msg connector.OutboundMessage) string {
+func buildRFC822(from string, msg connector.EmailMessage) string {
 	var b strings.Builder
 	writeHeader(&b, "From", from)
 	writeHeader(&b, "To", addressList(msg.To))

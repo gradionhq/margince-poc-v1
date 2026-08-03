@@ -29,6 +29,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// coldStartSource is the provenance an organization minted by an accepted
+// cold-start proposal carries.
+const coldStartSource = "coldstart"
+
 // ColdStartFieldInput is one accepted, evidenced field.
 type ColdStartFieldInput struct {
 	Field           string
@@ -44,10 +48,17 @@ type ApplyColdStartProfileInput struct {
 	Fields    []ColdStartFieldInput
 }
 
+// columnLegalName is the organization COLUMN, which is a different namespace
+// from the field of the same spelling: columnBackedColdStartFields maps
+// registered_address onto address_line1, so a field name and a column name
+// agreeing here is a coincidence, not a rule. The two constants stay apart so
+// renaming one cannot silently rename the other.
+const columnLegalName = "legal_name"
+
 // columnBackedColdStartFields maps read-back fields onto organization
 // columns; everything else lives only in organization_profile_field.
 var columnBackedColdStartFields = map[string]string{
-	"legal_name":         "legal_name",
+	fieldLegalName:       columnLegalName,
 	"industry":           "industry",
 	"registered_address": "address",
 }
@@ -92,7 +103,7 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 // just minted — all inside the caller's transaction.
 func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.OrganizationID, error) {
 	wsID := workspaceID(ctx)
-	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, wsID, host, by, in.Fields)
+	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, host, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
@@ -130,7 +141,7 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 //nolint:ireturn // dispatches to PublicEventOrganizationCreated vs Updated by the created condition; tested directly via the interface in person_organization_payload_test.go
 func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by string, applied map[string]any) events.Payload {
 	if created {
-		displayName := fieldValue(in.Fields, "legal_name")
+		displayName := fieldValue(in.Fields, fieldLegalName)
 		if displayName == "" {
 			// The org row is stored with the domain-derived name when no
 			// legal_name was accepted (resolveOrCreateColdStartOrg's fallback),
@@ -163,19 +174,7 @@ func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by
 // names, or creates it (with its primary domain) when absent. It reports
 // whether it created the org so the caller selects the create/update audit
 // action and event.
-func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, host, by string, fields []ColdStartFieldInput) (ids.OrganizationID, bool, error) {
-	var orgID ids.OrganizationID
-	err := tx.QueryRow(ctx,
-		`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
-		host).Scan(&orgID)
-	if err == nil {
-		return orgID, false, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.OrganizationID{}, false, fmt.Errorf("resolve organization by domain: %w", err)
-	}
-
-	orgID = ids.New[ids.OrganizationKind]()
+func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, host, by string, fields []ColdStartFieldInput) (ids.OrganizationID, bool, error) {
 	// Name-source authority (ADR-0072/A118, PO-F-2a). Without a scraped legal
 	// name the org is named from the domain's registrable label ("Docusign",
 	// not "eu.docusign.net") and marked provisional ('domain'), overwritable by
@@ -188,21 +187,39 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 		displayName = host
 	}
 	nameSource := nameSourceDomain
-	if legal := fieldValue(fields, "legal_name"); legal != "" {
+	legal := fieldValue(fields, fieldLegalName)
+	if legal != "" {
 		displayName = legal
 		nameSource = nameSourceDossier
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, name_source, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'coldstart', $5)`,
-		orgID, wsID, displayName, nameSource, by); err != nil {
-		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization: %w", err)
+
+	// PO-F-2 rather than a bare domain lookup: the site's own legal name is the
+	// strongest signal this path has, and a company already captured from a
+	// different domain collides on exactly that name and on nothing else.
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
+		DisplayName: displayName,
+		LegalName:   legal,
+		Domains:     []string{host},
+	})
+	if err != nil {
+		return ids.OrganizationID{}, false, err
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-		 VALUES ($1, $2, lower($3), true, 'coldstart', $4)`,
-		wsID, orgID, host, by); err != nil {
-		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization domain: %w", err)
+	if match.Decision == DecisionExactCollision {
+		return match.OrganizationID, false, nil
+	}
+
+	orgID, err := createOrganization(ctx, tx, match, OrgSpec{
+		DisplayName: displayName,
+		NameSource:  nameSource,
+		Domains:     []OrgDomainInput{{Domain: host, IsPrimary: true}},
+		Source:      coldStartSource,
+		CapturedBy:  by,
+	})
+	if err != nil {
+		return ids.OrganizationID{}, false, err
+	}
+	if err := match.recordIfReview(ctx, tx, orgID, displayName, coldStartSource, by); err != nil {
+		return ids.OrganizationID{}, false, err
 	}
 	return orgID, true, nil
 }
@@ -210,8 +227,8 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 // coldStartColumns whitelists the identifier a fillEmptyOrgColumn UPDATE
 // may name — values are bind parameters, the column never is.
 var coldStartColumns = map[string]string{
-	"legal_name": `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
-	"industry":   `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
+	columnLegalName: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
+	"industry":      `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
 	// A scraped registered address arrives as one formatted line; it
 	// fills line1 only when no structured address exists yet.
 	"address": `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS NULL
@@ -238,6 +255,22 @@ func applyEvidenceFieldsWithOverwrite(
 	fields []ColdStartFieldInput,
 	overwrite map[string]bool,
 ) (map[string]any, error) {
+	// Only an apply that carries a NAME takes the name lock. The key is
+	// workspace-wide, so taking it for a batch of industry or address facts
+	// would serialize every organization write in the installation behind an
+	// apply that cannot rename anything — and enrichment and deep-read arrive
+	// in batches.
+	//
+	// When it IS taken it must come before the loop, not at the re-check that
+	// needs it: the loop writes legal_name and so takes this organization's row
+	// lock, and a path holding both in the other order deadlocks against a
+	// human rename. Whether a name is coming is knowable here, which is what
+	// makes the early take possible.
+	if carriesOrgName(fields) {
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
 	applied := map[string]any{}
 	for _, f := range fields {
 		if column, backed := columnBackedColdStartFields[f.Field]; backed {
@@ -280,6 +313,15 @@ func applyEvidenceFieldsWithOverwrite(
 			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
 		}
 	}
+	// A filled legal name is new identity information about a record that
+	// already exists — the axis PO-F-2 had nothing to compare when the row was
+	// created, and the axis on which a company captured twice under two
+	// marketing names finally collides.
+	if _, named := applied[fieldLegalName]; named {
+		if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+			return nil, err
+		}
+	}
 	return applied, nil
 }
 
@@ -288,7 +330,7 @@ func writeOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, co
 		return fillEmptyOrgColumn(ctx, tx, orgID, column, value)
 	}
 	queries := map[string]string{
-		"legal_name": `UPDATE organization SET legal_name = $2, updated_at = now()
+		columnLegalName: `UPDATE organization SET legal_name = $2, updated_at = now()
 			WHERE id = $1 AND legal_name IS DISTINCT FROM $2`,
 		"industry": `UPDATE organization SET industry = $2, updated_at = now()
 			WHERE id = $1 AND industry IS DISTINCT FROM $2`,
@@ -299,7 +341,12 @@ func writeOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, co
 	if !ok {
 		return false, fmt.Errorf("people: %q is not a coldstart-writable column", column)
 	}
-	tag, err := tx.Exec(ctx, query, orgID, value)
+	// An empty value clears the column to NULL, not to "". The fill arm above
+	// matches on IS NULL, so a column cleared to the empty string could never
+	// be filled again by any later read — the record would look answered while
+	// holding nothing, and no enrichment would ever correct it. The human
+	// company form clears to NULL for the same reason (setCompanyColumn).
+	tag, err := tx.Exec(ctx, query, orgID, emptyToNil(value))
 	if err != nil {
 		return false, fmt.Errorf("replace %s: %w", column, err)
 	}
@@ -311,11 +358,35 @@ func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 	if !ok {
 		return false, fmt.Errorf("people: %q is not a coldstart-fillable column", column)
 	}
+	// Nothing to fill. Writing "" here would satisfy this arm's own WHERE
+	// legal_name IS NULL once and never again: the column would read as
+	// answered while holding nothing, and no later read could correct it.
+	if value == "" {
+		return false, nil
+	}
 	tag, err := tx.Exec(ctx, query, orgID, value)
 	if err != nil {
 		return false, fmt.Errorf("fill %s: %w", column, err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// carriesOrgName reports whether this apply could write a name column, and so
+// whether it owes the organization-name lock.
+//
+// Presence of the field is the test, because that is what the loop in
+// applyEvidenceFieldsWithOverwrite acts on: writeOrgColumn's overwrite arm
+// matches on IS DISTINCT FROM, so an apply that clears legal_name to "" still
+// writes the row — taking its row lock — and still reaches the re-check, which
+// wants the name lock. Anything narrower than presence lets that apply take the
+// two in the order that deadlocks against a human rename.
+func carriesOrgName(fields []ColdStartFieldInput) bool {
+	for _, f := range fields {
+		if f.Field == fieldLegalName {
+			return true
+		}
+	}
+	return false
 }
 
 func fieldValue(fields []ColdStartFieldInput, name string) string {

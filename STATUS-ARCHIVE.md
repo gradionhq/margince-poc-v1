@@ -21,7 +21,213 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-01 — the company page: what it says, and the logo that was never fetched
+
+Shipped on PR #356 (`feat/company-page-clarity`). The open items this work
+left behind stay in [STATUS.md](STATUS.md).
+
+### The account brief, and why so few companies had a logo
+
+On `feat/company-page-clarity` (PR #356), after the founder's review.
+
+**The brief leads the page.** `GET /organizations/{id}/brief` had a full
+implementation and no client. It now has one, with the half that was missing:
+`orgbrief.Input` carried the relationship only, so the brief could not say what
+the company IS. It now also carries the curated profile statements, read
+through the caller's own gates. Those statements are QUOTED, not summarized —
+they are already prose a human accepted, so a model adds paraphrase risk for
+nothing, and quoting them leaves the prompt untouched. That last part matters:
+changing the summarize prompt invalidates the AI certification records for
+three providers and needs a paid re-certification run
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion` catches it).
+
+The profile card folded into a disclosure — it is the evidence for two
+sentences now, not the headline. MeetingBrief and `accountread.ts` are retired:
+their lines said what the brief says, which is the "one fact, twice" item
+above. What only they did lives on inside the brief card (suggestions, the
+first-visit note, the withheld-sections caveat, the since-last-visit count).
+
+**Buyer roles can be set from the account.** The People card offers "Set role"
+per contact against an open deal, writing the `deal_stakeholder` relationship,
+and defines champion and economic buyer where they are being chosen. The
+warning stopped being a dead end: "No champion is named on the open deal yet —
+set one on the contact who is."
+
+**Logos: measured, not guessed.** 96 of 162 imported companies have one. Of
+the 66 without, 36 had a site read that FAILED having read zero pages. The
+logo comes out of the page the deep read already fetched, so no page means no
+mark. Probing every failed seed on the machine — 37, one more than those 36,
+because a company whose read failed can still carry a logo from an earlier
+one — 19 answer on another host or scheme and 18 are genuinely gone. A domain became a seed as `https://<domain>` and nothing else,
+so the crawl now walks the site's other spellings (www or apex, then http)
+before concluding a company has no website. A robots refusal is never retried
+under another host.
+
+Second logo finding: `og:image` was ranked FIRST among candidates, so a
+square-ish hero photo or product shot was taken on sight and the site's own
+apple-touch-icon was never asked for. Declared icons now lead. Wide sharing
+banners were already screened by shape; square ones needed the ordering.
+
+Still open from this arc: `POST /brief` and `POST /ask` are per-click model
+calls with no per-user rate limit. The workspace AI budget bounds the spend and
+the refresh button disables while pending, so this is a refinement rather than
+a hole. Agent-authored change rows lose their passport and evidence chips in
+the timeline (both survive in the full history). The merged timeline can page
+changes but not activities, which the 360 serves as one bounded page — the
+Activities filter now SAYS the list is cut, but offers no way to read further
+back. Captured email bodies still land in timeline rows at full length; the
+plan's item to collapse them to subject plus a two-line snippet was not done.
+
+### Decided — the account brief is the answer to the profile wall
+
+Founder review of the company page, 2026-08-01. The verdict on the profile
+card was that its value is doubtful: sixteen scraped fields, every value a
+paragraph. What he asked for instead: on opening a company, one AI-written
+summary in plain language — first what matters about this account for us
+(facts, history, connections, deals), then what the company itself is — with
+the detail expandable underneath.
+
+That is the card the orphaned `GET /organizations/{id}/brief` should become,
+so the open decision below resolves to "make it worth a card", not "retire the
+endpoint". Two changes are needed:
+
+- `orgbrief.Input` carries no profile at all (name, industry, size band,
+  strength, contacts, deals, tasks, recent activity). The "about the company"
+  half needs `organization_profile_field` and `organization_fact` in the
+  input, and a prompt that writes two sections rather than one.
+- The brief is written in English regardless of the reader's locale, which is
+  the same defect the suggestion reasons have.
+
+Caching was raised and settled: the founder asked for "cached for 24h", and
+was shown that `org_brief` already invalidates on a fingerprint over the
+assembled input. He chose to keep the fingerprint — it is never stale after
+new mail lands, and costs nothing on a quiet account. No TTL.
+
+Two other decisions from the same review:
+- **History**: merge field changes into the timeline as a filter (Attio /
+  Twenty pattern), retire the History tab, keep the audit spine behind the
+  header's overflow menu. Shipped in PR #356.
+- **Champion / economic buyer**: the roles stay human-set, and the People card
+  gets an inline way to set them plus a one-sentence definition of each. Every
+  CRM surveyed keeps buyer roles human-tagged; AI may suggest, never assert.
+  An AI suggestion is deferred — it needs an ai-operational-spec task that
+  does not exist, and DEAL-EXT-5 (the role enum) is still unminted upstream.
+
+### Answered — account owner and "who brought us this" are both standard
+
+Founder asked whether the HubSpot-style account owner is something we invented,
+and whether a "via" field (who referred this company, and do they earn
+commission) is worth making standard.
+
+**Owner is universal.** Salesforce Account Owner, HubSpot's owner property
+(defaults to record creator, reassignable through a searchable user picker),
+Pipedrive, Copper, Attio and folk all carry it, and it drives routing and quota
+rollups. Margince already stores `organization.owner_id` and the quotas module
+already depends on it; what was missing was a label on the page and any way to
+change it. Both shipped in PR #356.
+
+**Referral is standard too, but in the partner layer.** Core CRMs carry a
+plain "lead source" dropdown; the person-plus-commission form lives in partner
+tooling (Salesforce PRM deal registration, PartnerStack). Margince is further
+along than either: `relationship.kind` already includes `referred_by`, and the
+partner extension already carries `margin_tier`. So the shape is a typed
+`referred_by` edge from the organization or deal to a person or partner, with
+commission resolved through the partner's margin tier at deal-won time — NOT a
+free-text field. Nothing wires those two together yet; raised below.
+
+### Settled — the organization brief endpoint has a client again
+
+For a while `GET /organizations/{id}/brief` was read by nothing. Its card had
+been taken off the company page because what it produced restated the screen:
+on a live account its two sentences were "you currently have three contacts
+recorded for this account" and "there is one open task due on August 1, 2026",
+both of which the reader could already see, under a heading that promised a
+reading of the account. The open question was whether to make it worth a card
+or retire it.
+
+Made worth a card, on PR #356: it leads the company page as the AccountBrief,
+and it answers a named question — where we stand with this account, then what
+the company is, the second half quoted from approved profile statements rather
+than written. See "Decided — the account brief is the answer to the profile wall" above
+for what that decided and what it still owes upstream.
+
 ## Landed arcs
+
+**Embedding drift self-heals; the reindex banner means one thing — PR #360
+(2026-08-01).** The `Reindex needed` shell banner was firing with no binding
+change: 42 entities had acked embed events and no embedding row (a worker died
+between ack and write — an expected loss class on the at-least-once bus), and
+the only recovery was an admin confirming a reindex they never caused. The spec
+was amended first (ADR-0069 §3a, foundation #1220, closing #1219): the derived
+signal's two operands get different governance. Identity-matched drift now
+self-heals — `search.Store.SweepEmbeddingDrift` re-embeds exactly the pending
+set the status endpoint reports, driven by a 15-minute run-on-start River job,
+no-oping when the identities differ or a reindex is live and never touching the
+binding marker. The binding change keeps its preview → confirm flow untouched,
+and `EmbedReindexBanner` keys on `configured_identity ≠ populated_identity`
+alone. This also closed the open item "the reindex banner is ops jargon on
+every page": the drift case no longer banners at all, and what remains is an
+unfinished operator action only an admin/ops reader ever sees.
+
+**The company page's second pass — PRs #351 and #352 (2026-07-31).** #351
+fixed defects a review of the page's rule engines found after the page had
+already merged. All were one failure: a sentence the reader can disprove from
+the rest of the same screen. Engagement was read off the relationship SCORE,
+which decays to zero near the window edge, so the brief said only one person
+had ever engaged while that contact's own row said "Answered"; the reach chips
+made all-time claims ("Not approached") from a 90-day window, printed above a
+timeline showing the approach; the overdue count came off page one and read as
+the total. `groupFacts` recomputed identity from the whole displayed value
+while the server already sends a normalized `value_key`, so two descriptions of
+one product stayed two rows — the collapse did nothing on the shape production
+sends. And `better()` ranked the offering field before human precedence, so a
+site read's `product` hid a human's `service`.
+
+The single-thread sentence took three passes to make true. It has to carry the
+WINDOW (the counts cover 90 days), the DIRECTION (a contact qualifies on
+outbound alone, so "in contact" would call unanswered mail a relationship), and
+the CHANNELS (the server counts email, calls and meetings only, so a contact's
+WhatsApp sits on the timeline contributing nothing).
+
+#352 gave the page verbs. New deal on the Deals card, Add tag and Add to list
+on Lists & tags, each under the section it changes. The tag and list actions
+take a typed NAME and create when it is new, because a pick-only control has
+nothing to offer on a fresh workspace — which is exactly when it is first
+needed. `SectionCard` gained an `actions` slot that renders only on a section
+that came back read and answered, so a caller whose grants withheld the deals
+is not offered a button to add one. `CreateAction` gained `stay`, for a create
+whose result is a PROPERTY of the record on screen: without it the tag create
+routed to `/companies/<taggable-id>`, a page that 404s.
+
+**The company page rework and the leads behind it — PRs #349 and #342
+(2026-07-31).** #349 fixed a defect that silently destroyed leads: accepting a
+staged `site_lead` failed with `version_skew` whenever anything had written to
+the pinned organization after staging, and because the decision commits before
+the effect runs, the approval was left approved-but-unredeemed with no lead
+created. The pin is now opt-in per approval kind — a lead read off a company's
+website is FILED under that company rather than being an operation on it, so
+its effect reads no organization row and has no version to guard. A fitness
+test holds that list against the kinds whose effects actually read their
+target.
+
+PR `#342` rebuilt the company detail page around a meeting brief that states what
+the account means rather than listing what it holds, made email bodies
+readable, grouped and deduplicated the facts wall, collapsed three overlapping
+people sections into one, and kept the rails mounted across tab switches. It
+also worked three defects in the site read's published-person lane. Two are
+closed: people already on file were re-proposed (fixed by a probe that runs
+under the REQUESTING HUMAN's grants, because answering it workspace-wide made
+the approval inbox an existence oracle for records the reader's row scope
+hides), and re-reads stacked duplicate questions (fixed by keying the
+approval's logical identity on the lead's natural key).
+
+The third is only narrowed, not closed. A published person must now carry an
+email address the page actually printed, which removed every testimonial lead
+observed in practice — none of them published an address. But the floor proves
+CONTACTABILITY, not affiliation: a testimonial that does print the quoted
+person's own address still becomes a lead filed under the wrong company. See
+STATUS.md for the open call. `approvals.StageInTx` now refuses an input carrying
+`Identity` or `JoinPending` instead of ignoring both silently.
 
 **The company-view rebuild, finished — six feature PRs (#309, #313, #315, #317,
 #319, #322) plus one follow-up (#326).** They turned the organization record page

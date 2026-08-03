@@ -24,7 +24,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
@@ -85,50 +84,55 @@ type classifyPayload struct {
 	Results []classifyResult `json:"results"`
 }
 
-// Run drains up to cap backlog messages across every live workspace. A
-// budget stop ends the pass cleanly — the remainder requeues implicitly
-// (it is simply still unlabeled). Only infrastructure faults return an
-// error; per-batch model trouble is logged and skipped.
-func (c *CaptureClassifier) Run(ctx context.Context, maxLabels int) error {
+// RunWorkspace drains up to cap backlog messages in the workspace already
+// bound in ctx. A budget stop ends the pass cleanly — the remainder requeues
+// implicitly (it is simply still unlabeled). Only infrastructure faults return
+// an error; per-batch model trouble is logged and skipped.
+//
+// The cap is PER WORKSPACE, matching capture_counterparty_verdict, whose own
+// counter is declared inside its workspace loop for a stated reason: a shared
+// counter lets one large backlog consume the whole budget and starve every
+// workspace after it. The two sibling passes implementing the same ADR-0063
+// shape disagreed; this resolves them toward the one carrying a rationale.
+// The number itself is unchanged.
+func (c *CaptureClassifier) RunWorkspace(ctx context.Context, maxLabels int) error {
 	if maxLabels <= 0 {
 		maxLabels = classifyCatchUpCap
 	}
-	workspaces, err := liveWorkspaceIDs(ctx, c.pool)
-	if err != nil {
-		return err
-	}
 	labeled := 0
-	for _, ws := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, ws)
-		for labeled < maxLabels {
-			batch, err := c.store.UnlabeledCaptureEmails(wsCtx, classifyBatchSize, classifyBodyLimit)
-			if err != nil {
-				return fmt.Errorf("classify: reading backlog: %w", err)
-			}
-			if len(batch) == 0 {
-				break
-			}
-			n, err := c.classifyBatch(wsCtx, batch)
-			labeled += n
-			if errors.Is(err, ai.ErrBudgetDeferred) {
-				// ≥100% band: non-interactive work stops for this cycle;
-				// what is labeled is committed, the rest waits (§2.8).
-				c.log.InfoContext(ctx, "capture classify: budget exhausted, stopping the pass", "labeled", labeled)
-				return nil
-			}
-			if err != nil {
-				// One bad batch must not starve the fleet — log, move to
-				// the next workspace (retrying the same rows immediately
-				// would spin on the same failure).
-				c.log.WarnContext(ctx, "capture classify: batch failed", "workspace", ws.String(), "err", err)
-				break
-			}
-			if n == 0 {
-				// Every verdict stayed below the floor: the same rows would
-				// be fetched again forever. They wait for the next cycle.
-				c.log.InfoContext(ctx, "capture classify: batch made no progress, moving on", "workspace", ws.String())
-				break
-			}
+	for labeled < maxLabels {
+		batch, err := c.store.UnlabeledCaptureEmails(ctx, classifyBatchSize, classifyBodyLimit)
+		if err != nil {
+			return fmt.Errorf("classify: reading backlog: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		n, err := c.classifyBatch(ctx, batch)
+		labeled += n
+		if errors.Is(err, ai.ErrBudgetDeferred) {
+			// ≥100% band: non-interactive work stops for this cycle;
+			// what is labeled is committed, the rest waits (§2.8).
+			c.log.InfoContext(ctx, "capture classify: budget exhausted, stopping the pass", "labeled", labeled)
+			return nil
+		}
+		if err != nil {
+			// This workspace's pass FAILS. Before the fan-out a bad batch was
+			// logged and skipped so it could not starve the rest of the fleet;
+			// each workspace now has its own row, so there is no fleet left to
+			// starve and swallowing it would put the green row back.
+			//
+			// The cost is named rather than hidden: the backlog read re-selects
+			// the same rows, so a message that reliably breaks a batch is asked
+			// about MaxAttempts times per tick instead of once. The capped
+			// ladder and the workspace's model budget are what bound it.
+			return fmt.Errorf("classify: draining the backlog: %w", err)
+		}
+		if n == 0 {
+			// Every verdict stayed below the floor: the same rows would be
+			// fetched again forever. They wait for the next cycle.
+			c.log.InfoContext(ctx, "capture classify: batch made no progress, moving on")
+			return nil
 		}
 	}
 	return nil

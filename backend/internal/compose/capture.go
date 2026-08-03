@@ -13,20 +13,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -60,12 +58,15 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 
 // CaptureConfig is the deployment's capture list-config, threaded from
 // margince.yaml's `capture:` block into the Sink's suppression gates: the
-// CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
-// additions plus its allowlist (ADR-0072) — plus the process logger the Sink's
-// post-commit steps report through. The zero value is the pinned baselines with
-// no deployment additions and the default logger.
+// CAP-PARAM-6 transactional/ESP additions plus its allowlist (ADR-0072) — plus
+// the process logger the Sink's post-commit steps report through. The zero
+// value is the pinned baseline with no deployment additions and the default
+// logger.
+//
+// The consumer-mail list (CAP-PARAM-5) is deliberately NOT here: it is the
+// workspace's own, edited in the settings surface and read per transaction, so
+// a correction takes effect on the next message instead of the next restart.
 type CaptureConfig struct {
-	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
 	// Logger carries the process logger to the post-commit steps the Sink
@@ -94,10 +95,17 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 }
 
 // CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
-// compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
+// compose suppression config the Sink gates read (CAP-PARAM-6, ADR-0072).
+//
+// Every role that boots with a config file goes through here, which is why the
+// stale-key warnings are reported here: a setting that is still accepted but no
+// longer acts must say so once, at boot, or an operator goes on believing the
+// file governs something it does not.
 func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
+	for _, warning := range c.Warnings() {
+		log.Warn("capture configuration: " + warning)
+	}
 	return CaptureConfig{
-		FreemailExtra:      c.FreemailExtra,
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
 		Logger:             log,
@@ -116,69 +124,42 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
 	r.Register(imap.NewStanding())
+	// Telegram is registered on the same terms and for the same reason: a bot
+	// binding's token is per-connection and vault-sealed, so there is no
+	// deployment-wide app to configure. It is the registration that lets the send
+	// path resolve the workspace's bot at all — Registry.ChannelSenderFor
+	// type-asserts the message seam off this map, so an unregistered connector
+	// reads as "this installation has no Telegram integration" and parks every
+	// reply a rep writes.
+	r.Register(telegram.New(telegram.NewAPI(nil, "")))
 	return r
 }
 
 // newCaptureSink assembles the ONE fully-guarded Sink over the pool — the
-// merge-stager, the exclusion gate, and the counterparty auto-create
-// resolver attached. Every capture path shares this spelling: the connector
+// merge-stager and the counterparty auto-create resolver attached. Every
+// capture path shares this spelling: the connector
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
+	ensurer := peopleEnsurer{
+		store:  newCounterpartyStore(pool),
+		triage: newDomainTriageTrigger(pool, cfg.logger()),
+		log:    cfg.logger(),
+	}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
-		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
-		// any write, so it covers EVERY connector (imap one-shot, gmail
-		// sync) uniformly (capture.md CAP-DDL-3, AC1.3).
-		WithExclusions(capture.NewExclusions(pool)).
 		// The ADR-0063 auto-create pipeline: every captured mail ensures
 		// its counterparty exists, through the people module's ONE dedupe
 		// chokepoint — composed here so capture never imports people. The
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())},
-			capture.NewFreemailList(cfg.FreemailExtra),
-			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever))
-}
-
-// peopleEnsurer adapts the people module's auto-create engine onto
-// capture's resolver seam.
-type peopleEnsurer struct {
-	store *people.Store
-	// enrich queues the web dossier for a company this ensure just minted. It
-	// lives HERE rather than in capture because capture must not know that
-	// website reads exist — the seam it owns says "make the counterparty real",
-	// and what a new company is then worth is the composition's business.
-	enrich *autoEnrichTrigger
-}
-
-func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
-	res, err := p.store.EnsureCounterparty(ctx, people.EnsureCounterpartyInput{
-		Email:       in.Email,
-		DisplayName: in.DisplayName,
-		Domain:      in.Domain,
-		OwnerID:     in.OwnerID,
-		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
-		Source:      in.Source,
-		CapturedBy:  in.CapturedBy,
-		SuppressOrg: in.SuppressOrg,
-	})
-	if errors.Is(err, people.ErrCounterpartySuppressed) {
-		// A13: the erased address stays dead — a deliberate no-op, not a
-		// fault for the reconcile queue, and nothing was created to count.
-		return capture.EnsureOutcome{}, nil
-	}
-	if err != nil {
-		return capture.EnsureOutcome{}, err
-	}
-	// A NEW company is the trigger, not every captured mail: an organization
-	// that already existed has either been enriched or been deliberately left
-	// alone, and re-asking on every message from it would spend the day's cap on
-	// companies nobody learned anything new about.
-	if res.OrgCreated && res.OrganizationID != nil {
-		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
-	}
-	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
+		WithEnsurer(ensurer,
+			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
+		// The channel twin of the line above (telegram-oa design §6.4): an
+		// inbound channel message reaches the SAME module through its own
+		// contract — one adapter serving two seams, so the two ensures cannot
+		// drift onto different dedupe implementations.
+		WithChannelEnsurer(ensurer)
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app
@@ -363,14 +344,15 @@ func WithGraphCapture(c GraphConfig) Option {
 // in the option list) and a fully-configured app; absent any of those the
 // connector surface keeps its declared-but-unimplemented 501 by omission.
 //
-// It ALSO installs the outbound send-grant pre-flight (WithMailbox) over the
-// registry it builds, so this option governs part of the send path too: with
-// it, a user whose mailbox holds no send scope is refused at request time with
-// an actionable 422; without it that check is simply absent and the refusal
-// happens later, at transmission, where only an operator sees it. The
-// placement is not incidental — see the comment at the wiring below.
+// It ALSO re-installs the outbound send pre-flight (WithSendAuthority) over the
+// richer registry it builds here, upgrading the MAILBOX half of that check: a
+// user whose mailbox holds no send scope is refused at request time rather than
+// at transmission, where only an operator sees it. The CHANNEL half — a reply on
+// a channel this workspace bound no bot for — does not depend on this option;
+// WithKeyvault installs it unconditionally (comment below).
 func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
+		s.gmailAppConfigured = c.canSync() // the send pre-flight's fact, recorded before the gate below
 		// Without a vault the connect flow can't seal the refresh token, so
 		// mounting the endpoints would only fail at the callback — leave the
 		// surface its declared 501 instead. (WithKeyvault must precede this.)
@@ -388,17 +370,16 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 			publicBaseURL: c.PublicBaseURL,
 			apiBaseURL:    c.APIBaseURL,
 		}
-		// The send-grant pre-flight reads the registry the connect flow just
-		// wrote to — the same one, not a second construction: a mailbox the
-		// user connects here must be the mailbox the check asks about, and
-		// two registries could answer from different connector sets. A role
-		// without the Google app configured registers no gmail connector, so
-		// there is no grant to pre-flight and the check is absent by
-		// omission, exactly as the connect surface is.
-		WithMailbox(mailboxAuthority{
-			grants:   s.connectorHandlers.registry,
-			provider: activities.SendProvider,
-		})(s, pool)
+		// The send pre-flight reads the registry the connect flow just wrote to
+		// — the same one, not a second construction: a mailbox the user connects
+		// here must be the mailbox the check asks about. WithKeyvault already
+		// wired this same call over the plain registry before this option ran;
+		// re-wiring it here is NOT redundant, because this registry is a
+		// different, richer object (NewCaptureRegistryWithGmail) — without this
+		// line the mailbox half would keep answering off a registry with no
+		// Gmail connector. The channel half answers identically off either
+		// object: ChannelSendCapable is a pool query, not a connector lookup.
+		installSendPreflight(s, pool)
 	}
 }
 

@@ -115,7 +115,7 @@ func TestOverlayUpdateRecordRefusesAnAgentRatherThanWritingBack(t *testing.T) {
 	target := found.Records[0].Ref.ID
 
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
-	args := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"job_title":"Principal Analyst"}}`, target)
+	args := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"title":"Principal Analyst"}}`, target)
 
 	_, err = registry.Invoke(agentActorCtx(overlayWS, actorID), "update_record", json.RawMessage(args))
 
@@ -178,7 +178,7 @@ func TestOverlayWritesRefuseAnUnreleasedAgentAtTheSeam(t *testing.T) {
 		t.Fatalf("resolving the mirrored person: err=%v records=%d", err, len(found.Records))
 	}
 	ref := found.Records[0].Ref
-	patch := datasource.UpdateInput{Ref: ref, Patch: json.RawMessage(`{"job_title":"Principal"}`), Source: "tool"}
+	patch := datasource.UpdateInput{Ref: ref, Patch: json.RawMessage(`{"title":"Principal"}`), Source: "tool"}
 
 	// An agent with no released approval is refused before the incumbent is
 	// touched, whatever route brought it here.
@@ -267,7 +267,7 @@ func TestOverlayUpdateRecordEgressGateIgnoresAStaleNativeModeCache(t *testing.T)
 		t.Fatalf("resolving the mirrored person: err=%v records=%d", err, len(found.Records))
 	}
 
-	args := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"job_title":"Principal Analyst"}}`, found.Records[0].Ref.ID)
+	args := fmt.Sprintf(`{"record_type":"person","id":%q,"fields":{"title":"Principal Analyst"}}`, found.Records[0].Ref.ID)
 	_, err = registry.Invoke(agentActorCtx(ws, actorID), "update_record", json.RawMessage(args))
 
 	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {

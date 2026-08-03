@@ -40,10 +40,28 @@ rates:
   # Currencies proposed to bootstrap an empty FX sheet; defaults to USD/GBP/CHF.
   fx_currencies: [USD, GBP, CHF]
   # provider -> pricing-page URL the model-cost refresh crawls + AI-extracts.
+  # Name the provider exactly as ai-routing.yaml binds it; a provider with no
+  # entry here is never refreshed, and its seeded rates go stale in silence.
   model_pricing:
     gemini: https://ai.google.dev/gemini-api/docs/pricing
     # anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
     # openai: https://platform.openai.com/docs/pricing
+    # OpenRouter publishes prices as JSON rather than a page — per-token, so a
+    # proposal is the catalog's number x 1e12 to reach micro-USD/MTok. Uncomment
+    # alongside config/ai-routing.openrouter.example.yaml. The key is the generic
+    # adapter's name: it refreshes whichever broker openai_compatible is bound to,
+    # so change the URL if that is not OpenRouter.
+    # openai_compatible: https://openrouter.ai/api/v1/models
+
+# Remote MCP connector (Gate 1). On means /mcp and /oauth/* are served, so any
+# human here can lend one of their passports to an outside client; it is on in
+# this file so a local stack works unedited. The code default is off — delete
+# this block and none of it exists. It needs --public-base-url (a bare origin),
+# which cmd/api refuses to boot without; that refusal only catches an unset
+# flag, and mail, reset links and the Gmail/Graph connectors need it too, so a
+# deployment that already sets it serves the surface the moment it copies this.
+mcp:
+  connector_enabled: true
 
 # Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
 # moving backward disables reads/injection/surfaces but never deletes confirmed

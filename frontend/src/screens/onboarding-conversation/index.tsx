@@ -1,3 +1,4 @@
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { useEffect, useReducer, useRef } from "react";
@@ -17,6 +18,7 @@ import {
   conversationReducer,
   initialConversationState,
 } from "./conversation-machine";
+import { LinkedInAct } from "./linkedin-act";
 import { restorePlan, type VoiceRestoreProbe } from "./restore";
 import { ResultsAct } from "./results-act";
 import type { WizardPersistInput } from "./use-wizard-state";
@@ -107,7 +109,11 @@ function actCheckpoint(
   if ((prev === "vo.result" || prev === "vo.skipped") && next === "re.recap") {
     return { nextStep: 2 };
   }
-  if (prev === "re.recap" && next === "cn.consent") {
+  // The server's step vocabulary has no LinkedIn step, so the checkpoint
+  // fires when the act is ANSWERED rather than when it opens. Recording step 3
+  // on the way in would restore a reload straight to the inbox and the network
+  // would never be asked for at all.
+  if (prev === "ln.why" && next === "cn.consent") {
     return { nextStep: 3 };
   }
   return null;
@@ -292,55 +298,99 @@ export function OnboardingConversationScreen() {
     return <RestoreGate lookups={lookups} />;
   }
 
-  const voiceBuilt =
-    state.lastBuildStatus === "succeeded" || voice.data?.built === true;
-
   return (
     <div className="ob-page ob-conv-page">
       {/* Above the act switch on purpose: this is the one level that survives an
           act change, so it is the only place that can know whether the workbench
           frame has already introduced itself. */}
       <WorkbenchEntranceScope>
-        {state.act === "company" && (
-          <CompanyAct
-            state={state}
-            dispatch={dispatch}
-            profile={existing.data ?? null}
-            persist={persist}
-            adoptedRead={
-              persistedRead.data != null &&
-              persistedRead.data.id === state.activeReadId
-                ? persistedRead.data
-                : null
-            }
-          />
-        )}
-        {state.act === "voice" && (
-          <VoiceAct
-            state={state}
-            dispatch={dispatch}
-            initialSummary={voice.data?.summary ?? null}
-          />
-        )}
-        {state.act === "results" && (
-          <ResultsAct
-            state={state}
-            dispatch={dispatch}
-            profile={existing.data ?? null}
-            voiceBuilt={voiceBuilt}
-            corpusWords={voice.data?.summary?.total_words ?? null}
-          />
-        )}
-        {(state.act === "connect" || state.act === "done") && (
-          <ConnectAct
-            state={state}
-            dispatch={dispatch}
-            persist={persist}
-            outcome={route.id === "connect" ? route.id2 : undefined}
-            returningProvider={route.id === "connect" ? route.id3 : undefined}
-          />
-        )}
+        <CurrentAct
+          state={state}
+          dispatch={dispatch}
+          route={route}
+          persist={persist}
+          existing={existing}
+          voice={voice}
+          persistedRead={persistedRead}
+        />
       </WorkbenchEntranceScope>
     </div>
   );
+}
+
+// Which act is on screen, and nothing else. Extracted from the screen because
+// the screen's job is the machine, the restore and the checkpoints — every act
+// added here would otherwise make that function harder to read for a reason
+// that has nothing to do with it.
+function CurrentAct({
+  state,
+  dispatch,
+  route,
+  persist,
+  existing,
+  voice,
+  persistedRead,
+}: Readonly<{
+  state: ConversationState;
+  dispatch: Dispatch<ConversationEvent>;
+  route: ReturnType<typeof useRoute>;
+  persist: (input: WizardPersistInput) => Promise<boolean>;
+  existing: ReturnType<typeof useCompany>;
+  voice: UseQueryResult<VoiceRestoreProbe>;
+  persistedRead: UseQueryResult<CompanySiteRead | null>;
+}>) {
+  const voiceBuilt =
+    state.lastBuildStatus === "succeeded" || voice.data?.built === true;
+  switch (state.act) {
+    case "company":
+      return (
+        <CompanyAct
+          state={state}
+          dispatch={dispatch}
+          profile={existing.data ?? null}
+          persist={persist}
+          adoptedRead={
+            persistedRead.data != null &&
+            persistedRead.data.id === state.activeReadId
+              ? persistedRead.data
+              : null
+          }
+        />
+      );
+    case "voice":
+      return (
+        <VoiceAct
+          state={state}
+          dispatch={dispatch}
+          initialSummary={voice.data?.summary ?? null}
+        />
+      );
+    case "results":
+      return (
+        <ResultsAct
+          state={state}
+          dispatch={dispatch}
+          profile={existing.data ?? null}
+          voiceBuilt={voiceBuilt}
+          corpusWords={voice.data?.summary?.total_words ?? null}
+        />
+      );
+    case "linkedin":
+      return <LinkedInAct state={state} dispatch={dispatch} />;
+    case "connect":
+    case "done":
+      return (
+        <ConnectAct
+          state={state}
+          dispatch={dispatch}
+          persist={persist}
+          outcome={route.id === "connect" ? route.id2 : undefined}
+          returningProvider={route.id === "connect" ? route.id3 : undefined}
+        />
+      );
+    // The welcome act never reaches here: the screen renders the restore gate
+    // for it and returns before this switch.
+    case "welcome":
+      return null;
+  }
 }

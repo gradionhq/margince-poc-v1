@@ -247,30 +247,56 @@ func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumben
 	})
 }
 
-// ActiveConnection reads ctx's workspace's ACTIVE incumbent connection —
-// the per-request counterpart to DueOverlayConnections' fleet walk. The
-// read path (FreshnessReader's live force-fresh resolver, wired in
-// compose) uses it to build a live incumbent adapter for the request's
-// own workspace. apperrors.ErrNotFound means the workspace has no active
-// connection (never connected, mid-teardown, or disconnected) — the
-// caller degrades to the mirror rather than treating it as an error.
-func ActiveConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnection, error) {
+// DueConnection reads ctx's workspace's active incumbent connection ONLY while
+// it is still due to be swept — the per-workspace counterpart to
+// DueOverlayConnections' fleet walk, carrying that scan's full predicate rather
+// than just `status = active`.
+//
+// The poller re-reads at work time rather than carrying the scanned row, so it
+// sweeps under the connection's CURRENT identity. That re-read has to apply the
+// same two exclusions the scan did, or the window between scan and work becomes
+// a hole: a workspace backed off by its own recorded sweep failure would be
+// swept anyway, and one whose flip preflight sealed the snapshot
+// (mirror_frozen_at) would burn live-read budget on ingests the fence refuses.
+//
+// apperrors.ErrNotFound means "nothing to sweep for this workspace right now" —
+// disconnected, backed off, or frozen — which is a clean stop, not a failure.
+func DueConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnection, error) {
+	return readConnection(ctx, pool, dueConnectionQuery)
+}
+
+// dueConnectionQuery is DueOverlayConnections' per-workspace arm, verbatim.
+const dueConnectionQuery = `
+	SELECT c.incumbent, c.region, c.credential_ref, c.connected_at
+	FROM incumbent_connection c
+	LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
+	WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()
+	  AND s.mirror_frozen_at IS NULL`
+
+// activeConnectionQuery ignores the sweep schedule: a live request asks whether
+// the workspace HAS a connection, not whether the poller is due to use it.
+const activeConnectionQuery = `
+	SELECT incumbent, region, credential_ref, connected_at FROM incumbent_connection
+	WHERE status = $1`
+
+// readConnection runs one of the two connection queries over ctx's workspace
+// and shapes the row. Split from its callers because the queries differ only in
+// their predicate, and a second copy of the scan would be the thing that drifts.
+func readConnection(ctx context.Context, pool *pgxpool.Pool, query string) (DueOverlayConnection, error) {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return DueOverlayConnection{}, fmt.Errorf("overlay: active connection lookup requires a workspace-bound context")
+		return DueOverlayConnection{}, fmt.Errorf("overlay: connection lookup requires a workspace-bound context")
 	}
 	var incumbent, region, ref string
 	var connectedAt time.Time
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT incumbent, region, credential_ref, connected_at FROM incumbent_connection
-			WHERE status = $1`, statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
+		return tx.QueryRow(ctx, query, statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return DueOverlayConnection{}, apperrors.ErrNotFound
 		}
-		return DueOverlayConnection{}, fmt.Errorf("overlay: reading the active incumbent connection: %w", err)
+		return DueOverlayConnection{}, fmt.Errorf("overlay: reading the incumbent connection: %w", err)
 	}
 	return DueOverlayConnection{
 		Workspace:     ids.From[ids.WorkspaceKind](ws),
@@ -279,4 +305,15 @@ func ActiveConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnec
 		CredentialRef: keyvault.Ref(ref),
 		ConnectedAt:   connectedAt,
 	}, nil
+}
+
+// ActiveConnection reads ctx's workspace's ACTIVE incumbent connection —
+// the per-request counterpart to DueOverlayConnections' fleet walk. The
+// read path (FreshnessReader's live force-fresh resolver, wired in
+// compose) uses it to build a live incumbent adapter for the request's
+// own workspace. apperrors.ErrNotFound means the workspace has no active
+// connection (never connected, mid-teardown, or disconnected) — the
+// caller degrades to the mirror rather than treating it as an error.
+func ActiveConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnection, error) {
+	return readConnection(ctx, pool, activeConnectionQuery)
 }

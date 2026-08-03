@@ -416,6 +416,43 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /oauth/consent-request:
+    get:
+      tags: [Identity]
+      operationId: getConsentRequest
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: What the OAuth consent screen renders for one pending authorization.
+      description: |
+        Session-authenticated. Resolves the requesting client from the database and lists the
+        passports the signed-in human may lend to it: their own, unrevoked, unexpired, and not
+        already bound to a connection. What the client asked for excludes none of them, because
+        a lend grants the passport's own scopes. Human-only — an agent must never read or drive
+        a consent screen.
+      parameters:
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: true
+          description: |
+            The space-delimited scopes the client requested. Only the offline_access marker in it
+            is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+            grants the chosen passport's own.
+          schema: { type: string }
+      responses:
+        '200':
+          description: The consent screen's contents.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsentRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------- /people ----------------------------------
   /people:
     get:
@@ -2292,6 +2329,57 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/{id}/send-message:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: sendMessage
+      summary: Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+      description: |
+        The `send_message` MCP verb — the channel twin of `send_email`. Outbound + irreversible
+        → 🟡 confirm-first: an agent caller must supply an approval token; a human caller's own
+        action is the approval.
+
+        The `{id}` activity is the conversation being answered, and its `kind` names the channel
+        the reply transmits through (`telegram`). The RECIPIENT is not named by the caller: it is
+        the channel identity of the person that conversation is with, so a reply can only reach
+        the human who opened it. A person with no live channel identity, or one who blocked the
+        workspace's bot, is refused with 422 before anything is staged.
+
+        Consent gate is **default-deny per purpose** (A22/ADR-0011, data-model §3.4), exactly as
+        for mail: the send is suppressed (409, `code: consent_not_granted`) unless an active,
+        proven `granted` `person_consent` row exists for the *purpose* this send falls under
+        (passed as `consent_purpose`). A grant for a different purpose does not authorize the
+        send; `unknown` and `withdrawn` both block.
+      x-mcp-tool: { verb: send_message, record_type: activity, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessageRequest' }
+      responses:
+        '202':
+          description: Accepted for send (queued); the resulting outbound activity is logged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: Approval token missing for a 🟡 send, or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------ /availability + /bookings (E04 meeting scheduling) ----------
   /availability:
     get:
@@ -2315,7 +2403,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2325,6 +2413,14 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /bookings:
@@ -2410,7 +2506,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2420,6 +2516,14 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '404': { $ref: '#/components/responses/NotFound' }
 
   /public/booking/{host_slug}:
@@ -3255,6 +3359,160 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------ /channel-connections ----------------------------
+  # Workspace-level messaging-channel bindings (telegram-oa design §5, §9.1/§9.2).
+  # Unlike /connectors/* — one human's grant over their OWN mailbox — a channel
+  # connection is an admin binding a bot on behalf of the whole workspace, so
+  # create/update/delete are admin/ops-only (the `channel_connection` RBAC
+  # object) while every role may read the status. Human-only throughout: the bot
+  # token grants read of every message the bot receives, and it is never echoed
+  # back — it lives sealed in the vault from the moment it arrives.
+  #
+  # Ingress PULLS: the installation long-polls the provider for updates, so it
+  # needs no inbound endpoint and no public address of its own, and there is no
+  # half-connected state — a connect either commits as `connected` or writes
+  # nothing at all.
+  /channel-connections:
+    get:
+      tags: [Connectors]
+      operationId: listChannelConnections
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the workspace's messaging-channel connections.
+      responses:
+        '200':
+          description: Channel connections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnectionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      tags: [Connectors]
+      operationId: connectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Connect a messaging-channel bot for the whole workspace.
+      description: |
+        Validates the bot token with the provider, clears any webhook the bot still carries
+        (the provider refuses long-polling while one is registered, and pending updates are
+        deliberately kept — they are the customer's messages), seals the token, and writes the
+        connection `connected` in one transaction with its audit row.
+
+        Nothing follows that write, so there is no half-connected state to observe: the connect
+        either commits live or leaves nothing behind. A `502` means the provider could not be
+        reached and nothing was written — retry it.
+
+        Two `409`s, and they call for different things: `channel_workspace_already_bound` means
+        this workspace already has a live bot (disconnect it first), while a bot-level conflict
+        means that bot is bound elsewhere in this installation (use a different bot).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectChannelRequest' }
+      responses:
+        '201':
+          description: The connected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); nothing was written, so the request is simply retried.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /channel-connections/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Connectors]
+      operationId: replaceChannelToken
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Replace a channel connection's bot token in place.
+      description: |
+        Re-runs the connect sequence against the new token and repoints the row in place. The
+        connection stays live throughout — there is no registration to be mid-flight — and the row
+        survives, so captured history and every channel identity binding survive the rotation;
+        provider user ids are global, so identities keep resolving even when the new token belongs
+        to a different bot.
+
+        The ingress cursor RESTARTS, because a provider's update sequence is per bot: inheriting
+        the outgoing bot's position would ask the incoming bot for updates numbered beyond
+        anything it has ever sent, and every message it received would be skipped silently.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplaceChannelTokenRequest' }
+      responses:
+        '200':
+          description: The reconnected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); nothing was written, so the request is simply retried.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Connectors]
+      operationId: disconnectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Disconnect a messaging channel (archives the binding and destroys the credential).
+      description: |
+        Archives the connection as `disconnected` — which is what stops ingress, since only a
+        live `connected` binding is polled — and destroys the sealed bot token. Already-captured
+        activities are retained: disconnecting stops capture, it does not erase history.
+      responses:
+        '204': { description: Disconnected. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   # ----------------------- /webhook-subscriptions ---------------------------
   # Outbound webhook subscriptions (E10/S-E10.6, A51): a first-party outbound
@@ -4517,6 +4775,88 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------- /capture/consumer-mail-domains (CAP-PARAM-5) ---------------
+  # The workspace's own consumer-mail list: what the shipped baseline missed,
+  # and what it got wrong. A domain on this list can never name a company
+  # (`extra`), or is taken back out of the baseline that claimed it (`never`).
+  # Workspace-shared and admin-curated — whether a domain can name a company is
+  # a statement about the domain, not about who reads its mail.
+  /capture/consumer-mail-domains:
+    get:
+      tags: [Capture]
+      operationId: listConsumerMailDomains
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: The workspace's own consumer-mail domain list (CAP-PARAM-5).
+      description: |
+        The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
+        Mail from a consumer domain still creates the person; what it never creates is a
+        company. Every human role may read the list; only admin/ops may change it. Governed by
+        the `capture_settings` RBAC object.
+
+        Human-only, like the personal-mail exclusion list it replaces: the list names the domains
+        this installation corresponds with and which of them it treats as consumer mail, which is
+        capture posture rather than record data, and no agent task needs it.
+      responses:
+        '200':
+          description: The workspace's list entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerMailDomainListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Capture]
+      operationId: addConsumerMailDomain
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Add a consumer-mail domain, or carve one out (admin/ops).
+      description: |
+        Admin/ops-only, human session only — an agent never changes a workspace-wide capture
+        posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
+        takes one back out and wins over the baseline, which is the only way back in for an
+        operator whose real customers mail from a domain the shipped list claims.
+
+        The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
+        because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
+        existing entry and changing an entry's kind updates it, since a domain cannot be both
+        added and carved out. Audit-only write (no event stream, EVT-NOEVT-3).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddConsumerMailDomainRequest' }
+            examples:
+              missedProvider: { value: { domain: 'regional-mail.example', kind: extra } }
+              wrongEntry:     { value: { domain: 'customer-host.example', kind: never } }
+      responses:
+        '201':
+          description: The entry (or the existing one, on an idempotent re-add).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumerMailDomain' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /capture/consumer-mail-domains/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Capture]
+      operationId: removeConsumerMailDomain
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Withdraw a consumer-mail list entry (admin/ops).
+      description: |
+        Returns the workspace to the shipped baseline's answer for that domain. Idempotent:
+        withdrawing an entry that is not there is a no-op, because the caller's intent is
+        already satisfied.
+      responses:
+        '204': { description: Entry withdrawn (or already absent). }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /ai/usage:
     get:
       tags: [AI]
@@ -4712,76 +5052,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
-  # ------------------ /capture/exclusions (RC-2 personal-mail) ---------------
-  # The per-user personal-mail exclusion rule set (RC-2): a bounded, typed
-  # (kind, value) list — sender domain, recipient domain, or mail label,
-  # deliberately NOT a filtering DSL. Evaluated in the ONE Sink BEFORE
-  # ingestion writes anything, so a matching message produces zero CRM rows
-  # plus one `capture.skipped{personal_exclusion}` event (capture.md
-  # CAP-DDL-3 / CAP-WIRE-2, EVT-SEM-10). Human-only — an agent must not widen
-  # or narrow a human's personal-mail boundary (ADR-0013).
-  /capture/exclusions:
-    get:
-      tags: [Connectors]
-      operationId: listCaptureExclusions
-      x-agent-access: human-only
-      security: [ { cookieAuth: [] } ]
-      summary: List the calling user's personal-mail exclusion rules (RC-2).
-      description: |
-        The bounded per-user rule set that gates whether ingestion writes anything at all (RC-2):
-        exclude by sender domain, recipient domain, or mail label — deliberately NOT a filtering
-        DSL. A matching message produces zero CRM rows plus a `capture.skipped{personal_exclusion}`
-        event (capture.md CAP-DDL-3, EVT-SEM-10). Personal by nature — a rep manages their own.
-      responses:
-        '200':
-          description: The calling user's exclusion rules.
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CaptureExclusionRuleListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-    post:
-      tags: [Connectors]
-      operationId: createCaptureExclusion
-      x-agent-access: human-only
-      security: [ { cookieAuth: [] } ]
-      summary: Add a personal-mail exclusion rule (RC-2).
-      description: |
-        Adds one bounded rule — `kind` ∈ `sender_domain` | `recipient_domain` | `label`, `value`
-        the domain or label. Idempotent on (user, kind, value): re-adding an existing rule is a
-        no-op returning the existing row. Human-only — an agent must not widen or narrow a human's
-        personal-mail boundary.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateCaptureExclusionRequest' }
-            examples:
-              senderDomain: { value: { kind: sender_domain, value: 'personal-family.example' } }
-              label:        { value: { kind: label, value: 'Personal' } }
-      responses:
-        '201':
-          description: Rule created (or the existing rule, on an idempotent re-add).
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/CaptureExclusionRule' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
-  /capture/exclusions/{id}:
-    parameters:
-      - $ref: '#/components/parameters/Id'
-    delete:
-      tags: [Connectors]
-      operationId: deleteCaptureExclusion
-      x-agent-access: human-only
-      security: [ { cookieAuth: [] } ]
-      summary: Remove a personal-mail exclusion rule (RC-2).
-      description: Removes one of the caller's own rules. Idempotent. Human-only.
-      responses:
-        '204': { description: Rule removed (or already absent). }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
   # ---------------------------- /approvals ----------------------------------
   /approvals:
     get:
@@ -4802,6 +5072,21 @@ paths:
           in: query
           schema: { type: string }
           description: Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
+        - name: target_entity_type
+          in: query
+          schema: { type: string }
+          description: |
+            Filter to the approvals staged against ONE record, together with `target_entity_id`.
+            The two are a discriminated reference and only mean something as a pair, so supplying
+            one without the other is a 422 rather than a filter that quietly matches every record
+            of a type or every type of an id.
+
+            A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+            existence-hiding the record's own read gives.
+        - name: target_entity_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: The record the staged actions act on. Requires `target_entity_type`.
       responses:
         '200':
           description: A page of approval items.
@@ -4810,6 +5095,7 @@ paths:
               schema: { $ref: '#/components/schemas/ApprovalListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /approvals/{id}:
     parameters:
@@ -7771,6 +8057,206 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/network:
+    get:
+      tags: [People]
+      operationId: getPersonNetwork
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: Who on our team knows this contact, and how well.
+      description: |
+        The person-anchored answer to the question the company connections card answers
+        per account: which colleagues have a real recorded relationship with this
+        contact, warmest first.
+
+        Warmth is the per-user relationship strength (PO-F-3b) — the same recency ×
+        frequency × reciprocity arithmetic as the contact's workspace-wide score, over
+        only the interactions THAT colleague was in. The two are not comparable by
+        addition and are never merged: a contact can be warm to the company while the
+        colleague beside them has barely met them, and that gap is the answer to "who
+        should make the introduction".
+
+        A colleague with no qualifying interaction in the window carries the `none`
+        band and no number — "we have never spoken" and "we spoke and it went cold" are
+        different facts, and a zero would render them identically.
+
+        Departed colleagues are absent: the surface exists to name someone who can act.
+        A contact the caller cannot read answers 404, never a leak of its existence.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The colleagues who know this contact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonNetwork' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deals/{id}/coverage:
+    get:
+      tags: [Deals]
+      operationId: getDealCoverage
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: Who covers this deal, and what is wrong with how it is covered.
+      description: |
+        Every seat on the deal, which of them are actually engaged, which colleagues
+        carry the contact, and the risks that follow.
+
+        **Engaged means a two-way exchange**, not a seat on a list: both an inbound and
+        an outbound qualifying interaction in the window. A deal threaded only through
+        people who never replied is exactly what these flags exist to catch, and it is
+        the same test the deal-health composite uses — one definition, so two screens
+        cannot disagree about the same deal.
+
+        Risk kinds and their sources: `single_threaded_theirs` is REPORT-PARAM-1
+        verbatim (fewer than two engaged contacts); `single_threaded_ours` is
+        GRAPH-RISK-1, a statement about OUR coverage rather than the customer's, which
+        is why it carries its own id; `coverage_gap` is a deal with seats but no engaged
+        champion — a well-threaded deal nobody inside is arguing for.
+
+        Every risk carries the ids behind it. A flag a human cannot drill into is a red
+        dot nobody can act on.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The deal's coverage and its risks.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealCoverage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /me/linkedin-connections:
+    post:
+      tags: [People]
+      operationId: importLinkedInConnections
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Import your own LinkedIn connections export.
+      description: |
+        Upload the `Connections.csv` LinkedIn hands every member under
+        Settings → Data privacy → Get a copy of your data. No LinkedIn app or API
+        approval is involved: this is your own export, imported into your own network.
+
+        **The imported rows are not contacts.** They are graph substrate — they never
+        appear in search, lists, the people screens, or the assistant's record tools,
+        nothing can write to them, and no outreach can reach them. They exist to answer
+        one question: does anyone here already know someone at this company.
+
+        The network is yours. The owner is the authenticated caller, never a field in
+        the file, so nobody can attribute a stranger's connections to a colleague.
+
+        Re-importing a refreshed export updates rather than duplicates. Rows with no
+        usable name are counted as skipped rather than silently dropped — an import that
+        quietly ignored half a file while reporting success is worse than one that fails.
+
+        Matching runs after the import and follows the house dedupe rule: an exact email
+        match confirms automatically, name-plus-employer only suggests, and an ambiguous
+        name suggests nothing. Nothing here ever creates a person.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: 'LinkedIn `Connections.csv`.' }
+      responses:
+        '200':
+          description: What the import stored and what the matcher decided.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInImportSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /me/linkedin-reach:
+    get:
+      tags: [People]
+      operationId: getMyLinkedInReach
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Which accounts your imported network reaches.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      description: |
+        The account-level payoff of importing an export, and the one answer the ghosts
+        exist to give: for each organization on file, how many of your connections work
+        there, and how many of those are already contacts.
+
+        Ranked by connection count, then by name, so two reads of an unchanged network
+        return the same order.
+
+        Only organizations the caller can READ appear, under the ordinary organization
+        row scope. A connection whose employer resolved to no account is not reported
+        here — there is no account to name — which is why the totals on this response and
+        on the import summary differ and are both true.
+      responses:
+        '200':
+          description: The accounts this member's network reaches.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInReachResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /me/linkedin-account:
+    get:
+      tags: [People]
+      operationId: getMyLinkedInAccount
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Your own LinkedIn account as this CRM records it.
+      description: |
+        Always the CALLER's row, never anybody else's. A colleague's professional
+        network is theirs, and no seat — including admin — reads or edits another
+        member's LinkedIn account through this API.
+
+        A member who has never been asked has no row, and that is not an error: the
+        response is simply not connected. The connection count is reported either
+        way, because an export can be uploaded from Settings without ever going
+        through the onboarding step.
+      responses:
+        '200':
+          description: The caller's LinkedIn account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    put:
+      tags: [People]
+      operationId: saveMyLinkedInAccount
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Record or correct your own LinkedIn profile.
+      description: |
+        The profile URL is what the imported network is attributed to, so a member
+        can see and fix it. An empty `profile_url` CLEARS the stored value — a
+        member emptying the field means "do not record this", not "leave it".
+
+        `connected` records the authorization and never revokes one: disconnecting
+        is a deliberate act of its own, not a side effect of editing a URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveLinkedInAccountRequest' }
+      responses:
+        '200':
+          description: The saved account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -8814,6 +9300,34 @@ components:
       properties:
         auto_enrich: { type: boolean, description: Toggle captured-organization auto-enrichment. }
 
+    ConsumerMailDomain:
+      type: object
+      description: |
+        One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+        consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+        that claimed it. Either way the domain is stored in its registrable form, which is what
+        the matcher keys on.
+      required: [id, domain, kind]
+      properties:
+        id: { type: string, format: uuid }
+        domain: { type: string, description: 'The registrable domain (e.g. `gmx.net`).' }
+        kind:
+          type: string
+          enum: [extra, never]
+          description: '`extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.'
+        created_at: { type: string, format: date-time, readOnly: true }
+    AddConsumerMailDomainRequest:
+      type: object
+      required: [domain, kind]
+      properties:
+        domain: { type: string, description: 'A mail domain; normalized to its registrable form before it is stored.' }
+        kind: { type: string, enum: [extra, never] }
+    ConsumerMailDomainListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ConsumerMailDomain' } }
+
     # ---- capture connectors (per-user OAuth mail/calendar; RC-8, CAP-WIRE-1) ----
     CaptureConnection:
       type: object
@@ -9147,29 +9661,58 @@ components:
         page: { $ref: '#/components/schemas/PageInfo' }
         payload_capture_enabled: { type: boolean, description: 'The deployment''s ai.capture_payloads posture.' }
         tasks: { type: array, items: { type: string }, description: 'Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page.' }
-    CaptureExclusionRule:
+    # ---- channel connections (telegram-oa design §4.1, §5) ----
+    ChannelConnection:
       type: object
-      description: |
-        One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
-        produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
-        filtering DSL — a small typed (kind, value) pair, per connected user.
-      required: [id, kind, value]
+      description: >-
+        One workspace-level messaging-channel binding. The bot token never appears in this
+        shape — it lives sealed in the vault, and it is the only secret a binding holds.
+      required: [id, provider, channelId, channelLabel, status, version]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [sender_domain, recipient_domain, label], description: 'Match a sender domain, a recipient domain, or a mail label.' }
-        value: { type: string, description: 'The normalized domain (e.g. `personal-family.example`) or the provider mail-label name.' }
-        created_at: { type: string, format: date-time, readOnly: true }
-    CreateCaptureExclusionRequest:
-      type: object
-      required: [kind, value]
-      properties:
-        kind: { type: string, enum: [sender_domain, recipient_domain, label] }
-        value: { type: string }
-    CaptureExclusionRuleListResponse:
+        provider: { type: string, enum: [telegram] }
+        channelId:
+          type: string
+          description: The provider's own id for the bot — the key the binding is unique on.
+        channelLabel:
+          type: string
+          description: The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+        status:
+          type: string
+          enum: [pending, connected, disconnected, error, reauth_required]
+          description: >-
+            Only `connected` is live, and it is the only state a connect can produce — a pull
+            ingress makes no provider call after the write, so there is no half-connected state.
+            `error` and `reauth_required` are where ingress parks a binding it can no longer poll
+            (another consumer holds the bot's updates; the token was refused), and neither is
+            polled again until an operator acts. `pending` is a value NO server produces: it is
+            retained because the code generator disambiguates enum member names across the whole
+            document, so dropping it renames unrelated generated constants in other schemas.
+        version: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ChannelConnectionListResponse:
       type: object
       required: [data]
       properties:
-        data: { type: array, items: { $ref: '#/components/schemas/CaptureExclusionRule' } }
+        data: { type: array, items: { $ref: '#/components/schemas/ChannelConnection' } }
+    ConnectChannelRequest:
+      type: object
+      required: [provider, botToken]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        botToken:
+          type: string
+          minLength: 1
+          description: The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+    ReplaceChannelTokenRequest:
+      type: object
+      required: [botToken]
+      properties:
+        botToken:
+          type: string
+          minLength: 1
+          description: The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
 
     # ---- overlay (HubSpot mirror; design.md §11) ----
     OverlayConnection:
@@ -9552,6 +10095,20 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
+    PersonReachability:
+      type: object
+      description: |
+        Whether a reply on this channel can currently be delivered (design §6.6) — a live
+        `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+      required: [provider, reachable, since]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        reachable: { type: boolean }
+        since:
+          type: string
+          format: date-time
+          description: When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+
     RelationshipStrength:
       type: object
       description: |
@@ -9604,6 +10161,16 @@ components:
         phones:
           type: array
           items: { $ref: '#/components/schemas/PersonPhone' }
+        reachability:
+          type: array
+          readOnly: true
+          description: |
+            Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+            Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+            third-party identifier) stays out of this broad read; a governed surface owns it.
+            A blocked identity still appears here, with `reachable: false`, so the record keeps
+            showing that a conversation exists even when a reply cannot currently be delivered.
+          items: { $ref: '#/components/schemas/PersonReachability' }
         consent:
           type: array
           readOnly: true
@@ -10198,10 +10765,20 @@ components:
       required: [id, kind, label, root]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [organization, person, deal] }
+        kind:
+          type: string
+          enum: [organization, person, deal, user]
+          description: |
+            `organization`, `person` and `deal` are the account's own records.
+            `user` is a member of THIS workspace — someone on our side who is connected to the
+            account. A user node carries its display name as the `label` and nothing else:
+            `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+            because §4 measures our relationship with the account's people, not with each
+            other. `intro_path` is a plain boolean and is never sent as null on any node —
+            a client reads its absence as "not on the warm-intro path".
         label:
           type: string
-          description: The record's display name — the organization's, the person's full name, the deal's name.
+          description: The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name.
         root:
           type: boolean
           description: |
@@ -10213,16 +10790,17 @@ components:
           description: |
             One short line of context the node cannot be read without: a contact's title,
             or a deal's stage name. Null when the record has none on file, and always null
-            on an organization — how a related company is attached is the EDGE's kind, and
-            saying it twice would let the two disagree.
+            on an organization or a user — how a related company is attached, and how a
+            teammate is connected, is the EDGE's kind, and saying it twice would let the two
+            disagree.
         strength:
           type: [integer, 'null']
           minimum: 0
           maximum: 100
           description: |
             The person's §4 relationship strength, for weighting the node. Null for an
-            organization or a deal, which have no relationship of their own, and for a
-            contact whose strength this caller's person scope did not resolve.
+            organization, a deal or a user, none of which have a relationship of their own,
+            and for a contact whose strength this caller's person scope did not resolve.
         strength_bucket:
           type: [string, 'null']
           enum: [null, dormant, weak, warm, strong]
@@ -10240,6 +10818,216 @@ components:
             Absent on an organization with no resolved logo and on every person or deal node —
             a client draws the node's monogram or its token-coloured circle instead.
 
+    PersonNetworkColleague:
+      type: object
+      description: One colleague's own relationship with this contact.
+      required: [user_id, display_name, strength_bucket, interactions_90d]
+      properties:
+        user_id:      { type: string, format: uuid }
+        display_name: { type: string }
+        strength:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          description: 'PO-F-3b, computed at read; null when the band is `none`.'
+        strength_bucket: { type: string, enum: [none, weak, moderate, strong] }
+        interactions_90d: { type: integer, minimum: 0 }
+        last_at:          { type: [string, 'null'], format: date-time }
+
+    PersonNetwork:
+      type: object
+      description: |
+        The colleagues who know this contact, warmest first. Ordering is the answer, not
+        a presentation detail: it is who to ask.
+      required: [person_id, colleagues]
+      properties:
+        person_id:  { type: string, format: uuid }
+        colleagues: { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+
+    DealCoverageSeat:
+      type: object
+      description: One stakeholder seat, and whether it is a relationship or just a name.
+      required: [person_id, role, engaged]
+      properties:
+        person_id: { type: string, format: uuid }
+        role:      { type: string }
+        engaged:
+          type: boolean
+          description: 'A two-way exchange in the window — both directions, not just our sends.'
+
+    DealCoverageRisk:
+      type: object
+      description: |
+        One finding, with the records behind it. `kind` names the rule so a surface can
+        explain the flag rather than assert it.
+      required: [kind, summary]
+      properties:
+        kind:
+          type: string
+          enum: [single_threaded_theirs, single_threaded_ours, coverage_gap, champion_left, stakeholder_left, going_cold]
+        summary:    { type: string }
+        person_ids: { type: array, items: { type: string, format: uuid } }
+        user_ids:   { type: array, items: { type: string, format: uuid } }
+        days_since_touch:
+          type: [integer, 'null']
+          minimum: 0
+          description: |
+            Days since the deal's last captured touch, on `going_cold` only; null on every
+            other kind. It carries the number rather than a second `kind`, so the 30-day and
+            60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+            61 days cannot appear on one surface and not the other.
+
+    DealCoverage:
+      type: object
+      required: [deal_id, stakeholders, our_side, risks]
+      properties:
+        deal_id:      { type: string, format: uuid }
+        stakeholders: { type: array, items: { $ref: '#/components/schemas/DealCoverageSeat' } }
+        our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+        risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
+
+    LinkedInAccount:
+      type: object
+      required: [connected, connections]
+      properties:
+        connected: { type: boolean, description: 'Whether this member has authorized LinkedIn.' }
+        connected_at: { type: [string, 'null'], format: date-time }
+        profile_url:
+          type: [string, 'null']
+          format: uri
+          description: 'The member''s own public profile — what their imported network is attributed to.'
+        connections:
+          type: integer
+          description: 'How many connections this member''s imports currently hold (tombstoned rows excluded).'
+    SaveLinkedInAccountRequest:
+      type: object
+      properties:
+        profile_url:
+          type: string
+          description: 'Absolute http(s) URL. Empty clears the stored value.'
+        connected:
+          type: boolean
+          default: false
+          description: 'Record the authorization. Never revokes an existing one.'
+    LinkedInImportSummary:
+      type: object
+      description: |
+        What one import did, in the terms someone asked to trust it would check.
+        `skipped` is reported rather than hidden: a file half-ignored under a success
+        message is worse than a refusal.
+      required: [rows, imported, skipped, confirmed, suggested]
+      properties:
+        rows:      { type: integer, minimum: 0, description: 'Connection rows found in the file.' }
+        imported:  { type: integer, minimum: 0, description: 'Rows stored (created or updated).' }
+        skipped:   { type: integer, minimum: 0, description: 'Rows with no usable name — they identify nobody.' }
+        confirmed: { type: integer, minimum: 0, description: 'Matched to a contact by exact email address, which is identity here.' }
+        suggested: { type: integer, minimum: 0, description: 'Matched by name and employer — plausible, awaiting a human.' }
+
+    LinkedInConnection:
+      type: object
+      description: |
+        One imported connection, in the terms a human needs to judge the matcher's guess.
+        It is NOT a contact and never becomes one: it carries no id a record route
+        accepts, no timeline, and nothing can write to it.
+
+        The ORIGINAL name and company are what is shown, never the folded forms the
+        matcher compares on — a person confirming a match has to see what LinkedIn
+        actually said.
+      required: [id, full_name, match_status]
+      properties:
+        id:        { type: string, format: uuid }
+        full_name: { type: string }
+        position:  { type: [string, 'null'], description: 'Their headline role, as the export spelled it.' }
+        company_name: { type: [string, 'null'] }
+        email:
+          type: [string, 'null']
+          description: |
+            Present only when this connection allowed their address to be exported. Its
+            presence is why a row confirmed itself; its absence is why most did not.
+        connected_on: { type: [string, 'null'], format: date }
+        match_status: { type: string, enum: [unmatched, suggested, confirmed, rejected] }
+        matched_person_id:
+          type: [string, 'null']
+          format: uuid
+          description: 'The contact this is suggested to be, or confirmed as. Null when the matcher found nobody.'
+        matched_person_name:
+          type: [string, 'null']
+          description: |
+            The suggested contact's name, resolved under the caller's person row scope.
+            Null when the caller cannot read that contact — the suggestion is then not
+            actionable and the surface says so, rather than naming a record through a
+            side door.
+        matched_org_id:   { type: [string, 'null'], format: uuid }
+        matched_org_name: { type: [string, 'null'] }
+
+    LinkedInConnectionListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/LinkedInConnection' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    ConfirmLinkedInMatchRequest:
+      type: object
+      description: |
+        An empty body accepts the matcher's own suggestion. `person_id` overrides it,
+        which is how a human corrects a wrong guess rather than rejecting it and losing
+        the connection entirely.
+      properties:
+        person_id:
+          type: [string, 'null']
+          format: uuid
+          description: 'The contact to link to. Omitted means the already-suggested one.'
+
+    LinkedInMatchDecision:
+      type: object
+      description: One decision's outcome, including what it did to the contact.
+      required: [connection, profile_url_written]
+      properties:
+        connection: { $ref: '#/components/schemas/LinkedInConnection' }
+        profile_url_written:
+          type: boolean
+          description: |
+            Whether the confirmation wrote a LinkedIn handle onto the contact. False when
+            the contact already carried one (never overwritten), when the member has
+            recorded no profile URL of their own, and on every rejection.
+
+    LinkedInReachAccount:
+      type: object
+      description: One account this member's network reaches.
+      required: [organization_id, display_name, connections, contacts_on_file]
+      properties:
+        organization_id: { type: string, format: uuid }
+        display_name:    { type: string }
+        connections:
+          type: integer
+          minimum: 1
+          description: 'How many of the caller''s connections resolved to this account. An account with none is not listed.'
+        contacts_on_file:
+          type: integer
+          minimum: 0
+          description: |
+            How many of those are already contacts — confirmed matches only. The gap
+            between this and `connections` is the answer the import was for: people you
+            know at this account who are not in the CRM.
+
+    LinkedInReachResponse:
+      type: object
+      required: [accounts, accounts_total, unresolved_connections]
+      properties:
+        accounts: { type: array, items: { $ref: '#/components/schemas/LinkedInReachAccount' } }
+        accounts_total:
+          type: integer
+          minimum: 0
+          description: 'Every account reached, not just the page returned — a truncated list read as the whole network would understate reach.'
+        unresolved_connections:
+          type: integer
+          minimum: 0
+          description: |
+            Connections whose employer matched no account on file. Reported because it is
+            the honest size of what this view cannot show, and because it is the number
+            that shrinks as accounts are created.
+
     OrganizationGraphEdge:
       type: object
       description: |
@@ -10252,7 +11040,7 @@ components:
         to: { type: string, format: uuid }
         kind:
           type: string
-          enum: [employment, has_deal, deal_stakeholder, parent_of, partner_of, referred_by, co_sell_with]
+          enum: [employment, has_deal, deal_stakeholder, parent_of, partner_of, referred_by, co_sell_with, owns, in_contact_with]
           description: |
             `employment` — the account employs the person.
             `has_deal` — the deal belongs to the account.
@@ -10261,11 +11049,53 @@ components:
             points at it; the account points at each child).
             `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
             the organization that records the edge to its counterparty.
+            `owns` — `from` is the workspace member who owns the account.
+            `in_contact_with` — `from` is the workspace member who has been IN recorded
+            interactions (email, call, meeting) with the contact at `to`. It is drawn from
+            the recorded participants of those interactions, so it holds for
+            connector-captured mail as well as manually logged activity. Every participant
+            role makes one, `cc` included: in an account team the person permanently in
+            copy is frequently the one who knows the customer, so excluding them removes
+            exactly the people this edge exists to find. The quality bar sits in the score
+            rather than a role filter — copy traffic is one-directional, so the reciprocity
+            term ranks a permanently-cc'd colleague below anyone in a two-way thread. A
+            task assigned to a teammate still makes none: an assignment is intent, while a
+            recorded interaction is contact.
         role:
           type: [string, 'null']
           description: |
             The edge's role where it has one — an employment title, a stakeholder role
-            (champion, economic_buyer, …). Null on the edges that carry none.
+            (champion, economic_buyer, …). Null on the edges that carry none, which includes
+            both `owns` and `in_contact_with`.
+        strength:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          description: |
+            How warm this particular colleague's relationship with this contact is, 0–100,
+            on `in_contact_with` edges only; null on every other kind, which describes a
+            structural fact rather than a relationship.
+
+            It is the per-user relationship strength (PO-F-3b): the same recency ×
+            frequency × reciprocity arithmetic as the workspace-wide contact score, over
+            only the interactions THIS colleague was in. It is deliberately not comparable
+            by addition to the contact's own score — one answers "how warm is this contact
+            to us", the other "to this person among us", and neither is derivable from the
+            other.
+
+            Computed at read from exact timestamps and counts, never stored, so it decays
+            with the clock rather than with whenever a job last ran.
+
+            Null also when the colleague and contact have no qualifying interaction in the
+            scoring window, which is not the same as a zero — see `strength_bucket`.
+        strength_bucket:
+          type: [string, 'null']
+          enum: [none, weak, moderate, strong]
+          description: |
+            The display band for `strength`, so a surface renders the same words everywhere.
+            `none` means no qualifying interaction at all and is shown as "no signal yet",
+            never as a zero: "we have never spoken" and "we spoke and it went cold" are
+            different facts about an account.
 
     OrganizationGraphIntroPath:
       type: object
@@ -10319,12 +11149,17 @@ components:
             this" instead of "there is none". `contacts` withheld also withholds
             `deal_stakeholder` edges and the intro path, because both name a person.
 
+            `our_side` is the workspace members connected to the account — the owner and the
+            teammates who have interacted with its contacts. It needs BOTH the person and the
+            activity grant, because each of its edges names a contact and is derived from a
+            recorded interaction; either one missing withholds the whole group.
+
             The parent, child and partner organizations are not a group here: they need no
             grant beyond the organization read this whole endpoint already demands, so they
             are row-scope pruned like every other node and can never be withheld wholesale.
           items:
             type: string
-            enum: [contacts, deals, intro_path]
+            enum: [contacts, deals, intro_path, our_side]
         intro_path: { $ref: '#/components/schemas/OrganizationGraphIntroPath' }
 
     # ---- Relationship ----
@@ -10904,6 +11739,29 @@ components:
             The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
             The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
             `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+
+    SendMessageRequest:
+      type: object
+      required: [body, consent_purpose]
+      description: |
+        One channel reply. It carries no subject and no addressee list, and that absence is the
+        shape of the transport rather than an omission: a messaging channel has no subject line
+        and no Cc, and the recipient is resolved from the conversation being answered (see the
+        operation), never named by the caller.
+      properties:
+        body:
+          type: string
+          minLength: 1
+          description: |
+            The (possibly edited) final message text that is sent. A messaging provider rejects a
+            text-less message, so an empty or whitespace-only body is refused at request time
+            (422 `empty_message_body`) rather than staged for a delivery that could only park.
+        consent_purpose:
+          type: string
+          description: |
+            The consent purpose this send falls under (e.g. `transactional`). The send is
+            suppressed (409 `consent_not_granted`) unless the recipient has an active `granted`
+            `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
 
     # ---- Lead ----
     Lead:
@@ -11847,7 +12705,14 @@ components:
       type: object
       required: [type, id]
       properties:
-        type: { type: string, enum: [person, organization, deal, lead, activity] }
+        type:
+          type: string
+          enum: [person, organization, deal, lead, activity, user]
+          description: |
+            `user` is a workspace MEMBER, not a record — it appears only in the
+            `who_knows` section, where the item is a colleague who interacts with the
+            anchor contact. It carries the member's display name as `summary` and
+            routes nowhere: a client renders it as a name, not as a link to a record.
         id:   { type: string, format: uuid }
     ContextEvidence:
       type: object
@@ -13709,6 +14574,36 @@ components:
         on_behalf_of: { type: string, format: uuid, description: The human whose RBAC bounds every call this passport makes. }
         expires_at:   { type: string, format: date-time }
 
+    ConsentPassportOption:
+      type: object
+      description: |
+        One passport the signed-in human may lend to the requesting client. `scopes` is both
+        what the passport carries and what a connection lending it receives: the client's
+        request does not narrow the grant, so there is no second, smaller set beside it.
+      required: [id, label, scopes, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        scopes:
+          type: array
+          items: { type: string, enum: [read, draft, write, send, enrich] }
+        expires_at: { type: string, format: date-time }
+    ConsentRequest:
+      type: object
+      description: |
+        What the consent screen renders. The client name is resolved from the database, never
+        from the request URL, so no caller can put words on a consent screen. The consent
+        nonce is NOT here: it reaches the screen in the redirect fragment, because the
+        consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+      required: [client_name, offline, passports]
+      properties:
+        client_name: { type: string }
+        offline:
+          type: boolean
+          description: The client asked to stay connected without asking again (offline_access).
+        passports:
+          type: array
+          items: { $ref: '#/components/schemas/ConsentPassportOption' }
     PassportSummary:
       type: object
       description: Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.

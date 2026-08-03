@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ContactsScreen, PersonScreen } from "./people";
+import { activityTimeline, ContactsScreen, PersonScreen } from "./people";
 
 // B-EP09.10a acceptance: per-row provenance chips, row→360 navigation, and
 // the honest error state. Lead-specific acceptance (score thresholds,
@@ -938,5 +938,56 @@ describe("PersonScreen — consent section wiring", () => {
     // The section's own aria-label gives it an implicit region role — an
     // absent import would leave no such region on the page at all.
     expect(await screen.findByRole("region", { name: "Consent" })).toBeTruthy();
+  });
+});
+
+describe("activityTimeline", () => {
+  const base = {
+    id: "a-1",
+    workspace_id: "w-1",
+    occurred_at: "2026-07-31T10:00:00Z",
+    captured_by: "connector:telegram",
+    source: "telegram:1:2:3",
+    created_at: "2026-07-31T10:00:00Z",
+    updated_at: "2026-07-31T10:00:00Z",
+  };
+
+  it("shows a channel message's text, not the word 'telegram'", () => {
+    const [entry] = activityTimeline([
+      { ...base, kind: "telegram", body: "hello from a real human" } as never,
+    ]);
+    expect(entry.title).toBe("hello from a real human");
+  });
+
+  it("keeps a mail activity's subject rather than its body", () => {
+    const [entry] = activityTimeline([
+      {
+        ...base,
+        kind: "email",
+        subject: "Quarterly review",
+        body: "the whole message body",
+      } as never,
+    ]);
+    expect(entry.title).toBe("Quarterly review");
+  });
+
+  it("collapses newlines and cuts a long message so the row stays one line", () => {
+    const [entry] = activityTimeline([
+      {
+        ...base,
+        kind: "telegram",
+        body: `first line\n\nsecond ${"x".repeat(200)}`,
+      } as never,
+    ]);
+    expect(entry.title).not.toContain("\n");
+    expect(entry.title.length).toBeLessThanOrEqual(140);
+    expect(entry.title.endsWith("…")).toBe(true);
+  });
+
+  it("falls back to the kind when an activity carries no text at all", () => {
+    const [entry] = activityTimeline([
+      { ...base, kind: "note", subject: null, body: null } as never,
+    ]);
+    expect(entry.title).toBe("note");
   });
 });

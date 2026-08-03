@@ -384,6 +384,13 @@ func (s *Store) PromoteOrgName(ctx context.Context, orgID ids.OrganizationID, na
 // inbox is the stronger source winning, which is the rule working, not a
 // failure to report.
 func (s *Store) PromoteOrgNameTx(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, name, corroboration string) (bool, error) {
+	// The name lock comes before the row lock, the one order every path that
+	// takes both uses (UpdateOrganization says why): otherwise
+	// this sweep and a human's rename of the same company can each hold what
+	// the other wants.
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
+		return false, err
+	}
 	var current, source string
 	// The row lock serializes this against a concurrent human edit: whoever
 	// commits first is read by the other, so the CAS below cannot be decided
@@ -427,6 +434,16 @@ func (s *Store) PromoteOrgNameTx(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID,
 		crmcontracts.PublicEventOrganizationUpdated{ChangedFields: after}); err != nil {
 		return false, fmt.Errorf("people: emitting organization.updated for the promotion: %w", err)
+	}
+	// The name this row was created under was a guess from its mail domain;
+	// the one it just took is the company's own. That is the first moment a
+	// twin captured from another domain can be recognised, so ask now.
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return false, err
+	}
+	if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+		return false, err
 	}
 	return true, nil
 }

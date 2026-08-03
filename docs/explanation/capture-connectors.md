@@ -68,15 +68,19 @@ raw original + the domain row + the `audit_log` entry (stamped from the *connect
 forgeable) + the outbox event, idempotent on the `(source_system, source_id)` natural key so any replay
 — a re-delivered push, a re-anchored cursor, an overlapping backfill page — collapses to a no-op.
 
-Two pipeline concerns run *inside* the Sink, before anything is written:
+One pipeline concern runs *inside* the Sink, before anything is written:
 
-- **The personal-mail exclusion gate (RC-2).** Three fixed rule kinds — `sender_domain`,
-  `recipient_domain`, `label` — matched case-insensitively against the record's attributes. A match
-  returns `ErrSkip` and **nothing is written** (a privacy control: matching mail leaves zero CRM rows).
 - **Counterparty auto-create (PO-F-1/PO-F-2).** Every captured message names the human on the other side
   (direction-classified against the mailbox owner). The Sink routes it through the people module's **one
-  dedupe chokepoint**: an exact match reuses, a fuzzy match creates-and-records for the review queue. A
-  freemail sender suppresses the domain-named *organization* create; an erased address stays dead (A13).
+  dedupe chokepoint**: an exact match reuses, a fuzzy match creates-and-records for the review queue. An
+  erased address stays dead (A13).
+
+  The **company** is not created here. Capture used to derive an organization from every non-consumer
+  mail domain, which manufactured companies named after people (`sebastian@kestner.example` became
+  "Kestner"). It now records an open question in `organization_domain_disposition` and a `domain_triage`
+  site read answers it: a `company` verdict creates the organization from what the site states, and a
+  `personal` / `provider` verdict refuses one for good. Consumer mail is answered by its own domain and
+  asks nothing — the shipped baseline plus the workspace's own `capture_freemail_domain` list.
   The `ThreadKey` (Gmail `threadId` / Graph `conversationId` / the RFC822 `References` root) is the
   reply-detection join key behind `engagement.reply`.
 
@@ -111,7 +115,7 @@ A connector's records reach the CRM through one of three paths, all converging o
    daily probe after 20 consecutive failures, and heals on one success. The error taxonomy
    (`rate_limited | unreachable | auth | history_gone | internal`) surfaces as `last_sync_error_class`.
 3. **Push — Gmail only.** With a Pub/Sub topic configured, Gmail delivers change notifications to `POST
-   /webhooks/gmail-push` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
+   /webhooks/gmail` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
    `next_sync_at` and enqueues an immediate sync. Push is a *latency* optimization over the poll, not a
    separate write path.
 
@@ -221,7 +225,7 @@ Capture spans both process roles ([the four `cmd/<role>` binaries](architecture.
 
 - **`api`** serves the *interactive* surface: `connect` (OAuth and IMAP alike), `callback`,
   `disconnect`, `list`, backfill `preview`/`start`(enqueue)/`status`/`cancel`, the Gmail push webhook,
-  the morning `digest` read, and the exclusion-rule CRUD.
+  the morning `digest` read, the capture-settings toggle, and the consumer-mail domain list.
 - **`worker`** runs *every background pull* as leader-elected River periodic jobs: the sync dispatcher
   (`30s`) → per-connection `SyncOnce`, the backfill engine (one page/tick), the Gmail watch-renewal scan
   (`6h`), and the nightly capture suite (classify hourly, enrich + digest daily). The Surface-B agent
@@ -264,7 +268,7 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
   Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
   ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (Gmail has both halves — the
-  push-watch renewal sweep and the `/webhooks/gmail-push` consumer above — so a Gmail deployment with a
+  push-watch renewal sweep and the `/webhooks/gmail` consumer above — so a Gmail deployment with a
   Pub/Sub topic configured is push-driven, with the poll behind it as the safety net.)
 - **Graph refresh-token rotation isn't persisted.** The stored token usually lasts up to Microsoft's
   default 90-day inactive lifetime (a confidential client) but can be revoked or expire earlier; on
@@ -299,7 +303,8 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 | The one Sink + write shape + idempotency | `internal/modules/capture/sink.go` |
 | The registry — scope intersection, Connect/Disconnect, SyncOnce, backfill, watch | `internal/modules/capture/registry.go`, `registry_connections.go`, `registry_watch.go`, `backfill.go` |
 | Sync-state sidecar (backoff, error taxonomy, degrade/heal) | `internal/modules/capture/syncstate.go` |
-| Personal-mail exclusion gate (RC-2) | `internal/modules/capture/exclusion/exclusion.go` |
+| Consumer-mail gate + the workspace's own list (CAP-PARAM-5) | `internal/platform/freemail/`, `internal/modules/capture/freemaildomain.go` |
+| Domain triage — the company question and its verdict | `internal/modules/people/domaintriage.go`, `domaintriageresolve.go`, `internal/compose/deepreadtriage.go` |
 | Counterparty / RFC822 mapping (direction, ThreadKey, skip rules) | `internal/modules/capture/mailmap/mailmap.go` |
 | Gmail connector (OAuth, history sync, Pub/Sub watch, backfill) | `internal/modules/capture/gmail/` |
 | IMAP connector (standing UID-watermark sync; netguard SSRF guard) | `internal/modules/capture/imap/` |
@@ -310,8 +315,8 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 | Backfill + digest HTTP surface | `internal/compose/backfilltransport.go` |
 | Gmail push webhook (token + OIDC) | `internal/compose/gmailpush.go`, `capture/push.go` |
 | Background jobs (dispatcher, sync, backfill, watch renewal, digest) | `internal/compose/jobs.go`, `capturejobs.go`; `backend/cmd/worker/main.go` |
-| The tables + RLS | `raw_capture, capture_connection, capture_exclusion_rule, capture_sync_state, capture_backfill, workspace_email_domain, capture_digest` |
-| The REST contract | `backend/api/crm.yaml` (`/connectors*`, `/capture/exclusions`, `/digest`) |
+| The tables + RLS | `raw_capture, capture_connection, capture_sync_state, capture_backfill, workspace_email_domain, capture_digest, capture_freemail_domain, capture_pending_counterparty, capture_auto_enrich_state` (+ people's `organization_domain_disposition`) |
+| The REST contract | `backend/api/crm.yaml` (`/connectors*`, `/capture/settings`, `/capture/consumer-mail-domains`, `/digest`) |
 | The connect UI (Settings + onboarding) | `frontend/src/screens/connectors.tsx`, `onboarding-connect-panels.tsx`, `onboarding-conversation/connect-act.tsx`, `backfill.tsx` |
 
 ## Where to go next

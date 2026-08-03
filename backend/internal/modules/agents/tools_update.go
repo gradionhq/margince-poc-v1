@@ -44,14 +44,14 @@ type updateRecordArgs struct {
 
 func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "update_record", Version: "1.0.0",
+		Name: "update_record", Title: "Update a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierAutoExecute,
-		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateProject",
+		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateActivity/updateProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"id":{"type":"string","format":"uuid"},
-			"fields":{"type":"object","description":"The crm.yaml update-request body; only sent fields change. Fields a human last edited are not applied: they are staged for approval and named in the result's staged_approval"},
+			"fields":{"type":"object","description":` + jsonString("Only sent fields change. Fields a human last edited are not applied: they are staged for approval and named in the result's staged_approval. "+describeRecordFields(updateShapes)) + `},
 			"if_version":{"type":"integer","description":"Optimistic-concurrency guard: the last-seen record version"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved overwriting their edit; send it with exactly the staged replay arguments"}},
 			"additionalProperties":false}`),
@@ -77,6 +77,9 @@ type stagedApprovalNote struct {
 func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args updateRecordArgs
 	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(updateShapes, args.RecordType, args.Fields); err != nil {
 		return nil, err
 	}
 	if ApprovalRedeemed(ctx) {

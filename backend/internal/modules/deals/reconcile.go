@@ -38,7 +38,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // FollowUpReconcileKind is the approvals staging kind the pass surfaces
@@ -123,31 +122,11 @@ func NewFollowUpReconciler(pool *pgxpool.Pool, stager FollowUpStager, log *slog.
 	return &FollowUpReconciler{pool: pool, stager: stager, log: log, now: time.Now}
 }
 
-// Reconcile is one pass over every live workspace. Like the close-date
-// corrector, the workspace list is bounded by fleet size, and one
-// tenant's failure must not starve the rest.
-func (r *FollowUpReconciler) Reconcile(ctx context.Context) error {
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
-	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return err
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-	if err != nil {
-		return err
-	}
-	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		// The overnight agent is the acting principal — its writes and
-		// stagings carry agent:overnight provenance (features/07 §8a),
-		// and every read is workspace-bound by RLS through the GUC below.
-		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "agent:overnight"})
-		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
-		if err := r.reconcileWorkspace(wsCtx); err != nil {
-			r.log.Error("follow-up reconcile: workspace pass failed", "workspace", wsID, "err", err)
-		}
-	}
-	return nil
+// ReconcileWorkspace is one follow-up reconciliation pass over the workspace
+// already bound in ctx. The fleet fan-out lives in the job layer, so a failed
+// workspace fails its own job row.
+func (r *FollowUpReconciler) ReconcileWorkspace(ctx context.Context) error {
+	return r.reconcileWorkspace(ctx)
 }
 
 // followUpCandidate is one open deal the pass found touched-but-without-

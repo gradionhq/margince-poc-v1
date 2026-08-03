@@ -6,8 +6,11 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 )
 
 // apiConfig is the parsed boot configuration of the api process.
@@ -37,6 +40,7 @@ type apiConfig struct {
 	connectorStateKey    string
 	webhookKey           string
 	webhookRetryInterval time.Duration
+	oauthAccessTokenTTL  time.Duration
 }
 
 // parseAPIFlags parses and validates the boot flags; the DSN is the one
@@ -59,7 +63,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail/Graph OAuth callback")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
-	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail-push (empty = route absent)")
+	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail (empty = route absent)")
 	fs.StringVar(&cfg.gmailPushAudience, "gmail-push-audience", os.Getenv("MARGINCE_GMAIL_PUSH_AUDIENCE"), "OIDC audience the Pub/Sub push subscription mints tokens for (this endpoint's public URL); with --gmail-push-service-account, the push webhook also verifies Google's OIDC token")
 	fs.StringVar(&cfg.gmailPushSA, "gmail-push-service-account", os.Getenv("MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT"), "the Google service account email that signs Pub/Sub push OIDC tokens; verified as the token's email claim")
 	fs.StringVar(&cfg.gmailJWKSURL, "gmail-jwks-url", os.Getenv("MARGINCE_GMAIL_JWKS_URL"), "override Google's OIDC JWKS URL; test/dev only")
@@ -71,13 +75,41 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer + retry sweep. Empty = those paths answer 503 and no inline delivery runs.")
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval (inline-relay only)")
+	accessTokenTTL, err := envDuration("MARGINCE_OAUTH_ACCESS_TOKEN_TTL")
+	if err != nil {
+		return apiConfig{}, err
+	}
+	fs.DurationVar(&cfg.oauthAccessTokenTTL, "oauth-access-token-ttl", accessTokenTTL,
+		"lifetime of the access token (an Agent Seat Passport) the OAuth handshake mints, for the code exchange and every refresh rotation; 0 = the passport default of 720h (30 days), maximum 2160h (90 days)")
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
 	if cfg.dsn == "" {
 		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
 	}
+	// A TTL the mint would refuse must fail the BOOT, not the first handshake
+	// of a connector nobody is watching.
+	if cfg.oauthAccessTokenTTL < 0 || cfg.oauthAccessTokenTTL > identity.MaxOAuthAccessTokenTTL {
+		return apiConfig{}, fmt.Errorf("api: --oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
+			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL)
+	}
 	return cfg, nil
+}
+
+// envDuration reads a duration from the environment as the default for its
+// flag. A value the parser rejects is a boot error rather than a silently
+// ignored setting — an operator who mistypes a TTL must not be told nothing and
+// left running the default.
+func envDuration(key string) (time.Duration, error) {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("api: %s=%q is not a duration (e.g. 15m, 24h): %w", key, raw, err)
+	}
+	return d, nil
 }
 
 // envOr reads an environment variable with an explicit default, keeping

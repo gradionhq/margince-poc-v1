@@ -34,6 +34,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.T) {
@@ -56,6 +57,12 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	firstTouch := scanNow.AddDate(0, 0, -10)
 	seedGenuineTouch(t, owner, e.WS, dealID, "call", firstTouch)
 
+	// The deal must also predate the cutoff: a record younger than the
+	// threshold is not neglected, however old the activities on it are
+	// (the creation grace in activities.LastTouchBefore). SeedDeal stamps
+	// created_at with the real now(), so the fixture says so explicitly.
+	backdateCreatedAt(t, owner, "deal", dealID, firstTouch)
+
 	// A system-seeded instance (no owner_id): the match-time owner gate
 	// (automation/gate.go) skips entirely for a zero OwnerID, so this test
 	// exercises the scan/dispatch/occurrence-key machinery without also
@@ -67,7 +74,7 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	scanner := compose.NewTimeScannerWithClock(e.Pool, now, quiet)
 
 	// Pass 1: the deal is stale, so the reminder fires exactly once.
-	if err := scanner.Scan(context.Background()); err != nil {
+	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
 		t.Fatalf("first scan: %v", err)
 	}
 	if got := reminderTaskCount(t, e, dealID); got != 1 {
@@ -85,7 +92,7 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	// (Were the key ev.ID-based, this pass would mint a fresh key and add
 	// a SECOND reminder task + run — which is exactly why the candidate
 	// must still be present here for the assertion to have teeth.)
-	if err := scanner.Scan(context.Background()); err != nil {
+	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
 		t.Fatalf("second scan: %v", err)
 	}
 	if got := reminderTaskCount(t, e, dealID); got != 1 {
@@ -102,7 +109,7 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	secondTouch := scanNow.AddDate(0, 0, -8)
 	seedGenuineTouch(t, owner, e.WS, dealID, "call", secondTouch)
 
-	if err := scanner.Scan(context.Background()); err != nil {
+	if err := scanner.ScanWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), e.WS); err != nil {
 		t.Fatalf("third scan (after a new genuine touch): %v", err)
 	}
 	if got := reminderTaskCount(t, e, dealID); got != 2 {

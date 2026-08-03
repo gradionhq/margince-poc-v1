@@ -43,7 +43,15 @@ func seedAiUsage(t *testing.T, e *env) {
 		INSERT INTO ai_usage (workspace_id, day, task, tier, calls, cached_hits, tokens_in, tokens_out) VALUES
 		($1, '2026-07-10', 'capture_classify', 'local_small', 4, 1, 1200, 300),
 		($1, '2026-07-10', 'capture_classify', 'cheap_cloud', 1, 0, 800, 200),
-		($1, '2026-07-11', 'enrich', 'cheap_cloud', 2, 0, 500, 120)`, wsID); err != nil {
+		($1, '2026-07-11', 'enrich', 'cheap_cloud', 2, 0, 500, 120),
+		-- One row in the LIVE budget period, and it is not decoration. The day
+		-- report is scoped by the from/to query; the BUDGET block is not — it
+		-- reports what has been spent in the current period whatever the
+		-- report is asked about. Seeded only from fixed July dates, that block
+		-- read zero the moment the month turned: this test passed for exactly
+		-- as long as it was July 2026 and broke on the 1st, on every branch at
+		-- once. Anchored to the clock so it cannot expire again.
+		($1, current_date, 'capture_classify', 'local_small', 1, 0, 900, 200)`, wsID); err != nil {
 		t.Fatalf("seeding ai_usage: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

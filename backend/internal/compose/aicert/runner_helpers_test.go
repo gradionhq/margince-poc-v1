@@ -95,6 +95,82 @@ func TestOverrideForTaskRefusesATaskWithNoLadder(t *testing.T) {
 	}
 }
 
+// openRouterRoutingConfig is a base bound the way an operator binds
+// OpenRouter: the generic OpenAI-wire provider, whose endpoint is a property
+// of the vendor rather than of the model, so every tier carries the same
+// base_url.
+func openRouterRoutingConfig() ai.RoutingConfig {
+	openRouter := ai.ProviderConfig{
+		Provider: "openai_compatible",
+		Model:    "mistralai/mistral-small-3.2-24b-instruct",
+		BaseURL:  "https://openrouter.ai/api",
+	}
+	return ai.RoutingConfig{
+		Profile: ai.ProfileCloudFrontier,
+		Tiers: map[ai.Tier]ai.ProviderConfig{
+			ai.TierLocalSmall: openRouter,
+			ai.TierCheapCloud: openRouter,
+			ai.TierPremium:    openRouter,
+		},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: openRouter, Dimensions: 1024},
+	}
+}
+
+func TestOverrideForTaskKeepsTheEndpointWhenTheOverrideNamesTheSameProvider(t *testing.T) {
+	base := openRouterRoutingConfig()
+
+	overridden, err := overrideForTask(base, ai.TaskColdStart, "openai_compatible:z-ai/glm-5.2")
+	if err != nil {
+		t.Fatalf("same-provider override rejected: %v", err)
+	}
+	for _, tier := range ai.TaskLadder(ai.TaskColdStart) {
+		binding := overridden.Tiers[tier]
+		if binding.Model != "z-ai/glm-5.2" {
+			t.Errorf("tier %s model = %q, want the override's model", tier, binding.Model)
+		}
+		// SelectBrain fails closed on openai_compatible without a base_url,
+		// so an override that drops it cannot be run at all.
+		if binding.BaseURL != "https://openrouter.ai/api" {
+			t.Errorf("tier %s base_url = %q, want the base binding's endpoint", tier, binding.BaseURL)
+		}
+	}
+}
+
+func TestOverrideForTaskDropsTheEndpointWhenTheOverrideSwitchesProvider(t *testing.T) {
+	base := openRouterRoutingConfig()
+
+	overridden, err := overrideForTask(base, ai.TaskColdStart, "gemini:gemini-3.5-flash")
+	if err != nil {
+		t.Fatalf("cross-provider override rejected: %v", err)
+	}
+	for _, tier := range ai.TaskLadder(ai.TaskColdStart) {
+		binding := overridden.Tiers[tier]
+		if binding.Provider != "gemini" {
+			t.Errorf("tier %s provider = %q, want the override's provider", tier, binding.Provider)
+		}
+		if binding.BaseURL != "" {
+			t.Errorf("tier %s kept base_url %q across a provider switch; one vendor's host root addresses no other", tier, binding.BaseURL)
+		}
+	}
+}
+
+func TestOverrideForTaskKeepsAVariantSuffixedModelSlugWhole(t *testing.T) {
+	base := openRouterRoutingConfig()
+
+	// OpenRouter marks a model's served variant with a colon suffix
+	// (":free", ":batch", ":thinking"), so the provider/model split must cut
+	// at the FIRST colon and leave the rest of the slug alone.
+	overridden, err := overrideForTask(base, ai.TaskColdStart, "openai_compatible:openai/gpt-oss-20b:free")
+	if err != nil {
+		t.Fatalf("variant-suffixed override rejected: %v", err)
+	}
+	for _, tier := range ai.TaskLadder(ai.TaskColdStart) {
+		if got := overridden.Tiers[tier].Model; got != "openai/gpt-oss-20b:free" {
+			t.Errorf("tier %s model = %q, want the whole slug including its variant suffix", tier, got)
+		}
+	}
+}
+
 func TestGroupByTaskFiltersAndSortedTasksOrdersDeterministically(t *testing.T) {
 	scenarios := []Scenario{
 		{Name: "a", Task: string(ai.TaskSummarize)},

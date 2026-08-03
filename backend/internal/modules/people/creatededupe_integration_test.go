@@ -5,14 +5,18 @@
 
 package people
 
-// Manual creates meet the PO-F chokepoint: an exact key still refuses
-// with the 409 contract (existing id disclosed under visibility), while
-// a fuzzy near-match creates the record anyway and leaves the review
-// trail — one dedupe_near_match system_log line committed in the same
+// Manual creates meet the PO-F chokepoint under the per-lane policy
+// creatededupe.go states: a claimed ADDRESS still refuses with the 409
+// contract (existing id disclosed under visibility); a shared PHONE does
+// not refuse but records the pair, because an exact hit routes past the
+// fuzzy tier and would otherwise leave no trail at all; and a fuzzy
+// near-match creates the record anyway and leaves both the queue row and
+// one dedupe_near_match system_log line, committed in the same
 // transaction as the create.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -111,6 +115,79 @@ func TestCreatePersonExactEmailStillRefusesWith409(t *testing.T) {
 	}
 	if dup.ExistingID != johnID {
 		t.Fatalf("409 discloses %s, want the incumbent %s", dup.ExistingID, johnID)
+	}
+}
+
+// A shared phone number is the exact lane a manual create CAN hit, and the
+// one whose policy is neither of the other two: a household line and a
+// switchboard belong to several real people, so refusing would be wrong, and
+// staying silent would be worse than the fuzzy tier — an exact hit returns
+// before scoring, so nothing else would record this pair.
+//
+// The names here are deliberately unalike and the addresses unrelated, so the
+// fuzzy tier cannot reach the review threshold. If this test passes, the phone
+// lane is what put the pair on the queue.
+func TestCreatePersonSharingAPhoneCreatesAndRecordsThePair(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	const household = "+4915100000501"
+	incumbent := e.seedPerson(ctx, t, "Wilhelmina Braunschweiger", []string{"w@household.test"}, []string{household})
+
+	// The second number arrives in a different notation of the same line; the
+	// lane compares the stored E.164 form, so it still matches.
+	created, err := e.store.CreatePerson(ctx, CreatePersonInput{
+		FullName: "Tim Ho", Source: "manual",
+		Emails: []PersonEmailInput{{Email: "tim@elsewhere.test", EmailType: "work", IsPrimary: true}},
+		Phones: []PersonPhoneInput{{Phone: "0049 151 0000 0501", PhoneType: "home", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("a shared phone must not refuse a manual create: %v", err)
+	}
+	createdID := ids.From[ids.PersonKind](ids.UUID(created.Id))
+
+	rows := openCandidates(ctx, t, e, entityPerson)
+	if len(rows) != 1 {
+		t.Fatalf("open queue holds %d candidates after a create on a shared number, want exactly 1", len(rows))
+	}
+	pair := map[ids.UUID]bool{rows[0].LeftID: true, rows[0].RightID: true}
+	if !pair[incumbent.UUID] || !pair[createdID.UUID] {
+		t.Fatalf("candidate pair = {%s, %s}, want it to name the incumbent %s and the create %s",
+			rows[0].LeftID, rows[0].RightID, incumbent, createdID)
+	}
+	if rows[0].Confidence != identityConflictConfidence {
+		t.Fatalf("confidence = %v, want the exact-key ceiling %v — an established key on both records outranks any similarity score",
+			rows[0].Confidence, identityConflictConfidence)
+	}
+
+	// The evidence must name the number the lane matched on, in the stored
+	// form, on BOTH sides: that equality is the whole finding.
+	var evidence []evidenceEntry
+	if err := json.Unmarshal(rows[0].Evidence, &evidence); err != nil {
+		t.Fatalf("unmarshal evidence: %v", err)
+	}
+	found := false
+	for _, ev := range evidence {
+		if ev.Field != fieldPhone {
+			continue
+		}
+		if ev.LeftValue == nil || ev.RightValue == nil {
+			t.Fatalf("phone evidence entry %+v names only one side", ev)
+		}
+		if *ev.LeftValue != household || *ev.RightValue != household {
+			t.Fatalf("phone evidence = %q / %q, want the shared number %q on both sides",
+				*ev.LeftValue, *ev.RightValue, household)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("evidence %+v does not name the shared phone that routed this decision", evidence)
+	}
+
+	// The ledger line belongs to the fuzzy arm — it records a SCORE that was
+	// acted on. An exact key hit has no score to justify, and the queue row is
+	// the trail; a line here would claim a near-match judgment nobody made.
+	if lines := nearMatchLines(ctx, t, e, entityPerson, ids.UUID(created.Id)); len(lines) != 0 {
+		t.Fatalf("an exact phone collision left %d dedupe_near_match lines, want 0", len(lines))
 	}
 }
 

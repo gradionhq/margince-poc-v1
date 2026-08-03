@@ -72,6 +72,7 @@ workspace/
 #   - screenshots dropped at the repo root. Root-ANCHORED so tracked product
 #     assets like frontend/src/assets/*.png are unaffected.
 /.pnpm-store/
+/node_modules/
 /scratchpad/
 /*.png
 /*.jpg

@@ -56,8 +56,6 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := workspaceID(ctx)
-
 		if err := ensureOrgDomainsUnclaimed(ctx, tx, in.Domains); err != nil {
 			return err
 		}
@@ -77,25 +75,21 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 			}
 		}
 
-		id := ids.New[ids.OrganizationKind]()
-		addr := addressColumns(in.Address)
-		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
-		args := []any{
-			id, wsID, in.DisplayName, in.LegalName, in.Industry, in.SizeBand, in.OwnerID, in.ParentOrgID,
-			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
-			in.Source, by,
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO organization (id, workspace_id, display_name, legal_name, industry, size_band, owner_id, parent_org_id,
-			                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-			                           source, captured_by`+cfCols+`)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
-			append(args, cfArgs...)...)
+		id, err := createOrganization(ctx, tx, match, OrgSpec{
+			DisplayName:  in.DisplayName,
+			LegalName:    in.LegalName,
+			Industry:     in.Industry,
+			SizeBand:     in.SizeBand,
+			OwnerID:      in.OwnerID,
+			ParentOrgID:  in.ParentOrgID,
+			Address:      in.Address,
+			Domains:      in.Domains,
+			Source:       in.Source,
+			CapturedBy:   by,
+			CustomFields: in.CustomFields,
+			Active:       active,
+		})
 		if err != nil {
-			return fmt.Errorf("insert organization: %w", err)
-		}
-
-		if err := insertOrgDomains(ctx, tx, wsID, id, in.Source, by, in.Domains); err != nil {
 			return err
 		}
 
@@ -211,6 +205,16 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("read organization before update: %w", err)
 		}
+		// Only a rename needs the name lock, and only a rename should pay for
+		// it: the key is workspace-wide, so taking it for an owner change would
+		// serialize every organization write behind an edit that cannot create
+		// a duplicate. Taken here, ahead of the patch's row lock, per the
+		// ordering rule on lockOrgNameWrites.
+		if in.DisplayName != nil || in.LegalName != nil {
+			if err := lockOrgNameWrites(ctx, tx); err != nil {
+				return err
+			}
+		}
 		p, err := buildOrganizationPatch(ctx, tx, current, in)
 		if err != nil {
 			return err
@@ -249,11 +253,15 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		// A human editing the display name is the top of the name-source
 		// lattice (ADR-0072/A118): stamp 'human' so no automated source ever
 		// overwrites it. Only when the name actually changed — re-setting it to
-		// the same value is not a re-authoring.
+		// the same value is not a re-authoring. It rides the patch's own
+		// guarded write above, on the row that write just locked.
 		if _, changed := after["display_name"]; changed {
 			if _, err := tx.Exec(ctx, `UPDATE organization SET name_source = 'human' WHERE id = $1`, id); err != nil {
 				return fmt.Errorf("stamp organization name provenance: %w", err)
 			}
+		}
+		if err := recheckRenamedOrganization(ctx, tx, id, after); err != nil {
+			return err
 		}
 		if in.Domains != nil {
 			domainsBefore, err := reconcileOrgDomains(ctx, tx, workspaceID(ctx), id, by, *in.Domains)
@@ -277,6 +285,26 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		return nil
 	})
 	return out, err
+}
+
+// recheckRenamedOrganization asks whether an edited organization now resembles
+// another one, given the patch's applied delta.
+//
+// Either name axis can reveal it alone: two records of one company converging
+// on the same registered name is exactly the shape that doubled a company in a
+// live workspace, and a legal-name-only edit changes no display name at all.
+// The edit stands regardless — this only files a pair for the review queue.
+func recheckRenamedOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, after map[string]any) error {
+	_, renamedDisplay := after["display_name"]
+	_, renamedLegal := after["legal_name"]
+	if !renamedDisplay && !renamedLegal {
+		return nil
+	}
+	editor, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
+	return recheckOrgNameForDuplicates(ctx, tx, id, editor)
 }
 
 // buildOrganizationPatch folds the caller's sparse org edit into a patch.

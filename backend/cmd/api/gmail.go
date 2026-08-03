@@ -48,11 +48,11 @@ func gmailOptions(cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Poo
 		opts = append(opts, compose.WithGmailPush(pushInserter, pushCfg))
 		switch {
 		case pushCfg.OIDC():
-			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled, OIDC-verified (/webhooks/gmail-push)")
+			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled, OIDC-verified (/webhooks/gmail)")
 		case cfg.gmailPushAudience != "" || cfg.gmailPushSA != "":
 			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled with token only — OIDC needs BOTH --gmail-push-audience and --gmail-push-service-account")
 		default:
-			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled (/webhooks/gmail-push)")
+			_, _ = fmt.Fprintln(stdout, "api gmail push webhook enabled (/webhooks/gmail)")
 		}
 	}
 	switch {

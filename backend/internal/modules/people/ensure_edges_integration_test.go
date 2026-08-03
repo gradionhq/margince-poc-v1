@@ -46,16 +46,25 @@ func TestEnsureCounterpartyReusesTheExactIncumbent(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
 
+	// An unknown domain creates the PERSON and opens the organization
+	// question. No company is invented from the domain label.
 	first, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "carol@ensure.test", "Carol Example", "ensure.test"))
 	if err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
-	if !first.PersonCreated || !first.OrgCreated || first.OrganizationID == nil {
-		t.Fatalf("first ensure = %+v, want person + org created", first)
+	if !first.PersonCreated {
+		t.Fatalf("first ensure = %+v, want the person created", first)
+	}
+	if first.OrganizationID != nil {
+		t.Fatalf("first ensure = %+v, want NO organization from an unjudged domain", first)
+	}
+	if !first.TriagePending || first.TriageDomain != "ensure.test" {
+		t.Fatalf("first ensure = %+v, want the triage question opened for ensure.test", first)
 	}
 
-	// The same address again: the exact tier lands on the incumbent —
-	// no twin person, no second org, no second employment edge.
+	// The same address again: the exact tier lands on the incumbent — no twin
+	// person — and the still-open question is reported again rather than
+	// re-recorded, so the sweep sees one domain and not two.
 	second, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "carol@ensure.test", "Carol Example", "ensure.test"))
 	if err != nil {
 		t.Fatalf("second ensure: %v", err)
@@ -63,19 +72,80 @@ func TestEnsureCounterpartyReusesTheExactIncumbent(t *testing.T) {
 	if second.PersonCreated || second.PersonID != first.PersonID {
 		t.Fatalf("second ensure = %+v, want the incumbent %s reused", second, first.PersonID)
 	}
-	if second.OrgCreated {
-		t.Fatal("second ensure re-created the organization")
+	var questions int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FROM organization_domain_disposition
+			WHERE domain = 'ensure.test' AND status = 'pending'`).Scan(&questions)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if questions != 1 {
+		t.Fatalf("%d open questions for ensure.test, want exactly 1", questions)
+	}
+}
+
+func TestEnsureCounterpartyAttachesToAnOrganizationThatAlreadyExists(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	// A human typed the company in first. Capture must attach to it, not defer
+	// a question about a domain the workspace has already answered by hand.
+	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Ensure Test GmbH", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "attach.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "dave@attach.test", "Dave Example", "attach.test"))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if res.TriagePending {
+		t.Fatalf("ensure = %+v, want no question about a domain that already has a company", res)
+	}
+	if res.OrganizationID == nil || res.OrganizationID.UUID != ids.UUID(org.Id) {
+		t.Fatalf("ensure = %+v, want the existing organization %s attached", res, org.Id)
 	}
 	var employments int
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT count(*) FROM relationship
-			WHERE person_id = $1 AND kind = 'employment' AND is_current_primary`, first.PersonID).Scan(&employments)
+			WHERE person_id = $1 AND kind = 'employment' AND is_current_primary`, res.PersonID).Scan(&employments)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if employments != 1 {
-		t.Fatalf("%d employment edges after the repeat, want 1", employments)
+		t.Fatalf("%d employment edges, want 1 onto the existing company", employments)
+	}
+}
+
+func TestEnsureCounterpartyAsksNothingAboutConsumerMail(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	// A consumer mailbox is answered by its own domain. Deferring it would buy
+	// a crawl of gmail.com to learn what the list already says.
+	res, err := e.store.EnsureCounterparty(ctx, e.ensureInput(ctx, t, "carol@gmail.com", "Carol Example", "gmail.com"))
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if !res.PersonCreated {
+		t.Fatal("a consumer-mail counterparty is still a person")
+	}
+	if res.OrganizationID != nil || res.TriagePending {
+		t.Fatalf("ensure = %+v, want no company and no question for consumer mail", res)
+	}
+	var questions int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM organization_domain_disposition`).Scan(&questions)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if questions != 0 {
+		t.Fatalf("%d disposition rows for consumer mail, want 0", questions)
 	}
 }
 

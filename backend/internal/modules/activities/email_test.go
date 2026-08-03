@@ -29,13 +29,20 @@ func (l stubUnsubscribeLinker) UnsubscribeToken(context.Context, string, string)
 	return l.token, l.ok, l.err
 }
 
-// stubMailbox stands in for the connection registry's send-grant answer.
-type stubMailbox struct {
+// stubSendAuthority stands in for the connection registry's pre-flight answer,
+// and remembers WHICH provider it was asked about: the two transports ask about
+// different credentials, and an authority answering for the wrong one is the
+// defect that refuses every channel reply.
+type stubSendAuthority struct {
 	capable bool
 	err     error
+	asked   []string
 }
 
-func (m stubMailbox) SendCapable(context.Context) (bool, error) { return m.capable, m.err }
+func (m *stubSendAuthority) SendCapable(_ context.Context, provider string) (bool, error) {
+	m.asked = append(m.asked, provider)
+	return m.capable, m.err
+}
 
 // draftOutcomeCall is what the send path handed the learning loop: the
 // reference it carried, and the body it asks to be judged.
@@ -128,14 +135,14 @@ func TestSendPathOptionsAccumulateOnOneStore(t *testing.T) {
 	handlers := NewHandlers(nil).
 		WithUnsubscribe(stubUnsubscribeLinker{token: "tok", ok: true}).
 		WithPublicBaseURL(" https://mail.example.test/ ").
-		WithMailbox(stubMailbox{capable: true}).
+		WithSendAuthority(&stubSendAuthority{capable: true}).
 		WithDraftOutcome(&recordingDraftOutcome{})
 
 	if handlers.store.unsubscribe == nil {
 		t.Fatal("the unsubscribe linker did not survive the later options")
 	}
-	if handlers.store.mailbox == nil {
-		t.Fatal("the mailbox pre-flight did not survive the option chain")
+	if handlers.store.sendAuthority == nil {
+		t.Fatal("the send pre-flight did not survive the option chain")
 	}
 	// The handler option is the half the MCP transport does NOT use, so it is
 	// also the half nothing else would notice missing: a store that reached the

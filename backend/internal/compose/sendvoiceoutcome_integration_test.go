@@ -200,7 +200,7 @@ func (e *voiceSendEnv) draftedSend(ref string) activities.SendEmailInput {
 // composedSendServer assembles the HTTP surface the way New does — the option
 // loop, then the ONE projection — so what the case drives is the wiring a
 // deployment gets rather than a store built by hand for the test.
-func composedSendServer(t *testing.T, e *voiceSendEnv, stager activities.DeliveryStager) Server {
+func composedSendServer(t *testing.T, e *voiceSendEnv, stager DeliveryMachinery) Server {
 	t.Helper()
 	srv := newServer(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)),
 		identity.NewHandlers(identity.NewService(e.Pool)), deals.NewHandlers(e.Pool))

@@ -116,7 +116,7 @@ func TestApprovalAuthorityHonorsTargetRowScope(t *testing.T) {
 	// rep1 holds deal.update but team1 scope: object grant yes, row no.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
 
-	pending, err := svc.List(rep, strPtr("pending"), 50)
+	pending, _, err := svc.List(rep, approvals.ListInput{Status: strPtr("pending"), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestApprovalListPagesPastUndecidableBurst(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	pending, err := svc.List(rep, strPtr("pending"), 50)
+	pending, _, err := svc.List(rep, approvals.ListInput{Status: strPtr("pending"), Limit: 50})
 	if err != nil {
 		t.Fatal(err)
 	}

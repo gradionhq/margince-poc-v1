@@ -84,8 +84,8 @@ func (r *Registry) GrantedScopesFor(ctx context.Context, userID ids.UserID, prov
 }
 
 // SenderFor resolves the transmitting connection for one user and provider:
-// the connector's Sender seam, its unsealed credential, and the scopes the
-// PROVIDER says the grant holds. It is the send path's entry point, which
+// the connector's EmailSender seam, its unsealed credential, and the scopes
+// the PROVIDER says the grant holds. It is the send path's entry point, which
 // knows a user and a provider rather than a connection id.
 //
 // Everything this cannot answer is returned as the failure it is. Only the two
@@ -93,8 +93,8 @@ func (r *Registry) GrantedScopesFor(ctx context.Context, userID ids.UserID, prov
 // timeout must never be mistaken for one, because the caller's response to a
 // fact is to stop trying.
 //
-//nolint:ireturn // returns the optional connector.Sender seam by design (the same posture Registry.connector takes for connector.Connector)
-func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error) {
+//nolint:ireturn // returns the optional connector.EmailSender seam by design (the same posture Registry.connector takes for connector.Connector)
+func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error) {
 	var (
 		credentialRef *string
 		authBytes     []byte
@@ -118,9 +118,9 @@ func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider st
 		// outage — see ErrConnectorNotConfigured.
 		return nil, nil, nil, fmt.Errorf("%w: %w", ErrConnectorNotConfigured, err)
 	}
-	// Two-value form: Sender is optional (connector.go), so a capture-only
+	// Two-value form: EmailSender is optional (connector.go), so a capture-only
 	// connector is reported rather than silently treated as absent.
-	sender, sends := c.(connector.Sender)
+	sender, sends := c.(connector.EmailSender)
 	if !sends {
 		return nil, nil, nil, fmt.Errorf("capture: connector %q: %w", provider, ErrConnectorCannotSend)
 	}

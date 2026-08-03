@@ -29,9 +29,13 @@ is capped at 2160 (90 days).
 
 ## Use
 
-- **MCP (stdio)**: pass it as `MARGINCE_PASSPORT_TOKEN` to `cmd/mcp` —
-  see [run-the-mcp-server.md](run-the-mcp-server.md). Env, not argv:
-  argv is visible in the process list.
+- **MCP**: send it as `Authorization: Bearer mgp_…` to the api's `/mcp`
+  transport — see
+  [connect-an-mcp-client.md](connect-an-mcp-client.md). Most clients obtain
+  their own token through the OAuth handshake instead of being handed one. In
+  that flow the connection receives **exactly the scopes minted here** — the
+  human lends this passport on the consent screen, and what the client asked for
+  neither widens nor narrows it. So mint the scopes you mean to grant.
 - **REST**: send it as `Authorization: Bearer mgp_…` against the same
   `/v1` surface. The identical governance applies on both transports: 🟢
   mutations execute with agent-stamped provenance, 🟡 mutations stage an

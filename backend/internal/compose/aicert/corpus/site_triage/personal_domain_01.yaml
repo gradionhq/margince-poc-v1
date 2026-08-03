@@ -1,0 +1,31 @@
+name: a_personal_domain_is_not_a_company
+task: site_triage
+site: triage
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  url: https://kestner.example
+  text: |
+    kestner.example
+
+    Dr. Ulrike Kestner — lymphforum.example
+
+    Eigentümer der Domain kestner.example ist: Sebastian Kestner
+    Kontakt: E-Mail an sebastian [at] kestner.example
+
+    Diese Seite dient ausschließlich privaten Zwecken.
+expect:
+  outcome: accepted
+  answer: personal
+  rubric: >
+    A private landing page whose entire content is the name of the person who
+    owns the domain and how to reach him. It sells nothing, names no team and
+    presents no business. "personal" scores high: the CRM must create a contact
+    and no company. "company" scores low — it is the exact defect this site
+    exists to prevent, and the junk record it produces is named after a human.
+    "unclear" scores middling: it is honest and costs only a full crawl, which
+    then finds no company either.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

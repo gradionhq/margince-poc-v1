@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // placeContacts adds the employees, strongest relationship first with person
@@ -168,6 +169,45 @@ func (g *graphAssembly) relatedEdge(row graphRelatedOrg) (ids.UUID, ids.UUID, cr
 	}
 }
 
+// placeOurSide draws our side of the account: the member who owns it, and the
+// colleagues with recorded contact with the contacts the card is showing.
+//
+// No edge here can dangle: readInContactWith is given the contacts already
+// PLACED (drawnContactIDs), so every person an edge points at is a node before
+// this runs — the same already-drawn rule placeDeals applies to a stakeholder
+// seat on a dropped deal.
+//
+// The drop count runs over the colleagues WITH CONTACT only, and it is exact
+// because the read chose its capped users over that same placed-contact set.
+// The owner is never capped, so counting them in the total would let one drawn
+// owner push dropped_count below the contract's `minimum: 0`.
+func (g *graphAssembly) placeOurSide() {
+	if g.accountOwner != nil {
+		g.addUserNode(*g.accountOwner)
+		g.addEdge(g.accountOwner.userID, g.orgID.UUID,
+			crmcontracts.OrganizationGraphEdgeKindOwns, nil)
+	}
+	drawn := map[ids.UUID]bool{}
+	for _, edge := range g.ourSide {
+		drawn[edge.user.userID] = true
+		g.addUserNode(edge.user)
+		g.addContactEdge(edge)
+	}
+	g.out.DroppedCount += g.ourSideTotal - len(drawn)
+}
+
+// addUserNode adds one colleague. A user node carries a name and nothing else:
+// §4 measures our relationship with the account's people, not with each other,
+// and how this colleague is connected is the EDGE's kind. The owner who also
+// emailed a contact dedupes through nodeIndex into ONE node with two edges.
+func (g *graphAssembly) addUserNode(user graphUser) {
+	g.addNode(crmcontracts.OrganizationGraphNode{
+		Id:    openapi_types.UUID(user.userID),
+		Kind:  crmcontracts.OrganizationGraphNodeKindUser,
+		Label: user.displayName,
+	})
+}
+
 // markIntroPath names the contact the warm room would route the account's
 // active signal through, and marks their node.
 //
@@ -236,6 +276,28 @@ func (g *graphAssembly) addNode(node crmcontracts.OrganizationGraphNode) {
 
 // addEdge appends one edge. Both ends are nodes by construction: every
 // caller places the far node first.
+// addContactEdge draws one colleague's contact with one person, carrying how
+// warm that particular relationship is.
+//
+// The band is what a surface renders; the number is what it ranks by. A
+// relationship with no qualifying interaction in the window carries the `none`
+// band and a NULL number on purpose — "we have never spoken" and "we spoke and
+// it went cold" are different facts, and a zero would render them the same.
+func (g *graphAssembly) addContactEdge(edge ourSideEdge) {
+	bucket := crmcontracts.OrganizationGraphEdgeStrengthBucket(edge.strength.Bucket)
+	wire := crmcontracts.OrganizationGraphEdge{
+		From:           openapi_types.UUID(edge.user.userID),
+		To:             openapi_types.UUID(edge.personID),
+		Kind:           crmcontracts.OrganizationGraphEdgeKindInContactWith,
+		StrengthBucket: &bucket,
+	}
+	if edge.strength.Bucket != relstrength.BucketNone {
+		strength := edge.strength.Strength
+		wire.Strength = &strength
+	}
+	g.out.Edges = append(g.out.Edges, wire)
+}
+
 func (g *graphAssembly) addEdge(from, to ids.UUID, kind crmcontracts.OrganizationGraphEdgeKind, role *string) {
 	g.out.Edges = append(g.out.Edges, crmcontracts.OrganizationGraphEdge{
 		From: openapi_types.UUID(from),

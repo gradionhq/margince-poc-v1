@@ -170,17 +170,17 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 			t.Errorf("%s = %d, want %d", name, n, want)
 		}
 	}
-	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`, 3)
-	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'hubspot:%'`, 2)
-	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'hubspot:%'`, 2)
+	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%'`, 3)
+	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'mirror:hubspot:%'`, 2)
+	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
-		WHERE d.source = 'hubspot:deal:d-open' AND o.source = 'hubspot:organization:org-1'`, 1)
+		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
 	assertCount("reconstructed employment", `
 		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
-		WHERE r.kind = 'employment' AND p.source = 'hubspot:person:p-1'`, 1)
+		WHERE r.kind = 'employment' AND p.source = 'mirror:hubspot:person:p-1'`, 1)
 	// The bundle's owner map named the SOURCE workspace's admin, who does
 	// not exist in this clean instance — so ownership falls to the
 	// rebuild's own operator rather than landing ownerless (an ownerless
@@ -192,7 +192,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	var ownedByOperator int
 	if err := database.WithWorkspaceTx(cleanCtx, f.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(cleanCtx,
-			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id = $1`, rebuildOperator.UserID).Scan(&ownedByOperator)
+			`SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%' AND owner_id = $1`, rebuildOperator.UserID).Scan(&ownedByOperator)
 	}); err != nil {
 		t.Fatalf("counting rebuilt persons by owner: %v", err)
 	}

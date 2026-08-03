@@ -42,12 +42,25 @@ type Assembler interface {
 	Assemble(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.Organization360, error)
 }
 
+// ProfileReader is what the company IS, as opposed to how it stands with us:
+// the curated statements a site read produced and a human accepted. The 360
+// does not carry them — it is the working state of the relationship — so the
+// brief reads them through their own gated store method, under the same
+// caller's authority.
+//
+// Optional: a deployment that does not wire it gets a brief about the
+// relationship alone, which is what the brief was before.
+type ProfileReader interface {
+	ListOrganizationProfileFields(ctx context.Context, orgID ids.OrganizationID) ([]crmcontracts.CompanyProfileField, error)
+}
+
 // Service writes and caches the brief.
 type Service struct {
-	pool *pgxpool.Pool
-	view Assembler
-	lane Completer
-	now  func() time.Time
+	pool    *pgxpool.Pool
+	view    Assembler
+	profile ProfileReader
+	lane    Completer
+	now     func() time.Time
 	// routingVersion identifies the model binding in the fingerprint, so
 	// re-pointing the lane rewrites briefs rather than leaving text
 	// attributed to a model that no longer writes it.
@@ -57,8 +70,37 @@ type Service struct {
 // NewService binds the brief to the composite read it is written from and
 // the model lane that writes it. lane may be nil: that is a deployment
 // running no model, and the deterministic floor is the answer.
-func NewService(pool *pgxpool.Pool, view Assembler, lane Completer, routingVersion string, now func() time.Time) *Service {
-	return &Service{pool: pool, view: view, lane: lane, routingVersion: routingVersion, now: now}
+func NewService(pool *pgxpool.Pool, view Assembler, profile ProfileReader, lane Completer, routingVersion string, now func() time.Time) *Service {
+	return &Service{pool: pool, view: view, profile: profile, lane: lane, routingVersion: routingVersion, now: now}
+}
+
+// assemble reads what a brief or an answer is written from: how the account
+// stands with us, and — for the brief only — what the company is.
+//
+// withProfile is false for the prepared questions. None of the three answers
+// from the company description, and the model never sees it either way, so
+// reading it there would be one gated query per question for nothing.
+//
+// A profile read that fails fails the whole brief. An account with no site
+// read answers with no rows, so the empty case never arrives here as an
+// error — an error means the read itself broke, and treating that as "this
+// company has no description" writes a brief that silently lost its second
+// half AND caches it, so the next reader sees the same gap with nothing to
+// say it was ever there. The reader gets one honest failure instead.
+func (s *Service) assemble(ctx context.Context, orgID ids.OrganizationID, withProfile bool) (Input, error) {
+	view, err := s.view.Assemble(ctx, orgID)
+	if err != nil {
+		return Input{}, err
+	}
+	in := FromView(view)
+	if withProfile && s.profile != nil {
+		fields, profileErr := s.profile.ListOrganizationProfileFields(ctx, orgID)
+		if profileErr != nil {
+			return Input{}, fmt.Errorf("read the company profile for the brief: %w", profileErr)
+		}
+		in.foldProfile(fields)
+	}
+	return in, nil
 }
 
 // Get serves the brief, regenerating when the cache no longer matches.
@@ -76,11 +118,10 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	// The gates that matter run HERE, in the caller's own composite read: a
 	// brief can only be written from what this caller may see, and an
 	// account they cannot read refuses before any cache is consulted.
-	view, err := s.view.Assemble(ctx, orgID)
+	in, err := s.assemble(ctx, orgID, true)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
-	in := FromView(view)
 	fingerprint, err := Fingerprint(in, s.routingVersion)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
@@ -131,11 +172,10 @@ func (s *Service) Ask(
 	// The gates that matter run HERE, in the caller's own composite read: an
 	// answer can only be written from what this caller may see, and an account
 	// they cannot read refuses before a single word is written.
-	view, err := s.view.Assemble(ctx, orgID)
+	in, err := s.assemble(ctx, orgID, false)
 	if err != nil {
 		return crmcontracts.OrganizationAnswer{}, err
 	}
-	in := FromView(view)
 	sentences, by, err := Answer(ctx, s.lane, question, orgID.String(), in)
 	if err != nil {
 		return crmcontracts.OrganizationAnswer{}, err

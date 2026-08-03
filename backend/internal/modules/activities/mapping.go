@@ -21,12 +21,9 @@ type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
 
-// ReservedSourceSystemError refuses a client write into the importer's
-// source-system namespace (see activityLogInput). Maps to 422.
-type ReservedSourceSystemError struct{ Value string }
-
-func (e *ReservedSourceSystemError) Error() string {
-	return "source_system " + e.Value + " is reserved for imports"
+// FieldFault names the missing required field, on every surface.
+func (e *RequiredFieldError) FieldFault() (field, code, message string) {
+	return e.Field, "required", e.Error()
 }
 
 // pathID asserts a contract path id as entity K's id — the widening
@@ -46,6 +43,23 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 	return &v
 }
 
+// activityUpdateInput maps the contract patch onto the store's input. Both
+// transports go through it — the HTTP handler and the datasource seam's
+// Update — so an activity patch cannot mean one thing over REST and another
+// over the tool surface, which is the whole point of the seam.
+func activityUpdateInput(req crmcontracts.UpdateActivityRequest, ifVersion *int64) UpdateActivityInput {
+	return UpdateActivityInput{
+		Subject:    req.Subject,
+		Body:       req.Body,
+		OccurredAt: req.OccurredAt,
+		DueAt:      req.DueAt,
+		RemindAt:   req.RemindAt,
+		AssigneeID: idArg[ids.UserKind](req.AssigneeId),
+		IsDone:     req.IsDone,
+		IfVersion:  ifVersion,
+	}
+}
+
 func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput, error) {
 	if req.Kind == "" {
 		return LogActivityInput{}, &RequiredFieldError{Field: "kind"}
@@ -55,8 +69,13 @@ func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput,
 	// caller who could spell the reserved prefix could pre-plant a row
 	// under an incumbent record id and have a later import hand it back
 	// as already existing (provenance.ReservedSourceSystemPrefix).
-	if req.SourceSystem != nil && provenance.ReservedSourceSystem(*req.SourceSystem) {
-		return LogActivityInput{}, &ReservedSourceSystemError{Value: *req.SourceSystem}
+	if req.SourceSystem != nil {
+		if err := provenance.Refuse("source_system", *req.SourceSystem); err != nil {
+			return LogActivityInput{}, err
+		}
+	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return LogActivityInput{}, err
 	}
 	in := LogActivityInput{
 		Kind:         string(req.Kind),

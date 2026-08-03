@@ -22,7 +22,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -72,6 +71,8 @@ Return ONLY a JSON object: {"sentences":[{"text":"...","evidence":[{"entity_type
 Answer in one to four sentences, plainly, in the reader's second person where natural.
 State only what the summary states. Never infer a cause, a mood, an intent or a next step it does not contain.
 Cite the ids the summary gave you; a sentence about the account itself cites the organization.
+Put ids ONLY in evidence. An id must never appear in a sentence's text — the reader sees the text, and an id there is unreadable.
+Write one claim per sentence, and cite the ONE record that sentence is about. Three records worth naming are three sentences.
 If the summary does not answer the question, return an empty sentences array rather than a sentence that talks around it.
 If the summary names sections_omitted, say nothing about those subjects at all — the reader is not allowed to see them.`
 
@@ -83,10 +84,15 @@ func askSystemFor(question crmcontracts.OrganizationQuestion, fence promptfence.
 // the same reason BriefRequest is: the certification case must issue the
 // request production issues, because a rebuilt copy stays green through the
 // change that breaks the original.
+// The company profile is withheld here for the same reason BriefRequest
+// withholds it: those statements are approved prose, and none of the three
+// prepared questions asks about them. A model that had read them could
+// paraphrase one into an answer about something else entirely, cited to the
+// organization and so accepted by the grounding check.
 func AskRequest(question crmcontracts.OrganizationQuestion, in Input) model.Request {
 	return groundedRequest(func(fence promptfence.Fence) string {
 		return askSystemFor(question, fence)
-	}, in)
+	}, in.withoutProfile())
 }
 
 // Answer writes the answer to one prepared question. lane may be nil, which
@@ -150,13 +156,14 @@ func answerWithModel(
 // Unexported on purpose, and reached only through Answer, which validates its
 // question first — so a question this switch does not handle cannot arrive.
 func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID string, in Input) []Sentence {
+	var answered []Sentence
 	switch question {
 	case askWhatsOpen:
-		return openAnswer(in)
+		answered = openAnswer(in)
 	case askMeetingPrep:
-		return prepAnswer(orgID, in)
+		answered = prepAnswer(orgID, in)
 	case askWhatsChanged:
-		return changedAnswer(in)
+		answered = changedAnswer(in)
 	default:
 		// Unreachable: Answer validates against askInstruction, and
 		// TestEveryPreparedQuestionCarriesItsOwnInstruction reads the contract's
@@ -165,36 +172,54 @@ func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID strin
 		// written from the records it cites.
 		return nil
 	}
+	return dedupedSentences(answered)
 }
 
+// openAnswer lists what is open, one record per sentence.
+//
+// The count sentence comes first and states the TRUE total, then each deal and
+// each task gets its own sentence and its own citation. The count is not
+// dropped when the list is short: it carries the money — the pipeline total and
+// what the account has won — which no per-deal line states.
 func openAnswer(in Input) []Sentence {
-	sentences := make([]Sentence, 0, 2)
+	sentences := make([]Sentence, 0, 2*listedRecords+2)
 	if len(in.OpenDeals) > 0 {
-		sentences = append(sentences, Sentence{Text: pipelineLine(in), Evidence: dealEvidence(in)})
+		sentences = append(sentences, Sentence{Text: pipelineLine(in), Evidence: leadDealEvidence(in)})
+		sentences = append(sentences,
+			perRecordSentences(in.OpenDeals, citeDeal, dealID, openDealLine)...)
 	}
 	if len(in.OpenTasks) > 0 {
-		sentences = append(sentences, Sentence{
-			Text:     fmt.Sprintf("Open tasks: %s.", strings.Join(namesOf(in.OpenTasks), ", ")),
-			Evidence: namedEvidence(in.OpenTasks, citeActivity),
-		})
+		// A single task needs no count in front of it: its own sentence names
+		// it and says when it is due, which is everything the count would add.
+		if len(in.OpenTasks) > 1 {
+			sentences = append(sentences, openTasksLine(in.OpenTasks))
+		}
+		sentences = append(sentences,
+			perRecordSentences(in.OpenTasks, citeActivity, taskID, openTaskLine)...)
 	}
 	return sentences
 }
 
 func prepAnswer(orgID string, in Input) []Sentence {
-	sentences := make([]Sentence, 0, 3)
+	sentences := make([]Sentence, 0, listedRecords+4)
 	sentences = append(sentences, Sentence{
 		Text:     identityLine(in),
 		Evidence: []Evidence{{EntityType: citeOrganization, EntityID: orgID}},
 	})
 	if len(in.Contacts) > 0 {
-		sentences = append(sentences, Sentence{
-			Text:     fmt.Sprintf("Known contacts: %s.", strings.Join(namesOf(in.Contacts), ", ")),
-			Evidence: namedEvidence(in.Contacts, citePerson),
-		})
+		if len(in.Contacts) > 1 {
+			sentences = append(sentences, Sentence{
+				Text: plural(len(in.Contacts), "known contact") + ".",
+				// The count names nobody, so it cites the contact the list
+				// starts with and gives the reader somewhere to open.
+				Evidence: []Evidence{{EntityType: citePerson, EntityID: in.Contacts[0].ID}},
+			})
+		}
+		sentences = append(sentences,
+			perRecordSentences(in.Contacts, citePerson, contactID, contactLine)...)
 	}
 	if len(in.OpenDeals) > 0 {
-		sentences = append(sentences, Sentence{Text: pipelineLine(in), Evidence: dealEvidence(in)})
+		sentences = append(sentences, Sentence{Text: pipelineLine(in), Evidence: leadDealEvidence(in)})
 	}
 	if len(in.Recent) > 0 {
 		sentences = append(sentences, Sentence{
@@ -223,18 +248,66 @@ func changedAnswer(in Input) []Sentence {
 	return sentences
 }
 
-func namesOf(records []NamedIn) []string {
-	out := make([]string, 0, len(records))
-	for _, record := range records {
-		out = append(out, record.Name)
-	}
-	return out
+func taskID(task TaskIn) string { return task.ID }
+
+func contactID(contact NamedIn) string { return contact.ID }
+
+func contactLine(contact NamedIn) string {
+	return fmt.Sprintf("Known contact: %s.", contact.Name)
 }
 
-func namedEvidence(records []NamedIn, entityType string) []Evidence {
-	out := make([]Evidence, 0, len(records))
-	for _, record := range records {
-		out = append(out, Evidence{EntityType: entityType, EntityID: record.ID})
+// openTasksLine counts the open tasks and anchors the count on the one that is
+// due first.
+//
+// The count is the TRUE total even when the per-task sentences below it stop at
+// listedRecords, because a reader told "5 open tasks" who has nine is worse off
+// than one told nothing.
+func openTasksLine(tasks []TaskIn) Sentence {
+	earliest := earliestDue(tasks)
+	text := plural(len(tasks), "open task") + "."
+	if due := shortDate(earliest.Due); due != "" {
+		text = fmt.Sprintf("%s, the earliest due %s.", plural(len(tasks), "open task"), due)
 	}
-	return out
+	return Sentence{Text: text, Evidence: []Evidence{{EntityType: citeActivity, EntityID: earliest.ID}}}
+}
+
+// earliestDue picks the task the count sentence is anchored on: the one due
+// first, or the one the list starts with when none carries a due date. TaskIn.Due
+// is RFC3339 in UTC, so comparing the strings compares the instants.
+func earliestDue(tasks []TaskIn) TaskIn {
+	earliest := tasks[0]
+	for _, task := range tasks[1:] {
+		if task.Due == "" {
+			continue
+		}
+		if earliest.Due == "" || task.Due < earliest.Due {
+			earliest = task
+		}
+	}
+	return earliest
+}
+
+func openTaskLine(task TaskIn) string {
+	// The subject is quoted for the same reason an activity's is: a task can be
+	// raised from mail this workspace did not write, and it must read as theirs.
+	if due := shortDate(task.Due); due != "" {
+		return fmt.Sprintf("Open task: %q, due %s.", task.Name, due)
+	}
+	return fmt.Sprintf("Open task: %q.", task.Name)
+}
+
+func openDealLine(deal DealIn) string {
+	line := "Open deal: " + deal.Name
+	if deal.Stage != "" {
+		line += ", " + deal.Stage
+	}
+	if deal.AmountMinor > 0 && deal.Currency != "" {
+		// Minor units are rendered as a plain major-unit figure; the card
+		// formats money properly, and this text is the fallback.
+		line += fmt.Sprintf(", %d %s", deal.AmountMinor/100, deal.Currency)
+	}
+	if deal.Stalled {
+		line += ", stalled"
+	}
+	return line + "."
 }

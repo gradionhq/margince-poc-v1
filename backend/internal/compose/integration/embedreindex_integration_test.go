@@ -136,7 +136,7 @@ func setupEmbedReindex(t *testing.T, router *ai.Router) *env {
 	// before the FIRST confirm call, not merely before a worker starts —
 	// applyRiverSchema is idempotent (existence-guarded), so every
 	// caller of this setup pays for it at most once per process.
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	bootstrapWorkspaceSession(t, e, "Embed Reindex E2E", "embed-reindex@fable.test", "Admin")
 	e.slug = "embed-reindex-e2e" // slugify("Embed Reindex E2E")
 
@@ -191,7 +191,7 @@ func seedStaleEmbeddingRow(t *testing.T, e *env, wsID string) {
 // suite's completion/cancellation stream.
 func newEmbedReindexRunner(t *testing.T, e *env, embedder search.Embedder) *jobs.Runner {
 	t.Helper()
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,

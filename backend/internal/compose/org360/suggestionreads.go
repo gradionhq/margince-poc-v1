@@ -33,6 +33,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -59,12 +60,9 @@ type lastMessage struct {
 // to it, and letting one count would silence the rule every time a rep left
 // themselves a reminder.
 //
-// Reachability is orgLinkedActivityExists, the walk nextStepsSection uses — one
-// spelling, so the two cannot drift. It is wider
-// than the timeline SECTION's direct-link match, so the cited message can be one
-// the rendered timeline does not list. Every candidate still passes the activity
-// row scope, so the reader can open it; they may have to open it from the
-// citation rather than find it on the page.
+// Reachability is activities.OrgLinkedActivityExists, the walk every reader of
+// the account's timeline uses — one spelling, so they cannot drift. Every
+// candidate still passes the activity row scope, so the reader can open it.
 func newestMessage(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 ) (lastMessage, bool, error) {
@@ -86,7 +84,7 @@ func newestMessage(
 		WHERE a.kind IN ('email','whatsapp','telegram','call','meeting') AND a.archived_at IS NULL AND %[1]s
 		  AND %[2]s
 		ORDER BY a.occurred_at DESC, a.id DESC
-		LIMIT 1`, activityScope, orgLinkedActivityExists(orgPos)), args...).
+		LIMIT 1`, activityScope, activities.OrgLinkedActivityExists(orgPos)), args...).
 		Scan(&found.ID, &direction, &found.At)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lastMessage{}, false, nil
@@ -275,7 +273,8 @@ func openPipeline(
 // truncation only hides rows past the first 25 — while coupling the rules to a
 // section, which is the coupling the whole file exists to remove.
 //
-// Reachability is orgLinkedActivityExists, the same walk nextStepsSection uses.
+// Reachability is activities.OrgLinkedActivityExists, the same walk
+// nextStepsSection uses.
 func hasOpenTask(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 ) (bool, error) {
@@ -295,7 +294,7 @@ func hasOpenTask(
 		  SELECT 1 FROM activity a
 		  WHERE a.kind = 'task' AND NOT a.is_done AND a.archived_at IS NULL AND %[1]s
 		    AND %[2]s)`,
-		activityScope, orgLinkedActivityExists(orgPos)), args...).Scan(&scheduled)
+		activityScope, activities.OrgLinkedActivityExists(orgPos)), args...).Scan(&scheduled)
 	if err != nil {
 		return false, fmt.Errorf("read whether anything is scheduled on the account: %w", err)
 	}

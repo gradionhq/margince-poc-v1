@@ -218,10 +218,10 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
       },
     });
     render(<HomeScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     // The approved row leaves the pending list on refetch…
-    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Send an email")).toBeNull());
     // …but the once-shown token stays visible + copyable at screen level.
     expect(screen.getByText("example-home-token")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
@@ -255,10 +255,10 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
       },
     });
     render(<HomeScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     // Stale row leaves…
-    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Send an email")).toBeNull());
     // …and the honest note is surfaced at screen level (not a silent drop).
     expect(
       screen.getByText("Already decided — nothing left to do here."),

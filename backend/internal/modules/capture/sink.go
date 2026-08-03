@@ -29,12 +29,11 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool          *pgxpool.Pool
-	stager        MergeStager
-	exclusions    ExclusionRules
-	ensurer       CounterpartyEnsurer
-	freemail      *FreemailList
-	transactional *TransactionalList
+	pool           *pgxpool.Pool
+	stager         MergeStager
+	ensurer        CounterpartyEnsurer
+	channelEnsurer ChannelCounterpartyEnsurer
+	transactional  *TransactionalList
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -78,15 +77,6 @@ func (s *Sink) WithStager(stager MergeStager) *Sink {
 	return &c
 }
 
-// WithExclusions returns a copy wired to the RC-2 personal-mail exclusion
-// gate (CAP-DDL-3): before any write, a record matching the capturing
-// user's rules produces zero rows and one capture.skipped event.
-func (s *Sink) WithExclusions(rules ExclusionRules) *Sink {
-	c := *s
-	c.exclusions = rules
-	return &c
-}
-
 var _ connector.Sink = (*Sink)(nil)
 
 // Upsert lands one normalized record: raw original + domain row +
@@ -106,13 +96,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// cannot claim to be another one.
 		return datasource.EntityRef{}, fmt.Errorf("capture: captured_by %q does not match the acting connector %q", rec.CapturedBy, actor.ID)
 	}
-
-	// The RC-2 exclusion gate runs BEFORE any write — including the raw
-	// original — so an excluded (personal) message leaves ZERO rows
-	// anywhere and the skip is the only trace (AC1.3, EVT-SEM-10). It lives
-	// here, in the ONE writer, so every connector inherits it.
-	if err := s.gateExclusion(ctx, rec); err != nil {
-		return datasource.EntityRef{}, err
+	switch counterpartyShapeOf(rec.Counterparty) {
+	case shapeAmbiguous:
+		return datasource.EntityRef{}, ErrCounterpartyNamedTwice
+	case shapeHalfChannel:
+		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
+	case shapeNone, shapeMail, shapeChannel:
+		// Well-formed; the channel arm is gated inside the transaction below.
 	}
 
 	var ref datasource.EntityRef
@@ -121,6 +111,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var activityCreated bool
 	var decision counterpartyDecision
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// A channel record's account id IS personal data, and THIS transaction is
+		// the one that makes it durable — so the erasure is excluded here, under
+		// the account's own lock, and not only at the ingress edge that admitted
+		// the update. sinkchannel.go states what landing inside an erasure costs.
+		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
+			return err
+		}
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
 			if !json.Valid(payload) {
@@ -197,6 +194,14 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 		return ref, false, counterpartyDecision{}, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the
+	// connector principal bound to THIS context is the only place the mailbox
+	// owner is known — every consumer downstream sees an activity whose
+	// captured_by reads `connector:gmail` and cannot recover the human behind
+	// it. The participant rows are the record of that fact.
+	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Kind, fields.Direction, rec.Counterparty.Email); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is
@@ -304,7 +309,7 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		DO NOTHING
 		RETURNING id`,
 		fields.Kind, fields.Subject, fields.Body, occurredAt, fields.Direction,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy, rec.ThreadKey,
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), capturedByFor(ctx, rec), rec.ThreadKey,
 		// Normalized lowercased at the write (a connector need not lowercase the
 		// header case), matching the person_email normalization, so the T1
 		// correspondence lookup's index-backed equality matches regardless of
@@ -418,4 +423,38 @@ func captureSource(rec connector.NormalizedRecord) string {
 // connectorPrincipalID renders the audit identity for a connector.
 func connectorPrincipalID(name string) string {
 	return "connector:" + strings.TrimPrefix(name, "connector:")
+}
+
+// connectorProvenance is what a captured activity's captured_by records: the
+// connector AND the mailbox owner behind it, `connector:gmail:<user>`.
+//
+// The connector alone was not enough to say anything useful. Two colleagues
+// who have both connected Gmail produce rows stamped identically, so nothing
+// downstream could tell whose mailbox a message came from — the provenance
+// named the software rather than the person, and any later attempt to
+// attribute history had to guess or decline.
+//
+// It is derived from the authenticated principal, never from the record the
+// connector handed us: provenance a caller can assert is provenance a caller
+// can forge. A principal carrying no granting user falls back to the bare
+// connector id, which is the honest answer for a connection with no human
+// behind it.
+func connectorProvenance(actor principal.Principal) string {
+	if actor.UserID == ids.Nil {
+		return actor.ID
+	}
+	return actor.ID + ":" + actor.UserID.String()
+}
+
+// capturedByFor is the provenance stamped on a captured activity: the acting
+// connector plus the mailbox owner behind it. It falls back to the record's
+// own value only when no actor is bound, which the sink has already refused
+// by the time this runs — the fallback exists so a future caller cannot get a
+// blank provenance out of a missing principal.
+func capturedByFor(ctx context.Context, rec connector.NormalizedRecord) string {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return rec.CapturedBy
+	}
+	return connectorProvenance(actor)
 }

@@ -147,7 +147,7 @@ export function EntityRef({
   });
   const rosterQuery = useRoster(
     isRoster ? (kind as RosterKind) : "user",
-    Boolean(id) && isRoster,
+    Boolean(id) && isRoster && !name,
   );
 
   if (!id) {
@@ -157,17 +157,21 @@ export function EntityRef({
   if (isRoster) {
     const rosterKind = kind as RosterKind;
     const match = rosterQuery.data?.find((entry) => entry.id === id);
-    const name = match ? rosterName(rosterKind, match) : null;
+    // A caller-supplied name wins here exactly as it does for a record: the
+    // connection graph returns its own labels, and falling straight through to
+    // the roster showed the reader a raw uuid until — and unless — /users
+    // resolved it.
+    const resolved = name || (match ? rosterName(rosterKind, match) : null);
     // No 360 exists for a user/team, so this never becomes a link — only the
     // id-vs-resolved-name fallback applies.
-    if (name == null) {
+    if (resolved == null) {
       return (
         <span className="t-mono" title={id}>
           {id}
         </span>
       );
     }
-    return <span title={id}>{name}</span>;
+    return <span title={id}>{resolved}</span>;
   }
 
   // Only a resolved name is a safe link target; an unresolved id (still

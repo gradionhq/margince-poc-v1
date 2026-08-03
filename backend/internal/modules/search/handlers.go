@@ -4,7 +4,6 @@
 package search
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -45,11 +44,6 @@ func (h Handlers) Search(w http.ResponseWriter, r *http.Request, params crmcontr
 
 	page, err := h.store.Search(r.Context(), in)
 	if err != nil {
-		var bad *BadQueryError
-		if errors.As(err, &bad) {
-			httperr.Write(w, r, httperr.Validation("q", "invalid_query", bad.Reason))
-			return
-		}
 		httperr.Write(w, r, err)
 		return
 	}

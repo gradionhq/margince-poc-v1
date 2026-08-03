@@ -32,11 +32,13 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
 // SiteDeepReadArgs is one queued deep read. The args carry everything the
@@ -44,7 +46,7 @@ import (
 // target, the dossier to advance, and the requesting human for the staged
 // proposal's provenance.
 type SiteDeepReadArgs struct {
-	WorkspaceID    ids.UUID `json:"workspace_id"`
+	Workspace      ids.UUID `json:"workspace_id"`
 	OrganizationID ids.UUID `json:"organization_id"`
 	SiteReadID     ids.UUID `json:"site_read_id"`
 	SeedURL        string   `json:"seed_url"`
@@ -57,6 +59,11 @@ type SiteDeepReadArgs struct {
 
 // Kind is the stable job identifier River persists in river_job.
 func (SiteDeepReadArgs) Kind() string { return "site_deep_read" }
+
+// WorkspaceID binds this deep read to its tenant (jobs.WorkspaceScoped).
+// The field is Workspace because Go forbids a field and a method of the
+// same name; the wire key stays workspace_id.
+func (a SiteDeepReadArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // deepReadQueue isolates deep reads from the default queue: a crawl holds a
 // worker for minutes (crawl wall + model calls), so a burst of them on the
@@ -86,14 +93,24 @@ type siteDeepReadWorker struct {
 	people  *people.Store
 	crawler *siteCrawler
 	extract evidenceExtractor
+	// triageBrain answers the domain-triage classification. Its own lane, not
+	// the extractor's: one cheap question of one page must not bill the profile
+	// lane's premium-only ladder. Nil is a role that cannot classify, which
+	// settles a domain from what the workspace already knows instead.
+	triageBrain completer
 	// fetch is the same guarded egress the crawl uses, for the ONE thing the
 	// crawl does not fetch itself: the logo asset the seed page declared.
 	fetch assetFetcher
 	// blob holds the normalized logo bytes. Nil is a worker role with no
 	// object store: it reads sites and resolves no logos, and every company
 	// keeps its monogram.
-	blob       blobstore.Store
-	approvals  *approvals.Service
+	blob      blobstore.Store
+	approvals *approvals.Service
+	// authority is identity's live RBAC resolver. The worker acts as a system
+	// principal, which sees every row; anything it decides ON BEHALF OF the
+	// requesting human has to be decided within THAT human's scope instead —
+	// see probeCtx.
+	authority  authz.Resolver
 	autoEnrich *capture.AutoEnrichStore
 	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
 	// too, but a job queued while the flag was on outlives that check: without
@@ -110,21 +127,23 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
-		people:     people.NewStore(pool),
-		crawler:    newSiteCrawler(fetcher, caps),
-		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
-		fetch:      fetcher,
-		blob:       blob,
-		approvals:  approvals.NewService(pool),
-		autoEnrich: capture.NewAutoEnrichStore(pool),
-		settings:   capture.NewSettings(pool),
-		log:        log,
-		caps:       caps,
-		now:        time.Now,
+		people:      people.NewStore(pool),
+		crawler:     newSiteCrawler(fetcher, caps),
+		extract:     evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
+		triageBrain: triageBrain,
+		fetch:       fetcher,
+		blob:        blob,
+		approvals:   approvals.NewService(pool),
+		authority:   identity.NewService(pool),
+		autoEnrich:  capture.NewAutoEnrichStore(pool),
+		settings:    capture.NewSettings(pool),
+		log:         log,
+		caps:        caps,
+		now:         time.Now,
 	}
 }
 
@@ -180,7 +199,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
 	// the row — a payload disagreeing with it must not buy a wider budget or
 	// skip a confirm-first proposal.
-	if isAutoEnrichRequest(claim.RequestedBy) {
+	if isSystemRead(claim.RequestedBy) {
 		enabled, err := w.autoEnrichEnabled(ctx)
 		if err != nil {
 			// Recorded, not returned raw: the read is already claimed, so a
@@ -191,8 +210,27 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
 		}
 		if !enabled {
+			// A triage read may not simply stop here. Its domain is a question
+			// somebody's mail already asked, and abandoning it would leave that
+			// question open forever — no organization for that domain, ever.
+			// Answering it from what the workspace already knows is the honest
+			// close, and it is what the operator's "don't crawl" actually means.
+			if isDomainTriageRequest(claim.RequestedBy) {
+				return w.triageWithoutLooking(ctx, args, claim)
+			}
 			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
 		}
+	}
+	// The domain-triage lane runs before its subject exists: it decides whether
+	// an organization should be created at all, so it cannot share the path
+	// below, which assumes one to enrich. A role with no model path answers it
+	// the same way a disabled setting does, rather than failing a question the
+	// sweep would then re-ask forever.
+	if isDomainTriageRequest(claim.RequestedBy) {
+		if w.triageBrain == nil || w.extract.brain == nil {
+			return w.triageWithoutLooking(ctx, args, claim)
+		}
+		return w.runTriage(ctx, args, claim)
 	}
 	if w.extract.brain == nil {
 		return w.fail(ctx, args.SiteReadID,
@@ -214,6 +252,14 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			return deferErr
 		}
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+	}
+	// From here on the read is about the site that ANSWERED. The seed is a
+	// guess derived from the domain, and the fallback ladder may have reached
+	// the company on www or over http; a proposal, a fact's evidence or a
+	// staged lead that still named the original would cite a URL which served
+	// nothing, and a human confirming it would be confirming a dead link.
+	if crawl.SeedURL != "" {
+		claim.SeedURL = crawl.SeedURL
 	}
 	// The logo lands as soon as the CRAWL succeeded, before anything the model
 	// lane produced is judged: it is a 🟢 display asset (A55) that no human has
@@ -328,9 +374,12 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 		proposalIDs = []ids.UUID{approvalID.UUID}
 	}
 	for _, person := range mergedPeople {
-		approvalID, err := w.stageSiteLead(ctx, readID, claim, person)
+		approvalID, staged, err := w.stageSiteLead(ctx, readID, claim, person)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
+		}
+		if !staged {
+			continue
 		}
 		proposalIDs = append(proposalIDs, approvalID.UUID)
 	}
@@ -368,48 +417,6 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		JoinPending:    true,
 	})
 	return approvalID, err
-}
-
-// stageSiteLead records ONE published person as a thin "site_lead"
-// proposal: exactly what the site printed, nothing enriched. Each
-// person is decided on their own — accepting the CTO does not accept the
-// whole roster.
-func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, error) {
-	if claim.OrganizationID == nil {
-		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage a lead proposal")
-	}
-	in, err := siteLeadStageInput(readID, *claim.OrganizationID, claim.SeedURL, person)
-	if err != nil {
-		return ids.ApprovalID{}, err
-	}
-	in.JoinPending = true
-	approvalID, err := w.approvals.Stage(ctx, in)
-	return approvalID, err
-}
-
-func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson) (approvals.StageInput, error) {
-	proposedChange, err := json.Marshal(siteLeadProposal{
-		OrganizationID:  organizationID,
-		SiteReadID:      readID,
-		Name:            person.Name,
-		Role:            person.Role,
-		PublishedEmail:  person.PublishedEmail,
-		LinkedinURL:     person.LinkedinURL,
-		EvidenceSnippet: person.EvidenceSnippet,
-		SourceURL:       person.SourceURL,
-	})
-	if err != nil {
-		return approvals.StageInput{}, err
-	}
-	digest := sha256.Sum256(proposedChange)
-	return approvals.StageInput{
-		Kind:           siteLeadProposalKind,
-		ProposedChange: proposedChange,
-		DiffHash:       hex.EncodeToString(digest[:]),
-		TargetType:     enrichTargetType,
-		TargetID:       organizationID,
-		Summary:        fmt.Sprintf("Lead from %s: %s — %s", seedURL, person.Name, person.Role),
-	}, nil
 }
 
 // siteReadLegalEntities projects the gated census onto the dossier shape.

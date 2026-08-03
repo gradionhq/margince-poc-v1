@@ -52,6 +52,11 @@ export function currentStop(state: ConversationState): RailStop["key"] | null {
       return "voice";
     case "results":
       return "ready";
+    // Asking for LinkedIn IS the connect stretch: it is one of the accounts the
+    // last stop is about, and both paths reach it immediately before the inbox.
+    // A stop of its own would grow the rail once per integration and would need a
+    // sixth word for something the reader already reads as "connecting".
+    case "linkedin":
     case "connect":
     case "done":
       return "connect";

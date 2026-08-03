@@ -29,18 +29,30 @@ import (
 // SARPackage is the assembled export. Sections hold raw row maps —
 // the package is a data handover, not an API shape.
 type SARPackage struct {
-	Subject       map[string]any   `json:"subject"`
-	Emails        []map[string]any `json:"emails"`
-	Phones        []map[string]any `json:"phones"`
-	Relationships []map[string]any `json:"relationships"`
-	Deals         []map[string]any `json:"deals"`
-	Leads         []map[string]any `json:"leads"`
-	Activities    []map[string]any `json:"activities"`
-	Attachments   []map[string]any `json:"attachments"`
-	Consent       []map[string]any `json:"consent"`
-	ConsentEvents []map[string]any `json:"consent_events"`
-	RawCapture    []map[string]any `json:"raw_capture"`
-	FieldOrigins  []map[string]any `json:"field_origins"`
+	Subject map[string]any   `json:"subject"`
+	Emails  []map[string]any `json:"emails"`
+	Phones  []map[string]any `json:"phones"`
+	// The messaging-channel accounts bound to the subject: which provider
+	// identity writes as them, the handle it carries, whether they have blocked
+	// this installation's bot, and whether the binding is still live.
+	ChannelIdentities []map[string]any `json:"channel_identities"`
+	// Which conversations the subject was recorded as being IN, and in what
+	// role (ACT-DDL-3). Distinct from Activities, which is what was said: this
+	// is the record that they were a party to it at all, and it is held about
+	// them whether or not they were ever a contact.
+	InteractionParticipation []map[string]any `json:"interaction_participation"`
+	// Where the subject appears in a colleague's imported LinkedIn network.
+	// They never consented to that import and would have no way to know of it.
+	LinkedInConnections []map[string]any `json:"linkedin_connections"`
+	Relationships       []map[string]any `json:"relationships"`
+	Deals               []map[string]any `json:"deals"`
+	Leads               []map[string]any `json:"leads"`
+	Activities          []map[string]any `json:"activities"`
+	Attachments         []map[string]any `json:"attachments"`
+	Consent             []map[string]any `json:"consent"`
+	ConsentEvents       []map[string]any `json:"consent_events"`
+	RawCapture          []map[string]any `json:"raw_capture"`
+	FieldOrigins        []map[string]any `json:"field_origins"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -65,7 +77,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 	}
 	var pkg SARPackage
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		sections := sarSections(&pkg)
@@ -139,8 +151,48 @@ type sarSection struct {
 // the export owes the data subject.
 func sarSections(pkg *SARPackage) []sarSection {
 	return []sarSection{
-		{&pkg.Emails, `SELECT email, email_type, is_primary FROM person_email WHERE person_id = $1`},
-		{&pkg.Phones, `SELECT phone, phone_type FROM person_phone WHERE person_id = $1`},
+		// The three identifier sections export ARCHIVED rows alongside live
+		// ones: Art. 15 owes what is HELD, and a retired address, number or
+		// channel binding is still a record of how the subject was reached, and
+		// of which account wrote as them. Each therefore carries archived_at.
+		// Without it every identifier in the export reads as current, so the
+		// subject cannot tell a retirement that happened from one that did not —
+		// in the very package they would check it in.
+		{&pkg.Emails, `SELECT email, email_type, is_primary, archived_at FROM person_email WHERE person_id = $1`},
+		{&pkg.Phones, `SELECT phone, phone_type, archived_at FROM person_phone WHERE person_id = $1`},
+		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at, archived_at
+		   FROM person_channel_identity WHERE person_id = $1`},
+		{&pkg.InteractionParticipation, `SELECT ap.activity_id, ap.role, ap.address, ap.created_at,
+		       a.kind, a.occurred_at, a.direction
+		   FROM activity_participant ap
+		   JOIN activity a ON a.id = ap.activity_id
+		  WHERE ap.person_id = $1
+		     OR (ap.address IS NOT NULL AND ap.address IN (
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
+		// The same reach erasure uses: matched, or carrying their address, or
+		// bearing their name at an employer they actually work for. Art. 15
+		// owes what is HELD, and an unmatched ghost holds their name and
+		// employer just as surely as a confirmed one does.
+		{&pkg.LinkedInConnections, `SELECT full_name, position, company_name, connected_on,
+		       email, profile_url, match_status, source, synced_at
+		   FROM linkedin_connection g
+		  WHERE g.matched_person_id = $1
+		     OR (g.email IS NOT NULL AND g.email IN (
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))
+		     -- The profile URL is an identifier the subject is reachable by,
+		     -- and it is held about them whether or not the matcher ever
+		     -- linked the row. A package that omitted it would answer "what do
+		     -- you hold about me" with less than is held.
+		     OR (g.profile_url IS NOT NULL AND g.profile_url IN (
+		         SELECT handle FROM person_social
+		          WHERE person_id = $1 AND platform = 'linkedin'))
+		     OR (g.normalized_company IS NOT NULL
+		         AND g.normalized_name = (SELECT lower(f_unaccent(full_name)) FROM person WHERE id = $1)
+		         AND EXISTS (
+		             SELECT 1 FROM relationship r
+		              WHERE r.person_id = $1 AND r.kind = 'employment'
+		                AND r.archived_at IS NULL
+		                AND r.organization_id = g.matched_org_id))`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
@@ -190,8 +242,14 @@ func sarSections(pkg *SARPackage) []sarSection {
 		// this from the erasure cascade, which must refuse the equivalent
 		// reach: a disclosure to an admin-mediated export is recoverable, and
 		// destroying another subject's evidence is not.
+		//
+		// It spans BOTH shapes the row admits (comms_outbound_shape, 0155): a
+		// channel delivery leaves subject/recipients/cc null and names its
+		// addressee in channel_user_id, so a mail-only projection would hand a
+		// channel-only subject a message with no addressee — withholding the
+		// account id the row holds about them.
 		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
-		      o.status, o.sent_at, o.created_at
+		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)
 		      OR EXISTS (
@@ -203,11 +261,30 @@ func sarSections(pkg *SARPackage) []sarSection {
 		{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
 		   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
 		   WHERE ce.person_id = $1`},
+		// Reached two ways, like the erasure purge this mirrors (erasure.go's
+		// purgeDerivedTraces): by email, ILIKE against the stored address, and
+		// by channel identity, a typed JSONB path equality rather than a
+		// substring match — a Telegram-only subject carries no email at all,
+		// so the email arm alone would silently omit their entire channel
+		// history from the export, and their sender id is a bare digit run
+		// that a substring match would also match against other rows' message
+		// ids, timestamps and other people's ids. The two payload shapes
+		// matched (message.from.id, my_chat_member.chat.id) are the same two
+		// capture/telegram's Normalize and ParseMembership read the customer's
+		// id from — both update kinds land in raw_capture. The membership arm
+		// reads the chat and not new_chat_member.user, which is the BOT
+		// (capture/telegram/membership.go): keyed on that, a subject who only
+		// ever blocked the bot would be handed an export missing the one
+		// record the installation holds about them.
 		{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
 		   FROM raw_capture rc
 		   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
 		                 AND rc.payload::text ILIKE
-		                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
+		                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')
+		      OR EXISTS (SELECT 1 FROM person_channel_identity pci WHERE pci.person_id = $1
+		                 AND rc.source_system = pci.provider
+		                 AND (rc.payload->'message'->'from'->>'id' = pci.channel_user_id
+		                      OR rc.payload->'my_chat_member'->'chat'->>'id' = pci.channel_user_id))`},
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},

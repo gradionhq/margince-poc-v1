@@ -12,10 +12,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// stubs satisfies every crmcontracts.ServerInterface operation with an
-// explicit 501: the whole contract surface exists from day one, and an
-// unimplemented call is loud, never a silent 404. Server embeds stubs
-// (one level deep) and module handlers shadow the operations they implement.
+// stubs answers every crmcontracts.ServerInterface operation with an explicit
+// 501: one stub per operation the contract declares.
+//
+// NOTHING EMBEDS IT. Server (server.go) implements the interface itself across
+// its module handler embeds and carries its own compile-time assertion, so an
+// operation with no real handler fails that assertion at build time — no
+// request ever reaches a stub below.
 type stubs struct{}
 
 var _ crmcontracts.ServerInterface = stubs{}
@@ -50,6 +53,10 @@ func (stubs) RelinkActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 
 func (stubs) SendEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendEmailParams) {
 	httperr.NotImplemented(w, r, "SendEmail")
+}
+
+func (stubs) SendMessage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendMessageParams) {
+	httperr.NotImplemented(w, r, "SendMessage")
 }
 
 func (stubs) ListAgentTools(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -216,16 +223,16 @@ func (stubs) SnoozeBriefItem(w nethttp.ResponseWriter, r *nethttp.Request, itemI
 	httperr.NotImplemented(w, r, "SnoozeBriefItem")
 }
 
-func (stubs) ListCaptureExclusions(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "ListCaptureExclusions")
+func (stubs) ListConsumerMailDomains(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListConsumerMailDomains")
 }
 
-func (stubs) CreateCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request) {
-	httperr.NotImplemented(w, r, "CreateCaptureExclusion")
+func (stubs) AddConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "AddConsumerMailDomain")
 }
 
-func (stubs) DeleteCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "DeleteCaptureExclusion")
+func (stubs) RemoveConsumerMailDomain(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RemoveConsumerMailDomain")
 }
 
 func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -234,6 +241,22 @@ func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) UpdateCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "UpdateCaptureSettings")
+}
+
+func (stubs) ListChannelConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListChannelConnections")
+}
+
+func (stubs) ConnectChannel(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ConnectChannel")
+}
+
+func (stubs) DisconnectChannel(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DisconnectChannel")
+}
+
+func (stubs) ReplaceChannelToken(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReplaceChannelToken")
 }
 
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -372,6 +395,10 @@ func (stubs) AdvanceDeal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 	httperr.NotImplemented(w, r, "AdvanceDeal")
 }
 
+func (stubs) GetDealCoverage(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetDealCoverage")
+}
+
 func (stubs) ListDealOffers(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ListDealOffersParams) {
 	httperr.NotImplemented(w, r, "ListDealOffers")
 }
@@ -486,6 +513,26 @@ func (stubs) AddListMember(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 
 func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
+}
+
+func (stubs) GetMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInAccount")
+}
+
+func (stubs) SaveMyLinkedInAccount(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "SaveMyLinkedInAccount")
+}
+
+func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
+}
+
+func (stubs) GetMyLinkedInReach(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetMyLinkedInReachParams) {
+	httperr.NotImplemented(w, r, "GetMyLinkedInReach")
+}
+
+func (stubs) GetConsentRequest(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetConsentRequestParams) {
+	httperr.NotImplemented(w, r, "GetConsentRequest")
 }
 
 func (stubs) ListOfferTemplates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOfferTemplatesParams) {
@@ -766,6 +813,10 @@ func (stubs) IssueDoubleOptIn(w nethttp.ResponseWriter, r *nethttp.Request, id c
 
 func (stubs) MergePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergePersonParams) {
 	httperr.NotImplemented(w, r, "MergePerson")
+}
+
+func (stubs) GetPersonNetwork(w nethttp.ResponseWriter, r *nethttp.Request, id openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "GetPersonNetwork")
 }
 
 func (stubs) GetPersonStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

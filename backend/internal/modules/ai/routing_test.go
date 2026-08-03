@@ -229,6 +229,7 @@ func TestUnboundLadderWarnings(t *testing.T) {
 				"task rate_extract: no bound tier on ladder [premium cheap_cloud]; calls will be refused",
 				"task site_extract: no bound tier on ladder [premium]; calls will be refused",
 				"task site_fact_extract: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
+				"task site_triage: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
 				"task summarize: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
 				"task transcript: no bound tier on ladder [cheap_cloud premium]; calls will be refused",
 				"task voice_build: no bound tier on ladder [cheap_cloud premium]; calls will be refused",

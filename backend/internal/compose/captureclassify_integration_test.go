@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -186,7 +187,7 @@ func TestEveryBatchedMessageIsFencedInItsOwnSpan(t *testing.T) {
 
 	brain := &classifyRecordingBrain{}
 	classifier := NewCaptureClassifier(e.Pool, brain, slog.New(slog.DiscardHandler))
-	if err := classifier.Run(context.Background(), 0); err != nil {
+	if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if len(brain.prompts) == 0 {
@@ -253,7 +254,7 @@ func TestCaptureClassifyPass(t *testing.T) {
 	}
 	classifier := NewCaptureClassifier(e.Pool, brain, slog.New(slog.DiscardHandler))
 
-	if err := classifier.Run(context.Background(), 0); err != nil {
+	if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if l := labelOf(t, e, confident); l == nil || *l != "commitment" {
@@ -269,7 +270,7 @@ func TestCaptureClassifyPass(t *testing.T) {
 
 	t.Run("an empty backlog costs zero model calls", func(t *testing.T) {
 		before := brain.calls
-		if err := classifier.Run(context.Background(), 0); err != nil {
+		if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 		if brain.calls != before {
@@ -280,7 +281,7 @@ func TestCaptureClassifyPass(t *testing.T) {
 	t.Run("a budget stop ends the pass cleanly and keeps what landed", func(t *testing.T) {
 		kept := seedUnlabeledEmail(t, e, "still here")
 		brain.budgetOut = true
-		if err := classifier.Run(context.Background(), 0); err != nil {
+		if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 			t.Fatalf("a budget stop must not be an error: %v", err)
 		}
 		if l := labelOf(t, e, kept); l != nil {
@@ -300,7 +301,7 @@ func TestCaptureClassifyPass(t *testing.T) {
 		stuck := seedUnlabeledEmail(t, e, "???")
 		brain.confidence[stuck.String()] = 0.3
 		before := brain.calls
-		if err := classifier.Run(context.Background(), 0); err != nil {
+		if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 			t.Fatalf("a no-progress pass must not be an error: %v", err)
 		}
 		if l := labelOf(t, e, stuck); l != nil {
@@ -325,7 +326,7 @@ func TestCaptureClassifyPass(t *testing.T) {
 		shaky := seedUnlabeledEmail(t, e, "??")
 		brain.labels[sure.String()] = "commitment"
 		brain.confidence[shaky.String()] = 0.4
-		if err := classifier.Run(context.Background(), 0); err != nil {
+		if err := classifier.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 			t.Fatalf("a mid-run budget stop must not be an error: %v", err)
 		}
 		if l := labelOf(t, e, sure); l == nil || *l != "commitment" {

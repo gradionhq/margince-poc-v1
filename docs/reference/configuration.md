@@ -31,6 +31,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
 | `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
 | — (env-only) | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | same knob `cmd/worker` reads (below) — `cmd/api` also boots on it (an invalid value is a boot error here too) so the on-connect/Connect-time seeding path sees the same cap the periodic sweep does |
+| `--oauth-access-token-ttl` | `MARGINCE_OAUTH_ACCESS_TOKEN_TTL` | `0` (= the passport default, 720h / 30 days) | lifetime of the access token the MCP connector's OAuth handshake mints. That token IS an Agent Seat Passport, so unset it inherits the 30-day passport default, while connector norms are ~15 minutes plus refresh; set e.g. `15m` to run those norms without a code change — the refresh-rotation machinery is what makes a short lifetime cheap for a client. It applies to **both** mints of a connection's life, the code exchange and every rotation. Maximum `2160h` (90 days, the mint's own ceiling); an out-of-range or non-duration value is a boot error, never a silent default |
 
 With `--inline-relay` (the default) an unreachable Redis fails the boot:
 without a relay every committed write would strand its outbox row.
@@ -46,6 +47,30 @@ Operational endpoints (served next to `/v1`):
   2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
+- `/mcp` plus `/oauth/*` and the RFC 8414/9728 discovery documents
+  (`/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource` and its `/mcp` suffixed form) —
+  the remote MCP connector, mounted as ONE group only when the
+  deployment file sets `mcp.connector_enabled: true`. They share the api
+  origin because RFC 9728 discovery is a chain rooted at the resource
+  server's 401, which a split origin breaks. The gate also requires
+  `--public-base-url`: it is a boot error without one, because the
+  advertised resource is an audience decision and must never be derived
+  from the request `Host`. With the gate off — the code default — none of
+  those routes exists and each answers 404, so an installation that has
+  not declared the connector exposes no client registration and no
+  token endpoint. The shipped example config declares the gate on, which
+  is why a `make dev` stack serves the connector with no edit; the boot
+  error is what keeps that a local convenience rather than an accidental
+  exposure.
+
+  Both discovery documents advertise `scopes_supported`, derived from the
+  one closed passport vocabulary: the protected resource names the five
+  record verbs (`read`, `draft`, `write`, `send`, `enrich`), and the
+  authorization server names those plus `offline_access`, which buys token
+  lifetime rather than access to a record. What a connection is granted is the
+  passport the human lent, not what the client requested — these documents state
+  the vocabulary a client may name, they do not bound the grant.
 
 ## cmd/worker — the background process role
 
@@ -128,11 +153,11 @@ runs the background sync.
 | `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `…_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
 | `--graph-tenant` | `MARGINCE_GRAPH_TENANT` | api + worker | Microsoft identity tenant (default `common` — any organization) |
 | `--connector-state-key` | `MARGINCE_CONNECTOR_STATE_KEY` | api | HMAC key (≥32 bytes) signing the OAuth connect `state`; required for both connect flows |
-| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev) |
+| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the OAuth callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev). Messaging channels need NO public address of their own — Telegram ingress long-polls, so nothing is ever told where to reach this installation |
 | `--gmail-sync-interval` | — | worker | Gmail incremental-sync poll interval (default `2m`) |
 | `--gmail-pubsub-topic` | `MARGINCE_GMAIL_PUBSUB_TOPIC` | worker | Gmail Pub/Sub topic (`projects/<p>/topics/<t>`); enables the push-watch register+renew job (empty = poll only) |
 | `--gmail-watch-interval` / `--gmail-watch-renew-within` | — | worker | push-watch maintenance scan (`6h`) / renew this far ahead of the 7-day expiry (`48h`) |
-| `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail-push` (empty = route absent) |
+| `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail` (empty = route absent) |
 | `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `…_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
 | `--gmail-jwks-url` | `MARGINCE_GMAIL_JWKS_URL` | api | override Google's OIDC JWKS URL; test/dev only |
 
@@ -196,18 +221,6 @@ transaction runs the DDL as the owner role, then downgrades itself
 credential this DSN names must be the same owner role `cmd/migrate` uses.
 Configured, it also gains the api's `/readyz` `customfields-schema-pool`
 probe.
-
-## cmd/mcp — the agent tool surface
-
-| Flag | Env | Default | Meaning |
-|---|---|---|---|
-| `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
-| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send through the `send_email` tool — without it that send refuses rather than emit a forgeable link |
-| `--listen` | — | — | serve the hosted A2 transport on this address instead of stdio |
-
-The stdio transport additionally requires the env var
-**`MARGINCE_PASSPORT_TOKEN`** (`mgp_…`, minted via `POST /v1/passports`).
-It is deliberately not a flag: argv is world-readable.
 
 ## cmd/migrate — schema migrations
 

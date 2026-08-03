@@ -16,9 +16,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net/url"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -131,11 +128,19 @@ type logoAttempt struct {
 // candidate it touched comes back too, in the order tried.
 //
 // The chain is ordered by how likely a candidate is to BE the logo — the
-// og:image first (a small site's og:image usually is its mark), then the
-// homescreen icon, then the favicons, then the well-known /favicon.ico. A
-// candidate that is square enough is taken immediately; a wide one is
-// remembered and only used if nothing squarer turns up, so a site whose
-// og:image is a sharing banner still ends up with its real icon.
+// homescreen icon first, then the favicons, then the well-known
+// /favicon.ico, and the og:image last. A candidate that is square enough is
+// taken immediately; a wide one is remembered and only used if nothing
+// squarer turns up.
+//
+// The declared icons come first because they are the only assets a site
+// publishes SAYING "this is us at icon size". og:image is whatever the page
+// wants shown when it is shared, which is its mark on a small site and a hero
+// photo, a product shot or a podcast tile on many others. Ranked first, a
+// square-ish photo was taken on sight and the site's real apple-touch-icon
+// was never asked for — an import of 162 companies produced several accounts
+// wearing a stock photo. Wide sharing banners were already screened out by
+// shape; square ones could only be screened out by asking for the icon first.
 func resolveOrganizationLogo(ctx context.Context, fetch assetFetcher, seedURL string, declared declaredAssets) (resolvedLogo, []logoAttempt) {
 	candidates, dropped := logoCandidates(seedURL, declared)
 	attempts := make([]logoAttempt, 0, len(candidates)+1)
@@ -199,103 +204,6 @@ func fetchLogoCandidate(ctx context.Context, fetch assetFetcher, rawURL string) 
 	return resolvedLogo{PNG: png, SourceURL: rawURL, SourceWidth: width, SourceHeight: height}, aspect, ""
 }
 
-// logoCandidates builds the ordered, deduplicated candidate chain from what
-// the seed page declared plus the well-known favicon path every site answers
-// whether it declares one or not.
-//
-// A candidate may live on ANOTHER host, and that is a deliberate departure
-// from the crawl's off-domain rule (sitecrawlwave.go, which refuses to follow
-// page content off the seed's site). It is a departure because a mark
-// routinely is CDN-hosted — afs.de serves its logo from CloudFront, stripe.com
-// from its asset host — and refusing those would leave exactly the companies
-// with the most deliberate branding wearing a monogram.
-//
-// What makes the departure narrow rather than an open relay: the fetch is a
-// GET of BYTES that are only ever decoded as an image, never read as content
-// and never followed; the target host's own robots.txt still governs it; the
-// SSRF dialer still refuses non-public addresses; and the chain is bounded to
-// logoMaxCandidates fetches of maxAssetBytes each, so one read's whole asset
-// egress is bounded whatever a page declares. Every candidate tried, off-host
-// ones included, is named in the report.
-func logoCandidates(seedURL string, declared declaredAssets) (candidates []string, dropped int) {
-	ordered := make([]string, 0, len(declared.icons)+2)
-	if declared.ogImage != "" {
-		ordered = append(ordered, declared.ogImage)
-	}
-	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelAppleTouchIcon)...)
-	ordered = append(ordered, iconURLsByRel(declared.icons, webread.RelIcon)...)
-	if wellKnown, ok := wellKnownFaviconURL(seedURL); ok {
-		ordered = append(ordered, wellKnown)
-	}
-
-	seen := make(map[string]bool, len(ordered))
-	unique := make([]string, 0, len(ordered))
-	for _, candidate := range ordered {
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
-		unique = append(unique, candidate)
-	}
-	if len(unique) > logoMaxCandidates {
-		return unique[:logoMaxCandidates], len(unique) - logoMaxCandidates
-	}
-	return unique, 0
-}
-
-// iconURLsByRel selects one rel's icons, largest declared size first. A page
-// that declares several sizes of the same icon is telling us which is the
-// detailed one; a page that declares no size at all sorts last, because a
-// stated 180x180 is better evidence than a shrug.
-func iconURLsByRel(icons []webread.IconRef, rel string) []string {
-	matching := make([]webread.IconRef, 0, len(icons))
-	for _, icon := range icons {
-		if icon.Rel == rel {
-			matching = append(matching, icon)
-		}
-	}
-	sort.SliceStable(matching, func(i, j int) bool {
-		return declaredIconEdge(matching[i].Sizes) > declaredIconEdge(matching[j].Sizes)
-	})
-	urls := make([]string, 0, len(matching))
-	for _, icon := range matching {
-		urls = append(urls, icon.URL)
-	}
-	return urls
-}
-
-// declaredIconEdge reads the largest edge out of a sizes attribute
-// ("32x32", "16x16 32x32", "any"), or 0 when it states nothing usable —
-// "any" means a scalable source, which says nothing about pixels. Both sides
-// of each token count: a rare non-square declaration is ranked by its longer
-// edge, which is what "largest" has to mean for the ordering to hold.
-func declaredIconEdge(sizes string) int {
-	largest := 0
-	for _, token := range strings.Fields(sizes) {
-		width, height, found := strings.Cut(token, "x")
-		if !found {
-			continue
-		}
-		for _, side := range []string{width, height} {
-			if edge, err := strconv.Atoi(side); err == nil && edge > largest {
-				largest = edge
-			}
-		}
-	}
-	return largest
-}
-
-// wellKnownFaviconURL is /favicon.ico on the seed's own origin: the icon a
-// site serves whether or not it ever declared one, and the last thing worth
-// asking for before falling back to the monogram.
-func wellKnownFaviconURL(seedURL string) (string, bool) {
-	parsed, err := url.Parse(seedURL)
-	if err != nil || parsed.Host == "" {
-		return "", false
-	}
-	return parsed.Scheme + "://" + parsed.Host + "/favicon.ico", true
-}
-
 // resolveLogo gives the organization its face: resolve the mark from what the
 // seed page declared, store the normalized bytes, then point the row at them.
 //
@@ -353,6 +261,9 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 	ctx, cancel := context.WithTimeout(ctx, logoLaneBudget)
 	defer cancel()
 
+	// claim.SeedURL is the spelling that ANSWERED — the deep read replaces it
+	// with the crawl's own once the crawl returns, so /favicon.ico is never
+	// guessed under a host that served nothing.
 	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, claim.SeedURL, crawl.SeedAssets)
 	if logo.PNG == nil {
 		w.log.InfoContext(ctx, "site read resolved no logo",
@@ -361,7 +272,7 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 
-	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.WorkspaceID), orgID)
+	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.Workspace), orgID)
 	if err := w.blob.Put(ctx, key, bytes.NewReader(logo.PNG), int64(len(logo.PNG)), imagenorm.ContentType); err != nil {
 		// A failed Put can still have left a partial object, and no row names
 		// this key, so collecting it is unambiguously safe.

@@ -61,9 +61,10 @@ const rosterWith = (backfill: Record<string, unknown>) => () =>
 beforeEach(() => {
   vi.stubGlobal("scrollTo", vi.fn());
 });
+// Explicit, because auto-cleanup only runs with vitest globals enabled and
+// this suite does not use them: without it each test inherits the previous
+// render's DOM and every chip query finds several matches.
 afterEach(() => {
-  // Explicit teardown: this suite renders the same act repeatedly, and a
-  // leftover tree would let one case's buttons answer the next case's query.
   cleanup();
   vi.unstubAllGlobals();
 });

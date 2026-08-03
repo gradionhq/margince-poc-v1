@@ -99,6 +99,14 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		// The export is human-only for a different reason: it streams
 		// the whole estate, audit log included, in a single GET.
 		"downloadOverlayExport": true,
+		// The consent screen's read model answers with the granting
+		// human's whole lendable-passport inventory — ids, labels,
+		// scopes, expiries — the same credential class as
+		// GET /v1/passports (issuePassport's sibling read, pinned
+		// above). Lending authority is a decision only the human
+		// holding it may take, and anything that can enumerate the
+		// list can pick from it.
+		"getConsentRequest": true,
 	}
 	seen := map[string]bool{}
 	for route, pol := range agentPolicies {

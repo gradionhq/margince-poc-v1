@@ -105,7 +105,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           <li key={field}>
             <span className="t-label">{coldFieldLabel(field, t)}</span>
             <strong>{props.draft.values[field]}</strong>
-            <ProvenanceTag provenance={{ kind: "human" }} />
+            <ProvenanceTag provenance={{ kind: "human", self: true }} />
           </li>
         ))}
       </ul>
@@ -251,7 +251,7 @@ function FieldRow({
       <span className="t-label">{coldFieldLabel(field.field, t)}</span>
       <strong>{value}</strong>
       {typed ? (
-        <ProvenanceTag provenance={{ kind: "human" }} />
+        <ProvenanceTag provenance={{ kind: "human", self: true }} />
       ) : (
         <EvidenceChip
           evidence={{

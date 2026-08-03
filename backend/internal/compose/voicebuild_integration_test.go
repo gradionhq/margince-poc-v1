@@ -197,7 +197,7 @@ func seedVoiceBuild(t *testing.T, quote string, sourceCount int) (*voiceBuildEnv
 func (v *voiceBuildEnv) workerCtx(t *testing.T) context.Context {
 	t.Helper()
 	ctx, err := voiceBuildWorkerCtx(context.Background(), VoiceBuildArgs{
-		Workspace: v.e.WS.String(), ProfileID: v.profile.ID.String(),
+		Workspace: v.e.WS, ProfileID: v.profile.ID.String(),
 		BuildID: ids.NewV7().String(), RequestedBy: v.e.Rep1.String(),
 	})
 	if err != nil {
@@ -398,7 +398,7 @@ func voiceBuildJob(env *voiceBuildEnv, build ai.VoiceBuild) *river.Job[VoiceBuil
 	return &river.Job[VoiceBuildArgs]{
 		JobRow: &rivertype.JobRow{},
 		Args: VoiceBuildArgs{
-			Workspace: env.e.WS.String(), ProfileID: env.profile.ID.String(),
+			Workspace: env.e.WS, ProfileID: env.profile.ID.String(),
 			BuildID: build.ID.String(), RequestedBy: env.e.Rep1.String(),
 		},
 	}

@@ -28,6 +28,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -58,7 +59,7 @@ func TestVerdictDecidesOnAQuotedConfidence(t *testing.T) {
 
 	brain := &literalConfidenceBrain{verdict: capture.PendingStatusReal, confidence: `"0.9"`}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -85,7 +86,7 @@ func TestVerdictDefersAnUnreadableConfidence(t *testing.T) {
 
 	brain := &literalConfidenceBrain{verdict: capture.PendingStatusReal, confidence: `"very high"`}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 

@@ -124,7 +124,14 @@ func (r *Registry) buildDigestPayload(ctx context.Context, tx pgx.Tx, userID ids
 		SELECT
 		  (SELECT count(*) FROM activity WHERE captured_by LIKE 'connector:%' AND kind = 'email' AND created_at >= $1),
 		  (SELECT count(*) FROM person WHERE captured_by LIKE 'connector:%' AND created_at >= $1),
-		  (SELECT count(*) FROM organization WHERE captured_by LIKE 'connector:%' AND created_at >= $1),
+		  -- Companies now arrive from the domain-triage verdict, not from the
+		  -- connector: capture withholds the organization until a site read
+		  -- says the domain deserves one, so the row is stamped by the system
+		  -- actor that ran that read. Counting only 'connector:%' would report
+		  -- zero companies for ever.
+		  (SELECT count(*) FROM organization
+		    WHERE (captured_by LIKE 'connector:%' OR source LIKE 'domain\_triage:%')
+		      AND created_at >= $1),
 		  (SELECT count(*) FROM dedupe_candidate WHERE disposition = 'open' AND archived_at IS NULL),
 		  (SELECT count(*) FROM approval WHERE status = 'pending'),
 		  (SELECT count(*) FROM activity WHERE capture_label = 'commitment' AND capture_labeled_at >= $1),

@@ -147,6 +147,24 @@ func (e ActivityLinkEntityType) Valid() bool {
 	}
 }
 
+// Defines values for AddConsumerMailDomainRequestKind.
+const (
+	AddConsumerMailDomainRequestKindExtra AddConsumerMailDomainRequestKind = "extra"
+	AddConsumerMailDomainRequestKindNever AddConsumerMailDomainRequestKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the AddConsumerMailDomainRequestKind enum.
+func (e AddConsumerMailDomainRequestKind) Valid() bool {
+	switch e {
+	case AddConsumerMailDomainRequestKindExtra:
+		return true
+	case AddConsumerMailDomainRequestKindNever:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AddListMemberRequestEntityType.
 const (
 	AddListMemberRequestEntityTypeDeal         AddListMemberRequestEntityType = "deal"
@@ -1053,27 +1071,6 @@ func (e CaptureConnectionStatus) Valid() bool {
 	}
 }
 
-// Defines values for CaptureExclusionRuleKind.
-const (
-	CaptureExclusionRuleKindLabel           CaptureExclusionRuleKind = "label"
-	CaptureExclusionRuleKindRecipientDomain CaptureExclusionRuleKind = "recipient_domain"
-	CaptureExclusionRuleKindSenderDomain    CaptureExclusionRuleKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CaptureExclusionRuleKind enum.
-func (e CaptureExclusionRuleKind) Valid() bool {
-	switch e {
-	case CaptureExclusionRuleKindLabel:
-		return true
-	case CaptureExclusionRuleKindRecipientDomain:
-		return true
-	case CaptureExclusionRuleKindSenderDomain:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ChangeUserRoleRequestRole.
 const (
 	ChangeUserRoleRequestRoleAdmin    ChangeUserRoleRequestRole = "admin"
@@ -1095,6 +1092,48 @@ func (e ChangeUserRoleRequestRole) Valid() bool {
 	case ChangeUserRoleRequestRoleReadOnly:
 		return true
 	case ChangeUserRoleRequestRoleRep:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelConnectionProvider.
+const (
+	ChannelConnectionProviderTelegram ChannelConnectionProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionProvider enum.
+func (e ChannelConnectionProvider) Valid() bool {
+	switch e {
+	case ChannelConnectionProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelConnectionStatus.
+const (
+	ChannelConnectionStatusConnected      ChannelConnectionStatus = "connected"
+	ChannelConnectionStatusDisconnected   ChannelConnectionStatus = "disconnected"
+	ChannelConnectionStatusError          ChannelConnectionStatus = "error"
+	ChannelConnectionStatusPending        ChannelConnectionStatus = "pending"
+	ChannelConnectionStatusReauthRequired ChannelConnectionStatus = "reauth_required"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionStatus enum.
+func (e ChannelConnectionStatus) Valid() bool {
+	switch e {
+	case ChannelConnectionStatusConnected:
+		return true
+	case ChannelConnectionStatusDisconnected:
+		return true
+	case ChannelConnectionStatusError:
+		return true
+	case ChannelConnectionStatusPending:
+		return true
+	case ChannelConnectionStatusReauthRequired:
 		return true
 	default:
 		return false
@@ -1869,6 +1908,21 @@ func (e ComputedFieldKind) Valid() bool {
 	}
 }
 
+// Defines values for ConnectChannelRequestProvider.
+const (
+	ConnectChannelRequestProviderTelegram ConnectChannelRequestProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ConnectChannelRequestProvider enum.
+func (e ConnectChannelRequestProvider) Valid() bool {
+	switch e {
+	case ConnectChannelRequestProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ConnectConnectorRequestReturnTo.
 const (
 	ConnectConnectorRequestReturnToOnboarding ConnectConnectorRequestReturnTo = "onboarding"
@@ -1929,6 +1983,51 @@ func (e ConsentEventNewState) Valid() bool {
 	}
 }
 
+// Defines values for ConsentPassportOptionScopes.
+const (
+	ConsentPassportOptionScopesDraft  ConsentPassportOptionScopes = "draft"
+	ConsentPassportOptionScopesEnrich ConsentPassportOptionScopes = "enrich"
+	ConsentPassportOptionScopesRead   ConsentPassportOptionScopes = "read"
+	ConsentPassportOptionScopesSend   ConsentPassportOptionScopes = "send"
+	ConsentPassportOptionScopesWrite  ConsentPassportOptionScopes = "write"
+)
+
+// Valid indicates whether the value is a known member of the ConsentPassportOptionScopes enum.
+func (e ConsentPassportOptionScopes) Valid() bool {
+	switch e {
+	case ConsentPassportOptionScopesDraft:
+		return true
+	case ConsentPassportOptionScopesEnrich:
+		return true
+	case ConsentPassportOptionScopesRead:
+		return true
+	case ConsentPassportOptionScopesSend:
+		return true
+	case ConsentPassportOptionScopesWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConsumerMailDomainKind.
+const (
+	ConsumerMailDomainKindExtra ConsumerMailDomainKind = "extra"
+	ConsumerMailDomainKindNever ConsumerMailDomainKind = "never"
+)
+
+// Valid indicates whether the value is a known member of the ConsumerMailDomainKind enum.
+func (e ConsumerMailDomainKind) Valid() bool {
+	switch e {
+	case ConsumerMailDomainKindExtra:
+		return true
+	case ConsumerMailDomainKindNever:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ContextEntityRefType.
 const (
 	ContextEntityRefTypeActivity     ContextEntityRefType = "activity"
@@ -1936,6 +2035,7 @@ const (
 	ContextEntityRefTypeLead         ContextEntityRefType = "lead"
 	ContextEntityRefTypeOrganization ContextEntityRefType = "organization"
 	ContextEntityRefTypePerson       ContextEntityRefType = "person"
+	ContextEntityRefTypeUser         ContextEntityRefType = "user"
 )
 
 // Valid indicates whether the value is a known member of the ContextEntityRefType enum.
@@ -1950,6 +2050,8 @@ func (e ContextEntityRefType) Valid() bool {
 	case ContextEntityRefTypeOrganization:
 		return true
 	case ContextEntityRefTypePerson:
+		return true
+	case ContextEntityRefTypeUser:
 		return true
 	default:
 		return false
@@ -2055,27 +2157,6 @@ func (e CreateActivityRequestMeetingStatus) Valid() bool {
 	case CreateActivityRequestMeetingStatusLessThannil:
 		return true
 	case CreateActivityRequestMeetingStatusNoShow:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for CreateCaptureExclusionRequestKind.
-const (
-	CreateCaptureExclusionRequestKindLabel           CreateCaptureExclusionRequestKind = "label"
-	CreateCaptureExclusionRequestKindRecipientDomain CreateCaptureExclusionRequestKind = "recipient_domain"
-	CreateCaptureExclusionRequestKindSenderDomain    CreateCaptureExclusionRequestKind = "sender_domain"
-)
-
-// Valid indicates whether the value is a known member of the CreateCaptureExclusionRequestKind enum.
-func (e CreateCaptureExclusionRequestKind) Valid() bool {
-	switch e {
-	case CreateCaptureExclusionRequestKindLabel:
-		return true
-	case CreateCaptureExclusionRequestKindRecipientDomain:
-		return true
-	case CreateCaptureExclusionRequestKindSenderDomain:
 		return true
 	default:
 		return false
@@ -2733,6 +2814,36 @@ func (e DealStatus) Valid() bool {
 	case DealStatusOpen:
 		return true
 	case DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DealCoverageRiskKind.
+const (
+	DealCoverageRiskKindChampionLeft         DealCoverageRiskKind = "champion_left"
+	DealCoverageRiskKindCoverageGap          DealCoverageRiskKind = "coverage_gap"
+	DealCoverageRiskKindGoingCold            DealCoverageRiskKind = "going_cold"
+	DealCoverageRiskKindSingleThreadedOurs   DealCoverageRiskKind = "single_threaded_ours"
+	DealCoverageRiskKindSingleThreadedTheirs DealCoverageRiskKind = "single_threaded_theirs"
+	DealCoverageRiskKindStakeholderLeft      DealCoverageRiskKind = "stakeholder_left"
+)
+
+// Valid indicates whether the value is a known member of the DealCoverageRiskKind enum.
+func (e DealCoverageRiskKind) Valid() bool {
+	switch e {
+	case DealCoverageRiskKindChampionLeft:
+		return true
+	case DealCoverageRiskKindCoverageGap:
+		return true
+	case DealCoverageRiskKindGoingCold:
+		return true
+	case DealCoverageRiskKindSingleThreadedOurs:
+		return true
+	case DealCoverageRiskKindSingleThreadedTheirs:
+		return true
+	case DealCoverageRiskKindStakeholderLeft:
 		return true
 	default:
 		return false
@@ -3887,6 +3998,7 @@ const (
 	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
 	OrganizationGraphGroupsOmittedDeals     OrganizationGraphGroupsOmitted = "deals"
 	OrganizationGraphGroupsOmittedIntroPath OrganizationGraphGroupsOmitted = "intro_path"
+	OrganizationGraphGroupsOmittedOurSide   OrganizationGraphGroupsOmitted = "our_side"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphGroupsOmitted enum.
@@ -3897,6 +4009,8 @@ func (e OrganizationGraphGroupsOmitted) Valid() bool {
 	case OrganizationGraphGroupsOmittedDeals:
 		return true
 	case OrganizationGraphGroupsOmittedIntroPath:
+		return true
+	case OrganizationGraphGroupsOmittedOurSide:
 		return true
 	default:
 		return false
@@ -3909,6 +4023,8 @@ const (
 	OrganizationGraphEdgeKindDealStakeholder OrganizationGraphEdgeKind = "deal_stakeholder"
 	OrganizationGraphEdgeKindEmployment      OrganizationGraphEdgeKind = "employment"
 	OrganizationGraphEdgeKindHasDeal         OrganizationGraphEdgeKind = "has_deal"
+	OrganizationGraphEdgeKindInContactWith   OrganizationGraphEdgeKind = "in_contact_with"
+	OrganizationGraphEdgeKindOwns            OrganizationGraphEdgeKind = "owns"
 	OrganizationGraphEdgeKindParentOf        OrganizationGraphEdgeKind = "parent_of"
 	OrganizationGraphEdgeKindPartnerOf       OrganizationGraphEdgeKind = "partner_of"
 	OrganizationGraphEdgeKindReferredBy      OrganizationGraphEdgeKind = "referred_by"
@@ -3925,6 +4041,10 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 		return true
 	case OrganizationGraphEdgeKindHasDeal:
 		return true
+	case OrganizationGraphEdgeKindInContactWith:
+		return true
+	case OrganizationGraphEdgeKindOwns:
+		return true
 	case OrganizationGraphEdgeKindParentOf:
 		return true
 	case OrganizationGraphEdgeKindPartnerOf:
@@ -3936,11 +4056,36 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationGraphEdgeStrengthBucket.
+const (
+	OrganizationGraphEdgeStrengthBucketModerate OrganizationGraphEdgeStrengthBucket = "moderate"
+	OrganizationGraphEdgeStrengthBucketNone     OrganizationGraphEdgeStrengthBucket = "none"
+	OrganizationGraphEdgeStrengthBucketStrong   OrganizationGraphEdgeStrengthBucket = "strong"
+	OrganizationGraphEdgeStrengthBucketWeak     OrganizationGraphEdgeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphEdgeStrengthBucket enum.
+func (e OrganizationGraphEdgeStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationGraphEdgeStrengthBucketModerate:
+		return true
+	case OrganizationGraphEdgeStrengthBucketNone:
+		return true
+	case OrganizationGraphEdgeStrengthBucketStrong:
+		return true
+	case OrganizationGraphEdgeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationGraphNodeKind.
 const (
 	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
 	OrganizationGraphNodeKindOrganization OrganizationGraphNodeKind = "organization"
 	OrganizationGraphNodeKindPerson       OrganizationGraphNodeKind = "person"
+	OrganizationGraphNodeKindUser         OrganizationGraphNodeKind = "user"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphNodeKind enum.
@@ -3951,6 +4096,8 @@ func (e OrganizationGraphNodeKind) Valid() bool {
 	case OrganizationGraphNodeKindOrganization:
 		return true
 	case OrganizationGraphNodeKindPerson:
+		return true
+	case OrganizationGraphNodeKindUser:
 		return true
 	default:
 		return false
@@ -4401,6 +4548,30 @@ func (e PersonEmailEmailType) Valid() bool {
 	}
 }
 
+// Defines values for PersonNetworkColleagueStrengthBucket.
+const (
+	PersonNetworkColleagueStrengthBucketModerate PersonNetworkColleagueStrengthBucket = "moderate"
+	PersonNetworkColleagueStrengthBucketNone     PersonNetworkColleagueStrengthBucket = "none"
+	PersonNetworkColleagueStrengthBucketStrong   PersonNetworkColleagueStrengthBucket = "strong"
+	PersonNetworkColleagueStrengthBucketWeak     PersonNetworkColleagueStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonNetworkColleagueStrengthBucket enum.
+func (e PersonNetworkColleagueStrengthBucket) Valid() bool {
+	switch e {
+	case PersonNetworkColleagueStrengthBucketModerate:
+		return true
+	case PersonNetworkColleagueStrengthBucketNone:
+		return true
+	case PersonNetworkColleagueStrengthBucketStrong:
+		return true
+	case PersonNetworkColleagueStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonPhonePhoneType.
 const (
 	PersonPhonePhoneTypeHome   PersonPhonePhoneType = "home"
@@ -4419,6 +4590,21 @@ func (e PersonPhonePhoneType) Valid() bool {
 	case PersonPhonePhoneTypeOther:
 		return true
 	case PersonPhonePhoneTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonReachabilityProvider.
+const (
+	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the PersonReachabilityProvider enum.
+func (e PersonReachabilityProvider) Valid() bool {
+	switch e {
+	case PersonReachabilityProviderTelegram:
 		return true
 	default:
 		return false
@@ -6398,31 +6584,31 @@ func (e CapturedByKind) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	Call     ListActivitiesParamsKind = "call"
-	Email    ListActivitiesParamsKind = "email"
-	Meeting  ListActivitiesParamsKind = "meeting"
-	Note     ListActivitiesParamsKind = "note"
-	Task     ListActivitiesParamsKind = "task"
-	Telegram ListActivitiesParamsKind = "telegram"
-	Whatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
+	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
+	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case Call:
+	case ListActivitiesParamsKindCall:
 		return true
-	case Email:
+	case ListActivitiesParamsKindEmail:
 		return true
-	case Meeting:
+	case ListActivitiesParamsKindMeeting:
 		return true
-	case Note:
+	case ListActivitiesParamsKindNote:
 		return true
-	case Task:
+	case ListActivitiesParamsKindTask:
 		return true
-	case Telegram:
+	case ListActivitiesParamsKindTelegram:
 		return true
-	case Whatsapp:
+	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -7187,28 +7373,28 @@ func (e ListSignalsParamsStatus) Valid() bool {
 
 // Defines values for ListSignalsParamsKind.
 const (
-	BuyingIntent ListSignalsParamsKind = "buying_intent"
-	ChampionLeft ListSignalsParamsKind = "champion_left"
-	Other        ListSignalsParamsKind = "other"
-	Reengagement ListSignalsParamsKind = "reengagement"
-	Risk         ListSignalsParamsKind = "risk"
-	StalledDeal  ListSignalsParamsKind = "stalled_deal"
+	ListSignalsParamsKindBuyingIntent ListSignalsParamsKind = "buying_intent"
+	ListSignalsParamsKindChampionLeft ListSignalsParamsKind = "champion_left"
+	ListSignalsParamsKindOther        ListSignalsParamsKind = "other"
+	ListSignalsParamsKindReengagement ListSignalsParamsKind = "reengagement"
+	ListSignalsParamsKindRisk         ListSignalsParamsKind = "risk"
+	ListSignalsParamsKindStalledDeal  ListSignalsParamsKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsKind enum.
 func (e ListSignalsParamsKind) Valid() bool {
 	switch e {
-	case BuyingIntent:
+	case ListSignalsParamsKindBuyingIntent:
 		return true
-	case ChampionLeft:
+	case ListSignalsParamsKindChampionLeft:
 		return true
-	case Other:
+	case ListSignalsParamsKindOther:
 		return true
-	case Reengagement:
+	case ListSignalsParamsKindReengagement:
 		return true
-	case Risk:
+	case ListSignalsParamsKindRisk:
 		return true
-	case StalledDeal:
+	case ListSignalsParamsKindStalledDeal:
 		return true
 	default:
 		return false
@@ -7379,6 +7565,16 @@ type ActivityListResponse struct {
 	Data []Activity `json:"data"`
 	Page PageInfo   `json:"page"`
 }
+
+// AddConsumerMailDomainRequest defines model for AddConsumerMailDomainRequest.
+type AddConsumerMailDomainRequest struct {
+	// Domain A mail domain; normalized to its registrable form before it is stored.
+	Domain string                           `json:"domain"`
+	Kind   AddConsumerMailDomainRequestKind `json:"kind"`
+}
+
+// AddConsumerMailDomainRequestKind defines model for AddConsumerMailDomainRequest.Kind.
+type AddConsumerMailDomainRequestKind string
 
 // AddListMemberRequest defines model for AddListMemberRequest.
 type AddListMemberRequest struct {
@@ -8203,28 +8399,6 @@ type CaptureConsent struct {
 	Wording *string `json:"wording,omitempty"`
 }
 
-// CaptureExclusionRule One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
-// produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
-// filtering DSL — a small typed (kind, value) pair, per connected user.
-type CaptureExclusionRule struct {
-	CreatedAt *time.Time         `json:"created_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
-
-	// Kind Match a sender domain, a recipient domain, or a mail label.
-	Kind CaptureExclusionRuleKind `json:"kind"`
-
-	// Value The normalized domain (e.g. `personal-family.example`) or the provider mail-label name.
-	Value string `json:"value"`
-}
-
-// CaptureExclusionRuleKind Match a sender domain, a recipient domain, or a mail label.
-type CaptureExclusionRuleKind string
-
-// CaptureExclusionRuleListResponse defines model for CaptureExclusionRuleListResponse.
-type CaptureExclusionRuleListResponse struct {
-	Data []CaptureExclusionRule `json:"data"`
-}
-
 // CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
 // changed only by admin/ops.
 type CaptureSettings struct {
@@ -8240,6 +8414,34 @@ type ChangeUserRoleRequest struct {
 
 // ChangeUserRoleRequestRole defines model for ChangeUserRoleRequest.Role.
 type ChangeUserRoleRequestRole string
+
+// ChannelConnection One workspace-level messaging-channel binding. The bot token never appears in this shape — it lives sealed in the vault, and it is the only secret a binding holds.
+type ChannelConnection struct {
+	// ChannelId The provider's own id for the bot — the key the binding is unique on.
+	ChannelId string `json:"channelId"`
+
+	// ChannelLabel The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+	ChannelLabel string                    `json:"channelLabel"`
+	CreatedAt    *time.Time                `json:"createdAt,omitempty"`
+	Id           openapi_types.UUID        `json:"id"`
+	Provider     ChannelConnectionProvider `json:"provider"`
+
+	// Status Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
+	Status    ChannelConnectionStatus `json:"status"`
+	UpdatedAt *time.Time              `json:"updatedAt,omitempty"`
+	Version   int64                   `json:"version"`
+}
+
+// ChannelConnectionProvider defines model for ChannelConnection.Provider.
+type ChannelConnectionProvider string
+
+// ChannelConnectionStatus Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
+type ChannelConnectionStatus string
+
+// ChannelConnectionListResponse defines model for ChannelConnectionListResponse.
+type ChannelConnectionListResponse struct {
+	Data []ChannelConnection `json:"data"`
+}
 
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
@@ -8703,6 +8905,16 @@ type ConfirmCompanySiteReadRequest struct {
 	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
 
+// ConnectChannelRequest defines model for ConnectChannelRequest.
+type ConnectChannelRequest struct {
+	// BotToken The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+	BotToken string                        `json:"botToken"`
+	Provider ConnectChannelRequestProvider `json:"provider"`
+}
+
+// ConnectChannelRequestProvider defines model for ConnectChannelRequest.Provider.
+type ConnectChannelRequestProvider string
+
 // ConnectConnectorRequest Connect a capture source. Providers differ in kind, not in path: an OAuth provider
 // (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
 // provider (imap) submits `imap` and answers with the created `connection`. Exactly one
@@ -8771,6 +8983,19 @@ type ConsentEventActorType string
 // ConsentEventNewState Proof rows record only transitions to granted/withdrawn (never to unknown).
 type ConsentEventNewState string
 
+// ConsentPassportOption One passport the signed-in human may lend to the requesting client. `scopes` is both
+// what the passport carries and what a connection lending it receives: the client's
+// request does not narrow the grant, so there is no second, smaller set beside it.
+type ConsentPassportOption struct {
+	ExpiresAt time.Time                     `json:"expires_at"`
+	Id        openapi_types.UUID            `json:"id"`
+	Label     string                        `json:"label"`
+	Scopes    []ConsentPassportOptionScopes `json:"scopes"`
+}
+
+// ConsentPassportOptionScopes defines model for ConsentPassportOption.Scopes.
+type ConsentPassportOptionScopes string
+
 // ConsentPurpose defines model for ConsentPurpose.
 type ConsentPurpose struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -8785,13 +9010,56 @@ type ConsentPurpose struct {
 	WorkspaceId         openapi_types.UUID `json:"workspace_id"`
 }
 
+// ConsentRequest What the consent screen renders. The client name is resolved from the database, never
+// from the request URL, so no caller can put words on a consent screen. The consent
+// nonce is NOT here: it reaches the screen in the redirect fragment, because the
+// consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+type ConsentRequest struct {
+	ClientName string `json:"client_name"`
+
+	// Offline The client asked to stay connected without asking again (offline_access).
+	Offline   bool                    `json:"offline"`
+	Passports []ConsentPassportOption `json:"passports"`
+}
+
+// ConsumerMailDomain One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+// consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+// that claimed it. Either way the domain is stored in its registrable form, which is what
+// the matcher keys on.
+type ConsumerMailDomain struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Domain The registrable domain (e.g. `gmx.net`).
+	Domain string             `json:"domain"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// Kind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+	Kind ConsumerMailDomainKind `json:"kind"`
+}
+
+// ConsumerMailDomainKind `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+type ConsumerMailDomainKind string
+
+// ConsumerMailDomainListResponse defines model for ConsumerMailDomainListResponse.
+type ConsumerMailDomainListResponse struct {
+	Data []ConsumerMailDomain `json:"data"`
+}
+
 // ContextEntityRef defines model for ContextEntityRef.
 type ContextEntityRef struct {
-	Id   openapi_types.UUID   `json:"id"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Type `user` is a workspace MEMBER, not a record — it appears only in the
+	// `who_knows` section, where the item is a colleague who interacts with the
+	// anchor contact. It carries the member's display name as `summary` and
+	// routes nowhere: a client renders it as a name, not as a link to a record.
 	Type ContextEntityRefType `json:"type"`
 }
 
-// ContextEntityRefType defines model for ContextEntityRef.Type.
+// ContextEntityRefType `user` is a workspace MEMBER, not a record — it appears only in the
+// `who_knows` section, where the item is a colleague who interacts with the
+// anchor contact. It carries the member's display name as `summary` and
+// routes nowhere: a client renders it as a name, not as a link to a record.
 type ContextEntityRefType string
 
 // ContextEvidence defines model for ContextEvidence.
@@ -8863,15 +9131,6 @@ type CreateAutomationRequest struct {
 	Name   string                 `json:"name"`
 	Params map[string]interface{} `json:"params"`
 }
-
-// CreateCaptureExclusionRequest defines model for CreateCaptureExclusionRequest.
-type CreateCaptureExclusionRequest struct {
-	Kind  CreateCaptureExclusionRequestKind `json:"kind"`
-	Value string                            `json:"value"`
-}
-
-// CreateCaptureExclusionRequestKind defines model for CreateCaptureExclusionRequest.Kind.
-type CreateCaptureExclusionRequestKind string
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
 type CreateConsentPurposeRequest struct {
@@ -9382,6 +9641,39 @@ type DealForecastCategory string
 // DealStatus defines model for Deal.Status.
 type DealStatus string
 
+// DealCoverage defines model for DealCoverage.
+type DealCoverage struct {
+	DealId       openapi_types.UUID       `json:"deal_id"`
+	OurSide      []PersonNetworkColleague `json:"our_side"`
+	Risks        []DealCoverageRisk       `json:"risks"`
+	Stakeholders []DealCoverageSeat       `json:"stakeholders"`
+}
+
+// DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
+// explain the flag rather than assert it.
+type DealCoverageRisk struct {
+	// DaysSinceTouch Days since the deal's last captured touch, on `going_cold` only; null on every
+	// other kind. It carries the number rather than a second `kind`, so the 30-day and
+	// 60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+	// 61 days cannot appear on one surface and not the other.
+	DaysSinceTouch *int                  `json:"days_since_touch,omitempty"`
+	Kind           DealCoverageRiskKind  `json:"kind"`
+	PersonIds      *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary        string                `json:"summary"`
+	UserIds        *[]openapi_types.UUID `json:"user_ids,omitempty"`
+}
+
+// DealCoverageRiskKind defines model for DealCoverageRisk.Kind.
+type DealCoverageRiskKind string
+
+// DealCoverageSeat One stakeholder seat, and whether it is a relationship or just a name.
+type DealCoverageSeat struct {
+	// Engaged A two-way exchange in the window — both directions, not just our sends.
+	Engaged  bool               `json:"engaged"`
+	PersonId openapi_types.UUID `json:"person_id"`
+	Role     string             `json:"role"`
+}
+
 // DealListResponse defines model for DealListResponse.
 type DealListResponse struct {
 	Data []Deal   `json:"data"`
@@ -9778,6 +10070,65 @@ type LeadStatus string
 type LeadListResponse struct {
 	Data []Lead   `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// LinkedInAccount defines model for LinkedInAccount.
+type LinkedInAccount struct {
+	// Connected Whether this member has authorized LinkedIn.
+	Connected   bool       `json:"connected"`
+	ConnectedAt *time.Time `json:"connected_at,omitempty"`
+
+	// Connections How many connections this member's imports currently hold (tombstoned rows excluded).
+	Connections int `json:"connections"`
+
+	// ProfileUrl The member's own public profile — what their imported network is attributed to.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
+
+// LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
+// `skipped` is reported rather than hidden: a file half-ignored under a success
+// message is worse than a refusal.
+type LinkedInImportSummary struct {
+	// Confirmed Matched to a contact by exact email address, which is identity here.
+	Confirmed int `json:"confirmed"`
+
+	// Imported Rows stored (created or updated).
+	Imported int `json:"imported"`
+
+	// Rows Connection rows found in the file.
+	Rows int `json:"rows"`
+
+	// Skipped Rows with no usable name — they identify nobody.
+	Skipped int `json:"skipped"`
+
+	// Suggested Matched by name and employer — plausible, awaiting a human.
+	Suggested int `json:"suggested"`
+}
+
+// LinkedInReachAccount One account this member's network reaches.
+type LinkedInReachAccount struct {
+	// Connections How many of the caller's connections resolved to this account. An account with none is not listed.
+	Connections int `json:"connections"`
+
+	// ContactsOnFile How many of those are already contacts — confirmed matches only. The gap
+	// between this and `connections` is the answer the import was for: people you
+	// know at this account who are not in the CRM.
+	ContactsOnFile int                `json:"contacts_on_file"`
+	DisplayName    string             `json:"display_name"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+}
+
+// LinkedInReachResponse defines model for LinkedInReachResponse.
+type LinkedInReachResponse struct {
+	Accounts []LinkedInReachAccount `json:"accounts"`
+
+	// AccountsTotal Every account reached, not just the page returned — a truncated list read as the whole network would understate reach.
+	AccountsTotal int `json:"accounts_total"`
+
+	// UnresolvedConnections Connections whose employer matched no account on file. Reported because it is
+	// the honest size of what this view cannot show, and because it is the number
+	// that shrinks as accounts are created.
+	UnresolvedConnections int `json:"unresolved_connections"`
 }
 
 // List A static membership set or a dynamic segment. Mirrors the `list` table.
@@ -10749,6 +11100,11 @@ type OrganizationGraph struct {
 	// this" instead of "there is none". `contacts` withheld also withholds
 	// `deal_stakeholder` edges and the intro path, because both name a person.
 	//
+	// `our_side` is the workspace members connected to the account — the owner and the
+	// teammates who have interacted with its contacts. It needs BOTH the person and the
+	// activity grant, because each of its edges names a contact and is derived from a
+	// recorded interaction; either one missing withholds the whole group.
+	//
 	// The parent, child and partner organizations are not a group here: they need no
 	// grant beyond the organization read this whole endpoint already demands, so they
 	// are row-scope pruned like every other node and can never be withheld wholesale.
@@ -10789,12 +11145,49 @@ type OrganizationGraphEdge struct {
 	// points at it; the account points at each child).
 	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 	// the organization that records the edge to its counterparty.
+	// `owns` — `from` is the workspace member who owns the account.
+	// `in_contact_with` — `from` is the workspace member who has been IN recorded
+	// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+	// the recorded participants of those interactions, so it holds for
+	// connector-captured mail as well as manually logged activity. Every participant
+	// role makes one, `cc` included: in an account team the person permanently in
+	// copy is frequently the one who knows the customer, so excluding them removes
+	// exactly the people this edge exists to find. The quality bar sits in the score
+	// rather than a role filter — copy traffic is one-directional, so the reciprocity
+	// term ranks a permanently-cc'd colleague below anyone in a two-way thread. A
+	// task assigned to a teammate still makes none: an assignment is intent, while a
+	// recorded interaction is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
-	// (champion, economic_buyer, …). Null on the edges that carry none.
-	Role *string            `json:"role,omitempty"`
-	To   openapi_types.UUID `json:"to"`
+	// (champion, economic_buyer, …). Null on the edges that carry none, which includes
+	// both `owns` and `in_contact_with`.
+	Role *string `json:"role,omitempty"`
+
+	// Strength How warm this particular colleague's relationship with this contact is, 0–100,
+	// on `in_contact_with` edges only; null on every other kind, which describes a
+	// structural fact rather than a relationship.
+	//
+	// It is the per-user relationship strength (PO-F-3b): the same recency ×
+	// frequency × reciprocity arithmetic as the workspace-wide contact score, over
+	// only the interactions THIS colleague was in. It is deliberately not comparable
+	// by addition to the contact's own score — one answers "how warm is this contact
+	// to us", the other "to this person among us", and neither is derivable from the
+	// other.
+	//
+	// Computed at read from exact timestamps and counts, never stored, so it decays
+	// with the clock rather than with whenever a job last ran.
+	//
+	// Null also when the colleague and contact have no qualifying interaction in the
+	// scoring window, which is not the same as a zero — see `strength_bucket`.
+	Strength *int `json:"strength,omitempty"`
+
+	// StrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+	// `none` means no qualifying interaction at all and is shown as "no signal yet",
+	// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+	// different facts about an account.
+	StrengthBucket *OrganizationGraphEdgeStrengthBucket `json:"strength_bucket,omitempty"`
+	To             openapi_types.UUID                   `json:"to"`
 }
 
 // OrganizationGraphEdgeKind `employment` — the account employs the person.
@@ -10804,7 +11197,25 @@ type OrganizationGraphEdge struct {
 // points at it; the account points at each child).
 // `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 // the organization that records the edge to its counterparty.
+// `owns` — `from` is the workspace member who owns the account.
+// `in_contact_with` — `from` is the workspace member who has been IN recorded
+// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+// the recorded participants of those interactions, so it holds for
+// connector-captured mail as well as manually logged activity. Every participant
+// role makes one, `cc` included: in an account team the person permanently in
+// copy is frequently the one who knows the customer, so excluding them removes
+// exactly the people this edge exists to find. The quality bar sits in the score
+// rather than a role filter — copy traffic is one-directional, so the reciprocity
+// term ranks a permanently-cc'd colleague below anyone in a two-way thread. A
+// task assigned to a teammate still makes none: an assignment is intent, while a
+// recorded interaction is contact.
 type OrganizationGraphEdgeKind string
+
+// OrganizationGraphEdgeStrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+// `none` means no qualifying interaction at all and is shown as "no signal yet",
+// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+// different facts about an account.
+type OrganizationGraphEdgeStrengthBucket string
 
 // OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
 // and which contact is the way in. The contact is ranked exactly as
@@ -10829,18 +11240,27 @@ type OrganizationGraphIntroPath struct {
 type OrganizationGraphNode struct {
 	// Detail One short line of context the node cannot be read without: a contact's title,
 	// or a deal's stage name. Null when the record has none on file, and always null
-	// on an organization — how a related company is attached is the EDGE's kind, and
-	// saying it twice would let the two disagree.
+	// on an organization or a user — how a related company is attached, and how a
+	// teammate is connected, is the EDGE's kind, and saying it twice would let the two
+	// disagree.
 	Detail *string            `json:"detail,omitempty"`
 	Id     openapi_types.UUID `json:"id"`
 
 	// IntroPath This contact is the route in the active signal's warm-intro path proposes.
 	// At most one node carries it, and only when `intro_path` at the top level is
 	// present. Absent on every other node — there is nothing to say about them.
-	IntroPath *bool                     `json:"intro_path,omitempty"`
-	Kind      OrganizationGraphNodeKind `json:"kind"`
+	IntroPath *bool `json:"intro_path,omitempty"`
 
-	// Label The record's display name — the organization's, the person's full name, the deal's name.
+	// Kind `organization`, `person` and `deal` are the account's own records.
+	// `user` is a member of THIS workspace — someone on our side who is connected to the
+	// account. A user node carries its display name as the `label` and nothing else:
+	// `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+	// because §4 measures our relationship with the account's people, not with each
+	// other. `intro_path` is a plain boolean and is never sent as null on any node —
+	// a client reads its absence as "not on the warm-intro path".
+	Kind OrganizationGraphNodeKind `json:"kind"`
+
+	// Label The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name.
 	Label string `json:"label"`
 
 	// LogoUrl The company node's resolved logo (A55), same value `Organization.logo_url` carries.
@@ -10854,15 +11274,21 @@ type OrganizationGraphNode struct {
 	Root bool `json:"root"`
 
 	// Strength The person's §4 relationship strength, for weighting the node. Null for an
-	// organization or a deal, which have no relationship of their own, and for a
-	// contact whose strength this caller's person scope did not resolve.
+	// organization, a deal or a user, none of which have a relationship of their own,
+	// and for a contact whose strength this caller's person scope did not resolve.
 	Strength *int `json:"strength,omitempty"`
 
 	// StrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
 	StrengthBucket *OrganizationGraphNodeStrengthBucket `json:"strength_bucket,omitempty"`
 }
 
-// OrganizationGraphNodeKind defines model for OrganizationGraphNode.Kind.
+// OrganizationGraphNodeKind `organization`, `person` and `deal` are the account's own records.
+// `user` is a member of THIS workspace — someone on our side who is connected to the
+// account. A user node carries its display name as the `label` and nothing else:
+// `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+// because §4 measures our relationship with the account's people, not with each
+// other. `intro_path` is a plain boolean and is never sent as null on any node —
+// a client reads its absence as "not on the warm-intro path".
 type OrganizationGraphNodeKind string
 
 // OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
@@ -11287,6 +11713,13 @@ type Person struct {
 	Phones       *[]PersonPhone          `json:"phones,omitempty"`
 	Raw          *map[string]interface{} `json:"raw,omitempty"`
 
+	// Reachability Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+	// Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+	// third-party identifier) stays out of this broad read; a governed surface owns it.
+	// A blocked identity still appears here, with `reachable: false`, so the record keeps
+	// showing that a conversation exists even when a reply cannot currently be delivered.
+	Reachability *[]PersonReachability `json:"reachability,omitempty"`
+
 	// Social { linkedin, twitter, github, ... }
 	Social *map[string]interface{} `json:"social,omitempty"`
 	Source string                  `json:"source"`
@@ -11353,6 +11786,28 @@ type PersonListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
+// a presentation detail: it is who to ask.
+type PersonNetwork struct {
+	Colleagues []PersonNetworkColleague `json:"colleagues"`
+	PersonId   openapi_types.UUID       `json:"person_id"`
+}
+
+// PersonNetworkColleague One colleague's own relationship with this contact.
+type PersonNetworkColleague struct {
+	DisplayName     string     `json:"display_name"`
+	Interactions90d int        `json:"interactions_90d"`
+	LastAt          *time.Time `json:"last_at,omitempty"`
+
+	// Strength PO-F-3b, computed at read; null when the band is `none`.
+	Strength       *int                                 `json:"strength,omitempty"`
+	StrengthBucket PersonNetworkColleagueStrengthBucket `json:"strength_bucket"`
+	UserId         openapi_types.UUID                   `json:"user_id"`
+}
+
+// PersonNetworkColleagueStrengthBucket defines model for PersonNetworkColleague.StrengthBucket.
+type PersonNetworkColleagueStrengthBucket string
+
 // PersonPhone defines model for PersonPhone.
 type PersonPhone struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -11374,6 +11829,19 @@ type PersonPhone struct {
 
 // PersonPhonePhoneType defines model for PersonPhone.PhoneType.
 type PersonPhonePhoneType string
+
+// PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
+// `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+type PersonReachability struct {
+	Provider  PersonReachabilityProvider `json:"provider"`
+	Reachable bool                       `json:"reachable"`
+
+	// Since When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+	Since time.Time `json:"since"`
+}
+
+// PersonReachabilityProvider defines model for PersonReachability.Provider.
+type PersonReachabilityProvider string
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
@@ -11847,6 +12315,12 @@ type RenameCustomFieldRequest struct {
 	Label *string `json:"label,omitempty"`
 }
 
+// ReplaceChannelTokenRequest defines model for ReplaceChannelTokenRequest.
+type ReplaceChannelTokenRequest struct {
+	// BotToken The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
+	BotToken string `json:"botToken"`
+}
+
 // ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
 // the exact filter+group+aggregate plus the underlying source rows, which reconcile
 // exactly to the explained aggregate (AC-X1).
@@ -11926,6 +12400,15 @@ type RunReportRequest struct {
 
 // RunReportRequestAggregatesFn defines model for RunReportRequest.Aggregates.Fn.
 type RunReportRequestAggregatesFn string
+
+// SaveLinkedInAccountRequest defines model for SaveLinkedInAccountRequest.
+type SaveLinkedInAccountRequest struct {
+	// Connected Record the authorization. Never revokes an existing one.
+	Connected *bool `json:"connected,omitempty"`
+
+	// ProfileUrl Absolute http(s) URL. Empty clears the stored value.
+	ProfileUrl *string `json:"profile_url,omitempty"`
+}
 
 // SavedView A per-user saved view (columns, sort, filter state) over one resource. Mirrors the `saved_view` table. V1 is private (owner-only); shared/team views are a fast-follow.
 type SavedView struct {
@@ -12007,6 +12490,22 @@ type SendEmailRequest struct {
 	DraftRef *string               `json:"draft_ref,omitempty"`
 	Subject  string                `json:"subject"`
 	To       []openapi_types.Email `json:"to"`
+}
+
+// SendMessageRequest One channel reply. It carries no subject and no addressee list, and that absence is the
+// shape of the transport rather than an omission: a messaging channel has no subject line
+// and no Cc, and the recipient is resolved from the conversation being answered (see the
+// operation), never named by the caller.
+type SendMessageRequest struct {
+	// Body The (possibly edited) final message text that is sent. A messaging provider rejects a
+	// text-less message, so an empty or whitespace-only body is refused at request time
+	// (422 `empty_message_body`) rather than staged for a delivery that could only park.
+	Body string `json:"body"`
+
+	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`). The send is
+	// suppressed (409 `consent_not_granted`) unless the recipient has an active `granted`
+	// `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+	ConsentPurpose string `json:"consent_purpose"`
 }
 
 // SetAiModelRateRequest defines model for SetAiModelRateRequest.
@@ -13270,6 +13769,34 @@ type SendEmailParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// SendMessageParams defines parameters for SendMessage.
+type SendMessageParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
 // ListAiModelRatesParams defines parameters for ListAiModelRates.
 type ListAiModelRatesParams struct {
 	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
@@ -13322,6 +13849,18 @@ type ListApprovalsParams struct {
 
 	// Kind Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
 	Kind *string `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// TargetEntityType Filter to the approvals staged against ONE record, together with `target_entity_id`.
+	// The two are a discriminated reference and only mean something as a pair, so supplying
+	// one without the other is a 422 rather than a filter that quietly matches every record
+	// of a type or every type of an id.
+	//
+	// A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+	// existence-hiding the record's own read gives.
+	TargetEntityType *string `form:"target_entity_type,omitempty" json:"target_entity_type,omitempty"`
+
+	// TargetEntityId The record the staged actions act on. Requires `target_entity_type`.
+	TargetEntityId *openapi_types.UUID `form:"target_entity_id,omitempty" json:"target_entity_id,omitempty"`
 }
 
 // ListApprovalsParamsStatus defines parameters for ListApprovals.
@@ -14208,6 +14747,28 @@ type ListListMembersParams struct {
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ImportLinkedInConnectionsMultipartBody defines parameters for ImportLinkedInConnections.
+type ImportLinkedInConnectionsMultipartBody struct {
+	// File LinkedIn `Connections.csv`.
+	File openapi_types.File `json:"file"`
+}
+
+// GetMyLinkedInReachParams defines parameters for GetMyLinkedInReach.
+type GetMyLinkedInReachParams struct {
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetConsentRequestParams defines parameters for GetConsentRequest.
+type GetConsentRequestParams struct {
+	ClientId string `form:"client_id" json:"client_id"`
+
+	// Scope The space-delimited scopes the client requested. Only the offline_access marker in it
+	// is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+	// grants the chosen passport's own.
+	Scope string `form:"scope" json:"scope"`
 }
 
 // ListOfferTemplatesParams defines parameters for ListOfferTemplates.
@@ -16013,6 +16574,9 @@ type RelinkActivityJSONRequestBody RelinkActivityJSONBody
 // SendEmailJSONRequestBody defines body for SendEmail for application/json ContentType.
 type SendEmailJSONRequestBody = SendEmailRequest
 
+// SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
+type SendMessageJSONRequestBody = SendMessageRequest
+
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
 
@@ -16052,11 +16616,17 @@ type BookMeetingJSONRequestBody BookMeetingJSONBody
 // SnoozeBriefItemJSONRequestBody defines body for SnoozeBriefItem for application/json ContentType.
 type SnoozeBriefItemJSONRequestBody = BriefSnoozeRequest
 
-// CreateCaptureExclusionJSONRequestBody defines body for CreateCaptureExclusion for application/json ContentType.
-type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
+// AddConsumerMailDomainJSONRequestBody defines body for AddConsumerMailDomain for application/json ContentType.
+type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
 
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
+
+// ConnectChannelJSONRequestBody defines body for ConnectChannel for application/json ContentType.
+type ConnectChannelJSONRequestBody = ConnectChannelRequest
+
+// ReplaceChannelTokenJSONRequestBody defines body for ReplaceChannelToken for application/json ContentType.
+type ReplaceChannelTokenJSONRequestBody = ReplaceChannelTokenRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -16141,6 +16711,12 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// SaveMyLinkedInAccountJSONRequestBody defines body for SaveMyLinkedInAccount for application/json ContentType.
+type SaveMyLinkedInAccountJSONRequestBody = SaveLinkedInAccountRequest
+
+// ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
+type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
 
 // CreateOfferTemplateJSONRequestBody defines body for CreateOfferTemplate for application/json ContentType.
 type CreateOfferTemplateJSONRequestBody = CreateOfferTemplateRequest
@@ -19692,6 +20268,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "raw")
 	}
 
+	if raw, found := object["reachability"]; found {
+		err = json.Unmarshal(raw, &a.Reachability)
+		if err != nil {
+			return fmt.Errorf("error reading 'reachability': %w", err)
+		}
+		delete(object, "reachability")
+	}
+
 	if raw, found := object["social"]; found {
 		err = json.Unmarshal(raw, &a.Social)
 		if err != nil {
@@ -19861,6 +20445,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	if a.Reachability != nil {
+		object["reachability"], err = json.Marshal(a.Reachability)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reachability': %w", err)
 		}
 	}
 
@@ -21967,6 +22558,9 @@ type ServerInterface interface {
 	// Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-email)
 	SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams)
+	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+	// (POST /activities/{id}/send-message)
+	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
@@ -22090,21 +22684,33 @@ type ServerInterface interface {
 	// Snooze a brief item (A77/AC-home-6) — hidden until `snoozed_until` passes, then it re-surfaces as actionable.
 	// (POST /brief/items/{itemId}/snooze)
 	SnoozeBriefItem(w http.ResponseWriter, r *http.Request, itemId openapi_types.UUID)
-	// List the calling user's personal-mail exclusion rules (RC-2).
-	// (GET /capture/exclusions)
-	ListCaptureExclusions(w http.ResponseWriter, r *http.Request)
-	// Add a personal-mail exclusion rule (RC-2).
-	// (POST /capture/exclusions)
-	CreateCaptureExclusion(w http.ResponseWriter, r *http.Request)
-	// Remove a personal-mail exclusion rule (RC-2).
-	// (DELETE /capture/exclusions/{id})
-	DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id)
+	// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+	// (GET /capture/consumer-mail-domains)
+	ListConsumerMailDomains(w http.ResponseWriter, r *http.Request)
+	// Add a consumer-mail domain, or carve one out (admin/ops).
+	// (POST /capture/consumer-mail-domains)
+	AddConsumerMailDomain(w http.ResponseWriter, r *http.Request)
+	// Withdraw a consumer-mail list entry (admin/ops).
+	// (DELETE /capture/consumer-mail-domains/{id})
+	RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
 	// Update the workspace's capture settings (admin/ops).
 	// (PATCH /capture/settings)
 	UpdateCaptureSettings(w http.ResponseWriter, r *http.Request)
+	// List the workspace's messaging-channel connections.
+	// (GET /channel-connections)
+	ListChannelConnections(w http.ResponseWriter, r *http.Request)
+	// Connect a messaging-channel bot for the whole workspace.
+	// (POST /channel-connections)
+	ConnectChannel(w http.ResponseWriter, r *http.Request)
+	// Disconnect a messaging channel (archives the binding and destroys the credential).
+	// (DELETE /channel-connections/{id})
+	DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id)
+	// Replace a channel connection's bot token in place.
+	// (PATCH /channel-connections/{id})
+	ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -22207,6 +22813,9 @@ type ServerInterface interface {
 	// Advance a deal to a new stage (audit-logged with prior + next stage).
 	// (POST /deals/{id}/advance)
 	AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id, params AdvanceDealParams)
+	// Who covers this deal, and what is wrong with how it is covered.
+	// (GET /deals/{id}/coverage)
+	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// List a deal's offers, newest revision first.
 	// (GET /deals/{id}/offers)
 	ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams)
@@ -22294,6 +22903,21 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Your own LinkedIn account as this CRM records it.
+	// (GET /me/linkedin-account)
+	GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Record or correct your own LinkedIn profile.
+	// (PUT /me/linkedin-account)
+	SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request)
+	// Import your own LinkedIn connections export.
+	// (POST /me/linkedin-connections)
+	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
+	// Which accounts your imported network reaches.
+	// (GET /me/linkedin-reach)
+	GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams)
+	// What the OAuth consent screen renders for one pending authorization.
+	// (GET /oauth/consent-request)
+	GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams)
 	// List offer templates (branded DE/EN PDF layouts), newest first.
 	// (GET /offer-templates)
 	ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams)
@@ -22504,6 +23128,9 @@ type ServerInterface interface {
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
+	// Who on our team knows this contact, and how well.
+	// (GET /people/{id}/network)
+	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -22849,6 +23476,12 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+// (POST /activities/{id}/send-message)
+func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The governed tool surface (registry metadata) for the operator UI.
 // (GET /agent-tools)
 func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
@@ -23095,21 +23728,21 @@ func (_ Unimplemented) SnoozeBriefItem(w http.ResponseWriter, r *http.Request, i
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List the calling user's personal-mail exclusion rules (RC-2).
-// (GET /capture/exclusions)
-func (_ Unimplemented) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+// The workspace's own consumer-mail domain list (CAP-PARAM-5).
+// (GET /capture/consumer-mail-domains)
+func (_ Unimplemented) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Add a personal-mail exclusion rule (RC-2).
-// (POST /capture/exclusions)
-func (_ Unimplemented) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// Add a consumer-mail domain, or carve one out (admin/ops).
+// (POST /capture/consumer-mail-domains)
+func (_ Unimplemented) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Remove a personal-mail exclusion rule (RC-2).
-// (DELETE /capture/exclusions/{id})
-func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id) {
+// Withdraw a consumer-mail list entry (admin/ops).
+// (DELETE /capture/consumer-mail-domains/{id})
+func (_ Unimplemented) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23122,6 +23755,30 @@ func (_ Unimplemented) GetCaptureSettings(w http.ResponseWriter, r *http.Request
 // Update the workspace's capture settings (admin/ops).
 // (PATCH /capture/settings)
 func (_ Unimplemented) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's messaging-channel connections.
+// (GET /channel-connections)
+func (_ Unimplemented) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Connect a messaging-channel bot for the whole workspace.
+// (POST /channel-connections)
+func (_ Unimplemented) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect a messaging channel (archives the binding and destroys the credential).
+// (DELETE /channel-connections/{id})
+func (_ Unimplemented) DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace a channel connection's bot token in place.
+// (PATCH /channel-connections/{id})
+func (_ Unimplemented) ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23329,6 +23986,12 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Who covers this deal, and what is wrong with how it is covered.
+// (GET /deals/{id}/coverage)
+func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List a deal's offers, newest revision first.
 // (GET /deals/{id}/offers)
 func (_ Unimplemented) ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams) {
@@ -23500,6 +24163,36 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Your own LinkedIn account as this CRM records it.
+// (GET /me/linkedin-account)
+func (_ Unimplemented) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record or correct your own LinkedIn profile.
+// (PUT /me/linkedin-account)
+func (_ Unimplemented) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Import your own LinkedIn connections export.
+// (POST /me/linkedin-connections)
+func (_ Unimplemented) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Which accounts your imported network reaches.
+// (GET /me/linkedin-reach)
+func (_ Unimplemented) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request, params GetMyLinkedInReachParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the OAuth consent screen renders for one pending authorization.
+// (GET /oauth/consent-request)
+func (_ Unimplemented) GetConsentRequest(w http.ResponseWriter, r *http.Request, params GetConsentRequestParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23920,6 +24613,12 @@ func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, 
 // Merge this person into a target (non-lossy).
 // (POST /people/{id}/merge)
 func (_ Unimplemented) MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Who on our team knows this contact, and how well.
+// (GET /people/{id}/network)
+func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25022,6 +25721,83 @@ func (siw *ServerInterfaceWrapper) SendEmail(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// SendMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SendMessageParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListAgentTools operation middleware
 func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 
@@ -25368,6 +26144,32 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_type", r.URL.Query(), &params.TargetEntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_id", r.URL.Query(), &params.TargetEntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_id", Err: err})
 		}
 		return
 	}
@@ -26601,8 +27403,8 @@ func (siw *ServerInterfaceWrapper) SnoozeBriefItem(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
-// ListCaptureExclusions operation middleware
-func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+// ListConsumerMailDomains operation middleware
+func (siw *ServerInterfaceWrapper) ListConsumerMailDomains(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -26611,7 +27413,7 @@ func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, 
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCaptureExclusions(w, r)
+		siw.Handler.ListConsumerMailDomains(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26621,8 +27423,8 @@ func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// CreateCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// AddConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) AddConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
@@ -26631,7 +27433,7 @@ func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.CreateCaptureExclusion(w, r)
+		siw.Handler.AddConsumerMailDomain(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26641,8 +27443,8 @@ func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteCaptureExclusion operation middleware
-func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+// RemoveConsumerMailDomain operation middleware
+func (siw *ServerInterfaceWrapper) RemoveConsumerMailDomain(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -26663,7 +27465,7 @@ func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter,
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteCaptureExclusion(w, r, id)
+		siw.Handler.RemoveConsumerMailDomain(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -26704,6 +27506,110 @@ func (siw *ServerInterfaceWrapper) UpdateCaptureSettings(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCaptureSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannelConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannelConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectChannel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectChannel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceChannelToken operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceChannelToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceChannelToken(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -28402,6 +29308,40 @@ func (siw *ServerInterfaceWrapper) AdvanceDeal(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetDealCoverage operation middleware
+func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDealOffers operation middleware
 func (siw *ServerInterfaceWrapper) ListDealOffers(w http.ResponseWriter, r *http.Request) {
 
@@ -29729,6 +30669,157 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SaveMyLinkedInAccount operation middleware
+func (siw *ServerInterfaceWrapper) SaveMyLinkedInAccount(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SaveMyLinkedInAccount(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportLinkedInConnections operation middleware
+func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportLinkedInConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyLinkedInReach operation middleware
+func (siw *ServerInterfaceWrapper) GetMyLinkedInReach(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMyLinkedInReachParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyLinkedInReach(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConsentRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetConsentRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetConsentRequestParams
+
+	// ------------- Required query parameter "client_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "client_id", r.URL.Query(), &params.ClientId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "client_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "client_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConsentRequest(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -32827,6 +33918,40 @@ func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MergePerson(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersonNetwork operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonNetwork(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -38159,6 +39284,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/send-email", wrapper.SendEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
 	})
 	r.Group(func(r chi.Router) {
@@ -38282,19 +39410,31 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/brief/items/{itemId}/snooze", wrapper.SnoozeBriefItem)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/capture/exclusions", wrapper.ListCaptureExclusions)
+		r.Get(options.BaseURL+"/capture/consumer-mail-domains", wrapper.ListConsumerMailDomains)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/capture/exclusions", wrapper.CreateCaptureExclusion)
+		r.Post(options.BaseURL+"/capture/consumer-mail-domains", wrapper.AddConsumerMailDomain)
 	})
 	r.Group(func(r chi.Router) {
-		r.Delete(options.BaseURL+"/capture/exclusions/{id}", wrapper.DeleteCaptureExclusion)
+		r.Delete(options.BaseURL+"/capture/consumer-mail-domains/{id}", wrapper.RemoveConsumerMailDomain)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/capture/settings", wrapper.UpdateCaptureSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/channel-connections", wrapper.ListChannelConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/channel-connections", wrapper.ConnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/channel-connections/{id}", wrapper.DisconnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/channel-connections/{id}", wrapper.ReplaceChannelToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)
@@ -38399,6 +39539,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deals/{id}/advance", wrapper.AdvanceDeal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/offers", wrapper.ListDealOffers)
 	})
 	r.Group(func(r chi.Router) {
@@ -38484,6 +39627,21 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-account", wrapper.GetMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/me/linkedin-account", wrapper.SaveMyLinkedInAccount)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/me/linkedin-reach", wrapper.GetMyLinkedInReach)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/oauth/consent-request", wrapper.GetConsentRequest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/offer-templates", wrapper.ListOfferTemplates)
@@ -38694,6 +39852,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)

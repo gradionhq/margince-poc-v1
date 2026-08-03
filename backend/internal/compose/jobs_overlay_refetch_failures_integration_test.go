@@ -81,7 +81,7 @@ func (f refetchFixture) worker(inc overlay.Incumbent) *overlayRefetchWorker {
 func (f refetchFixture) signal(w *overlayRefetchWorker) error {
 	return w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
 		Args: OverlayRefetchArgs{
-			Workspace: f.e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1",
+			Workspace: f.e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1",
 		},
 	})
 }

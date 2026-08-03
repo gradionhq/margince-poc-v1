@@ -242,8 +242,14 @@ func recordSiteReadConfirmation(ctx context.Context, tx pgx.Tx, read SiteRead, c
 	if err := storekit.EmitEvent(ctx, tx, auditID, confirmation.organizationID.UUID, payload); err != nil {
 		return fmt.Errorf("emit %s: %w", payload.EventType(), err)
 	}
+	// coalesce, because "staged nobody" is an EMPTY list and not an unknown
+	// one. A read of a site that names no contactable person stages nothing
+	// and hands back a nil slice, which encodes as SQL NULL against a NOT NULL
+	// column — so confirming an ordinary company page failed outright, at the
+	// last step of onboarding, with nothing but a 500 to show for it.
 	if _, err := tx.Exec(ctx, `UPDATE site_read
-		SET organization_id = $2, proposal_ids = $3, confirmed_at = now(), updated_at = now()
+		SET organization_id = $2, proposal_ids = coalesce($3, '{}'::uuid[]),
+		    confirmed_at = now(), updated_at = now()
 		WHERE id = $1`, read.ID, confirmation.organizationID, confirmation.proposalIDs); err != nil {
 		return fmt.Errorf("mark website read confirmed: %w", err)
 	}

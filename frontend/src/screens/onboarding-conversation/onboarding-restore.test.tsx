@@ -381,7 +381,11 @@ describe("restore into the conversational shell", () => {
     expect(screen.getByRole("button", { name: "Understood" })).toBeTruthy();
   });
 
-  it("continuing out of the results act checkpoints step connect", async () => {
+  // Continuing out of the recap opens the LinkedIn act, and checkpoints
+  // NOTHING yet. The server has no LinkedIn step, so recording "connect" here
+  // would send a reload straight past the network ask — the one question a
+  // brand-new workspace most needs answered.
+  it("continuing out of the results act opens LinkedIn without checkpointing", async () => {
     const calls = stubApi({
       state: stateRow({ step: "results" }),
       company: savedProfile,
@@ -390,6 +394,28 @@ describe("restore into the conversational shell", () => {
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Understood" }),
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
+    ).toBeTruthy();
+    expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(0);
+  });
+
+  it("answering the LinkedIn act checkpoints step connect", async () => {
+    const calls = stubApi({
+      state: stateRow({ step: "results" }),
+      company: savedProfile,
+    });
+    render(<OnboardingScreen />);
+
+    // The forward move at the results beat lives on the payoff card, which owns
+    // the action and suppresses the duplicate chip beside it.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Understood" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
     );
 
     expect(

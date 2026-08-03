@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Plug, RefreshCw, X } from "lucide-react";
+import { Mail, Plug, RefreshCw, Send, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -24,6 +24,7 @@ import {
   statusTone,
 } from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
+import { TelegramConnectForm } from "./telegram-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It
@@ -190,6 +191,184 @@ function ConnectorAddPanel({
           })}
         </p>
       )}
+    </>
+  );
+}
+
+type ChannelConnection = components["schemas"]["ChannelConnection"];
+
+type ChannelConnectionsResult = {
+  // GET /channel-connections answers 503 when this deployment serves no
+  // messaging channels, or has no credential store to seal a bot token in — a
+  // calm, documented feature-off state, mirroring the mail card's 501
+  // not_implemented treatment above rather than an error card.
+  notConfigured: boolean;
+  data: ChannelConnection[];
+};
+
+function useChannelConnections() {
+  return useQuery({
+    queryKey: ["channel-connections"],
+    queryFn: async (): Promise<ChannelConnectionsResult> => {
+      const { data, error, response } = await api.GET("/channel-connections");
+      if (
+        response.status === 503 &&
+        (problemCode(error) === "channel_connections_not_configured" ||
+          problemCode(error) === "channel_credentials_not_configured")
+      ) {
+        return { notConfigured: true, data: [] };
+      }
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return { notConfigured: false, data: data.data };
+    },
+  });
+}
+
+function TelegramConnectionRow({
+  connection,
+  onEdit,
+  onDisconnect,
+}: Readonly<{
+  connection: ChannelConnection;
+  onEdit: () => void;
+  onDisconnect: () => void;
+}>) {
+  const t = useT();
+  return (
+    <li className="connector-row">
+      <span className="connector-id">
+        <Send aria-hidden />
+        <span>
+          <strong>{t("connectors.provTelegram")}</strong>
+          <span className="t-small connector-account">
+            @{connection.channelLabel}
+          </span>
+        </span>
+      </span>
+      <span className="connector-actions">
+        <Badge tone={statusTone(connection.status)}>
+          {t(statusLabel(connection.status))}
+        </Badge>
+        <Button small onClick={onEdit}>
+          <RefreshCw aria-hidden /> {t("connectors.telegramEditToken")}
+        </Button>
+        <Button small variant="ghost" onClick={onDisconnect}>
+          {t("connectors.disconnect")}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+// One row per live bot, rendered from the server's own roster.
+//
+// A bot connects for the WHOLE workspace rather than per-user (Task 17,
+// design §9.1/§9.2), and a send needs exactly one of them: with a second
+// live bot the workspace can send nothing at all until an admin removes it.
+// This panel is the only surface that can, so it must show every connection
+// the list returns — a bot it hides is a bot nobody can disconnect.
+//
+// Editing goes through the SAME TelegramConnectForm modal, whose PATCH takes
+// the place of a disconnect-reconnect cycle (§9.2). The panel mounts one
+// form instance, keyed to whichever row opened it.
+function TelegramConnectorPanel() {
+  const t = useT();
+  const qc = useQueryClient();
+  const query = useChannelConnections();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [editingConnection, setEditingConnection] =
+    useState<ChannelConnection | null>(null);
+  const [disconnecting, setDisconnecting] = useState<ChannelConnection | null>(
+    null,
+  );
+
+  const disconnect = useMutation({
+    mutationFn: async (connection: ChannelConnection) => {
+      const { error } = await api.DELETE("/channel-connections/{id}", {
+        params: { path: { id: connection.id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: () => {
+      setDisconnecting(null);
+      void qc.invalidateQueries({ queryKey: ["channel-connections"] });
+    },
+  });
+
+  if (query.isPending) {
+    return <p className="t-small">{t("connectors.loading")}</p>;
+  }
+  if (query.isError) {
+    return (
+      <p className="t-small" style={{ color: "var(--danger)" }}>
+        {query.error instanceof Error
+          ? query.error.message
+          : t("connectors.loadFailed")}
+      </p>
+    );
+  }
+  if (query.data.notConfigured) {
+    return (
+      <EmptyState>
+        <p>{t("connectors.telegramNotConfigured")}</p>
+      </EmptyState>
+    );
+  }
+
+  const connections = query.data.data;
+  const closeForms = () => {
+    setConnectOpen(false);
+    setEditingConnection(null);
+  };
+
+  return (
+    <>
+      {connections.length === 0 && (
+        <Button small onClick={() => setConnectOpen(true)}>
+          <Send aria-hidden /> {t("connectors.telegramConnectCta")}
+        </Button>
+      )}
+      {connections.length > 0 && (
+        <ul className="connectors-list">
+          {connections.map((connection) => (
+            <TelegramConnectionRow
+              key={connection.id}
+              connection={connection}
+              onEdit={() => setEditingConnection(connection)}
+              onDisconnect={() => setDisconnecting(connection)}
+            />
+          ))}
+        </ul>
+      )}
+      <TelegramConnectForm
+        // Keyed to the row that opened it, so the form never carries one
+        // connection's in-progress state onto another's rotation.
+        key={editingConnection?.id ?? "new"}
+        open={connectOpen || editingConnection !== null}
+        connection={editingConnection ?? undefined}
+        onClose={closeForms}
+        onConnected={closeForms}
+      />
+      <ConfirmModal
+        open={disconnecting !== null}
+        onClose={() => setDisconnecting(null)}
+        title={t("connectors.telegramDisconnectTitle")}
+        confirmLabel={t("connectors.disconnect")}
+        confirmVariant="danger"
+        pending={disconnect.isPending}
+        error={disconnect.isError ? disconnect.error.message : null}
+        onConfirm={() => {
+          if (disconnecting) {
+            disconnect.mutate(disconnecting);
+          }
+        }}
+      >
+        <p className="t-small">{t("connectors.telegramDisconnectBody")}</p>
+      </ConfirmModal>
     </>
   );
 }
@@ -458,6 +637,13 @@ export function ConnectorsCard() {
         onClose={() => setImapConnectOpen(false)}
         onConnected={() => setImapConnectOpen(false)}
       />
+      <div className="connector-add">
+        <SectionHeader
+          title={t("connectors.telegramTitle")}
+          sub={t("connectors.telegramSub")}
+        />
+        <TelegramConnectorPanel />
+      </div>
     </Card>
   );
 }

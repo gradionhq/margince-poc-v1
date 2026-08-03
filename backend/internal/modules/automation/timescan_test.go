@@ -3,25 +3,18 @@
 
 package automation
 
-// DB-free proofs for TimeScanner's two pure building blocks
-// (timescan.go): scanWorkspaces (the per-workspace error-isolation loop)
-// and scanInstanceCandidates (the event-synthesis step). Both are free
-// functions specifically because TimeScanner.Scan itself always opens a
-// real Postgres connection (fleet enumeration, then a per-workspace
-// transaction for liveInstances/runOne) — exactly like
-// deals/closedatesweep.go's Sweep, which carries no unit test of its own
-// at all. Factoring the DB-free pieces out lets this suite prove the
-// load-bearing behavior (isolation, fresh provenance, the anchor
-// contract) without a database, while the full Scan wiring is proven
-// against a real one by the integration suite.
+// DB-free proofs for scanInstanceCandidates, TimeScanner's event-synthesis
+// step. It is a free function specifically because ScanWorkspace itself always
+// opens a real Postgres transaction (liveInstances, then runOne), so factoring
+// the synthesis out lets this suite prove the load-bearing behaviour — fresh
+// provenance per candidate, and the anchor contract the occurrence key derives
+// from — without a database. The surrounding wiring is proven against a real
+// one by the integration suite.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
-	"strings"
 	"testing"
 	"time"
 
@@ -29,37 +22,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
-
-// TestScanWorkspacesIsolatesAFailingWorkspace proves the fleet-pass
-// posture closedatesweep.go documents: one workspace's failure is logged,
-// never returned, and never stops the pass from reaching the rest of the
-// fleet.
-func TestScanWorkspacesIsolatesAFailingWorkspace(t *testing.T) {
-	failing := ids.NewV7()
-	healthy := ids.NewV7()
-	var visited []ids.UUID
-
-	var logBuf bytes.Buffer
-	log := slog.New(slog.NewTextHandler(&logBuf, nil))
-
-	scanWorkspaces([]ids.UUID{failing, healthy}, func(wsID ids.UUID) error {
-		visited = append(visited, wsID)
-		if wsID == failing {
-			return errors.New("boom: this workspace's automation table is unreachable")
-		}
-		return nil
-	}, log)
-
-	if len(visited) != 2 {
-		t.Fatalf("workspaces visited = %v, want both %s and %s", visited, failing, healthy)
-	}
-	if !strings.Contains(logBuf.String(), failing.String()) {
-		t.Errorf("log output %q does not name the failing workspace %s", logBuf.String(), failing)
-	}
-	if strings.Contains(logBuf.String(), healthy.String()) {
-		t.Errorf("log output %q names the healthy workspace — only the failing one's error should be logged", logBuf.String())
-	}
-}
 
 // fakeActivityScan is a DB-free stand-in for the ActivityScan seam: it
 // records the cutoff/limit it was called with and returns a fixed

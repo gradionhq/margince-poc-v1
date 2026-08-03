@@ -40,6 +40,18 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	// The A13 resurrection guard: an erased subject's address
 	// refuses re-capture — deletion sticks. The natural key, not
 	// the address, names the skip (the log must not re-store PII).
+	//
+	// An address is the only identifier this path can be given: LeadFields
+	// carries no channel identity, because a channel identity is a
+	// person-resolution key and a lead is not a person (ADR-0008 — leads
+	// graduate). So the channel twin of this probe has nothing to guard here; it
+	// guards the path a channel record does take: Sink.Upsert's own transaction
+	// (sinkchannel.go), under the account's advisory lock, with people's
+	// EnsureChannelCounterparty probing again after that commit.
+	//
+	// Note the "natural key names the skip" rule above holds for THIS path only:
+	// a mail natural key is a message-id, whereas a channel record's embeds the
+	// account id itself, so the channel refusal names no identifier at all.
 	if fields.Email != "" {
 		suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
 		if err != nil {
@@ -140,17 +152,20 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 // merge proposal after the transaction commits rather than folding the two
 // together here. A replay of the same natural key is not a collision — the
 // idempotent upsert path handles it.
+// The probe itself is storekit's, shared with the direct-create path: the two
+// lead write shapes answer a claimed identity differently — that path refuses
+// with the incumbent's id, this one stages a merge for a human — but they must
+// not disagree about what "already claimed" means.
 func (s *Sink) findLeadCollision(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (*ids.LeadID, json.RawMessage, error) {
-	var existing ids.LeadID
-	err := tx.QueryRow(ctx, `
-		SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
-		  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
-		fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, nil
-	}
+	existing, found, err := storekit.LiveLeadByEmail(ctx, tx, fields.Email, &storekit.LeadSourceKey{
+		SourceSystem: rec.NaturalKey.SourceSystem,
+		SourceID:     rec.NaturalKey.SourceID,
+	})
 	if err != nil {
 		return nil, nil, err
+	}
+	if !found {
+		return nil, nil, nil
 	}
 	// An incumbent outside the granting human's row scope is not the
 	// connector's to resolve: it can be neither merged into nor ignored in

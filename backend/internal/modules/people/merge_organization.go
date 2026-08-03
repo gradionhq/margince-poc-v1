@@ -43,6 +43,14 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// A merge fills the survivor's legal_name from the record it retires
+		// (fillOrgSurvivorship), so it is a name writer like any other and owes
+		// the same two things: the name lock BEFORE any organization row lock,
+		// and a re-check afterwards. Taking it here rather than beside the fill
+		// is what keeps the order — LockPair is next.
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return err
+		}
 		// The pair lock keeps BOTH endpoints held to commit: without it a
 		// concurrent merge(target→elsewhere) archives the survivor
 		// mid-merge and the relinked children point at a dead record.
@@ -66,7 +74,31 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 			return err
 		}
 		out, err = finalizeOrgMerge(ctx, tx, sourceID, targetID, filled, active)
-		return err
+		if err != nil {
+			return err
+		}
+		// A survivor that just inherited the retired record's legal name can now
+		// be the twin of a THIRD organization, and resolving one duplicate is no
+		// reason to leave that one unfiled. Only when the name actually moved: a
+		// merge that filled nothing renames nobody.
+		//
+		// It runs after finalizeOrgMerge, which retires the source. Before it,
+		// the source still reads as live AND holds the very name it has just
+		// donated, so it scores 1.0, wins the ranked list, and the pair filed
+		// names a row archived one statement later — a pair no human can ever
+		// dispose of, because merging it answers AlreadyMerged and that reopens
+		// it. The genuine third record is never reached, since the walk stops at
+		// the first unfiled rival.
+		if _, renamed := filled[fieldLegalName]; renamed {
+			by, err := storekit.CapturedBy(ctx)
+			if err != nil {
+				return err
+			}
+			if err := recheckOrgNameForDuplicates(ctx, tx, targetID, by); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return out, err
 }
@@ -100,7 +132,7 @@ func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID id
 // applied after-image for the merge audit.
 func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, tgtLock storekit.RowLock) (map[string]any, error) {
 	p := storekit.NewPatch()
-	fillString(p, "legal_name", tgt.LegalName, src.LegalName)
+	fillString(p, fieldLegalName, tgt.LegalName, src.LegalName)
 	fillString(p, "industry", tgt.Industry, src.Industry)
 	if targetIsPartner && (tgt.Classification == nil || *tgt.Classification != crmcontracts.OrganizationClassificationPartner) {
 		p.Set("classification", tgt.Classification, "partner")

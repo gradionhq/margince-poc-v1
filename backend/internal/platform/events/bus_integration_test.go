@@ -349,7 +349,23 @@ func TestSubscriberDeliversAcksAndFiltersWorkspaces(t *testing.T) {
 	}), testLogger())
 	s.block = 100 * time.Millisecond
 
-	consumeUntil(t, s, 5*time.Second, func() bool { return seen.Load() >= 1 })
+	// Wait for what this test actually asserts: BOTH entries acked. Waiting on
+	// `seen >= 1` instead waits for the OWN event's handler, which says nothing
+	// about the foreign one — that is filtered and acked on its own schedule,
+	// so the pending read could land before it happened and fail a subscriber
+	// that was working correctly.
+	pendingCount := func(t *testing.T) int64 {
+		t.Helper()
+		pending, err := e.rdb.XPending(t.Context(), "gw:events:crm:person", group.Name).Result()
+		if err != nil {
+			// Not a sentinel count: a Redis fault and a non-zero pending list
+			// are different failures, and folding them together would report
+			// an outage as "entries still pending".
+			t.Fatalf("reading the pending list: %v", err)
+		}
+		return pending.Count
+	}
+	consumeUntil(t, s, 5*time.Second, func() bool { return seen.Load() >= 1 && pendingCount(t) == 0 })
 
 	if sawForeign.Load() {
 		t.Fatal("a handler scoped to workspace A saw workspace B's event")
@@ -357,14 +373,9 @@ func TestSubscriberDeliversAcksAndFiltersWorkspaces(t *testing.T) {
 	if seen.Load() != 1 {
 		t.Fatalf("handler ran %d times, want 1 (own event only)", seen.Load())
 	}
-
 	// Both entries must be acked — the foreign one is filtered, not stuck.
-	pending, err := e.rdb.XPending(t.Context(), "gw:events:crm:person", group.Name).Result()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending.Count != 0 {
-		t.Fatalf("%d entries still pending; filtering must ack, not strand", pending.Count)
+	if n := pendingCount(t); n != 0 {
+		t.Fatalf("%d entries still pending; filtering must ack, not strand", n)
 	}
 }
 

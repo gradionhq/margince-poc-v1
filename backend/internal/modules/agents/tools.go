@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -23,6 +24,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
+
+// toolVersionV1 is the version every shipped tool spec carries. Named because
+// it appears on every tool in the package: a bare literal repeated two dozen
+// times is a value nobody can grep for when the surface finally versions.
+const toolVersionV1 = "1.0.0"
 
 // toolSource is the provenance channel every MCP write carries.
 const toolSource = "mcp"
@@ -68,6 +74,11 @@ type FieldOwnership interface {
 
 // decodeArgs is the surface's input validation: strict JSON (unknown
 // argument names are errors, not silent drops).
+//
+// It does NOT settle whether a required uuid argument was supplied: `ids.UUID`
+// zero-values an absent key without erroring, so that claim is made once for the
+// whole surface at Registry.Invoke (requireDeclaredIDs) rather than in each
+// handler — which is how thirteen handlers came to miss it.
 func decodeArgs[T any](in json.RawMessage, into *T) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
 	dec.DisallowUnknownFields()
@@ -89,10 +100,28 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 const maxBadArgsDetail = 200
 
 // BadArgsError maps to a tool-call validation failure.
-type BadArgsError struct{ Cause error }
+//
+// The two members have opposite provenance, and that is the whole reason they
+// are separate. Cause quotes the CALLER — the decoder echoes the JSON key it
+// refused — so it is bounded and escaped. Guidance is OURS: a fixed vocabulary
+// reflected off the contract, chosen by no caller.
+type BadArgsError struct {
+	Cause error
+	// Guidance is server-authored text appended after the echo, and it is NOT
+	// bounded. Bounding it with the echo is what made the accepted-field list
+	// truncate mid-word on a long unknown key — cutting away the list the
+	// message exists to teach, exactly when the caller most needed it. The
+	// bound guards against an unbounded write into a run's transcript by the
+	// model being prompted; our own strings were never that.
+	Guidance string
+}
 
 func (e *BadArgsError) Error() string {
-	return "arguments: " + boundDetail(e.Cause.Error(), maxBadArgsDetail)
+	msg := "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
+	if e.Guidance == "" {
+		return msg
+	}
+	return msg + "; " + e.Guidance
 }
 func (e *BadArgsError) Unwrap() error { return e.Cause }
 
@@ -109,6 +138,35 @@ func boundDetail(s string, n int) string {
 	return s[:cut] + "…"
 }
 
+// echoSafe prepares caller-authored text for a tool result: bounded, and with
+// every control character rendered as a visible escape.
+//
+// Bounding alone is not enough. A tool result lands in a transcript that later
+// prompts of the same run read, and the author of these strings is the model
+// being prompted — so a newline in a field name can open what reads as a new
+// line of conversation, and an escape byte can move a terminal's cursor.
+// Rendering them keeps what the caller actually wrote while taking away its
+// ability to forge the frame around it.
+func echoSafe(s string, n int) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return boundDetail(b.String(), n)
+}
+
 func schema(s string) json.RawMessage { return json.RawMessage(s) }
 
 // --- search_records (🟢 read) ---
@@ -119,7 +177,7 @@ type searchRecords struct {
 
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "search_records", Version: "1.0.0",
+		Name: "search_records", Title: "Search records", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -202,7 +260,7 @@ type readRecord struct {
 
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "read_record", Version: "1.0.0",
+		Name: "read_record", Title: "Read a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -236,12 +294,12 @@ type createRecord struct {
 
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "create_record", Version: "1.0.0",
+		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
-			"fields":{"type":"object","description":"The crm.yaml create-request body for the record_type (a task is record_type=activity, kind=task)"}},
+			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
@@ -253,6 +311,9 @@ func (t createRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		Fields     json.RawMessage `json:"fields"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	if err := rejectUnknownFields(createShapes, args.RecordType, args.Fields); err != nil {
 		return nil, err
 	}
 	ref, err := t.p.Create(ctx, datasource.CreateInput{
@@ -274,15 +335,15 @@ type logActivity struct {
 
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "log_activity", Version: "1.0.0",
+		Name: "log_activity", Title: "Log an activity", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
 			"kind":{"type":"string","enum":["note","email","call","meeting","task"]},
 			"subject":{"type":"string"},"body":{"type":"string"},
-			"occurred_at":{"type":"string","format":"date-time"},
+			"occurred_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"direction":{"type":"string","enum":["inbound","outbound"]},
-			"due_at":{"type":"string","format":"date-time"},
+			"due_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
 				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
@@ -322,7 +383,7 @@ type advanceDeal struct {
 
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "advance_deal", Version: "1.0.0",
+		Name: "advance_deal", Title: "Advance a deal to a stage", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,

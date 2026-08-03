@@ -54,7 +54,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	// is the one spelling of "a valid amount+currency" — the same rule
 	// the schema CHECKs repeat.
 	if (in.AmountMinor == nil) != (in.Currency == nil) {
-		return crmcontracts.Deal{}, &AmountCurrencyPairError{}
+		return crmcontracts.Deal{}, &AmountCurrencyPairError{Missing: missingMoneyHalf(in.AmountMinor == nil)}
 	}
 	if in.AmountMinor != nil {
 		if _, err := values.NewMoney(*in.AmountMinor, *in.Currency); err != nil {
@@ -291,7 +291,7 @@ func applyMoneyInvariants(ctx context.Context, tx pgx.Tx, current crmcontracts.D
 		resultingCurrency = in.Currency
 	}
 	if (resultingAmount == nil) != (resultingCurrency == nil) {
-		return &AmountCurrencyPairError{}
+		return &AmountCurrencyPairError{Missing: missingMoneyHalf(resultingAmount == nil)}
 	}
 	if resultingAmount != nil {
 		// One spelling of "a valid amount+currency" (values.Money), the
@@ -355,12 +355,44 @@ func (e *PastCloseDateError) Error() string {
 	return "an open deal cannot claim a close date in the past; pick today or later"
 }
 
+// FieldFault refuses an expected close date already in the past.
+func (e *PastCloseDateError) FieldFault() (field, code, message string) {
+	return "expected_close_date", "close_date_past", e.Error()
+}
+
 // AmountCurrencyPairError maps to 422: amount_minor and currency come
 // together or not at all (data-model §6 money rules).
-type AmountCurrencyPairError struct{}
+// currencyField names the wire field a money-pair refusal points at: amount and
+// currency are atomic, and the currency is the half a caller can supply.
+const currencyField = "currency"
+
+// amountField is the other half of a money value.
+const amountField = "amount_minor"
+
+// missingMoneyHalf names whichever half of the pair was left out.
+func missingMoneyHalf(amountMissing bool) string {
+	if amountMissing {
+		return amountField
+	}
+	return currencyField
+}
+
+// AmountCurrencyPairError refuses a half-specified money value. Missing names
+// the half that was NOT supplied, because that is the input the caller adds —
+// telling someone who sent a currency to fix the currency is no guidance.
+type AmountCurrencyPairError struct{ Missing string }
 
 func (e *AmountCurrencyPairError) Error() string {
 	return "amount_minor and currency come together or not at all"
+}
+
+// FieldFault refuses an amount without its currency (or the reverse) — the pair is atomic.
+func (e *AmountCurrencyPairError) FieldFault() (field, code, message string) {
+	field = e.Missing
+	if field == "" {
+		field = currencyField
+	}
+	return field, "amount_currency_pair", e.Error()
 }
 
 // TerminalStageOnCreateError maps to 422: create on an open stage, then
@@ -369,6 +401,11 @@ type TerminalStageOnCreateError struct{ Semantic string }
 
 func (e *TerminalStageOnCreateError) Error() string {
 	return "deals cannot be created on a " + e.Semantic + " stage; create open, then advance"
+}
+
+// FieldFault refuses creating a deal directly into a won/lost stage.
+func (e *TerminalStageOnCreateError) FieldFault() (field, code, message string) {
+	return "stage_id", "terminal_stage_on_create", e.Error()
 }
 
 func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.Deal, error) {

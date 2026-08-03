@@ -24,3 +24,32 @@ const ReservedSourceSystemPrefix = "mirror:"
 func ReservedSourceSystem(sourceSystem string) bool {
 	return strings.HasPrefix(sourceSystem, ReservedSourceSystemPrefix)
 }
+
+// ReservedError refuses a client write into the importer's namespace,
+// naming the field it arrived on. One type rather than one per module:
+// the rule is a single invariant — no client-facing path may write this
+// namespace — and three copies of it would be three places for the next
+// provenance field to be forgotten.
+type ReservedError struct{ Field, Value string }
+
+func (e *ReservedError) Error() string {
+	return e.Field + " " + e.Value + " is reserved for imports; omit it or use a value outside the " + ReservedSourceSystemPrefix + " namespace"
+}
+
+// FieldFault states the refusal as caller-fixable, which is how it
+// reaches every surface — the HTTP mapper and the MCP tool surface both
+// read this rather than each module restating it.
+func (e *ReservedError) FieldFault() (field, code, message string) {
+	return e.Field, "reserved_source_system", e.Error()
+}
+
+// Refuse guards ONE provenance field on a create wire. The flip stamps
+// its own writes inside this namespace and reads them back to recognize
+// records a crashed attempt landed, which is safe only while nothing
+// else can spell the prefix.
+func Refuse(field, value string) error {
+	if ReservedSourceSystem(value) {
+		return &ReservedError{Field: field, Value: value}
+	}
+	return nil
+}

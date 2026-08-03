@@ -115,6 +115,15 @@ type PendingCounterparty struct {
 // caller records as its own breadcrumb: a capture that asks no question is a
 // different event from one that joins an existing one, and only the first means
 // the workspace is being flooded.
+//
+// The erasure-suppression probe below has no channel twin HERE because this
+// ledger is keyed on an address, so a record identified by a channel identity
+// can never reach it. That is a statement about this ledger only: the channel
+// key needs the same refusal, and it needs it wherever the record becomes
+// durable. It is taken in Sink.Upsert's own transaction (sink.go), under the
+// account's advisory lock; people's EnsureChannelCounterparty probes again
+// afterwards, but it runs after the activity has committed, so it is the second
+// gate and never the only one.
 func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (string, error) {
 	email := normalizeEmail(in.Email)
 	if email == "" {

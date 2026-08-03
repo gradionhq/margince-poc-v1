@@ -32,6 +32,17 @@ var legalSuffixes = map[string]bool{
 	"co": true, "corp": true, "kg": true, "ug": true,
 }
 
+// legalConnectives join the halves of a COMPOUND legal form: "GmbH & Co. KG"
+// is one form, and a strip that halted on the ampersand left "basecom gmbh &"
+// as the key — a name no account is stored under.
+//
+// They are NOT suffixes in their own right, and treating them as such was
+// wrong: it collapsed "Research and" to "research" and "Miller und" to
+// "miller", so two unrelated accounts could meet at the same key. A connective
+// is consumed only when a real suffix has already been stripped and another
+// one follows it — which is exactly the compound case and nothing else.
+var legalConnectives = map[string]bool{"&": true, "und": true, "and": true}
+
 // normalizeName casefolds and unaccents (PO-PARAM-JW-2). Both sides of
 // every comparison run through it, so the metric stays internally
 // consistent; it is deliberately not required to agree rune-for-rune
@@ -54,12 +65,25 @@ func normalizeName(s string) string {
 // NormalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix
 // strip, applied only to the trailing token: "Co" inside "Coca Co" is a
 // name, "Co" at the end is a suffix.
+//
+// The strip never consumes the whole name: "Co" alone stays "co", because a
+// company may BE its suffix and an empty key would collide with every other
+// empty key.
 func NormalizeOrgName(s string) string {
 	fields := strings.Fields(normalizeName(strings.ReplaceAll(s, ",", " ")))
+	strippedOne := false
 	for len(fields) > 1 {
 		last := strings.Trim(fields[len(fields)-1], ".")
-		if !legalSuffixes[last] {
-			break
+		switch {
+		case legalSuffixes[last]:
+			strippedOne = true
+		case legalConnectives[last] && strippedOne && len(fields) > 2 &&
+			legalSuffixes[strings.Trim(fields[len(fields)-2], ".")]:
+			// A connective BETWEEN two legal forms — the "GmbH & Co. KG"
+			// case. Consumed only here, so a company whose name simply ends
+			// in "and" keeps it.
+		default:
+			return strings.Join(fields, " ")
 		}
 		fields = fields[:len(fields)-1]
 	}
@@ -75,7 +99,38 @@ func nameSimilarity(a, b string) float64 {
 // jaroWinkler applies the Winkler prefix boost unconditionally — the
 // pinned variant has no boost threshold, so a low-Jaro pair with a
 // shared prefix still gains (PO-PARAM-JW-1).
+// nameScoringMaxRunes bounds what the similarity metric compares.
+//
+// jaro is quadratic in the longer input — measured on this code, two 60 000-rune
+// names take a full second and the cost grows with the square — while
+// `display_name` is `text` with no maxLength in the contract, so one create can
+// hand it a megabyte. That scoring runs inside the writing transaction holding
+// the organization-name lock, so an unbounded score pins a pool connection and
+// every organization-name writer in the workspace behind it.
+//
+// The cap lives HERE and not in normalizeName, which looked like the tidier
+// place and is not: normalizeName also produces exact-match and grouping keys
+// (orgMatchKeys in linkedinimport.go, the promotion sweep's name buckets), and
+// truncating there would make two distinct names compare EQUAL as keys past the
+// bound — a match, not a capped score. Capping the metric changes only how
+// similar two things are said to be, which is all this bound is entitled to do.
+//
+// 256 runes is far past any real company or person name. A maxLength in the
+// contract is the complete answer and is raised upstream.
+const nameScoringMaxRunes = 256
+
+// boundedForScoring caps one side of a comparison. Two names that differ only
+// past the bound score as identical, which for names this long is the same
+// answer any metric would give.
+func boundedForScoring(s string) string {
+	if r := []rune(s); len(r) > nameScoringMaxRunes {
+		return string(r[:nameScoringMaxRunes])
+	}
+	return s
+}
+
 func jaroWinkler(a, b string) float64 {
+	a, b = boundedForScoring(a), boundedForScoring(b)
 	j := jaro(a, b)
 	if j == 0 {
 		return 0

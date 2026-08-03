@@ -32,6 +32,7 @@ package integration
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -56,14 +57,23 @@ import (
 // connector, so everything the message passes through after this point is
 // production code.
 type stubMailbox struct {
-	sender connector.Sender
+	sender connector.EmailSender
 	auth   connector.Auth
 }
 
 var _ comms.ConnectionResolver = stubMailbox{}
 
-func (m stubMailbox) Resolve(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (m stubMailbox) Resolve(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return m.sender, m.auth, []string{gmailSendScope}, nil
+}
+
+// ResolveChannel is not this suite's transport: every delivery here is
+// mail-shaped, so a channel resolve reaching this stub means the dispatcher's
+// shape branch read the wrong row. It refuses rather than answering, so that
+// mistake fails the run instead of quietly transmitting mail through a channel
+// seam.
+func (m stubMailbox) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+	return nil, nil, errors.New("stubMailbox: this suite stages mail deliveries only; a channel resolve here is a shape-branch defect")
 }
 
 // workspaceID is the fixture's workspace as the job-side code sees it: a bare

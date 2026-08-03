@@ -191,13 +191,6 @@ func (s reportSpec) fromClause() string {
 	return from
 }
 
-// FieldNotAllowedError maps to 422 report_field_not_allowed.
-type FieldNotAllowedError struct{ Field string }
-
-func (e *FieldNotAllowedError) Error() string {
-	return fmt.Sprintf("report: field %q is outside this report's vocabulary", e.Field)
-}
-
 // reportOutcome is the executed result plus the validated plan echo.
 // Filters/GroupBy/Aggregates carry the EFFECTIVE plan (defaults applied)
 // so the transport can mint derivation handles for exactly what ran.
@@ -301,7 +294,9 @@ func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggre
 		columns = append(columns, name)
 	}
 	if len(selects) == 0 {
-		return nil, nil, &FieldNotAllowedError{Field: "(empty plan)"}
+		// Its own refusal: nothing here is out of vocabulary, so the vocabulary
+		// error would name a field the caller never wrote.
+		return nil, nil, &EmptyReportPlanError{}
 	}
 	return columns, selects, nil
 }
@@ -415,7 +410,11 @@ func reportSQL(spec reportSpec, selects, where, groupBy []string) string {
 // scanReportRows shapes each result row into a column→value map, rendering
 // values wire-friendly.
 func scanReportRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
-	var rows []map[string]any
+	// Empty, never nil. "No deals in that stage" is a real answer and arrives
+	// shaped like the array it is: nil marshals to `null`, which a model reads as
+	// "unknown". Normalized here so no transport can put null on the wire —
+	// reportOutcome.Rows is marshalled straight through on the tool surface.
+	rows := []map[string]any{}
 	for pgRows.Next() {
 		values, err := pgRows.Values()
 		if err != nil {

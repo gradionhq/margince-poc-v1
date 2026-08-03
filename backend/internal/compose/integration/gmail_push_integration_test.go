@@ -129,13 +129,15 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 	}
 
 	t.Run("wrong token is refused before any work", func(t *testing.T) {
-		if code := post(srv.URL+"/webhooks/gmail-push?token=wrong", pushBody(t, mailbox)); code != http.StatusForbidden {
-			t.Fatalf("status = %d, want 403", code)
+		// The chassis's uniform admission failure (design §6.5): 401, not
+		// Gmail's old 403 — Pub/Sub re-mints and retries either way.
+		if code := post(srv.URL+"/webhooks/gmail?token=wrong", pushBody(t, mailbox)); code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", code)
 		}
 	})
 
 	t.Run("a push zeroes the pacing clock and enqueues the sync", func(t *testing.T) {
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, pushBody(t, mailbox)); code != http.StatusNoContent {
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, pushBody(t, mailbox)); code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204", code)
 		}
 		var next time.Time
@@ -163,7 +165,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 	})
 
 	t.Run("a redelivery cannot double-enqueue", func(t *testing.T) {
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, pushBody(t, mailbox)); code != http.StatusNoContent {
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, pushBody(t, mailbox)); code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204", code)
 		}
 		var jobRows int
@@ -180,18 +182,21 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed input is refused, not retried", func(t *testing.T) {
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte("not json")); code != http.StatusBadRequest {
-			t.Fatalf("garbage body status = %d, want 400", code)
+	t.Run("malformed input is poison, not retried", func(t *testing.T) {
+		// A malformed body is 2xx (Poison, design §6.5), not Gmail's old
+		// 400: the same bytes would fail identically on redelivery, so a
+		// 4xx would only make Pub/Sub retry a payload that can never succeed.
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, []byte("not json")); code < 200 || code >= 300 {
+			t.Fatalf("garbage body status = %d, want 2xx", code)
 		}
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte(`{"message":{"data":"%%%not-base64%%%"}}`)); code != http.StatusBadRequest {
-			t.Fatalf("bad base64 status = %d, want 400", code)
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, []byte(`{"message":{"data":"%%%not-base64%%%"}}`)); code < 200 || code >= 300 {
+			t.Fatalf("bad base64 status = %d, want 2xx", code)
 		}
 		empty := base64.StdEncoding.EncodeToString([]byte(`{"historyId":1}`))
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, []byte(`{"message":{"data":"`+empty+`"}}`)); code != http.StatusBadRequest {
-			t.Fatalf("missing emailAddress status = %d, want 400", code)
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, []byte(`{"message":{"data":"`+empty+`"}}`)); code < 200 || code >= 300 {
+			t.Fatalf("missing emailAddress status = %d, want 2xx", code)
 		}
-		resp, err := http.Get(srv.URL + "/webhooks/gmail-push?token=" + token)
+		resp, err := http.Get(srv.URL + "/webhooks/gmail?token=" + token)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -205,7 +210,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 	})
 
 	t.Run("an unknown mailbox is a 204 no-op", func(t *testing.T) {
-		if code := post(srv.URL+"/webhooks/gmail-push?token="+token, pushBody(t, "stranger@nowhere.example")); code != http.StatusNoContent {
+		if code := post(srv.URL+"/webhooks/gmail?token="+token, pushBody(t, "stranger@nowhere.example")); code != http.StatusNoContent {
 			t.Fatalf("status = %d, want 204 — Pub/Sub must stop retrying", code)
 		}
 	})

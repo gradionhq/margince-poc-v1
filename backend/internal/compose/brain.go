@@ -44,8 +44,13 @@ type ModelPath struct {
 	ColdStart       completer    // the website read-back extraction
 	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
-	RateExtract     completer    // the model-cost refresh pricing-page extraction lane
-	BriefRanking    completer    // the Morning-Brief L2 re-order (B-E05.2)
+	// SiteTriage decides what a mail domain's site IS before any organization
+	// is created from it. Its own task, not the profile lane's: it asks one
+	// cheap question of one page to stop a crawl early, so it must not bill the
+	// profile lane's premium-only ladder for it.
+	SiteTriage   completer
+	RateExtract  completer // the model-cost refresh pricing-page extraction lane
+	BriefRanking completer // the Morning-Brief L2 re-order (B-E05.2)
 	// Summarize serves both of the company view's grounded-prose sites: the
 	// standing account brief and the prepared "Ask Margince" questions. Both
 	// degrade to a deterministic floor, so a role without this lane still
@@ -171,6 +176,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		ColdStart:                  brain(ai.TaskColdStart),
 		SiteExtract:                brain(ai.TaskSiteExtract),
 		SiteFactExtract:            brain(ai.TaskSiteFactExtract),
+		SiteTriage:                 brain(ai.TaskSiteTriage),
 		RateExtract:                brain(ai.TaskRateExtract),
 		BriefRanking:               brain(ai.TaskBriefRanking),
 		Summarize:                  brain(ai.TaskSummarize),

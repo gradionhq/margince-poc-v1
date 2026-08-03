@@ -207,7 +207,7 @@ func TestGatePageFactsDemandsTheNameInTheCitedPassage(t *testing.T) {
 }
 
 func TestGatePageFactsPeopleStayPublishedOnly(t *testing.T) {
-	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindAbout, seedURL+"/about",
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindTeam, seedURL+"/team",
 		"Anna Muster is our Chief Executive Officer and founded the automation practice. Reach her at anna@acme.example for partnership topics.")
 	reply := `{"facts":[],"people":[
 		{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","l":"https://linkedin.com/in/anna","e":"s0"},
@@ -443,5 +443,49 @@ func TestGatePageEntitiesJoinsALegalBlockContinuation(t *testing.T) {
 	res, _ := gatePageEntities2(t, reply, page, menu, idx)
 	if len(res) != 1 || res[0].RegisterNumber != "HRB 123456" {
 		t.Fatalf("a legal block's adjacent register line must survive: %+v", res)
+	}
+}
+
+func TestATestimonialDoesNotBecomeALead(t *testing.T) {
+	// A home page's "what our clients say" wall names people who work
+	// ELSEWHERE, and filing them as contacts at the company whose site it is
+	// contradicts their own quoted job title on the same line.
+	//
+	// The published-email floor is what separates them from the founders and
+	// staff on the same pages, which are worth having: a company prints an
+	// address for the person you should talk to, and never for the customer
+	// it is quoting.
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindHome, seedURL,
+		"What our clients say: Marc Costea, CEO at Qilin.Cloud, calls it amazing. "+
+			"Our founder Anna Muster runs the practice, anna@acme.example.")
+	if !menu.people {
+		t.Fatal("a home page still asks for people — its founders are worth having")
+	}
+	reply := `{"facts":[],"people":[
+		{"n":"Marc Costea","r":"CEO","e":"s0"},
+		{"n":"Anna Muster","r":"founder","m":"anna@acme.example","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
+		t.Fatalf("only the company's own contactable person survives: %+v", res.people)
+	}
+	if reasons := dropReasons(dropped); reasons["Marc Costea"] != dropNoPublishedEmail {
+		t.Fatalf("the quoted customer must drop: %+v", dropped)
+	}
+}
+
+func TestAPersonWithNoPublishedEmailIsNotProposed(t *testing.T) {
+	// A lead nobody can contact is not a lead: the proposal would ask a human
+	// to confirm a name they then have no way to act on.
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindTeam, seedURL+"/team",
+		"Bernd Beispiel leads sales as Head of Sales. Anna Muster is our Chief Executive Officer, anna@acme.example.")
+	reply := `{"facts":[],"people":[
+		{"n":"Anna Muster","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"},
+		{"n":"Bernd Beispiel","r":"Head of Sales","e":"s0"}]}`
+	res, dropped := gatePageFacts(reply, page, menu, idx)
+	if len(res.people) != 1 || res.people[0].Name != "Anna Muster" {
+		t.Fatalf("only the contactable person may be proposed: %+v", res.people)
+	}
+	if reasons := dropReasons(dropped); reasons["Bernd Beispiel"] != dropNoPublishedEmail {
+		t.Fatalf("Bernd must drop for having no published address: %+v", dropped)
 	}
 }

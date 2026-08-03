@@ -4,6 +4,8 @@
 package privacy
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -163,7 +165,112 @@ func TestStringifyRendersValuesAndNeverLiteralNil(t *testing.T) {
 	if got := stringifyFieldValue(nil); got != nil {
 		t.Errorf("nil value = %q, want nil pointer (never a literal nil string)", *got)
 	}
-	if got := stringifyFieldValue(map[string]any{"a": "b"}); got == nil || *got == "" {
-		t.Error("structured value must render non-empty")
+	if got := stringifyFieldValue("Managed Hosting"); got == nil || *got != "Managed Hosting" {
+		t.Errorf("string value = %v, want it unchanged", got)
+	}
+}
+
+// Every jsonb number decodes to float64, and Go's default verb formats one
+// with %g — so a revenue of 50000000 reached the screen as "5e+07". A
+// salesperson reading what changed on a company gets the number.
+func TestStringifyLargeNumbersNeverRenderInScientificNotation(t *testing.T) {
+	for _, tc := range []struct {
+		in   float64
+		want string
+	}{
+		{50000000, "50000000"},
+		{250000000, "250000000"},
+		{1234.5, "1234.5"},
+		{0, "0"},
+		{-7500000, "-7500000"},
+	} {
+		got := stringifyFieldValue(tc.in)
+		if got == nil || *got != tc.want {
+			t.Errorf("stringifyFieldValue(%v) = %v, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// A structured value is the server's own jsonb, and the reader is looking at
+// what changed on their account. Go's default formatting prints its internal
+// map syntax, which reached the screen as `map[logo:https://…]`.
+func TestStringifyStructuredValuesRenderAsJSONNotGoSyntax(t *testing.T) {
+	got := stringifyFieldValue(map[string]any{"logo": "https://scale.sc/icon.png"})
+	if got == nil {
+		t.Fatal("structured value rendered as nil, want JSON")
+	}
+	if strings.HasPrefix(*got, "map[") {
+		t.Errorf("value = %q, want JSON rather than Go map syntax", *got)
+	}
+	if *got != `{"logo":"https://scale.sc/icon.png"}` {
+		t.Errorf("value = %q, want compact JSON", *got)
+	}
+
+	list := stringifyFieldValue([]any{"a", "b"})
+	if list == nil || *list != `["a","b"]` {
+		t.Errorf("array value = %v, want compact JSON", list)
+	}
+}
+
+// A site-read confirmation audits the pipeline's own state under the
+// organization: which draft it applied, where it read, and the entire applied
+// payload. None of those is a field of the record — nobody can see one as a
+// live value — so "what changed on this record" must not recite them.
+func TestDiffWithholdsTheWritingPipelinesOwnBookkeeping(t *testing.T) {
+	row := fhRow("agent", nil, map[string]any{
+		"industry":      "Manufacturing",
+		"source":        "site_read",
+		"source_url":    "https://acme.example",
+		"fields":        map[string]any{"logo": "https://acme.example/logo.png"},
+		"human_fields":  map[string]any{},
+		"facts":         []any{"one", "two"},
+		"site_read_id":  "019fbc88-0000-7000-8000-000000000000",
+		"draft_version": float64(3),
+	})
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 || entries[0].Field != "industry" {
+		got := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			got = append(got, entry.Field)
+		}
+		t.Fatalf("fields = %v, want the record's own field alone", got)
+	}
+}
+
+// A create names every column it wrote, nulls included. Projecting those as
+// changes told the reader a field had been created and then cleared, about a
+// field nobody ever filled.
+func TestDiffSaysNothingAboutAFieldThatWasNeverFilled(t *testing.T) {
+	row := fhRow("human", nil, map[string]any{
+		"full_name": "Dana Buyer",
+		"email":     nil,
+		"company":   nil,
+	})
+	// A CREATE row, which is where this happens: the write names every column
+	// it filled and every one it did not.
+	row.action = "create"
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 || entries[0].Field != "full_name" {
+		got := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			got = append(got, entry.Field)
+		}
+		t.Fatalf("fields = %v, want the one field the create actually filled", got)
+	}
+}
+
+// jsonb numbers decoded as float64 lose the low bits past 2^53, so a stored
+// id or amount came back as a DIFFERENT number than the record holds.
+func TestDiffRendersALargeNumberExactly(t *testing.T) {
+	row := fhRow("human",
+		map[string]any{"external_id": json.Number("9007199254740993")},
+		map[string]any{"external_id": json.Number("9007199254740995")},
+	)
+	entries := diffAuditRowFields(row, nil, nil)
+	if len(entries) != 1 {
+		t.Fatalf("entries = %+v, want one", entries)
+	}
+	if got := *entries[0].NewValue; got != "9007199254740995" {
+		t.Errorf("new value = %s, want the stored number unchanged", got)
 	}
 }

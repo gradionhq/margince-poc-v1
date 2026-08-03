@@ -32,7 +32,7 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 
 	outcome, err := h.engine.Run(r.Context(), report, req)
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 
@@ -65,12 +65,12 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, report string, _ crmcontracts.ExplainReportParams) {
 	q, err := parseDerivationQuery(r.URL.Query())
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 	outcome, err := h.engine.Derive(r.Context(), report, q)
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 	rows := make([]map[string]interface{}, len(outcome.Rows))
@@ -85,21 +85,4 @@ func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, re
 		TotalRows:   &outcome.TotalRows,
 		GeneratedAt: &outcome.GeneratedAt,
 	})
-}
-
-// writeReportError maps the engine's vocabulary rejections to the
-// contract's TOP-LEVEL 422 code (report_field_not_allowed), not a
-// per-field validation entry; everything else rides the sentinels.
-func writeReportError(w http.ResponseWriter, r *http.Request, err error) {
-	var notAllowed *FieldNotAllowedError
-	if errors.As(err, &notAllowed) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status:  http.StatusUnprocessableEntity,
-			Code:    "report_field_not_allowed",
-			Detail:  notAllowed.Error(),
-			Details: map[string]any{"field": notAllowed.Field},
-		})
-		return
-	}
-	httperr.Write(w, r, err)
 }

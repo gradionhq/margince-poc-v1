@@ -448,3 +448,68 @@ func TestRenewalReminderIdempotencyKeyIsAnchorDerived(t *testing.T) {
 		t.Error("IdempotencyKey did not change when the renewal date moved — a re-renewed record would never re-arm the trigger")
 	}
 }
+
+// TestAnchorKeysSeparateTwoEntitiesSharingOneAnchor pins the property the
+// claim's UNIQUE (workspace_id, handler, idempotency_key) makes
+// load-bearing: two DIFFERENT records that went quiet at the SAME instant
+// — one captured mail linked to a person and to their employer leaves
+// exactly that — must claim two different rows, or only the first of them
+// is ever reminded about.
+func TestAnchorKeysSeparateTwoEntitiesSharingOneAnchor(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	anchor := now.AddDate(0, 0, -40)
+	person := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
+	employer := datasource.EntityRef{Type: datasource.EntityOrganization, ID: ids.NewV7()}
+
+	handlers := map[string]workflow.Handler{
+		noActivityReminderName: noActivityReminder{},
+		checkInCadenceName:     checkInCadence{},
+	}
+	for name, h := range handlers {
+		t.Run(name, func(t *testing.T) {
+			personKey := h.IdempotencyKey(touchEvent(t, now, anchor, person))
+			employerKey := h.IdempotencyKey(touchEvent(t, now, anchor, employer))
+			if personKey == employerKey {
+				t.Fatalf("both entities produced the key %q — the second record's reminder would be absorbed by the first record's claim", personKey)
+			}
+			if !strings.Contains(personKey, person.ID.String()) {
+				t.Errorf("key %q does not carry the entity id %s", personKey, person.ID)
+			}
+			if !strings.Contains(personKey, string(person.Type)) {
+				t.Errorf("key %q does not carry the entity type %s", personKey, person.Type)
+			}
+		})
+	}
+}
+
+// TestRenewalReminderKeySeparatesTwoEntitiesSharingOneRenewalDate is the
+// same collision proof for the renewal anchor: two deals renewing on one
+// date are two reminders, not one.
+func TestRenewalReminderKeySeparatesTwoEntitiesSharingOneRenewalDate(t *testing.T) {
+	now := time.Date(2026, 7, 16, 9, 0, 0, 0, time.UTC)
+	renewalDate := now.AddDate(0, 0, 10)
+	first := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+	second := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+
+	h := renewalReminder{}
+	firstKey := h.IdempotencyKey(renewalEvent(t, now, renewalDate, first))
+	secondKey := h.IdempotencyKey(renewalEvent(t, now, renewalDate, second))
+	if firstKey == secondKey {
+		t.Fatalf("both deals produced the key %q — the second deal's renewal reminder would never claim its own run row", firstKey)
+	}
+}
+
+// TestAnchorKeyErrorBranchStillSeparatesEntities proves the decode-failure
+// branch carries the entity too: a wiring bug must not fold two records'
+// failures onto one claimed row.
+func TestAnchorKeyErrorBranchStillSeparatesEntities(t *testing.T) {
+	first := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+	second := datasource.EntityRef{Type: datasource.EntityDeal, ID: ids.NewV7()}
+	anchorErr := errTouchAnchorMissing
+
+	firstKey := anchorIdempotencyKey(noActivityReminderName, first, time.Time{}, anchorErr)
+	secondKey := anchorIdempotencyKey(noActivityReminderName, second, time.Time{}, anchorErr)
+	if firstKey == secondKey {
+		t.Fatalf("two entities' decode failures produced the same key %q", firstKey)
+	}
+}

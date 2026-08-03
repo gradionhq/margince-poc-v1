@@ -35,6 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
@@ -133,6 +134,37 @@ func (r nativeOnlyRetriever) AssembleContext(ctx context.Context, anchor datasou
 		return retrieval.Context{}, apperrors.ErrUnsupportedBySoR
 	}
 	return r.inner.AssembleContext(ctx, anchor, opts)
+}
+
+// nativeOnlyIntroPath and nativeOnlyAtRisk guard the two relationship-graph
+// tools. Both ground on the interaction projection and the native employment
+// and deal tables, none of which the incumbent mirror holds — so in overlay
+// mode they would answer "nobody can get you in" and "nothing is at risk",
+// which are believable answers rather than visible failures.
+func nativeOnlyIntroPath(mode overlayModeChecker, list agents.IntroPathLister) agents.IntroPathLister {
+	return func(ctx context.Context, orgID ids.UUID) ([]agents.IntroRoute, bool, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		if overlay {
+			return nil, false, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx, orgID)
+	}
+}
+
+func nativeOnlyAtRisk(mode overlayModeChecker, list agents.AtRiskLister) agents.AtRiskLister {
+	return func(ctx context.Context) (agents.AtRiskReport, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return agents.AtRiskReport{}, err
+		}
+		if overlay {
+			return agents.AtRiskReport{}, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx)
+	}
 }
 
 // nativeOnlySlippingLister guards whats_slipping_this_week, whose candidate
