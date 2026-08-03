@@ -82,10 +82,13 @@ func (s *Dispatcher) explain(tool string, err error) string {
 		// wrote those arguments, so it is the one party that can fix them —
 		// which it cannot do unless we say which one was wrong.
 		//
-		// Echoing the detail is safe BY CONSTRUCTION rather than by luck:
-		// BadArgsError.Error bounds it (maxBadArgsDetail) precisely because it
-		// quotes the caller's own JSON back into a transcript that later
-		// prompts of the same run will read.
+		// Echoing the detail is safe by construction rather than by luck, and
+		// the construction is specifically that BadArgsError separates
+		// provenance: its Cause — the half that quotes the caller's own JSON
+		// back into a transcript later prompts of this run will read — is
+		// bounded and escaped at maxBadArgsDetail. Its Guidance is NOT bounded,
+		// and must therefore never carry caller-influenced text; it exists for
+		// the fixed vocabularies reflected off the contract.
 		return "The arguments were rejected before the tool ran; nothing was changed. (" + badArgs.Error() + ") " +
 			"Correct them against the tool's inputSchema and call again — re-sending the same arguments will be rejected again."
 	default:

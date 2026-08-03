@@ -49,11 +49,12 @@ import (
 	"testing"
 )
 
-// wireFieldName is what a contract field path may look like: a lowercase
-// segment, optionally dotted for nesting, optionally indexed. Deliberately
-// strict — every legitimate field literal in the tree already satisfies it, so
-// anything that does not is prose.
-var wireFieldName = regexp.MustCompile(`^[a-z][a-z0-9_]*(\[[0-9]*\])?(\.[a-z][a-z0-9_]*(\[[0-9]*\])?)*$`)
+// wireFieldName is what a contract field path may look like: a lowercase segment,
+// optionally dotted for nesting, optionally indexed by an ACTUAL index. Every
+// legitimate field literal in the tree satisfies it, so anything that does not is
+// prose. `[0-9]+` rather than `[0-9]*` because `field_keys[]` points a client at no
+// element in particular, which is the same unactionable answer as prose.
+var wireFieldName = regexp.MustCompile(`^[a-z][a-z0-9_]*(\[[0-9]+\])?(\.[a-z][a-z0-9_]*(\[[0-9]+\])?)*$`)
 
 // fieldFaultMethods are the two forms that publish a field name to callers.
 // MessageFault is absent on purpose: it publishes a code and a message only.

@@ -117,10 +117,19 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 		var req reportRequest
 		if len(planArgs) > 0 {
 			if err := json.Unmarshal(planArgs, &req); err != nil {
-				// The same refusal RunReport spells for the same bytes. A raw
-				// decoder error is classified by nothing, and the agent that
-				// mistyped the plan would be told the tool failed internally.
-				return nil, httperr.Validation("body", "malformed_json", err.Error())
+				// Server-authored. The REST twin forwards the decoder's own text
+				// under the field `body`, which is wrong here twice over: this tool
+				// has no `body` argument, and the Go decoder names internal types
+				// (`compose.reportRequest`) an agent can neither read nor act on.
+				//
+				// The field is `arguments` — what the MCP surface actually calls the
+				// object the caller supplied — because the decoder cannot say WHICH
+				// of the three plan arguments is misshapen, and naming one would
+				// point at an argument that may well be correct. The message carries
+				// all three shapes, which is the part a caller acts on.
+				return nil, httperr.Validation("arguments", "malformed_json",
+					"a plan argument is not the shape this tool takes: `filters` is an object, "+
+						"`group_by` an array of strings, `aggregates` an array of {fn, field, as} objects")
 			}
 		}
 		outcome, err := engine.Run(ctx, report, req)
