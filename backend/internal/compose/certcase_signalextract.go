@@ -221,7 +221,7 @@ func (c *signalExtractCase) disagreements(payload extractPayload) []string {
 		position[message.ID.String()] = i + 1
 	}
 	reported := map[string]bool{}
-	for _, event := range payload.Events {
+	for _, event := range payload.events() {
 		reported[fmt.Sprintf("%s@%d", event.Kind, position[event.MessageID])] = true
 	}
 	wanted := map[string]bool{}

@@ -121,7 +121,11 @@ func readLiveRelationshipTypes(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 		return nil, err
 	}
 	defer rows.Close()
-	var live []string
+	// Non-nil, so an account with no types has the same canonical shape in the
+	// audit before-image as one whose types were just cleared. Left nil, a
+	// no-op replace on a typeless account records a null → [] transition that
+	// never happened.
+	live := []string{}
 	for rows.Next() {
 		var t string
 		if err := rows.Scan(&t); err != nil {

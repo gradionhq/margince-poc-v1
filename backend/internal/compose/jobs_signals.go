@@ -17,6 +17,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -101,17 +102,21 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	}
 
 	read := 0
+	var extractErr error
 	if w.extractor != nil {
-		read, err = w.extractor.RunWorkspace(wsCtx, wsID)
-		if err != nil {
-			return jobs.FaultContext(ctx, err)
-		}
+		read, extractErr = w.extractor.RunWorkspace(wsCtx, wsID)
 	}
 	// The offers come last, over every open signal rather than only the ones
 	// this pass raised: a crash between a signal and its offer self-heals here,
 	// and a signal raised before this surface existed still gets its offer.
-	standing, err := w.proposer.RunWorkspace(wsCtx)
-	if err != nil {
+	//
+	// It runs even when the extractor failed, and for exactly that reason.
+	// Returning early on a model error left every open contract_ended signal
+	// in the workspace without its approval offer for as long as one
+	// conversation kept failing — the self-healing pass skipped by the failure
+	// it exists to recover from. Both errors are reported.
+	standing, proposeErr := w.proposer.RunWorkspace(wsCtx)
+	if err := errors.Join(extractErr, proposeErr); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
 	if ghosted+read+standing > 0 {

@@ -258,14 +258,14 @@ func (a *assembly) readTimeline() error {
 // composite read exists to make that impossible.
 func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
 	if !a.adviceRead {
-		a.advice, a.adviceErr = gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+		// The signal reading comes first so it can be handed down: the
+		// contradiction rule and the health section are one query between
+		// them, and the dismissal path derives its inputs from the same
+		// function with its own reading.
+		var facts signalFacts
+		facts, a.adviceErr = a.signalFactsOnce()
 		if a.adviceErr == nil {
-			var facts signalFacts
-			facts, a.adviceErr = a.signalFactsOnce()
-			a.advice.contractEnded = facts.ContractEnded
-			if lc := a.out.Organization.Lifecycle; lc != nil {
-				a.advice.lifecycle = string(*lc)
-			}
+			a.advice, a.adviceErr = gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now, facts)
 		}
 		a.adviceRead = true
 	}

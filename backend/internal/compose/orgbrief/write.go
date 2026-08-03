@@ -269,12 +269,15 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 	}
 	known := knownRecords(orgID, in)
 	byKind := map[string][]Sentence{}
+	// The quota is on the BRIEF, not on one section: a model that returns two
+	// next_step sections would otherwise be handed the allowance twice, and the
+	// merged output would carry twice the advice the reader was promised.
+	recommendations := 0
 	for _, section := range parsed.Sections {
 		allowed, ok := natureAllowed[section.Kind]
 		if !ok {
 			continue
 		}
-		recommendations := 0
 		for _, sentence := range section.Sentences {
 			nature := sentence.Nature
 			if nature == "" {
@@ -285,15 +288,19 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 			if !allowed[nature] {
 				continue
 			}
-			if nature == natureRecommendation {
-				if recommendations == maxRecommendations {
-					continue
-				}
-				recommendations++
+			if nature == natureRecommendation && recommendations == maxRecommendations {
+				continue
 			}
 			sentence.Nature = nature
+			// Grounding decides FIRST. Counting an ungrounded recommendation
+			// would let one malformed claim spend the quota and suppress the
+			// valid advice behind it — the reader loses the advice and is told
+			// nothing about why.
 			if !groundedSentence(sentence, known) {
 				continue
+			}
+			if nature == natureRecommendation {
+				recommendations++
 			}
 			byKind[section.Kind] = append(byKind[section.Kind], sentence)
 		}
@@ -345,6 +352,14 @@ func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sente
 	for _, sentence := range sentences {
 		if !groundedSentence(sentence, known) {
 			continue
+		}
+		// The flat lane has no section to check the label against, so an
+		// unknown or absent nature reduces to fact — the strictest reading,
+		// and the same one ParseBriefSections gives an unlabelled claim.
+		// Forwarding the model's own string would let an Ask answer render a
+		// label the contract does not define.
+		if !knownNature[sentence.Nature] {
+			sentence.Nature = natureFact
 		}
 		kept = append(kept, sentence)
 	}
@@ -429,6 +444,12 @@ const (
 	natureAssessment     = string(crmcontracts.Assessment)
 	natureRecommendation = string(crmcontracts.Recommendation)
 )
+
+// knownNature is the same three natures as a set, for the flat lane, which has
+// no section whose natureAllowed map would otherwise answer the question.
+var knownNature = map[string]bool{
+	natureFact: true, natureAssessment: true, natureRecommendation: true,
+}
 
 // Section is one part of the brief: a heading's worth of claims about one
 // question. The order they arrive in is the order a reader asks them.

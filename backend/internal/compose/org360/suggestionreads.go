@@ -353,8 +353,13 @@ func granted(ctx context.Context, object string) (bool, error) {
 
 // gatherSuggestionInputs reads what the rules need, skipping whatever this
 // caller has no grant for.
+// facts is the account's open-signal reading, passed in rather than read here
+// so the page — which already holds it — does not query twice. Both callers
+// supply it, and every other input is derived HERE: the page and the dismissal
+// check must judge the same suggestions from the same values, or advice the
+// reader dismissed comes back because the dismissal path never raised it.
 func gatherSuggestionInputs(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, facts signalFacts,
 ) (suggestionInputs, error) {
 	timeline, err := granted(ctx, "activity")
 	if err != nil {
@@ -384,7 +389,28 @@ func gatherSuggestionInputs(
 		}
 		in.open = open
 	}
+	in.contractEnded = facts.ContractEnded
+	lifecycle, err := organizationLifecycle(ctx, tx, orgID)
+	if err != nil {
+		return suggestionInputs{}, err
+	}
+	in.lifecycle = lifecycle
 	return in, nil
+}
+
+// organizationLifecycle is the stage the record claims, read where the
+// suggestion inputs are assembled so the contradiction rule fires the same way
+// for the page and for the dismissal that answers it.
+func organizationLifecycle(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (string, error) {
+	var lifecycle *string
+	if err := tx.QueryRow(ctx,
+		`SELECT lifecycle FROM organization WHERE id = $1`, orgID).Scan(&lifecycle); err != nil {
+		return "", fmt.Errorf("read the account's lifecycle: %w", err)
+	}
+	if lifecycle == nil {
+		return "", nil
+	}
+	return *lifecycle, nil
 }
 
 // engagementState is PO-F-4: whose move is it, from the newest message that can

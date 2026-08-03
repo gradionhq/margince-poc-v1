@@ -109,7 +109,11 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 func (s *Service) raisesSuggestion(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, fingerprint string,
 ) (bool, error) {
-	in, err := gatherSuggestionInputs(ctx, tx, orgID, now)
+	facts, err := readSignalFacts(ctx, tx, orgID)
+	if err != nil {
+		return false, err
+	}
+	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts)
 	if err != nil {
 		return false, err
 	}

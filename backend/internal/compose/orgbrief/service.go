@@ -233,22 +233,35 @@ func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
 	}
 }
 
-// wireSentences renders one section's sentences, dropping a citation that is
-// not an id: it cannot be opened, so it is not evidence, and rendering it
-// would be a dead link.
+// wireSentences renders one section's sentences, dropping the WHOLE sentence
+// when any citation is not an id.
+//
+// Dropping only the bad citation would leave a readable claim standing on
+// partial or empty evidence, and the section would still render — the reader
+// sees an assertion about their account with nothing to check it against,
+// which is the one thing the grounding rule exists to prevent. A sentence is
+// kept only when it cited something and every citation parsed.
 func wireSentences(in []Sentence) []crmcontracts.OrganizationBriefSentence {
 	out := make([]crmcontracts.OrganizationBriefSentence, 0, len(in))
 	for _, sentence := range in {
+		if len(sentence.Evidence) == 0 {
+			continue
+		}
 		evidence := make([]crmcontracts.OrganizationBriefEvidence, 0, len(sentence.Evidence))
+		malformed := false
 		for _, cited := range sentence.Evidence {
 			parsed, err := ids.Parse(cited.EntityID)
 			if err != nil {
-				continue
+				malformed = true
+				break
 			}
 			evidence = append(evidence, crmcontracts.OrganizationBriefEvidence{
 				EntityId:   openapi_types.UUID(parsed),
 				EntityType: crmcontracts.OrganizationBriefEvidenceEntityType(cited.EntityType),
 			})
+		}
+		if malformed {
+			continue
 		}
 		wired := crmcontracts.OrganizationBriefSentence{Text: sentence.Text, Evidence: evidence}
 		if sentence.Nature != "" {

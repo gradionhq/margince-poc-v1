@@ -79,7 +79,7 @@ func readSignalFacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (
 	// the contract ended. Three queries would let them describe three instants.
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		WITH open_signals AS (
-			SELECT s.kind, s.severity, s.summary, s.detected_at FROM signal s
+			SELECT s.id, s.kind, s.severity, s.summary, s.detected_at FROM signal s
 			 WHERE %[1]s AND s.status = 'open' AND s.archived_at IS NULL AND %[2]s
 		)
 		SELECT (SELECT count(*) FROM open_signals WHERE kind = 'commitment_made'),
@@ -89,7 +89,7 @@ func readSignalFacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (
 		  LEFT JOIN LATERAL (
 			SELECT kind, severity, summary FROM open_signals
 			 ORDER BY CASE severity WHEN 'urgent' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
-			          detected_at DESC
+			          detected_at DESC, id DESC
 			 LIMIT 1) worst ON true`,
 		signals.OfOrganizationWhere(orgPos), scope), args...).
 		Scan(&facts.OpenCommitments, &facts.ContractEnded,

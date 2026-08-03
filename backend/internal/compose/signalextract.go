@@ -98,8 +98,20 @@ type extractedEvent struct {
 	Confidence schema.Confidence `json:"confidence"`
 }
 
+// Events is a POINTER so an absent key is distinguishable from an empty list.
+// "The conversation held nothing" is a real answer and advances the watermark;
+// a reply that never carried an `events` key at all did not answer, and
+// treating the two alike let a schema-invalid reply retire a thread unread.
 type extractPayload struct {
-	Events []extractedEvent `json:"events"`
+	Events *[]extractedEvent `json:"events"`
+}
+
+// events is the answered list, empty when the model said so.
+func (p extractPayload) events() []extractedEvent {
+	if p.Events == nil {
+		return nil
+	}
+	return *p.Events
 }
 
 // RunWorkspace reads every due thread in the workspace already bound in ctx,
@@ -146,7 +158,24 @@ func (x *SignalExtractor) readThread(
 		return 0, nil
 	}
 	events, err := x.ask(ctx, thread)
+	if errors.Is(err, errRefusedReading) {
+		// The reply was this thread's, and it was unusable. Re-reading the
+		// same text next pass buys the same refusal, and until the watermark
+		// moves this thread sits at the head of the due list and starves the
+		// ones behind it. So the reading is recorded as done, with nothing
+		// raised, and the operator is told which conversation it was.
+		x.log.WarnContext(ctx, "signal extract: refusing the model's reading, marking the thread read",
+			"thread_key", thread.Key, "error", err)
+		if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
+			return markThreadScanned(ctx, tx, wsID, thread, now)
+		}); markErr != nil {
+			return 0, markErr
+		}
+		return 0, nil
+	}
 	if err != nil {
+		// A provider or budget failure is not this thread's fault, so the
+		// watermark stays where it is and the conversation is read again.
 		return 0, err
 	}
 	raised := 0
@@ -191,6 +220,12 @@ func (x *SignalExtractor) readThread(
 	return raised, nil
 }
 
+// errRefusedReading marks a reply this site will not act on: unparseable, or
+// failing the fidelity rules. It is TERMINAL for the thread — the same text
+// re-read next pass fails the same way — as opposed to a provider or budget
+// error, where the thread is owed a retry.
+var errRefusedReading = errors.New("signal extract: the model's reading was refused")
+
 // ask makes the one structured call that reads a conversation.
 func (x *SignalExtractor) ask(ctx context.Context, thread settledThread) ([]extractedEvent, error) {
 	req := extractRequest(thread)
@@ -207,12 +242,12 @@ func (x *SignalExtractor) ask(ctx context.Context, thread settledThread) ([]extr
 	}
 	var payload extractPayload
 	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &payload); err != nil {
-		return nil, fmt.Errorf("signal extract: unparseable model output: %w", err)
+		return nil, fmt.Errorf("%w: unparseable model output: %w", errRefusedReading, err)
 	}
 	if msg := validateExtractPayload(payload, thread); msg != "" {
-		return nil, fmt.Errorf("signal extract: %s", msg)
+		return nil, fmt.Errorf("%w: %s", errRefusedReading, msg)
 	}
-	return payload.Events, nil
+	return payload.events(), nil
 }
 
 // extractRequest builds the ONE model call that reads one conversation. It is
@@ -282,15 +317,19 @@ func extractShapeValid(thread settledThread) ai.Validator {
 // validateExtractPayload names the first fidelity violation, or "" when the
 // payload is one this site may act on.
 func validateExtractPayload(payload extractPayload, thread settledThread) string {
-	if len(payload.Events) > extractMaxEvents {
+	if payload.Events == nil {
+		return "the reply carries no events key, so it did not answer the question"
+	}
+	events := payload.events()
+	if len(events) > extractMaxEvents {
 		return fmt.Sprintf("the conversation yielded %d events, and at most %d may be reported",
-			len(payload.Events), extractMaxEvents)
+			len(events), extractMaxEvents)
 	}
 	supplied := map[string]bool{}
 	for _, message := range thread.Messages {
 		supplied[message.ID.String()] = true
 	}
-	for _, event := range payload.Events {
+	for _, event := range events {
 		// Every echoed token is MODEL output, and a correspondent who got the
 		// model to obey can choose it — so it is bounded before it reaches an
 		// operator's log and, on a retry, the prompt again.

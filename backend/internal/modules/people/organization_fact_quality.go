@@ -38,9 +38,18 @@ var (
 	// A four-digit year in the range a company can plausibly have been founded.
 	yearShaped = regexp.MustCompile(`^(1[5-9]\d{2}|20\d{2})$`)
 	// A range, a bare count, or a count with a qualifier — "11-50", "200",
-	// "500+", "ca. 40". What it rejects is a value with no digits at all, or
-	// one long enough to be a sentence.
-	sizeShaped = regexp.MustCompile(`\d`)
+	// "500+", "ca. 40", "ca. 5.000 Mitarbeiter weltweit". The value must LEAD
+	// with the number (after an optional qualifier), which is what separates a
+	// headcount from a register number: "HRB 123456 B" leads with letters.
+	// Length cannot separate them — a register number is short and a real
+	// count phrase can be long.
+	sizeShaped = regexp.MustCompile(
+		`^(?i:(ca|approx|approx\.|about|etwa|rund|über|ueber|mehr als|more than|~|>|<|>=|<=)\.?\s*)?` +
+			`\d[\d.,\s]*(\s*[-–—]\s*\d[\d.,\s]*)?\s*\+?` +
+			`(\s+\p{L}[\p{L}.]*)*$`)
+	// The German commercial-register shapes, named so a register number filed
+	// as a headcount is called what it is rather than passing on digits alone.
+	registerShaped = regexp.MustCompile(`^(?i:HR[AB]|VR|GnR|PR|St\.?-?Nr)\b`)
 )
 
 // phoneShaped is a value made only of phone punctuation AND carrying enough
@@ -49,6 +58,19 @@ var (
 // be flagged as a phone number.
 func phoneShaped(v string) bool {
 	return phoneCharsOnly.MatchString(v) && len(digit.FindAllString(v, -1)) >= 7
+}
+
+// emailShaped is an address by shape: exactly one @, a non-empty local part,
+// and a domain carrying a dot with something on both sides of it. Deliberately
+// not deliverability — this decides whether to WARN a reader, not whether to
+// send.
+func emailShaped(v string) bool {
+	local, domain, found := strings.Cut(v, "@")
+	if !found || local == "" || strings.Contains(domain, "@") {
+		return false
+	}
+	name, tld, dotted := strings.Cut(domain, ".")
+	return dotted && name != "" && tld != "" && !strings.HasSuffix(tld, ".")
 }
 
 // factSuspectReason reports why a fact's value contradicts its field, or an
@@ -75,16 +97,18 @@ func factSuspectReason(field crmcontracts.OrganizationFactField, value string) s
 			return string(crmcontracts.OrganizationFactSuspectReasonNotAYear)
 		}
 	case crmcontracts.OrganizationFactFieldContactEmail:
-		// Shape only, not deliverability: an address with no @ and no dot is
-		// not an address by any reading, and anything stricter would start
-		// rejecting real ones.
-		if !strings.Contains(v, "@") || !strings.Contains(v, ".") {
+		// Shape only, not deliverability: one @, something either side of it,
+		// and a dot INSIDE the domain. Anything stricter starts rejecting real
+		// addresses; anything looser accepts "@." — which passed a plain
+		// contains-@-and-contains-. check and left the warning off.
+		if !emailShaped(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonNotAnEmail)
 		}
 	case crmcontracts.OrganizationFactFieldEmployeeRange:
 		// A register number IS digits, so digits alone cannot separate them.
-		// Length can: "11-50" and "HRB 123456 B" are different sizes of thing.
-		if !sizeShaped.MatchString(v) || len(v) > 24 {
+		// What separates them is what the value LEADS with: a headcount leads
+		// with its number, a register number with its register.
+		if registerShaped.MatchString(v) || !sizeShaped.MatchString(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonNotASize)
 		}
 	}

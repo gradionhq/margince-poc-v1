@@ -205,7 +205,7 @@ func probeFor(targetType string) targetProbe {
 	switch targetType {
 	case tablePerson, tableOrganization, tableDeal, tableLead, tableProject:
 		return probeOwnScope
-	case targetOffer, "signal", objectActivity, targetRelationship:
+	case targetOffer, objectSignal, objectActivity, targetRelationship:
 		return probeInheritedScope
 	case targetProduct, "custom_field":
 		return probeExistence
@@ -314,7 +314,7 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 	}
 	var ensure func(context.Context, pgx.Tx, ids.UUID) error
 	switch targetType {
-	case "signal":
+	case objectSignal:
 		ensure = auth.EnsureSignalVisible
 	case objectActivity:
 		ensure = auth.EnsureActivityVisible

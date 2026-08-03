@@ -38,12 +38,24 @@ func TestFactSuspectReasonNamesTheContradictionAndStaysQuietOtherwise(t *testing
 
 		{"an email with no at sign", crmcontracts.OrganizationFactFieldContactEmail, "info at scale.example", "not_an_email"},
 		{"an ordinary address", crmcontracts.OrganizationFactFieldContactEmail, "info@scale.example", ""},
+		// Punctuation alone satisfies "has an @ and has a dot" and is still
+		// not an address by any reading.
+		{"punctuation that is not an address", crmcontracts.OrganizationFactFieldContactEmail, "@.", "not_an_email"},
+		{"an address with no local part", crmcontracts.OrganizationFactFieldContactEmail, "@scale.example", "not_an_email"},
+		{"an address with no dot in the domain", crmcontracts.OrganizationFactFieldContactEmail, "info@localhost", "not_an_email"},
+		{"an address with two at signs", crmcontracts.OrganizationFactFieldContactEmail, "a@b@scale.example", "not_an_email"},
+		{"a plus-tagged address", crmcontracts.OrganizationFactFieldContactEmail, "sales+eu@scale.example", ""},
 
-		// A register number IS digits, so only its length separates it from a
-		// headcount.
+		// A register number IS digits, so digits alone cannot separate it from
+		// a headcount — what does is what the value leads with.
 		{"a register number filed as a headcount", crmcontracts.OrganizationFactFieldEmployeeRange, "HRB 123456 B, Amtsgericht Berlin", "not_a_size"},
+		// Short enough to pass a length rule, and still a register number.
+		{"a short register number", crmcontracts.OrganizationFactFieldEmployeeRange, "HRB 123456", "not_a_size"},
 		{"a band", crmcontracts.OrganizationFactFieldEmployeeRange, "11-50", ""},
 		{"an open-ended count", crmcontracts.OrganizationFactFieldEmployeeRange, "500+", ""},
+		{"a qualified count", crmcontracts.OrganizationFactFieldEmployeeRange, "ca. 40", ""},
+		// Long enough to fail a length rule, and still an honest headcount.
+		{"a spelled-out count phrase", crmcontracts.OrganizationFactFieldEmployeeRange, "ca. 5.000 Mitarbeiter weltweit", ""},
 		{"a headcount with no digits at all", crmcontracts.OrganizationFactFieldEmployeeRange, "several dozen", "not_a_size"},
 
 		// Fields with no rule stay silent rather than guessing.
