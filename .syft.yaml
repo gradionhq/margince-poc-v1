@@ -24,6 +24,23 @@ enrich:
 license:
   content: none
 
+# Digest every file in the scanned tree, not just files a package cataloger
+# claims. syft's default selection ("owned-by-package") only hashes files
+# attributed to a discovered package, leaving first-party source
+# (backend/**, frontend/src/**, migrations, config templates) with no
+# checksum. "all" hashes the whole export — the same clean `git archive HEAD`
+# content, minus the exclude globs below — so the SBOM records a verifiable
+# digest for every shipped local file. SHA1 is kept because SPDX file entries
+# historically key on it; SHA256 and SHA512 are the modern integrity checks
+# consumers verify against.
+file:
+  metadata:
+    selection: all
+    digests:
+      - sha1
+      - sha256
+      - sha512
+
 # Committed trees that are agent/CI/build-tooling/test state, not shipped
 # product source or dependency manifests. The clean export already drops
 # uncommitted host state (node_modules, build output, .env); these drop the
