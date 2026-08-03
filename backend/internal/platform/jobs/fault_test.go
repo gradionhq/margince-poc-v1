@@ -82,3 +82,60 @@ func TestFaultPrefersTheControlReturnOverASentinelUnderneath(t *testing.T) {
 		t.Fatal("a cancel carrying a known sentinel must stay a cancel — River stops the job rather than spending a rung on it")
 	}
 }
+
+// TestVettedSentenceAdmitsOnlyWhatFaultItselfWouldHaveWritten is the whole
+// safety argument for serving river_job.errors to a human: the column is
+// fleet-visible with no RLS and no redaction path, so a reader must never
+// pass its content through on trust. A worker that returned a bare provider
+// error — naming an address it refused — stored that text here.
+func TestVettedSentenceAdmitsOnlyWhatFaultItselfWouldHaveWritten(t *testing.T) {
+	for _, known := range vocabulary {
+		if !VettedSentence(known.sentence) {
+			t.Errorf("VettedSentence(%q) = false, want true", known.sentence)
+		}
+	}
+	if !VettedSentence(unrecognised) {
+		t.Error("the unclassified sentence is written by Fault and must be admitted")
+	}
+
+	for _, raw := range []string{
+		"",
+		"dial tcp 10.0.0.4:5432: connect: connection refused",
+		`smtp: 550 5.1.1 <someone@example.com>: recipient rejected`,
+		// River's rescuer writes this itself when a worker's process died
+		// mid-job. It is not a Fault sentence and must not be served as one.
+		"Stuck job rescued by JobRescuer",
+		// A near-miss: the vocabulary's sentence with trailing whitespace.
+		// The match is exact, so a worker whose own text merely resembles a
+		// vetted one does not slip through.
+		"the record this job names no longer exists ",
+		"THE RECORD THIS JOB NAMES NO LONGER EXISTS",
+		// A concatenation that CONTAINS a vetted sentence. A substring match
+		// here would let a worker prefix its raw cause onto a known sentence
+		// and carry the lot to the wire.
+		"connecting to 10.0.0.4: the record this job names no longer exists",
+	} {
+		if VettedSentence(raw) {
+			t.Errorf("VettedSentence(%q) = true: raw worker text reached a reader", raw)
+		}
+	}
+}
+
+// TestEverySentenceFaultCanWriteIsVetted derives the obligation from the
+// vocabulary rather than restating it: Fault has exactly two sources of
+// output text, and a sentence added to one of them without the reader
+// learning about it would be substituted away as if a worker had leaked it.
+func TestEverySentenceFaultCanWriteIsVetted(t *testing.T) {
+	for _, known := range vocabulary {
+		stored := Fault(fmt.Errorf("a raw cause: %w", known.sentinel)).Error()
+		if !VettedSentence(stored) {
+			t.Errorf("Fault wrote %q for %v, and the reader would not admit it",
+				stored, known.sentinel)
+		}
+	}
+	unclassified := Fault(errors.New("a cause no sentinel covers")).Error()
+	if !VettedSentence(unclassified) {
+		t.Errorf("Fault wrote %q for an unclassified cause, and the reader would not admit it",
+			unclassified)
+	}
+}
