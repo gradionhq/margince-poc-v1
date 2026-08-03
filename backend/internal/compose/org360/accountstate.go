@@ -121,6 +121,24 @@ func (a *assembly) readStateStrip() error {
 		strip.Commercial.OpenCount = in.open.OpenCount
 		strip.Commercial.StalledCount = len(in.open.Stalled)
 	}
+	// The worst thing standing open, or nothing. Null covers BOTH "no signal"
+	// and "you may not read signals" on purpose: a strip that said "nothing is
+	// wrong" to someone who cannot look would be answering a question it has
+	// no standing to answer. The signals card is where the difference shows.
+	facts, err := a.signalFactsOnce()
+	if err != nil {
+		return err
+	}
+	if facts.HasWorst {
+		strip.Signal = new(struct {
+			Kind     string                                               `json:"kind"`
+			Severity crmcontracts.Organization360StateStripSignalSeverity `json:"severity"`
+			Summary  string                                               `json:"summary"`
+		})
+		strip.Signal.Kind = facts.Worst.Kind
+		strip.Signal.Severity = crmcontracts.Organization360StateStripSignalSeverity(facts.Worst.Severity)
+		strip.Signal.Summary = facts.Worst.Summary
+	}
 	a.out.StateStrip = &strip
 	return nil
 }

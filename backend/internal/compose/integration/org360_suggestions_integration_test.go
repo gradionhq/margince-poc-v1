@@ -1052,3 +1052,75 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 		}
 	}
 }
+
+// seedSignal writes one open derived signal at a severity and an instant.
+func seedSignal(t *testing.T, e *Env, org ids.UUID, kind, severity, summary, at string) {
+	t.Helper()
+	SeedRow(t, OwnerConn(t), `INSERT INTO signal
+		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
+		 resolution_state, severity, summary, status, detected_at, source, captured_by)
+		VALUES ($1, $2, '`+kind+`', 'derived', 'organization', '`+org.String()+`',
+		        '`+org.String()+`', 'resolved', '`+severity+`', '`+summary+`', 'open',
+		        '`+at+`', 'signal-scan', 'agent:`+kind+`')`, e.WS)
+}
+
+// The strip has room for one signal and the account may have several. It
+// states the most serious, and among equals the newest — an old warning that
+// has been sitting there is less news than the one that just arrived.
+func TestTheStripStatesTheWorstOpenSignal(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	seedSignal(t, e, org.UUID, "commitment_made", "info",
+		"They promised volumes by Friday.", "2026-05-20T09:00:00Z")
+	seedSignal(t, e, org.UUID, "ghosted_thread", "warn",
+		"We wrote 20 days ago and nobody has answered.", "2026-05-01T09:00:00Z")
+	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.StateStrip == nil || view.StateStrip.Signal == nil {
+		t.Fatal("the strip states no signal on an account carrying three")
+	}
+	if view.StateStrip.Signal.Kind != "contract_ended" {
+		t.Errorf("the strip leads with %q, want the newest of the two warnings",
+			view.StateStrip.Signal.Kind)
+	}
+	if view.StateStrip.Signal.Summary != "They wrote that the contract ends on 31 July." {
+		t.Errorf("the strip says %q, want the producer's own sentence",
+			view.StateStrip.Signal.Summary)
+	}
+}
+
+// A caller who may not read signals is told nothing about them — not told
+// there is nothing. The tile is absent, and the difference is what the signals
+// card is for.
+func TestTheStripStatesNoSignalWithoutTheGrant(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+
+	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
+
+	blind := org360RepPerms
+	blind.Objects = make(map[string]principal.ObjectGrant, len(org360RepPerms.Objects))
+	for object, grant := range org360RepPerms.Objects {
+		if object == "signal" {
+			continue
+		}
+		blind.Objects[object] = grant
+	}
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, blind), org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.StateStrip != nil && view.StateStrip.Signal != nil {
+		t.Fatalf("the strip stated a signal to a caller with no grant to read one")
+	}
+}

@@ -427,6 +427,18 @@ type signalFacts struct {
 	Readable        bool
 	OpenCommitments int
 	ContractEnded   bool
+	// Worst is the most serious signal standing open, or absent when nothing
+	// is. Severity first, then the newest of that severity — an older warning
+	// that has been sitting there is less news than the one that just arrived.
+	Worst    signalHeadline
+	HasWorst bool
+}
+
+// signalHeadline is one signal as the strip states it.
+type signalHeadline struct {
+	Kind     string
+	Severity string
+	Summary  string
 }
 
 // readSignalFacts counts the things one side said they would do and nobody has
@@ -445,13 +457,31 @@ func readSignalFacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (
 		return signalFacts{}, nil
 	}
 	facts := signalFacts{Readable: true}
+	var kind, severity, summary *string
+	// One read serves three readers: the strip states the worst, the health
+	// section counts the commitments, and the contradiction rule asks whether
+	// the contract ended. Three queries would let them describe three instants.
 	if err := tx.QueryRow(ctx, `
-		SELECT count(*) FILTER (WHERE kind = 'commitment_made'),
-		       count(*) FILTER (WHERE kind = 'contract_ended') > 0
-		  FROM signal
-		 WHERE resolved_org_id = $1 AND status = 'open' AND archived_at IS NULL`,
-		orgID).Scan(&facts.OpenCommitments, &facts.ContractEnded); err != nil {
+		WITH open_signals AS (
+			SELECT kind, severity, summary, detected_at FROM signal
+			 WHERE resolved_org_id = $1 AND status = 'open' AND archived_at IS NULL
+		)
+		SELECT (SELECT count(*) FROM open_signals WHERE kind = 'commitment_made'),
+		       EXISTS (SELECT 1 FROM open_signals WHERE kind = 'contract_ended'),
+		       worst.kind, worst.severity, worst.summary
+		  FROM (SELECT 1) one
+		  LEFT JOIN LATERAL (
+			SELECT kind, severity, summary FROM open_signals
+			 ORDER BY CASE severity WHEN 'crit' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END,
+			          detected_at DESC
+			 LIMIT 1) worst ON true`,
+		orgID).Scan(&facts.OpenCommitments, &facts.ContractEnded,
+		&kind, &severity, &summary); err != nil {
 		return signalFacts{}, fmt.Errorf("read the account's open signals: %w", err)
+	}
+	if kind != nil && severity != nil && summary != nil {
+		facts.Worst = signalHeadline{Kind: *kind, Severity: *severity, Summary: *summary}
+		facts.HasWorst = true
 	}
 	return facts, nil
 }

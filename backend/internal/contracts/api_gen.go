@@ -4008,6 +4008,27 @@ func (e Organization360StateStripEngagementState) Valid() bool {
 	}
 }
 
+// Defines values for Organization360StateStripSignalSeverity.
+const (
+	Organization360StateStripSignalSeverityCrit Organization360StateStripSignalSeverity = "crit"
+	Organization360StateStripSignalSeverityInfo Organization360StateStripSignalSeverity = "info"
+	Organization360StateStripSignalSeverityWarn Organization360StateStripSignalSeverity = "warn"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripSignalSeverity enum.
+func (e Organization360StateStripSignalSeverity) Valid() bool {
+	switch e {
+	case Organization360StateStripSignalSeverityCrit:
+		return true
+	case Organization360StateStripSignalSeverityInfo:
+		return true
+	case Organization360StateStripSignalSeverityWarn:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Organization360SuggestionActionKind.
 const (
 	AddTask    Organization360SuggestionActionKind = "add_task"
@@ -5417,12 +5438,16 @@ func (e SignalEntityType) Valid() bool {
 
 // Defines values for SignalKind.
 const (
-	SignalKindBuyingIntent SignalKind = "buying_intent"
-	SignalKindChampionLeft SignalKind = "champion_left"
-	SignalKindOther        SignalKind = "other"
-	SignalKindReengagement SignalKind = "reengagement"
-	SignalKindRisk         SignalKind = "risk"
-	SignalKindStalledDeal  SignalKind = "stalled_deal"
+	SignalKindBuyingIntent   SignalKind = "buying_intent"
+	SignalKindChampionLeft   SignalKind = "champion_left"
+	SignalKindCommitmentMade SignalKind = "commitment_made"
+	SignalKindContractEnded  SignalKind = "contract_ended"
+	SignalKindGhostedThread  SignalKind = "ghosted_thread"
+	SignalKindNewOpportunity SignalKind = "new_opportunity"
+	SignalKindOther          SignalKind = "other"
+	SignalKindReengagement   SignalKind = "reengagement"
+	SignalKindRisk           SignalKind = "risk"
+	SignalKindStalledDeal    SignalKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the SignalKind enum.
@@ -5431,6 +5456,14 @@ func (e SignalKind) Valid() bool {
 	case SignalKindBuyingIntent:
 		return true
 	case SignalKindChampionLeft:
+		return true
+	case SignalKindCommitmentMade:
+		return true
+	case SignalKindContractEnded:
+		return true
+	case SignalKindGhostedThread:
+		return true
+	case SignalKindNewOpportunity:
 		return true
 	case SignalKindOther:
 		return true
@@ -6113,19 +6146,19 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 
 // Defines values for UpdateSignalRequestSeverity.
 const (
-	UpdateSignalRequestSeverityInfo   UpdateSignalRequestSeverity = "info"
-	UpdateSignalRequestSeverityUrgent UpdateSignalRequestSeverity = "urgent"
-	UpdateSignalRequestSeverityWarn   UpdateSignalRequestSeverity = "warn"
+	Info   UpdateSignalRequestSeverity = "info"
+	Urgent UpdateSignalRequestSeverity = "urgent"
+	Warn   UpdateSignalRequestSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
 func (e UpdateSignalRequestSeverity) Valid() bool {
 	switch e {
-	case UpdateSignalRequestSeverityInfo:
+	case Info:
 		return true
-	case UpdateSignalRequestSeverityUrgent:
+	case Urgent:
 		return true
-	case UpdateSignalRequestSeverityWarn:
+	case Warn:
 		return true
 	default:
 		return false
@@ -11471,6 +11504,16 @@ type Organization360StateStrip struct {
 		// State PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
 		State Organization360StateStripEngagementState `json:"state"`
 	} `json:"engagement,omitempty"`
+
+	// Signal The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it.
+	Signal *struct {
+		// Kind The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise.
+		Kind     string                                  `json:"kind"`
+		Severity Organization360StateStripSignalSeverity `json:"severity"`
+
+		// Summary The signal's one sentence, in the words its producer wrote — the strip does not rephrase what a conversation said.
+		Summary string `json:"summary"`
+	} `json:"signal,omitempty"`
 }
 
 // Organization360StateStripAccountLifecycle defines model for Organization360StateStrip.Account.Lifecycle.
@@ -11481,6 +11524,9 @@ type Organization360StateStripAccountRelationshipTypes string
 
 // Organization360StateStripEngagementState PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
 type Organization360StateStripEngagementState string
+
+// Organization360StateStripSignalSeverity defines model for Organization360StateStrip.Signal.Severity.
+type Organization360StateStripSignalSeverity string
 
 // Organization360Suggestion One deterministic next-step suggestion. It is derived, not decided: the rule
 // that fired, the records it fired on, and nothing the reader cannot check.
@@ -13251,7 +13297,13 @@ type Signal struct {
 	// Evidence Per-claim evidence (evidence-or-omit, features/07 §11 gate 1).
 	Evidence []SignalEvidence   `json:"evidence"`
 	Id       openapi_types.UUID `json:"id"`
-	Kind     SignalKind         `json:"kind"`
+
+	// Kind The first six are what a human files by hand. The last four are what the producers
+	// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+	// out of a settled conversation by the `signal_extract` site, each citing the message
+	// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+	// interaction is ours, nobody answered it, and the account is one worth chasing.
+	Kind SignalKind `json:"kind"`
 
 	// RawRef Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.
 	RawRef               *string  `json:"raw_ref,omitempty"`
@@ -13286,7 +13338,11 @@ type Signal struct {
 // SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
 type SignalEntityType string
 
-// SignalKind defines model for Signal.Kind.
+// SignalKind The first six are what a human files by hand. The last four are what the producers
+// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+// out of a settled conversation by the `signal_extract` site, each citing the message
+// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+// interaction is ours, nobody answered it, and the account is one worth chasing.
 type SignalKind string
 
 // SignalResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.

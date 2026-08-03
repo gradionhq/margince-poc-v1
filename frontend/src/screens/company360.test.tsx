@@ -1187,6 +1187,55 @@ describe("company view — the state strip", () => {
     expect(within(strip).getByText("1 stalled")).toBeTruthy();
   });
 
+  it("states the worst thing standing open, in the words its producer wrote", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+          signal: {
+            kind: "contract_ended",
+            severity: "warn",
+            summary: "They wrote that the contract ends on 31 July.",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Contract ending")).toBeTruthy();
+    // The producer's sentence, not a rephrasing of it: the strip states what
+    // the conversation said, and a reader checks it against the mail itself.
+    expect(
+      within(strip).getByText("They wrote that the contract ends on 31 July."),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about signals when nothing is open", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+          signal: null,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    // Null covers both "nothing is open" and "you may not read signals", so
+    // the tile is ABSENT rather than reassuring. A strip that told someone who
+    // cannot look that nothing is wrong would be answering a question it has
+    // no standing to answer.
+    expect(within(strip).queryByText("Worth knowing")).toBeNull();
+  });
+
   it("draws no engagement reading when the caller may not read the mail", async () => {
     stub(
       view({

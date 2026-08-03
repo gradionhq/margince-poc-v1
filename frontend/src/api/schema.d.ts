@@ -6928,6 +6928,15 @@ export interface components {
                 open_count: number;
                 stalled_count: number;
             } | null;
+            /** @description The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it. */
+            signal?: {
+                /** @description The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise. */
+                kind: string;
+                /** @enum {string} */
+                severity: "info" | "warn" | "crit";
+                /** @description The signal's one sentence, in the words its producer wrote — the strip does not rephrase what a conversation said. */
+                summary: string;
+            } | null;
         };
         /** @description One current employee of the account, as the company view shows them. */
         Organization360Contact: {
@@ -8412,8 +8421,15 @@ export interface components {
             id: string;
             /** Format: uuid */
             workspace_id: string;
-            /** @enum {string} */
-            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
+            /**
+             * @description The first six are what a human files by hand. The last four are what the producers
+             *     raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+             *     out of a settled conversation by the `signal_extract` site, each citing the message
+             *     it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+             *     interaction is ours, nobody answered it, and the account is one worth chasing.
+             * @enum {string}
+             */
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread";
             /**
              * @description Where the raw signal came from.
              * @default derived

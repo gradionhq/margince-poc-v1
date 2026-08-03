@@ -10790,6 +10790,27 @@ components:
           properties:
             open_count: { type: integer, minimum: 0 }
             stalled_count: { type: integer, minimum: 0 }
+        signal:
+          type: [object, 'null']
+          description: >-
+            The most serious thing standing open about this account, or null when nothing is
+            open — and also null when the caller has no signal grant, because a strip that
+            said "nothing" to someone who may not look would be answering a question it
+            cannot answer. Exactly one: the strip states the worst, the signals card lists
+            them all, and a reader who needs the rest opens it.
+          required: [kind, severity, summary]
+          properties:
+            kind:
+              type: string
+              description: >-
+                The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed
+                here, because the strip states whatever the producers can raise.
+            severity: { type: string, enum: [info, warn, crit] }
+            summary:
+              type: string
+              description: >-
+                The signal's one sentence, in the words its producer wrote — the strip does not
+                rephrase what a conversation said.
 
     Organization360Contact:
       type: object
@@ -12200,7 +12221,16 @@ components:
       properties:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
-        kind: { type: string, enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other] }
+        kind:
+          type: string
+          enum: [stalled_deal, champion_left, reengagement, buying_intent, risk, other,
+                 contract_ended, new_opportunity, commitment_made, ghosted_thread]
+          description: |
+            The first six are what a human files by hand. The last four are what the producers
+            raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+            out of a settled conversation by the `signal_extract` site, each citing the message
+            it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+            interaction is ours, nobody answered it, and the account is one worth chasing.
         source_channel:
           type: string
           enum: [derived, inbound, web, social, deal_room_engagement]

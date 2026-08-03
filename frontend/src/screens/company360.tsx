@@ -51,6 +51,31 @@ const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
   buying_intent: "signal.kind.buying_intent",
   risk: "signal.kind.risk",
   other: "signal.kind.other",
+  contract_ended: "signal.kind.contract_ended",
+  new_opportunity: "signal.kind.new_opportunity",
+  commitment_made: "signal.kind.commitment_made",
+  ghosted_thread: "signal.kind.ghosted_thread",
+};
+
+// The strip's signal kind is an open string on the wire, on purpose: the strip
+// states whatever a producer raised, and a producer added upstream must not
+// make the tile disappear. An unmapped kind renders as its own words rather
+// than as an identifier — the same degradation an unmapped approval kind gets.
+function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
+  const key = (SIGNAL_KIND_LABELS as Record<string, MessageKey | undefined>)[
+    kind
+  ];
+  return key ? t(key) : kind.replaceAll("_", " ");
+}
+
+// How serious a signal is, in the strip's own vocabulary of tones. `info` is
+// deliberately untoned: the strip leads with the WORST open signal, and an
+// account whose worst news is a commitment somebody made is an account with no
+// bad news — colouring that would cry wolf on every healthy record.
+const SIGNAL_TONE: Record<string, "warn" | "danger" | undefined> = {
+  info: undefined,
+  warn: "warn",
+  crit: "danger",
 };
 
 // The deal-stakeholder roles worth a word. `role` is free text on the wire
@@ -1647,6 +1672,14 @@ export function StateStrip({
                 })
               : undefined
           }
+        />
+      )}
+      {strip.signal && (
+        <StatCard
+          label={t("co.strip.signal")}
+          value={signalKindLabel(strip.signal.kind, t)}
+          tone={SIGNAL_TONE[strip.signal.severity]}
+          detail={strip.signal.summary}
         />
       )}
       {commercial && (
