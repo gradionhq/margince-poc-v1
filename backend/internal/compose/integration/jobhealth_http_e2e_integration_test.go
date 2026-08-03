@@ -14,7 +14,9 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"testing"
 	"time"
@@ -268,16 +270,15 @@ func TestJobHealthReportsAVettedSentenceForAFaultedWorkerAndSubstitutesForARawOn
 		t.Fatalf("expected both failures in the report, got %+v", report.RecentFailures)
 	}
 
-	// The whole body, not just the parsed fields: a trace that leaked
-	// through some OTHER field would pass every assertion above.
-	encoded, err := json.Marshal(report)
-	if err != nil {
-		t.Fatalf("re-encoding the report: %v", err)
-	}
-	for _, forbidden := range []string{"goroutine", "secretInternals", "someone@example.com"} {
-		if containsIgnoringCase(string(encoded), forbidden) {
+	// The bytes the server actually sent, NOT a re-marshalled DTO. Encoding
+	// the parsed struct would prove only that the fields this test declares
+	// are clean — every field it does not declare was silently dropped at
+	// decode, which is exactly where an unnoticed leak would live.
+	body := rawGet(t, e, "/v1/admin/job-health")
+	for _, forbidden := range []string{"goroutine", "secretInternals", "someone@example.com", "trace"} {
+		if containsIgnoringCase(body, forbidden) {
 			t.Errorf("the response body carries %q; only the attempt error's MESSAGE may be "+
-				"read, never the element, and only when vetted", forbidden)
+				"read, never the element, and only when vetted.\nbody: %s", forbidden, body)
 		}
 	}
 }
@@ -411,8 +412,111 @@ func TestJobHealthIgnoresTheSweepTagWhenScopingRows(t *testing.T) {
 	}
 }
 
+// rawGet answers the response body VERBATIM, so a leak assertion reads
+// what the server sent rather than what a test DTO chose to keep. env.call
+// decodes into a typed struct, which drops every field the struct does not
+// declare — and an undeclared field is precisely where an unnoticed leak
+// would sit.
+func rawGet(t *testing.T, e *env, path string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, e.ts.URL+path, nil)
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s: %v", path, err)
+	}
+	defer closeBody(t, resp)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s → %d, want 200", path, resp.StatusCode)
+	}
+	return string(raw)
+}
+
 // containsIgnoringCase keeps the leak assertions above from passing on a
 // difference of case alone.
 func containsIgnoringCase(haystack, needle string) bool {
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
+
+// TestJobHealthCapsTheFailureListAndOrdersItNewestFirst — recent_failures
+// is a bounded view, not a log. Without the cap an installation with a
+// week of discarded rows would serve all of them; without the order the
+// "recent" in the field name is a lie, and the 50 an operator sees would
+// be an arbitrary 50 rather than the newest.
+func TestJobHealthCapsTheFailureListAndOrdersItNewestFirst(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	mine := callerWorkspace(t, e)
+
+	// 60 failures, finalized at ascending times, so the newest are the
+	// highest-numbered and a correct read returns exactly those.
+	const seeded = 60
+	for i := range seeded {
+		seedRiverRow(t, e, riverRow{
+			kind: "capped_pass", state: "discarded", workspace: mine, attempt: 3,
+		})
+		if _, err := e.owner.Exec(context.Background(),
+			`UPDATE river_job SET finalized_at = now() - make_interval(mins => $1)
+			 WHERE kind = 'capped_pass' AND finalized_at IS NOT NULL
+			   AND id = (SELECT max(id) FROM river_job WHERE kind = 'capped_pass')`,
+			seeded-i); err != nil {
+			t.Fatalf("ageing fixture row %d: %v", i, err)
+		}
+	}
+
+	var report jobHealthDTO
+	if status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("GET /admin/job-health → %d, want 200", status)
+	}
+
+	if len(report.RecentFailures) != 50 {
+		t.Errorf("recent_failures has %d entries, want the declared cap of 50 out of %d seeded",
+			len(report.RecentFailures), seeded)
+	}
+	for i := 1; i < len(report.RecentFailures); i++ {
+		prev, cur := report.RecentFailures[i-1].FailedAt, report.RecentFailures[i].FailedAt
+		if prev < cur {
+			t.Fatalf("failure %d (%s) is newer than failure %d (%s): the list must be "+
+				"newest-first, or the 50 an operator sees are an arbitrary 50", i, cur, i-1, prev)
+		}
+	}
+	// The newest seeded row is one minute old; the oldest is an hour. A
+	// correct cap keeps the newest end, so the oldest ten must be absent.
+	oldest := report.RecentFailures[len(report.RecentFailures)-1].FailedAt
+	cutoff := time.Now().Add(-51 * time.Minute).UTC().Format(time.RFC3339)
+	if oldest < cutoff {
+		t.Errorf("the retained window reaches back to %s, past %s: the cap kept the OLDEST "+
+			"rows rather than the newest", oldest, cutoff)
+	}
+}
+
+// TestJobHealthRefusesAnUnauthenticatedCallOverHTTP — the contract declares
+// 401 for a call with no session, and that answer comes from the session
+// middleware rather than from the handler, so only the real wire proves it.
+func TestJobHealthRefusesAnUnauthenticatedCallOverHTTP(t *testing.T) {
+	e := setup(t)
+	// Bootstrapped, so the installation EXISTS — an unbootstrapped one
+	// answers 503 for every route and would prove nothing about this
+	// endpoint — and then stripped of its session cookie, so the request
+	// carries no credential of any kind.
+	e.bootstrapWorkspace(t)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("fresh cookie jar: %v", err)
+	}
+	e.client.Jar = jar
+
+	var problem struct {
+		Code string `json:"code"`
+	}
+	status := e.call(t, "GET", "/v1/admin/job-health", nil, nil, &problem)
+	if status != http.StatusUnauthorized {
+		t.Errorf("unauthenticated GET /admin/job-health → %d, want 401", status)
+	}
 }

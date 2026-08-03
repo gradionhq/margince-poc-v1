@@ -123,6 +123,16 @@ type jobHealthHandlers struct {
 // right.
 func (h jobHealthHandlers) GetJobHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// No principal at all is a refusal, not a server fault. The session
+	// middleware answers 401 before this handler is reached on the real
+	// wire — proved in the integration lane — but auth.RequireHuman reports
+	// an unbound actor with an unmapped error, which httperr renders as a
+	// 500. A security surface should not have a 500 as its answer to
+	// "nobody asked".
+	if _, ok := principal.Actor(ctx); !ok {
+		httperr.Write(w, r, apperrors.ErrPermissionDenied)
+		return
+	}
 	if err := auth.RequireHuman(ctx); err != nil {
 		httperr.Write(w, r, err)
 		return

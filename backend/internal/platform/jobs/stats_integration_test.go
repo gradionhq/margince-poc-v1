@@ -35,19 +35,6 @@ type seed struct {
 	CreatedAt time.Time // the zero value means now
 	Scheduled time.Time // the zero value means CreatedAt
 	Attempt   int
-	Errors    []attemptError
-}
-
-// attemptError mirrors the element River stores per attempt in
-// river_job.errors. Trace is declared and populated on purpose: it carries
-// a full panic stack in production, and a reader that serialized the
-// element whole would put it on the wire — so the fixture supplies one for
-// a test to prove that never happens.
-type attemptError struct {
-	At      time.Time `json:"at"`
-	Attempt int       `json:"attempt"`
-	Error   string    `json:"error"`
-	Trace   string    `json:"trace,omitempty"`
 }
 
 // finalizedStates are the states river_job's finalized_or_finalized_at_null
@@ -85,15 +72,6 @@ func seedJob(ctx context.Context, t *testing.T, pool *pgxpool.Pool, s seed) {
 		t.Fatalf("encoding fixture args: %v", err)
 	}
 
-	encodedErrors := make([][]byte, 0, len(s.Errors))
-	for _, e := range s.Errors {
-		encoded, err := json.Marshal(e)
-		if err != nil {
-			t.Fatalf("encoding fixture attempt error: %v", err)
-		}
-		encodedErrors = append(encodedErrors, encoded)
-	}
-
 	// river_job.tags is NOT NULL, and a nil Go slice binds as NULL rather
 	// than as an empty array — an untagged row is the common case here, so
 	// the default belongs in the helper.
@@ -114,7 +92,7 @@ func seedJob(ctx context.Context, t *testing.T, pool *pgxpool.Pool, s seed) {
 		     created_at, scheduled_at, finalized_at)
 		VALUES ($1::river_job_state, $2, $3, $4::jsonb, $5::varchar(255)[],
 		        $6::jsonb[], $7, $8, $9, $10, $11)`,
-		s.State, s.Kind, queue, encodedArgs, tags, encodedErrors,
+		s.State, s.Kind, queue, encodedArgs, tags, [][]byte{},
 		3, s.Attempt, createdAt, scheduledAt, finalizedAt); err != nil {
 		t.Fatalf("seeding a %s %s row: %v", s.State, s.Kind, err)
 	}

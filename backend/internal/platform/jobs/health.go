@@ -170,8 +170,10 @@ func healthByKind(ctx context.Context, pool *pgxpool.Pool, workspaceID string, d
 // the vetting the caller applies to the message alone. The index is
 // 1-based and the newest attempt is last, so cardinality() is the newest —
 // and it is null-safe in both directions, because errors is a nullable
-// column and River's cancel path appends nothing at all, so a cancelled row
-// can be terminal with no attempt error to read.
+// column and a cancelled row MAY carry no attempt error at all. River's
+// cancel path is two paths, not one: a worker returning JobCancel(err)
+// persists an AttemptError like any other failure, while a cancellation
+// with no cause appends nothing, and the row is terminal either way.
 //
 // The order is finalized_at when the row is finalized and created_at when
 // it is not, with id breaking ties — a total order over columns that always

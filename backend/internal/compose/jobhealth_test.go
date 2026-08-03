@@ -57,8 +57,12 @@ func TestJobHealthRefusesAnUnauthenticatedCall(t *testing.T) {
 	rec := httptest.NewRecorder()
 	jobHealthHandlers{}.GetJobHealth(rec, httptest.NewRequest(http.MethodGet, "/v1/admin/job-health", nil))
 
-	if rec.Code == http.StatusOK {
-		t.Error("an unauthenticated call was served")
+	// 403 exactly, not merely "not 200": a 500 would also fail a != 200
+	// check while meaning the handler crashed on its way to a refusal.
+	// The contract's 401 is the session middleware's answer and is proved
+	// over the real wire, in the integration lane.
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("an unauthenticated call got %d, want 403 from the gate", rec.Code)
 	}
 }
 

@@ -339,3 +339,24 @@ func TestTheJobSectionWritesNothingWhenTheReadFails(t *testing.T) {
 			"indistinguishable from a healthy empty queue\ngot:\n%s", buf.Len(), buf.String())
 	}
 }
+
+// TestAQueueHoldingOnlyRunningWorkReportsNoAgeEither — the gauge measures
+// the oldest runnable-and-UNCLAIMED job. A running job has been claimed, so
+// a queue holding only running rows has no subject for this gauge, and a
+// zero there would read as "nothing is late" rather than "nothing is
+// waiting". The endpoint reports null for exactly these rows; the two
+// surfaces must not disagree about the same table.
+func TestAQueueHoldingOnlyRunningWorkReportsNoAgeEither(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "busy", Kind: "k", State: "running", Count: 4},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	if strings.Contains(buf.String(), `margince_job_oldest_queued_age_seconds{queue="busy"`) {
+		t.Errorf("a queue whose work is all claimed reported a waiting age\ngot:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), `margince_job_running{queue="busy",workspace_id=""} 4`) {
+		t.Errorf("the running work itself went missing\ngot:\n%s", buf.String())
+	}
+}

@@ -110,14 +110,18 @@ func aggregate(rows []jobs.StateRow) jobSeries {
 // last row read would make the number depend on the order the database
 // returned groups in.
 //
-// Only rows that could still RUN contribute a series at all. A zero from a
-// queue holding queued work is a measured value — the work is there and
-// none of it is late — but a queue holding nothing except discarded rows
-// has no runnable job to age, and emitting a zero for it would answer "how
-// long has the oldest runnable job waited" with a number about work that
-// will never run.
+// Only WAITING rows contribute a series at all. The gauge measures the
+// oldest runnable-and-UNCLAIMED job, so a running row is not its subject —
+// it has already been claimed — and a discarded one never will be. A queue
+// holding nothing but those has no such job, and emitting a zero for it
+// would answer the gauge's own question with a number about work that is
+// not waiting. It is also what keeps this gauge agreeing with the endpoint,
+// which reports null for exactly these rows.
+//
+// A zero from a queue that DOES hold waiting work is a measured value: the
+// work is there and none of it is late yet.
 func (a jobSeries) ageFrom(qk queueKey, r jobs.StateRow) {
-	if !queueDepthStates[r.State] && r.State != stateRunning {
+	if !queueDepthStates[r.State] {
 		return
 	}
 	if _, seen := a.oldest[qk]; !seen || r.OldestRunnableAgeSeconds > a.oldest[qk] {
@@ -159,7 +163,7 @@ func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
 		return err
 	}
 	if err := writeKindGauge(w, "margince_job_cancelled",
-		"Jobs stopped deliberately before their attempts ran out, per kind and workspace. Counted apart from discarded because a cancelled job did not fail.",
+		"Jobs stopped deliberately before their attempts ran out, per kind and workspace. Counted apart from discarded because the operator story differs -- a discarded job spent every attempt, a cancelled one was stopped. Both are work that will not happen, which is why the sweep pair counts either as a workspace missed.",
 		cancelled); err != nil {
 		return err
 	}

@@ -93,7 +93,7 @@ looking zero.
 | `margince_job_queue_depth` | `queue`, `workspace_id` | available + scheduled + retryable + pending — work nobody has done yet (OPS-MET-2) |
 | `margince_job_running` | `queue`, `workspace_id` | currently executing |
 | `margince_job_discarded` | `kind`, `workspace_id` | every attempt spent; will never run without intervention |
-| `margince_job_cancelled` | `kind`, `workspace_id` | stopped deliberately, attempts unspent — counted apart from discarded because a cancelled job did not fail |
+| `margince_job_cancelled` | `kind`, `workspace_id` | stopped deliberately, attempts unspent — counted apart from discarded because the operator story differs, not because it is less dead. The sweep pair counts either as a workspace missed |
 | `margince_job_oldest_queued_age_seconds` | `queue`, `workspace_id` | how long the oldest runnable-and-unclaimed job has waited |
 | `margince_sweep_workspaces_total` | `sweep` | workspaces with a surviving child of that fleet pass |
 | `margince_sweep_workspaces_failed` | `sweep` | those whose MOST RECENT child is discarded or cancelled |
@@ -111,9 +111,11 @@ Four things worth knowing before you build an alert on these:
   there is a fan-out job and nothing else. The label carries the **id**,
   never a name: the exposition endpoint has no redaction path.
 - **A job scheduled for the future is counted in depth but contributes no
-  age.** It is queued, but it is not late. A queue holding nothing except
-  discarded rows reports no age series at all — there is no runnable job to
-  measure.
+  age.** It is queued, but it is not late. A queue holding nothing but running or
+  discarded rows reports no age series at all — a running job has already
+  been claimed and a discarded one never will be, so neither is what
+  "oldest runnable-and-unclaimed" measures. The endpoint reports `null` for
+  the same rows.
 - **The sweep pair is per workspace, not per pass.** There is no such thing
   as "the last pass" in this table: River resolves a uniqueness conflict by
   updating the existing row, so a child still active from the previous
