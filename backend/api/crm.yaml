@@ -2416,12 +2416,11 @@ paths:
                   truncated:
                     type: boolean
                     description: |
-                      True when at least one more free slot exists after the last one returned — the
-                      walk is capped at 20 and found a further candidate before stopping. Declared
-                      because the cap is not optional, and a capped list read as complete is how a
-                      caller — a model in particular — concludes there is no later opening. To reach
-                      the rest, ask again with `from` set after the last slot returned; narrowing the
-                      window does not help, since the walk starts at `from` either way.
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /bookings:
@@ -2520,12 +2519,11 @@ paths:
                   truncated:
                     type: boolean
                     description: |
-                      True when at least one more free slot exists after the last one returned — the
-                      walk is capped at 20 and found a further candidate before stopping. Declared
-                      because the cap is not optional, and a capped list read as complete is how a
-                      caller — a model in particular — concludes there is no later opening. To reach
-                      the rest, ask again with `from` set after the last slot returned; narrowing the
-                      window does not help, since the walk starts at `from` either way.
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '404': { $ref: '#/components/responses/NotFound' }
 
   /public/booking/{host_slug}:
