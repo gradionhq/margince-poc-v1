@@ -1,4 +1,4 @@
--- 0148: federated sign-in storage (A107/ADR-0061 §6, §11) — the permanent
+-- 0171: federated sign-in storage (A107/ADR-0061 §6, §11) — the permanent
 -- provider binding and the per-attempt flow state.
 --
 -- external_identity keys a human to an OIDC provider by (issuer, subject),

@@ -11691,6 +11691,20 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationError"];
+            /**
+             * @description The installation authenticates through a federated provider only (`auth.password: false`),
+             *     so no password is accepted from anyone. Refused before the body is read, and
+             *     `GET /auth/capabilities` already reports `password: false` so the login screen offers
+             *     no form to reach this.
+             */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     logout: {

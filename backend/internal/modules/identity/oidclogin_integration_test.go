@@ -243,7 +243,7 @@ func TestFederatedSignInBindsOnFirstVerifiedEmailMatchThenResolvesBySubject(t *t
 	state := e.start(t)
 
 	rec := e.callback(t, state, "the-authorization-code", state)
-	session := oidcCookieValue(t, rec, sessionCookie)
+	session := oidcCookieValue(t, rec, SessionCookieName)
 	if session == "" {
 		t.Fatalf("no session cookie after a valid federated sign-in (location %q)", rec.Header().Get("Location"))
 	}
@@ -279,7 +279,7 @@ func TestFederatedSignInBindsOnFirstVerifiedEmailMatchThenResolvesBySubject(t *t
 	e.issuer.email = "renamed@" + strings.SplitN(e.member.Email, "@", 2)[1]
 	renamedState := e.start(t)
 	renamed := e.callback(t, renamedState, "another-code", renamedState)
-	if session := oidcCookieValue(t, renamed, sessionCookie); session == "" {
+	if session := oidcCookieValue(t, renamed, SessionCookieName); session == "" {
 		t.Fatalf("a renamed provider account did not sign in (location %q)", renamed.Header().Get("Location"))
 	}
 	if bindings := e.bindingCount(t, e.member.UserID); bindings != 1 {
@@ -308,7 +308,7 @@ func TestFederatedSignInStateIsSingleUse(t *testing.T) {
 	e.issuer.email = e.member.Email
 	state := e.start(t)
 
-	if session := oidcCookieValue(t, e.callback(t, state, "code-1", state), sessionCookie); session == "" {
+	if session := oidcCookieValue(t, e.callback(t, state, "code-1", state), SessionCookieName); session == "" {
 		t.Fatal("the first callback minted no session")
 	}
 	// A replayed callback — the same state, the same code — is refused, and
@@ -330,7 +330,7 @@ func TestFederatedSignInRefusesAnUnmatchedIdentityNeutrally(t *testing.T) {
 		// Bind the member to one provider account…
 		e.issuer.subject, e.issuer.email = "google-subject-first", e.member.Email
 		state := e.start(t)
-		if session := oidcCookieValue(t, e.callback(t, state, "code-1", state), sessionCookie); session == "" {
+		if session := oidcCookieValue(t, e.callback(t, state, "code-1", state), SessionCookieName); session == "" {
 			t.Fatal("the first sign-in minted no session")
 		}
 		// …then arrive with a DIFFERENT subject asserting the same address.
@@ -391,7 +391,7 @@ func TestFederatedSignInActivatesAnInvitedHuman(t *testing.T) {
 	state := e.start(t)
 
 	rec := e.callback(t, state, "the-code", state)
-	if session := oidcCookieValue(t, rec, sessionCookie); session == "" {
+	if session := oidcCookieValue(t, rec, SessionCookieName); session == "" {
 		t.Fatalf("an invited human was not signed in (location %q)", rec.Header().Get("Location"))
 	}
 	var status string
@@ -428,7 +428,7 @@ func TestFederatedSignInRefusesALockedAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	unlocked := e.start(t)
-	if session := oidcCookieValue(t, e.callback(t, unlocked, "another-code", unlocked), sessionCookie); session == "" {
+	if session := oidcCookieValue(t, e.callback(t, unlocked, "another-code", unlocked), SessionCookieName); session == "" {
 		t.Fatal("an unlocked account was still refused")
 	}
 }
@@ -446,7 +446,7 @@ func TestPasswordDisabledInstallationRefusesTheWholePasswordFamily(t *testing.T)
 	if rec.Code == http.StatusOK {
 		t.Fatalf("password sign-in succeeded on a password-disabled installation: %s", rec.Body)
 	}
-	if cookie := oidcCookieValue(t, rec, sessionCookie); cookie != "" {
+	if cookie := oidcCookieValue(t, rec, SessionCookieName); cookie != "" {
 		t.Fatal("a password-disabled installation minted a session cookie")
 	}
 
@@ -554,7 +554,7 @@ func assertSSORefusal(t *testing.T, rec *httptest.ResponseRecorder, wantCode str
 	if !strings.Contains(location, "sso_error="+wantCode) {
 		t.Fatalf("location = %q, want sso_error=%s", location, wantCode)
 	}
-	if session := oidcCookieValue(t, rec, sessionCookie); session != "" {
+	if session := oidcCookieValue(t, rec, SessionCookieName); session != "" {
 		t.Fatal("a refused federated sign-in minted a session")
 	}
 }
