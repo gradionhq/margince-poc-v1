@@ -797,7 +797,7 @@ function auditLogBackend() {
   });
 }
 
-// The danger-zone Reset data action (task 8): server-driven, gated on
+// The danger-zone Reset data action: server-driven, gated on
 // isOrgAdmin && me.non_production. A dedicated backend per test so the
 // role/posture combination is explicit rather than layered on the shared
 // settingsBackend default.

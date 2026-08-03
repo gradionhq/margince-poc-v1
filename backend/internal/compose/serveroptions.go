@@ -252,7 +252,7 @@ func WithDataReset(pool, schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env
 }
 
 // WithNonProduction surfaces the SAME deployment posture WithDataReset
-// gates the endpoint on, onto /me's non_production field (task 7's client
+// gates the endpoint on, onto /me's non_production field (the client
 // signal for showing/hiding the "Reset data" action) — mirrors WithSorMode,
 // which surfaces the datasource dispatch's mode the same way. Absent this
 // option, /me reports production (Handlers' zero value), the fail-closed

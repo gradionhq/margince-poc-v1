@@ -127,7 +127,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// the reset still succeeds, only the cf_* column finalize is skipped.
 	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
 	opts = append(opts, compose.WithDataReset(pool, schemaPool, deployCfg.Seeds, env))
-	// /me's non_production field (task 7) is the SAME posture: the client
+	// /me's non_production field is the SAME posture: the client
 	// hides the "Reset data" action it would otherwise render for an
 	// endpoint that answers 404 in production.
 	opts = append(opts, compose.WithNonProduction(env))
@@ -279,16 +279,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 }
 
-// baseComposeOptions assembles the boot-optional compose.Options that
-// don't depend on the inline relay's lifecycle (public base URL,
-// blobstore, keyvault, the customfields schema pool) — split out of run()
-// so that function stays inside the file's long-func budget. The
-// returned schema pool (nil when --schema-dsn is unset) is also handed to
-// WithDataReset in run() so the reset endpoint's cf_* finalize runs on
-// the same owner connection the customfields engine uses. The returned
-// close func releases whatever this stage opened (currently only the
-// schema pool) and is always safe to call, even when nothing was opened.
-
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
 // Presence alone is not enough: every value here is copied verbatim into the
 // OAuth audience, the RFC 9728 protected-resource document and the advertised
@@ -334,6 +324,15 @@ func validatePublicBaseURL(raw string) error {
 	return nil
 }
 
+// baseComposeOptions assembles the boot-optional compose.Options that
+// don't depend on the inline relay's lifecycle (public base URL,
+// blobstore, keyvault, the customfields schema pool) — split out of run()
+// so that function stays inside the file's long-func budget. The
+// returned schema pool (nil when --schema-dsn is unset) is also handed to
+// WithDataReset in run() so the reset endpoint's cf_* finalize runs on
+// the same owner connection the customfields engine uses. The returned
+// close func releases whatever this stage opened (currently only the
+// schema pool) and is always safe to call, even when nothing was opened.
 func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, *pgxpool.Pool, func(), error) {
 	var opts []compose.Option
 	// Record the deployment's capture suppression-list config first, so the

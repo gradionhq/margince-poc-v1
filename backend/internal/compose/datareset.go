@@ -142,7 +142,7 @@ func isForeignKeyViolation(err error) bool {
 type resetSummary struct{ TablesCleared int }
 
 // dataResetHandlers is the callable the non-production "reset data" HTTP
-// handler (Task 6) invokes. schemaPool is the owner-privileged pool the
+// handler invokes. schemaPool is the owner-privileged pool the
 // cf_* column finalize runs on; nil skips that step (no schema pool
 // configured — the reset itself still succeeds, only the DDL cleanup is
 // skipped). log defaults to slog.Default() when nil.

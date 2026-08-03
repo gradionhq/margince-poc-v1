@@ -4,7 +4,7 @@
 package identity
 
 // /me reports the deployment posture so the client can hide the destructive
-// admin "Reset data" action outside a non-production role (task 7). This
+// admin "Reset data" action outside a non-production role. This
 // proves the posture lands in the response and that the zero value (no
 // posture wired) degrades to production — never accidentally exposing the
 // action.
