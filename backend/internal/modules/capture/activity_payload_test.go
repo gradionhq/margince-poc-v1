@@ -66,7 +66,8 @@ func TestEngagementReplyPayload_WithContact(t *testing.T) {
 	occurredAt := time.Date(2026, 7, 22, 9, 30, 0, 0, time.UTC)
 	contact := ids.From[ids.PersonKind](ids.NewV7())
 
-	payload := engagementReplyPayload(matched, occurredAt, "gmail:msg-42", &contact)
+	payload := engagementReplyPayload(matched,
+		replyOrigin{channel: channelEmail, contactID: &contact}, occurredAt, "gmail:msg-42")
 
 	if !reflect.DeepEqual(payload.EventType(), "engagement.reply") {
 		t.Errorf("got %v, want %v", payload.EventType(), "engagement.reply")
@@ -112,7 +113,8 @@ func TestEngagementReplyPayload_NoContact(t *testing.T) {
 	matched := ids.NewV7()
 	occurredAt := time.Date(2026, 7, 22, 9, 30, 0, 0, time.UTC)
 
-	payload := engagementReplyPayload(matched, occurredAt, "gmail:msg-43", nil)
+	payload := engagementReplyPayload(matched,
+		replyOrigin{channel: channelEmail}, occurredAt, "gmail:msg-43")
 
 	if payload.ContactId != nil {
 		t.Errorf("expected nil, got %v", payload.ContactId)
@@ -123,5 +125,40 @@ func TestEngagementReplyPayload_NoContact(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "contact_id") {
 		t.Errorf("%q should not contain %q", string(raw), "contact_id")
+	}
+}
+
+// TestEngagementReplyPayload_ChannelReply proves a reply that arrived over a
+// messaging channel names THAT channel, not mail. The field is what an
+// auto-reply automation routes on, so "email" on a Telegram reply would send
+// the answer somewhere the customer never wrote from.
+func TestEngagementReplyPayload_ChannelReply(t *testing.T) {
+	matched := ids.NewV7()
+	occurredAt := time.Date(2026, 7, 22, 9, 30, 0, 0, time.UTC)
+	contact := ids.From[ids.PersonKind](ids.NewV7())
+
+	payload := engagementReplyPayload(matched,
+		replyOrigin{channel: "telegram", contactID: &contact}, occurredAt, "telegram:7:42:9")
+
+	if !reflect.DeepEqual(payload.Channel, "telegram") {
+		t.Errorf("got %v, want %v", payload.Channel, "telegram")
+	}
+	if payload.ContactId == nil {
+		t.Fatalf("expected non-nil value")
+	}
+	if !reflect.DeepEqual(*payload.ContactId, openapi_types.UUID(contact.UUID)) {
+		t.Errorf("got %v, want %v", *payload.ContactId, openapi_types.UUID(contact.UUID))
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var decoded crmcontracts.PublicEventEngagementReply
+	if json.Unmarshal(raw, &decoded) != nil {
+		t.Fatalf("unexpected error: %v", json.Unmarshal(raw, &decoded))
+	}
+	if !reflect.DeepEqual(decoded, payload) {
+		t.Errorf("got %v, want %v", decoded, payload)
 	}
 }
