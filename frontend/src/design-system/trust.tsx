@@ -1,4 +1,4 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useT } from "../i18n";
 import "./trust.css";
@@ -48,18 +48,75 @@ export function AutonomyDot({ tier }: Readonly<{ tier: "auto" | "confirm" }>) {
   );
 }
 
+// A source-length reasonable inline, past which the disclosure toggle would
+// otherwise run the row wide before the reader even asks to see it.
+const SOURCE_DISPLAY_MAX = 40;
+
+// The evidence-or-omit chip shortened to just its origin: strip the scheme
+// and a leading "www.", keep the bare host once the path is root, otherwise
+// show host+path so two snippets from the same site still read apart.
+// Anything that isn't a URL (a free-text source, e.g. "email 12 Jun") comes
+// back as-is, only truncated.
+function shortenSource(source: string): string {
+  let display: string;
+  try {
+    const url = new URL(source);
+    const host = url.hostname.replace(/^www\./, "");
+    display =
+      url.pathname === "" || url.pathname === "/"
+        ? host
+        : `${host}${url.pathname}`;
+  } catch {
+    display = source;
+  }
+  if (display.length <= SOURCE_DISPLAY_MAX) {
+    return display;
+  }
+  const head = Math.ceil((SOURCE_DISPLAY_MAX - 1) / 2);
+  const tail = Math.floor((SOURCE_DISPLAY_MAX - 1) / 2);
+  return `${display.slice(0, head)}…${display.slice(display.length - tail)}`;
+}
+
 export function EvidenceChip({
   evidence,
   onOpen,
+  collapsed,
 }: Readonly<{
   evidence: Evidence;
   onOpen?: () => void;
+  /** The compact form for a dense row: a button naming only the source,
+   * expanding the verbatim snippet beneath it on demand. Every existing
+   * caller leaves this unset and keeps the always-open chip unchanged. */
+  collapsed?: boolean;
 }>) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
   const text = (
     <>
       "{evidence.snippet}" · {evidence.source}
     </>
   );
+  if (collapsed) {
+    return (
+      <span className="evidence-chip-collapsed">
+        <button
+          type="button"
+          className="evidence-chip evidence-chip-toggle"
+          aria-expanded={expanded}
+          aria-label={t("trust.evidenceFrom", {
+            source: shortenSource(evidence.source),
+          })}
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          <ChevronRight aria-hidden />
+          {shortenSource(evidence.source)}
+        </button>
+        {expanded && (
+          <span className="evidence-chip-snippet">"{evidence.snippet}"</span>
+        )}
+      </span>
+    );
+  }
   if (onOpen) {
     return (
       <button type="button" className="evidence-chip" onClick={onOpen}>

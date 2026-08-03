@@ -1,9 +1,13 @@
 import { Check, Circle, Sparkles } from "lucide-react";
 import type { ChangeEvent } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import { EvidenceChip, ProvenanceTag } from "../../design-system/trust";
+import {
+  type Evidence,
+  EvidenceChip,
+  ProvenanceTag,
+} from "../../design-system/trust";
 import { useLocale, useT } from "../../i18n";
 import { coldFieldLabel } from "../common";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
@@ -17,11 +21,14 @@ import {
 } from "./company-proposal";
 import { NarrationBubble, QuestionCard } from "./entries";
 
-// The in-thread review card: the AI-prepared mapping rendered as field rows
-// with honest provenance (site evidence vs the human's own typing), fact
-// include-toggles, the remaining server-detected decisions, and ONE explicit
-// accept. Evidence-or-omit holds here: a proposal row without a verbatim
-// snippet never renders.
+// The in-thread review card, laid out as a triage surface rather than a
+// linear wall: a header count of where things stand, what still needs the
+// human (the missing-required rows and the open questions) ABOVE the fields
+// that are already settled, and the settled fields themselves split into a
+// short-value grid and a prose list so neither drowns the other. Evidence-or-
+// omit holds throughout: a proposal row without a verbatim snippet never
+// renders, and every site-evidenced value keeps its snippet reachable in one
+// interaction (the collapsed EvidenceChip's disclosure toggle).
 
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
@@ -62,6 +69,138 @@ function humanOnlyRows(
   );
 }
 
+// A settled field, either grounded in site evidence or typed by the human,
+// normalized to one shape so the grid and the prose list can lay it out the
+// same way regardless of which proposal it came from.
+type ReviewRow = {
+  key: string;
+  label: string;
+  value: string;
+  multiline: boolean;
+  typed: boolean;
+  evidence: Evidence | null;
+};
+
+// One evidenced proposal field turned into a review row: the human's current
+// value where the vocabulary knows the field, with provenance in precedence
+// order — the human's own typing, then the draft's CURRENT grounding (an
+// entity pick re-grounds the legal block), then the proposal's own evidence.
+// A cleared value has nothing to confirm.
+function evidencedRow(
+  field: ProposalField,
+  draft: CompanyDraft,
+  t: ReturnType<typeof useT>,
+): ReviewRow | null {
+  const name = isCompanyField(field.field, draft.values) ? field.field : null;
+  const value = name === null ? field.value : draft.values[name];
+  if (value.trim() === "") {
+    return null;
+  }
+  const typed = name !== null && draft.edited.has(name);
+  const grounding = name === null ? null : groundingOf(draft, name);
+  return {
+    key: field.field,
+    label: coldFieldLabel(field.field, t),
+    value,
+    multiline: name !== null && isMultilineField(name),
+    typed,
+    evidence: typed
+      ? null
+      : {
+          snippet: grounding?.evidence_snippet ?? field.evidence_snippet,
+          source: grounding?.source_url ?? field.source_url,
+        },
+  };
+}
+
+// A field the human typed that the evidenced proposal never carried: still
+// shown, so Accept all previews everything it is about to save.
+function humanRow(
+  field: CompanyFieldName,
+  draft: CompanyDraft,
+  t: ReturnType<typeof useT>,
+): ReviewRow {
+  return {
+    key: field,
+    label: coldFieldLabel(field, t),
+    value: draft.values[field],
+    multiline: isMultilineField(field),
+    typed: true,
+    evidence: null,
+  };
+}
+
+// The row's trailing honesty marker: who or what to credit for the value.
+// Never both, and a typed row carries no evidence to reach for.
+function RowProvenance({ row }: Readonly<{ row: ReviewRow }>) {
+  if (row.typed) {
+    return <ProvenanceTag provenance={{ kind: "human", self: true }} />;
+  }
+  if (row.evidence) {
+    return <EvidenceChip evidence={row.evidence} collapsed />;
+  }
+  return null;
+}
+
+// A short-value row: label and value on one line, truncated visually with
+// the full value as the hover/long-press title, evidence collapsed behind
+// its own toggle so the row still reads as one line until asked.
+function ShortFieldRow({ row }: Readonly<{ row: ReviewRow }>) {
+  return (
+    <li>
+      <span className="t-label">{row.label}</span>
+      <span className="ob-conv-field-value" title={row.value}>
+        {row.value}
+      </span>
+      <RowProvenance row={row} />
+    </li>
+  );
+}
+
+// A prose value reads roughly two lines' worth before it needs a toggle; the
+// cut lands on a word boundary rather than mid-word.
+const PROSE_PREVIEW_CHARS = 140;
+
+function prosePreview(value: string): string | null {
+  if (value.length <= PROSE_PREVIEW_CHARS) {
+    return null;
+  }
+  const cut = value.lastIndexOf(" ", PROSE_PREVIEW_CHARS);
+  return `${value.slice(0, cut > 0 ? cut : PROSE_PREVIEW_CHARS).trimEnd()}…`;
+}
+
+// A prose row: a short preview stands in for the value, and an explicit
+// toggle (not a hover state, so it works by touch and by keyboard) swaps in
+// the full text — which stays out of the DOM until asked for, the same
+// evidence-or-omit-shaped rule the collapsed EvidenceChip keeps for its own
+// snippet.
+function ProseFieldRow({ row }: Readonly<{ row: ReviewRow }>) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const preview = prosePreview(row.value);
+  return (
+    <li className="ob-conv-field-row-prose">
+      <span className="t-label">{row.label}</span>
+      <p className="ob-conv-field-prose">
+        {expanded || preview === null ? row.value : preview}
+      </p>
+      {preview !== null && (
+        <button
+          type="button"
+          className="ob-conv-field-expand"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((prev) => !prev)}
+        >
+          {expanded
+            ? t("ob.conv.review.showLess")
+            : t("ob.conv.review.showMore")}
+        </button>
+      )}
+      <RowProvenance row={row} />
+    </li>
+  );
+}
+
 export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const t = useT();
   const { locale } = useLocale();
@@ -80,10 +219,24 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
       question.id !== props.pendingQuestionId &&
       !props.answers.some((answer) => answer.clarifyId === question.id),
   );
-  const humanRows = humanOnlyRows(
+  const humanFields = humanOnlyRows(
     props.draft,
     new Set(fields.map((field) => field.field)),
   );
+  const rows: ReviewRow[] = [
+    ...fields
+      .map((field) => evidencedRow(field, props.draft, t))
+      .filter((row): row is ReviewRow => row !== null),
+    ...humanFields.map((field) => humanRow(field, props.draft, t)),
+  ];
+  const shortRows = rows.filter((row) => !row.multiline);
+  const proseRows = rows.filter((row) => row.multiline);
+  // The triage summary's own vocabulary: "grounded" is every settled row
+  // (site evidence or the human's own typing), "needing" is what still
+  // blocks Accept all — the two together are the total the card is tracking.
+  const groundedCount = rows.length;
+  const needingCount = props.missingRequired.length;
+  const totalCount = groundedCount + needingCount;
   // Dismissed questions are named honestly: nothing was written, the field
   // stays the human's to edit — never silently swallowed.
   const dismissedLabels = props.answers
@@ -100,18 +253,37 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         <Sparkles aria-hidden />
         <h2>{t("ob.conv.review.title")}</h2>
       </header>
-      <ul className="ob-conv-confirm-fields">
-        {fields.map((field) => (
-          <FieldRow key={field.field} field={field} draft={props.draft} />
-        ))}
-        {humanRows.map((field) => (
-          <li key={field}>
-            <span className="t-label">{coldFieldLabel(field, t)}</span>
-            <strong>{props.draft.values[field]}</strong>
-            <ProvenanceTag provenance={{ kind: "human", self: true }} />
-          </li>
-        ))}
-      </ul>
+      <p className="ob-conv-review-summary">
+        {openQuestions.length > 0
+          ? t("ob.conv.review.summaryWithQuestions", {
+              total: totalCount,
+              grounded: groundedCount,
+              needing: needingCount,
+              openQuestions: openQuestions.length,
+            })
+          : t("ob.conv.review.summary", {
+              total: totalCount,
+              grounded: groundedCount,
+              needing: needingCount,
+            })}
+      </p>
+      {props.missingRequired.length > 0 && (
+        <>
+          <NarrationBubble
+            entry={{
+              kind: "narration",
+              id: "review:missing",
+              i18nKey: "ob.conv.review.missing",
+              params: { fields: missingLabels },
+            }}
+          />
+          <MissingRequiredFields
+            fields={props.missingRequired}
+            draft={props.draft}
+            setField={props.setField}
+          />
+        </>
+      )}
       {openQuestions.length > 0 && (
         <div className="ob-conv-confirm-questions">
           <p>{t("ob.conv.review.openQuestions")}</p>
@@ -124,6 +296,20 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
             />
           ))}
         </div>
+      )}
+      {shortRows.length > 0 && (
+        <ul className="ob-conv-confirm-fields ob-conv-confirm-fields-grid">
+          {shortRows.map((row) => (
+            <ShortFieldRow key={row.key} row={row} />
+          ))}
+        </ul>
+      )}
+      {proseRows.length > 0 && (
+        <ul className="ob-conv-confirm-fields ob-conv-confirm-fields-prose">
+          {proseRows.map((row) => (
+            <ProseFieldRow key={row.key} row={row} />
+          ))}
+        </ul>
       )}
       {dismissedLabels !== "" && (
         <div className="ob-conv-confirm-skipped">
@@ -174,23 +360,6 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
             })}
           </div>
         </details>
-      )}
-      {props.missingRequired.length > 0 && (
-        <>
-          <NarrationBubble
-            entry={{
-              kind: "narration",
-              id: "review:missing",
-              i18nKey: "ob.conv.review.missing",
-              params: { fields: missingLabels },
-            }}
-          />
-          <MissingRequiredFields
-            fields={props.missingRequired}
-            draft={props.draft}
-            setField={props.setField}
-          />
-        </>
       )}
       {props.error && (
         // A failed save speaks as Margince, not as a bare server string
@@ -306,39 +475,5 @@ function MissingRequiredFields({
         );
       })}
     </div>
-  );
-}
-
-// One reviewed row: the human's current value where the vocabulary knows the
-// field, with provenance in precedence order — the human's own typing, then
-// the draft's CURRENT grounding (an entity pick re-grounds the legal block),
-// then the proposal's own evidence. A cleared value has nothing to confirm.
-function FieldRow({
-  field,
-  draft,
-}: Readonly<{ field: ProposalField; draft: CompanyDraft }>) {
-  const t = useT();
-  const name = isCompanyField(field.field, draft.values) ? field.field : null;
-  const value = name === null ? field.value : draft.values[name];
-  const typed = name !== null && draft.edited.has(name);
-  const grounding = name === null ? null : groundingOf(draft, name);
-  if (value.trim() === "") {
-    return null;
-  }
-  return (
-    <li>
-      <span className="t-label">{coldFieldLabel(field.field, t)}</span>
-      <strong>{value}</strong>
-      {typed ? (
-        <ProvenanceTag provenance={{ kind: "human", self: true }} />
-      ) : (
-        <EvidenceChip
-          evidence={{
-            snippet: grounding?.evidence_snippet ?? field.evidence_snippet,
-            source: grounding?.source_url ?? field.source_url,
-          }}
-        />
-      )}
-    </li>
   );
 }

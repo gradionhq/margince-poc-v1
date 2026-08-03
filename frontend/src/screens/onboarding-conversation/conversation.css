@@ -309,6 +309,85 @@
   overflow-wrap: anywhere;
 }
 
+/* The one-line summary under the header: total tracked, how many are
+   grounded (site evidence or the human's own typing), how many still need
+   the human. Cheap to skim before reading a single field row. */
+.ob-conv-review-summary {
+  margin: 0;
+  color: var(--textSecondary);
+  font: 400 0.8125rem / 1.4 var(--f-body);
+}
+
+/* The short-value tier: label · value · evidence-or-provenance, one row per
+   field. Each row carries its own grid so every row's columns line up
+   without a display:contents trick on the list itself. */
+.ob-conv-confirm-fields-grid > li {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  width: 100%;
+}
+
+.ob-conv-field-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--textPrimary);
+  font: 500 0.9375rem / 1.4 var(--f-body);
+}
+
+@media (max-width: 30rem) {
+  .ob-conv-confirm-fields-grid > li {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-1);
+  }
+  .ob-conv-field-value {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* An expanded collapsed-chip's snippet must not squeeze into the row's
+   third (auto-width) track — it drops to a full-width line under the row
+   instead, the same way the prose tier's evidence does. */
+.ob-conv-confirm-fields-grid > li:has(
+    .evidence-chip-toggle[aria-expanded="true"]
+  )
+  .evidence-chip-collapsed {
+  grid-column: 1 / -1;
+}
+
+/* The prose tier: label above the (possibly previewed) paragraph, an
+   explicit expand toggle (never hover-only) and the evidence-or-provenance
+   marker below it. The preview is a short string, not a CSS clamp, so the
+   rest of a long value stays out of the DOM until the toggle asks for it —
+   the same rule the collapsed EvidenceChip keeps for its own snippet. */
+.ob-conv-field-row-prose p {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 400 0.9375rem / 1.5 var(--f-body);
+  overflow-wrap: anywhere;
+}
+
+.ob-conv-field-expand {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--textMeta);
+  font: 500 0.75rem / 1.2 var(--f-body);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ob-conv-field-expand:hover {
+  color: var(--textPrimary);
+}
+
 .ob-conv-confirm-questions {
   display: flex;
   flex-direction: column;

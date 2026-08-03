@@ -766,6 +766,134 @@ describe("the other fact-picking surfaces", () => {
   });
 });
 
+// The triage layout: a summary line the reader can skim before any row, the
+// missing-required rows ordered ahead of the settled fields, and a prose
+// field's snippet-shaped preview/full-text swap.
+describe("CompanyConfirmCard as a triage surface", () => {
+  type Proposal = components["schemas"]["OnboardingCompanyProposal"];
+
+  const LONG_OFFER =
+    "We help logistics operators run their fleets more efficiently by combining live telemetry with route optimization, and the platform plugs directly into dispatch software to remove the manual planning steps that used to take hours every single day.";
+
+  function triageProposal(): Proposal {
+    return {
+      ready: true,
+      fields: [
+        {
+          field: "legal_name",
+          value: "Gradion GmbH",
+          confidence: 0.9,
+          evidence_snippet: "Legal name on the imprint page.",
+          source_url: "https://gradion.com/impressum",
+        },
+        {
+          field: "offer_summary",
+          value: LONG_OFFER,
+          confidence: 0.9,
+          evidence_snippet: "About page copy.",
+          source_url: "https://gradion.com/about",
+        },
+      ],
+      facts: [],
+      open_questions: [],
+      remaining_required_fields: ["icp"],
+      draft_version: 1,
+      proposal_hash: "hash",
+    };
+  }
+
+  function triageDraft() {
+    return {
+      ...EMPTY_DRAFT,
+      values: {
+        ...EMPTY_DRAFT.values,
+        legal_name: "Gradion GmbH",
+        offer_summary: LONG_OFFER,
+      },
+    };
+  }
+
+  function renderTriage(missingRequired: readonly "icp"[]) {
+    render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={triageDraft()}
+        answers={[]}
+        comparisons={[]}
+        pendingQuestionId={null}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={missingRequired}
+        setField={vi.fn()}
+        onAnswerClarify={vi.fn()}
+        onDismissClarify={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+        onEditDirectly={vi.fn()}
+      />,
+    );
+  }
+
+  it("summarizes the triage counts under the header: total, grounded, and what still needs the human", () => {
+    renderTriage(["icp"]);
+
+    // 2 settled rows (legal_name, offer_summary) + 1 missing (icp) = 3 total.
+    expect(
+      screen.getByText("3 fields, 2 grounded, 1 need you."),
+    ).toBeInTheDocument();
+  });
+
+  it("puts the missing-required editable row before the field list in the DOM", () => {
+    renderTriage(["icp"]);
+
+    const missingRow = screen.getByLabelText(/Ideal customer/);
+    const settledValue = screen.getByText("Gradion GmbH");
+
+    expect(
+      missingRow.compareDocumentPosition(settledValue) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("hides a prose field's full text behind a preview until the reader expands it", async () => {
+    const user = userEvent.setup();
+    renderTriage([]);
+
+    expect(screen.queryByText(LONG_OFFER)).not.toBeInTheDocument();
+    const expand = screen.getByRole("button", { name: "Show full text" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(expand);
+
+    expect(screen.getByText(LONG_OFFER)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("keeps a short field's evidence snippet out of the DOM until its chip is toggled", async () => {
+    const user = userEvent.setup();
+    renderTriage([]);
+
+    expect(
+      screen.queryByText('"Legal name on the imprint page."'),
+    ).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", {
+      name: "Evidence from gradion.com/impressum",
+    });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(toggle);
+
+    expect(
+      screen.getByText('"Legal name on the imprint page."'),
+    ).toBeInTheDocument();
+  });
+});
+
 // The read the edit form needs to offer facts at all: the fact list is the only
 // part of it under test, so everything else is the read's empty shape.
 function readWith(

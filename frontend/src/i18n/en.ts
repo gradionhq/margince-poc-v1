@@ -33,6 +33,7 @@ export const en = {
   "trust.stagedProposal": "staged proposal",
   "trust.resolvedValue": "resolved value",
   "trust.editValue": "Edit {description}",
+  "trust.evidenceFrom": "Evidence from {source}",
 
   "history.created": "— created —",
   "history.oldValue": "Previous value",
@@ -1965,6 +1966,12 @@ export const en = {
   "ob.conv.retry": "Try again",
   "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
   "ob.conv.review.title": "Company profile, prepared from sources",
+  "ob.conv.review.summary":
+    "{total} fields, {grounded} grounded, {needing} need you.",
+  "ob.conv.review.summaryWithQuestions":
+    "{total} fields, {grounded} grounded, {needing} need you, {openQuestions} open questions.",
+  "ob.conv.review.showMore": "Show full text",
+  "ob.conv.review.showLess": "Show less",
   "ob.conv.review.openQuestions": "Decide these before I save anything.",
   "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
   "ob.conv.review.acceptAll": "Accept all",

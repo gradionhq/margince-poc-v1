@@ -36,6 +36,7 @@ export const de = {
   "trust.stagedProposal": "vorgemerkter Vorschlag",
   "trust.resolvedValue": "übernommener Wert",
   "trust.editValue": "{description} bearbeiten",
+  "trust.evidenceFrom": "Beleg von {source}",
 
   "history.created": "— angelegt —",
   "history.oldValue": "Vorheriger Wert",
@@ -1998,6 +1999,12 @@ export const de = {
   "ob.conv.connect.persistFailed":
     "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
   "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
+  "ob.conv.review.summary":
+    "{total} Felder, {grounded} belegt, {needing} brauchen dich.",
+  "ob.conv.review.summaryWithQuestions":
+    "{total} Felder, {grounded} belegt, {needing} brauchen dich, {openQuestions} offene Fragen.",
+  "ob.conv.review.showMore": "Ganzen Text zeigen",
+  "ob.conv.review.showLess": "Weniger zeigen",
   "ob.conv.review.openQuestions":
     "Entscheide diese Punkte, bevor ich etwas speichere.",
   "ob.conv.review.missing":
