@@ -6,13 +6,19 @@
 package compose
 
 import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // TestSweepWorkspaceDataClearsDomainKeepsIdentity is the reset engine's core
@@ -133,5 +139,79 @@ func TestClearWorkspaceOutboxScopesToWorkspace(t *testing.T) {
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM event_outbox WHERE envelope->>'workspace_id' = $1`, foreign.String()); n != 1 {
 		t.Fatalf("foreign workspace's outbox rows = %d, want 1 (must survive)", n)
+	}
+}
+
+// TestResetRunRestoresBootstrapState is the orchestration's end-to-end
+// proof: a wrong confirmation is rejected without touching data, and the
+// correct one sweeps the domain, re-seeds module defaults exactly as
+// bootstrap does, preserves identity, and leaves one audit_log row
+// recording the reset itself.
+func TestResetRunRestoresBootstrapState(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	e.SeedPerson(t, "Alice", nil)
+
+	h := dataResetHandlers{
+		pool:       e.Pool,
+		schemaPool: nil,
+		seeds:      deployconfig.Seeds{},
+		env:        runtimeenv.Development,
+		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	if _, err := h.run(ctx, "wrong"); !errors.Is(err, errResetConfirmationMismatch) {
+		t.Fatalf("bad confirmation: want errResetConfirmationMismatch, got %v", err)
+	}
+	// The rejected attempt must not have touched anything.
+	if got := e.WsCount(t, "SELECT count(*) FROM person"); got != 1 {
+		t.Fatalf("person count after rejected reset = %d, want 1 (untouched)", got)
+	}
+
+	sum, err := h.run(ctx, "Authz")
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if sum.TablesCleared == 0 {
+		t.Fatal("expected some tables cleared")
+	}
+	if got := e.WsCount(t, "SELECT count(*) FROM person"); got != 0 {
+		t.Errorf("person count after reset = %d, want 0", got)
+	}
+	if got := e.WsCount(t, "SELECT count(*) FROM stage"); got < 1 {
+		t.Errorf("stage count after reset = %d, want >= 1 (pipeline re-seeded)", got)
+	}
+	if got := e.WsCount(t, "SELECT count(*) FROM app_user"); got != 3 {
+		t.Errorf("app_user count after reset = %d, want 3 (identity preserved)", got)
+	}
+	if got := e.WsCount(t, "SELECT count(*) FROM audit_log WHERE action='reset_data'"); got != 1 {
+		t.Errorf("audit_log reset_data rows = %d, want 1", got)
+	}
+}
+
+// TestDropResetCustomFieldColumns proves the DDL finalize in isolation — a
+// fake cf_* column added directly via the owner pool (standing in for a
+// customfields definition that outlived a reset) is dropped, without
+// exercising the full customfields engine.
+func TestDropResetCustomFieldColumns(t *testing.T) {
+	sp := integration.SchemaPool(t)
+	ctx := context.Background()
+
+	if _, err := sp.Exec(ctx, `ALTER TABLE person ADD COLUMN cf_zzz text`); err != nil {
+		t.Fatalf("seeding fake cf_ column: %v", err)
+	}
+
+	if err := dropResetCustomFieldColumns(ctx, sp); err != nil {
+		t.Fatalf("dropResetCustomFieldColumns: %v", err)
+	}
+
+	var remaining int
+	if err := sp.QueryRow(ctx, `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND column_name LIKE 'cf\_%'`).Scan(&remaining); err != nil {
+		t.Fatalf("checking remaining cf_ columns: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("remaining cf_ columns = %d, want 0", remaining)
 	}
 }
