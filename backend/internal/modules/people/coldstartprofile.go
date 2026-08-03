@@ -248,6 +248,22 @@ func applyEvidenceFieldsWithOverwrite(
 	fields []ColdStartFieldInput,
 	overwrite map[string]bool,
 ) (map[string]any, error) {
+	// Only an apply that carries a NAME takes the name lock. The key is
+	// workspace-wide, so taking it for a batch of industry or address facts
+	// would serialize every organization write in the installation behind an
+	// apply that cannot rename anything — and enrichment and deep-read arrive
+	// in batches.
+	//
+	// When it IS taken it must come before the loop, not at the re-check that
+	// needs it: the loop writes legal_name and so takes this organization's row
+	// lock, and a path holding both in the other order deadlocks against a
+	// human rename. Whether a name is coming is knowable here, which is what
+	// makes the early take possible.
+	if fieldValue(fields, "legal_name") != "" {
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return nil, err
+		}
+	}
 	applied := map[string]any{}
 	for _, f := range fields {
 		if column, backed := columnBackedColdStartFields[f.Field]; backed {

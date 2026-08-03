@@ -33,8 +33,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -73,10 +71,8 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	// Two organizations converging on names that score against each other would,
 	// at READ COMMITTED, each read before the other committed, each find
 	// nothing, and both land with no pair filed — the duplicate this whole path
-	// exists to catch, missed by a race. Both axes are locked, because either
-	// can be the colliding one: two records converging on a shared registered
-	// name while their display names stay different is the same race.
-	if err := lockOrgNameIdentities(ctx, tx, display, legal); err != nil {
+	// exists to catch, missed by a race.
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
 		return err
 	}
 
@@ -113,53 +109,39 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	return nil
 }
 
-// lockOrgNameIdentities serializes the writers whose names could score against
-// each other, sorted so the order is the same for every caller and two writers
-// naming the same pair cannot deadlock.
+// orgNameWriteIdentity is the ONE key every organization-name writer takes, for
+// the whole workspace.
 //
-// The key is the FIRST token of the normalized name, not the whole name. The
-// tier this guards matches on similarity, not equality: "Baqend" and "Baqend
-// Solutions" normalize to different strings yet score well above the threshold,
-// so keying on the whole name would serialize only the exact-equal case and let
-// every other near-match race — which is the shape the guard exists for. Jaro-
-// Winkler weights a shared prefix heavily, so a leading token is the cheap
-// approximation of "could these two score against each other".
+// It is workspace-wide rather than per-name because a per-name key cannot do
+// the job: this guard protects a tier that matches on SIMILARITY, while an
+// advisory lock keys on EQUALITY, so any key derived from a name is a guess at
+// which records might score against each other — and every guess leaves pairs
+// that race and both land unfiled. A single key has no neighbourhood to guess
+// at, and no second key to invert against, so no lock ordering exists to get
+// wrong.
 //
-// What it does NOT cover, stated rather than implied: two names that score
-// above the threshold WITHOUT sharing a leading token ("Acme Ltd" against
-// "ACME-Group Ltd" once normalization splits them differently) can still race
-// and both land unfiled. Closing that needs a range lock over a similarity
-// neighbourhood, which an advisory key cannot express — the honest remedy is
-// the nightly sweep, which re-scores everything regardless of how it arrived.
-func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) error {
-	keys := make([]string, 0, len(names))
-	for _, name := range names {
-		if key := orgNameLockKey(name); key != "" {
-			keys = append(keys, key)
-		}
-	}
-	slices.Sort(keys)
-	for _, key := range slices.Compact(keys) {
-		if err := storekit.LockWriteIdentity(ctx, tx, "organization_name", key); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// The cost is real: an advisory lock is held to COMMIT, so the critical section
+// is the whole remaining transaction — the patch, the domain reconcile, the
+// audit and outbox rows, the read-back — not just the scan that needed it. That
+// is why callers take it only when a name is actually being written, and why
+// the metric it protects is capped (nameScoringMaxRunes) rather than left to
+// run as long as an input allows.
+const orgNameWriteIdentity = "all"
 
-// orgNameLockKey is the leading normalized token of an organization name, or
-// "" when the name carries none.
+// lockOrgNameWrites serializes every writer that could create or rename an
+// organization into another one's similarity neighbourhood.
 //
-// Sharing a first word is not a false grouping: "Acme Logistics" and "Acme
-// Bakery" score 0.76 against each other, above the review threshold, so the
-// tier would file them as a pair anyway. The key groups exactly the records
-// that already have something to say to each other.
-func orgNameLockKey(name string) string {
-	normalized := NormalizeOrgName(name)
-	if normalized == "" {
-		return ""
-	}
-	return strings.Fields(normalized)[0]
+// THE RULE FOR A NEW CALLER: take this BEFORE any lock on an organization row —
+// before a guarded patch, a `SELECT … FOR UPDATE`, or an `UPDATE organization`
+// that touches the row you are about to re-check. Three paths took it the other
+// way round and were only found by review: enrichment, deep-read apply and
+// site-read confirmation all wrote legal_name (locking the row) and then
+// re-checked (locking the name), which deadlocks against a human rename doing
+// the reverse. They now take it at the top of applyEvidenceFieldsWithOverwrite
+// and resolveOrCreateAnchor respectively. It is reentrant, so taking it early
+// costs a path that already holds it nothing.
+func lockOrgNameWrites(ctx context.Context, tx pgx.Tx) error {
+	return storekit.LockWriteIdentity(ctx, tx, "organization_name", orgNameWriteIdentity)
 }
 
 // orgPairAlreadyFiled reports whether the queue already holds this pair, in

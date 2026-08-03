@@ -94,7 +94,7 @@ func DedupeOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate)
 // the person side, and the lock is taken BEFORE the ladder reads so the loser
 // sees the winner's committed row.
 func DedupeOrganizationForCreate(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
-	if err := lockOrgNameIdentities(ctx, tx, c.DisplayName, c.LegalName); err != nil {
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
 		return OrganizationMatch{}, err
 	}
 	return DedupeOrganization(ctx, tx, c)
