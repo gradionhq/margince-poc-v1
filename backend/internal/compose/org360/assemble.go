@@ -142,6 +142,9 @@ type assembly struct {
 	advice        suggestionInputs
 	adviceRead    bool
 	adviceErr     error
+	signals       signalFacts
+	signalsRead   bool
+	signalsErr    error
 	staged        []crmcontracts.Approval
 	stagedRead    bool
 	stagedRefused bool
@@ -256,9 +259,29 @@ func (a *assembly) readTimeline() error {
 func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
 	if !a.adviceRead {
 		a.advice, a.adviceErr = gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+		if a.adviceErr == nil {
+			var facts signalFacts
+			facts, a.adviceErr = a.signalFactsOnce()
+			a.advice.contractEnded = facts.ContractEnded
+			if lc := a.out.Organization.Lifecycle; lc != nil {
+				a.advice.lifecycle = string(*lc)
+			}
+		}
 		a.adviceRead = true
 	}
 	return a.advice, a.adviceErr
+}
+
+// signalFactsOnce reads the account's open signals ONCE. The health section
+// counts the commitments and the contradiction rule asks whether the contract
+// ended; both are the same row set, and one read of it is also what keeps the
+// two from describing different instants.
+func (a *assembly) signalFactsOnce() (signalFacts, error) {
+	if !a.signalsRead {
+		a.signals, a.signalsErr = readSignalFacts(a.ctx, a.tx, a.orgID)
+		a.signalsRead = true
+	}
+	return a.signals, a.signalsErr
 }
 
 func (a *assembly) readNextSteps() error {

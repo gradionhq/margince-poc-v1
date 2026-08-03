@@ -4031,14 +4031,17 @@ func (e Organization360SuggestionActionKind) Valid() bool {
 
 // Defines values for Organization360SuggestionKind.
 const (
-	Organization360SuggestionKindNoNextStep  Organization360SuggestionKind = "no_next_step"
-	Organization360SuggestionKindNoReply     Organization360SuggestionKind = "no_reply"
-	Organization360SuggestionKindStalledDeal Organization360SuggestionKind = "stalled_deal"
+	Organization360SuggestionKindLifecycleConflict Organization360SuggestionKind = "lifecycle_conflict"
+	Organization360SuggestionKindNoNextStep        Organization360SuggestionKind = "no_next_step"
+	Organization360SuggestionKindNoReply           Organization360SuggestionKind = "no_reply"
+	Organization360SuggestionKindStalledDeal       Organization360SuggestionKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the Organization360SuggestionKind enum.
 func (e Organization360SuggestionKind) Valid() bool {
 	switch e {
+	case Organization360SuggestionKindLifecycleConflict:
+		return true
 	case Organization360SuggestionKindNoNextStep:
 		return true
 	case Organization360SuggestionKindNoReply:
@@ -11520,6 +11523,10 @@ type Organization360Suggestion struct {
 	// Kind `no_reply` — an outbound message on a thread nobody answered.
 	// `stalled_deal` — an open deal idle past the 60-day stall window.
 	// `no_next_step` — an active account with no open task on it.
+	// `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+	// filed under: a `contract_ended` signal stands while the record still reads as a live
+	// customer or an open opportunity. The page states the conflict rather than resolving
+	// it, because which of the two is wrong is a judgment only the reader can make.
 	Kind Organization360SuggestionKind `json:"kind"`
 
 	// Reason The rule that fired, in the words the rep reads. Never a score.
@@ -11536,6 +11543,10 @@ type Organization360SuggestionActionKind string
 // Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
 // `stalled_deal` — an open deal idle past the 60-day stall window.
 // `no_next_step` — an active account with no open task on it.
+// `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+// filed under: a `contract_ended` signal stands while the record still reads as a live
+// customer or an open opportunity. The page states the conflict rather than resolving
+// it, because which of the two is wrong is a judgment only the reader can make.
 type Organization360SuggestionKind string
 
 // Organization360SuggestionSubjectType defines model for Organization360Suggestion.SubjectType.

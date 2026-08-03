@@ -317,8 +317,15 @@ type suggestionInputs struct {
 
 	newest    lastMessage
 	hasNewest bool
-	open      pipeline
-	scheduled bool
+	// lifecycle is the stage the record claims. It comes from the organization
+	// row the assembly already holds, not from a read of its own.
+	lifecycle string
+	// contractEnded is whether the account's own correspondence says the
+	// relationship is over. Filled from the shared signal read, so the
+	// contradiction rule and the health section count one query between them.
+	contractEnded bool
+	open          pipeline
+	scheduled     bool
 }
 
 // advisable reports whether this caller can be advised at all. Neither input
@@ -412,26 +419,39 @@ func engagementState(in suggestionInputs, now time.Time) crmcontracts.Organizati
 // conversation nobody remembers.
 const engagementDormantDays = 90
 
-// openCommitments counts the things one side said they would do and nobody has
+// signalFacts is what the open signals say about the account. Readable is
+// false when the caller may not read signals at all, which is why the counts
+// are not enough on their own: zero commitments and no permission to see them
+// are different answers, and the page must not present one as the other.
+type signalFacts struct {
+	Readable        bool
+	OpenCommitments int
+	ContractEnded   bool
+}
+
+// readSignalFacts counts the things one side said they would do and nobody has
 // closed — open `commitment_made` signals on this account.
 //
 // It reports counted=false rather than zero when the caller cannot read
 // signals, following pendingApprovals' shape in this package: zero would say
 // the account owes nothing, which is a claim about the account rather than
 // about what this reader was allowed to see.
-func openCommitments(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (count int, counted bool, err error) {
+func readSignalFacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (signalFacts, error) {
 	allowed, err := granted(ctx, "signal")
 	if err != nil {
-		return 0, false, err
+		return signalFacts{}, err
 	}
 	if !allowed {
-		return 0, false, nil
+		return signalFacts{}, nil
 	}
+	facts := signalFacts{Readable: true}
 	if err := tx.QueryRow(ctx, `
-		SELECT count(*) FROM signal
-		 WHERE resolved_org_id = $1 AND kind = 'commitment_made'
-		   AND status = 'open' AND archived_at IS NULL`, orgID).Scan(&count); err != nil {
-		return 0, false, fmt.Errorf("count open commitments: %w", err)
+		SELECT count(*) FILTER (WHERE kind = 'commitment_made'),
+		       count(*) FILTER (WHERE kind = 'contract_ended') > 0
+		  FROM signal
+		 WHERE resolved_org_id = $1 AND status = 'open' AND archived_at IS NULL`,
+		orgID).Scan(&facts.OpenCommitments, &facts.ContractEnded); err != nil {
+		return signalFacts{}, fmt.Errorf("read the account's open signals: %w", err)
 	}
-	return count, true, nil
+	return facts, nil
 }

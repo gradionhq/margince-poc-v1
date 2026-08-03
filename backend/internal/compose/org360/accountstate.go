@@ -173,12 +173,12 @@ func (a *assembly) readHealth() error {
 		health.SingleThreaded = &single
 	}
 
-	commitments, counted, err := openCommitments(a.ctx, a.tx, a.orgID)
+	facts, err := a.signalFactsOnce()
 	if err != nil {
 		return err
 	}
-	if counted {
-		health.OpenCommitments = &commitments
+	if facts.Readable {
+		health.OpenCommitments = &facts.OpenCommitments
 	}
 
 	a.out.Health = &health

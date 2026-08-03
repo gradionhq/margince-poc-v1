@@ -60,6 +60,7 @@ var org360RepPerms = principal.Permissions{
 		"person":       {Create: true, Read: true, Update: true},
 		"deal":         {Create: true, Read: true, Update: true},
 		"activity":     {Create: true, Read: true, Update: true},
+		"signal":       {Read: true},
 		"pipeline":     {Read: true},
 		"tag":          {Read: true},
 		"list":         {Read: true},

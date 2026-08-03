@@ -67,6 +67,7 @@ var (
 	suggestNoReply     = crmcontracts.Organization360SuggestionKindNoReply
 	suggestStalledDeal = crmcontracts.Organization360SuggestionKindStalledDeal
 	suggestNoNextStep  = crmcontracts.Organization360SuggestionKindNoNextStep
+	suggestConflict    = crmcontracts.Organization360SuggestionKindLifecycleConflict
 )
 
 // readSuggestions is the section.
@@ -150,6 +151,9 @@ func candidateSuggestions(
 	orgID ids.OrganizationID, now time.Time, in suggestionInputs,
 ) []crmcontracts.Organization360Suggestion {
 	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
+	// First, because a record that contradicts itself outranks any advice about
+	// what to do next: acting on a stage that is wrong is worse than not acting.
+	found = appendIf(found, lifecycleConflict(orgID, in))
 	if in.timeline && in.hasNewest {
 		found = appendIf(found, staleThread(orgID, now, in.newest))
 	}
@@ -335,6 +339,45 @@ func noNextStepSuggestion(
 	out.Action = newSuggestionAction(crmcontracts.AddTask)
 	return out
 }
+
+// lifecycleConflict fires when the account's own correspondence contradicts the
+// stage it is filed under: a contract_ended signal stands while the record
+// still reads as a live customer or an open opportunity.
+//
+// This is the failure the whole overhaul was named for. One real account held
+// an email ending its contract and a page that said "Prospect", and nothing
+// anywhere put those two facts next to each other.
+//
+// It states the conflict and does NOT resolve it. Which of the two is wrong —
+// the stage, or the reading of the mail — is a judgment only the reader can
+// make, and a rule that picked one would be guessing on a record that matters.
+func lifecycleConflict(
+	orgID ids.OrganizationID, in suggestionInputs,
+) *crmcontracts.Organization360Suggestion {
+	if !in.contractEnded || !liveLifecycles[in.lifecycle] {
+		return nil
+	}
+	evidence := []crmcontracts.OrganizationBriefEvidence{{
+		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization,
+		EntityId:   openapi_types.UUID(orgID.UUID),
+	}}
+	return &crmcontracts.Organization360Suggestion{
+		Kind: suggestConflict,
+		Reason: fmt.Sprintf(
+			"Their correspondence says the contract ended, but this account is still filed as %s.",
+			in.lifecycle),
+		// Keyed on the STAGE as well as the account, so correcting the stage
+		// retires this rather than leaving a dismissal in force over a record
+		// that has since been fixed.
+		Fingerprint: fingerprint(string(suggestConflict), in.lifecycle, evidence),
+		Evidence:    evidence,
+	}
+}
+
+// liveLifecycles are the stages a contract_ended signal contradicts. A stage
+// that already reads as over — former_customer, disqualified — is not in
+// conflict with the mail that says so; it is the mail's conclusion.
+var liveLifecycles = map[string]bool{"prospect": true, "opportunity": true, "customer": true}
 
 // fingerprint identifies a suggestion by what it fired ON, not by what kind
 // it is.

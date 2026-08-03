@@ -665,6 +665,7 @@ export const de = {
   "co.suggest.kind.no_reply": "Keine Antwort",
   "co.suggest.kind.stalled_deal": "Deal steht",
   "co.suggest.kind.no_next_step": "Nichts geplant",
+  "co.suggest.kind.lifecycle_conflict": "Widerspruch im Datensatz",
   "co.suggest.more": "{count} weitere hier nicht gezeigt.",
   "co.suggest.dismiss": "Nicht jetzt",
   "co.suggest.dismissFailed":

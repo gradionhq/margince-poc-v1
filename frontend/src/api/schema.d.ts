@@ -7010,9 +7010,13 @@ export interface components {
              * @description `no_reply` — an outbound message on a thread nobody answered.
              *     `stalled_deal` — an open deal idle past the 60-day stall window.
              *     `no_next_step` — an active account with no open task on it.
+             *     `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+             *     filed under: a `contract_ended` signal stands while the record still reads as a live
+             *     customer or an open opportunity. The page states the conflict rather than resolving
+             *     it, because which of the two is wrong is a judgment only the reader can make.
              * @enum {string}
              */
-            kind: "no_reply" | "stalled_deal" | "no_next_step";
+            kind: "no_reply" | "stalled_deal" | "no_next_step" | "lifecycle_conflict";
             /**
              * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
              *     kind, the subject and the records it fired on. Dismissing a suggestion stores

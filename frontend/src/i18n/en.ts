@@ -658,6 +658,7 @@ export const en = {
   "co.suggest.kind.no_reply": "No reply",
   "co.suggest.kind.stalled_deal": "Stalled deal",
   "co.suggest.kind.no_next_step": "Nothing scheduled",
+  "co.suggest.kind.lifecycle_conflict": "Record disagrees",
   "co.suggest.more": "{count} more not shown here.",
   "co.suggest.dismiss": "Not now",
   "co.suggest.dismissFailed":

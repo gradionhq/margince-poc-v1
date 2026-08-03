@@ -940,3 +940,115 @@ func TestSuggestionsAreOmittedWhenNeitherInputReachesTheCaller(t *testing.T) {
 		t.Errorf("sections_omitted = %v, want it to name suggestions", view.SectionsOmitted)
 	}
 }
+
+// seedContractEnded writes the open signal the extraction task produces when a
+// thread says the relationship is over.
+func seedContractEnded(t *testing.T, e *Env, org ids.UUID) {
+	t.Helper()
+	SeedRow(t, OwnerConn(t), `INSERT INTO signal
+		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
+		 resolution_state, severity, summary, status, detected_at, source, captured_by)
+		VALUES ($1, $2, 'contract_ended', 'derived', 'organization', '`+org.String()+`',
+		        '`+org.String()+`', 'resolved', 'warn',
+		        'They wrote that the contract ends on 31 July.', 'open',
+		        '2026-05-20T09:00:00Z', 'signal-scan', 'agent:contract_ended')`, e.WS)
+}
+
+// The failure this whole surface was named for: an account holding a mail that
+// ends the contract, filed under a stage that says the relationship is live.
+//
+// Both facts were already in the record and nothing put them next to each
+// other. The page states the disagreement and leaves which side is wrong to
+// the reader — but it must state it FIRST, because acting on a stage that is
+// wrong is worse than not acting at all.
+func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
+	seedContractEnded(t, e, org.UUID)
+	// Advice that would otherwise lead, so leading is a choice this makes and
+	// not the only thing left standing.
+	seedUnansweredOutbound(t, e, org.UUID)
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	found := *view.Suggestions
+	if len(found) == 0 || string(found[0].Kind) != "lifecycle_conflict" {
+		t.Fatalf("the card leads with %v, want lifecycle_conflict — the record contradicts "+
+			"its own correspondence, and no other advice on it can be trusted until that is settled",
+			kindsOf(found))
+	}
+	if !strings.Contains(found[0].Reason, "customer") {
+		t.Errorf("the reason is %q, want it to name the stage the mail contradicts — "+
+			"a conflict a reader cannot see both sides of is not one they can settle",
+			found[0].Reason)
+	}
+}
+
+// A stage that already reads as over is not in conflict with the mail that
+// says so; it is that mail's conclusion. Firing there would hand every closed
+// account a permanent card nobody can clear.
+func TestAnEndedContractDoesNotContradictAnEndedRelationship(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	e.WsExec(t, `UPDATE organization SET lifecycle = 'former_customer' WHERE id = $1`, org.UUID)
+	seedContractEnded(t, e, org.UUID)
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	for _, suggestion := range *view.Suggestions {
+		if string(suggestion.Kind) == "lifecycle_conflict" {
+			t.Fatalf("the card claims a conflict on an account already filed as former_customer")
+		}
+	}
+}
+
+// kindsOf names what a card actually offered, so a failure says what was there
+// instead of only what was missing.
+func kindsOf(found []crmcontracts.Organization360Suggestion) []string {
+	kinds := make([]string, 0, len(found))
+	for _, suggestion := range found {
+		kinds = append(kinds, string(suggestion.Kind))
+	}
+	return kinds
+}
+
+// A caller who may not read signals is told nothing about them, not told there
+// is nothing. The rule reads a record the reader has no right to, so it stays
+// silent rather than leaking its existence through advice.
+func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+
+	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
+	seedContractEnded(t, e, org.UUID)
+
+	blind := org360RepPerms
+	blind.Objects = make(map[string]principal.ObjectGrant, len(org360RepPerms.Objects))
+	for object, grant := range org360RepPerms.Objects {
+		if object == "signal" {
+			continue
+		}
+		blind.Objects[object] = grant
+	}
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, blind), org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	for _, suggestion := range *view.Suggestions {
+		if string(suggestion.Kind) == "lifecycle_conflict" {
+			t.Fatalf("a caller without the signal grant was shown advice derived from one")
+		}
+	}
+}
