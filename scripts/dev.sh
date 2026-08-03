@@ -379,25 +379,33 @@ up)
   # only the OAuth-specific state key and base URLs.
   export MARGINCE_KEYVAULT_ROOT_KEY="${MARGINCE_KEYVAULT_ROOT_KEY:-bWFyZ2luY2UtZGV2LW9ubHkta2V5dmF1bHQtcm9vdGs=}"
 
+  # The two externally-reachable bases, always passed. They are not a
+  # connector detail: federated sign-in derives its registered redirect_uri
+  # from them (and refuses to boot without them, A107 §14), password-reset
+  # links point at them, and a marketing send refuses rather than derive a
+  # token-bearing link from a request Host. Non-secret, dev-computed values —
+  # public base = the SPA, where a browser lands; api base = the api, where a
+  # provider's callback resolves. Ports differ, host does not, which is what
+  # keeps the sign-in flow's host-scoped state cookie working.
+  base_url_flags=(
+    --public-base-url "http://localhost:${fe_port}"
+    --api-base-url "http://localhost:${api_port}"
+  )
+  if grep -Eq '^[[:space:]]*enabled:[[:space:]]*true' <(sed -n '/^auth:/,/^[a-z]/p' config/margince.yaml 2>/dev/null); then
+    echo "dev: federated sign-in configured — register this redirect URI at the provider: http://localhost:${api_port}/v1/auth/oidc/google/callback"
+  fi
+
   # Gmail capture connector: when .env.local supplies a Google OAuth app, pass
   # its flags to the api and run the sync worker. Absent it, `make dev` is
   # unchanged and the /connectors/gmail/* surface stays its declared 501.
-  gmail_api_flags=()
   gmail_enabled=0
   if [[ -n "${MARGINCE_GMAIL_CLIENT_ID:-}" && -n "${MARGINCE_GMAIL_CLIENT_SECRET:-}" ]]; then
     gmail_enabled=1
     # Secrets travel via the environment, NEVER CLI flags (argv is visible in
     # the process table). The client id/secret are already exported from
-    # .env.local; export the OAuth state key too. The api/worker flags
-    # default to these env vars, so we pass only the non-secret, dev-computed
-    # URLs on the command line.
+    # .env.local; export the OAuth state key too — the api/worker flags default
+    # to these env vars, so nothing secret reaches the command line.
     export MARGINCE_CONNECTOR_STATE_KEY="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
-    gmail_api_flags=(
-      # public base = the SPA (:fe_port), where the browser lands after consent;
-      # api base = the api (:api_port), where the callback redirect_uri resolves.
-      --public-base-url "http://localhost:${fe_port}"
-      --api-base-url "http://localhost:${api_port}"
-    )
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
 
@@ -440,7 +448,7 @@ up)
     MARGINCE_BLOBSTORE_BUCKET=margince-dev \
     ./bin/api --addr ":${api_port}" --dsn "$dev_app_url" --config "$deploy_cfg" \
     --redis "localhost:${REDIS_PORT}" \
-    "${ai_flag[@]}" "${gmail_api_flags[@]+"${gmail_api_flags[@]}"}" > >(log_as api) 2>&1 &
+    "${ai_flag[@]}" "${base_url_flags[@]}" > >(log_as api) 2>&1 &
   be_pid=$!
 
   if ! wait_ready "http://localhost:${api_port}/readyz" 90; then
