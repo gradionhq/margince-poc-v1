@@ -237,14 +237,15 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 }
 
 // WithDataReset wires the non-production admin data-reset endpoint
-// (POST /admin/reset-data): pool is the app-role pool the sweep runs
-// through, schemaPool (may be nil) is the owner-privileged pool that
-// finalizes cf_* column drops — nil skips that finalize step, the reset
-// itself still succeeds. Absent this option, or outside a non-production
-// posture, the endpoint answers 404 (dataResetHandlers' zero value has a
-// nil pool, the same closed default).
-func WithDataReset(pool, schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runtimeenv.Environment) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
+// (POST /admin/reset-data): the sweep runs through the composed app-role
+// pool (the one every option receives, as WithSchemaPool takes it), while
+// schemaPool (may be nil) is the owner-privileged pool that finalizes cf_*
+// column drops — nil skips that finalize step, the reset itself still
+// succeeds. Absent this option, or outside a non-production posture, the
+// endpoint answers 404 (dataResetHandlers' zero value has a nil pool, the
+// same closed default).
+func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runtimeenv.Environment) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
 		s.dataResetHandlers = dataResetHandlers{
 			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
 		}

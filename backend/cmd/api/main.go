@@ -126,7 +126,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
 	// the reset still succeeds, only the cf_* column finalize is skipped.
 	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
-	opts = append(opts, compose.WithDataReset(pool, schemaPool, deployCfg.Seeds, env))
+	opts = append(opts, compose.WithDataReset(schemaPool, deployCfg.Seeds, env))
 	// /me's non_production field is the SAME posture: the client
 	// hides the "Reset data" action it would otherwise render for an
 	// endpoint that answers 404 in production.
