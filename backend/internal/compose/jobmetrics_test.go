@@ -421,3 +421,36 @@ func TestTwoLabelsDifferingOnlyByAControlCharacterStayDistinct(t *testing.T) {
 			"series\ngot:\n%s", got)
 	}
 }
+
+// TestALiteralEscapeSequenceDoesNotCollideWithTheCharacterItEncodes is the
+// direct test for the '<' branch, and the collision that branch exists to
+// close. Escape only control bytes and the two values below both render as
+// `<0x09>`: one row whose id contains the six literal characters, and one
+// whose id contains a real tab. Two distinct ids, one label set, and
+// Prometheus rejects the whole scrape — the third time this same failure
+// appeared in this change, so it gets an assertion of its own rather than
+// being implied by the control-character test next door.
+func TestALiteralEscapeSequenceDoesNotCollideWithTheCharacterItEncodes(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "q", Kind: "k", WorkspaceID: "<0x09>", State: "available", Count: 1},
+		{Queue: "q", Kind: "k", WorkspaceID: "\t", State: "available", Count: 2},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	got := buf.String()
+
+	// The literal '<' is itself escaped, so the six-character id cannot
+	// render as the encoding of a tab.
+	if !strings.Contains(got, `workspace_id="<0x3c>0x09>"} 1`) {
+		t.Errorf("the literal escape sequence was not itself escaped\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, `workspace_id="<0x09>"} 2`) {
+		t.Errorf("the real tab did not render as its escape\ngot:\n%s", got)
+	}
+	// The load-bearing assertion: two distinct ids, two distinct series.
+	if strings.Count(got, `margince_job_queue_depth{queue="q"`) != 2 {
+		t.Errorf("two distinct workspace ids collapsed into one series; a duplicate label "+
+			"set makes Prometheus reject the entire scrape\ngot:\n%s", got)
+	}
+}

@@ -353,8 +353,7 @@ Both surfaces are DB-derived at read time, because `cmd/worker` — where the
 dispatchers run — serves no HTTP surface at all, so an in-process counter there
 would be invisible to every scrape while the api's own copy reported zero.
 What the families mean, and the four limits worth knowing before alerting on
-them:
-[docs/reference/configuration.md#reading-the-job-surfaces](docs/reference/configuration.md#reading-the-job-surfaces).
+them: [Reading the job surfaces](docs/reference/configuration.md#reading-the-job-surfaces).
 
 **Carried forward from Phase 1 C, in priority order.** The first is the
 highest-value work left in this topic:
