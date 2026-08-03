@@ -114,6 +114,9 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 			where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 		}
 	}
+	if in.ThreadKey != nil && *in.ThreadKey != "" {
+		where = append(where, sprintf("a.thread_key = $%d", arg(*in.ThreadKey)))
+	}
 	if in.Query != nil && *in.Query != "" {
 		// subject + body are the two human-readable columns a person would
 		// recognize an item by. The wildcard is escaped, so a caller typing %

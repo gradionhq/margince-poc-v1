@@ -39,6 +39,30 @@ func (e AcceptedExtractionFieldProvenance) Valid() bool {
 	}
 }
 
+// Defines values for ActivityCaptureLabel.
+const (
+	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
+	ActivityCaptureLabelLessThannil ActivityCaptureLabel = "<nil>"
+	ActivityCaptureLabelMeeting     ActivityCaptureLabel = "meeting"
+	ActivityCaptureLabelNoise       ActivityCaptureLabel = "noise"
+)
+
+// Valid indicates whether the value is a known member of the ActivityCaptureLabel enum.
+func (e ActivityCaptureLabel) Valid() bool {
+	switch e {
+	case ActivityCaptureLabelCommitment:
+		return true
+	case ActivityCaptureLabelLessThannil:
+		return true
+	case ActivityCaptureLabelMeeting:
+		return true
+	case ActivityCaptureLabelNoise:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityDirection.
 const (
 	ActivityDirectionInbound     ActivityDirection = "inbound"
@@ -6224,31 +6248,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -7726,6 +7750,12 @@ type Activity struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
 	Body       *string             `json:"body,omitempty"`
 
+	// BulkMailAttested This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply.
+	BulkMailAttested *bool `json:"bulk_mail_attested,omitempty"`
+
+	// CaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
+	CaptureLabel *ActivityCaptureLabel `json:"capture_label,omitempty"`
+
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
 	CapturedBy *string   `json:"captured_by,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -7761,9 +7791,12 @@ type Activity struct {
 	SourceId *string `json:"source_id,omitempty"`
 
 	// SourceSystem gmail/gcal/outlook/transcript — idempotency key part.
-	SourceSystem *string   `json:"source_system,omitempty"`
-	Subject      *string   `json:"subject,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	SourceSystem *string `json:"source_system,omitempty"`
+	Subject      *string `json:"subject,omitempty"`
+
+	// ThreadKey The provider's own conversation id (Gmail threadId, Graph conversationId, the RFC822 References root), stamped by capture. It is what makes a thread a thread: grouping by subject would merge two unrelated "Re: Update" exchanges and split one that was renamed mid-conversation. Null on anything capture did not thread — a note, a task, a message whose provider offered none.
+	ThreadKey *string   `json:"thread_key,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -7773,6 +7806,9 @@ type Activity struct {
 	Version     *RowVersion        `json:"version,omitempty"`
 	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
+
+// ActivityCaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
+type ActivityCaptureLabel string
 
 // ActivityDirection inbound/outbound for email/call; null for note/task.
 type ActivityDirection string
@@ -13968,6 +14004,9 @@ type ListActivitiesParams struct {
 	// AssigneeId Open tasks for an assignee.
 	AssigneeId *openapi_types.UUID `form:"assignee_id,omitempty" json:"assignee_id,omitempty"`
 	Q          *string             `form:"q,omitempty" json:"q,omitempty"`
+
+	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
+	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
 }
 
 // ListActivitiesParamsKind defines parameters for ListActivities.
@@ -25750,6 +25789,19 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "thread_key" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "thread_key", r.URL.Query(), &params.ThreadKey, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread_key"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread_key", Err: err})
 		}
 		return
 	}

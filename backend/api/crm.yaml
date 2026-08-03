@@ -2181,6 +2181,13 @@ paths:
         - name: q
           in: query
           schema: { type: string }
+        - name: thread_key
+          in: query
+          schema: { type: string }
+          description: >-
+            One provider conversation. The company view's timeline groups by thread client-side over
+            the page it holds, so a group cut off by that page completes itself through this rather
+            than by widening the page for every account that has no long thread.
       responses:
         '200':
           description: A page of activities (newest first by default).
@@ -11666,6 +11673,29 @@ components:
         done_at: { type: [string, 'null'], format: date-time }
         duration_seconds: { type: [integer, 'null'], description: Meeting/call only. }
         direction: { type: [string, 'null'], enum: [null, inbound, outbound], description: 'inbound/outbound for email/call; null for note/task.' }
+        thread_key:
+          type: [string, 'null']
+          readOnly: true
+          description: >-
+            The provider's own conversation id (Gmail threadId, Graph conversationId, the RFC822
+            References root), stamped by capture. It is what makes a thread a thread: grouping by
+            subject would merge two unrelated "Re: Update" exchanges and split one that was renamed
+            mid-conversation. Null on anything capture did not thread — a note, a task, a message
+            whose provider offered none.
+        capture_label:
+          type: [string, 'null']
+          enum: [null, commitment, meeting, noise]
+          readOnly: true
+          description: >-
+            What this message turned out to be, from the batched capture classification. Null means
+            unclassified, which is a backlog state and not a verdict of "ordinary".
+        bulk_mail_attested:
+          type: boolean
+          readOnly: true
+          description: >-
+            This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it
+            bulk. Per message, never per sender: the same address sends a newsletter and a reply,
+            and treating the sender as bulk would bury the reply.
         meeting_status: { type: [string, 'null'], enum: [null, booked, held, no_show, canceled], description: 'Set only when kind=meeting.' }
         source_system: { type: [string, 'null'], description: 'gmail/gcal/outlook/transcript — idempotency key part.' }
         source_id: { type: [string, 'null'], description: Provider message/event id — idempotency key part. }
