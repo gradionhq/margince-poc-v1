@@ -1238,6 +1238,7 @@ export const en = {
   "agents.disconnectNamed": "Disconnect {client}",
   "agents.disconnected": "disconnected",
   "agents.lapsed": "credential expired",
+  "agents.renewing": "renewing",
   "agents.renewsBy": "credential renews by {date}",
   "agents.expiredOn": "credential expired {date}",
   "agents.revokeGrant": "End connection",

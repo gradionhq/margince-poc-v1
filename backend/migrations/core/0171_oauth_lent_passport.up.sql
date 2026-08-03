@@ -33,3 +33,15 @@ ALTER TABLE oauth_authorization_code ADD CONSTRAINT oauth_code_lent_passport_fke
 ALTER TABLE oauth_grant ADD CONSTRAINT oauth_grant_lent_passport_fkey
   FOREIGN KEY (workspace_id, lent_passport_id)
   REFERENCES passport (workspace_id, id) ON DELETE SET NULL (lent_passport_id);
+
+-- Postgres indexes the referenced side of a foreign key, never the referencing
+-- side, so without these two every passport delete sequentially scans both
+-- tables to find the rows it must NULL. The same reason 0150 added
+-- passport_oauth_grant_ix for its cascade. Deleting a passport is not rare —
+-- app_user's ON DELETE CASCADE reaches it whenever an account is erased — and
+-- both referencing tables only grow: oauth_grant with every consent, and
+-- oauth_authorization_code with every spent code.
+CREATE INDEX oauth_code_lent_passport_ix
+  ON oauth_authorization_code (workspace_id, lent_passport_id);
+CREATE INDEX oauth_grant_lent_passport_ix
+  ON oauth_grant (workspace_id, lent_passport_id);

@@ -1259,6 +1259,7 @@ export const de = {
   "agents.disconnectNamed": "{client} trennen",
   "agents.disconnected": "getrennt",
   "agents.lapsed": "Credential abgelaufen",
+  "agents.renewing": "wird erneuert",
   "agents.renewsBy": "Credential erneuert bis {date}",
   "agents.expiredOn": "Credential abgelaufen {date}",
   "agents.revokeGrant": "Verbindung beenden",

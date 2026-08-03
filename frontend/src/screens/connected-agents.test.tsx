@@ -67,18 +67,29 @@ const CONNECTED = {
     client_id: DCR_CLIENT_ID,
     client_name: "Claude Code",
     connected_at: "2026-07-02T09:00:00Z",
+    renewable: false,
     lent_passport_id: "pp-minted",
     lent_passport_label: "full test",
   },
 };
 
-// The same connection after its credential simply ran out. A grant without
-// offline_access cannot renew, so this is how a connection ends WITHOUT
-// anything writing revoked_at — the state that used to render as live.
+// The same connection after its credential simply ran out. Its grant carries no
+// offline_access (renewable: false), so it cannot mint a replacement — this is
+// how a connection ends WITHOUT anything writing revoked_at, the state that
+// used to render as live.
 const LAPSED = {
   ...CONNECTED,
   id: "pp-lapsed",
   expires_at: "2026-07-30T08:00:00Z",
+};
+
+// Past its expiry too, but its grant CAN renew: the client repairs this on its
+// next call. Reading the expiry alone would bury a perfectly live connector.
+const RENEWING = {
+  ...CONNECTED,
+  id: "pp-renewing",
+  expires_at: "2026-07-30T08:00:00Z",
+  connection: { ...CONNECTED.connection, renewable: true },
 };
 
 // One backend for both cards, since they share the ["passports"] read.
@@ -89,7 +100,7 @@ function backend(opts: {
   connectorEnabled?: boolean;
   onDelete?: (id: string) => void;
 }) {
-  const passports = opts.passports ?? [MINTED, CONNECTED];
+  const passports = [...(opts.passports ?? [MINTED, CONNECTED])];
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     // openapi-fetch hands the whole call over as a Request; the plain fetch
@@ -105,7 +116,16 @@ function backend(opts: {
           });
     }
     if (/\/passports\/[^/]+$/.test(url) && method === "DELETE") {
-      opts.onDelete?.(url.split("/passports/")[1]);
+      const id = url.split("/passports/")[1];
+      opts.onDelete?.(id);
+      // The server really does stop returning the row (the grant cascade
+      // revokes it and the list collapses to the newest per grant), so the
+      // fixture has to as well. A mock that kept serving the deleted row would
+      // let a broken refetch — or a row that never leaves the list — pass.
+      const at = passports.findIndex((p) => (p as { id: string }).id === id);
+      if (at !== -1) {
+        passports.splice(at, 1);
+      }
       return new Response(null, { status: 204 });
     }
     if (url.includes("/passports")) {
@@ -241,6 +261,32 @@ describe("ConnectedAgentsCard", () => {
     }
   });
 
+  // The distinction the expiry alone cannot make. A grant with offline_access
+  // mints its own replacement, so its credential turning over is a renewal, not
+  // an ending — treating every expiry as terminal reports live connectors as
+  // dead and takes away the control that ends them.
+  it("reports an expired but renewable connection as renewing, and keeps it actionable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-03T09:00:00Z"));
+    try {
+      vi.stubGlobal("fetch", backend({ passports: [RENEWING] }));
+      render(<ConnectedAgentsCard />);
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[data-connection="pp-renewing"]'),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByText("renewing")).toBeTruthy();
+      expect(screen.queryByText("credential expired")).toBeNull();
+      // Still the human's to end, and still by the primary control.
+      expect(
+        screen.getByRole("button", { name: "Disconnect Claude Code" }),
+      ).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("names the client in each row's accessible action, so two connections are told apart", async () => {
     vi.stubGlobal("fetch", backend({}));
     render(<ConnectedAgentsCard />);
@@ -266,6 +312,12 @@ describe("ConnectedAgentsCard", () => {
     );
 
     await waitFor(() => expect(deleted).toEqual([CONNECTED.id]));
+    // The DELETE firing is not the claim — the row leaving the list is. Without
+    // this the test passes on a refetch that never happens.
+    await waitFor(() =>
+      expect(screen.getByText("No agent is connected yet.")).toBeTruthy(),
+    );
+    expect(document.querySelector("[data-connection]")).toBeNull();
   });
 });
 

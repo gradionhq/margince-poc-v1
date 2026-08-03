@@ -89,33 +89,50 @@ func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
 	}
 	data := make([]crmcontracts.PassportSummary, 0, len(rows))
 	for _, p := range rows {
-		summary := crmcontracts.PassportSummary{
-			Id:        openapi_types.UUID(p.ID.UUID),
-			Scopes:    p.Scopes,
-			CreatedAt: p.CreatedAt,
-			ExpiresAt: &p.ExpiresAt,
-			RevokedAt: p.RevokedAt,
-		}
-		if p.Label != nil {
-			summary.Label = *p.Label
-		}
-		if c := p.Connection; c != nil {
-			summary.Connection = &crmcontracts.PassportConnection{
-				ClientId:    c.ClientID,
-				ClientName:  c.ClientName,
-				ConnectedAt: c.ConnectedAt,
-			}
-			if c.LentPassportID != nil {
-				lent := openapi_types.UUID(c.LentPassportID.UUID)
-				summary.Connection.LentPassportId = &lent
-			}
-			summary.Connection.LentPassportLabel = c.LentPassportLabel
-		}
-		data = append(data, summary)
+		data = append(data, passportSummary(p))
 	}
 	httperr.WriteJSON(w, http.StatusOK, struct {
 		Data []crmcontracts.PassportSummary `json:"data"`
 	}{Data: data})
+}
+
+// passportSummary is the store row as the wire carries it. A function rather
+// than a loop body because every one of its branches is a decision the contract
+// takes a position on — an absent label reads as "", an absent connection is
+// OMITTED rather than null, and a connection with no recorded provenance omits
+// that too instead of naming a zero uuid — and each is worth stating as its own
+// case rather than proving through a database.
+func passportSummary(p PassportRow) crmcontracts.PassportSummary {
+	summary := crmcontracts.PassportSummary{
+		Id:        openapi_types.UUID(p.ID.UUID),
+		Scopes:    p.Scopes,
+		CreatedAt: p.CreatedAt,
+		ExpiresAt: &p.ExpiresAt,
+		RevokedAt: p.RevokedAt,
+	}
+	// A passport may carry no label at all (the column is nullable); the wire
+	// field is a required string, so NULL becomes "" rather than failing.
+	if p.Label != nil {
+		summary.Label = *p.Label
+	}
+	c := p.Connection
+	if c == nil {
+		return summary
+	}
+	summary.Connection = &crmcontracts.PassportConnection{
+		ClientId:    c.ClientID,
+		ClientName:  c.ClientName,
+		ConnectedAt: c.ConnectedAt,
+		Renewable:   c.Renewable,
+	}
+	// Provenance is omitted, never zeroed: a connection made before it was
+	// recorded has no answer, and a zero uuid on the wire would read as one.
+	if c.LentPassportID != nil {
+		lent := openapi_types.UUID(c.LentPassportID.UUID)
+		summary.Connection.LentPassportId = &lent
+	}
+	summary.Connection.LentPassportLabel = c.LentPassportLabel
+	return summary
 }
 
 // RevokePassport implements (DELETE /passports/{id}): the kill switch.

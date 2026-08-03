@@ -18,9 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -184,22 +181,31 @@ func TestAPassportAndAGrantSharingAnIDAreStillTwoRows(t *testing.T) {
 }
 
 // The provenance a human actually reads: which of their passports a connection
-// came from, by name. It is resolved at read time from the grant, so a passport
-// renamed after the lend reads under its current name — the label is display
-// text, and the audit row is what holds the dated fact.
+// came from, by name. The label is resolved at READ time, which is why the
+// rename below happens AFTER the lend — a snapshot taken at consent would keep
+// the old name and pass a weaker version of this test. The audit row is what
+// holds the dated fact; this column holds the current one.
 func TestAConnectionNamesThePassportItWasLentFrom(t *testing.T) {
 	e := setupRevocationEnv(t, "passport-list-provenance")
 	lent := e.mintLendable(t, e.admin, []string{"read"})
-	label := "the lent one"
-	if _, err := e.owner.Exec(context.Background(),
-		`UPDATE passport SET label = $2 WHERE id = $1`, lent, label); err != nil {
+	ctx := context.Background()
+	if _, err := e.owner.Exec(ctx,
+		`UPDATE passport SET label = 'the name at consent' WHERE id = $1`, lent); err != nil {
 		t.Fatalf("labelling the lent passport: %v", err)
 	}
-	fixture := e.connectOAuthLentFrom(t, lent)
+	fixture := e.connectOAuthLent(t, e.admin, &lent, "provenance")
 	// The grant records the consent; the credential under it is minted by the
 	// exchange, which the rotation path stands in for here. Without one there
 	// is no row for the connection to be listed on at all.
 	e.rotate(t, &fixture)
+
+	// Renamed after the fact. A read-time join reports the new name; a snapshot
+	// reports the old one.
+	const renamed = "the name today"
+	if _, err := e.owner.Exec(ctx,
+		`UPDATE passport SET label = $2 WHERE id = $1`, lent, renamed); err != nil {
+		t.Fatalf("renaming the lent passport: %v", err)
+	}
 
 	rows, err := e.svc.ListPassports(e.wsCtx(e.admin), e.admin)
 	if err != nil {
@@ -217,34 +223,14 @@ func TestAConnectionNamesThePassportItWasLentFrom(t *testing.T) {
 	if connection.LentPassportID == nil || *connection.LentPassportID != lent {
 		t.Fatalf("lent passport = %v, want %s", connection.LentPassportID, lent)
 	}
-	if connection.LentPassportLabel == nil || *connection.LentPassportLabel != label {
-		t.Fatalf("lent passport label = %v, want %q", connection.LentPassportLabel, label)
+	if connection.LentPassportLabel == nil || *connection.LentPassportLabel != renamed {
+		t.Fatalf("lent passport label = %v, want %q — the label is resolved when the list is read, not snapshotted at consent",
+			connection.LentPassportLabel, renamed)
 	}
-}
-
-// connectOAuthLentFrom is connectOAuthFor with the provenance a real consent
-// records — the fixture next door leaves it unset, which is the pre-0171 shape
-// and exactly what must NOT be assumed here.
-func (e *revocationEnv) connectOAuthLentFrom(t *testing.T, lent ids.PassportID) connectFixture {
-	t.Helper()
-	clientID := "client-" + ids.NewV7().String()
-	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		VALUES ($1, $2, 'provenance', ARRAY['https://client.example/cb'])`,
-		e.admin.WorkspaceID, clientID); err != nil {
-		t.Fatalf("registering the client: %v", err)
+	// The grant asked for refresh, so its credential turning over is a renewal
+	// and not the end of the connection — the fact the UI needs to tell a
+	// connection between credentials from one that is over.
+	if !connection.Renewable {
+		t.Fatal("the connection reports itself non-renewable although its grant allows refresh")
 	}
-	out := connectFixture{clientID: clientID}
-	ctx := e.wsCtx(e.admin)
-	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
-		var err error
-		out.grantID, out.refresh, err = issueGrant(ctx, tx, issueGrantInput{
-			WorkspaceID: e.admin.WorkspaceID, UserID: e.admin.UserID, ClientID: clientID,
-			Scopes: []string{"read"}, RefreshAllowed: true, LentPassportID: &lent,
-		})
-		return err
-	}); err != nil {
-		t.Fatalf("issuing the grant: %v", err)
-	}
-	return out
 }

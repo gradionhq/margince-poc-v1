@@ -45,6 +45,11 @@ type PassportConnectionRow struct {
 	ClientID    string
 	ClientName  string
 	ConnectedAt time.Time
+	// Renewable is the grant's refresh_allowed, and it is what the passport's
+	// own expires_at means nothing without: a renewable connection that passes
+	// that moment is between credentials, a non-renewable one is over. Reading
+	// the expiry alone reports the first kind as dead.
+	Renewable bool
 	// LentPassport is the passport the human lent to create this connection,
 	// and its label as it reads now. Both nil for a connection older than that
 	// provenance, or one whose lent passport was deleted outright — the lend is
@@ -83,12 +88,12 @@ type PassportConnectionRow struct {
 // RevokePassport enforces.
 const listPassportsSQL = `
 	SELECT id, label, scopes, created_at, expires_at, revoked_at,
-	       client_id, client_name, connected_at, lent_passport_id, lent_passport_label
+	       client_id, client_name, connected_at, renewable, lent_passport_id, lent_passport_label
 	FROM (
 		SELECT DISTINCT ON (p.oauth_grant_id IS NULL, COALESCE(p.oauth_grant_id, p.id))
 		       p.id, p.label, p.scopes, p.created_at, p.expires_at, p.revoked_at,
 		       g.client_id, COALESCE(c.client_name, g.client_id) AS client_name,
-		       g.created_at AS connected_at,
+		       g.created_at AS connected_at, g.refresh_allowed AS renewable,
 		       g.lent_passport_id, lent.label AS lent_passport_label
 		FROM passport p
 		LEFT JOIN oauth_grant g ON (g.workspace_id, g.id) = (p.workspace_id, p.oauth_grant_id)
@@ -126,18 +131,20 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 				clientID    *string
 				clientName  *string
 				connectedAt *time.Time
+				renewable   *bool
 				lentID      *ids.PassportID
 				lentLabel   *string
 			)
 			if err := rows.Scan(&p.ID, &p.Label, &p.Scopes, &p.CreatedAt, &p.ExpiresAt, &p.RevokedAt,
-				&clientID, &clientName, &connectedAt, &lentID, &lentLabel); err != nil {
+				&clientID, &clientName, &connectedAt, &renewable, &lentID, &lentLabel); err != nil {
 				return err
 			}
-			if clientID != nil && clientName != nil && connectedAt != nil {
+			if clientID != nil && clientName != nil && connectedAt != nil && renewable != nil {
 				p.Connection = &PassportConnectionRow{
 					ClientID:          *clientID,
 					ClientName:        *clientName,
 					ConnectedAt:       *connectedAt,
+					Renewable:         *renewable,
 					LentPassportID:    lentID,
 					LentPassportLabel: lentLabel,
 				}

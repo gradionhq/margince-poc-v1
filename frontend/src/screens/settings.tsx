@@ -518,13 +518,17 @@ function PassportCard() {
                         ),
                       })}
                     </span>
+                    {/* A credential's lifetime is a personal deadline, so it
+                        reads on the viewer's own calendar — the same
+                        zone-by-purpose split the consent screen makes. created_at
+                        above stays the fixed record zone. */}
                     {passport.expires_at && (
                       <span className="t-small">
                         {t("settings.expires", {
                           date: formatDate(
                             passport.expires_at,
                             locale,
-                            "Europe/Berlin",
+                            Intl.DateTimeFormat().resolvedOptions().timeZone,
                           ),
                         })}
                       </span>
@@ -592,8 +596,13 @@ function AgentToolsCard() {
       return data;
     },
   });
+  // Live, and the human's OWN to lend. A connection's credential is neither:
+  // the server refuses to lend a grant-bound passport (identity's
+  // lendablePassportPredicate), so offering one here would name a choice the
+  // consent screen cannot honour — and would put a raw DCR client id back in
+  // front of a reader the rest of this change just took it away from.
   const lendable = (passports.data?.data ?? []).filter(
-    (p) => p.revoked_at == null,
+    (p) => p.revoked_at == null && p.connection == null,
   );
   // The filter follows the selector: a passport revoked while it was the
   // chosen scope drops out of the options, and the <select> then shows "all

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -164,17 +164,23 @@ function ConnectGuide() {
 //
 // A connection ends TWO ways and only one of them writes a column. Revocation
 // stamps revoked_at (oauth_grant.go's cascade retires every passport under the
-// grant), but a credential can also simply RUN OUT: a grant without
-// offline_access cannot renew, so its passport expiring ends the connection
-// with nothing recording that it did. Reading revoked_at alone left those rows
-// reading as live, offering Disconnect on a credential that had already stopped
-// working.
+// grant), but a credential can also simply RUN OUT. Reading revoked_at alone
+// left an ended connection offering Disconnect on a credential that had already
+// stopped working.
 //
-// The two ends are not the same to act on, which is why they do not share a
-// control. A revoked connection is finished. An EXPIRED one still has a live
-// grant beneath it — the credential is dead, the consent is not — so it keeps a
-// way to end that for good, and `onEnd` reaches the same cascade either way
-// (revokePassportTx kills the grant even when the passport it names is gone).
+// An expiry is NOT an ending on its own, though, and that is the trap. A grant
+// carrying offline_access mints itself a replacement, so its passport passing
+// expires_at means the connection is between credentials — normal, and about to
+// be repaired by the client's next call. Only a connection that cannot renew is
+// over when its credential is. `renewable` is the grant's own refresh_allowed,
+// which is why the server sends it: without it this row reports every live
+// connector as dead the moment its access token turns over.
+//
+// The three states do not share a control, because they are not the same thing
+// to act on. Live and renewing both offer Disconnect. Lapsed offers to end the
+// GRANT instead — its credential is already gone, but the consent beneath it is
+// not — and `onEnd` reaches the same cascade either way (revokePassportTx kills
+// the grant even when the passport it names is already dead).
 function ConnectionRow({
   passport,
   onEnd,
@@ -186,8 +192,17 @@ function ConnectionRow({
     !revoked &&
     passport.expires_at != null &&
     Date.parse(passport.expires_at) <= Date.now();
-  const ended = revoked || expired;
-  const day = (iso: string) => formatDate(iso, locale, "Europe/Berlin");
+  // Renewing, not ended: the client repairs this itself on its next call.
+  const renewing = expired && passport.connection.renewable;
+  const lapsed = expired && !passport.connection.renewable;
+  const ended = revoked || lapsed;
+  // A credential's lifetime is a personal deadline, so it reads on the
+  // viewer's own calendar (format.ts zone-by-purpose, the same split
+  // oauthconsent.tsx makes). connected_at is a record date and keeps the fixed
+  // zone: it says when a consent was given, not when the reader must act.
+  const recordDay = (iso: string) => formatDate(iso, locale, "Europe/Berlin");
+  const deadlineDay = (iso: string) =>
+    formatDate(iso, locale, Intl.DateTimeFormat().resolvedOptions().timeZone);
   return (
     <li data-connection={passport.id}>
       <div
@@ -196,37 +211,49 @@ function ConnectionRow({
           gap: "var(--space-2)",
           alignItems: "center",
           flexWrap: "wrap",
-          // struck, not dimmed — the same AA contrast floor the passport list
-          // keeps (B-EP09.21).
-          textDecoration: ended ? "line-through" : undefined,
         }}
       >
-        <strong>{passport.connection.client_name}</strong>
-        <span className="t-small">
-          {t("agents.connectedOn", {
-            date: day(passport.connection.connected_at),
-          })}
+        {/* The strikethrough wraps the FACTS, never the actions beside them: a
+            struck-through button reads as disabled, and the one an ended row
+            offers is very much live. Struck, not dimmed — the same AA contrast
+            floor the passport list keeps (B-EP09.21). */}
+        <span
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            alignItems: "center",
+            flexWrap: "wrap",
+            textDecoration: ended ? "line-through" : undefined,
+          }}
+        >
+          <strong>{passport.connection.client_name}</strong>
+          <span className="t-small">
+            {t("agents.connectedOn", {
+              date: recordDay(passport.connection.connected_at),
+            })}
+          </span>
+          {/* Omitted, never guessed: a connection made before the provenance
+              was recorded has no answer to give. */}
+          {passport.connection.lent_passport_label && (
+            <span className="t-small">
+              {t("agents.lentFrom", {
+                label: passport.connection.lent_passport_label,
+              })}
+            </span>
+          )}
+          {/* This date moves with each renewal, which is the honest thing to
+              show: it is when the agent must next hold a live credential, not
+              when the consent lapses. A revoked row omits it — its credential
+              did not reach its expiry. */}
+          {passport.expires_at && !revoked && (
+            <span className="t-small">
+              {t(expired ? "agents.expiredOn" : "agents.renewsBy", {
+                date: deadlineDay(passport.expires_at),
+              })}
+            </span>
+          )}
         </span>
-        {/* Omitted, never guessed: a connection made before the provenance was
-            recorded has no answer to give. */}
-        {passport.connection.lent_passport_label && (
-          <span className="t-small">
-            {t("agents.lentFrom", {
-              label: passport.connection.lent_passport_label,
-            })}
-          </span>
-        )}
-        {/* This date moves with each renewal, which is the honest thing to
-            show: it is when the agent must next hold a live credential, not
-            when the consent lapses. A revoked row omits it — its credential
-            did not reach its expiry. */}
-        {passport.expires_at && !revoked && (
-          <span className="t-small">
-            {t(expired ? "agents.expiredOn" : "agents.renewsBy", {
-              date: day(passport.expires_at),
-            })}
-          </span>
-        )}
+        {renewing && <Badge>{t("agents.renewing")}</Badge>}
         {ended && (
           <Badge tone="danger">
             {t(revoked ? "agents.disconnected" : "agents.lapsed")}
@@ -244,7 +271,7 @@ function ConnectionRow({
             {t("agents.disconnect")}
           </Button>
         )}
-        {expired && (
+        {lapsed && (
           <Button
             small
             aria-label={t("agents.revokeGrantNamed", {
@@ -275,6 +302,48 @@ function ConnectionRow({
 // grant, so the client's ability to RENEW dies with the credential — a revoke
 // that killed only the passport would be undone by the next refresh seconds
 // later.
+// The soonest moment at which some row's status would change if nothing else
+// happened — the earliest still-future expiry among the live connections.
+// Null when nothing is pending, which is the ordinary case.
+function nextExpiry(
+  connections: readonly Connection[],
+  now: number,
+): number | null {
+  const upcoming = connections
+    .filter((c) => c.revoked_at == null && c.expires_at != null)
+    .map((c) => Date.parse(c.expires_at as string))
+    .filter((at) => at > now);
+  return upcoming.length > 0 ? Math.min(...upcoming) : null;
+}
+
+// Re-render when a credential passes its expiry, because THIS list derives a
+// status from the clock and nothing else would notice. The app disables
+// refetchOnWindowFocus (main.tsx), so a settings tab left open would otherwise
+// keep reporting a connection as live indefinitely — the status is computed at
+// render, and without this nothing schedules another one.
+//
+// One timer at the nearest expiry, not a poll: the boundary is known exactly,
+// so waking for it is enough and waking every N seconds to check would be
+// waste. Re-running on `until` means each crossing schedules the next.
+function useClockAt(until: number | null) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (until == null) {
+      return;
+    }
+    // setTimeout saturates past ~24.8 days (its delay is a signed 32-bit ms
+    // value) and would fire IMMEDIATELY, spinning. A passport lifetime reaches
+    // 30 days, so the far ones are simply not scheduled: nobody holds a tab
+    // open that long, and the next mount recomputes anyway.
+    const delay = until - Date.now();
+    if (delay <= 0 || delay > 0x7fffffff) {
+      return;
+    }
+    const timer = globalThis.setTimeout(() => setTick((n) => n + 1), delay);
+    return () => globalThis.clearTimeout(timer);
+  }, [until]);
+}
+
 export function ConnectedAgentsCard() {
   const t = useT();
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -305,6 +374,13 @@ export function ConnectedAgentsCard() {
     },
   });
 
+  // Read at the top rather than inside the gate's render prop: the expiry
+  // timer is a hook, so it cannot live where the rows are built.
+  const connections = (list.data?.data ?? []).filter(
+    (passport): passport is Connection => Boolean(passport.connection),
+  );
+  useClockAt(nextExpiry(connections, Date.now()));
+
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader
@@ -316,10 +392,7 @@ export function ConnectedAgentsCard() {
           reads as a loading failure, and the sentence a human needs is that no
           agent has connected YET. */}
       <QueryGate query={list}>
-        {(page) => {
-          const connections = page.data.filter(
-            (passport): passport is Connection => Boolean(passport.connection),
-          );
+        {() => {
           if (connections.length === 0) {
             return <EmptyState>{t("agents.noneConnected")}</EmptyState>;
           }
@@ -352,6 +425,10 @@ export function ConnectedAgentsCard() {
         }}
         title={t("agents.disconnect")}
         confirmLabel={t("agents.disconnect")}
+        // The final click revokes a credential AND the grant beneath it; a
+        // primary-styled confirm would understate that at the one moment it
+        // matters most.
+        confirmVariant="danger"
         onConfirm={() => confirmId && disconnect.mutate(confirmId)}
         pending={disconnect.isPending}
         error={

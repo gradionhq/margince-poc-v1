@@ -45,14 +45,26 @@ func (e *revocationEnv) connectOAuth(t *testing.T) connectFixture {
 // access, and an admin is the one human deactivation refuses to touch.
 func (e *revocationEnv) connectOAuthFor(t *testing.T, consenter Identity) connectFixture {
 	t.Helper()
+	// No lent passport: the pre-0171 shape, and the one the lock-order suite
+	// wants — nothing here depends on provenance.
+	return e.connectOAuthLent(t, consenter, nil, "lock order")
+}
+
+// connectOAuthLent is the ONE fixture that builds a connection, so the two
+// callers cannot drift apart in how they consent. lent is the passport the
+// human handed over, nil for a connection with no provenance recorded.
+func (e *revocationEnv) connectOAuthLent(
+	t *testing.T, consenter Identity, lent *ids.PassportID, clientName string,
+) connectFixture {
+	t.Helper()
 	// The full id, not a prefix: consecutive v7 ids share their leading bytes
 	// within a millisecond, and every attempt in this suite registers its own
 	// client.
 	clientID := "client-" + ids.NewV7().String()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		VALUES ($1, $2, 'lock order', ARRAY['https://client.example/cb'])`,
-		consenter.WorkspaceID, clientID); err != nil {
+		VALUES ($1, $2, $3, ARRAY['https://client.example/cb'])`,
+		consenter.WorkspaceID, clientID, clientName); err != nil {
 		t.Fatalf("registering the client: %v", err)
 	}
 
@@ -63,7 +75,7 @@ func (e *revocationEnv) connectOAuthFor(t *testing.T, consenter Identity) connec
 		var err error
 		out.grantID, out.refresh, err = issueGrant(ctx, tx, issueGrantInput{
 			WorkspaceID: consenter.WorkspaceID, UserID: consenter.UserID, ClientID: clientID,
-			Scopes: []string{"read"}, RefreshAllowed: true,
+			Scopes: []string{"read"}, RefreshAllowed: true, LentPassportID: lent,
 		})
 		return err
 	}); err != nil {

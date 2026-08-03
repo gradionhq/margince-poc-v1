@@ -11050,9 +11050,10 @@ export interface components {
             agent_id?: string | null;
             /**
              * @description Present when this passport IS a connection's credential — issued to an MCP client by the
-             *     token exchange, not minted by a human. Absent (null) on a human-minted passport, which is
-             *     what makes this field, rather than the `oauth:` label prefix, the way to tell the two
-             *     apart: a label is display text a human can also type.
+             *     token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+             *     not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+             *     `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+             *     can also type.
              */
             connection?: components["schemas"]["PassportConnection"];
             /** Format: date-time */
@@ -11071,6 +11072,15 @@ export interface components {
         PassportConnection: {
             /** @description The registered OAuth client id (the DCR identifier). */
             client_id: string;
+            /**
+             * @description Whether this connection may mint itself a replacement credential — the grant's
+             *     `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+             *     passport's own `expires_at` mean two different things: a renewable connection is simply
+             *     between credentials once that moment passes, while a non-renewable one has ENDED, with
+             *     nothing recording that it did. A reader that treats every expiry as the end reports live
+             *     connections as dead.
+             */
+            renewable: boolean;
             /**
              * @description The client's registered name ("Claude Code"). Falls back to `client_id` when the client
              *     registration is gone, so a connection is never nameless.
