@@ -72,11 +72,21 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	// policy stops reply-detecting threads whose outbound legs have aged out,
 	// even for a customer replying today. That follows the formula rather than
 	// this file's choosing, and it is the behaviour the spec pins.
+	// Matched within ONE medium. thread_key is a single flat namespace holding
+	// both a mail thread root and a channel's `<provider>:<bot>:<chat>` key, and
+	// the mail half is attacker-supplied: it is the message's own References
+	// root, so a sender chooses it verbatim. Without this a forged References
+	// header naming a Telegram conversation — whose parts are both discoverable,
+	// a bot id being public and a private chat's id being the user's own —
+	// manufactures a reply fact against a conversation that sender was never in.
+	// A reply is answered on the medium it arrived on, so a cross-medium match
+	// could never have been actionable anyway.
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM activity
-		WHERE thread_key = $1 AND direction = 'outbound' AND archived_at IS NULL AND id <> $2
+		WHERE thread_key = $1 AND direction = 'outbound' AND kind = $2
+		  AND archived_at IS NULL AND id <> $3
 		ORDER BY occurred_at DESC LIMIT 1`,
-		rec.ThreadKey, id).Scan(&matched)
+		rec.ThreadKey, fields.Kind, id).Scan(&matched)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -89,13 +99,12 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 	}
 	if !ok {
 		// A thread-matched inbound whose record names no counterparty at all.
-		// The thread match is real and the medium is arguably still derivable
-		// from the record, so this is a DEVIATION from the formula, which emits
-		// on the match alone: what it refuses to do is publish a reply fact
-		// naming a medium nothing in the record actually attests to. Deviations
-		// belong upstream, not in a comment — .tmp/reply-origin/UPSTREAM.md
-		// raises it, and no live producer reaches this arm today (every mail
-		// connector drops a From-less message before capture).
+		// The thread match is real, so this is narrower than the formula, which
+		// emits on the match alone: what it refuses is a reply fact asserting a
+		// medium nothing in the record attests to. Which of the two CAP-FORMULA-1
+		// means is an open question against the spec, not a settled reading — no
+		// live producer reaches this arm either way, because every mail connector
+		// drops a From-less message before capture.
 		return nil
 	}
 	idempotencyKey := rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID
@@ -168,9 +177,17 @@ func mailReplyContact(ctx context.Context, tx pgx.Tx, email string) (ids.PersonI
 		return ids.PersonID{}, false, nil
 	}
 	var personID ids.PersonID
+	// The PERSON's own archived_at is checked, not only the binding's. Archiving
+	// a person does cascade to their satellites today, so this join changes no
+	// live answer — it stops the reply fact from depending on that cascade. A
+	// half-archived record (a retention pass, a merge, a repair) would otherwise
+	// name a person the consumer cannot read back, and the same reasoning holds
+	// for the channel twin below.
 	err := tx.QueryRow(ctx, `
-		SELECT person_id FROM person_email WHERE email = $1 AND archived_at IS NULL
-		ORDER BY is_primary DESC LIMIT 1`, normalized).Scan(&personID)
+		SELECT pe.person_id FROM person_email pe
+		JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
+		WHERE pe.email = $1 AND pe.archived_at IS NULL
+		ORDER BY pe.is_primary DESC LIMIT 1`, normalized).Scan(&personID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.PersonID{}, false, nil
 	}
@@ -195,8 +212,9 @@ func channelReplyContact(ctx context.Context, tx pgx.Tx, ci connector.ChannelIde
 	}
 	var personID ids.PersonID
 	err := tx.QueryRow(ctx, `
-		SELECT person_id FROM person_channel_identity
-		WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL`,
+		SELECT pci.person_id FROM person_channel_identity pci
+		JOIN person p ON p.id = pci.person_id AND p.archived_at IS NULL
+		WHERE pci.provider = $1 AND pci.channel_user_id = $2 AND pci.archived_at IS NULL`,
 		ci.Provider, ci.ChannelUserID).Scan(&personID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.PersonID{}, false, nil

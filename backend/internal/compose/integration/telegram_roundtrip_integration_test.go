@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -35,6 +36,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // sendRegistry is the WORKER role's connector registry, carrying the fake Bot
@@ -269,6 +273,98 @@ func TestAnArchivedOutboundIsNotAConversationToReplyInto(t *testing.T) {
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 0 {
 		t.Fatalf("%d engagement.reply events, want 0 — the only outbound in this thread was archived, "+
 			"so there is no live conversation the customer replied into", n)
+	}
+}
+
+// mailConnectorCtx is a MAIL connector principal in this workspace — the
+// channel suite's one non-channel actor, so a message can arrive by the other
+// medium without standing up a second harness.
+func (c *telegramEnv) mailConnectorCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx := principal.WithWorkspaceID(context.Background(), c.workspaceID(t))
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalConnector, ID: "connector:gmail",
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"connector"},
+			Objects:  map[string]principal.ObjectGrant{"activity": {Create: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	return principal.WithCorrelationID(ctx, ids.NewV7())
+}
+
+// TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation holds the
+// prior-outbound scan to one medium.
+//
+// thread_key is a single flat namespace carrying both a mail thread root and a
+// channel's provider:bot:chat key, and the mail half is attacker-supplied — it
+// is the message's own References root, copied verbatim. Both halves of a
+// Telegram key are discoverable (a bot id is public, and a private chat's id IS
+// the user's account id), so without a medium qualifier an outsider who can
+// send mail manufactures an engagement.reply against a Telegram conversation
+// they were never part of, and every consumer of that event — sequence
+// exit-on-reply, warm-room scoring, an answering automation — acts on it.
+func TestAForgedThreadKeyCannotReplyIntoAnotherMediumsConversation(t *testing.T) {
+	c := setupTelegramConnected(t)
+	opening := telegramUpdate{
+		updateID: 6301, messageID: 31, senderID: 771301,
+		username: "client", firstName: "Ora", text: "Can you quote the retrofit?",
+	}
+
+	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{SendRegistry: c.sendRegistry()})
+	startTelegramWorker(t, runner)
+
+	c.arrive(t, sub, opening)
+	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+	activityID, personID := c.capturedMessage(t, opening)
+
+	// A real outbound goes into the Telegram conversation.
+	c.grantConsent(t, personID, "transactional")
+	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+		"body": "Sending it over today.", "consent_purpose": "transactional",
+	}, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("the rep's reply → %d, want 202", status)
+	}
+	awaitJobKind(t, sub, compose.SendEmailArgs{}.Kind())
+
+	// The thread key that outbound is filed under is what an attacker would
+	// forge, so the test reads the real one rather than reconstructing it.
+	var forged string
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT thread_key FROM activity WHERE id = $1`, activityID).Scan(&forged)
+	}); err != nil {
+		t.Fatalf("reading the conversation's thread key: %v", err)
+	}
+
+	// A stranger's MAIL lands carrying that key as its References root. It is a
+	// real inbound message that captures normally; only the thread it claims is
+	// a lie, so what the assertion below reads is the match, not a refusal.
+	mail := connector.NormalizedRecord{
+		EntityType: datasource.EntityActivity,
+		NaturalKey: connector.NaturalKey{SourceSystem: "gmail", SourceID: "forged-1@stranger.example"},
+		Fields: capture.ActivityFields{
+			Kind: "email", Subject: "Re: your conversation", Body: "let us talk",
+			Direction: connector.DirectionInbound, OccurredAt: time.Now().UTC(),
+		},
+		Source:     "gmail:forged-1@stranger.example",
+		CapturedBy: "connector:gmail",
+		Counterparty: connector.Counterparty{
+			Direction: connector.DirectionInbound,
+			Email:     "stranger@elsewhere.example", Domain: "elsewhere.example",
+			DisplayName: "A Stranger",
+		},
+		ThreadKey: forged,
+	}
+	if _, err := capture.NewSink(c.pool).Upsert(c.mailConnectorCtx(t), mail); err != nil {
+		t.Fatalf("capturing the stranger's mail: %v — it must land as an ordinary activity, "+
+			"or this test proves a refusal rather than the thread scan", err)
+	}
+
+	if n := c.count(t,
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 0 {
+		t.Fatalf("%d engagement.reply events, want 0 — a mail message claiming a Telegram "+
+			"conversation's thread key must not match the outbound in it", n)
 	}
 }
 
