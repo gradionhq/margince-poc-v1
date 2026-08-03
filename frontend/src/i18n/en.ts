@@ -24,6 +24,9 @@ export const en = {
   "trust.dismiss": "Dismiss",
   "trust.save": "Save",
   "trust.typedByYou": "typed by you",
+  "trust.typedByHuman": "typed by a person",
+  "trust.typedByPrefix": "typed by",
+  "trust.sourceUnknown": "source not recorded",
   "trust.agentTag": "agent: {agent}",
   "trust.connectorTag": "via {connector}",
   "trust.dismissed": "Suggestion dismissed.",
@@ -32,6 +35,8 @@ export const en = {
   "trust.editValue": "Edit {description}",
 
   "history.created": "— created —",
+  "history.oldValue": "Previous value",
+  "history.newValue": "New value",
   "history.cleared": "— cleared —",
   "history.passport": "Agent passport",
   "history.empty": "No changes recorded",
@@ -157,6 +162,8 @@ export const en = {
     "Are you sure? This disqualifies and archives the lead — there is no undo control.",
   "record.archived": "Archived",
   "record.share": "Share",
+  "record.moreActions": "More actions",
+  "record.fullHistory": "Full history",
 
   "share.title": "Share this record",
   "share.ceiling.pre": "A grant changes who can see ",
@@ -440,7 +447,7 @@ export const en = {
   "consent.noRecord": "no record",
   "consent.noPurposes": "This workspace tracks no consent purposes yet.",
   "consent.defaultDeny":
-    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorises another.",
+    "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorizes another.",
   "consent.proofLog": "Proof log",
   "consent.proofEmpty":
     "No consent decision recorded for this purpose. An empty log is honest, not a gap.",
@@ -460,21 +467,42 @@ export const en = {
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
+  // The classification values a reader sees. The column stores the enum;
+  // rendering the enum itself ("prospect") told a German reader nothing and
+  // an English one only slightly more.
+  "org.class.prospect": "Prospect",
+  "org.class.customer": "Customer",
+  "org.class.agency": "Agency",
+  "org.class.reseller": "Reseller",
+  "org.class.tech_vendor": "Tech vendor",
+  "org.class.platform": "Platform",
+  "org.class.partner": "Partner",
+  "org.class.competitor": "Competitor",
+  "org.class.other": "Other",
+  "org.class.explain":
+    "How this company relates to you — not a stage in a deal.",
+  "signal.kind.stalled_deal": "Deal stalled",
+  "signal.kind.champion_left": "Champion left",
+  "signal.kind.reengagement": "Worth re-engaging",
+  "signal.kind.buying_intent": "Buying intent",
+  "signal.kind.risk": "Risk",
+  "signal.kind.other": "Other",
   "record.profile": "Profile",
   "record.business": "Business",
-  "co.pulse.strengthLead": "{score} · via",
-  "co.pulse.strengthTail": "of {count} contacts",
+  "co.pulse.strongestLead": "Strongest contact",
+  "co.pulse.strengthTail.one":
+    "\u2014 the only one here (relationship {score}/100)",
+  "co.pulse.strengthTail.other":
+    "\u2014 of {count} people here (relationship {score}/100)",
+  "co.pulse.strengthExplain":
+    "Relationship strength, 0\u2013100: how much back-and-forth there has been with this account, taken from the contact with the most.",
   "co.pulse.noStrength": "No interactions logged yet",
   "co.pulse.lastTouch": "Last touch {when}",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
+  "co.owner.notInRoster": "Current owner (no longer in the user list)",
   "co.pulse.unowned": "Unassigned",
-  "co.since.title": "Since your last visit",
   "co.since.first": "You are opening this account for the first time.",
-  "co.since.activities": "{count} new activities",
-  "co.since.moves": "{count} deal stage moves",
-  "co.since.proposals": "{count} decisions waiting",
-  "co.since.nothing": "Nothing new since your last visit.",
   "co.partial":
     "Some of this page could not be loaded, so it may not show everything on this account.",
   "evidence.explain": 'Where "{value}" came from',
@@ -491,19 +519,21 @@ export const en = {
   "co.next.assignee": "Assignee",
   "co.people.title": "People",
   "co.people.empty": "No contact linked to this account yet.",
-  "co.people.championGap": "No champion identified on the open deals",
   "co.people.singleThread":
     "One contact only \u2014 the account is single-threaded",
   "co.people.consentGranted": "May contact",
   "co.people.consentWithdrawn": "Withdrawn",
   "co.people.consentUnknown": "No consent on file",
-  "co.brief.title": "Account brief",
+  "co.brief.title": "Before you talk to them",
+  "co.brief.unavailable":
+    "The account reading could not be loaded, so this is not the whole picture.",
+  "co.brief.empty":
+    "There is not enough on this account yet to read anything from it.",
+  "co.brief.rewrite": "Write it again",
+  "co.brief.rewriting": "Writing…",
   "co.brief.by.model": "Written by Margince",
   "co.brief.by.deterministic": "Assembled from your records",
   "co.brief.generatedAt": "as of {when}",
-  "co.brief.refreshFailed":
-    "Refresh failed — the brief below is the earlier one",
-  "co.brief.refresh": "Refresh",
   "co.brief.cite.deal": "deal",
   "co.brief.cite.activity": "activity",
   "co.brief.cite.person": "contact",
@@ -529,16 +559,14 @@ export const en = {
   "approval.kind.coldstart": "Fill in a new account",
   "approval.kind.enrich": "Enrich from the web",
   "approval.kind.deepread": "Read the company site",
+  "approval.kind.linkedin_match": "LinkedIn match",
   "approval.kind.site_lead": "Add a person found on the site",
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
   "approval.kind.ai_model_rate_proposal": "Refresh model prices",
-  "co.assistant.title": "What Margince sees",
+  "co.assistant.title": "Ask about this account",
   "co.assistant.aiTag": "AI-assisted",
-  "co.assistant.sub":
-    "Written from this account's own records — every sentence names its sources.",
-  "co.tools.title": "Data & tools",
   "co.decisions.open": "Review {count} waiting",
   "co.decisions.title": "Decisions waiting",
   "co.decisions.group": "{count} × {kind}",
@@ -583,17 +611,163 @@ export const en = {
   "co.connections.rel.co_sell_with": "co-selling",
   "co.connections.rel.owns": "owns this account",
   "co.connections.rel.in_contact_with": "in contact",
+  "co.connections.noSignal": "no signal yet",
+  "linkedinImport.title": "LinkedIn connections",
+  "linkedinImport.sub":
+    "Import your own export to see who your team already knows",
+  "linkedinImport.explainer":
+    "LinkedIn gives you a Connections.csv under Settings → Data privacy → Get a copy of your data. Uploading it here shows who on your team already knows someone at an account. The connections do NOT become contacts: they never appear in search, lists or contact pages, and nobody can write to or email them.",
+  "linkedinImport.profileLabel": "Your LinkedIn profile URL",
+  "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "linkedinImport.saveProfile": "Save profile",
+  "linkedinImport.connectedNote":
+    "Connected. Imported connections are attributed to this profile, so the CRM can say which colleague knows someone rather than that \u201cthe company\u201d does.",
+  "linkedinImport.notConnectedNote":
+    "Not connected yet. Adding your profile URL attributes any connections you import to you by name.",
+  "linkedinImport.whichFile":
+    "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
+  "linkedinImport.choose": "Choose Connections.csv",
+  "linkedinImport.noMatchesYet":
+    "No matches yet, which is normal on a new workspace: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
+  "linkedinImport.working": "Reading your export…",
+  "linkedinImport.imported": "Connections imported",
+  "linkedinImport.confirmed": "Matched to a contact",
+  "linkedinImport.suggested": "Awaiting your confirmation",
+
+  // The review queue and the reach table (ADR-0078 §2.1b).
+  "linkedinReach.title": "Where your network reaches",
+  "linkedinReach.sub":
+    "Accounts on file where you already know somebody, most connections first.",
+  "linkedinReach.empty":
+    "None of your connections work at an account on file yet.",
+  "linkedinReach.allUnresolved":
+    "All {unresolved} of your connections work somewhere that is not an account on file yet.",
+  "linkedinReach.account": "Account",
+  "linkedinReach.connections": "You know",
+  "linkedinReach.onFile": "Already contacts",
+  "linkedinReach.onFileOf": "{onFile} of {total}",
+  "linkedinReach.footnote":
+    "Showing {shown} of {total} accounts. {unresolved} connections work somewhere that is not an account on file yet.",
+  "linkedinImport.skipped": "Rows skipped (no usable name)",
   "co.connections.group.contacts": "contacts",
   "co.connections.group.deals": "deals",
   "co.connections.group.intro_path": "the warm intro",
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "co.chronology.label": "What to show in the timeline",
+  "co.chronology.activities": "Activities",
+  "co.chronology.changes": "Changes",
+  "co.chronology.all": "All",
+  "co.chronology.changesEmpty":
+    "No field on this record has been changed since it was created.",
+  "co.chronology.allEmpty": "Nothing has happened on this account yet.",
+  "co.chronology.truncated":
+    "Older entries are not shown here — there are more of both kinds than this view can put in order. Pick Activities or Changes to read further back.",
+  "co.chronology.truncatedActivities":
+    "This account has more activities than fit here. Only the most recent ones are listed.",
+  "timeline.sent": "Sent",
+  "timeline.received": "Received",
+  "timeline.textMore": "Read it",
+  "timeline.textLess": "Show less",
+  "co.profileField.display_name": "Company name",
+  "co.profileField.offer_summary": "What they sell",
+  "co.profileField.icp": "Who they sell to",
+  "co.profileField.buying_center": "Who decides there",
+  "co.profileField.value_proposition": "What they promise",
+  "co.profileField.usp": "How they differentiate",
+  "co.profileField.customer_pains": "Pain they solve",
+  "co.profileField.desired_outcomes": "Outcome they promise",
+  "co.profileField.buying_intents": "What triggers a purchase",
+  "co.profileField.common_objections": "Objections they meet",
+  "co.profileField.sales_motion": "How they sell",
+  "co.profileField.legal_name": "Registered legal name",
+  "co.profileField.registered_address": "Registered address",
+  "co.profileField.register_vat": "Register / VAT ID",
+  "co.profileField.industry": "Industry",
+  "co.profileField.history": "History",
+  "co.profile.title": "Company profile",
+  "co.reach.window": "Contact status for the last 90 days",
+  "co.reach.answered": "Answered",
+  "co.reach.silent": "No reply",
+  "co.reach.untried": "Not approached",
+  "co.role.set": "Set role",
+  "co.role.setOn": "What is {name} on this deal?",
+  "co.role.explain":
+    "The champion argues for you when you are not in the room. The economic buyer signs. Naming both is what turns a list of contacts into a picture of the decision.",
+  "co.role.onDeal": "On which deal",
+  "co.role.role": "Role",
+  "co.role.champion": "champion",
+  "co.role.economic_buyer": "economic buyer",
+  "co.role.blocker": "blocker",
+  "co.role.influencer": "influencer",
+  "co.role.user": "end user",
+  "co.people.missing":
+    "No {roles} is named on the open deal yet — set one on the contact who is.",
+  "co.people.untriedHint": "{count} people here have never been approached.",
+  "co.people.untriedHintOne": "One person here has never been approached.",
+  "co.evidence.title": "Where this came from",
+  "co.relationships.title": "Linked people and companies",
+  "co.tools.title": "Data & tools",
+  "co.prep.title": "Before you talk to them",
+  "co.prep.sparse":
+    "There is barely any history on this account yet, so there is nothing to prepare from.",
+  "co.prep.withheld":
+    "Parts of this account are hidden from you, so this reading is incomplete.",
+  "co.read.lastTouch": "Last contact was {days} days ago.",
+  "co.read.lastTouchOne": "Last contact was yesterday.",
+  "co.read.neverTouched":
+    "Nobody has ever been in contact with anyone at this account.",
+  "co.read.newActivityOne": "One new item since your last visit.",
+  "co.read.newActivityMany": "{count} new items since your last visit.",
+  "co.read.dealMovedOne": "One deal moved stage since your last visit.",
+  "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
+  "co.read.unansweredOne":
+    "You have written to one contact here in the last {days} days and had no reply.",
+  "co.read.unansweredMany":
+    "You have written to {count} contacts here in the last {days} days and none has replied.",
+  "co.read.noContacts": "You do not know anyone at this account yet.",
+  "co.read.singleThread":
+    "Only {name} has email, calls or meetings recorded in the last {days} days.",
+  "co.read.oneContact": "{name} is your only way into this account.",
+  "co.read.noChampion.one": "No champion is named on the open deal.",
+  "co.read.noChampion.other": "No champion is named on any of the open deals.",
+  "co.read.stalled": "{name} has stalled.",
+  "co.read.noOpenDeal": "No open deal, and nothing won here yet.",
+  "co.read.noOpenDealCustomer":
+    "No open deal right now, though this account has bought before.",
+  "co.read.overdueOne": "Overdue: {subject}",
+  "co.read.overdueMany": "{count} commitments here are overdue.",
+  "co.read.noNextStep": "Nothing is scheduled next on this account.",
+  "co.factField.founded_year": "Founded",
+  "co.factField.employee_range": "Employees",
+  "co.factField.phone": "Phone",
+  "co.factField.contact_email": "Contact email",
+  "co.factField.location": "Location",
+  "co.factField.service": "Service",
+  "co.factField.product": "Product",
+  "co.factField.capability": "Capability",
+  "co.factField.served_industry": "Serves",
+  "co.factField.company_size": "Size",
+  "co.factField.geography": "Geography",
+  "co.factField.language": "Language",
+  "co.factField.certification": "Certification",
+  "co.factField.partner": "Partner",
+  "co.factField.named_customer": "Customer",
+  "co.factField.technology": "Technology",
+  "co.factField.quantified_outcome": "Result",
+  "co.facts.showAll": "Show all {count}",
+  "co.facts.showLess": "Show fewer",
   "co.facts.title": "Quick facts",
   "co.tags.lists": "Lists",
   "co.tags.tags": "Tags",
   "co.tags.noLists": "Not on any list.",
   "co.tags.noTags": "No tags applied.",
+  "co.deal.new": "New deal",
+  "co.tags.apply": "Add tag",
+  "co.tags.pick": "Tag name",
+  "co.lists.add": "Add to list",
+  "co.lists.pick": "List name",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
   "co.health.title": "Data health",
@@ -608,9 +782,7 @@ export const en = {
   "co.overlayFallback":
     "This account is served from the connected system of record, so the company view is not assembled here. Open it in that system to see the full picture.",
   "org.firmographics": "Firmographics",
-  "org.evidenceOrOmit": "evidence-backed fields only — absent means unknown",
   "org.domains": "Domains",
-  "org.firmographicsLegal": "Firmographics & legal",
   "org.firmographicsEmpty":
     "Nothing read yet — grounded profile fields appear here once a site read confirms them.",
   "org.facts": "Facts read from the site",
@@ -1050,6 +1222,8 @@ export const en = {
   "settings.passports": "Agent passports",
   "settings.passportsSub":
     "an agent acts as you, never above you — every call re-checks your RBAC",
+  "passport.select": "Passport",
+  "passport.noneOption": "No passport",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",
@@ -1495,7 +1669,9 @@ export const en = {
   "backfill.countCaptured": "Captured",
   "backfill.statEmails": "Emails captured",
   "backfill.statPeople": "People",
-  "backfill.statCompanies": "Companies",
+  // The count is domains this run raised a company question for, not
+  // companies created — a domain becomes one only if its site says so.
+  "backfill.statCompanies": "Companies to check",
   "backfill.errorNote":
     "It will retry on its own; everything captured so far is kept.",
   "backfill.cancel": "Stop the import",
@@ -1624,26 +1800,21 @@ export const en = {
   "connectors.telegramReplaceCta": "Replace token",
   "connectors.telegramConnectedAs": "Connected as @{username}.",
 
-  // Personal-mail exclusions (RC-2, Task 8): a reachable UI for a privacy
-  // control that already had live mail syncing and no button — human-only,
-  // an agent must not widen or narrow a human's personal-mail boundary.
-  "exclusions.title": "Personal-mail exclusions",
-  "exclusions.sub":
-    "Keep specific mail out of your CRM entirely. A matching message produces zero CRM rows — nothing is captured and then hidden, it's simply never captured.",
-  "exclusions.kind.senderDomain": "mail from this domain",
-  "exclusions.kind.recipientDomain": "mail to this domain",
-  "exclusions.kind.label": "mail with this label",
-  "exclusions.new": "New rule",
-  "exclusions.none": "No exclusion rules yet.",
-  "exclusions.modalTitle": "Add an exclusion rule",
-  "exclusions.fieldKind": "Rule type",
-  "exclusions.value": "Value",
-  "exclusions.add": "Add",
-  "exclusions.alreadyPresent": "This rule already exists in your list.",
-  "exclusions.remove": "Remove",
-  "exclusions.removeTitle": "Remove this rule?",
-  "exclusions.removeConfirm":
-    "Mail matching this rule will stop being excluded — new messages will be captured normally again.",
+  // The workspace's own consumer-mail list (CAP-PARAM-5): what the shipped
+  // baseline missed, and what it got wrong. Admin-curated and shared, because
+  // whether a domain can name a company is a fact about the domain.
+  "consumerMail.title": "Consumer mail domains",
+  "consumerMail.sub":
+    "Mail from a consumer mailbox still creates the person — it just never creates a company. Margince ships a list of these providers; add what it missed, or take back a domain it wrongly claimed.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "provider.example",
+  "consumerMail.kindLabel": "What this domain is",
+  "consumerMail.kind.extra": "Consumer mail — never a company",
+  "consumerMail.kind.never": "A real company — ignore the shipped list",
+  "consumerMail.add": "Add",
+  "consumerMail.remove": "Remove",
+  "consumerMail.none": "Nothing added. The shipped list decides every domain.",
+  "consumerMail.adminOnly": "Only an admin can change this list.",
 
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
@@ -1843,6 +2014,39 @@ export const en = {
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
+  "ob.conv.linkedin.why":
+    "Before your inbox, one thing matters more: who your team already knows. Your mail says who you have spoken to. Your LinkedIn network says who you could reach \u2014 and on a brand-new CRM, that is the difference between an account that looks cold and one where a colleague can make an introduction today.",
+  "ob.conv.linkedin.ask":
+    "Connecting takes one authorization. I read your connection list and nothing else \u2014 no messages, no posts, no activity.",
+  "ob.conv.linkedin.artifactTitle": "LinkedIn connection",
+  "ob.conv.linkedin.artifactSub":
+    "So the CRM can tell you who on your team already knows someone at an account.",
+  "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
+  "ob.conv.linkedin.scope1Rest":
+    "name, position, company and the date you connected.",
+  "ob.conv.linkedin.scope2Lead": "Nothing else.",
+  "ob.conv.linkedin.scope2Rest":
+    "No messages, no posts, no who-viewed-you, no activity.",
+  "ob.conv.linkedin.scope3Lead": "Your network stays yours.",
+  "ob.conv.linkedin.scope3Rest":
+    "It is attributed to you, never to the company, and disconnecting removes it.",
+  "ob.conv.linkedin.scope4Lead": "Nobody is contacted.",
+  "ob.conv.linkedin.scope4Rest":
+    "Connecting sends no invitations and no messages, ever.",
+  "ob.conv.linkedin.neverContacts":
+    "Your connections do NOT become contacts. They never appear in search, lists or contact pages, nothing can be written to them, and nobody can email them. They exist only to answer one question: does anyone here already know someone at this company?",
+  "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
+  "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "ob.conv.linkedin.profileWhy":
+    "Needed so the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+  "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
+  "ob.conv.linkedin.appPending":
+    "Heads up: our LinkedIn developer app is still awaiting approval, so this records your consent and profile but no connections sync yet. Until it clears you can upload your own Connections.csv under Settings, which works today.",
+  "ob.conv.linkedin.skip": "Skip LinkedIn for now",
+  "ob.conv.linkedin.connected":
+    "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
+  "ob.conv.linkedin.skipped":
+    "Skipped LinkedIn. You can connect it any time in Settings.",
   "ob.conv.connect.artifactTitle": "Inbox connection",
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
@@ -2090,6 +2294,27 @@ export const en = {
   "strength.none": "No interactions yet",
   "strength.inout": "{in} in · {out} out (90d)",
   "strength.computedFrom": "Computed from {count} activities",
+
+  // The relationship-graph cards (ADR-0078). The colleague bands are PO-F-3b's
+  // own vocabulary and deliberately differ from the workspace-wide card's:
+  // the two measure different things and must not read as comparable.
+  "network.title": "Who here knows them",
+  "network.empty": "Nobody here has recorded contact with this person yet.",
+  "network.interactions": "{count} interactions (90 days)",
+  "network.neverSpoken": "No recorded contact",
+  "network.bucket.none": "No contact",
+  "network.bucket.weak": "Weak",
+  "network.bucket.moderate": "Moderate",
+  "network.bucket.strong": "Strong",
+  "coverage.title": "Coverage",
+  "coverage.clear": "Nothing flagged — this deal passes every coverage check.",
+  "coverage.daysSinceTouch": "{days} days",
+  "coverage.risk.single_threaded_theirs": "Single-threaded",
+  "coverage.risk.single_threaded_ours": "Carried by one colleague",
+  "coverage.risk.coverage_gap": "No engaged champion",
+  "coverage.risk.champion_left": "Champion has left",
+  "coverage.risk.stakeholder_left": "Stakeholder has left",
+  "coverage.risk.going_cold": "Going cold",
 
   "cf.title": "Custom fields",
   "cf.formSection": "Custom fields",
@@ -2664,6 +2889,40 @@ export const en = {
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "would enter economy mode",
   "embedreindex.impact.queued": "would be queued",
+
+  "consent.title": "Authorize access",
+  "consent.asks": "{client} wants to act in Margince as you.",
+  "consent.lend": "Lend it one of your agent passports",
+  "consent.grantedNote":
+    "This connection gets exactly the scopes shown — the ones this passport carries.",
+  "consent.offline":
+    "It will stay connected without asking again, renewing access until you revoke it.",
+  "consent.approve": "Authorize",
+  "consent.deny": "Deny access",
+  "consent.emptyTitle": "You need an agent passport first",
+  "consent.emptyBody":
+    "A passport is the authority you lend an agent — it never exceeds your own permissions, and you can revoke it at any time. Mint one and we'll bring you back here to finish connecting {client}.",
+  "consent.emptyCta": "Mint a passport",
+  "consent.expires": "expires {date}",
+  "consent.resumeTitle": "Finish connecting {client}",
+  "consent.resumeBody":
+    "You came here to mint a passport for {client}. Once you have one, pick up where you left off.",
+  "consent.resume": "Continue connecting",
+  "consent.resumeDismiss": "Cancel this connection",
+  "consent.reentering": "Reconnecting…",
+  "consent.backToApp": "Back to Margince",
+  "consent.staleTitle": "This request has expired",
+  // No {client}: this card renders without the consent-request fetch, so the
+  // client's name is not available to name here.
+  "consent.staleBody":
+    "The connection request is no longer valid. Go back to the app you were connecting and start again — reloading this page will not help.",
+  "consent.unlendableTitle": "That passport can no longer be lent",
+  "consent.unlendableBody":
+    "The passport you chose for {client} was revoked, expired, or is already bound to another connection. Choose a different one below.",
+  "consent.invalidTitle": "This connection request could not be completed",
+  "consent.invalidBody":
+    "This installation will not authorize the request as it stands — the app may no longer be registered here. Go back to the app you were connecting and start again.",
+  "consent.unnamedPassport": "Unnamed passport ({id})",
 } as const;
 
 export type MessageKey = keyof typeof en;

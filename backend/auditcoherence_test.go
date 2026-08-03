@@ -41,7 +41,7 @@ var auditActionDBOnly = map[string]string{
 	// the non-production admin "reset data" endpoint's own audit row
 	// (migration 0157) — internal admin tooling, not a CRM domain mutation,
 	// so it is not part of the AuditLogEntry.action contract.
-	"reset_data": "non-production admin reset-data endpoint (0157); internal admin tooling, not a domain action",
+	"reset_data": "non-production admin reset-data endpoint (0171); internal admin tooling, not a domain action",
 }
 
 func TestAuditLogEnumCoherence(t *testing.T) {

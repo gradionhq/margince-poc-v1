@@ -73,6 +73,10 @@ var decisionGrants = map[string][]struct {
 	// team page) captures them as a LEAD through the capture sink — the
 	// effect is a lead create, so deciding it needs that grant.
 	"site_lead": {{"lead", principal.ActionCreate}},
+	// Approving a LinkedIn match links an imported connection to a contact and
+	// writes that contact's LinkedIn address — a person write, so deciding it
+	// needs the grant the write itself takes.
+	"linkedin_match": {{"person", principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it
@@ -121,6 +125,24 @@ const (
 	targetProduct = "product"
 )
 
+// selfOnlyKinds are the staging kinds whose proposal is nobody's business but
+// the member it was staged for.
+//
+// The inbox is a SHARED surface by design — a manager triages what a rep
+// staged — and for almost every kind that is the point. It is wrong for one:
+// a LinkedIn match names a third party out of one member's imported address
+// book, people who never agreed to be in this CRM at all. The endpoints this
+// kind replaced were owner-only and said so; routing the same question through
+// a shared inbox would have handed every admin a readable copy of a
+// colleague's contact list, which is a bigger disclosure than the feature it
+// enables.
+//
+// So a self-only kind adds one predicate to the two below: the deciding human
+// must BE the member it was staged for. It is the inbox's mirror of the
+// webhooks module's selfOnlyEvents, which keeps the same three LinkedIn facts
+// off the workspace fan-out for the same reason.
+var selfOnlyKinds = map[string]bool{"linkedin_match": true}
+
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
 // require AND can see the target row under their own/team/all scope. It
@@ -131,6 +153,13 @@ const (
 func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bool, error) {
 	if requireDecisionGrants(p, a) != nil {
 		return false, nil
+	}
+	if selfOnlyKinds[a.Kind] {
+		// Fail-closed on a missing stager: a self-only proposal nobody is
+		// recorded for is one nobody may read, not one everybody may.
+		if a.OnBehalfOf == nil || p.UserID == ids.Nil || a.OnBehalfOf.UUID != p.UserID {
+			return false, nil
+		}
 	}
 	return targetVisible(ctx, tx, a.TargetType, a.TargetID)
 }

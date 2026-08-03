@@ -96,7 +96,44 @@ var ErrLastOption = errors.New("customfields: a picklist needs at least one opti
 // the transport can render every problem in one round trip.
 type ValidationError struct{ Errors []FieldError }
 
-func (e *ValidationError) Error() string { return "customfields: validation failed" }
+func (e *ValidationError) Error() string { return "One or more fields are invalid." }
+
+// FieldFaults carries every rejected field, so the MCP tool surface — which
+// reaches this engine through the datasource seam and never runs its HTTP
+// mapper — names them all instead of reporting an internal fault. Each entry
+// carries prose too: a field and a code say WHICH input and WHICH rule, and
+// leave the caller to infer what to do about it.
+func (e *ValidationError) FieldFaults() []apperrors.FieldRefusal {
+	out := make([]apperrors.FieldRefusal, 0, len(e.Errors))
+	for _, fe := range e.Errors {
+		out = append(out, apperrors.FieldRefusal{Field: fe.Field, Code: fe.Code, Message: fieldFaultMessage(fe)})
+	}
+	return out
+}
+
+// fieldFaultMessage renders one rejected field as the remedy for it. The
+// default names the rule rather than inventing prose for a code it does not
+// know, so a new code degrades to something true instead of something blank.
+func fieldFaultMessage(fe FieldError) string {
+	switch fe.Code {
+	case codeRequired:
+		return fe.Field + " is required"
+	case codeInvalidCharacters:
+		return fe.Field + " contains characters this field cannot store"
+	case codeUnsupportedObject:
+		return fe.Field + " is not an object custom fields can be added to"
+	case codeUnsupportedType:
+		return fe.Field + " is not one of the supported field types"
+	case codeUnsupportedStatus:
+		return fe.Field + " is not a status this field can be moved to"
+	case "required_for_type_currency":
+		return fe.Field + " is required when the field type is currency"
+	case "required_for_type_picklist":
+		return fe.Field + " is required when the field type is picklist"
+	default:
+		return fe.Field + " violates the " + fe.Code + " rule"
+	}
+}
 
 // ColumnTakenError is the cross-workspace column-namespace collision:
 // the physical column namespace on a shared core table is global, so a

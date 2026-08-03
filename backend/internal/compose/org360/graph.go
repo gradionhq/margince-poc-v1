@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // The group names, spelled once. They are the contract's groups_omitted
@@ -207,6 +208,12 @@ type graphUser struct {
 type ourSideEdge struct {
 	user     graphUser
 	personID ids.UUID
+	// strength is this colleague's own relationship with this contact
+	// (PO-F-3b), computed at read from the projection's exact counts. It is
+	// per (colleague, contact) and NOT the contact's workspace-wide score:
+	// the card shows both, and conflating them would tell a rep that a
+	// colleague they have never met is their warmest route in.
+	strength relstrength.Score
 }
 
 // build reads the account's own groups, scores the people once, places them,

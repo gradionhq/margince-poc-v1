@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -28,6 +29,11 @@ import (
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]mcp.Tool
+	// idArgs[tool] is what that tool's schema says about its uuid arguments,
+	// read off the schema once at registration. Invoke enforces it, so the
+	// schema's claims are true of the surface rather than of whichever handlers
+	// remembered to check them.
+	idArgs map[string]idArgSpec
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -39,15 +45,26 @@ type Registry struct {
 }
 
 func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
-	return &Registry{tools: map[string]mcp.Tool{}, approvals: approvals, gate: gate}
+	return &Registry{
+		tools:     map[string]mcp.Tool{},
+		idArgs:    map[string]idArgSpec{},
+		approvals: approvals,
+		gate:      gate,
+	}
 }
 
 var _ mcp.Registry = (*Registry)(nil)
 
-// Register refuses the two spec defects that would otherwise surface as
-// runtime authority bugs: a duplicate name (two handlers behind one
-// admission decision) and a TierDynamic spec with no resolver (a tool
-// whose tier nobody computes would default to whatever the gate assumes).
+// Register refuses, at boot, the spec defects that would otherwise surface as
+// a runtime authority bug or a broken wire response: a duplicate name (two
+// handlers behind one admission decision), a TierDynamic spec with no resolver
+// (a tool whose tier nobody computes would default to whatever the gate
+// assumes), a missing display title, and a schema that is not an encodable
+// object (see assertObjectSchemas — one bad brace takes the whole tools/list
+// down, not just its own tool).
+//
+// This is the ONE door every tool comes through, core and extension alike, so
+// none of it is a list of tools someone has to keep current.
 func (r *Registry) Register(t mcp.Tool) {
 	spec := t.Spec()
 	if spec.Name == "" {
@@ -62,6 +79,17 @@ func (r *Registry) Register(t mcp.Tool) {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic(fmt.Sprintf("crmagents: %s carries a TierResolver but is not TierDynamic", spec.Name))
 	}
+	// TrimSpace, because a blank title is worse than none: a client takes it
+	// over the name (title outranks name for display) and renders an empty
+	// heading, where an absent one would at least have fallen back.
+	if strings.TrimSpace(spec.Title) == "" {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic(fmt.Sprintf("crmagents: %s has no Title — tools/list would render its identifier as its display name", spec.Name))
+	}
+	if err := assertObjectSchemas(spec); err != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: " + err.Error())
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, dup := r.tools[spec.Name]; dup {
@@ -69,6 +97,7 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
+	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path
@@ -93,10 +122,33 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return mcp.TierResolverInput{Args: args}, nil
 	}
 	if dyn, ok := t.(dynamicTool); ok {
-		resolve = func() (mcp.TierResolverInput, error) { return dyn.ResolverInput(ctx, args) }
+		// The id check runs HERE, and only for a dynamic tool, because a dynamic
+		// tool decides its own tier by READING the record an argument names: a zero
+		// deal_id would reach the stage lookup and come back as a bare not-found
+		// from inside the gate, where no downstream check can reach it. Admit calls
+		// resolve after scope and seat, so this still sits behind the authority
+		// checks that do not depend on arguments. Static-tier tools are covered by
+		// the call after Admit — Admit never invokes resolve for them.
+		resolve = func() (mcp.TierResolverInput, error) {
+			if err := r.requireDeclaredIDs(name, args); err != nil {
+				return mcp.TierResolverInput{}, err
+			}
+			return dyn.ResolverInput(ctx, args)
+		}
 	}
 
-	ctx, err = r.gate.Admit(ctx, spec, resolve)
+	admitted, err := r.gate.Admit(ctx, spec, resolve)
+	// Static-tier tools, whose resolver Admit never runs. After authority and
+	// before staging, and both halves matter: a caller the gate turns away learns
+	// nothing about arguments, while a caller it would send to the approval queue
+	// is told about its own missing id first — staging an unrunnable call spends a
+	// human's yes on something that was never going to happen.
+	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
+		if idErr := r.requireDeclaredIDs(name, args); idErr != nil {
+			return nil, idErr
+		}
+	}
+	ctx = admitted
 	switch {
 	case err == nil:
 		// An auto-execute call may still carry approval_id: the retry of a
@@ -174,6 +226,56 @@ func (r *Registry) Specs() []mcp.ToolSpec {
 	return out
 }
 
+// assertObjectSchemas holds two promises tools/list and tools/call have to
+// keep, at the one door every tool comes through.
+//
+// The first is ENCODABILITY. Both schemas are hand-written JSON literals
+// spliced together from constants, and they reach the client by being embedded
+// verbatim into the tools/list response — so ONE misplaced brace does not
+// break one tool, it makes the whole listing unencodable and every tool
+// disappears behind a 500. That is a boot-time defect discovered on a client's
+// first request, which is exactly the wrong end.
+//
+// The second is that both are OBJECT schemas. MCP requires an object input
+// schema, and a declared outputSchema obliges the server to answer with
+// structured content conforming to it — which the dispatcher can only do for
+// an object, because structuredContent is typed as one. A schema written some
+// other way (a $ref, a bare allOf) fails here on purpose: not wrong, but not
+// something the dispatcher has been taught to honour, and failing at boot
+// beats advertising a shape the results miss.
+func assertObjectSchemas(spec mcp.ToolSpec) error {
+	if spec.InputSchema == nil {
+		// The protocol requires one. A tool taking no arguments still declares
+		// `{"type":"object"}`; nil would put a bare null on tools/list.
+		return fmt.Errorf("%s declares no InputSchema; MCP requires every tool to advertise an object input schema", spec.Name)
+	}
+	for _, s := range []struct {
+		field string
+		raw   json.RawMessage
+	}{
+		{field: "InputSchema", raw: spec.InputSchema},
+		// Optional: a tool promising no output shape owes tools/call no
+		// structured content.
+		{field: "OutputSchema", raw: spec.OutputSchema},
+	} {
+		if s.raw == nil {
+			continue
+		}
+		var declared struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(s.raw, &declared); err != nil {
+			return fmt.Errorf("%s has an %s that is not valid JSON, which makes the whole tools/list response unencodable: %w",
+				spec.Name, s.field, err)
+		}
+		if declared.Type != "object" {
+			return fmt.Errorf("%s declares %s type %q; this surface serves object schemas only",
+				spec.Name, s.field, declared.Type)
+		}
+	}
+	return nil
+}
+
 // dynamicTool is implemented by TierDynamic tools that need more than the
 // raw args to resolve their tier — advance_deal reads the target stage's
 // semantic from pipeline configuration, which costs a database read the
@@ -185,4 +287,18 @@ type dynamicTool interface {
 // UnknownToolError answers a tools/call for a name outside the surface.
 type UnknownToolError struct{ Name string }
 
-func (e *UnknownToolError) Error() string { return "unknown tool " + e.Name }
+// maxToolNameEcho bounds the caller-supplied name this error quotes back.
+// The name is chosen freely by the model and lands in a transcript that the
+// same run's later prompts read, so an unbounded echo is an unbounded write
+// into those prompts. Generous next to the longest real tool name, short
+// enough that the field cannot carry prose.
+const maxToolNameEcho = 64
+
+// Error renders the echo HERE rather than at each surface, so no consumer —
+// the tool result, the server log, a future transport — can quote the name
+// back raw by forgetting to. Bounded AND escaped: the name is chosen by the
+// model, and a newline in it would otherwise open what reads as a new line of
+// the transcript that the same run's later prompts go on to read.
+func (e *UnknownToolError) Error() string {
+	return "unknown tool " + echoSafe(e.Name, maxToolNameEcho)
+}

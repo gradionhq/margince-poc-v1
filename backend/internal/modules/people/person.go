@@ -94,32 +94,22 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 			return err
 		}
 
-		wsID := workspaceID(ctx)
-		id := ids.New[ids.PersonKind]()
-		addr := addressColumns(in.Address)
-		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 16)
-		args := []any{
-			id, wsID, in.FullName, in.FirstName, in.LastName, in.Title, in.OwnerID,
-			addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
-			in.Source, by,
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
-			                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-			                     source, captured_by`+cfCols+`)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
-			append(args, cfArgs...)...)
+		id, err := createPerson(ctx, tx, match, PersonSpec{
+			FullName:     in.FullName,
+			FirstName:    in.FirstName,
+			LastName:     in.LastName,
+			Title:        in.Title,
+			OwnerID:      in.OwnerID,
+			Address:      in.Address,
+			Social:       in.Social,
+			Emails:       in.Emails,
+			Phones:       in.Phones,
+			Source:       in.Source,
+			CapturedBy:   by,
+			CustomFields: in.CustomFields,
+			Active:       active,
+		})
 		if err != nil {
-			return fmt.Errorf("insert person: %w", err)
-		}
-
-		if err := replacePersonSocial(ctx, tx, wsID, id, in.Social); err != nil {
-			return err
-		}
-		if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, by, in.Emails); err != nil {
-			return err
-		}
-		if err := insertPersonPhones(ctx, tx, wsID, id, in.Source, by, in.Phones); err != nil {
 			return err
 		}
 

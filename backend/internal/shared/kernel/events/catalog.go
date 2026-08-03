@@ -69,13 +69,26 @@ var catalog = map[string]struct {
 	stream  string
 	version int
 }{
-	"person.created":    {personStreamEntity, 1},
-	"person.updated":    {personStreamEntity, 1},
-	"person.archived":   {personStreamEntity, 1},
-	"person.merged":     {personStreamEntity, 1},
-	"person.restored":   {personStreamEntity, 1},
-	"consent.changed":   {personStreamEntity, 1},
-	"retention.applied": {personStreamEntity, 1},
+	"person.created":  {personStreamEntity, 1},
+	"person.updated":  {personStreamEntity, 1},
+	"person.archived": {personStreamEntity, 1},
+	"person.merged":   {personStreamEntity, 1},
+	"person.restored": {personStreamEntity, 1},
+	"consent.changed": {personStreamEntity, 1},
+	// A member recording or correcting their own LinkedIn authorization. It
+	// rides the person stream because the thing it governs is whose network
+	// gets read, and consent to read a professional network is the same class
+	// of fact as consent.changed beside it.
+	"linkedin_account.changed": {personStreamEntity, 1},
+	// One import act, not one row: an export is thousands of rows and a
+	// per-row event would bury every other event in the stream, while the
+	// auditable fact is that a member imported their network at all.
+	"linkedin_network.imported": {personStreamEntity, 1},
+	// One decision on one connection. It rides the person stream because the
+	// decision is ABOUT a contact — and it names neither the contact nor the
+	// connection, because a ghost's identity must not travel through the bus.
+	"linkedin_match.decided": {personStreamEntity, 1},
+	"retention.applied":      {personStreamEntity, 1},
 
 	"organization.created":  {organizationStreamEntity, 1},
 	"organization.updated":  {organizationStreamEntity, 1},
@@ -250,6 +263,19 @@ func Groups() []Group {
 	}
 	return []Group{
 		{Name: "cg:context-graph", Streams: forEntities(personStreamEntity, organizationStreamEntity, dealStreamEntity, activityStreamEntity, leadStreamEntity)},
+		// The interaction-edge projection (CG-DDL-1 / ADR-0078). Its OWN group
+		// rather than a second handler on cg:context-graph: a projection
+		// rebuild must not be able to stall embedding freshness, and the two
+		// have unrelated failure modes.
+		{Name: "cg:graph-edge", Streams: forEntities(activityStreamEntity, personStreamEntity)},
+		// The LinkedIn ghost matcher (ADR-0078 §8b). Its own group rather than
+		// a second handler on cg:graph-edge: that consumer lives in the search
+		// module and this call belongs to people, and a module never reaches
+		// into a sibling. It listens on the person and organization streams —
+		// a contact appearing is a chance to attach a ghost, and so is an
+		// account appearing, because employer resolution is what most ghosts
+		// are waiting on.
+		{Name: "cg:linkedin-match", Streams: forEntities(personStreamEntity, organizationStreamEntity)},
 		{Name: "cg:overnight-agent", Streams: forEntities(activityStreamEntity, dealStreamEntity, leadStreamEntity, approvalStreamEntity)},
 		{Name: "cg:workflows", Streams: all},
 		{Name: "cg:capture", Streams: forEntities(captureStreamEntity)},

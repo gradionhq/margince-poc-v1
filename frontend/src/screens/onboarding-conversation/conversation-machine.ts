@@ -84,6 +84,7 @@ const resumeActs: Record<ResumePoint, ConversationAct> = {
   "vo.collecting": "voice",
   "vo.skipped": "voice",
   "re.recap": "results",
+  "ln.why": "linkedin",
   "cn.consent": "connect",
 };
 
@@ -312,7 +313,7 @@ function applyEvent(
       return withEntries(
         state,
         state.memberPath
-          ? { act: "connect", phase: "cn.consent" }
+          ? { act: "linkedin", phase: "ln.why" }
           : { act: "voice", phase: "vo.invite" },
         [
           {
@@ -402,10 +403,28 @@ function applyEvent(
       );
     case "RESULTS_CONTINUE":
       return state.phase === "re.recap"
-        ? withEntries(state, { act: "connect", phase: "cn.consent" })
+        ? withEntries(state, { act: "linkedin", phase: "ln.why" })
         : withEntries(state, { act: "results", phase: "re.recap" }, [
             { kind: "narration", id: "recap", i18nKey: "ob.conv.recap" },
           ]);
+    case "LINKEDIN_CONNECTED":
+      return withEntries(state, { act: "connect", phase: "cn.consent" }, [
+        {
+          kind: "outcome",
+          id: "linkedin:connected",
+          i18nKey: "ob.conv.linkedin.connected",
+          tone: "success",
+        },
+      ]);
+    case "LINKEDIN_SKIPPED":
+      return withEntries(state, { act: "connect", phase: "cn.consent" }, [
+        {
+          kind: "outcome",
+          id: "linkedin:skipped",
+          i18nKey: "ob.conv.linkedin.skipped",
+          tone: "deferred",
+        },
+      ]);
     case "CONNECT_DONE":
       return withEntries(state, { act: "done", phase: "cn.done" }, [
         {

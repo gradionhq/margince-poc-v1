@@ -95,7 +95,11 @@ type CounterpartyVerdictEngine struct {
 	activities *activities.Store
 	approvals  *approvals.Service
 	brain      completer
-	log        *slog.Logger
+	// triage queues the read that decides whether a domain a verdict just
+	// admitted deserves a company. A `real` answer creates the PERSON; whether
+	// they have an employer is a separate question this engine does not answer.
+	triage *domainTriageTrigger
+	log    *slog.Logger
 }
 
 // NewCounterpartyVerdictEngine builds the engine over the pool and the verdict
@@ -106,10 +110,11 @@ func NewCounterpartyVerdictEngine(pool *pgxpool.Pool, brain completer, log *slog
 	return &CounterpartyVerdictEngine{
 		pool:       pool,
 		pending:    capture.NewPendingStore(pool),
-		people:     people.NewStore(pool),
+		people:     newCounterpartyStore(pool),
 		activities: activities.NewStore(pool),
 		approvals:  approvals.NewService(pool),
 		brain:      brain,
+		triage:     newDomainTriageTrigger(pool, log),
 		log:        log,
 	}
 }
@@ -133,10 +138,12 @@ func (e *CounterpartyVerdictEngine) CanJudge() bool { return e.brain != nil }
 // records stamps `agent:` for the same reason.
 const verdictActor = "agent:" + verdictReason
 
-// workspaceCtx binds the pass's system principal on one workspace, with a fresh
-// correlation id so every disposition it writes traces back to the run.
-func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context, ws ids.UUID) context.Context {
-	ctx = principal.WithWorkspaceID(ctx, ws)
+// workspaceCtx adds the pass's provenance — the system actor its writes are
+// attributed to and a fresh correlation id — to a context whose WORKSPACE the
+// caller has already bound. It does not bind the workspace itself: the job
+// layer does that from the args' own role declaration, and re-binding here
+// would make this a second, independent source of truth for the tenant.
+func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context) context.Context {
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: verdictActor,
 	})
@@ -154,21 +161,17 @@ type verdictPayload struct {
 	Results []verdictResult `json:"results"`
 }
 
-// Run drains up to maxVerdicts deferred dispositions across every live
-// workspace. A budget stop ends the pass cleanly: what was decided is
-// committed, and the rest stays claimable for the next cycle.
-func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) error {
+// RunWorkspace drains up to maxVerdicts deferred dispositions in the workspace
+// already bound in ctx. A budget stop ends the pass cleanly: what was decided
+// is committed, and the rest stays claimable for the next cycle.
+//
+// The cap is per workspace, not per pass: a shared counter lets one large
+// backlog consume the whole budget and starve every workspace after it.
+func (e *CounterpartyVerdictEngine) RunWorkspace(ctx context.Context, maxVerdicts int) error {
 	if maxVerdicts <= 0 {
 		maxVerdicts = verdictCatchUpCap
 	}
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
-	if err != nil {
-		return err
-	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		// Per workspace, not per pass: a shared counter lets one large backlog
-		// consume the whole budget and starve every workspace after it.
+	return e.inWorkspace(ctx, func(wsCtx context.Context, _ ids.UUID) error {
 		resolved := 0
 		for resolved < maxVerdicts {
 			batch, err := e.pending.ClaimDue(wsCtx, verdictClaimSize)
@@ -176,7 +179,7 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 				return fmt.Errorf("verdict: claiming the disposition backlog: %w", err)
 			}
 			if len(batch) == 0 {
-				break
+				return nil
 			}
 			n, err := e.judgeClaimed(wsCtx, batch)
 			resolved += n
@@ -188,15 +191,15 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 				// merits — an infrastructure condition turned into a per-sender
 				// terminal answer nobody asked for.
 				e.releaseBatch(wsCtx, batch)
-				e.log.InfoContext(ctx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
+				e.log.InfoContext(wsCtx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
 				return nil
 			}
 			if err != nil {
 				return fmt.Errorf("verdict: draining the disposition backlog: %w", err)
 			}
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // judgeClaimed judges each claimed row on its OWN model call, and applies each
@@ -295,6 +298,7 @@ func (e *CounterpartyVerdictEngine) applyJudged(ctx context.Context, row capture
 // a no-op rather than a second creation.
 func (e *CounterpartyVerdictEngine) apply(ctx context.Context, row capture.PendingCounterparty, verdict string) (bool, error) {
 	var acted bool
+	var triageDomain string
 	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		won, err := e.pending.Resolve(ctx, tx, row, verdict, verdictReason)
 		if err != nil || !won {
@@ -302,7 +306,8 @@ func (e *CounterpartyVerdictEngine) apply(ctx context.Context, row capture.Pendi
 		}
 		acted = true
 		if verdict == capture.PendingStatusReal {
-			return e.createCounterparty(ctx, tx, row)
+			triageDomain, err = e.createCounterparty(ctx, tx, row)
+			return err
 		}
 		return e.hideNoise(ctx, tx, row)
 	})
@@ -311,6 +316,12 @@ func (e *CounterpartyVerdictEngine) apply(ctx context.Context, row capture.Pendi
 		// this workspace's own timeline; the model's answer is not, so the
 		// verdict names what was being attempted without echoing content.
 		return false, fmt.Errorf("verdict: applying %s to %s: %w", verdict, row.Email, err)
+	}
+	// Post-commit, like the capture path's own trigger and for the same reason:
+	// the records are already durable, and queueing the read that decides their
+	// company must not be able to roll them back. A miss is the sweep's.
+	if triageDomain != "" && e.triage != nil {
+		e.triage.domainPending(ctx, triageDomain)
 	}
 	return acted, nil
 }
@@ -328,8 +339,8 @@ const verdictReason = "capture_counterparty_verdict"
 // rather than left reading `real`. Erasure outranks a verdict, and a ledger (or
 // a SAR built from it) that reports `real` for someone with no record would be
 // describing a person who does not exist.
-func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) error {
-	suppressed, err := createCounterpartyRecords(ctx, tx, e.people, e.activities, counterpartyCreation{
+func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) (string, error) {
+	created, err := createCounterpartyRecords(ctx, tx, e.people, e.activities, counterpartyCreation{
 		Email:       row.Email,
 		DisplayName: row.DisplayName,
 		Domain:      row.Domain,
@@ -339,17 +350,17 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 		CapturedBy:  verdictActor,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	if suppressed {
+	if created.Suppressed {
 		// The verdict was already written by apply(), and writing it spent the
 		// claim — so this corrects the status it just set rather than trying to
 		// resolve the row a second time.
-		return e.pending.CorrectResolution(ctx, tx, row.ID,
+		return "", e.pending.CorrectResolution(ctx, tx, row.ID,
 			capture.PendingStatusReal, capture.PendingStatusSuppressed,
 			"the address was erased before the verdict landed")
 	}
-	return nil
+	return created.TriageDomain, nil
 }
 
 // counterpartyCreation names one deferred sender being turned into records.
@@ -368,17 +379,26 @@ type counterpartyCreation struct {
 	CapturedBy string
 }
 
+// counterpartyCreated reports what a `real` answer produced that its caller has
+// to act on AFTER the transaction commits. Today that is one thing: the domain
+// whose organization question is still open, which somebody has to queue a
+// triage read for.
+type counterpartyCreated struct {
+	// Suppressed marks an address erased between capture and the answer. Nothing
+	// was created: erasure outranks a verdict.
+	Suppressed bool
+	// TriageDomain names the domain still owed an organization verdict, empty
+	// when there is none.
+	TriageDomain string
+}
+
 // createCounterpartyRecords is the ONE spelling of what a `real` answer does,
 // shared by the machine verdict and the human accept. They differ only in who
 // decided; what gets created — and that the sender's whole captured cohort is
 // linked, not just the message that raised the question — must not.
-//
-// Reports whether the address was suppressed (erased between capture and the
-// answer), which creates nothing: erasure outranks a verdict, and the caller
-// records that rather than claiming records exist.
 func createCounterpartyRecords(ctx context.Context, tx pgx.Tx, store *people.Store,
 	timeline *activities.Store, in counterpartyCreation,
-) (suppressed bool, err error) {
+) (counterpartyCreated, error) {
 	res, err := store.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
 		Email:       in.Email,
 		DisplayName: in.DisplayName,
@@ -389,15 +409,22 @@ func createCounterpartyRecords(ctx context.Context, tx pgx.Tx, store *people.Sto
 		CapturedBy:  in.CapturedBy,
 	})
 	if errors.Is(err, people.ErrCounterpartySuppressed) {
-		return true, nil
+		return counterpartyCreated{Suppressed: true}, nil
 	}
 	if err != nil {
-		return false, err
+		return counterpartyCreated{}, err
 	}
 	// The ensure links the message that raised the question; the sender may have
 	// written more while it was open, and all of them belong on this person's
 	// timeline rather than only the first.
-	return false, timeline.LinkCapturedMailTx(ctx, tx, res.PersonID, in.Email)
+	if err := timeline.LinkCapturedMailTx(ctx, tx, res.PersonID, in.Email); err != nil {
+		return counterpartyCreated{}, err
+	}
+	out := counterpartyCreated{}
+	if res.TriagePending {
+		out.TriageDomain = res.TriageDomain
+	}
+	return out, nil
 }
 
 // hideNoise is the `noise` effect's first stage: the mail stops being visible

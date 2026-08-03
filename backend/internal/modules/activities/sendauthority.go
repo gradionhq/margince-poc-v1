@@ -42,6 +42,31 @@ func (e *MailboxNotSendCapableError) Error() string {
 	return "reconnect your mailbox to enable sending"
 }
 
+// MessageFault names the condition and no field: no send contract takes a
+// `from` argument, so naming one would hand the caller an input it cannot
+// change. Reconnecting the mailbox is the remedy, and a person has to do it.
+func (e *MailboxNotSendCapableError) MessageFault() (code, message string) {
+	return "mailbox_not_send_capable", e.Error()
+}
+
+// NoRecipientsError refuses a mail send whose To: line resolves to nobody —
+// either because none was given, or because every addressee was also cc'd and
+// the derivation subtracted them all. It maps to 422 on both surfaces, and
+// unlike its neighbours here the remedy is an argument the caller wrote, so it
+// is a FieldFault naming the one they have to change.
+type NoRecipientsError struct{}
+
+func (e *NoRecipientsError) Error() string {
+	return "a send needs at least one addressee in `to` that is not also in `cc`"
+}
+
+// FieldFault names `to` rather than the merged recipient list the store works
+// in: `to` is what the caller actually sent, on both transports, and an error
+// naming a field no request body has is an error nobody can act on.
+func (e *NoRecipientsError) FieldFault() (field, code, message string) {
+	return "to", "required", e.Error()
+}
+
 // ChannelNotSendCapableError refuses a channel send this installation already
 // knows cannot leave: no live bot is bound for the provider. It maps to 422, and
 // unlike its mail twin the fix usually belongs to an ADMIN rather than to the
@@ -51,6 +76,11 @@ type ChannelNotSendCapableError struct{ Provider string }
 func (e *ChannelNotSendCapableError) Error() string {
 	return "this workspace has no connected " + e.Provider +
 		" bot to send through — an admin connects one in the connector settings"
+}
+
+// FieldFault refuses a send into a channel with no bot authority to post.
+func (e *ChannelNotSendCapableError) FieldFault() (field, code, message string) {
+	return "id", "channel_not_send_capable", e.Error()
 }
 
 // WithSendAuthority returns a store whose send paths pre-flight the credential

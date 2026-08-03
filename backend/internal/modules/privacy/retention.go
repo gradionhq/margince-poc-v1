@@ -77,6 +77,10 @@ type RetentionService struct {
 	pool   *pgxpool.Pool
 	eraser *Eraser
 	log    *slog.Logger
+	// invalidateEdges keeps the relationship aggregates true as retention
+	// removes the interactions beneath them. Injected by compose; nil in a
+	// role that did not wire it, where the bus consumer is the fallback.
+	invalidateEdges EdgeInvalidator
 }
 
 // NewRetentionService wires the nightly evaluator. blob lets its erase
@@ -84,6 +88,41 @@ type RetentionService struct {
 // a deployment with no object store, where no attachment object can exist.
 func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Logger) *RetentionService {
 	return &RetentionService{pool: pool, eraser: NewEraser(pool).WithBlobstore(blob), log: log}
+}
+
+// EdgeInvalidator re-folds the relationship aggregates an activity fed, inside
+// the caller's transaction.
+//
+// It is a SEAM rather than a call because the fold lives in the search module
+// and a module never imports a sibling; compose injects the real one. The
+// alternative — writing the fold a second time here — was tried and was wrong
+// in the way second copies are: it deleted the pairs that lost all their
+// evidence and left every surviving pair still counting the removed
+// interaction.
+type EdgeInvalidator func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error
+
+// WithEdgeInvalidator returns a service that keeps the relationship graph true
+// as retention removes the interactions under it, IN THE SAME TRANSACTION.
+//
+// Synchronous on purpose. The consumer also handles `retention.applied`, and
+// the recompute is idempotent so running twice costs nothing — but a bus is a
+// thing that can be behind, and "the aggregate is corrected unless the queue is
+// slow" is not a property worth having when the correction is a deletion
+// obligation. The event path is the backstop; this is the guarantee.
+func (s *RetentionService) WithEdgeInvalidator(fn EdgeInvalidator) *RetentionService {
+	out := *s
+	out.invalidateEdges = fn
+	return &out
+}
+
+// invalidateGraph runs the injected invalidator, if the role wired one. A role
+// that did not is not broken: the consumer still corrects the aggregate on the
+// next delivery.
+func (s *RetentionService) invalidateGraph(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	if s.invalidateEdges == nil {
+		return nil
+	}
+	return s.invalidateEdges(ctx, tx, id)
 }
 
 // selectors name the records a (object_type, category) policy governs.
@@ -240,107 +279,6 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 // honors it — the window is the ai module's fixed operational floor, not a
 // policy-configurable domain record.
 
-// evaluateVoiceSignalRetention erases the draft plaintext of over-age voice
-// learning signals: the counters row survives (the learning statistics stay
-// honest), the generated and final texts do not outlive their window.
-func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) error {
-	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id FROM voice_learning_signal
-			WHERE retention_until < now() AND content_erased_at IS NULL
-			  AND (generated_original IS NOT NULL OR final_text IS NOT NULL)
-			LIMIT $1`, retentionBatch)
-		if err != nil {
-			return err
-		}
-		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("retention voice_learning_signal: select: %w", err)
-	}
-	for _, id := range due {
-		if err := s.eraseVoiceSignalContent(ctx, id); err != nil {
-			return fmt.Errorf("retention voice_learning_signal on %s: %w", id, err)
-		}
-	}
-	return nil
-}
-
-func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// The content_erased_at predicate is the CAS: a rival sweep that
-		// already erased this row matches zero rows, and nothing is audited
-		// twice for one erasure.
-		tag, err := tx.Exec(ctx, `
-			UPDATE voice_learning_signal
-			SET generated_original = NULL, final_text = NULL, content_erased_at = now(),
-			    version = version + 1, updated_at = now()
-			WHERE id = $1 AND content_erased_at IS NULL`, id)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "voice_learning_signal", id, nil, nil, map[string]any{
-			evidenceKeyRetentionAction: actionErase,
-		})
-		if err != nil {
-			return err
-		}
-		return storekit.EmitEventForEntity(ctx, tx, auditID, "voice_learning_signal", id, retentionAppliedPayload(actionErase, nil, nil))
-	})
-}
-
-// evaluateEmbedCallRetention erases over-age embedding-kind ai_call trace
-// rows, batched and audited one record per transaction like every other
-// retention action — but driven by the fixed embedCallRetention cap
-// instead of a workspace's retention_policy rows, since these rows are
-// engine telemetry, not a policy-configurable domain record.
-func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error {
-	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id FROM ai_call
-			WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)
-			LIMIT $2`, embedCallRetention, retentionBatch)
-		if err != nil {
-			return err
-		}
-		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("retention ai_call/embedding: select: %w", err)
-	}
-	for _, id := range due {
-		if err := s.eraseEmbedCall(ctx, id); err != nil {
-			return fmt.Errorf("retention ai_call/embedding on %s: %w", id, err)
-		}
-	}
-	return nil
-}
-
-// eraseEmbedCall deletes one over-age embedding-kind ai_call row outright
-// — unlike activity/erase there is no metadata half left to keep: the
-// embedding trace row IS the content being aged out.
-func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM ai_call WHERE id = $1`, id); err != nil {
-			return err
-		}
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "ai_call", id, nil, nil, map[string]any{
-			evidenceKeyRetentionAction: actionErase, "retain_days": embedCallRetention,
-		})
-		if err != nil {
-			return err
-		}
-		return storekit.EmitEventForEntity(ctx, tx, auditID, "ai_call", id, retentionAppliedPayload(actionErase, nil, nil))
-	})
-}
-
 // apply runs ONE action on ONE record in one audited transaction.
 func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id ids.UUID) error {
 	if pol.ObjectType == "person" && pol.Action == actionErase {
@@ -351,17 +289,24 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		switch pol.ObjectType + "/" + pol.Action {
 		case "activity/archive":
 			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
+			if err == nil {
+				err = s.invalidateGraph(ctx, tx, id)
+			}
 		case "activity/erase":
 			// Transcript free-text is the special-category risk; the
 			// record of the meeting stays, its content goes — including any
 			// attached recording/transcript file (objects first, so the
 			// purge shares the person-erase durability guarantee).
+
 			_, err = tx.Exec(ctx,
 				`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
 				id, erasedActivitySubject)
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
+			}
+			if err == nil {
+				err = s.invalidateGraph(ctx, tx, id)
 			}
 			if err == nil {
 				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
@@ -394,6 +339,24 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 					`DELETE FROM embedding WHERE entity_type = 'lead' AND entity_id = $1`, id)
 			}
 		case "person/anonymize":
+			// The subject's addresses, read BEFORE person_email is deleted
+			// below. The graph structures name them by raw address as well as
+			// by person id — that is what the address arm of a participant row
+			// IS — so a sweep that only matched person_id would leave the
+			// address behind, still readable and still re-matchable. Same trap
+			// the eraser hit with the subject's NAME, one column over.
+			subjectEmails, emailErr := collectStrings(ctx, tx,
+				`SELECT lower(email) FROM person_email WHERE person_id = $1`, id)
+			if emailErr != nil {
+				return emailErr
+			}
+			// The NAME too, and before the anonymization below overwrites it —
+			// the ghost sweep matches on it, and by then it is the tombstone.
+			var subjectName string
+			if nameErr := tx.QueryRow(ctx,
+				`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, id).Scan(&subjectName); nameErr != nil {
+				return nameErr
+			}
 			// Same in-place anonymization the eraser uses, minus the
 			// suppression list — the subject may lawfully return.
 			_, err = tx.Exec(ctx, `
@@ -422,6 +385,57 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
+			}
+			// The relationship-graph structures (ADR-0078) hold the subject as
+			// surely as the columns above, and the time-based sweep reaches
+			// them for the same reason the request-driven eraser does: an
+			// anonymized person who is still named on a participant row, still
+			// counted in an interaction edge, or still listed in an imported
+			// address book is not anonymized. This sweep is the path nobody
+			// asks for, which is exactly why it must not be the thinner one.
+			if err == nil {
+				// Delete then null, in that order and for the reason the
+				// eraser documents: a participant row must name somebody, so a
+				// row whose only identity is the subject cannot be blanked,
+				// while one that also names a colleague is not the subject's
+				// to remove.
+				_, err = tx.Exec(ctx, `
+					DELETE FROM activity_participant
+					 WHERE user_id IS NULL
+					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
+					id, subjectEmails)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx, `
+					UPDATE activity_participant SET person_id = NULL, address = NULL
+					 WHERE user_id IS NOT NULL
+					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
+					id, subjectEmails)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx,
+					`DELETE FROM graph_interaction_edge WHERE person_id = $1`, id)
+			}
+			if err == nil {
+				// The same reach the request-driven eraser uses, including the
+				// name-and-employer arm. Most exported rows carry no address,
+				// so a person-and-email-only sweep leaves the common case
+				// behind — and this is the path nobody asks for, which is
+				// exactly why it must not be the thinner one.
+				_, err = tx.Exec(ctx, `
+					DELETE FROM linkedin_connection g
+					 WHERE g.matched_person_id = $1
+					    OR (g.email IS NOT NULL AND g.email = ANY($2))
+					    OR (g.normalized_company IS NOT NULL
+					        AND g.normalized_name = lower(f_unaccent($3))
+					        AND EXISTS (
+					            SELECT 1 FROM relationship r
+					              JOIN organization o ON o.id = r.organization_id
+					             WHERE r.person_id = $1 AND r.kind = 'employment'
+					               AND r.archived_at IS NULL
+					               AND (r.organization_id = g.matched_org_id
+					                    OR lower(f_unaccent(o.display_name)) = g.normalized_company)))`,
+					id, subjectEmails, subjectName)
 			}
 		default:
 			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)

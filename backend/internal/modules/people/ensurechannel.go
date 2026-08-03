@@ -177,8 +177,7 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 	if err != nil {
 		return fmt.Errorf("people: opening the speculative channel-person savepoint: %w", err)
 	}
-	candidate := ids.New[ids.PersonKind]()
-	winner, recorded, err := s.offerChannelPerson(ctx, speculative, in, name, candidate, match)
+	offered, winner, recorded, err := s.offerChannelPerson(ctx, speculative, in, name, match)
 	if err != nil {
 		if rbErr := speculative.Rollback(ctx); rbErr != nil {
 			// Without a clean rollback the enclosing transaction stays poisoned,
@@ -187,7 +186,7 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 		}
 		return err
 	}
-	if winner != candidate {
+	if winner != offered {
 		if err := speculative.Rollback(ctx); err != nil {
 			return fmt.Errorf("people: withdrawing the speculative channel person: %w", err)
 		}
@@ -197,7 +196,7 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 	if err := speculative.Commit(ctx); err != nil {
 		return fmt.Errorf("people: committing the channel person: %w", err)
 	}
-	res.PersonID, res.PersonCreated, res.DedupeRecorded = candidate, true, recorded
+	res.PersonID, res.PersonCreated, res.DedupeRecorded = offered, true, recorded
 	return nil
 }
 
@@ -206,7 +205,9 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 // incumbent when a concurrent first message got there first. A fuzzy near-match
 // still creates (DEDUPE_FUZZY_AUTOMERGE is pinned never) and records the pair
 // for the review queue, so a channel-created twin is as visible as a mail one.
-func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChannelCounterpartyInput, name string, id ids.PersonID, match PersonResolution) (ids.PersonID, bool, error) {
+// It reports the person it offered as well as the winner, because the caller
+// tells a won race from a lost one by comparing the two.
+func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChannelCounterpartyInput, name string, match PersonResolution) (offered, winner ids.PersonID, recorded bool, err error) {
 	// owner_id is left NULL and visibility is 'workspace' (design D2): the
 	// bot serves the workspace, and auth's owner predicate already treats an
 	// ownerless row as workspace-shared at every row-scope tier.
@@ -215,31 +216,34 @@ func (s *Store) offerChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureChan
 	// happen here: both tells quarantineSuspect reads — a punycode domain, a
 	// display name naming a DIFFERENT domain than the message arrived from —
 	// are statements about a mail domain this record does not have.
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO person (id, workspace_id, full_name, source, captured_by, visibility)
-		VALUES ($1, $2, $3, $4, $5, 'workspace')`,
-		id, workspaceID(ctx), name, in.Source, in.CapturedBy); err != nil {
-		return ids.PersonID{}, false, fmt.Errorf("people: insert channel person: %w", err)
+	id, err := createPerson(ctx, tx, match, PersonSpec{
+		FullName:   name,
+		Visibility: visibilityWorkspace,
+		Source:     in.Source,
+		CapturedBy: in.CapturedBy,
+	})
+	if err != nil {
+		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", entityPerson, id.UUID, nil, map[string]any{fieldFullName: name})
 	if err != nil {
-		return ids.PersonID{}, false, err
+		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonCreated{FullName: name}); err != nil {
-		return ids.PersonID{}, false, err
+		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
-	winner, err := ResolveOrCreateChannelIdentity(ctx, tx, id, in.Identity)
+	bound, err := ResolveOrCreateChannelIdentity(ctx, tx, id, in.Identity)
 	if err != nil {
-		return ids.PersonID{}, false, err
+		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
-	if winner != id {
-		return winner, false, nil
+	if bound != id {
+		return id, bound, false, nil
 	}
-	recorded, err := s.recordChannelDedupeCandidate(ctx, tx, in, name, id, match)
+	recorded, err = s.recordChannelDedupeCandidate(ctx, tx, in, name, id, match)
 	if err != nil {
-		return ids.PersonID{}, false, err
+		return ids.PersonID{}, ids.PersonID{}, false, err
 	}
-	return id, recorded, nil
+	return id, id, recorded, nil
 }
 
 // recordChannelDedupeCandidate stores the fuzzy pair the review queue renders,

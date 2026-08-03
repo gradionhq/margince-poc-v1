@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -131,47 +132,209 @@ func clientInputValidation(err error) (error, bool) {
 		return Validation("entity_type", "unsupported_entity_type", unservedEntity.Error()), true
 	}
 
+	// A module's own typed refusal, carrying its verdict on the error itself
+	// (apperrors.FieldFault). LAST on purpose: every branch above names the
+	// same shape more precisely for a type this one would also match, so the
+	// specific mapping wins and this is the general fallback.
+	//
+	// This is what lets a module-owned refusal answer identically on a surface
+	// that never runs that module's HTTP mapper — the MCP tool surface reaches
+	// the same stores through the datasource seam, and used to report every one
+	// of these as an internal fault with advice to retry.
+	return moduleDeclaredFault(err)
+}
+
+// moduleDeclaredFault answers the errors that carry their OWN verdict, through
+// one of apperrors' three fault interfaces. Split from clientInputValidation
+// because the two halves answer different questions: that one knows a fixed set
+// of shared types by name, while this one knows no types at all — a module opts
+// in by implementing a method, and this reads whatever it declared.
+// maxFaultText bounds each value a module-declared fault contributes to a
+// caller-facing body. The interfaces are implemented across eight modules and
+// their docs ask for no internal detail, but a boundary that only asks is a
+// boundary that leaks the first time someone passes a constraint name or a
+// wrapped driver message through. Long enough for a real explanation, short
+// enough that nothing large rides out.
+const maxFaultText = 300
+
+// boundFaultText caps one caller-facing value from a module-declared fault.
+func boundFaultText(s string) string {
+	if len(s) <= maxFaultText {
+		return s
+	}
+	cut := maxFaultText
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+func moduleDeclaredFault(err error) (error, bool) {
+	// The plural first: a type that names several bad inputs has nothing
+	// useful to say as a single field, so asking it for one would discard the
+	// rest of what it knows.
+	var fieldFaults apperrors.FieldFaults
+	if errors.As(err, &fieldFaults) {
+		refusals := fieldFaults.FieldFaults()
+		fields := make([]FieldError, 0, len(refusals))
+		for _, r := range refusals {
+			fields = append(fields, FieldError{
+				Field:   boundFaultText(r.Field),
+				Code:    boundFaultText(r.Code),
+				Message: boundFaultText(r.Message),
+			})
+		}
+		return &DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   "validation_error",
+			Detail: fieldFaults.Error(),
+			Fields: fields,
+		}, true
+	}
+
+	var fieldFault apperrors.FieldFault
+	if errors.As(err, &fieldFault) {
+		field, code, message := fieldFault.FieldFault()
+		return Validation(boundFaultText(field), boundFaultText(code), boundFaultText(message)), true
+	}
+
+	// A refusal with no field to name: it still must classify, or the MCP
+	// surface reports a governed condition as an internal fault — but it
+	// carries NO per-field entry, because inventing one would point the caller
+	// at an input that is not theirs to change.
+	var messageFault apperrors.MessageFault
+	if errors.As(err, &messageFault) {
+		code, message := messageFault.MessageFault()
+		return &DetailedError{
+			Status: http.StatusUnprocessableEntity,
+			Code:   boundFaultText(code),
+			Detail: boundFaultText(message),
+		}, true
+	}
+
 	return nil, false
+}
+
+// Fault is the surface-independent verdict on an error: the status the
+// contract answers with, its stable machine code, and the detail that is safe
+// to put in front of a caller. Write renders it as RFC 7807 for the REST
+// surface; the MCP tool dispatcher renders the same verdict as prose an agent
+// can act on. The status is the only HTTP-shaped part, and Transient reads it
+// so that no other surface has to.
+type Fault struct {
+	Status  int
+	Code    string
+	Detail  string
+	Details map[string]any
+
+	// Fields is the per-field breakdown of a validation refusal, empty for
+	// every other class. It names the inputs the caller must change.
+	Fields []FieldError
+
+	// InfraCause is the raw infrastructure failure (Postgres, network) that a
+	// sentinel wrapped. Detail never carries its text — SQL fragments and
+	// addresses are operator reading, not caller reading — so the surface
+	// logs this instead of showing it.
+	InfraCause error
+}
+
+// transientCodes are the refusals that clear ON THEIR OWN: a rate limit whose
+// window elapses, a metered budget that refills. Membership is by CODE and not
+// by status range, because the range lies — a 503 is equally the shape of
+// "not bootstrapped yet" or "misconfigured", which no amount of retrying
+// resolves and which an operator must act on. Telling an agent to wait for one
+// of those spends its whole step budget on a call that was already settled.
+var transientCodes = map[string]struct{}{
+	"rate_limited":               {},
+	"incumbent_budget_exhausted": {},
+}
+
+// Transient reports whether repeating the same call unchanged could succeed
+// later. Every other classified fault is settled: something must change (the
+// arguments, a human's decision, an operator's) before a retry means anything.
+func (f Fault) Transient() bool {
+	_, ok := transientCodes[f.Code]
+	return ok
+}
+
+// Classify is the ONE decision tree behind the error taxonomy: what err means
+// to a caller, independent of the surface that caller reached us through. It
+// reports false only for an error outside the taxonomy — a genuine server
+// fault, whose text never crosses to a client.
+//
+// Every surface classifies HERE. The REST mapper and the MCP tool dispatcher
+// each used to carry their own copy of this judgement, and the copies
+// disagreed: a malformed argument was a 422 naming the offending field on
+// REST, and "the tool failed for an internal reason; retry" on MCP — advice
+// that could never succeed, for a mistake the caller could have fixed had we
+// named it. One tree and two renderers means the surfaces cannot drift apart
+// again.
+func Classify(err error) (Fault, bool) {
+	var withDetails *DetailedError
+	if errors.As(err, &withDetails) {
+		return Fault{
+			Status:  withDetails.Status,
+			Code:    withDetails.Code,
+			Detail:  withDetails.Detail,
+			Details: withDetails.Details,
+			Fields:  withDetails.Fields,
+		}, true
+	}
+
+	if v, ok := clientInputValidation(err); ok {
+		return Classify(v)
+	}
+
+	for _, m := range mapping {
+		if errors.Is(err, m.sentinel) {
+			f := Fault{Status: m.status, Code: m.code, Detail: err.Error()}
+			// A sentinel wrapped around an infrastructure failure must not
+			// carry that failure's text to a caller. It gets the sentinel's
+			// canonical detail; the full cause goes to the surface's log.
+			if infrastructureCause(err) {
+				f.Detail = m.sentinel.Error()
+				f.InfraCause = err
+			}
+			return f, true
+		}
+	}
+
+	return Fault{}, false
 }
 
 // Write maps err onto the wire. Unknown errors become an opaque 500 — the
 // cause is logged server-side, never leaked to the client.
 func Write(w http.ResponseWriter, r *http.Request, err error) {
-	var withDetails *DetailedError
-	if errors.As(err, &withDetails) {
-		writeProblem(w, problem{
-			Status:  withDetails.Status,
-			Code:    withDetails.Code,
-			Detail:  withDetails.Detail,
-			Details: withDetails.Details,
-		})
+	fault, ok := Classify(err)
+	if !ok {
+		slog.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "err", err)
+		writeProblem(w, problem{Status: http.StatusInternalServerError, Code: "internal"})
 		return
 	}
-
-	if v, ok := clientInputValidation(err); ok {
-		Write(w, r, v)
-		return
+	if fault.InfraCause != nil {
+		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
+			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
 	}
-
-	for _, m := range mapping {
-		if errors.Is(err, m.sentinel) {
-			detail := err.Error()
-			// A sentinel wrapped around an infrastructure failure must not
-			// carry that failure's text onto the wire (SQL fragments,
-			// addresses). The client gets the sentinel's canonical detail;
-			// the full cause goes to the server log, like any 500 would.
-			if infrastructureCause(err) {
-				slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
-					"method", r.Method, "path", r.URL.Path, "err", err)
-				detail = m.sentinel.Error()
-			}
-			writeProblem(w, problem{Status: m.status, Code: m.code, Detail: detail})
-			return
+	// Fields renders INTO details rather than over it: both are public on
+	// DetailedError, so a handler may legitimately carry extra structured
+	// context alongside a per-field breakdown, and dropping that context on
+	// the floor would be a silent loss of exactly the kind this change exists
+	// to stop.
+	details := fault.Details
+	if len(fault.Fields) > 0 {
+		merged := make(map[string]any, len(details)+1)
+		for k, v := range details {
+			merged[k] = v
 		}
+		merged[fieldErrorsKey] = fieldDetails(fault.Fields)[fieldErrorsKey]
+		details = merged
 	}
-
-	slog.ErrorContext(r.Context(), "unhandled error", "method", r.Method, "path", r.URL.Path, "err", err)
-	writeProblem(w, problem{Status: http.StatusInternalServerError, Code: "internal"})
+	writeProblem(w, problem{
+		Status:  fault.Status,
+		Code:    fault.Code,
+		Detail:  fault.Detail,
+		Details: details,
+	})
 }
 
 // infrastructureCause reports whether err's chain contains a raw
@@ -183,6 +346,18 @@ func infrastructureCause(err error) bool {
 	return errors.As(err, &pgErr) || errors.As(err, &netErr)
 }
 
+// FieldError is one per-field refusal inside a validation fault: which input
+// the caller got wrong, the contract's stable code for it, and what to fix.
+// It is typed rather than left in the Details bag because it is the ACTIONABLE
+// half of a 422 — the surfaces render it (REST into the problem body, MCP into
+// the sentence an agent reads), and a surface cannot render what it has to
+// guess the shape of.
+type FieldError struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // DetailedError carries a non-sentinel wire shape: validation errors
 // (422 with field errors), duplicate conflicts (409 with existing_id),
 // auth failures. Constructed by handlers, mapped here.
@@ -191,6 +366,12 @@ type DetailedError struct {
 	Code    string
 	Detail  string
 	Details map[string]any
+
+	// Fields is the per-field breakdown of a validation refusal. It is the
+	// single source for that breakdown: the wire body is rendered FROM it, so
+	// a surface reading Fields and a client reading the body can never be
+	// looking at two different lists.
+	Fields []FieldError
 }
 
 func (e *DetailedError) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Detail) }
@@ -223,10 +404,28 @@ func Validation(field, code, message string) *DetailedError {
 		Status: http.StatusUnprocessableEntity,
 		Code:   "validation_error",
 		Detail: message,
-		Details: map[string]any{
-			"errors": []map[string]string{{"field": field, "code": code, "message": message}},
-		},
+		Fields: []FieldError{{Field: field, Code: code, Message: message}},
 	}
+}
+
+// fieldDetails renders the per-field breakdown into the contract's
+// `details.errors` body shape. Rendering it here, from Fields, is what keeps
+// the typed list and the wire list the same list.
+const fieldErrorsKey = "errors"
+
+func fieldDetails(fields []FieldError) map[string]any {
+	errs := make([]map[string]string, 0, len(fields))
+	for _, f := range fields {
+		entry := map[string]string{"field": f.Field, "code": f.Code}
+		// A multi-field validator may have no per-entry prose (the code IS the
+		// reason). Omitting the key beats shipping "message": "", which reads
+		// as an explanation that came out blank.
+		if f.Message != "" {
+			entry["message"] = f.Message
+		}
+		errs = append(errs, entry)
+	}
+	return map[string]any{fieldErrorsKey: errs}
 }
 
 // Duplicate is the 409 dedupe shape. existingID is included only when

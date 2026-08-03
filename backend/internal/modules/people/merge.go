@@ -55,6 +55,11 @@ type MergeSelfError struct{}
 
 func (e *MergeSelfError) Error() string { return "source and target of a merge must differ" }
 
+// FieldFault refuses a merge whose source and target are the same record.
+func (e *MergeSelfError) FieldFault() (field, code, message string) {
+	return "target_id", "merge_self", e.Error()
+}
+
 // AlreadyMergedError maps to 409: the source was already merged away; the
 // pointer names where it went.
 type AlreadyMergedError struct {
@@ -70,6 +75,11 @@ type MergedTargetError struct{ Kind string }
 
 func (e *MergedTargetError) Error() string {
 	return "merge target " + e.Kind + " is archived; the survivor must be live"
+}
+
+// FieldFault refuses merging INTO a record that was itself already merged away.
+func (e *MergedTargetError) FieldFault() (field, code, message string) {
+	return "target_id", "merged_target", e.Error()
 }
 
 // relinkCounts is the event payload's accounting (events.md §person.merged):

@@ -20,17 +20,8 @@ func (h Handlers) UpdateActivity(w http.ResponseWriter, r *http.Request, id crmc
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := UpdateActivityInput{
-		Subject:    req.Subject,
-		Body:       req.Body,
-		OccurredAt: req.OccurredAt,
-		DueAt:      req.DueAt,
-		RemindAt:   req.RemindAt,
-		IsDone:     req.IsDone,
-		IfVersion:  ifVersion,
-	}
-	in.AssigneeID = idArg[ids.UserKind](req.AssigneeId)
-	activity, err := h.store.UpdateActivity(r.Context(), pathID[ids.ActivityKind](id), in)
+	activity, err := h.store.UpdateActivity(r.Context(), pathID[ids.ActivityKind](id),
+		activityUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

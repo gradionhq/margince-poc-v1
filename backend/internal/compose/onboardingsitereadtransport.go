@@ -25,10 +25,13 @@ import (
 )
 
 const (
-	siteReadStatusDeferred    = "deferred"
-	siteReadWireStatusDone    = "done"
-	siteReadWireStatusFailed  = "failed"
-	siteReadWireStatusPartial = "partial"
+	siteReadStatusDeferred = "deferred"
+	siteReadWireStatusDone = "done"
+	// A read that ended without a fault: stopped by a decision rather than by
+	// something going wrong. A failure is something to investigate; this is not.
+	siteReadWireStatusCancelled = "cancelled"
+	siteReadWireStatusFailed    = "failed"
+	siteReadWireStatusPartial   = "partial"
 )
 
 func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +48,7 @@ func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Req
 	read, _, err := e.people.StartOnboardingSiteRead(r.Context(), seedURL, requestedBy(r.Context()),
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
-				WorkspaceID: storekit.MustWorkspace(ctx), SiteReadID: read.ID,
+				Workspace: storekit.MustWorkspace(ctx), SiteReadID: read.ID,
 				SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 			}, siteDeepReadInsertOpts())
 		})
@@ -159,6 +162,27 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 	})
 	proposalIDs := make([]ids.UUID, 0, len(found))
 	for _, person := range found {
+		// A published person the workspace already reaches by email is not a
+		// decision — the same floor the crawl worker's staging applies.
+		//
+		// Asked as the CONFIRMING HUMAN, not as execCtx's system principal.
+		// The answer decides whether a proposal reaches their inbox, so a
+		// workspace-wide answer would let them learn which addresses exist on
+		// records their own row scope hides. Under their scope such a record
+		// reads as absent and they simply get the proposal.
+		known, err := e.people.EmailAlreadyOnFileTx(ctx, tx, person.PublishedEmail)
+		// A confirmer who may not read people is told nothing and gets the
+		// proposal; asking on the system principal's authority instead is the
+		// disclosure the human context is here to prevent.
+		if errors.Is(err, apperrors.ErrPermissionDenied) {
+			known, err = false, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if known {
+			continue
+		}
 		in, err := siteLeadStageInput(read.ID, orgID.UUID, read.SeedURL, sitePerson{
 			Name: person.Name, Role: person.Role, PublishedEmail: person.PublishedEmail,
 			LinkedinURL: person.LinkedinURL, EvidenceSnippet: person.EvidenceSnippet, SourceURL: person.SourceURL,
@@ -166,7 +190,10 @@ func (e *deepReadEngine) stageOnboardingPeople(ctx context.Context, tx pgx.Tx, o
 		if err != nil {
 			return nil, err
 		}
-		id, err := e.approvals.StageInTx(execCtx, tx, in)
+		// The joining path, not StageInTx: two onboarding confirmations of the
+		// same site before anyone decides must leave ONE question per person,
+		// exactly as the crawl worker's staging does.
+		id, err := e.approvals.StageOrJoinPendingInTx(execCtx, tx, in)
 		if err != nil {
 			return nil, err
 		}
@@ -252,10 +279,14 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison,
 		found = append(found, out)
 	}
 	comparisons := contractSiteReadComparisons(compared)
+	// Every terminal status the store can hold maps to something. A status
+	// missing from this table renders as the empty string, which is not a
+	// value the contract's enum has and tells a client nothing at all.
 	status := map[string]string{
 		"queued": "queued", siteReadStatusDeferred: siteReadStatusDeferred, "running": "reading", "done": "ready",
-		siteReadWireStatusPartial: siteReadWireStatusPartial,
-		siteReadWireStatusFailed:  siteReadWireStatusFailed,
+		siteReadWireStatusPartial:   siteReadWireStatusPartial,
+		siteReadWireStatusFailed:    siteReadWireStatusFailed,
+		siteReadWireStatusCancelled: string(crmcontracts.CompanySiteReadStatusAbandoned),
 	}[read.Status]
 	if read.ConfirmedAt != nil {
 		status = "confirmed"

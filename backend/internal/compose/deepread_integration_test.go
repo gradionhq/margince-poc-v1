@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -89,10 +90,14 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
-		people:     e.People,
-		crawler:    testSiteCrawler(site),
-		extract:    evidenceExtractor{brain: brain, factBrain: brain},
-		approvals:  svc,
+		people:    e.People,
+		crawler:   testSiteCrawler(site),
+		extract:   evidenceExtractor{brain: brain, factBrain: brain},
+		approvals: svc,
+		// The real resolver, not a stub: the already-on-file probe runs under
+		// the REQUESTER's live grants, and a stub would let the tests pass
+		// while production asked the question with the wrong authority.
+		authority:  identity.NewService(e.Pool),
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
 		settings:   capture.NewSettings(e.Pool),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -112,7 +117,7 @@ func startDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteR
 		t.Fatal("the first start joined — the fixture is not clean")
 	}
 	return read, SiteDeepReadArgs{
-		WorkspaceID:    e.WS,
+		Workspace:      e.WS,
 		OrganizationID: org,
 		SiteReadID:     read.ID,
 		SeedURL:        read.SeedURL,
@@ -255,7 +260,7 @@ func TestDeepReadConcurrentStagingJoinsThePendingProposal(t *testing.T) {
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
 	ctx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS,
+		Workspace:   e.WS,
 		RequestedBy: "human:" + e.Rep1.String(),
 	})
 	readID := ids.NewV7()
@@ -673,7 +678,7 @@ func TestDeepReadStartQueuesOnceAndAReClickJoinsWithoutASecondInsert(t *testing.
 	if !ok {
 		t.Fatalf("enqueued %T, want SiteDeepReadArgs", inserter.inserts[0])
 	}
-	if args.WorkspaceID != e.WS || args.OrganizationID != org ||
+	if args.Workspace != e.WS || args.OrganizationID != org ||
 		args.SiteReadID != ids.UUID(first.ReadId) ||
 		args.SeedURL != "https://acme.example" || args.RequestedBy != "human:"+e.Rep1.String() {
 		t.Fatalf("job args = %+v, want the dossier's own identity and the org's domain as seed", args)

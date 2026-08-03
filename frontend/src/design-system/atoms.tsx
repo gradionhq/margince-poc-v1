@@ -1,12 +1,14 @@
-import { ChevronRight, Search } from "lucide-react";
+import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import "./atoms.css";
 
 // The Margince atom library (B-EP09.2, re-scoped to our own
@@ -271,7 +273,11 @@ export function Modal({
   if (!open) {
     return null;
   }
-  return (
+  // Portalled to the document body rather than rendered in place: a dialog
+  // opened from inside a collapsed container — the record header's overflow
+  // menu — would otherwise be hidden along with it, and the click that opened
+  // the dialog is the same click that collapses the menu.
+  return createPortal(
     // NOSONAR: backdrop dismiss only; keyboard path (Esc) handled by the effect above
     // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is a convention; Esc is the keyboard path
     // biome-ignore lint/a11y/useKeyWithClickEvents: Esc handles the keyboard path above
@@ -296,7 +302,8 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -451,6 +458,115 @@ export function DataTable<Row>({
  * `open` forces it open for a state the reader must not miss (a tool that is
  * running, a result that just arrived); left undefined the reader decides.
  */
+// OverflowMenu folds the verbs a record offers but a reader rarely wants —
+// merge, archive, share — behind one control, so the header carries identity
+// and the frequent actions rather than a row of buttons of equal weight where
+// the destructive ones sit next to the routine ones.
+//
+// The children are the caller's own action components (each opening its own
+// confirm flow), so the menu owns only the disclosure: it closes on Escape and
+// on a click outside. It deliberately stays open when an item is clicked —
+// that item's dialog restores focus to whatever opened it, so hiding it would
+// send focus, on close, to a node that is gone.
+//
+// The children are not rendered until the menu is first opened. They are
+// components with their own reads — the company's edit form alone fetches the
+// user roster and the custom-field catalogue — and every reader of every
+// record page was paying for them without ever opening the menu. Once opened
+// they STAY mounted, so a dialog survives the panel being hidden again.
+export function OverflowMenu({
+  label,
+  children,
+}: Readonly<{
+  label: string;
+  children: ReactNode;
+}>) {
+  const [open, setOpen] = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
+  const wrap = useRef<HTMLDivElement | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      // A dialog opened from this menu owns Escape while it is up. Closing
+      // both layers on one keypress would take the reader back past the menu
+      // they were choosing from, and they would have to reopen it to pick
+      // something else.
+      if (document.querySelector(".overlay")) {
+        return;
+      }
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    const onPointer = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+      // A dialog this menu opened is portalled to the body, so every click
+      // inside it looks like a click outside the menu. Closing on those would
+      // hide the item the dialog has to give focus back to when it closes.
+      if (event.target instanceof Element && event.target.closest(".overlay")) {
+        return;
+      }
+      if (!wrap.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    globalThis.addEventListener("keydown", onKey);
+    globalThis.addEventListener("mousedown", onPointer);
+    return () => {
+      globalThis.removeEventListener("keydown", onKey);
+      globalThis.removeEventListener("mousedown", onPointer);
+    };
+  }, [open]);
+
+  return (
+    <div className="overflow-menu" ref={wrap}>
+      {/* A disclosure, not an ARIA menu. `role="menu"` promises arrow-key
+          navigation and a roving tabstop; the items here are the caller's own
+          buttons, each opening its own dialog, and Tab through them is the
+          behaviour a reader actually gets. Announcing a menu we do not
+          implement is worse than announcing the expandable region we do. */}
+      <button
+        type="button"
+        ref={trigger}
+        className="btn btn-ghost btn-sm overflow-menu-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={label}
+        title={label}
+        onClick={() => {
+          setEverOpened(true);
+          setOpen((was) => !was);
+        }}
+      >
+        <MoreHorizontal aria-hidden="true" size={16} />
+      </button>
+      {/* Hidden, never unmounted. The items own their own dialogs, so
+          unmounting them on close would throw away the dialog the click just
+          opened. `hidden` also takes them out of the tab order, so a closed
+          menu is closed for a keyboard reader too.
+
+          Clicking an item does NOT close the panel. The item opens a dialog
+          that covers the page, and a dialog restores focus to whatever opened
+          it — so hiding that item first would send focus, on close, to a node
+          that is no longer there. Leaving the panel open keeps the return
+          target visible; the outside-click below then closes it on the
+          reader's next move. */}
+      <div id={panelId} className="overflow-menu-items" hidden={!open}>
+        {everOpened && children}
+      </div>
+    </div>
+  );
+}
+
 export function Disclosure({
   summary,
   open,

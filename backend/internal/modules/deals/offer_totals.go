@@ -47,6 +47,11 @@ func (e *DecimalFieldError) Error() string {
 	return e.Field + " must be a decimal number, got " + strconv.Quote(e.Value)
 }
 
+// FieldFault names the numeric field that would not parse as a decimal.
+func (e *DecimalFieldError) FieldFault() (field, code, message string) {
+	return e.Field, "invalid_decimal", e.Error()
+}
+
 // LineTotals derives one line's figures (formulas: line_net =
 // round(qty × unit_price × (1 − discount_pct/100)), line_tax =
 // round(line_net × tax_rate/100), line_total = line_net + line_tax).

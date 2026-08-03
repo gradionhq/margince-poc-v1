@@ -85,10 +85,13 @@ export const MOBILE_PRIMARY: ReadonlySet<string> = new Set([
 ]);
 
 // Documented rail-less exceptions (AC-shell layout exception): onboarding,
-// the public booking page, and the extension client surfaces.
+// the public booking page, the extension client surfaces, and the OAuth
+// consent screen — a human lending an agent their authority reads it apart
+// from the rest of the app, not framed inside it.
 export const RAIL_LESS_SCREENS: ReadonlySet<string> = new Set([
   "onboarding",
   "book",
   "client",
   "preferences",
+  "oauth-consent",
 ]);

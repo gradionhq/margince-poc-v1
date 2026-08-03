@@ -16,7 +16,7 @@ const emailEntry: TimelineEntry = {
   kind: "email",
   title: "Re: Q3 renewal terms",
   atIso: "2026-07-01T09:12:00Z",
-  provenance: { kind: "human" },
+  provenance: { kind: "human", self: true },
 };
 const meetingEntry: TimelineEntry = {
   id: "a2",
@@ -30,7 +30,7 @@ const noteEntry: TimelineEntry = {
   kind: "note",
   title: "Left a voicemail",
   atIso: "2026-06-20T16:30:00Z",
-  provenance: { kind: "human" },
+  provenance: { kind: "human", self: true },
 };
 const baseTimeline: TimelineEntry[] = [emailEntry, meetingEntry, noteEntry];
 

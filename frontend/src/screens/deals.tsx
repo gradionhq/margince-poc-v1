@@ -47,6 +47,7 @@ import {
   throwProblem,
   useMe,
   useSorMode,
+  useViewerId,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { RecordContextPanel } from "./context";
@@ -59,6 +60,7 @@ import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { DealCoverageCard } from "./network";
 import { activityTimeline } from "./people";
 import { ShareAction } from "./share";
 
@@ -1470,6 +1472,10 @@ function DealOverviewPane({
         </nav>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
+      {/* Above the stakeholder list on purpose: the findings are ABOUT those
+          seats, and a rep who read the list first has already formed the
+          impression the flags exist to correct. */}
+      <DealCoverageCard id={deal.id} />
       {/* Stakeholders are a relationship read the mirror does not serve. In
           overlay show the honest unavailable state (never any cached native
           rows), matching the timeline and offers panels. */}
@@ -1527,6 +1533,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   });
   const pipelineQuery = usePipeline();
   const me = useMe();
+  const viewerId = useViewerId();
   // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
   // and the deal's stakeholders/offers sub-resources 422/404, and offer
   // creation would write to a mirrored deal. Gate all of it on this.
@@ -1655,13 +1662,17 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
               }
               timeline={
                 timelineQuery.isSuccess
-                  ? activityTimeline(timelineQuery.data.data, (activity) => (
-                      <TimelineActions
-                        activity={activity}
-                        entityType="deal"
-                        entityId={id}
-                      />
-                    ))
+                  ? activityTimeline(
+                      timelineQuery.data.data,
+                      viewerId,
+                      (activity) => (
+                        <TimelineActions
+                          activity={activity}
+                          entityType="deal"
+                          entityId={id}
+                        />
+                      ),
+                    )
                   : []
               }
               timelineNotice={overlay ? <OverlayUnavailable /> : undefined}

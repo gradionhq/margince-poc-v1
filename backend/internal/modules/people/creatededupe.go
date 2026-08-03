@@ -129,7 +129,11 @@ func manualDedupeOrganization(ctx context.Context, tx pgx.Tx, in CreateOrganizat
 	for _, d := range in.Domains {
 		domains = append(domains, d.Domain)
 	}
-	return DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: in.DisplayName, Domains: domains})
+	return DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
+		DisplayName: in.DisplayName,
+		LegalName:   deref(in.LegalName),
+		Domains:     domains,
+	})
 }
 
 // recordIfReview leaves the review trail a manual person create owes —
@@ -200,16 +204,19 @@ func (m PersonResolution) recordSharedPhone(ctx context.Context, tx pgx.Tx, crea
 	return nil
 }
 
+// The evidence names the axis the score actually came from. Two records can
+// collide on their registered names while their display names differ, and
+// rendering that as a display-name collision would show a reviewer a
+// comparison nobody made.
 func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.OrganizationID, createdName, source, by string) error {
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
-	var incumbent string
-	if err := tx.QueryRow(ctx, `SELECT display_name FROM organization WHERE id = $1`, m.OrganizationID).Scan(&incumbent); err != nil {
-		return fmt.Errorf("reading organization near-match incumbent: %w", err)
-	}
+	// fuzzyOrganization only returns this decision with a non-empty Ranked, so
+	// the winner is always there to read.
+	best := m.Ranked[0]
 	return recordNearMatch(ctx, tx, entityOrganization, createdID.UUID, m.OrganizationID.UUID, m.Confidence,
-		nearMatchEvidence(fieldDisplayName, createdName, incumbent, m.Confidence), source, by)
+		nearMatchEvidence(best.MatchedField, best.CandidateValue, best.IncumbentValue, m.Confidence), source, by)
 }
 
 // nearMatchEvidence is the detection-time snapshot the review queue
@@ -226,9 +233,18 @@ func nearMatchEvidence(field, created, incumbent string, confidence float64) []m
 // plus the append-only dedupe_near_match ledger line, both inside the
 // create's own transaction so the record and its review trail commit or
 // roll back together.
+// A pair the queue already holds is a no-op in BOTH stores: the candidate row
+// is refused by the pair-unique index, and the ledger line is skipped with it.
+// Appending a line per re-detection would grow the ledger without recording
+// anything new — the rename re-check runs on every rename, so a pair a human
+// left open would otherwise gain a line forever.
 func recordNearMatch(ctx context.Context, tx pgx.Tx, entityType string, createdID, matchedID ids.UUID, confidence float64, evidence []map[string]any, source, by string) error {
-	if _, err := recordDedupeCandidate(ctx, tx, entityType, createdID, matchedID, confidence, evidence, source, by); err != nil {
+	recorded, err := recordDedupeCandidate(ctx, tx, entityType, createdID, matchedID, confidence, evidence, source, by)
+	if err != nil {
 		return fmt.Errorf("record %s near-match candidate: %w", entityType, err)
+	}
+	if !recorded {
+		return nil
 	}
 	if _, err := storekit.LogSystem(ctx, tx, "dedupe_near_match", map[string]any{
 		"entity_type": entityType,

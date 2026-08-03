@@ -67,6 +67,15 @@ func setupReconcile(t *testing.T) *reconcileEnv {
 	return e
 }
 
+// reconcile runs the reconciler over this env's workspace under exactly the
+// scope the follow_up_workspace worker binds.
+func (e *reconcileEnv) reconcile() error {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "agent:overnight"})
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return e.reconciler.ReconcileWorkspace(ctx)
+}
+
 // seedInteraction plants a captured call/mail/meeting on the deal,
 // occurredHoursAgo before now — the "real touch" side of the discrepancy.
 func (e *reconcileEnv) seedInteraction(t *testing.T, dealID ids.UUID, kind, subject string, occurredHoursAgo int) ids.UUID {
@@ -177,7 +186,7 @@ func TestFollowUpReconcileStagesProposalAndCommitsNothing(t *testing.T) {
 	call := e.seedInteraction(t, deal, "call", "Discovery call", 1)
 	before := e.dealVersion(t, deal)
 
-	if err := e.reconciler.Reconcile(context.Background()); err != nil {
+	if err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -221,7 +230,7 @@ func TestFollowUpReconcileSuppressesWhenNoDiscrepancy(t *testing.T) {
 	noteOnly := e.SeedDeal(t, "Note only", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, noteOnly, "email", "Old thread", 24*10) // outside the 48h window
 
-	if err := e.reconciler.Reconcile(context.Background()); err != nil {
+	if err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.pendingFollowUps(t, planned); got != 0 {
@@ -238,7 +247,7 @@ func TestFollowUpReconcileDoesNotStackAcrossPasses(t *testing.T) {
 	e.seedInteraction(t, deal, "call", "Call", 1)
 
 	for pass := 0; pass < 2; pass++ {
-		if err := e.reconciler.Reconcile(context.Background()); err != nil {
+		if err := e.reconcile(); err != nil {
 			t.Fatalf("pass %d: %v", pass, err)
 		}
 	}
@@ -253,7 +262,7 @@ func TestFollowUpConfirmCreatesTheTaskExactlyOnce(t *testing.T) {
 	e := setupReconcile(t)
 	deal := e.SeedDeal(t, "Confirm me", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "call", "Discovery", 1)
-	if err := e.reconciler.Reconcile(context.Background()); err != nil {
+	if err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
 	approvalID, proposal := e.followUpApproval(t, deal)
@@ -291,7 +300,7 @@ func TestFollowUpRejectWritesNothing(t *testing.T) {
 	e := setupReconcile(t)
 	deal := e.SeedDeal(t, "Reject me", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "meeting", "Sync", 1)
-	if err := e.reconciler.Reconcile(context.Background()); err != nil {
+	if err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
 	approvalID, _ := e.followUpApproval(t, deal)
@@ -319,7 +328,7 @@ func TestFollowUpProposalRespectsRowScope(t *testing.T) {
 	e := setupReconcile(t)
 	deal := e.SeedDeal(t, "Rep1's deal", e.pipeline, e.open, &e.Rep1)
 	e.seedInteraction(t, deal, "call", "Private call", 1)
-	if err := e.reconciler.Reconcile(context.Background()); err != nil {
+	if err := e.reconcile(); err != nil {
 		t.Fatal(err)
 	}
 	approvalID, _ := e.followUpApproval(t, deal)

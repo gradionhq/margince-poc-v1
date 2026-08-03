@@ -105,3 +105,53 @@ func TestNormalizeOrgNameKeepsASuffixThatIsTheName(t *testing.T) {
 		t.Fatalf("a lone suffix-shaped name was stripped to %q, want %q", got, "co")
 	}
 }
+
+// A compound German legal form is one suffix, not two tokens and a
+// connective. Before the ampersand was part of the strip this key came out as
+// "basecom gmbh &", which matches no account anybody stores.
+func TestNormalizeOrgNameStripsCompoundLegalForms(t *testing.T) {
+	for _, spelling := range []string{
+		"Basecom GmbH & Co. KG",
+		"Basecom GmbH und Co KG",
+		"Basecom GmbH",
+		"Basecom",
+	} {
+		if got := NormalizeOrgName(spelling); got != "basecom" {
+			t.Errorf("NormalizeOrgName(%q) = %q, want %q", spelling, got, "basecom")
+		}
+	}
+}
+
+// The strip must never eat the entire name. A company called "Co" keeps its
+// key; an empty one would collide with every other empty key and place
+// connections against an arbitrary account.
+func TestNormalizeOrgNameNeverStripsAwayTheWholeName(t *testing.T) {
+	for _, spelling := range []string{"Co", "GmbH", "& Co. KG"} {
+		if got := NormalizeOrgName(spelling); got == "" {
+			t.Errorf("NormalizeOrgName(%q) reduced the whole name to an empty key", spelling)
+		}
+	}
+}
+
+func TestAConnectiveIsOnlyStrippedInsideACompoundLegalForm(t *testing.T) {
+	// "GmbH & Co. KG" is ONE legal form, so the whole tail goes and the key is
+	// the company's actual name.
+	if got := NormalizeOrgName("SIMIO GmbH & Co. KG"); got != "simio" {
+		t.Errorf("NormalizeOrgName(compound legal form) = %q, want %q", got, "simio")
+	}
+	// But a connective is not a suffix in its own right. Collapsing these would
+	// let two unrelated accounts meet at one key, and PO-PARAM-1 strips legal
+	// forms, not English and German words.
+	for name, want := range map[string]string{
+		"Research and":         "research and",
+		"Miller und":           "miller und",
+		"Smith and Sons":       "smith and sons",
+		"Ben and Jerry's":      "ben and jerry's",
+		"Acme GmbH":            "acme",
+		"Basecom GmbH & Co KG": "basecom",
+	} {
+		if got := NormalizeOrgName(name); got != want {
+			t.Errorf("NormalizeOrgName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

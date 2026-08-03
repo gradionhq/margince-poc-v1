@@ -75,6 +75,10 @@ func NewFilteredExportWriter(pool *pgxpool.Pool) *FilteredExportWriter {
 	return &FilteredExportWriter{pool: pool}
 }
 
+// codeInvalid is the contract's machine code for a supplied-but-unusable value,
+// named because the refusal and both transport branches must spell it the same.
+const codeInvalid = "invalid"
+
 // exportBadRequest is a client fault the transport maps to 422 (an
 // unsupported resource or format), distinct from an infrastructure error.
 type exportBadRequest struct {
@@ -83,6 +87,13 @@ type exportBadRequest struct {
 }
 
 func (e *exportBadRequest) Error() string { return e.field + ": " + e.reason }
+
+// FieldFault carries the 422 on the error itself, with the same field and code
+// writeFilteredExportError spells, so a surface that never runs that helper
+// still answers the caller's own mistake as one.
+func (e *exportBadRequest) FieldFault() (field, code, message string) {
+	return e.field, codeInvalid, e.reason
+}
 
 // WriteFiltered runs the resource's predicate through the ONE scope-forcing
 // engine, reads the exact visible+matching rows with the bundle writer's
@@ -347,7 +358,7 @@ func (h filteredExportHandlers) resolveSource(ctx context.Context, req filteredE
 func writeFilteredExportError(w http.ResponseWriter, r *http.Request, err error) {
 	var bad *exportBadRequest
 	if errors.As(err, &bad) {
-		httperr.Write(w, r, httperr.Validation(bad.field, "invalid", bad.reason))
+		httperr.Write(w, r, httperr.Validation(bad.field, codeInvalid, bad.reason))
 		return
 	}
 	var pred *storekit.PredicateError
@@ -357,7 +368,7 @@ func writeFilteredExportError(w http.ResponseWriter, r *http.Request, err error)
 	}
 	var source *collections.BadInputError
 	if errors.As(err, &source) {
-		httperr.Write(w, r, httperr.Validation(source.Field, "invalid", source.Reason))
+		httperr.Write(w, r, httperr.Validation(source.Field, codeInvalid, source.Reason))
 		return
 	}
 	httperr.Write(w, r, err)

@@ -3,15 +3,15 @@
 
 package compose
 
-// River wiring for the worker's scheduled passes: the job args and the
-// worker adapters that delegate to the deals correctors, plus NewJobRunner
-// which registers them as periodic jobs. The adapters are the only code
-// that knows about River — the deals module's Sweep/Reconcile methods stay
-// the River-agnostic seam, which is what makes swapping the old ticker
-// loops for River behaviour-preserving.
+// The job runner's assembly: NewJobRunner, the queue set, the uniqueness
+// window every periodic pass shares, and the wiring of each module's workers
+// and ticks. The per-concern job files beside it (jobs_deals.go,
+// jobs_capture.go, jobs_overlay.go, jobs_automation.go, jobs_retention.go)
+// own the args types and worker adapters themselves; those adapters are the
+// only code in the tree that knows about River, which is what keeps every
+// module's own pass River-agnostic.
 
 import (
-	"context"
 	"log/slog"
 	"time"
 
@@ -20,10 +20,8 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
-	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -31,57 +29,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 )
-
-// CloseDateSweepArgs schedules one close-date hygiene pass (INV-CLOSE-PAST).
-type CloseDateSweepArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (CloseDateSweepArgs) Kind() string { return "close_date_sweep" }
-
-// FollowUpReconcileArgs schedules one overnight follow-up reconciliation
-// pass (features/07 §8a).
-type FollowUpReconcileArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (FollowUpReconcileArgs) Kind() string { return "follow_up_reconcile" }
-
-// closeDateSweepWorker delegates a River job to the deals corrector.
-type closeDateSweepWorker struct {
-	river.WorkerDefaults[CloseDateSweepArgs]
-	corrector *deals.CloseDateCorrector
-}
-
-func (w *closeDateSweepWorker) Work(ctx context.Context, _ *river.Job[CloseDateSweepArgs]) error {
-	return w.corrector.Sweep(ctx)
-}
-
-// followUpReconcileWorker delegates a River job to the deals reconciler.
-type followUpReconcileWorker struct {
-	river.WorkerDefaults[FollowUpReconcileArgs]
-	reconciler *deals.FollowUpReconciler
-}
-
-func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowUpReconcileArgs]) error {
-	return w.reconciler.Reconcile(ctx)
-}
-
-// IdempotencyRetentionArgs schedules one purge of replay claims past the
-// window. Always-on: the claim bodies are record snapshots, so retaining them
-// past the retry they protect is subject data kept for no purpose.
-type IdempotencyRetentionArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (IdempotencyRetentionArgs) Kind() string { return "idempotency_retention" }
-
-// idempotencyRetentionWorker delegates a River job to the compose sweeper.
-type idempotencyRetentionWorker struct {
-	river.WorkerDefaults[IdempotencyRetentionArgs]
-	sweeper *IdempotencyRetentionSweeper
-}
-
-func (w *idempotencyRetentionWorker) Work(ctx context.Context, _ *river.Job[IdempotencyRetentionArgs]) error {
-	return w.sweeper.Sweep(ctx)
-}
 
 // dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
 // query, deliberately decoupled from per-connection pacing (the sidecar's
@@ -101,27 +48,6 @@ var activeSweepStates = []rivertype.JobState{
 	rivertype.JobStateRunning,
 	rivertype.JobStateScheduled,
 	rivertype.JobStateRetryable,
-}
-
-// TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
-// coarse ActivityScan pre-filter converging every CLOCK-triggered
-// automation instance (no_activity_reminder today) onto runOne — the
-// same dispatch path event triggers use.
-type TimeScanArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (TimeScanArgs) Kind() string { return "time_scan" }
-
-// timeScanWorker delegates a River job to the automation module's
-// TimeScanner — River-agnostic by construction (this file's own doc: the
-// adapters are the only code that knows about River).
-type timeScanWorker struct {
-	river.WorkerDefaults[TimeScanArgs]
-	scanner *automation.TimeScanner
-}
-
-func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
-	return w.scanner.Scan(ctx)
 }
 
 // sweepInsertOpts is the shared insert policy for the periodic passes.
@@ -203,6 +129,11 @@ type JobRunnerConfig struct {
 	// DeepReadFactBrain serves the page-parallel fact lane
 	// (modelPath.SiteFactExtract); nil falls back to DeepReadBrain.
 	DeepReadFactBrain completer
+	// DeepReadTriageBrain serves the domain-triage classification
+	// (modelPath.SiteTriage). Nil is a role that cannot classify: a triage read
+	// then settles its domain from what the workspace already knows rather than
+	// leaving the question open forever.
+	DeepReadTriageBrain completer
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
@@ -273,16 +204,23 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
 	// The voice build is not periodic — the api enqueues one job per created
 	// build; only the deferred-retry sweep ticks. Both register even with a
 	// nil brain so a queued build fails actionably instead of rotting.
 	river.AddWorker(workers, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
 	river.AddWorker(workers, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
-	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
-	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
-	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
-	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
+	// Each scheduled pass is a dispatcher plus a workspace worker. Only the
+	// dispatcher gets a periodic entry below; the workspace worker is enqueued,
+	// never ticked.
+	river.AddWorker(workers, &closeDateSweepWorker{pool: pool})
+	river.AddWorker(workers, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
+	river.AddWorker(workers, &followUpReconcileWorker{pool: pool})
+	river.AddWorker(workers, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	river.AddWorker(workers, &timeScanWorker{pool: pool})
+	river.AddWorker(workers, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
+	river.AddWorker(workers, &idempotencyRetentionWorker{pool: pool})
+	river.AddWorker(workers, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
 	// update in the same transaction as the raw capture row; the worker role only
 	// needs the worker registered,
@@ -303,7 +241,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
-	river.AddWorker(workers, newCaptureAutoEnrichSweepWorker(pool, log))
+	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
+	river.AddWorker(workers, autoEnrich)
+	river.AddWorker(workers, &captureAutoEnrichWorkspaceWorker{sweeper: autoEnrich})
 	// The outbound send is not periodic — the api stages one job per accepted
 	// message, in the same transaction as the activity; this role only needs
 	// the worker registered.
@@ -346,9 +286,16 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
+	// The ADR-0078 relationship-graph passes register themselves, so this
+	// wiring stays one line as that surface grows (jobs_graph.go).
+	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
+	// The ADR-0069 §3a embed drift sweep registers itself the same way
+	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
+	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
 
 	if cfg.ClassifyBrain != nil {
-		river.AddWorker(workers, &captureClassifyWorker{
+		river.AddWorker(workers, &captureClassifyWorker{pool: pool})
+		river.AddWorker(workers, &captureClassifyWorkspaceWorker{
 			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
 		})
 		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
@@ -361,7 +308,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	if cfg.EnrichBrain != nil {
-		river.AddWorker(workers, &captureEnrichWorker{
+		river.AddWorker(workers, &captureEnrichWorker{pool: pool})
+		river.AddWorker(workers, &captureEnrichWorkspaceWorker{
 			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
 		})
 		// Daily (the ADR-0063 nightly cadence rides the same job until the
@@ -378,7 +326,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// enrich pass already wrote, so it needs no model. Gating it on a brain
 		// would leave an AI-less deployment unable to act on signatures it had
 		// already collected.
-		river.AddWorker(workers, &orgNamePromotionWorker{promoter: NewOrgNamePromoter(pool, log)})
+		river.AddWorker(workers, &orgNamePromotionWorker{pool: pool})
+		river.AddWorker(workers, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
 		// Daily, after the enrich pass has had a night to collect signatures;
 		// run-on-start so a deployment with a backlog acts on it immediately.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -394,10 +343,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// a brain would mean an AI-less deployment never staged a review for an
 		// existing unsure row and never redacted mail it had already hidden.
 		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
-		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
+		river.AddWorker(workers, &counterpartyVerdictWorker{pool: pool})
+		river.AddWorker(workers, &counterpartyVerdictWorkspaceWorker{engine: verdicts})
 		// Hourly, like classify: the ledger's due-index makes an empty pass one
 		// cheap probe, and a deferred sender should not wait a day to become a
-		// record. The one job runs every stage in dependency order —
+		// record. Each workspace's job runs every stage in dependency order —
 		// judging fills the unsure backlog that staging then offers, and
 		// redaction only ever acts on windows that closed before this tick.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -412,7 +362,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = registerTelegramPoll(workers, periodic, pool, cfg.ChannelVault, cfg.ChannelAPI, log)
 
 	if cfg.GmailRegistry != nil {
-		river.AddWorker(workers, &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log})
+		digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
+		river.AddWorker(workers, digests)
+		river.AddWorker(workers, &captureDigestWorkspaceWorker{digests: digests})
 		// The digest builds daily after the overnight passes; run-on-start
 		// backfills a missed night so mornings are never silently empty.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -438,7 +390,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		))
 		if cfg.GmailWatch.Topic != "" {
 			river.AddWorker(workers, &gmailWatchWorker{
-				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
+				registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
+			})
+			river.AddWorker(workers, &gmailWatchRenewWorker{
+				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
 			})
 			periodic = append(periodic, river.NewPeriodicJob(
 				river.PeriodicInterval(cfg.GmailWatch.Interval),
@@ -457,7 +412,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		if meter == nil {
 			meter = failClosedOverlayMeter()
 		}
-		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
+		river.AddWorker(workers, &overlayReconcileWorker{pool: pool, log: log})
+		river.AddWorker(workers, &overlayReconcileWorkspaceWorker{
+			pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+			newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+		})
 		// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
 		// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one
 		// record through the same store the poller uses. Registered whenever
@@ -481,6 +440,18 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// likewise long; their own bounded pool keeps a multi-workspace
 			// burst from starving close-date, reconcile, and capture jobs.
 			rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
+			// The AI-backed capture passes make serial model calls, so a
+			// fanned-out fleet of them would occupy every default worker and
+			// delay sends, Telegram polls, and capture syncs. Same species as
+			// deep reads — long and model-bound — so the same posture.
+			aiCaptureQueue: {MaxWorkers: aiCaptureMaxWorkers},
+			// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
+			// counts but does not pace, and its keys are per workspace, so it
+			// cannot bound a provider-level burst: a concurrent fan-out could
+			// exceed the incumbent's per-second Search limit. Each workspace
+			// still gets its own job row, which is the observability this phase
+			// is after; per-workspace PARALLELISM is not.
+			overlayReconcileQueue: {MaxWorkers: 1},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

@@ -341,7 +341,104 @@ describe("AgentToolsCard passport scoping", () => {
   });
 });
 
+// The tool console and the passport list share the ["passports"] read, so a
+// revoke on one card refetches the other's options. This backend answers the
+// second read honestly: the revoked passport comes back marked revoked.
+function revocablePassportsBackend() {
+  const revoked = new Set<string>();
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = input instanceof Request ? input.method : "GET";
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "ada@acme.test" },
+        roles: ["admin"],
+        teams: [],
+      });
+    }
+    if (/\/passports\/[^/]+$/.test(url) && method === "DELETE") {
+      revoked.add(url.split("/passports/")[1]);
+      return new Response(null, { status: 204 });
+    }
+    if (url.includes("/passports")) {
+      return jsonResponse({
+        data: [
+          {
+            id: "pp-1",
+            label: "Scout",
+            scopes: ["read"],
+            created_at: "2026-07-01T08:00:00Z",
+            expires_at: null,
+            revoked_at: revoked.has("pp-1") ? "2026-07-03T08:00:00Z" : null,
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      });
+    }
+    if (url.includes("/agent-tools")) {
+      return jsonResponse({
+        data: [
+          {
+            name: "send_email",
+            required_scope: "send",
+            tier: "confirmation_required",
+            egress: true,
+          },
+        ],
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
 describe("PassportCard revoke (AS-2)", () => {
+  // Revoking the passport the console was filtered by leaves the selector
+  // showing "All passports". The inventory has to say the same thing: a row
+  // dimmed by a credential the human can no longer choose is a filter with no
+  // control, and no way to undo it.
+  it("stops scoping the tool console to a passport revoked while it was selected", async () => {
+    vi.stubGlobal("fetch", revocablePassportsBackend());
+    render(<SettingsScreen tab="ai" />);
+    await screen.findByText("send_email");
+
+    const select = screen.getByLabelText("All passports");
+    await userEvent.selectOptions(select, "pp-1");
+    const scopedRow = document.querySelector('[data-tool="send_email"]');
+    expect(scopedRow).toBeTruthy();
+    // Scout grants "read" only, so the send tool reads as out of scope while
+    // Scout is the filter.
+    expect(
+      scopedRow &&
+        within(scopedRow as HTMLElement).getByText("scope not granted"),
+    ).toBeTruthy();
+
+    const scoutRow = screen.getByText("Scout").closest("li");
+    const revokeButton = scoutRow?.querySelector("button");
+    if (!(revokeButton instanceof HTMLButtonElement)) {
+      throw new Error("the live passport row offers no revoke control");
+    }
+    await userEvent.click(revokeButton);
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Revoke" }),
+    );
+
+    // The revoked passport leaves the selector...
+    await waitFor(() =>
+      expect(
+        Array.from(select.querySelectorAll("option")).map((o) => o.value),
+      ).toEqual([""]),
+    );
+    // ...and the inventory reads unfiltered again, matching what it shows.
+    expect(
+      scopedRow &&
+        within(scopedRow as HTMLElement).queryByText("scope not granted"),
+    ).toBeNull();
+  });
+
   it("revokes a non-revoked passport: click Revoke, confirm, DELETE fires with its id and the list refetches", async () => {
     const deleted: string[] = [];
     const fetchMock = passportsBackend({ onDelete: (id) => deleted.push(id) });

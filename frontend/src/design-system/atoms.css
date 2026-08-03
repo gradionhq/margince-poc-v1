@@ -32,7 +32,6 @@
   background: var(--accentLight);
   color: var(--accent);
 }
-
 .card {
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
@@ -628,4 +627,51 @@ select.input {
 }
 .disclosure-body {
   margin-top: var(--space-3);
+}
+
+/* The overflow menu: one trigger, a popover of the caller's own action
+   buttons. Anchored to the trigger so it opens under it regardless of where
+   the header wraps. */
+.overflow-menu {
+  position: relative;
+  display: inline-flex;
+}
+.overflow-menu-trigger {
+  padding-inline: var(--space-2);
+}
+.overflow-menu-items {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  /* Above the phone layout's fixed bottom rail (shell.css, z-index 30) and
+     below the modal overlay (50): a record's actions opening BEHIND the
+     navigation are unreachable, and only on the layout where the record page
+     is longest. */
+  z-index: 35;
+  min-width: 180px;
+  /* On a 390px screen, or at high zoom, a menu that only states a minimum
+     grows the page instead of itself: the panel goes off the right edge and
+     takes its actions with it. */
+  max-width: calc(100vw - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+}
+/* An author-level `display` beats the UA stylesheet's `[hidden] {display:none}`,
+   so without this the closed menu stays open — the whole point of folding the
+   destructive verbs away, undone by one declaration. */
+.overflow-menu-items[hidden] {
+  display: none;
+}
+/* The items are whatever the caller renders — buttons of every variant. They
+   read as a menu here: full width, left-aligned, no competing fills. */
+.overflow-menu-items .btn {
+  width: 100%;
+  justify-content: flex-start;
 }

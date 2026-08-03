@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -31,9 +32,34 @@ var publicRequests = map[string]map[string]bool{
 	"/v1/auth/reset-password":  {http.MethodPost: true},
 	// The OAuth AS endpoints authenticate by their own means: DCR is
 	// open (public clients + PKCE), token exchange proves possession via
-	// the code + verifier. authorize is NOT here — it demands a session.
+	// the code + verifier, and RFC 7009 revocation proves it by presenting
+	// the credential it is handing back — a client revoking on shutdown, or
+	// because a human disconnected inside the client, has no cookie to send.
+	// A session requirement there would make the kill switch discovery
+	// advertises answer 401 to every real client. authorize is NOT here —
+	// it needs the human's session when there is one (isConsentEntry below
+	// is where its one asymmetry lives).
 	"/oauth/register": {http.MethodPost: true},
 	"/oauth/token":    {http.MethodPost: true},
+	"/oauth/revoke":   {http.MethodPost: true},
+}
+
+// isConsentEntry matches the ONE request that must be served with or without a
+// session: GET /oauth/authorize, where a human's consent flow begins.
+//
+// It is not a public path — a session it can read still binds the human, and
+// that human is who the consent screen then belongs to. What it cannot do is
+// 401: it serves no HTML, so a human arriving from a client in a browser that
+// is not signed in would have their flow end on a JSON body with nothing to
+// click. Served without a session, the handler answers with a redirect to the
+// SPA — which renders login in place — and does nothing else: no validation,
+// no nonce, no row read, nothing minted (oauth.go).
+//
+// The consent DECISION (POST /oauth/authorize) is deliberately not matched: it
+// lends the signed-in human's own authority, and the method test is what keeps
+// this asymmetry off it.
+func isConsentEntry(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL.Path == authorizePath
 }
 
 func isPublicRequest(r *http.Request) bool {
@@ -109,8 +135,12 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// agent gate resolves the operation's 🟢/🟡 tier against the
 		// tool's declared scope and either admits, stages an approval,
 		// or default-denies an un-tiered operation.
-		if bearer := bearerToken(r); bearer != "" {
+		if bearer := httpserver.BearerToken(r.Header.Get("Authorization")); bearer != "" {
 			h.serveAsAgent(ctx, w, r, next, bearer)
+			return
+		}
+		if isConsentEntry(r) {
+			h.serveAsOptionalHuman(ctx, w, r, next)
 			return
 		}
 		h.serveAsHuman(ctx, w, r, next)

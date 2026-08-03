@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -69,13 +70,16 @@ func TestLogoCandidateOrderPrefersTheDeclarationsMostLikelyToBeTheMark(t *testin
 			{URL: "https://acme.example/touch-180.png", Rel: webread.RelAppleTouchIcon, Sizes: "180x180"},
 		},
 	})
+	// The declared icons lead: they are the only assets a site publishes
+	// saying "this is us at icon size". og:image is whatever the page wants
+	// shown when it is shared, so it goes last.
 	want := []string{
-		"https://acme.example/share.png",
 		"https://acme.example/touch-180.png",
 		"https://acme.example/touch-120.png",
 		"https://acme.example/icon-192.png",
 		"https://acme.example/icon-32.png",
 		"https://acme.example/favicon.ico",
+		"https://acme.example/share.png",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidate order:\n got %v\nwant %v", got, want)
@@ -184,8 +188,29 @@ func TestResolveLogoPassesOverASharingBannerForTheRealIcon(t *testing.T) {
 	if logo.SourceURL != "https://acme.example/touch.png" {
 		t.Fatalf("chose %q, want the square icon over the banner", logo.SourceURL)
 	}
-	if len(attempts) != 2 || attempts[0].Outcome != logoOutcomeFallback {
-		t.Fatalf("attempts = %+v, want the banner recorded as a fallback", attempts)
+	// The icon is first in the chain and square, so it is taken on sight and
+	// the banner is never fetched at all — one asset less of egress.
+	if len(attempts) != 1 || attempts[0].Outcome != logoOutcomeChosen {
+		t.Fatalf("attempts = %+v, want only the icon tried", attempts)
+	}
+}
+
+// The shape screen catches a WIDE og:image. A square-ish one — a product
+// shot, a podcast tile, a near-square hero photo — passes every screen there
+// is, so the only thing that keeps it off the account is asking the site for
+// its declared icon first. A real import produced several companies wearing a
+// stock photo this way.
+func TestResolveLogoPrefersADeclaredIconOverASquarishPhoto(t *testing.T) {
+	site := &assetSite{assets: map[string][]byte{
+		"https://acme.example/hero.jpg":  logoFixture(t, 1200, 1000),
+		"https://acme.example/touch.png": logoFixture(t, 180, 180),
+	}}
+	logo, _ := resolveOrganizationLogo(context.Background(), site, logoSeed, declaredAssets{
+		ogImage: "https://acme.example/hero.jpg",
+		icons:   []webread.IconRef{{URL: "https://acme.example/touch.png", Rel: webread.RelAppleTouchIcon}},
+	})
+	if logo.SourceURL != "https://acme.example/touch.png" {
+		t.Fatalf("chose %q, want the declared icon over the photo", logo.SourceURL)
 	}
 }
 
@@ -222,7 +247,16 @@ func TestResolveLogoRefusesTheCandidatesThatWouldRenderBadly(t *testing.T) {
 			if logo.PNG != nil {
 				t.Fatalf("%s but it was stored anyway", tc.name)
 			}
-			if len(attempts) == 0 || !strings.Contains(attempts[0].Outcome, tc.wantReason) {
+			// The reason can sit behind the well-known /favicon.ico attempt,
+			// which this fixture site does not serve — what matters is that
+			// the refusal is reported in words, not which row carries it.
+			named := false
+			for _, attempt := range attempts {
+				if strings.Contains(attempt.Outcome, tc.wantReason) {
+					named = true
+				}
+			}
+			if !named {
 				t.Fatalf("attempts = %+v, want a reason naming %q", attempts, tc.wantReason)
 			}
 		})
@@ -314,5 +348,74 @@ func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
 	w.reclaimLogoObject(context.Background(), ids.NewV7(), &empty)
 	if len(blob.deletedLive) != 1 {
 		t.Fatalf("a nil or empty key must delete nothing, got %v", blob.deletedLive)
+	}
+}
+
+// The cap bounds one read's asset egress, so it has to bite somewhere — but
+// the two site-level sources are exactly what answers when the declarations
+// are stale, and a page with a cap's worth of dead touch-icon tags would
+// otherwise spend the whole budget on them.
+func TestLogoCandidatesSpendTheCapOnDeclarationsNotOnTheFallbacks(t *testing.T) {
+	icons := make([]webread.IconRef, 0, logoMaxCandidates*2)
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/stale-%d.png", i), Rel: webread.RelAppleTouchIcon,
+		})
+	}
+	got, dropped := logoCandidates(logoSeed, declaredAssets{
+		icons: icons, ogImage: "https://acme.example/share.png",
+	})
+	if len(got) != logoMaxCandidates {
+		t.Fatalf("tried %d candidates, want the cap of %d", len(got), logoMaxCandidates)
+	}
+	if dropped == 0 {
+		t.Fatal("declarations were dropped to make room; the drop must be reported")
+	}
+	for _, want := range []string{"https://acme.example/favicon.ico", "https://acme.example/share.png"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("candidates %v dropped %s — the fallbacks must survive the cap", got, want)
+		}
+	}
+}
+
+// A declared /favicon.ico that the cap CUT must not take the site-level
+// fallback with it: the fallback exists for exactly the page whose
+// declarations are stale, and a hundred dead tags would otherwise consume it
+// in a candidate that is never fetched.
+func TestLogoCandidatesKeepTheFallbackACutDeclarationAlsoNamed(t *testing.T) {
+	icons := make([]webread.IconRef, 0, logoMaxCandidates*2)
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/stale-%d.png", i), Rel: webread.RelAppleTouchIcon,
+		})
+	}
+	// Declared last, so the cap cuts it.
+	icons = append(icons, webread.IconRef{
+		URL: "https://acme.example/favicon.ico", Rel: webread.RelIcon,
+	})
+	got, _ := logoCandidates(logoSeed, declaredAssets{icons: icons})
+	if !slices.Contains(got, "https://acme.example/favicon.ico") {
+		t.Errorf("candidates %v lost /favicon.ico to a declaration the cap dropped", got)
+	}
+}
+
+// A fallback one of the surviving declarations already named needs no slot of
+// its own, so the reserve it was holding goes back to the next declaration
+// rather than shortening the chain.
+func TestLogoCandidatesSpendTheWholeBudgetWhenAFallbackIsAlreadyDeclared(t *testing.T) {
+	icons := []webread.IconRef{{URL: "https://acme.example/favicon.ico", Rel: webread.RelIcon}}
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/icon-%d.png", i), Rel: webread.RelIcon,
+		})
+	}
+	got, _ := logoCandidates(logoSeed, declaredAssets{
+		icons: icons, ogImage: "https://acme.example/share.png",
+	})
+	if len(got) != logoMaxCandidates {
+		t.Fatalf("tried %d candidates, want the whole budget of %d: %v", len(got), logoMaxCandidates, got)
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(got)))) != len(got) {
+		t.Errorf("candidates repeat: %v", got)
 	}
 }

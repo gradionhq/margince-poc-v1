@@ -47,6 +47,44 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 	}
 }
 
+// WithMCPResource injects the canonical MCP resource URL — public_base_url
+// + "/mcp" — onto the identity discovery handlers, so the RFC 9728
+// protected-resource document names the MCP server URL itself rather than
+// the bare request origin. cmd computes the value from --public-base-url;
+// an OAuth audience decision must never be derived from the Host header.
+// The connector's Origin guard reads its allowlist from the same value: the
+// origin a browser client may present is the origin the resource document
+// names, so the two cannot drift apart through a second flag.
+func WithMCPResource(resource string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithMCPResource(resource)
+		s.mcpAllowedOrigin = mcpOriginOf(resource)
+	}
+}
+
+// WithOAuthAccessTokenTTL shortens the passport the OAuth handshake mints —
+// the code exchange and every rotation alike. Without it a connector's access
+// token keeps the passport default (30 days), which is the posture every
+// deployment ran before this knob existed; with it an operator can take that to
+// connector norms (minutes plus refresh) without a code change, and the refresh
+// machinery is what makes that cheap. cmd passes it from
+// --oauth-access-token-ttl / MARGINCE_OAUTH_ACCESS_TOKEN_TTL.
+func WithOAuthAccessTokenTTL(ttl time.Duration) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithOAuthAccessTokenTTL(ttl)
+	}
+}
+
+// WithMCPConnector turns the remote MCP connector on: the /mcp transport,
+// the OAuth authorization server and both discovery documents are mounted
+// together. Without it none of those routes exists — an installation that
+// never declared the connector serves no client registration and no
+// passport-minting token endpoint, so it needs no runtime guard for them.
+// cmd passes it from the deployment file's mcp.connector_enabled.
+func WithMCPConnector() Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.mcpConnectorEnabled = true }
+}
+
 // WithBusReady adds the event-bus probe to /readyz. The api role passes
 // it when it runs the inline relay: a process that must ship events is
 // not ready while the bus is unreachable.
@@ -333,7 +371,7 @@ func WithBrief(brain completer) Option {
 // leaving text attributed to a model that no longer writes it.
 func WithAccountBrief(brain completer, routingVersion string) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, brain, routingVersion, time.Now)
+		s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, brain, routingVersion, time.Now)
 		s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
 	}
 }

@@ -144,6 +144,12 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
+	// Who was in it (ACT-DDL-3). After the links, because the counterparty is
+	// whichever person they name — and they have just been through the
+	// row-scope gate, so nothing here needs to re-check them.
+	if err := stampLoggedParticipants(ctx, tx, id, in.Kind, in.Direction, in.Links); err != nil {
+		return crmcontracts.Activity{}, false, err
+	}
 
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, map[string]any{fieldKind: in.Kind, "subject": in.Subject})
 	if err != nil {
@@ -229,6 +235,11 @@ type InvalidLinkTypeError struct{ EntityType string }
 
 func (e *InvalidLinkTypeError) Error() string {
 	return "activity link entity_type " + e.EntityType + " is not " + linkVocabulary()
+}
+
+// FieldFault refuses a link to an entity type the timeline does not carry.
+func (e *InvalidLinkTypeError) FieldFault() (field, code, message string) {
+	return "links", "invalid_entity_type", e.Error()
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {

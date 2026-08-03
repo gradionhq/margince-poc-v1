@@ -202,6 +202,14 @@ func TestShippedExampleConfigParses(t *testing.T) {
 	if got := strings.Join(cfg.Rates.FxCurrencies, ","); got != "USD,GBP,CHF" {
 		t.Fatalf("example rates.fx_currencies = %q, want the documented USD,GBP,CHF", got)
 	}
+	// The example declares the connector so a local stack serves /mcp without a
+	// hand edit. It is safe to ship on only because the api refuses to boot on
+	// this gate with no --public-base-url; the CODE default stays off
+	// (TestMCPConnectorGateDefaultsOff), which is what protects an installation
+	// that writes its own file.
+	if !cfg.MCP.ConnectorEnabled {
+		t.Fatal("example mcp.connector_enabled must stay true — commenting it out silently costs every local stack the /mcp surface")
+	}
 }
 
 func TestParseRatesFxCurrenciesFailsClosed(t *testing.T) {
@@ -218,6 +226,35 @@ func TestParseRatesFxCurrenciesFailsClosed(t *testing.T) {
 				t.Fatalf("%s: Parse accepted a malformed fx_currencies set; a typo must fail at boot", tc.name)
 			}
 		})
+	}
+}
+
+// writeTemp writes doc to a fresh file under t.TempDir() and returns its
+// path, for tests that exercise Load (rather than Parse) against a real
+// file on disk.
+func writeTemp(t *testing.T, doc string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "margince.yaml")
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatalf("writeTemp: %v", err)
+	}
+	return path
+}
+
+func TestMCPConnectorGateDefaultsOff(t *testing.T) {
+	cfg, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCP.ConnectorEnabled {
+		t.Fatal("the connector gate must default OFF — an unset flag must never expose /mcp")
+	}
+	on, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\nmcp:\n  connector_enabled: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !on.MCP.ConnectorEnabled {
+		t.Fatal("mcp.connector_enabled: true must parse")
 	}
 }
 

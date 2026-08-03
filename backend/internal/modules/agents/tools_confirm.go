@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -33,7 +35,7 @@ type archiveRecord struct {
 
 func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "archive_record", Version: "1.0.0",
+		Name: "archive_record", Title: "Archive a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -96,7 +98,7 @@ type promoteLead struct {
 
 func (t promoteLead) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "promote_lead", Version: "1.0.0",
+		Name: "promote_lead", Title: "Promote a lead to a person", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "promoteLead",
 		InputSchema: schema(`{"type":"object","required":["lead_id","trigger"],"properties":{
@@ -171,13 +173,24 @@ type mergeArgs struct {
 // leads leave through their own lifecycle).
 var mergeableTypes = map[string]bool{"person": true, "organization": true}
 
+// mergeableTypeNames renders the vocabulary above for a refusal, sorted so the
+// message is byte-stable across processes rather than following map order.
+func mergeableTypeNames() []string {
+	names := make([]string, 0, len(mergeableTypes))
+	for name := range mergeableTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 type mergeRecords struct {
 	p datasource.SystemOfRecordProvider
 }
 
 func (t mergeRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "merge_records", Version: "1.0.0",
+		Name: "merge_records", Title: "Merge two records", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
 		OpenAPIOp: "mergePerson/mergeOrganization",
 		InputSchema: schema(`{"type":"object","required":["record_type","source_id","target_id"],"properties":{
@@ -196,7 +209,10 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 		return StageInfo{}, err
 	}
 	if !mergeableTypes[args.RecordType] {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("record_type %q cannot be merged", args.RecordType)}
+		return StageInfo{}, &BadArgsError{
+			Cause:    fmt.Errorf("record_type %q cannot be merged", args.RecordType),
+			Guidance: "mergeable types are " + strings.Join(mergeableTypeNames(), ", "),
+		}
 	}
 	if args.SourceID == args.TargetID {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("source and target must differ")}

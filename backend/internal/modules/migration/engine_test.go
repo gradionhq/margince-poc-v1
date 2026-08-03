@@ -41,30 +41,67 @@ func (f *fakeSource) Rows(_ context.Context, object string, offset, limit int) (
 
 func (f *fakeSource) Associations(context.Context) ([]Assoc, error) { return f.assocs, nil }
 
-// fakeWriters records every ensure; existing simulates rows already
-// landed natively; failAt injects a crash at the Nth ensure call.
+// fakeWriters models the real writer's TWO-STEP landing, because the
+// gap between the steps is the thing worth testing: `landed` is the
+// native record (the module store's own transaction) and `mapped` is
+// the identity map (a second one). Exists reads `mapped`, exactly as
+// the real lookup does, so a record that landed without being mapped is
+// invisible until a reconcile adopts it.
+//
+// failAt injects a crash at the Nth ensure call; failAfterCreate makes
+// that crash land the record first, which is the process death this
+// whole seam exists for.
 type fakeWriters struct {
-	existing map[string]bool // object+"/"+ext
-	ensured  []string
-	assocs   []Assoc
-	calls    int
-	failAt   int // 0 = never
+	landed          map[string]bool // object+"/"+ext — the native row exists
+	mapped          map[string]bool // …and the identity map knows it
+	ensured         []string
+	assocs          []Assoc
+	calls           int
+	failAt          int // 0 = never
+	failAfterCreate bool
+	reconciles      int
+}
+
+// newFakeWriters starts with nothing landed and nothing mapped.
+func newFakeWriters() *fakeWriters {
+	return &fakeWriters{landed: map[string]bool{}, mapped: map[string]bool{}}
 }
 
 func (w *fakeWriters) Exists(_ context.Context, object, ext string) (bool, error) {
-	return w.existing[object+"/"+ext], nil
+	return w.mapped[object+"/"+ext], nil
+}
+
+// ReconcileIdentities adopts everything that landed but was never
+// mapped — the repair the resume depends on.
+func (w *fakeWriters) ReconcileIdentities(context.Context) error {
+	w.reconciles++
+	for key := range w.landed {
+		w.mapped[key] = true
+	}
+	return nil
 }
 
 func (w *fakeWriters) Ensure(_ context.Context, object string, row Row) (EnsureResult, error) {
 	w.calls++
+	key := object + "/" + row.ExternalID
 	if w.failAt > 0 && w.calls == w.failAt {
+		if w.failAfterCreate {
+			// The record IS in the database; the process died before the
+			// identity map learned of it.
+			w.landed[key] = true
+			w.ensured = append(w.ensured, key)
+		}
 		return EnsureResult{}, errors.New("injected crash")
 	}
-	key := object + "/" + row.ExternalID
-	created := !w.existing[key]
-	w.existing[key] = true
+	// The real writer opens with the same lookup: a row the identity map
+	// already binds is a replayed page, not work to redo.
+	if w.mapped[key] {
+		return EnsureResult{Unchanged: true}, nil
+	}
+	w.landed[key] = true
+	w.mapped[key] = true
 	w.ensured = append(w.ensured, key)
-	return EnsureResult{Created: created}, nil
+	return EnsureResult{Created: true}, nil
 }
 
 func (w *fakeWriters) Associate(_ context.Context, a Assoc) (AssocResult, error) {
@@ -146,7 +183,7 @@ func twoObjectSource() *fakeSource {
 
 func TestDryRunClassifiesWithoutWriting(t *testing.T) {
 	src := twoObjectSource()
-	w := &fakeWriters{existing: map[string]bool{"person/p-1": true}}
+	w := &fakeWriters{landed: map[string]bool{"person/p-1": true}, mapped: map[string]bool{"person/p-1": true}}
 	e := &Engine{w: w} // no run records on purpose: a dry-run must never touch them
 
 	rep, err := e.DryRun(context.Background(), src)
@@ -178,7 +215,7 @@ func TestDryRunClassifiesWithoutWriting(t *testing.T) {
 
 func TestRunImportsInOrderWithSkipsDisclosed(t *testing.T) {
 	src := twoObjectSource()
-	w := &fakeWriters{existing: map[string]bool{}}
+	w := newFakeWriters()
 	runs := newFakeRuns()
 	e := &Engine{runs: runs, w: w}
 
@@ -224,7 +261,8 @@ func TestRunImportsInOrderWithSkipsDisclosed(t *testing.T) {
 
 func TestRunResumesFromCheckpointAndConverges(t *testing.T) {
 	src := twoObjectSource()
-	w := &fakeWriters{existing: map[string]bool{}, failAt: 3} // crash on person/p-1
+	w := newFakeWriters()
+	w.failAt = 3 // crash on person/p-1
 	runs := newFakeRuns()
 	e := &Engine{runs: runs, w: w}
 
@@ -315,7 +353,8 @@ func threeObjectSource() *fakeSource {
 // a backwards cursor, so getting this wrong wedges every retry.
 func TestRunResumesAcrossALaterClassBoundary(t *testing.T) {
 	src := threeObjectSource()
-	w := &fakeWriters{existing: map[string]bool{}, failAt: 6} // crash on deal/d-2
+	w := newFakeWriters()
+	w.failAt = 6 // crash on deal/d-2
 	runs := newFakeRuns()
 	e := &Engine{runs: runs, w: w}
 
@@ -346,7 +385,7 @@ func TestRunResumesAcrossALaterClassBoundary(t *testing.T) {
 func TestRunRefusesANonRunningRecord(t *testing.T) {
 	runs := newFakeRuns()
 	runs.run.Status = StatusComplete
-	e := &Engine{runs: runs, w: &fakeWriters{existing: map[string]bool{}}}
+	e := &Engine{runs: runs, w: newFakeWriters()}
 	_, err := e.Run(context.Background(), RunID{}, twoObjectSource())
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("err = %v, want ErrConflict for a non-running record", err)
@@ -387,7 +426,7 @@ func TestAnOwnedRowWithNoPayloadIsStillAnEmptyPayloadSkip(t *testing.T) {
 		}},
 	}
 
-	dry, err := (&Engine{w: &fakeWriters{existing: map[string]bool{}}}).DryRun(context.Background(), src)
+	dry, err := (&Engine{w: newFakeWriters()}).DryRun(context.Background(), src)
 	if err != nil {
 		t.Fatalf("DryRun: %v", err)
 	}
@@ -399,7 +438,7 @@ func TestAnOwnedRowWithNoPayloadIsStillAnEmptyPayloadSkip(t *testing.T) {
 		t.Errorf("dry-run person = %+v, want p-blank skipped and only p-real counted", got)
 	}
 
-	w := &fakeWriters{existing: map[string]bool{}}
+	w := newFakeWriters()
 	rep, err := (&Engine{runs: newFakeRuns(), w: w}).Run(context.Background(), RunID{}, src)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -413,5 +452,83 @@ func TestAnOwnedRowWithNoPayloadIsStillAnEmptyPayloadSkip(t *testing.T) {
 	if len(rep.Objects) != 1 || len(rep.Objects[0].Skipped) != 1 ||
 		rep.Objects[0].Skipped[0].Reason != "empty_payload" {
 		t.Errorf("import report = %+v, want the owned blank row disclosed as empty_payload", rep.Objects)
+	}
+}
+
+// The native create and the identity write are two transactions. A
+// process that dies between them leaves a record the identity map has
+// never heard of — and since Exists reads that map, the resumed run
+// would happily create the SAME record a second time. In a one-way
+// cutover that is a duplicate nobody asked for and nothing removes.
+func TestAResumeAdoptsRecordsTheCrashLandedButNeverMapped(t *testing.T) {
+	src := twoObjectSource()
+	w := newFakeWriters()
+	w.failAt, w.failAfterCreate = 3, true // person/p-1 lands, then the process dies
+	runs := newFakeRuns()
+	e := &Engine{runs: runs, w: w}
+
+	if _, err := e.Run(context.Background(), RunID{}, src); err == nil {
+		t.Fatal("Run must surface the injected crash")
+	}
+	if !w.landed["person/p-1"] || w.mapped["person/p-1"] {
+		t.Fatalf("the crash should leave p-1 landed but unmapped (landed=%v mapped=%v)",
+			w.landed["person/p-1"], w.mapped["person/p-1"])
+	}
+
+	runs.run.Status = StatusRunning
+	w.failAt, w.failAfterCreate = 0, false
+	if _, err := e.Run(context.Background(), RunID{}, src); err != nil {
+		t.Fatalf("resumed Run: %v", err)
+	}
+	if w.reconciles == 0 {
+		t.Error("the resume never repaired, so it could only have re-created what the crash landed")
+	}
+	seen := map[string]int{}
+	for _, k := range w.ensured {
+		seen[k]++
+	}
+	if seen["person/p-1"] != 1 {
+		t.Errorf("person/p-1 was written %d times; the record the crash landed was created again", seen["person/p-1"])
+	}
+	if len(seen) != 4 {
+		t.Errorf("distinct records = %d (%v), want the same 4 an uninterrupted run lands", len(seen), seen)
+	}
+}
+
+// The checkpoint advances only AFTER a row lands, so a crash on the
+// FIRST row leaves it at zero — and a re-created run (a fresh bundle
+// upload, a re-sealed snapshot) also starts at zero with the previous
+// attempt's orphans still on disk. Gating the repair on the checkpoint
+// therefore skipped it in exactly the cases it exists for.
+func TestTheRepairRunsEvenWhenNoCheckpointWasEverRecorded(t *testing.T) {
+	src := twoObjectSource()
+	w := newFakeWriters()
+	w.failAt, w.failAfterCreate = 1, true // the very first row: checkpoint never moves
+	runs := newFakeRuns()
+	e := &Engine{runs: runs, w: w}
+
+	if _, err := e.Run(context.Background(), RunID{}, src); err == nil {
+		t.Fatal("Run must surface the injected crash")
+	}
+	if runs.run.Checkpoint != 0 {
+		t.Fatalf("checkpoint = %d, want 0 — this test is only meaningful at the boundary", runs.run.Checkpoint)
+	}
+
+	runs.run.Status = StatusRunning
+	w.failAt, w.failAfterCreate = 0, false
+	if _, err := e.Run(context.Background(), RunID{}, src); err != nil {
+		t.Fatalf("resumed Run: %v", err)
+	}
+	if w.reconciles == 0 {
+		t.Error("a zero checkpoint skipped the repair; the first record of every attempt was left duplicable")
+	}
+	seen := map[string]int{}
+	for _, k := range w.ensured {
+		seen[k]++
+	}
+	for key, n := range seen {
+		if n != 1 {
+			t.Errorf("%s was written %d times; the record the crash landed was created again", key, n)
+		}
 	}
 }

@@ -33,7 +33,7 @@ const autoEnrichMaxPages = 12
 // value that is not lower than the configured cap, so neither this nor a job
 // payload can spend more than the operator allowed.
 func (w *siteDeepReadWorker) pageCeiling(requestedBy string, askedFor int) int {
-	if isAutoEnrichRequest(requestedBy) {
+	if isSystemRead(requestedBy) {
 		if askedFor > 0 && askedFor < autoEnrichMaxPages {
 			return askedFor
 		}

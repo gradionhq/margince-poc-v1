@@ -80,7 +80,16 @@ func Unbounded(p principal.Principal) bool {
 // owner_id (qualified by alias when non-empty). It returns a FUNCTION so
 // callers embedding the predicate for several tables (the activity link
 // walk) register $me/$teams once and reuse the positions.
+//
+// The predicate is TOTAL: an actor who sees every row renders TRUE rather
+// than nothing. Callers still skip the clause entirely via UnboundedFor
+// where they can, but one that composes the predicate without asking
+// first gets a widening arm instead of an accidental narrowing to `own` —
+// row_scope=all matches no branch below.
 func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string) string {
+	if Unbounded(p) {
+		return func(string) string { return "TRUE" }
+	}
 	me := arg(p.UserID)
 	col := func(alias string) string {
 		if alias == "" {
@@ -107,6 +116,42 @@ func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string)
 // record_grant CHECK is the schema-side twin of this set).
 var shareableTables = map[string]bool{"person": true, "organization": true, "deal": true, "lead": true, "project": true}
 
+// ownerPrivateTables carry a `visibility` column (migration 0095): a row
+// is either 'workspace' — everyone in the workspace, the default — or
+// 'owner', the capturing user's alone until a human edit or approval
+// promotes it. Connector auto-create writes 'owner' (ADR-0063 §7), so
+// this is the trust boundary around an unpromoted inbox: the contacts a
+// mailbox sync invented are not yet the workspace's contacts.
+//
+// Capture privacy is a property of the ROW, not a scope tier, so it does
+// NOT yield to row_scope=all. An admin reading a colleague's unpromoted
+// captured contacts is precisely the disclosure the boundary exists to
+// prevent (founder decision, 2026-07-31: the importing user only, not
+// even Admin). Only the system principal — provisioning, the relay, the
+// privacy engines — reads these tables unfiltered.
+var ownerPrivateTables = map[string]bool{"person": true, "organization": true}
+
+// UnboundedFor reports whether the actor reads the named tables with NO
+// predicate at all: Unbounded narrowed by capture privacy. Every read
+// path that skips its row-scope clause asks THIS, not Unbounded, so that
+// adding a visibility column to a table tightens every such path at once.
+// Unbounded itself stays what it is — an admission test ("is this an
+// all-scope human?") that several engines gate on.
+func UnboundedFor(p principal.Principal, tables ...string) bool {
+	if p.Type == principal.PrincipalSystem {
+		return true
+	}
+	if !Unbounded(p) {
+		return false
+	}
+	for _, table := range tables {
+		if ownerPrivateTables[table] {
+			return false
+		}
+	}
+	return true
+}
+
 // ownerScopedTables is the closed set of table names the row-scope
 // primitives interpolate into SQL — exactly the tables carrying an
 // owner_id column. Several callers pass a table name derived from
@@ -119,34 +164,75 @@ var ownerScopedTables = map[string]bool{
 	"list": true, "saved_view": true, "automation": true, "voice_profile": true,
 }
 
-// VisiblePredicate is the FULL row-visibility test for one table: the
-// own/team owner predicate OR a live manual grant to the caller or one
-// of their teams (write satisfies read). This — not OwnerPredicate — is
-// what every read path over a shareable table composes; the grant check
-// evaluates LIVE, so revoking or expiring a share binds on the next
-// query.
+// VisiblePredicate is the FULL row-visibility test for one table, in
+// three arms: capture privacy (an owner-private row answers to its owner
+// alone), the own/team owner predicate, and a live manual grant to the
+// caller or one of their teams (write satisfies read). This — not
+// OwnerPredicate — is what every read path over a shareable table
+// composes; both the visibility column and the grant evaluate LIVE, so
+// promoting a captured record or revoking a share binds on the next query.
+//
+// The arms compose as (capture-private ? owner-only : scope) OR grant.
+// An explicit share therefore still widens an owner-private row — sharing
+// is a deliberate human disclosure by someone who could already read it,
+// which is the same act that promotion is. Scope alone never widens one.
 func VisiblePredicate(p principal.Principal, table string, arg func(any) int) func(alias string) string {
-	owner := OwnerPredicate(p, arg)
-	if !shareableTables[table] {
-		return owner
+	return predicateFor(p, table, arg, withCapturePrivacy)
+}
+
+// capturePrivacy selects whether a rendered predicate enforces the
+// visibility column. Every interactive read enforces it; only the
+// subject-rights probe above lifts it, and it says why.
+type capturePrivacy bool
+
+const (
+	withCapturePrivacy    capturePrivacy = true
+	withoutCapturePrivacy capturePrivacy = false
+)
+
+func predicateFor(p principal.Principal, table string, arg func(any) int, capture capturePrivacy) func(alias string) string {
+	scope := OwnerPredicate(p, arg)
+	// The system principal is trusted by construction and reads both
+	// arms away; an unbounded human still faces capture privacy.
+	private := bool(capture) && ownerPrivateTables[table] && p.Type != principal.PrincipalSystem
+	// An unbounded actor needs no grant arm to see a shareable row —
+	// unless capture privacy just took it away from them again.
+	shareable := shareableTables[table] && (!Unbounded(p) || private)
+	if !private && !shareable {
+		return scope
 	}
 	me := arg(p.UserID)
-	teams := arg(p.TeamIDs)
-	return func(alias string) string {
-		// The grant subquery correlates on the OUTER row's id; an
-		// unqualified "id" would capture record_grant's own column, so
-		// the table name qualifies when no alias does.
-		id := table + ".id"
+	// The correlated subqueries below reference the OUTER row's columns;
+	// an unqualified name would capture record_grant's own, so the table
+	// name qualifies whenever no alias does.
+	col := func(alias, name string) string {
 		if alias != "" {
-			id = alias + ".id"
+			return alias + "." + name
 		}
+		return table + "." + name
+	}
+
+	visible := scope
+	if private {
+		inner := visible
+		visible = func(alias string) string {
+			return fmt.Sprintf(`((%s <> 'owner' AND %s) OR %s = $%d)`,
+				col(alias, "visibility"), inner(alias), col(alias, "owner_id"), me)
+		}
+	}
+	if !shareable {
+		return visible
+	}
+	teams := arg(p.TeamIDs)
+	inner := visible
+	return func(alias string) string {
 		return fmt.Sprintf(`(%s OR EXISTS (
 		   SELECT 1 FROM record_grant rg
 		   WHERE rg.record_type = '%s' AND rg.record_id = %s
 		     AND (rg.expires_at IS NULL OR rg.expires_at > now())
 		     AND ((rg.subject_type = 'user' AND rg.subject_id = $%d)
 		       OR (rg.subject_type = 'team' AND rg.subject_id = ANY($%d)))))`,
-			owner(alias), table, id, me, teams)
+			inner(alias), table, col(alias, "id"), me, teams)
 	}
 }
 
@@ -178,7 +264,7 @@ func ScopeClauseFor(ctx context.Context, table, alias string, arg func(any) int)
 	if err != nil {
 		return "", err
 	}
-	if Unbounded(p) {
+	if UnboundedFor(p, table) {
 		return "", nil
 	}
 	return VisiblePredicate(p, table, arg)(alias), nil
@@ -213,6 +299,48 @@ func EnsureVisibleLive(ctx context.Context, tx pgx.Tx, table string, id ids.UUID
 
 	var visible bool
 	if err := tx.QueryRow(ctx, q, args...).Scan(&visible); err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+// EnsureVisibleForSubjectRights is EnsureVisible for the GDPR engines:
+// it applies the caller's own/team row scope exactly like EnsureVisible,
+// but does NOT apply capture privacy. Articles 15 and 17 owe the data
+// subject everything the controller holds about them, and an unpromoted
+// captured record is still held — a SAR that silently omitted it, or an
+// erasure that silently spared it, would be the defect. The crossing is
+// authorized by the stronger object gate every caller here passes first
+// (person.delete, the same trust level erasure needs) plus, on the SAR
+// path, an explicit unbounded-scope check.
+//
+// It deliberately does not widen the OWNER scope: a rep with person.delete
+// still cannot erase a colleague's person. Only the capture-privacy arm
+// is lifted, so the caller sees exactly what their scope tier holds.
+func EnsureVisibleForSubjectRights(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+	if !ownerScopedTables[table] {
+		return fmt.Errorf("auth: %q is not a row-scoped table", table)
+	}
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return err
+	}
+	if Unbounded(p) {
+		return nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+	clause := predicateFor(p, table, arg, withoutCapturePrivacy)("")
+
+	var visible bool
+	err = tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE id = $%d AND %s)`, table, idPos, clause),
+		args...).Scan(&visible)
+	if err != nil {
 		return err
 	}
 	if !visible {
@@ -320,163 +448,6 @@ func AuthzRule(p principal.Principal, entityType string, auditAction string) str
 		return ""
 	}
 	return p.Permissions.Rule(entityType, action)
-}
-
-// ActivityScopeClause is the activity analogue of ScopeClause:
-// activities have no owner, but their free-text inherits the
-// sensitivity of the records they attach to. An activity is visible when
-// ANY linked person/organization/deal is visible under the caller's row
-// scope, or when it has no links at all (a workspace-shared note).
-// It lives here, not in a module: it is the one scope
-// rule that spans person, organization, deal and activity_link rows, and
-// both the activities timeline and people's promotion-evidence check
-// enforce it — scope policy has exactly one spelling (ADR-0054 §8).
-// alias names the activity table in the outer query.
-func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	p, err := rbacActor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if Unbounded(p) {
-		return "", nil
-	}
-	return fmt.Sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
-	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND %[2]s))`,
-		alias, linkTargetVisible(p, "l", arg)), nil
-}
-
-// SignalScopeClause is the signal analogue of ActivityScopeClause: a
-// signal has no owner_id — its free-text summary/evidence inherit the
-// sensitivity of the record it is ABOUT, so a signal is visible when its
-// subject entity (entity_type/entity_id) is visible under the caller's
-// row scope. A subject-less signal (a raw item still awaiting resolution)
-// is workspace-shared, like an unlinked note. It lives
-// here, not in the signals module, because the signals store's reads and
-// the approvals surface's staged-archive visibility probe both enforce it
-// — scope policy has exactly one spelling (ADR-0054 §8). alias names the
-// signal table in the outer query.
-func SignalScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	p, err := rbacActor(ctx)
-	if err != nil {
-		return "", err
-	}
-	if Unbounded(p) {
-		return "", nil
-	}
-	person := VisiblePredicate(p, "person", arg)
-	organization := VisiblePredicate(p, "organization", arg)
-	deal := VisiblePredicate(p, "deal", arg)
-	return fmt.Sprintf(`(%[1]s.entity_type IS NULL
-	 OR (%[1]s.entity_type = 'person'       AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = %[1]s.entity_id AND %[2]s))
-	 OR (%[1]s.entity_type = 'organization' AND EXISTS (SELECT 1 FROM organization so WHERE so.id = %[1]s.entity_id AND %[3]s))
-	 OR (%[1]s.entity_type = 'deal'         AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = %[1]s.entity_id AND %[4]s)))`,
-		alias, person("sp"), organization("so"), deal("sd")), nil
-}
-
-// EnsureSignalVisible is EnsureVisible for signals, using the
-// subject-entity scope above; out of scope reads as ErrNotFound.
-func EnsureSignalVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := SignalScopeClause(ctx, "s", arg)
-	if err != nil {
-		return err
-	}
-	if clause == "" {
-		return nil
-	}
-	var visible bool
-	err = tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM signal s WHERE s.id = $%d AND %s)`, idPos, clause),
-		args...).Scan(&visible)
-	if err != nil {
-		return err
-	}
-	if !visible {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-// EnsureSignalVisibleLive is EnsureSignalVisible with the two strictnesses a
-// caller serving STORED data needs — the row must still be live, and an
-// unbounded actor does not skip the probe. See EnsureVisibleLive.
-func EnsureSignalVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := SignalScopeClause(ctx, "s", arg)
-	if err != nil {
-		return err
-	}
-	return probeExistsLive(ctx, tx, "signal s", "s", idPos, clause, args)
-}
-
-// EnsureActivityVisible is EnsureVisible for activities, using the
-// linked-entity scope above; out of scope reads as ErrNotFound.
-func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := ActivityScopeClause(ctx, "a", arg)
-	if err != nil {
-		return err
-	}
-	if clause == "" {
-		return nil
-	}
-	var visible bool
-	err = tx.QueryRow(ctx,
-		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%d AND %s)`, idPos, clause),
-		args...).Scan(&visible)
-	if err != nil {
-		return err
-	}
-	if !visible {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-// EnsureActivityVisibleLive is EnsureActivityVisible with the two
-// strictnesses a caller serving STORED data needs — the row must still be
-// live, and an unbounded actor does not skip the probe. See EnsureVisibleLive.
-func EnsureActivityVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := ActivityScopeClause(ctx, "a", arg)
-	if err != nil {
-		return err
-	}
-	return probeExistsLive(ctx, tx, "activity a", "a", idPos, clause, args)
-}
-
-// probeExistsLive is the one spelling of "this row exists, is not archived,
-// and the caller may see it" for the aliased scope probes. An empty clause
-// narrows nothing but never SKIPS the probe: that skip is what would let an
-// unbounded actor be handed a row that is gone.
-func probeExistsLive(ctx context.Context, tx pgx.Tx, from, alias string, idPos int, clause string, args []any) error {
-	q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE %s.id = $%d AND %s.archived_at IS NULL`,
-		from, alias, idPos, alias)
-	if clause != "" {
-		q += " AND " + clause
-	}
-	q += ")"
-
-	var visible bool
-	if err := tx.QueryRow(ctx, q, args...).Scan(&visible); err != nil {
-		return err
-	}
-	if !visible {
-		return apperrors.ErrNotFound
-	}
-	return nil
 }
 
 const roleAdmin = "admin"

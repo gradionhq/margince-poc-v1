@@ -42,7 +42,7 @@ func updateArgs(t *testing.T, id ids.UUID) json.RawMessage {
 	in, err := json.Marshal(map[string]any{
 		"record_type": "person",
 		"id":          id,
-		"fields":      map[string]any{"job_title": "Analyst"},
+		"fields":      map[string]any{"title": "Analyst"},
 	})
 	if err != nil {
 		t.Fatalf("marshaling args: %v", err)
@@ -90,7 +90,7 @@ func TestUpdateRecordAppliesAReleasedCall(t *testing.T) {
 func TestUpdateRecordRefusesAConflictItCannotStage(t *testing.T) {
 	id := ids.NewV7()
 	p := personFixture(t, id)
-	tool := updateRecord{p: p, ownership: fixedOwnership{conflicts: []string{"job_title"}}, staging: nil}
+	tool := updateRecord{p: p, ownership: fixedOwnership{conflicts: []string{"title"}}, staging: nil}
 
 	_, err := tool.Handle(context.Background(), updateArgs(t, id))
 
@@ -131,12 +131,12 @@ func TestUpdateRecordRefusesStagingForATargetHeldElsewhere(t *testing.T) {
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: id}
 	// Deliberately NOT nativeRecord: this record's authority lives elsewhere.
 	p := &fakeSoR{records: map[datasource.EntityRef]datasource.Record{
-		ref: {Ref: ref, Fields: json.RawMessage(`{"job_title":"Analyst"}`), Version: 3},
+		ref: {Ref: ref, Fields: json.RawMessage(`{"title":"Analyst"}`), Version: 3},
 	}}
 	approvals := &recordingApprovals{}
 	tool := updateRecord{
 		p:         p,
-		ownership: fixedOwnership{conflicts: []string{"job_title"}},
+		ownership: fixedOwnership{conflicts: []string{"title"}},
 		staging:   approvals,
 	}
 

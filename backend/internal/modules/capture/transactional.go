@@ -28,26 +28,8 @@ package capture
 import (
 	"strings"
 
-	"golang.org/x/net/publicsuffix"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 )
-
-// registrableDomain normalizes a mail domain (any subdomain depth) to its
-// registrable eTLD+1 via the public-suffix list: "eu.docusign.net" →
-// "docusign.net", "news.acme.co.uk" → "acme.co.uk". Punycode ("xn--") labels
-// pass through unchanged (already ASCII). Empty for a blank or suffix-only
-// domain. This is what the exact-infra check and the allowlist key on, so a
-// listing covers every subdomain of an eSLD without enumerating them.
-func registrableDomain(domain string) string {
-	domain = strings.ToLower(strings.TrimSpace(strings.TrimSuffix(domain, ".")))
-	if domain == "" {
-		return ""
-	}
-	base, err := publicsuffix.EffectiveTLDPlusOne(domain)
-	if err != nil {
-		return domain
-	}
-	return base
-}
 
 // transactionalBaseline is the pinned set of registrable domains (eTLD+1) that
 // are mail infrastructure, never a counterparty's own company. Matched exactly
@@ -124,7 +106,7 @@ func NewTransactionalList(extra, never []string) *TransactionalList {
 // and a stable reason breadcrumb (recorded for observability). The activity is
 // unaffected — only person/org derivation is gated.
 func (l *TransactionalList) Suppress(in TransactionalInput) (bool, string) {
-	base := registrableDomain(in.Domain)
+	base := freemail.Registrable(in.Domain)
 	if base == "" {
 		return false, ""
 	}
@@ -183,13 +165,24 @@ func senderPrefix(domain, base string) (string, bool) {
 	return first, first != ""
 }
 
-// normalizedSet lowercases and trims a config list into a set, dropping blanks.
+// normalizedSet folds a config list into a set keyed the way Suppress keys its
+// lookups: the registrable domain, punycoded.
+//
+// Both sides have to fold the same way. Suppress derives its key through
+// freemail.Registrable, which IDNA-folds Unicode labels, so a list entry kept
+// in its Unicode spelling would never match again — and the entry that matters
+// most is `transactional_never`, the operator's escape hatch for a domain that
+// must NOT be suppressed. An entry that silently stops matching there turns a
+// deliberate allowlist into a suppression.
+// It also refuses anything that is not a hostname. `com` as an infra entry
+// would suppress every sender under that suffix, and a malformed one would sit
+// in the config doing nothing while looking configured — freemail.Hostname is
+// the same floor the consumer-mail lists use.
 func normalizedSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
 	for _, v := range values {
-		v = strings.ToLower(strings.TrimSpace(v))
-		if v != "" {
-			set[v] = struct{}{}
+		if base, ok := freemail.Hostname(v); ok {
+			set[base] = struct{}{}
 		}
 	}
 	return set

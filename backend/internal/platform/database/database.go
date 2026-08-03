@@ -47,6 +47,25 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if !strings.Contains(dsn, "pool_health_check_period") {
 		cfg.HealthCheckPeriod = time.Minute
 	}
+	// JIT is off for this workload, and the row-scope predicates are why.
+	// Every list, search and timeline query composes the caller's
+	// visibility clause — nested EXISTS over person, organization, deal,
+	// activity_link and record_grant — which inflates the plan's ESTIMATED
+	// cost past jit_above_cost while the query itself stays an indexed
+	// OLTP read. Postgres then spends longer in LLVM than in the query:
+	// the /search union measured 12ms of work behind 475ms of JIT
+	// generation, inlining, optimization and emission.
+	//
+	// What crosses the threshold is the row-scope TIER, not data volume,
+	// so a rep pays it on a query an unbounded admin runs for free. JIT
+	// earns its keep on long analytical scans; this product runs none on
+	// the request path. A DSN that names jit itself still wins.
+	if !strings.Contains(dsn, "jit") {
+		if cfg.ConnConfig.RuntimeParams == nil {
+			cfg.ConnConfig.RuntimeParams = map[string]string{}
+		}
+		cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	}
 	// Typed entity ids ride uuid/uuid[] on every connection.
 	cfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
 		RegisterIDTypes(conn)

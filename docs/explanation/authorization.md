@@ -12,7 +12,7 @@ behind it trusts the caller. This codebase deliberately does not, because **HTTP
 The same module behavior is reached by:
 
 - the REST surface (`internal/compose/server.go`),
-- the MCP tool surface (`cmd/mcp`),
+- the MCP tool surface (`/mcp` on the api),
 - agent runs (the Surface-B runner acting under a passport — see [agent-surface.md](agent-surface.md)),
 - workers (retention, reconciliation, the close-date sweep, the outbox relay's consumers),
 - compose orchestration flows (briefs, reports, exports, enrichment).
@@ -52,7 +52,7 @@ it safe:
   that is already connected.
 
 Minting and using one: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md) →
-[how-to/run-the-mcp-server.md](../how-to/run-the-mcp-server.md).
+[how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md).
 
 ## The two layers, precisely
 

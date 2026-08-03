@@ -382,3 +382,68 @@
 .auth-error {
   margin-bottom: 12px;
 }
+
+/* The message under a timeline row. Two lines by default: enough to recognise
+   a thread, without turning the account's history into a mailbox. */
+.tl-text {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+.tl-text-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  color: var(--textMeta);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tl-text-full {
+  display: block;
+  white-space: pre-wrap;
+  color: var(--textPrimary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tl-text-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: var(--space-1);
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.tl-text-toggle:hover {
+  text-decoration: underline;
+}
+
+/* Two tracks on one spine: what we sent, and what came back. The rail colour
+   is the fast read; .tl-direction says the same thing in words, so the
+   distinction never rests on telling two hues apart. */
+.timeline > li.tl-out,
+.timeline > li.tl-in {
+  border-inline-start: 2px solid transparent;
+  padding-inline-start: var(--space-3);
+}
+
+.timeline > li.tl-out {
+  border-inline-start-color: var(--accentMed);
+}
+
+.timeline > li.tl-in {
+  border-inline-start-color: var(--borderStrong);
+}
+
+.tl-direction {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}

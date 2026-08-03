@@ -12,6 +12,267 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open defect — capture_counterparty repeats the version-pin failure
+
+`capture_counterparty` stages with a pinned `activity` version, and the classify
+pass bumps that version (`activities/capturelabel.go:77-81`), so the accept can
+fail the same way `site_lead` used to. The `site_lead` fix (PR #349, opt-in pins
+via `approvals.TargetIsContextOnly`) does not cover it: a counterparty decision
+IS about the activity it names, so the pin is arguably correct and the classify
+write is what needs to move. Decide which before changing either.
+
+## Open decision — a testimonial with an email files under the wrong company
+
+The site read only proposes a published person who carries a name, a role, and
+an email address the page actually PRINTED. That floor removed every
+testimonial lead seen in practice, because none of them published an address.
+
+It proves contactability, not affiliation. A "what our clients say" wall that
+does print the quoted person's own address — `jane@client.example` on our
+site — still yields a lead filed as a contact AT our company, which their own
+quoted job title disproves on the same line.
+
+Requiring the address to sit on the crawled site's own domain would close it,
+and would also drop staff who publish a personal address. That trade is a
+product call, not a bug fix, so it is raised rather than taken.
+
+## Open defect — Add tag ignores the tag catalog's overflow signal
+
+`GET /tags` is a BOUNDED VOCABULARY by design, not a paged list: the spec's
+contract calls it CAP-CATALOG (feedback/12) — up to 1000 entries, no cursor,
+and `page.has_more=true` is "the overflow governance signal, not a cursor".
+
+The company page's Add tag reads that catalog and matches a typed name against
+it, and never looks at `page.has_more`. On a workspace over the cap it silently
+matches within the first 1000: an existing tag past the cap is not found, the
+create collides with `uq_tag_name`, and the 409 cannot be resolved because the
+winner is not in the page either — the rep gets an error they cannot act on.
+
+**This needs no contract change, and an earlier note here wrongly proposed
+one.** The spec already says what to do with the overflow: surface it. When
+`has_more` is true and the name does not match, the honest answer is that the
+workspace's tag vocabulary is over its governed cap, not a silent create that
+may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
+
+## Open — the limits the company-page review named and PR #356 did not fix
+
+Each is real and each is a change of a different size than the PR it was
+raised on.
+
+1. **The owner picker sees one page of users.** `useRoster("user")` reads
+   `GET /users?limit=200` and the edit form offers exactly those. In a
+   workspace past 200 members an owner outside that page cannot be chosen, and
+   the account's current owner shows as "Current owner (no longer in the user
+   list)" when it is really just beyond the window. The fix is a searchable
+   picker backed by a server-side user search, not another page size. The same
+   change should stop fetching the roster on every company open: today it is
+   read whether or not the reader touches the More-actions menu or the owner
+   field.
+2. **The chronology cannot reach older activities.** The Activities filter
+   reports `truncated` when `view.activities.page.has_more` is true, and the
+   "All" filter does the same when the activity feed is the side that still has
+   pages — but neither offers a control to load them. The rows exist and are
+   keyset-paged by time; what is missing is the "load older" affordance.
+3. **The overflow panel is not laid out for zoom or phones.** The panel in
+   `frontend/src/design-system/atoms.css` is a fixed 180px, so at 200% zoom on
+   a narrow viewport it can extend past the record column and be clipped, and
+   on phone layouts it can open behind the fixed bottom navigation. Both are
+   one pass over the panel's width and stacking, in the design system rather
+   than at any call site.
+4. **A site read stores the seed it was asked for, not the one that
+   answered.** The crawl now carries the working spelling forward, so
+   proposals, evidence and the logo all cite the site that served them — but
+   the `site_read` row itself still records the original `https://<domain>`.
+   Re-reading that company starts from the dead spelling again and pays the
+   fallback ladder a second time. Persisting the answered URL is a migration
+   plus a decision about whether the requested URL stays visible.
+5. **The brief's profile vocabulary is spelled out twice.**
+   `briefProfileFields` (orgbrief/input.go, which drives the fingerprint) and
+   the keys of `profileLabels` (orgbrief/deterministic.go, which drives what
+   renders) are two hand-kept lists of the same eight field names, and neither
+   is bound to the generated `CompanyProfileField` vocabulary. A rename
+   upstream drops statements out of briefs silently. Wants one ordered list
+   derived from the contract enum.
+
+## Open defect — field history shows the site-read draft's internals
+
+On a company, the Changes view lists `facts`, `fields`, `source_url`,
+`draft_version`, `site_read_id` and `human_fields`. Those are columns of the
+site-read draft, not of the company: the enrich pipeline writes its audit rows
+under `entity_type='organization'`, so the field-history projection reports
+them as changes to the record. A salesperson has no use for `draft_version`
+going to 28, and one `facts` value on ScaleCommerce runs past ten thousand
+characters.
+
+Three related things WERE fixed on `feat/company-page-clarity` (PR #356) and
+are not this item: the values printed Go's own `map[...]` syntax; the rows
+collided on React keys because one audit row projects one entry per field and
+they all carry the audit id; and a diff side could push the whole history off
+the screen.
+
+The Codex review of PR #356 pointed out that merging changes into the account
+timeline puts this in front of every rep rather than behind a tab, so the
+projection now withholds those keys (`writerBookkeepingKeys` in
+`privacy/fieldhistorydiff.go`). That is a display rule, not the fix: it is a
+named list of the writers' payload keys, and a new writer adding a key has to
+add it there too. Note it is deliberately NOT the privacy `entityFieldMask`,
+which means "hidden exactly as the live value is hidden" — these fields are not
+withheld from anyone, they are simply not fields of the record, and the audit
+spine still shows them to an auditor.
+
+What is left is which entity those audit rows belong to. Re-keying them is a
+data-model question — the erasure cascade and the retention evaluator both key
+on `entity_type` — so it wants an upstream decision, not a patch in the
+projection.
+
+Founder asked on 2026-08-01 whether field history is something an end user
+should see and whether it is valuable. For a human edit it is (Industry:
+Automotive → Manufacturing reads exactly right). For a machine-written draft
+it is not, and that is what most accounts show today.
+
+## Open — what the company page still gets wrong, seen in the browser
+
+Read on a real account (Habyt, 2026-07-31, `make dev`). The layout problem the
+rework set out to fix IS fixed: three calm columns, email bodies readable,
+disclosures holding the detail. What is left is judgment, and none of it is
+visible from a test.
+
+Items 1 and 5 of the original five closed on PR #356 (the header pulse now
+names the strongest contact and labels the score; the profile card folded
+under the account brief). Their narrative is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md). What is left:
+
+1. **One fact, twice, on one screen.** The brief says "billing_apac is your
+   only way into this account" and the People card says "One contact only — the
+   account is single-threaded". Card soup returning in a new place.
+2. **A role mailbox is described as a person.** `billing_apac` is a shared
+   inbox; "your only way into this account" is a sentence about a human. The
+   page has no notion of a role address, so it treats one as a contact.
+3. **The brief reads as an inventory of absences.** On this account: last
+   contact 56 days ago, nothing scheduled, no open deal, nothing won. All true,
+   none actionable. A brief should say what to do about the account; the rules
+   currently only say what it lacks.
+
+All three are the substance of the brief work below.
+
+## Open spec collision — the coverage matrix needs what the spec rules out
+
+The company page's agreed centrepiece is a coverage matrix: their buying
+committee as rows, our team as columns, cells by relationship strength. Reading
+the spec, that feature collides with three decisions rather than with one
+missing column.
+
+**There is no graph, on purpose.** `specs/subsystems/context-graph.md` defines
+the context graph as "a capability on the relational core, not a datastore",
+and its appendix says the chapter owns no tables, no operations and no events.
+`specs/product/scope.md` NEVER-10 puts a graph datastore out of V1.
+ADR-0021 calls the `relationship` edge set "near-bipartite" and names the
+excluded workload precisely: N-degree path-finding, and **warm-intro paths**,
+which it says would trip its own trigger (b) for reconsidering a graph store.
+
+**The model has nowhere to put the edge.** `relationship` (PO-DDL-7) has
+`person_id`, `organization_id`, `counterparty_org_id`, `deal_id`, `project_id`
+and no user column, so person↔person and user↔person are structurally
+impossible. `activity_link` (ACT-DDL-2) links to person/organization/deal/
+lead/project and has no user arm, so no email, call or meeting ever produces a
+stored edge between a workspace member and a contact. Meeting `attendee_emails`
+are accepted by the scheduling API and never persisted.
+
+**The strength formula is team-wide by design.** PO-F-3 is specced
+"workspace-wide (team-wide, not per-rep — AC-person-2)". A matrix needs a
+per-colleague × per-contact score, which no formula in the spec defines.
+
+**And the endpoint we were about to fix is not a spec feature.** A search of
+the whole spec tree for `/organizations/{id}/graph`, `in_contact_with` and
+`our_side` returns nothing: the connections card is POC-invented (#322,
+2026-07-30), and its "our side" edges were added a day later as a bug fix
+(#333) with no chapter, no AC id and no formula id. Its
+`captured_by = 'human:<uuid>'` join is the only "who on our side knows this
+contact" answer in the system, and under ADR-0063 capture it matches almost
+nothing.
+
+**Also worth knowing:** PO-F-3 reads only `kind IN ('email','call','meeting')`,
+so WhatsApp and Telegram — first-class activity kinds under ADR-0022 — feed no
+strength or warm-room computation at all. And leads are outside the graph
+entirely by design (`leads-and-qualification.md`: "a lead has no link into the
+organization graph").
+
+**The decision to take upstream**, not to make here: either the matrix is cut,
+or the spec gains an interaction-participant edge. The shape that would serve
+every channel at once is one row per participant per activity — which side they
+are on (`user_id` or `person_id`), their address, and their role (from / to /
+cc / attendee / organizer). Every channel already flows through one `activity`
+table, so one table would light up email, calendar, WhatsApp and Telegram
+together, and warm paths and the matrix fall out of it as queries. That is a
+schema addition, a capture change, a backfill, and a spec raise against
+ADR-0021 and NEVER-10. Contract-first: the spec decides first.
+
+## Open defect — the graph cannot answer "who do I know here"
+
+The `in_contact_with` edge exists in the contract and is implemented
+(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+
+```sql
+JOIN app_user u ON a.captured_by = 'human:' || u.id::text
+```
+
+Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
+never matches and no edge is drawn. In a product whose premise is that capture
+means nobody types anything, the condition excludes essentially all real data:
+on a live account with three contacts and a year of correspondence, the graph
+returns only `owns` and `employment`, and "who on our side has a way in" is
+unanswerable.
+
+The authorship the edge wants is on the row already: `direction`
+(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
+`counterparty_email` (`migrations/core/0123`) says who the other end was. The
+edge should be derived from the mailbox the activity came through and its
+participants, not from who entered it.
+
+Related contract gap: `counterparty_email` is stored and used by the capture
+sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with. `direction` IS on the wire and unused by the
+UI today.
+
+Both block the coverage matrix (their buying committee × our team, cells by
+relationship strength) agreed as the company page's centrepiece.
+
+## Open items left by the consent screen (PR #345)
+
+The passport-lending consent screen shipped; these are the parts deliberately
+not in it, each named so none is mistaken for done.
+
+- **The minted credential does not name the passport it came from.** The design
+  promises a label like `Claude Code (from "night agent")`, and the flow cannot
+  produce one: the lend is known at consent time, the credential is minted at
+  token exchange, and nothing carries the lent passport between them. It needs a
+  column on the authorization-code row; the migration was kept out of #345 on
+  purpose. Until then the audit row is the only record of which passport was
+  lent — enough to answer the question after the fact, not enough to show a human
+  in Settings.
+- **The lend audit row ships no event.** The event catalog carries no
+  consent/lend fact, and `audit.appended` is declared with no emit site and an
+  empty payload, so it could name neither the passport nor the client. The
+  exception is *ratified* in `auditOnlyWrites` beside `mintPassport` and
+  `issueGrant` rather than left silent, and the catalog gap is owed upstream as a
+  spec raise — an `oauth_grant.*` verb is the shape to ask for.
+- **The German consent copy is machine-written.** Key parity is enforced by test,
+  register is not. Wants a native pass; `en` is the default locale, so it does
+  not block.
+- **A per-human grantable scope set still does not exist.** Scopes are checked
+  against the closed vocabulary, and the seat/RBAC ceiling applies at call time
+  in `Gate.Admit`, so a read-seat human can still mint a `write` passport and
+  discover the refusal only when the write runs. The consent screen inherits that
+  honesty gap rather than introducing it.
+- **The `client` screen can be diverted by the onboarding gate.** #345 fixed this
+  for the consent route — an undescribed installation used to rewrite the hash and
+  destroy a pending authorization outright — but `client` reaches the same gate
+  and is authenticated. Pre-existing, unrelated to the connector, and unfixed.
+- **`stubs_gen.go` and its generator are dead inventory.** Nothing embeds the
+  type now that `Server` asserts the contract interface directly. Deleting it is a
+  decision, not a cleanup, so it was left alone; the generated comment no longer
+  claims a mechanism that does not exist.
+
 ## Where this is
 
 Margince's **WP0 foundation + WP1 core spine** are built and green:
@@ -24,7 +285,527 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-07-31
+## Session pickup — 2026-08-02 (capture stops inventing companies, PR #365, merged)
+
+**Capture no longer derives an organization from a mail domain.** The person is
+created exactly as before; the company is withheld until a `domain_triage` site
+read says the domain deserves one. A confident personal/provider/parked verdict
+on the LANDING PAGE stops the crawl there, so a refusal costs one page instead
+of twelve. When no site can be read, the sender-name test decides, defaulting to
+creating the company so a real business with a broken site keeps its record.
+`organization_domain_disposition` (0166) is what makes an answer stick; without
+it a refusal survived exactly one message.
+
+**The consumer-mail list is now a vendored dataset plus the workspace's own.**
+8 758 domains matched down to the registrable eTLD+1, and a Settings surface
+where an admin adds what the shipped list missed or carves out what it wrongly
+claims — read per transaction, so a correction takes effect on the next message.
+The per-user personal-mail exclusion rules are gone entirely (founder decision),
+table and endpoints included, recorded in the contract-breaking allowlist.
+
+**The ~92 uncorroborated `name_source='domain'` organizations already in the dev
+database stay.** Pre-launch, founder's call: the gate applies to new captures
+and nothing retires the existing rows.
+
+**Five review layers each caught what the previous ones missed, and that is the
+thing to carry forward.** A craft pass, a security redteam and Codex ran before
+the PR; the cubic bot then found 32 more, seven of them real defects in code all
+three had already read. Two examples worth remembering:
+
+- A forgeable `From:` header reached a SQL `LIKE` **pattern**. `jane@%` parses
+  (`%` is legal RFC 5322 atext), and the fallback would have planted an
+  employment edge from every person in the workspace onto an attacker-named
+  organization.
+- The FIX for that then blessed a bare public suffix, so `jane@co.uk` did the
+  same thing through a legal input. And two fixes for the bot's findings
+  introduced fresh P1s of their own — attaching to an archived company, and a
+  rollback that could violate a unique index.
+
+Each layer was necessary; none was sufficient. A fix is not evidence of a fix.
+
+**Two flakes were fixed rather than re-run around**, both in tests this branch
+did not touch. `TestSubscriberDeliversAcksAndFiltersWorkspaces` waited on
+`seen >= 1` — the own event's handler — while asserting that BOTH entries were
+acked, so the pending read could land between the two acks. It had failed CI
+twice and would have hit the next branch too.
+
+**Watch for**: `SiteDeepReadArgs.Workspace` was renamed from `WorkspaceID` by
+PR #367 mid-review. The rebase applied with zero conflicts because the field is
+set in a file that branch never touched, so git gave no signal and CI went red
+across nine shards for one identifier. A clean rebase is not a compiling one.
+
+## Session pickup — 2026-08-02 (LinkedIn matches move to the approval inbox, branch `fix/linkedin-matches-through-the-approval-inbox`)
+
+**Two founder corrections to the surface #358 shipped.** An exact name at a
+matched employer now auto-confirms instead of asking, and a match that still
+needs judgement stages as an approval of kind `linkedin_match` instead of
+having its own list/confirm/reject endpoints and its own Settings card. The
+three endpoints and `linkedin-review.tsx` are gone; the reach view and the
+import stay. The removal is recorded in `scripts/contract-breaking-allowlist.txt`.
+
+**A reasoning failure worth not repeating.** I made `linkedin_match` a
+self-only approval kind, arguing the connections "never agreed to be in this
+CRM". That was wrong three ways and is reverted. GDPR does not require consent
+to HOLD business contact data — consent governs reaching out, which is why the
+consent module here is an outbound gate. `site_lead` and captured
+counterparties are the same class of third party and are ordinary approvals.
+And ADR-0078/A123 had already settled it: who-knows-whom is workspace-shared
+metadata, guarded by "you only see edges for a person you can see at all",
+which is exactly the inbox's existing grants-plus-target-visibility rule.
+**Check the ADR before inventing a privacy rule for a feature the ADR
+designed.**
+
+**OPEN — this branch is not finished. Next session should fix, roughly in this
+order:**
+
+1. **The auto-confirm does not perform the write it is documented as
+   performing.** `people/linkedinmatch.go` sets `match_status='confirmed'` for
+   an exact name and stops: no `person_social` handle, no `touchPerson` version
+   bump, no `audit_log`, no `event_outbox`. Three comments
+   (`linkedinmatchapply.go:104`, the test at `linkedinreview_integration_test.go`,
+   and `api/public-events.yaml`'s description of `linkedin_match.decided`) all
+   say it performs the same write the approved path does. It does not. This is
+   a write-shape violation AND a contract lie. Route the auto-confirm through
+   `writeLinkedInHandle` + `auditLinkedInMatch` (an `UPDATE … RETURNING id`
+   feeding the per-row write), or correct all three statements.
+2. **Suggestions from the event-driven matcher never reach the inbox.**
+   `compose/linkedinmatchgen.go` matchPerson/matchWorkspace match and do not
+   stage; staging was added only to the import handler and the hourly sweep.
+   Worse, `linkedinowner.go` `ghostOwners` enumerates owners with
+   `match_status='unmatched'`, so a member whose ghosts are all `suggested` is
+   skipped and their proposals never appear at all. Make staging follow the
+   matcher in one helper all three call sites use.
+3. **A rejection leaves the ghost pointing at the contact the human refused.**
+   Only the approve path has an effect. `match_status` stays `suggested` with
+   `matched_person_id` still set, so reach counts and the Art. 17 sweep still
+   follow the link, and `match_status='rejected'` now has no writer at all —
+   `matchRankOrder` and `linkedinreach.go`'s `<> 'rejected'` are dead branches
+   whose comments describe an unreachable state.
+4. **`LinkedInMatchResult.Suggested` counts auto-confirmed rows.** The tiered
+   `UPDATE` returns one `RowsAffected()` and it is all reported as suggested,
+   so the import summary and both consumer log lines are wrong. `RETURNING
+   (match_status = 'confirmed')` and count the tiers separately.
+5. **A version bump on the target contact permanently destroys the approval.**
+   `person` is in `versionTables` and `linkedin_match` is not in
+   `contextTargetKinds`, so `target_version` is pinned at staging; any
+   unrelated person write inside the 24h TTL makes `Redeem` fail
+   `ErrVersionSkew` AFTER the decision committed. The approval is then
+   `approved`, unconsumed, and un-redecidable (409). Either declare the kind in
+   `contextTargetKinds` or carry the pin into `ApplyLinkedInMatch` as
+   `IfVersion`, the way `closeDateConfirmEffect` does.
+6. **`ApplyLinkedInMatch` has no owner predicate.** The `UPDATE
+   linkedin_connection … WHERE id = $1` does not check `owner_user_id`, so a
+   decider writes another member's connection row. Add it and return
+   `ErrNotFound` otherwise, the existence-hiding shape the module uses.
+7. **No test covers the staged path end to end.** The 227-line
+   `compose/integration/linkedin_review_http_integration_test.go` and
+   `TestARejectionSurvivesTheNextImportAndTheSweep` were deleted without
+   replacement. Nothing proves the kind is registered, that the `person:update`
+   grant gates the decision, or that a refused connection is not re-proposed.
+8. **A failed link write permanently consumes the approval.** `Redeem` and
+   `ApplyLinkedInMatch` are separate transactions, so a redeem that commits
+   followed by a failed apply leaves an approved, consumed proposal with no
+   link and no retry path. Same family as item 5.
+9. **Two ghosts with an identical name+employer can both auto-confirm onto the
+   same contact.** The `c.matches = 1` guard counts candidate PEOPLE per ghost,
+   not ghosts per person.
+10. **The `linkedin_match.decided` v1 payload dropped a required field.**
+   `verdict` was removed from a shipped event without a version bump. No
+   external subscriber exists yet; either bump to v2 or restore the field as
+   optional before one does.
+11. **The reach table renders only the API's first page** (default limit 50)
+   with no control for the rest, and its column headers use `--textMuted`,
+   which fails WCAG AA contrast on the card background.
+12. Smaller: `matchConfirmed`'s comment claims it removes literals that are
+   still inline at six sites; `approvalsServiceWithEffects` is rebuilt per
+   import request and per workspace per sweep; `TestCollapseNever…` and
+   `matchRankOrder`'s "how much human judgement" comment are now untrue, since
+   `confirmed` can be a machine's exact-name guess.
+
+## Session pickup — 2026-08-01 (the graph's last third, branch `feat/linkedin-onboarding-and-matching`)
+
+**The three risk rules that were named but never fired now fire, and the graph
+is visible to the assistant and on screen.** Ten commits, unpushed. This closes
+carry-forward item 7 above.
+
+**What shipped**
+
+- **`going_cold`, `champion_left`, `stakeholder_left`** in
+  `compose/network/risk.go`. They were `Kind` constants with no detector behind
+  them, which is worse than being absent: a surface listing the kinds it can
+  show tells a rep those checks are running. Going-cold is REPORT-PARAM-2 over
+  `coalesce(last_activity_at, created_at)`, gated on an OPEN deal, carrying the
+  day count so the 30-day and 60-day views are one finding filtered rather than
+  two kinds that can disagree at 61 days.
+- **The departure rules demand evidence of a departure**, not the absence of an
+  employment row: an ended employment at the account AND no live one
+  (`compose/network/coveragefacts.go`). Most stakeholders have no employment row
+  at all, so the naive reading would flag nearly every deal in a young
+  workspace. A promotion recorded as end-then-start correctly raises nothing.
+- **`days_since_touch`** added to `DealCoverageRisk` in `crm.yaml`, sent ONLY on
+  going-cold — a zero elsewhere would read as "touched today".
+- **The assistant can see the graph.** A person anchor's `AssembleContext` now
+  carries a `who_knows` section (`modules/search/graph.go`); a deal anchor
+  carries `network_risks` through `riskAwareRetriever` in
+  `compose/riskretriever.go`, decorating the retriever rather than widening the
+  port, because the risk rules join deals and people and a module never imports
+  a sibling. Before this, a rep could see who knows a contact on the person page
+  while the model answering "who should introduce me" said nobody.
+- **Two tools**: `intro_path_to` (the fixed two-hop join ADR-0021 pins —
+  colleague → contact → account, no depth parameter) and
+  `at_risk_relationships`, which reports `deals_scanned` and `truncated` rather
+  than presenting a capped sweep as a clean pipeline.
+- **Both endpoints now render.** `GET /people/{id}/network` and
+  `GET /deals/{id}/coverage` had shipped with no frontend consumer at all.
+  `frontend/src/screens/network.tsx` adds the who-knows-them card to the person
+  overview and the coverage card to the deal overview, above the stakeholder
+  list because the findings are about those seats.
+
+**One triage item dropped, and why.** "depth=2 on `GET /organizations/{id}/graph`"
+was on my own list and is wrong: the shipped contract says "One hop, and only
+one" and explains the cost argument, and ADR-0078 puts variable-depth
+path-finding in trigger-(b) territory. The ADR's actual ask — optional `hops`
+and `strength` on the node/edge schemas — is half-satisfied (`strength` is
+there; `hops` would be a constant 1 on a one-hop read). No work owed.
+
+**Verification.** `make check` green (backend + frontend). Integration lane:
+`OK: integration passed with 0 skips`. `make frontend-e2e`: 61 passed — it
+caught the overlay panel-count assertion, which now expects 4 on the person 360
+and 5 on the deal 360, since both new cards are native-only. Four new
+integration tests cover the departure SQL and the going-cold window against a
+real database.
+
+**The LinkedIn suggestions can now be decided.** The import card counted
+"awaiting your confirmation" for a queue that existed nowhere: there was no
+list, confirm or reject endpoint and no screen, so the matcher's middle tier
+(name + employer, which is where all the volume is) was inert. Four
+owner-scoped endpoints now exist — `GET /me/linkedin-connections`,
+`POST …/{id}/confirm`, `POST …/{id}/reject`, `GET /me/linkedin-reach` — with
+the review queue and the reach table in Settings → Integrations.
+
+Confirming writes the CONNECTION's own LinkedIn URL onto the contact, and
+never overwrites one already on the record. Migration 0164 adds the column:
+`Connections.csv` has carried a `URL` column in every format LinkedIn has
+shipped and this importer read every other one.
+
+**Codex full-branch review, reconciled.** 17 findings; 13 fixed on the branch,
+4 pushed back with reasons. The fixed ones, by class: a capture-privacy leak
+(the system matcher is exempt from owner-private by design, so it linked one
+member's ghost to another member's private contact, and the review list
+returned the uuid while hiding the name — an id alone proves a record exists);
+a reversed human decision (the duplicate collapse ranked the matcher's own
+`suggested` equal to a person's `confirmed`); a write-shape break (a rejection
+emitted nothing, and a confirmation's `person.updated` cited an audit row for
+the LinkedIn connection); and a GDPR gap (`profile_url` reached neither Art. 15
+nor the Art. 17 ghost sweep). Plus the authorization, employment-predicate,
+open-deal and truncation-honesty fixes.
+
+**Pushed back, with reasons.**
+- **Admin audit access shows that Alice confirmed a match to person P.**
+  Not a defect. ADR-0078/A123 settles this explicitly: who-knows-whom is
+  workspace-shared metadata exactly as PO-F-3 already is, and the pooled
+  disclosure reaches every role. What must stay private is the UNMATCHED
+  ghosts — third parties who never became records — and those are not named in
+  the audit payload or the event. A confirmed match is a fact about a CRM
+  contact.
+- **Name-only ghosts are resurrected after erasure.** Real, and pre-existing
+  rather than introduced here: the suppression schema admits only `email` and
+  `channel_identity` kinds, and the importer says so in a comment. Closing it
+  needs a new suppression kind, a migration, and a privacy-module change, and
+  it should land as its own PR rather than inside this one.
+- **`matched_org_id` is never cleared when its evidence stops resolving.**
+  Already carry-forward item 5 above; the review adds the reach-count
+  consequence, which is recorded there.
+- **Coverage counts non-deal interactions, and a group email inflates the
+  concentration floor.** The engagement half is `deals.Stakeholders`, shipped
+  before this branch; the group-email half is carry-forward item 4. Neither is
+  new here.
+
+**The end-of-work review round found one thing both earlier passes missed, and
+it moved an architectural decision.** The capture-privacy fix from the Codex
+round closed only half the hole. Capture privacy is a property of the ROW
+(`visibility='owner'`); row scope is a property of the READER. The background
+matcher ran as a SYSTEM principal, which is unbounded by design, so
+`auth.ScopeClauseFor` returned an empty clause and the majority of contacts —
+which are `visibility='workspace'` and protected by row scope alone — were
+still matchable. `match_status` on the review list was then an existence
+oracle.
+
+The fix is architectural rather than another predicate: the event consumer and
+the hourly sweep now enumerate the ghost OWNERS and run once per owner under
+that member's live authority (`compose/linkedinowner.go`). A first attempt
+approximated own+team scope in SQL and was wrong — it dropped the feature's
+central case, which `TestAContactAddedLaterMeetsTheGhostThatWasWaiting` caught
+immediately. Two consequences worth knowing: the matcher now requires person
+READ rather than person UPDATE (it writes only the caller's own ghost rows), and
+a member holding no person grant is skipped rather than failing the sweep for
+everybody.
+
+**Two process errors worth remembering.** (1) I filtered `make check` output
+through grep for most of this session instead of checking its exit code, so a
+failing gate printed a lowercase `error` line I never saw. Check the status,
+not the text. (2) That hidden failure was `contract-breaking-check` reporting
+`/oauth/consent-request` as removed — which it was NOT. `origin/main` had
+advanced by one PR (#345, the MCP remote connector) after this branch was cut,
+and I briefly "restored" the endpoint by hand before realising the branch was
+simply stale. The fix was a merge, not an edit. A breaking-change gate firing
+on a path nobody touched means the branch is behind.
+
+**A migration number is claimed by two unmerged branches — needs a decision.**
+The locked `.claude/worktrees/capture-domain-triage` worktree owns 0160–0163;
+this branch owns 0160. Both are committed, both are unmerged, and the contents
+differ (`0160_linkedin_account` here, `0160_drop_capture_exclusion_rule`
+there). I renumbered my NEW migration to 0164, but 0160 cannot be resolved
+unilaterally — whichever branch merges second has to renumber, and the shared
+`margince_test` database will keep serving whichever schema was applied last
+until it is rebuilt. This is the failure mode where the ledger reports "schema
+at head" while the column is absent.
+
+**Still open in this area:** carry-forward items 1–6 and 8–10 above are
+untouched. Item 4 (our-side concentration counting a group email once per
+stakeholder) now also affects nothing new — the departure and going-cold rules
+do not read interaction counts.
+
+## Session pickup — 2026-08-01 (channel reply governance, branch `feat/channel-send-tool`)
+
+**The channel reply is now a governed, stageable tool.** `POST
+/v1/activities/{id}/send-message` is admitted under the `send` scope, at
+`TierConfirmationRequired`, through a registered `send_message` tool whose
+`StageInfo` pins the conversation's row version — the same posture
+`send_offer` and outbound mail already carry, closing the gap where the
+channel-reply route resolved by synthesis at `write`.
+
+A ratchet test (`agentpolicysynthesis_test.go`) now pins every verb that
+still resolves by synthesis into one of three maps: verbs where `write` is
+the right cap (`synthesizedVerbs`), known outbound holes (`outboundHoles`),
+and verbs an agent can never actually execute even once approved
+(`deadEndVerbs`). Not fixed here, deliberately:
+
+- **Four outbound verbs are still admitted under `write` by synthesis** —
+  `send_offer`, `enrich`, `connect_incumbent`, `reconcile_overlay`. Closing
+  each means registering a tool and scope for it; `connect_incumbent`
+  additionally needs the tier and scope decided together, which nothing has
+  done yet.
+- **`share_record` is a dead end, not an outbound hole.** Its handlers
+  (`identity/grants.go`) reject any principal that is not
+  `PrincipalHuman`, and redemption never changes the redeeming actor's
+  type — so an agent-staged, human-approved `share_record` call is refused
+  at redemption every time. It is pinned in `deadEndVerbs` rather than
+  `outboundHoles` because there is no scope decision that would ever make
+  it succeed.
+- **`send_email` and `book_meeting` are both 🟡 tools with no `StageInfo`.**
+  An MCP call to either refuses outright rather than ever staging an
+  approval — there is no path to a "yes" for an agent caller today, only
+  the REST route's own confirm-first gate.
+- **The four channel-send refusals wrap no `apperrors` sentinel.**
+  `errEmptyMessageBody`, `NotAChannelConversationError`,
+  `ChannelNotSendCapableError`, and `ChannelRecipientError` (all in
+  `activities/channelsend.go`) carry none of the fixed sentinels, so on
+  MCP, `dispatch.explain`'s default branch tells an agent "failed for an
+  internal reason... Retry" even for the permanent ones among them, while
+  REST maps the same four to actionable 422s. `StageInfo` now refuses the
+  two an agent trips at staging time (empty body, non-channel anchor)
+  before an approval is ever minted, but the taxonomy gap on the other two
+  — and on `dispatch.explain`'s reading of all four post-staging — remains
+  open.
+
+**Security finding, recorded not fixed: an approved channel send binds the
+message text but not the recipient.** `relink_activity` is `auto_execute`
+(`compose/agentpolicy_gen.go`); it rewrites `activity_link` rows to point a
+conversation at a different person without ever updating the `activity` row
+itself, so the pinned row version a staged `send_message` approval carries
+does not move when the conversation's counterparty changes
+(`activities/lifecycle.go`, the relink insert). `activities.Store.SendMessage`
+resolves the recipient fresh at execution time from those links
+(`reachableOnConversation`), not from anything captured when the approval was
+staged. So an agent can stage "send message M on conversation A", have a
+human approve it, auto-execute a relink that repoints A's person link, then
+redeem the byte-identical approved call — and M delivers to someone the human
+never approved sending to. This is pre-existing (a `write`-scoped passport
+could already do the same over REST before this branch) and affects both the
+REST and MCP transports; this branch neither introduces nor fixes it. The
+missing invariant: a staged send's authority is bound to the message content
+and a version pin on the wrong row. A real fix needs the recipient itself
+resolved at staging time and its identity (not just the conversation's row
+version) bound into the staged authority and rechecked at redemption, and a
+person-link change on an activity to bump that activity's own version so an
+intervening relink invalidates a pin that predates it.
+
+## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
+
+**"Who on our team knows this contact" is now a stored fact, and the company
+page's connections card works for the first time on real mail.** Branch
+`feat/network-graph`, unpushed, nine commits. Upstream half is
+`spec/network-graph-decision-pack` in margince-foundation (ADR-0078 / A123,
+accepted).
+
+**The defect that started it.** The card derived our-side edges by matching
+`captured_by = 'human:<uuid>'` on the activity row. Connector-captured mail is
+stamped `connector:gmail`, so on any workspace whose history comes from a real
+mailbox the group matched nothing and rendered empty — worst on the accounts
+with the most correspondence, with no error to contradict it. The root cause
+was that nothing recorded WHO WAS IN a conversation: `activity_link` has no
+user arm, and the mailbox owner (known at ingest from `capture_connection`) was
+never written down.
+
+**What shipped**
+
+- **0157 `activity_participant`** (ACT-DDL-3): one row per party per activity,
+  three identity arms (our user / a known person / a raw address for the party
+  who never became a record), closed role set. Stamped by capture at ingest and
+  by the hand-logging path; promoted from address to person at
+  `linkActivityToPerson`, the one chokepoint every ensure path reaches.
+- **0158 `graph_interaction_edge`** (CG-DDL-1): the derived user↔contact
+  projection. Recompute-never-increment, no audit/outbox, score computed at
+  read. Maintained by the `cg:graph-edge` consumer, re-trued nightly.
+- **`shared/kernel/relstrength`**: the §4 arithmetic extracted so PO-F-3 and
+  PO-F-3b cannot drift. Existing tests pass unchanged; new tests pin the spec's
+  worked example exactly (47, moderate).
+- **`StrengthForPeopleAsOf`**: what §4 would have said at a past instant, for
+  the going-cold comparison. A counterfactual over today's corpus, not history
+  — an erased interaction is absent from the past answer too, deliberately.
+- **A resumable participant backfill** for history captured before the table
+  existed. Refuses to guess when two users share one provider.
+- **Capture privacy is now enforced** — see below; it was a prerequisite.
+
+**Three defects found on the way, all pre-existing on main**
+
+1. **`visibility='owner'` was written and never read.** Migration 0095 says it
+   is "enforced by the row-scope clauses in platform/auth"; `VisiblePredicate`
+   never consulted the column. Under team scope a whole team read each other's
+   unpromoted captured contacts, and under `row_scope=all` so did every admin.
+   Fixed, with the founder rule: the importing user ALONE, not even Admin.
+   Art. 15/17 cross it through `EnsureVisibleForSubjectRights`.
+2. **`GET /v1/record-grants` answered 500 for every non-admin.** It probed
+   visibility inside an open cursor on the same transaction ("conn busy"). It
+   looked healthy only because the probe was a no-op for unbounded callers and
+   the test runs as one.
+3. **Postgres JIT cost more than it saved.** The row-scope predicates inflate
+   estimated plan cost past `jit_above_cost` while the query stays an indexed
+   OLTP read: 12ms of work behind 475ms of LLVM on the `/search` union. The
+   threshold is crossed by the row-scope TIER, so a rep paid it on a query an
+   admin ran for free. `jit=off` on the app pool.
+
+**LinkedIn (CSV half) shipped.** `0159 linkedin_connection` + the
+`Connections.csv` importer + the matcher + `POST /me/linkedin-connections`.
+Ghosts are graph substrate, never records: invisible to search, lists, people
+screens and the assistant's record tools, and nothing can write to them. An
+exact email match auto-confirms (the house dedupe rule); name+employer only
+suggests; an ambiguous name suggests nothing. Nothing ever creates a person.
+Erasure deletes a subject's ghosts and Art. 15 exports them. The OAuth/API half
+waits on LinkedIn approving a developer app — it is a thin provider behind the
+same rows.
+
+**The frontend shows per-colleague warmth** on the connections card, kept
+separate from the contact's workspace-wide score: a contact can be warm to the
+company while the colleague beside them has barely met them, and that gap is
+the point. `none` renders as "no signal yet", never a zero.
+
+**Deliberately NOT done on this branch** (the plan's phase 5 tail + 2.3). No
+`compose/network/` risk detectors (single-threaded, going-cold, champion-left,
+coverage-gap), no `GET /people/{id}/network`, no `GET /deals/{id}/coverage`, no
+agent tools, and no onboarding upload box for the CSV (the endpoint exists and
+takes a multipart POST; nothing in the UI calls it yet). The substrate they all
+sit on is in place and tested.
+
+**Three defects the stop-time review caught after the first pass**, all now
+fixed and worth remembering as a class: (1) the projection consumer listened
+for a `person.erased` event no path emits, so every Art. 17 erasure left the
+subject's correspondence pattern standing — erasure is now discharged inside
+its own transaction, because an obligation carried by a bus message fails
+silently when the bus is behind; (2) four of the event names the consumer
+switched on did not exist at all, which is how a projection silently stops
+updating; (3) relink moved the activity_link and left the participant row
+naming the old contact, permanently. Also: the PII census is a hand-maintained
+list, so new tables pass it vacuously until enrolled.
+
+**Codex full-branch review, reconciled.** 14 findings; 7 fixed on the branch,
+7 accepted and recorded below. The fixed ones, because the CLASS matters more
+than the instances: two privacy leaks (deal coverage listed owner-private
+stakeholders to anyone who could see the deal; the person-network read used
+EnsureVisible, which skips its probe for unbounded callers and never checks
+archived_at), one lying test (deactivation sets `status` and leaves
+archived_at NULL — the test ARCHIVED the user instead, so it passed while
+production kept offering departed colleagues), one contract lie (warmest-first
+promised, last-contact delivered AND capped, so a recent one-liner evicted a
+year-long relationship), two deletion gaps (the time-based retention sweep
+reached none of the new tables; LinkedIn erasure keyed on a DERIVED org id, so
+a ghost imported before its account existed survived), and one stale-state gap
+(retention emits `retention.applied`, which the graph consumer now listens
+for — the first attempt at that fix was a second SQL statement inside privacy
+that only DELETED empty pairs, so a pair with other interactions kept counting
+the removed one; routing the event to the existing fold fixed both).
+
+**Accepted, NOT fixed — carry these forward.**
+1. Calendar and group-mail participants: capture writes the mailbox owner and
+   ONE counterparty, so gcal attendees and multi-party mail are still not
+   recorded as participants. ADR-0078 §1 claims they are; that claim is
+   currently ahead of the code.
+2. Relink invalidation: the participant row is repointed before the event
+   fires, so the consumer cannot name the displaced pair and the old edge
+   survives to the nightly rebuild. Needs the additive `relinked_from`
+   reference (a public-event contract change). The repoint itself is now
+   correct — it takes the displaced ids from the delete rather than inferring
+   them — but the event still cannot carry them.
+3. Person merge does not repoint `activity_participant`; the consumer drops the
+   source edge assuming it did, and the nightly rebuild can recreate an edge to
+   the archived source because the fold does not check person liveness.
+4. Our-side concentration counts one group email once per stakeholder, so five
+   stakeholders on one message satisfy the five-interaction floor.
+5. `matched_org_id` is only recomputed on upload and never cleared, so org
+   rename/archive/merge leaves reach counts stale or misattached.
+6. A refreshed LinkedIn export never tombstones connections absent from it.
+7. ~~`at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
+   not built.~~ **Closed 2026-08-01** on `feat/linkedin-onboarding-and-matching`
+   — see the session pickup below.
+8. **Spec raise owed (PO-PARAM-1).** `legalSuffixes` gained `&`/`und`/`and` so
+   the strip crosses a compound German legal form ("GmbH & Co. KG"). The
+   parameter is spec-pinned; this implements the stated intent rather than
+   changing it, but it needs reconciling upstream.
+9. LinkedIn employer matching still needs an EXACT normalized key. On a real
+   5,064-row export, 75 contacts matched by name and 22 matched fully; 44 were
+   blocked by a company string that reaches no account ("Wortfilter.de" vs
+   "Wortfilter", "SIMIO GmbH & Co. KG" vs "Simio Consulting", two accounts both
+   named "Nfq" — deliberately refused as ambiguous). Fuzzy org matching would
+   recover some at the cost of wrong suggestions; not attempted.
+10. `TestAiUsageOverHTTP` and `TestAiUsageCostOverHTTP` query fixed July windows
+   (07-01..07-14 and 07-01..07-31) while now needing a `current_date` row so the
+   budget block does not zero at a month boundary. Both hold today because the
+   live date is outside those windows; they break when it is not. The fix is to
+   day-scope the assertions, and it belongs with whoever owns that test.
+
+**Verification.** `make check-backend` green. Integration lane matches the
+`origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
+failures present there are unchanged and unrelated. Not yet run: `make dev`
+(shared machine, other session active) and `make frontend-e2e`.
+
+## Session pickup — 2026-07-31 (AI certification)
+
+**The site read stopped proposing leads nobody asked for.** Three defects in
+the published-person lane closed in PR #342 (merged):
+
+- **Testimonials became leads.** A home or about page's "what our clients say"
+  wall names people who work elsewhere, and they were filed as contacts at the
+  company whose site it is. The floor is now a published email address —
+  `dropNoPublishedEmail` in `compose/sitepagefacts.go` — which is what
+  separates the quoted customer from the founder on the same page. Reading one
+  real site had staged 62 of these.
+- **People already on file were re-proposed.** `people.Store.EmailAlreadyOnFile`
+  (`modules/people/emailonfile.go`) probes live person and lead rows before
+  staging. It runs under the REQUESTING HUMAN's live grants, never the
+  worker's system authority: the answer decides whether a proposal reaches an
+  inbox, so a workspace-wide answer would let a rep point a read at a page of
+  addresses and learn which ones exist on records their row scope hides. See
+  `probeCtx` in `compose/siteleadstage.go`.
+- **Re-reads stacked duplicate questions.** The staged payload carries the read
+  id and the page's reflowed passage, so the diff hash differed per read. The
+  staging now declares a logical identity — the lead's natural key — so a
+  re-read supersedes its own undecided proposal. `approvals.StageInTx` now
+  REFUSES an input carrying `Identity` or `JoinPending` instead of silently
+  ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
+
+**Still open in this area:** the email floor proves contactability, not
+affiliation — see the open decision above.
 
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three
@@ -365,7 +1146,7 @@ Open work, roughly in priority order.
 
 - **`make seed-dev` ignores `DEV_SLUG` and seeds the SHARED stack.** `make dev
   DEV_SLUG=x` exists so two worktrees can run at once, and every neighbouring
-  target (`dev-fresh`, `dev-stop`, `dev-logs`, `mcp-inspector`) honours the
+  target (`dev-fresh`, `dev-stop`, `dev-logs`) honours the
   slug. `seed-dev` does not: `scripts/seed-dev.sh` defaults to
   `API_BASE=http://localhost:8080` and `backend/Makefile`'s `seed-dev-db` uses
   `DB_NAME`, which defaults to `margince`. So seeding an isolated stack writes
@@ -907,6 +1688,98 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
 
+## Upstream spec raises owed from 2026-08-01
+
+From the founder's company-page review. Nothing edited in the spec repo —
+raises only.
+
+1. **The account brief has no spec chapter at all.** `compose/orgbrief`, the
+   `org_brief` table, `GET|POST /organizations/{id}/brief`, `POST
+   /organizations/{id}/ask` and its three prepared questions are all
+   build-side. The per-viewer, input-fingerprinted cache is also a different
+   mechanism from the shared `hash(workspace, task, model, inputs)` result
+   cache that `ai-operational-spec.md` §6 pins, and the relationship between
+   the two is undefined. Now that the brief is the company page's answer to
+   the profile wall, it needs a chapter rather than a note.
+2. **"Prospect" means three things.** It is the default
+   `organization.classification`, informal prose for a lead, and the name of
+   an external persona (PERSONA-PAT). The glossary splits person/organization
+   from Contact/Company but says nothing here. The build USED to ship the enum
+   value raw to the screen; PR #356 added typed display catalogues, so what is
+   owed upstream is the normative terminology rule, not the copy. Also wanted:
+   whether `classification` is human-editable at all.
+   `UpdateOrganizationRequest` carries no such field today — the value is set
+   by the partner extension and by confirmed proposals — so the company page
+   can name a company's type but not change it, which the founder will want.
+3. **Nobody is specified to assign `champion` / `economic_buyer`.**
+   DEAL-AC-11 asserts the roles are "drawn from captured email/meeting
+   participants", but no AI task, formula or capture rule anywhere produces
+   them, and the build sets them manually only. DEAL-EXT-5 (turning `role`
+   into a CHECK-constrained enum) is still an unminted contract extension.
+4. **Referral attribution and commission are not joined up.**
+   `relationship.kind` already carries `referred_by` and the partner extension
+   already carries `margin_tier`, but nothing connects a referral edge to a
+   won deal's margin. Wanted: whether `referred_by` on an organization or deal
+   is the sanctioned way to record who brought the account, and how commission
+   resolves at won time.
+5. **Which entity the site-read draft audits under.** See the field-history
+   defect above: draft columns are written under
+   `entity_type='organization'`, so they surface as changes to the company.
+   Re-keying touches the erasure cascade and the retention evaluator.
+6. **No layout is prescribed for a record detail page.**
+   `web-design-system.md` names "the Record View with a provenance-stamped
+   timeline" and stops. AC-company-1..12 is a screen transcription, not a
+   layout spec, and it still lists a History tab this build has now retired in
+   favour of a timeline filter.
+7. **An account owner cannot be unassigned.** `UpdateOrganizationRequest`
+   types `owner_id` as `[string, 'null']`, but the generated Go binds it to
+   `*openapi_types.UUID`, where a JSON `null` and an omitted field decode to
+   the same nil — so the store cannot tell "clear the owner" from "leave it
+   alone". The edit form now makes the picker required once an account HAS an
+   owner rather than offering a blank option it cannot honour. Wanted:
+   whether unassigning is a real operation, and if so the wire shape for it.
+
+## Upstream spec raises owed from 2026-07-31
+
+Checked against `margince-foundation` at the end of the company-page work. Two
+candidates turned out NOT to need a spec change; three do. Nothing was edited in
+the spec repo — raises only (the architecture.md contract-first rule).
+
+**Needs no change — the spec already answers it:**
+
+- **`listTags` overflow.** Recorded here earlier as a contract gap wanting a
+  name filter. Wrong: `specs/contract/crm.yaml` defines it as CAP-CATALOG
+  (feedback/12) — a bounded vocabulary of 1000, no cursor, with
+  `page.has_more=true` as "the overflow governance signal, not a cursor". The
+  defect is entirely ours: the client ignores the signal. See the open defect
+  above.
+- **The opt-in approval pin (PR #349).** `approvals-and-concurrency.md:237`
+  already types `target_version` as "row version the diff was staged against |
+  null", so a kind carrying no pin is inside the contract as written.
+
+**Owed:**
+
+1. **State the RULE for which approval kinds carry a pin.** The schema allows
+   null; nothing says when null is correct. The rule this repo now enforces
+   (`approvals.TargetIsContextOnly`, held by a fitness test) is: a kind whose
+   effect never READS the pinned row carries no pin — a lead filed under a
+   company is not an operation on that company. That belongs in
+   `subsystems/approvals-and-concurrency.md` beside the field.
+2. **The published-person quality floor.** `subsystems/capture.md` (CAP-PARAM-7)
+   describes the auto-enrich lane staging `site_lead` but sets no floor on what
+   is worth staging. This repo now requires a name, a role, AND an email the
+   page printed — a lead nobody can contact asks a human to confirm a name they
+   cannot act on. Reading one real site staged 62 customer testimonials as
+   contacts at the company whose site it was. The floor, and the affiliation
+   gap it does NOT close (a testimonial that prints its own address), both need
+   a home in the spec.
+3. **Two `AC-company` copy defects, never raised.** AC-company-9's own pinned
+   string contains an em dash, which `quality/craftsmanship.md` VOICE-RULE-5
+   bans in user-facing copy — the AC is wrong, not the rule. And AC-company-4
+   and AC-company-9 assert absolutes ("You logged none of this", "Nothing here
+   was typed") that are false whenever a human note or a `source: human` field
+   exists; both should be conditional on the visible rows.
+
 ## Upstream spec reconciliation
 
 Contract-first — **the spec wins** (the `architecture.md` invariant). Cite it by
@@ -916,6 +1789,101 @@ caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
 
+- **Capture no longer creates a company on sight, and the spec still says it
+  does.** ADR-0072 §1's tier ladder reads `T1 correspondence-positive → ensure
+  NOW, org per T3`, and T3 suppresses organization derivation for consumer mail
+  alone. Everything else derived a company from the domain label. In the dev
+  database that produced companies named after PEOPLE — a private individual
+  writing from a vanity domain built out of their own surname became a company
+  called that surname — and nothing downstream ever removed one. 157 of 165
+  organizations were `name_source='domain'` and only 65 had a corroborated legal
+  entity. (The real addresses are deliberately not written down here; they are
+  third parties' and this file is committed.)
+
+  This build now defers instead: the person is created exactly as before, the
+  company is withheld, and a triage site read decides whether the domain
+  deserves one. The spec owes four things.
+
+  **A fifth tier.** The ladder needs the rung between T3 and T4: a domain that
+  is neither consumer mail nor already judged creates the person and opens an
+  organization question, creating nothing until it is answered.
+
+  **A new table.** `organization_domain_disposition`, one row per (workspace,
+  registrable domain), holding `pending | company | personal | provider |
+  no_site` plus what answered and the bounded-retry cursor. Without it a refusal
+  survives exactly one message.
+
+  **A third `site_read.target_kind`.** `domain_triage` starts with no
+  organization, the shape onboarding already has, and binds one only if the
+  verdict says so.
+
+  **A `provider` class that is not "is this a company?".** `live.fr` is
+  Microsoft's, a real company, and emphatically not the sender's employer. A
+  reader who asks only whether the site belongs to a company answers yes and
+  misattributes everyone with a mailbox there. The site_triage task and its
+  certification corpus carry this distinction; the spec does not yet.
+
+  Also owed: whether the false-refusal direction is release-blocking. It is
+  treated as such here (the corpus's `false_refusal_01` sits at a higher band
+  than its siblings) because a wrong company answer costs one visible, deletable
+  junk record while a wrong refusal costs a real customer their organization,
+  silently.
+- **CAP-PARAM-5's "config file, no admin UI" pin is reversed here.** The pinned
+  70-domain baseline had `live.com` and `live.de` but not `live.fr`, so a
+  private mailbox there produced a company called "Live"; it matched the domain
+  string exactly, so `mail.gmx.net` missed a listed `gmx.net`. This build
+  ships a vendored 8 758-domain dataset (goware/emailproviders, MIT, provenance
+  in `platform/freemail/data/README.md`) matched down to the registrable eTLD+1,
+  and moves the deployment delta from `margince.yaml` into a workspace-shared,
+  admin-curated list read per transaction. A shipped third-party list is wrong
+  in both directions and neither error can wait for a release or for shell
+  access. The spec still says config file, no admin UI.
+- **RC-2 / CAP-DDL-3 / CAP-WIRE-2 personal-mail exclusions are removed.** Founder
+  decision: the feature should not exist. A per-user boundary on a
+  workspace-shared record set was the wrong scope, and the domain-level control
+  that survives is the workspace's own consumer-mail list, which every
+  connection in the installation shares. The store, the pure matcher, the Sink
+  gate, the three endpoints, the settings card and the table are gone (migration
+  0165), and `connector.ExclusionAttrs` with them — nothing else read it. The
+  spec still specifies all of it.
+- **PO-F-1's employer-agreement term needed a third rung.** `orgMatch` scored a
+  shared employer row (1.0) or a shared `organization_domain` (0.8). With the
+  company withheld during triage there is neither, so two colleagues at a new
+  customer stopped meeting at the fuzzy tier exactly when their records are
+  newest and most likely to be twins. This build adds "both addresses sit on the
+  same LIVE mail domain" at the same 0.8, with two qualifiers the spec has to
+  carry or the rung is wrong in both directions: a consumer-mail domain scores
+  nothing (two people at one mailbox provider share a host, not a job, and
+  scoring it puts every same-named pair of private addresses in the review
+  queue), and the workspace's own carve-outs decide that question, because a
+  `never` entry is an admin asserting the domain IS an employer's. The formula
+  in the spec still has two rungs and no consumer-mail exclusion.
+- **The backfill's `organizations_created` counts a different thing now.** It
+  counted organizations the run created; capture creates none, so it counts
+  domains the run raised a company question for, and a domain becomes a company
+  only if its site later says so. The column keeps its name (additive-only), the
+  UI says "Companies to check", and `costestimate/rules.go` still folds the
+  number into a projected entity count — which is now an upper bound rather than
+  a tally. The spec's backfill counters need the same distinction, or the number
+  reads as a promise the run did not make.
+- **Two triage limits this build knowingly ships, both needing a spec answer.**
+  Neither is a defect against the design as written; both are places the design
+  has no answer yet.
+
+  A `provider` verdict suppresses the company for everyone on that domain,
+  including the people who WORK at the mailbox vendor. Nothing on the vendor's
+  own front page distinguishes its employees from its customers, so the
+  classifier cannot separate them. The human override (create the company by
+  hand; the ledger records it as theirs) reverses it, but only once somebody
+  notices.
+
+  And the triage verdict does not re-check the consumer-mail list at the moment
+  it fires. The deep-read worker builds its people store without the workspace
+  reader, so a domain an admin adds to the list WHILE its crawl is in flight can
+  still get its company. A narrow race with a small consequence, and the fix is
+  either to wire the reader into the worker or to re-check inside
+  `ResolveDomainTriage` — the spec should say which, since it is really a
+  question about when a workspace setting takes effect.
 - **Art. 17 erasure has no organization path (foundation #1215).** `Eraser` in
   `privacy/erasure.go` anonymizes the `person` row and purges its satellites;
   grep `organization` there and it finds nothing, on the standard reading that

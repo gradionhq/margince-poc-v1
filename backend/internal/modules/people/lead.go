@@ -23,16 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// DuplicateLeadError carries the live lead already holding an email
-// (uq_lead_email_dedupe → 409, features/01 §6.2).
-type DuplicateLeadError struct {
-	Email      string
-	ExistingID ids.LeadID
-}
-
-func (e *DuplicateLeadError) Error() string        { return "lead with email " + e.Email + " already exists" }
-func (e *DuplicateLeadError) Is(target error) bool { return target == apperrors.ErrConflict }
-
 type CreateLeadInput struct {
 	FullName        *string
 	Email           *string
@@ -86,7 +76,16 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			created, out = false, *replay
 			return nil
 		}
+		// The LinkedIn claim is locked before either probe reads, so two
+		// creates racing on the same person answer with the same key rather
+		// than whichever one they happened to lose.
+		if err := lockLeadLinkedInIdentity(ctx, tx, in.LinkedInURL); err != nil {
+			return err
+		}
 		if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
+			return err
+		}
+		if err := ensureLeadLinkedInUnclaimed(ctx, tx, in.LinkedInURL); err != nil {
 			return err
 		}
 
@@ -199,34 +198,6 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []f
 	return &out, nil
 }
 
-// ensureLeadEmailUnclaimed answers the live-email dedupe probe with the
-// contract's 409, disclosing the existing id only when the caller could
-// read that row.
-func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) error {
-	if email == nil {
-		return nil
-	}
-	var existing ids.LeadID
-	err := tx.QueryRow(ctx,
-		`SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL`,
-		*email).Scan(&existing)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("probe email dedupe: %w", err)
-	}
-	dup := &DuplicateLeadError{Email: *email}
-	visible, err := auth.VisibleTo(ctx, tx, "lead", existing.UUID)
-	if err != nil {
-		return err
-	}
-	if visible {
-		dup.ExistingID = existing
-	}
-	return dup
-}
-
 // FindLeadByLinkedInURL is the E12.11 exact-match dedupe probe: the
 // earliest-captured live lead holding this profile URL (the canonical
 // original when duplicates slipped in), or nil when the workspace has none.
@@ -248,12 +219,9 @@ func (s *Store) FindLeadByLinkedInURL(ctx context.Context, rawURL string) (*crmc
 
 	args := []any{normalized}
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	scope, err := auth.ScopeClauseFor(ctx, "lead", "", arg)
+	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
 	if err != nil {
 		return nil, err
-	}
-	if scope == "" {
-		scope = "TRUE"
 	}
 
 	var out *crmcontracts.Lead

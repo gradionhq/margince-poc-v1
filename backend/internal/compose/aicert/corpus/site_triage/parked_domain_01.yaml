@@ -1,0 +1,28 @@
+name: a_parked_domain_identifies_nobody
+task: site_triage
+site: triage
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  url: https://vermittlung.example
+  text: |
+    This domain is registered.
+
+    vermittlung.example — this web address is parked with our registrar.
+    Interested in this domain? Make an offer.
+
+    Register your own domain from 0.99/year.
+expect:
+  outcome: accepted
+  answer: parked
+  rubric: >
+    A registrar placeholder. Nothing on it identifies any business, and the only
+    company mentioned is the registrar hosting the page. "parked" scores high.
+    "company" scores low — it would name an organization after a domain nobody
+    has built anything on. "provider" is defensible but wrong (the registrar is
+    not the subject of the page, the parked domain is) and scores middling;
+    "unclear" also scores middling.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

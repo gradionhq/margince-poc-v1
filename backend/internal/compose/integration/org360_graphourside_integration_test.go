@@ -29,6 +29,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -46,24 +48,66 @@ func seedMember(t *testing.T, owner *pgx.Conn, ws ids.UUID, name string) ids.UUI
 	return id
 }
 
-// seedTouch records one activity of the given kind, stamped with the given
-// provenance, and links it to the person. capturedBy is spelled by the caller
-// on purpose: whether the stamp is a human's is exactly what decides an edge.
-func seedTouch(t *testing.T, owner *pgx.Conn, ws ids.UUID, kind, capturedBy string, person ids.UUID) {
+// seedTouch records one activity of the given kind and links it to the person,
+// with `colleague` naming which of our people was IN it — nil for an
+// interaction nobody on our side is recorded in.
+//
+// It writes participant rows and folds the projection, which is what capture
+// and the cg:graph-edge consumer do between them in production. Seeding an
+// activity alone would leave the projection empty and every assertion below
+// would pass vacuously.
+func seedTouch(t *testing.T, e *Env, owner *pgx.Conn, kind string, colleague *ids.UUID, person ids.UUID) {
 	t.Helper()
+	ctx := context.Background()
+	ws := e.WS
 	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, $3, 'terms', '2026-05-30T09:00:00Z', 'manual', $4)`,
+	capturedBy := "connector:gmail"
+	if colleague != nil {
+		capturedBy = "human:" + colleague.String()
+	}
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, $3, 'terms', '2026-05-30T09:00:00Z', 'outbound', 'manual', $4)`,
 		id, ws, kind, capturedBy); err != nil {
 		t.Fatalf("seeding a %s: %v", kind, err)
 	}
 	LinkActivity(t, owner, ws, id, "person", person)
+
+	// Only a real exchange has participants. A task is intent and a note is a
+	// record of thinking; neither means the two people spoke, which is why
+	// they draw no edge without the graph needing a kind filter of its own.
+	if kind == "email" || kind == "call" || kind == "meeting" {
+		if colleague != nil {
+			if _, err := owner.Exec(ctx, `
+				INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
+				VALUES ($1, $2, $3, 'from')`, ws, id, *colleague); err != nil {
+				t.Fatalf("seeding the our-side participant: %v", err)
+			}
+		}
+		if _, err := owner.Exec(ctx, `
+			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+			VALUES ($1, $2, $3, 'to')`, ws, id, person); err != nil {
+			t.Fatalf("seeding the counterparty participant: %v", err)
+		}
+	}
+	foldEdges(t, e, id)
 }
 
-// humanStamp is the provenance a human write carries; matching it is what
-// keeps a connector's inbox sync from drawing edges nobody earned.
-func humanStamp(user ids.UUID) string { return "human:" + user.String() }
+// foldEdges runs the recompute the cg:graph-edge consumer runs, so a test sees
+// the projection the worker would have built.
+func foldEdges(t *testing.T, e *Env, activityID ids.UUID) {
+	t.Helper()
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "system:test",
+		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
+	})
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
+	}); err != nil {
+		t.Fatalf("folding interaction edges: %v", err)
+	}
+}
 
 // graphUserNodes is the user nodes the card drew, by id, which is how these
 // tests state who is on our side without depending on node order.
@@ -100,7 +144,7 @@ func TestOrganizationGraphDrawsTheOwnerAndWhoHasBeenInContact(t *testing.T) {
 	employ(t, e, contact, org, "cto")
 	// Rep2 shares Team1 with Rep1 and wrote to the contact; Rep1 owns the
 	// account and has written nothing.
-	seedTouch(t, owner, e.WS, "email", humanStamp(e.Rep2), contact)
+	seedTouch(t, e, owner, "email", &e.Rep2, contact)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
 		ids.From[ids.OrganizationKind](org))
@@ -132,10 +176,16 @@ func TestOrganizationGraphDrawsTheOwnerAndWhoHasBeenInContact(t *testing.T) {
 	}
 }
 
-// What is NOT contact. A connector syncing an inbox stamps the row with the
-// connector, not with a person, and an agent stamps itself — neither is a
-// colleague who spoke to anyone. A task and a note are not interactions at all:
-// assigning work is intent, and writing something down is not reaching out.
+// What is NOT contact, and the list is SHORTER than it used to be. Mail synced
+// from an inbox used to draw no edge, because the derivation matched a human
+// stamp on the activity row and a connector writes its own — that was the
+// defect, not the rule, and connector-captured mail whose mailbox owner IS
+// recorded now draws an edge like any other exchange.
+//
+// What remains genuinely not contact: an interaction with no colleague
+// recorded in it at all, and a task or a note, which are not interactions in
+// the first place — assigning work is intent, and writing something down is
+// not reaching out.
 func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
@@ -144,10 +194,10 @@ func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	seedTouch(t, owner, e.WS, "email", "connector:gmail", contact)
-	seedTouch(t, owner, e.WS, "email", "agent:overnight", contact)
-	seedTouch(t, owner, e.WS, "task", humanStamp(e.Rep2), contact)
-	seedTouch(t, owner, e.WS, "note", humanStamp(e.Rep2), contact)
+	seedTouch(t, e, owner, "email", nil, contact)
+	seedTouch(t, e, owner, "email", nil, contact)
+	seedTouch(t, e, owner, "task", &e.Rep2, contact)
+	seedTouch(t, e, owner, "note", &e.Rep2, contact)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
 		ids.From[ids.OrganizationKind](org))
@@ -168,7 +218,7 @@ func TestOrganizationGraphDrawsNoContactEdgeForANonInteraction(t *testing.T) {
 
 	// The positive control: one human-captured EMAIL from the same colleague
 	// draws the edge, so the silence above is the rule and not a broken read.
-	seedTouch(t, owner, e.WS, "email", humanStamp(e.Rep2), contact)
+	seedTouch(t, e, owner, "email", &e.Rep2, contact)
 	graph, err = svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
 		ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -191,7 +241,7 @@ func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	seedTouch(t, owner, e.WS, "email", humanStamp(e.Rep2), contact)
+	seedTouch(t, e, owner, "email", &e.Rep2, contact)
 	orgID := ids.From[ids.OrganizationKind](org)
 
 	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
@@ -258,8 +308,8 @@ func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T)
 	employ(t, e, theirs, org, "cfo")
 	writerToMine := seedMember(t, owner, e.WS, "Writes To Mine")
 	writerToTheirs := seedMember(t, owner, e.WS, "Writes To Theirs")
-	seedTouch(t, owner, e.WS, "email", humanStamp(writerToMine), mine)
-	seedTouch(t, owner, e.WS, "email", humanStamp(writerToTheirs), theirs)
+	seedTouch(t, e, owner, "email", &writerToMine, mine)
+	seedTouch(t, e, owner, "email", &writerToTheirs, theirs)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
 		ids.From[ids.OrganizationKind](org))
@@ -309,9 +359,9 @@ func TestOrganizationGraphDrawsNoColleagueWhoNoLongerWorksHere(t *testing.T) {
 			org := e.SeedOrg(t, "Acme", &e.Rep2)
 			contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 			employ(t, e, contact, org, "cto")
-			seedTouch(t, owner, e.WS, "email", humanStamp(e.Rep2), contact)
+			seedTouch(t, e, owner, "email", &e.Rep2, contact)
 			teammate := seedMember(t, owner, e.WS, "Live Teammate")
-			seedTouch(t, owner, e.WS, "email", humanStamp(teammate), contact)
+			seedTouch(t, e, owner, "email", &teammate, contact)
 			setMemberStatus(t, owner, e.Rep2, status)
 
 			graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
@@ -382,7 +432,7 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 		employ(t, e, contact, org, "assistant")
 		colleague := seedMember(t, owner, e.WS, fmt.Sprintf("Outsider %02d", i))
 		outsiders = append(outsiders, colleague)
-		seedTouch(t, owner, e.WS, "email", humanStamp(colleague), contact)
+		seedTouch(t, e, owner, "email", &colleague, contact)
 	}
 
 	// Two colleagues wrote repeatedly to the contacts the card draws. The
@@ -396,8 +446,8 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 		employ(t, e, contact, org, "cto")
 		drawnContacts = append(drawnContacts, contact)
 		for range 3 {
-			seedTouch(t, owner, e.WS, "email", humanStamp(insiderA), contact)
-			seedTouch(t, owner, e.WS, "email", humanStamp(insiderB), contact)
+			seedTouch(t, e, owner, "email", &insiderA, contact)
+			seedTouch(t, e, owner, "email", &insiderB, contact)
 		}
 	}
 
@@ -470,8 +520,8 @@ func TestOrganizationGraphUserCapCountsUsersAndReportsTheRemainder(t *testing.T)
 		member := seedMember(t, owner, e.WS, fmt.Sprintf("Colleague %02d", i))
 		// Two interactions each: a row-counting cap would spend its budget on
 		// half as many colleagues.
-		seedTouch(t, owner, e.WS, "email", humanStamp(member), contact)
-		seedTouch(t, owner, e.WS, "call", humanStamp(member), contact)
+		seedTouch(t, e, owner, "email", &member, contact)
+		seedTouch(t, e, owner, "call", &member, contact)
 	}
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),

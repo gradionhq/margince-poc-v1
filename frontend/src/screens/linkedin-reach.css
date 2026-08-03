@@ -1,0 +1,40 @@
+/* The reach table: which accounts a member's imported network reaches. */
+
+.li-reach {
+  margin-bottom: var(--space-4);
+}
+
+/* The reach table scrolls inside its own box rather than widening the page. */
+.li-reach-table {
+  display: block;
+  width: 100%;
+  margin: var(--space-3) 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.li-reach-table th,
+.li-reach-table td {
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.li-reach-table th {
+  color: var(--textMuted);
+  font: 500 0.75rem / 1.3 var(--f-body);
+}
+
+.li-reach-table td {
+  color: var(--textContent);
+  font: 400 0.875rem / 1.5 var(--f-body);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.li-reach-table td.t-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.li-reach-table a {
+  color: var(--textContent);
+}

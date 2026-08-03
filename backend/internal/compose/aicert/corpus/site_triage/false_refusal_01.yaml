@@ -1,0 +1,34 @@
+name: a_one_person_consultancy_is_still_a_company
+task: site_triage
+site: triage
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  url: https://steirmann-consulting.example
+  text: |
+    Steirmann Consulting — E-Commerce Beratung
+
+    Ich begleite Handelsunternehmen bei Auswahl und Einführung von
+    Shopsystemen. Über 60 abgeschlossene Projekte seit 2011.
+
+    Leistungen: Systemauswahl · Migrationsbegleitung · Interim-Management
+    Referenzen · Vorträge · Kontakt
+
+    Impressum: Steirmann Consulting GmbH, Geschäftsführer Alexander Steirmann,
+    HRB 118234, Amtsgericht Stuttgart.
+expect:
+  outcome: accepted
+  answer: company
+  rubric: >
+    A one-person consultancy whose domain is the founder's own surname. Every
+    surface signal says "personal" — one human, their name in the domain, first
+    person voice — and the answer is still company: it offers services, cites a
+    client history, and prints a registered legal entity. "company" scores high.
+    "personal" scores VERY low: this is the false-refusal direction, where a real
+    customer silently loses their organization record and no one sees it happen.
+    This scenario is release-blocking for that reason, in the way false_noise_01
+    is for the counterparty verdict.
+  bands:
+    certified_min: 80
+    degraded_min: 60
+    floor: 50

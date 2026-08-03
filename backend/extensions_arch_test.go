@@ -208,7 +208,6 @@ func TestSurfaceMarkerLivesOnlyUnderPkg(t *testing.T) {
 var compositionWiringFiles = map[string]bool{
 	"cmd/api/main.go":     true,
 	"cmd/worker/main.go":  true,
-	"cmd/mcp/main.go":     true,
 	"cmd/migrate/main.go": false,
 }
 

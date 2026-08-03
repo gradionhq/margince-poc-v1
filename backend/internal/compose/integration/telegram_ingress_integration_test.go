@@ -295,7 +295,6 @@ func TestAC_TG_5_MailGatesAreNoOpsForAChannelRecord(t *testing.T) {
 		username: "noreply", firstName: "billing@sendgrid.net", text: "quote please",
 	}
 	c.ingestOne(t, u, compose.JobRunnerConfig{CaptureConfig: compose.CaptureConfig{
-		FreemailExtra:      []string{"gmail.com"},
 		TransactionalExtra: []string{"sendgrid.net"},
 	}})
 

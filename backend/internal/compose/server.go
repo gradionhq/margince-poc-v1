@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
+	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -65,6 +66,9 @@ type Server struct {
 	voiceHandlers
 	reportHandlers
 	briefs.Handlers
+	// The relationship-graph reads (ADR-0078): who knows this contact, and
+	// how a deal is covered.
+	network.Reads
 	coldstartHandlers
 	companyHandlers
 	onboardingStateHandlers
@@ -72,8 +76,8 @@ type Server struct {
 	scrapeHandlers
 	connectorHandlers
 	backfillHandlers
-	captureExclusionHandlers
 	captureSettingsHandlers
+	consumerMailDomainHandlers
 	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
@@ -100,6 +104,17 @@ type Server struct {
 	// configured — the route is absent otherwise, never an open unverified
 	// endpoint.
 	overlayWebhook http.Handler
+
+	// mcpConnectorEnabled is the remote-connector deployment gate, set by
+	// WithMCPConnector from the deployment file. It governs the connector as
+	// ONE group — transport, authorization server, both discovery documents —
+	// and routes.go, where the group is mounted, carries why.
+	mcpConnectorEnabled bool
+
+	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
+	// admits — derived by WithMCPResource from the configured
+	// --public-base-url, never from a request header a caller controls.
+	mcpAllowedOrigin string
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -215,6 +230,9 @@ type Server struct {
 	// WithAccountBrief can rebuild the brief service over the SAME gated
 	// read rather than a second one that might drift from it.
 	org360Svc *org360.Service
+	// peopleStore is shared by the 360 and the account brief: the brief reads
+	// the company's curated profile through it, under the caller's own gates.
+	peopleStore *people.Store
 
 	// sorDispatch is the per-workspace native/overlay provider dispatch:
 	// the ONE instance both the ADR-0055 admission layer (contractAPI's
@@ -253,7 +271,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	srv.applySendPath(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
-	mux := operationalMux(srv, pool, log, authH, api)
+	// ONE identity.Service for the whole process: contractAPI's admission
+	// gate and the connector's authenticate closure share this instance, so
+	// they share its singleton cache and its clock.
+	mux := operationalMux(srv, pool, log, identitySvc, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }
@@ -267,8 +288,13 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// workspace's active cf_* columns ride person/organization
 		// payloads (values only — the schema-change engine stays behind
 		// WithSchemaPool; ActiveColumns needs none of it).
-		peopleHandlers: people.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		dealsHandlers:  dealsH,
+		// The match stager is injected here because approvals is a sibling of
+		// people and a module never imports one: compose is where that edge is
+		// made, as it is for every other cross-module dependency.
+		peopleHandlers: people.NewHandlers(pool).
+			WithFieldCatalog(customfields.NewService(pool, nil)).
+			WithMatchStager(linkedInMatchStager(pool)),
+		dealsHandlers: dealsH,
 		activitiesHandlers: activities.NewHandlers(pool).
 			WithConsent(consent.NewGate(consent.NewStore(pool))).
 			// The public booking capture seams (feedback/14): people is the
@@ -295,13 +321,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
-		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
-		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
-		// pre-ingestion gate (wired in NewCaptureRegistry).
-		captureExclusionHandlers: captureExclusionHandlers{store: capture.NewExclusions(pool)},
+		Reads:    network.NewReads(pool),
 		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 		// read the auto-enrich posture (all roles), toggle it (admin/ops).
 		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
+		// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
+		// domain control, and the only way an operator corrects a shipped
+		// baseline that is wrong about one of their customers.
+		consumerMailDomainHandlers: consumerMailDomainHandlers{store: capture.NewFreemailDomains(pool)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
@@ -369,10 +396,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// The model lane is nil here: WithAccountBrief binds the api role's
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
-	srv.org360Svc = org360.NewService(pool,
-		people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		approvals.NewService(pool), time.Now)
-	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, nil, "", time.Now)
+	srv.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
+	srv.org360Svc = org360.NewService(pool, srv.peopleStore, approvals.NewService(pool), time.Now)
+	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, srv.peopleStore, nil, "", time.Now)
 	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
 		srv.org360Svc,

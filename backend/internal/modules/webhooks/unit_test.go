@@ -277,6 +277,12 @@ func TestEntityVisibleToClassification(t *testing.T) {
 		// here: it is target-visibility gated (approvalVisibleTo) and needs
 		// the pool, so it is proven in the integration lane, not this
 		// DB-free classification test.
+		// The LinkedIn account events stamp entity "user" like role.changed
+		// above, but are NOT workspace-level: an empty context has no actor,
+		// so the self-only probe denies. The positive case needs a real
+		// principal and gets its own test below.
+		{"linkedin account, no actor", "linkedin_account.changed", "user", false},
+		{"linkedin import, no actor", "linkedin_network.imported", "user", false},
 		// An unclassified subject is fail-closed — never delivered.
 		{"unclassified subject", "made.up", "widget", false},
 	} {
@@ -443,6 +449,51 @@ func TestWriteErrMapsTypedFaults(t *testing.T) {
 			writeErr(rec, req, tc.err)
 			if rec.Code != tc.status {
 				t.Fatalf("writeErr(%v) → %d, want %d", tc.err, rec.Code, tc.status)
+			}
+		})
+	}
+}
+
+// A member's LinkedIn account is self-only: the API gives no seat, admin
+// included, a path to another member's row (ADR-0078 §8b). The webhook
+// fan-out must not become the bypass — an admin who cannot read whether a
+// colleague connected LinkedIn, or how large their network is, must not learn
+// both from a subscription they own.
+//
+// These events stamp entity "user", which is on the workspace-level allow-list
+// for role.changed and the user.* lifecycle. That allow-list means "deliver to
+// every live subscription owner", so without the self-only probe these would
+// have fanned the member's own account state across the workspace.
+func TestLinkedInAccountEventsReachOnlyTheMemberTheyAreAbout(t *testing.T) {
+	s := &Store{}
+	member, colleague := ids.NewV7(), ids.NewV7()
+
+	ownerCtx := func(owner ids.UUID) context.Context {
+		return principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + owner.String(), UserID: owner,
+			// Full admin permissions on purpose: the point is that RBAC does
+			// not buy this, so a subscription owned by the most privileged
+			// seat in the workspace still gets nothing.
+			Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
+		})
+	}
+
+	for _, eventType := range []string{"linkedin_account.changed", "linkedin_network.imported"} {
+		t.Run(eventType, func(t *testing.T) {
+			mine, err := s.entityVisibleTo(ownerCtx(member), eventType, "user", member)
+			if err != nil {
+				t.Fatalf("own event: %v", err)
+			}
+			if !mine {
+				t.Error("a member does not receive their own LinkedIn event")
+			}
+			theirs, err := s.entityVisibleTo(ownerCtx(colleague), eventType, "user", member)
+			if err != nil {
+				t.Fatalf("colleague's event: %v", err)
+			}
+			if theirs {
+				t.Error("a colleague's subscription received this member's LinkedIn account state — " +
+					"the webhook fan-out is a bypass of the self-only rule the API enforces")
 			}
 		})
 	}

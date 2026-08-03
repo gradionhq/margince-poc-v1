@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -7,14 +7,23 @@ import {
   Badge,
   Button,
   EmptyState,
+  Modal,
   SectionHeader,
   Skeleton,
 } from "../design-system/atoms";
-import { formatDate, formatMoney } from "../format/format";
+import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
+import {
+  byReach,
+  missingRoles,
+  reachLabelKey,
+  reachOf,
+  roleLabelKey,
+} from "./coverage";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -30,6 +39,40 @@ type Contact = components["schemas"]["Organization360Contact"];
 type Deal360 = components["schemas"]["Organization360Deal"];
 type NextStep = components["schemas"]["Organization360NextStep"];
 type Signal = components["schemas"]["Signal"];
+
+// What each signal kind is, in words. The badge rendered the stored enum, so
+// a German reader met `buying_intent` and an English one met an identifier.
+// Typed against the schema union: a kind added upstream fails the build here.
+const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
+  stalled_deal: "signal.kind.stalled_deal",
+  champion_left: "signal.kind.champion_left",
+  reengagement: "signal.kind.reengagement",
+  buying_intent: "signal.kind.buying_intent",
+  risk: "signal.kind.risk",
+  other: "signal.kind.other",
+};
+
+// The deal-stakeholder roles worth a word. `role` is free text on the wire
+// (the enum is an unminted contract extension, DEAL-EXT-5), so an unknown
+// value renders as itself rather than being hidden — a role somebody typed is
+// still a fact about this contact.
+const DEAL_ROLE_LABELS: Record<string, MessageKey> = {
+  champion: "co.role.champion",
+  economic_buyer: "co.role.economic_buyer",
+  blocker: "co.role.blocker",
+  influencer: "co.role.influencer",
+  user: "co.role.user",
+};
+
+export function dealRoleLabel(role: string, t: (key: MessageKey) => string) {
+  // Own-property only: `role` is free text off the wire, and a value named
+  // `toString` or `constructor` would otherwise find something on Object's
+  // prototype, pass the truthy check, and render as an empty badge.
+  const key = Object.hasOwn(DEAL_ROLE_LABELS, role)
+    ? DEAL_ROLE_LABELS[role]
+    : undefined;
+  return key ? t(key) : role.replace(/_/g, " ");
+}
 type Section = Organization360["sections_omitted"][number];
 
 // OVERLAY_REFUSAL is the validation code the 360 answers for a workspace
@@ -210,12 +253,21 @@ export function SectionCard({
   state,
   emptyLabel,
   footer,
+  actions,
   children,
 }: Readonly<{
   title: string;
   state: SectionState;
   emptyLabel: string;
   footer?: ReactNode;
+  // Verbs that CHANGE this section, under everything that describes it.
+  //
+  // They render whenever the section is present — including when it is empty,
+  // which is the state a create verb most belongs to. They do NOT render on a
+  // withheld or unavailable section: a caller who may not read the deals has
+  // no business being offered a button to add one, and a section that failed
+  // to load cannot say whether the write would even make sense.
+  actions?: ReactNode;
   children: ReactNode;
 }>) {
   const present = state === "ready" || state === "empty";
@@ -226,6 +278,7 @@ export function SectionCard({
         {children}
       </SectionPart>
       {present && footer}
+      {present && actions && <div className="co-card-actions">{actions}</div>}
     </section>
   );
 }
@@ -237,13 +290,37 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
-export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function PeopleCard({
+  view,
+  // Whether this account takes writes at all. An archived record is read-only
+  // — the page hides every other verb on one — so the role control goes too.
+  writable = false,
+}: Readonly<{ view?: Organization360; writable?: boolean }>) {
   const t = useT();
-  const contacts = view?.people?.data ?? [];
-  const openDeals = view?.deals?.data ?? [];
-  const hasChampion = contacts.some((c) =>
-    c.deal_roles.some((role) => role.role === "champion"),
-  );
+  const contacts = [...(view?.people?.data ?? [])].sort(byReach);
+  const truncated = Boolean(view?.people?.page.has_more);
+  const dealsReadable =
+    Boolean(view?.deals) && view != null && !omitted(view, "deals");
+  const openDeals: OpenDeal[] = dealsReadable
+    ? (view?.deals?.data ?? []).map((deal) => ({
+        id: deal.deal_id,
+        name: deal.name,
+      }))
+    : [];
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
+  // Every way the committee picture can be partial, in one flag. An empty
+  // `contacts` means "nobody" only when the section was actually READ: a
+  // people section the grants withheld, or one this response never carried,
+  // leaves the same empty array and would otherwise report both roles missing
+  // from data the page never had. Deals past their first page hide the roles
+  // held on them the same way.
+  const committeeIncomplete =
+    truncated ||
+    !view?.people ||
+    omitted(view, "people") ||
+    Boolean(view?.deals?.page.has_more);
+  const missing = missingRoles(contacts, openDealIds, committeeIncomplete);
+  const untried = contacts.filter((c) => reachOf(c) === "untried");
   return (
     <SectionCard
       title={t("co.people.title")}
@@ -255,30 +332,254 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
       )}
       emptyLabel={t("co.people.empty")}
     >
+      {/* The per-contact chips read as all-time claims — "Not approached"
+          above a timeline showing last year's outbound email is the page
+          arguing with itself. They are computed over the server's 90-day
+          window (PO-F-3), so the window is stated once here rather than
+          repeated on every row. */}
+      {contacts.length > 0 && (
+        <p className="t-caption">{t("co.reach.window")}</p>
+      )}
       <ul className="co-list">
         {contacts.map((contact) => (
-          <ContactRow key={contact.person_id} contact={contact} />
+          <ContactRow
+            key={contact.person_id}
+            contact={contact}
+            openDeals={openDeals}
+            writable={writable}
+          />
         ))}
       </ul>
-      {contacts.length === 1 && (
+      {contacts.length === 1 && !truncated && (
         <p className="co-callout">
           <Badge tone="warn">{t("co.people.singleThread")}</Badge>
         </p>
       )}
-      {openDeals.length > 0 &&
-        !hasChampion &&
-        view &&
-        !omitted(view, "deals") && (
-          <p className="co-callout">
-            <Badge tone="warn">{t("co.people.championGap")}</Badge>
-          </p>
-        )}
+      {/* Who is missing, not only who is present. On an account where every
+          known contact has gone quiet, the person nobody has written to is the
+          only move left that is not a fourth follow-up. */}
+      {untried.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="accent">
+            {untried.length === 1
+              ? t("co.people.untriedHintOne")
+              : t("co.people.untriedHint", { count: untried.length })}
+          </Badge>
+        </p>
+      )}
+      {missing.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="warn">
+            {t("co.people.missing", {
+              roles: missing.map((role) => t(roleLabelKey(role))).join(" / "),
+            })}
+          </Badge>
+        </p>
+      )}
     </SectionCard>
   );
 }
 
-function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
-  const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
+// OpenDeal is the slice of an open deal a role can be attached to.
+type OpenDeal = { id: string; name: string };
+
+// everyRoleHeld reports whether this contact already holds every assignable
+// role on every open deal, which is when the verb has nothing left to write.
+function everyRoleHeld(
+  contact: Contact,
+  openDeals: readonly OpenDeal[],
+): boolean {
+  return openDeals.every((deal) => {
+    const held = new Set(
+      contact.deal_roles
+        .filter((entry) => entry.deal_id === deal.id)
+        .map((entry) => entry.role),
+    );
+    return ASSIGNABLE_ROLES.every((role) => held.has(role));
+  });
+}
+
+// The stakeholder roles offered here. `role` is free text on the wire until
+// DEAL-EXT-5 mints the enum upstream, so this list is the UI's own vocabulary
+// — the five the spec names, in the order a rep thinks of them.
+const ASSIGNABLE_ROLES = [
+  "champion",
+  "economic_buyer",
+  "influencer",
+  "blocker",
+  "user",
+] as const;
+
+/**
+ * SetRoleAction records who this person is on a deal.
+ *
+ * The page told a reader "nobody here is your champion" and gave them nowhere
+ * to say who is: the roles live on `relationship` rows written from the deal
+ * screen, which is a different page and a different task. So the warning was
+ * true, unactionable, and permanent.
+ *
+ * The role is recorded HUMAN-set, never inferred. Every CRM surveyed keeps
+ * buyer roles human-tagged — AI may suggest one, but a champion nobody named
+ * is a guess about a relationship, and the whole committee reading is built
+ * on top of it.
+ */
+function SetRoleAction({
+  contact,
+  openDeals,
+}: Readonly<{ contact: Contact; openDeals: readonly OpenDeal[] }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [dealId, setDealId] = useState("");
+  const [role, setRole] = useState<string>(ASSIGNABLE_ROLES[0]);
+  const titleId = useId();
+
+  // A role this contact already holds on the selected deal is not on offer:
+  // the write creates an edge, so picking it again asks the server for a
+  // second copy of a fact that is already recorded.
+  const held = new Set(
+    contact.deal_roles
+      .filter((entry) => entry.deal_id === dealId)
+      .map((entry) => entry.role),
+  );
+  const offered: readonly string[] = ASSIGNABLE_ROLES.filter(
+    (candidate) => !held.has(candidate),
+  );
+  // Changing the deal changes what is left to pick, so the selection follows
+  // the list rather than the list following a stale selection.
+  const picked = offered.includes(role) ? role : offered[0];
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/relationships", {
+        body: {
+          kind: "deal_stakeholder",
+          person_id: contact.person_id,
+          deal_id: dealId,
+          role: picked,
+          is_current_primary: false,
+          source: "manual",
+        },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: async () => {
+      setOpen(false);
+      // The committee reading, the missing-role warning and the row's own
+      // chips all come off the 360, so the account is re-read rather than
+      // patched in place.
+      await queryClient.invalidateQueries({ queryKey: ["organization360"] });
+    },
+  });
+
+  // A role belongs to a deal. With no open deal there is nothing to be a
+  // champion OF, and the card already says so in its own words.
+  //
+  // Nothing left to offer is the same answer: a contact already holding every
+  // role on every open deal would otherwise open a dialog with an empty list
+  // and a dead Save button.
+  if (openDeals.length === 0 || everyRoleHeld(contact, openDeals)) {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        small
+        onClick={() => {
+          setDealId(openDeals[0].id);
+          setOpen(true);
+        }}
+      >
+        {t("co.role.set")}
+      </Button>
+      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId}>
+        <h2 id={titleId} className="t-h2 modal-title">
+          {t("co.role.setOn", { name: contact.full_name })}
+        </h2>
+        {/* What the two words mean, once, where they are being chosen. The
+            page used them as though everyone shares one definition. */}
+        <p className="t-caption">{t("co.role.explain")}</p>
+        <div className="form-stack">
+          <label className="field">
+            <span className="t-label">{t("co.role.onDeal")}</span>
+            <select
+              className="input"
+              value={dealId}
+              onChange={(event) => setDealId(event.target.value)}
+            >
+              {openDeals.map((deal) => (
+                <option key={deal.id} value={deal.id}>
+                  {deal.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span className="t-label">{t("co.role.role")}</span>
+            <select
+              className="input"
+              value={picked ?? ""}
+              onChange={(event) => setRole(event.target.value)}
+            >
+              {offered.map((candidate) => (
+                <option key={candidate} value={candidate}>
+                  {dealRoleLabel(candidate, t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {save.isError && (
+            <p className="t-caption form-error">{save.error.message}</p>
+          )}
+          <div className="form-actions">
+            <Button
+              variant="primary"
+              onClick={() => save.mutate()}
+              disabled={save.isPending || dealId === "" || !picked}
+            >
+              {t("record.save")}
+            </Button>
+            <Button onClick={() => setOpen(false)}>{t("fab.close")}</Button>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+function ContactRow({
+  contact,
+  openDeals,
+  writable,
+}: Readonly<{
+  contact: Contact;
+  // The open deals a role can be recorded against. A role belongs to a DEAL,
+  // not to a person: this contact may be the champion on the renewal and
+  // nobody on the new business.
+  openDeals: readonly OpenDeal[];
+  // Read-only accounts still NAME the roles held on them; they just offer no
+  // way to change one.
+  writable: boolean;
+}>) {
+  const t = useT();
+  // Only roles on the deals this card is showing. `deal_roles` carries a
+  // contact's role on CLOSED deals too, and a champion badge read off a deal
+  // that was lost last year describes a pipeline that no longer exists.
+  const openDealIds = new Set(openDeals.map((deal) => deal.id));
+  const roles = contact.deal_roles.filter(
+    (entry) => entry.role && openDealIds.has(entry.deal_id),
+  );
+  // Which deal a role is on only matters when there is more than one to
+  // confuse: a person can be champion on the renewal and nobody on the new
+  // business, and two identical badges would say neither.
+  const nameOfDeal = (dealId: string) =>
+    openDeals.length > 1
+      ? openDeals.find((deal) => deal.id === dealId)?.name
+      : undefined;
+  const reach = reachOf(contact);
   return (
     <li className="co-row">
       <button
@@ -290,30 +591,29 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
       </button>
       <span className="co-row-meta">
         {contact.title && <span>{contact.title}</span>}
-        <Badge tone={strengthTone(contact.strength.bucket)}>
-          {contact.strength.score}
+        {/* Where this person stands with us. "No reply" and "never asked"
+            looked identical in this list and call for opposite next moves. */}
+        <Badge tone={reach === "answered" ? "success" : undefined}>
+          {t(reachLabelKey(reach))}
         </Badge>
-        {roles.map((role) => (
-          <Badge key={role}>{role}</Badge>
-        ))}
+        {roles.map((entry) => {
+          const deal = nameOfDeal(entry.deal_id);
+          return (
+            <Badge key={`${entry.deal_id}:${entry.role}`}>
+              {deal
+                ? `${dealRoleLabel(entry.role, t)} · ${deal}`
+                : dealRoleLabel(entry.role, t)}
+            </Badge>
+          );
+        })}
         <ConsentChip consent={contact.consent} />
+        {/* The page said "nobody here is your champion" and gave no way to
+            say who is: the roles are set on the deal screen, which is a
+            different page and a different task. */}
+        {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
       </span>
     </li>
   );
-}
-
-// strengthTone maps the server's bucket onto a badge tone. The bucket is
-// the server's word; nothing here re-derives a band from the score.
-function strengthTone(
-  bucket: Contact["strength"]["bucket"],
-): "success" | "accent" | undefined {
-  if (bucket === "strong") {
-    return "success";
-  }
-  if (bucket === "warm") {
-    return "accent";
-  }
-  return undefined;
 }
 
 /**
@@ -335,7 +635,15 @@ function ConsentChip({ consent }: Readonly<{ consent: Contact["consent"] }>) {
 }
 
 /** DealsCard lists the open pipeline plus the two lifetime figures. */
-export function DealsCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function DealsCard({
+  view,
+  actions,
+}: Readonly<{
+  view?: Organization360;
+  // The verbs that change this section, rendered under it. Absent on an
+  // archived record, which takes no new deals.
+  actions?: ReactNode;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const deals = view?.deals;
@@ -361,6 +669,10 @@ export function DealsCard({ view }: Readonly<{ view?: Organization360 }>) {
           </p>
         )
       }
+      // The verb sits under the section it changes, and renders whatever the
+      // section's own state is: "no open deal on this account" is exactly the
+      // reading that should be one click from opening one.
+      actions={actions}
     >
       <ul className="co-list">
         {(deals?.data ?? []).map((deal) => (
@@ -409,21 +721,40 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
  * caller who could read tags but not lists was told "not on any list, and no
  * tags applied", which was false about the half nobody had answered for.
  */
-export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function TagsCard({
+  view,
+  listAction,
+  tagAction,
+}: Readonly<{
+  view?: Organization360;
+  // One verb per SECTION, not one per card. The two halves are governed by
+  // different grants, so a caller who may read tags but not lists must be
+  // offered the tag verb and not the list one — the same rule the card
+  // already applies to what it displays.
+  listAction?: ReactNode;
+  tagAction?: ReactNode;
+}>) {
   const t = useT();
   const tags = view?.tags ?? [];
   const lists = view?.list_memberships ?? [];
+  const listState = sectionState(
+    view,
+    "list_memberships",
+    Boolean(view?.list_memberships),
+    lists.length,
+  );
+  const tagState = sectionState(view, "tags", Boolean(view?.tags), tags.length);
+  // Present means read and answered — ready or empty. A withheld section says
+  // the caller may not see it, and an unavailable one says nobody knows; a
+  // verb on either offers a write whose refusal would be the first the reader
+  // hears of the limit.
+  const shows = (state: SectionState) => state === "ready" || state === "empty";
   return (
     <section className="card co-card">
       <SectionHeader title={t("co.tags.title")} />
       <SectionPart
         label={t("co.tags.lists")}
-        state={sectionState(
-          view,
-          "list_memberships",
-          Boolean(view?.list_memberships),
-          lists.length,
-        )}
+        state={listState}
         emptyLabel={t("co.tags.noLists")}
       >
         <p className="co-row-meta">
@@ -436,7 +767,7 @@ export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
       </SectionPart>
       <SectionPart
         label={t("co.tags.tags")}
-        state={sectionState(view, "tags", Boolean(view?.tags), tags.length)}
+        state={tagState}
         emptyLabel={t("co.tags.noTags")}
       >
         <p className="co-row-meta">
@@ -445,6 +776,16 @@ export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
           ))}
         </p>
       </SectionPart>
+      {/* The strip exists only when something is IN it. An archived company
+          passes no verbs, and a wrapper rendered anyway leaves an empty box
+          and its margin under the card — SectionCard already gates on the
+          same condition. */}
+      {((shows(tagState) && tagAction) || (shows(listState) && listAction)) && (
+        <div className="co-card-actions">
+          {shows(tagState) && tagAction}
+          {shows(listState) && listAction}
+        </div>
+      )}
     </section>
   );
 }
@@ -494,76 +835,13 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
           <li key={signal.id} className="co-row">
             <span>{signal.summary}</span>
             <span className="co-row-meta">
-              <Badge>{signal.kind}</Badge>
+              <Badge>{t(SIGNAL_KIND_LABELS[signal.kind])}</Badge>
               <span>{formatDate(signal.detected_at, locale, RECORD_ZONE)}</span>
             </span>
           </li>
         ))}
       </ul>
     </SectionCard>
-  );
-}
-
-/**
- * SinceLastVisit is the "what changed" line. It reports only the dimensions
- * it was allowed to count: a null count means the caller lacks that grant,
- * which is not the same as zero, so those lines are absent rather than "0".
- */
-export function SinceLastVisit({
-  view,
-  onOpenDecisions,
-}: Readonly<{
-  view: Organization360;
-  // Given, the proposals count opens the queue it counts. Absent, it stays a
-  // badge — the count is still true, it just has nowhere to send the reader.
-  onOpenDecisions?: () => void;
-}>) {
-  const t = useT();
-  const delta = view.since_last_visit;
-  // Withheld or missing: the line is dropped rather than claiming nothing
-  // changed. "Nothing new" is a fact this page would not have.
-  if (!delta || omitted(view, "since_last_visit")) {
-    return null;
-  }
-  const lines: string[] = [];
-  if (delta.new_activities > 0) {
-    lines.push(t("co.since.activities", { count: delta.new_activities }));
-  }
-  if (delta.deal_stage_moves) {
-    lines.push(t("co.since.moves", { count: delta.deal_stage_moves }));
-  }
-  const proposals = delta.pending_proposals
-    ? t("co.since.proposals", { count: delta.pending_proposals })
-    : null;
-  const first = !delta.baseline_at;
-  const empty = lines.length === 0 && !proposals;
-  return (
-    <section className="card co-since">
-      <SectionHeader title={t("co.since.title")} />
-      {first && <p className="co-empty">{t("co.since.first")}</p>}
-      {!first && empty && <p className="co-empty">{t("co.since.nothing")}</p>}
-      {!empty && (
-        <p className="co-row-meta">
-          {lines.map((line) => (
-            <Badge key={line} tone="accent">
-              {line}
-            </Badge>
-          ))}
-          {proposals &&
-            (onOpenDecisions ? (
-              <button
-                type="button"
-                className="co-since-open"
-                onClick={onOpenDecisions}
-              >
-                <Badge tone="accent">{proposals}</Badge>
-              </button>
-            ) : (
-              <Badge tone="accent">{proposals}</Badge>
-            ))}
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -814,6 +1092,182 @@ function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
   );
 }
 
+/**
+ * AccountBrief is what a rep reads before they do anything else on this page:
+ * where this account stands with us, then what the company itself is.
+ *
+ * It replaces reading the record. The page used to answer "what is this
+ * company" with sixteen scraped statements in a rail card, every value a
+ * paragraph — a wall nobody reads before a call. The same statements now feed
+ * two sentences here and stay underneath for whoever wants them.
+ *
+ * Fetched on open, not on request. The server rewrites a brief whose inputs
+ * have moved before it answers, so what renders is always current and an
+ * account nobody has touched costs no model call at all. "Refresh" is for a
+ * reader who wants it rewritten anyway.
+ */
+export function AccountBrief({
+  orgId,
+  view,
+  enabled,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  // The 360 the page already holds. The brief itself is written server-side;
+  // this is for the two things it cannot write — what to DO next, and whether
+  // any of the account was withheld from this reader.
+  view?: Organization360;
+  enabled: boolean;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const queryClient = useQueryClient();
+  const brief = useQuery({
+    queryKey: ["org-brief", orgId],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+  const rewrite = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) => queryClient.setQueryData(["org-brief", orgId], data),
+  });
+
+  if (!enabled) {
+    return null;
+  }
+  const written: Brief | undefined = brief.data;
+  // A payload without sentences is a brief this build cannot read, not an
+  // account with nothing to say — the same distinction every card here keeps.
+  const readable = Array.isArray(written?.sentences) ? written : undefined;
+  return (
+    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
+      <h2 className="co-part-label">{t("co.brief.title")}</h2>
+      {brief.isPending && <Skeleton width="100%" height={64} />}
+      {/* Errored, or answered with a payload this build cannot read: both are
+          "no brief to show", and rendering the heading over nothing would be a
+          card that looks broken rather than one that says so. */}
+      {(brief.isError || (!brief.isPending && !readable)) && (
+        <EmptyState>{t("co.brief.unavailable")}</EmptyState>
+      )}
+      {readable && readable.sentences.length === 0 && (
+        <EmptyState>{t("co.brief.empty")}</EmptyState>
+      )}
+      {readable && readable.sentences.length > 0 && (
+        <SentenceList
+          sentences={readable.sentences}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      {readable && (
+        <p className="co-brief-meta">
+          {/* Who wrote it and when, always — a reader weighing a sentence
+              needs both, and an undated summary is one nobody can trust. */}
+          <WrittenBy by={readable.generated_by} />
+          <span className="t-small">
+            {t("co.brief.generatedAt", {
+              when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
+            })}
+          </span>
+          <Button
+            small
+            onClick={() => rewrite.mutate()}
+            disabled={rewrite.isPending}
+          >
+            {rewrite.isPending
+              ? t("co.brief.rewriting")
+              : t("co.brief.rewrite")}
+          </Button>
+        </p>
+      )}
+      {rewrite.isError && (
+        <p className="t-caption form-error">{rewrite.error.message}</p>
+      )}
+      {/* What to do about it, in the same block that said what it is. These
+          were two cards — one describing the account, one advising on it —
+          so the reader carried the reading from the first into the second
+          themselves. */}
+      {view && (
+        <SuggestionsSection
+          orgId={orgId}
+          view={view}
+          onOpenRecord={onOpenRecord}
+        />
+      )}
+      <BriefFooter view={view} />
+    </section>
+  );
+}
+
+// BriefFooter is the reading's own caveats: what moved while the reader was
+// away, and whether any of the account was withheld from them. Split out
+// because it answers questions ABOUT the brief rather than being part of it.
+function BriefFooter({ view }: Readonly<{ view?: Organization360 }>) {
+  const t = useT();
+  const since = sinceLastVisit(view);
+  return (
+    <p className="co-prep-foot">
+      {/* Never both: on a first open the server counts every activity as new,
+          and "14 new items" beside "you are opening this account for the first
+          time" is the page contradicting itself. */}
+      {firstVisit(view) && (
+        <span className="t-caption">{t("co.since.first")}</span>
+      )}
+      {!firstVisit(view) && since > 0 && (
+        <span className="t-caption">
+          {t(
+            since === 1 ? "co.read.newActivityOne" : "co.read.newActivityMany",
+            { count: since },
+          )}
+        </span>
+      )}
+      {/* Withheld sections are named once, about the whole reading, rather
+          than as a refusal beside each line the reader did not get. */}
+      {(view?.sections_omitted?.length ?? 0) > 0 && (
+        <span className="t-caption">{t("co.prep.withheld")}</span>
+      )}
+    </p>
+  );
+}
+
+// sinceLastVisit is how many activities landed since the reader's baseline.
+//
+// Zero and "not counted" are different answers and neither earns a line: a
+// withheld section means nobody counted, and a counted zero means nothing
+// happened — reporting either as news would be a claim the page cannot make.
+function sinceLastVisit(view?: Organization360): number {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return 0;
+  }
+  return view.since_last_visit?.new_activities ?? 0;
+}
+
+// firstVisit is true only when the account HAS a baseline section and it is
+// empty. Read off an absent section it would turn data a reader's grants
+// withheld into a claim about their own history.
+function firstVisit(view?: Organization360): boolean {
+  if (!view || (view.sections_omitted ?? []).includes("since_last_visit")) {
+    return false;
+  }
+  return Boolean(view.since_last_visit) && !view.since_last_visit?.baseline_at;
+}
+
 // The prepared questions, in the order the card offers them: what is open now,
 // then what to walk in with, then what has moved.
 //
@@ -1031,110 +1485,6 @@ export function SuggestionsSection({
             ? ` ${dismiss.error.message}`
             : null}
         </p>
-      )}
-    </section>
-  );
-}
-
-/** useOrganizationBrief reads the standing brief for this account. */
-export function useOrganizationBrief(id: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["organization-brief", id],
-    enabled,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/organizations/{id}/brief", {
-        params: { path: { id } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-}
-
-/**
- * BriefCard leads the middle column with the account in a few sentences.
- *
- * Two things are always visible, because a reader deciding how much to
- * trust a sentence needs both: WHO wrote it — a model, or the deterministic
- * fallback — and whether it is still current. Every sentence carries the
- * records it was written from, and those are always records this reader can
- * open, because the brief was assembled under their own row scope.
- */
-export function BriefSection({
-  orgId,
-  enabled,
-  onOpenRecord,
-}: Readonly<{
-  orgId: string;
-  enabled: boolean;
-  onOpenRecord?: (entityType: string, entityId: string) => void;
-}>) {
-  const t = useT();
-  const { locale } = useLocale();
-  const query = useOrganizationBrief(orgId, enabled);
-  const client = useQueryClient();
-  const refresh = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST("/organizations/{id}/brief", {
-        params: { path: { id: orgId } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-    onSuccess: (data) =>
-      client.setQueryData(["organization-brief", orgId], data),
-  });
-
-  if (!enabled) {
-    return null;
-  }
-  const brief: Brief | undefined = query.data;
-  // A payload without sentences is a brief this build cannot read, not an
-  // account with nothing to say about it — the same distinction every other
-  // card on this page keeps.
-  const readable = Array.isArray(brief?.sentences) ? brief : undefined;
-  const unreadable = !query.isPending && !query.isError && !readable;
-  return (
-    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
-      <h3 className="co-part-label">{t("co.brief.title")}</h3>
-      {query.isPending && <Skeleton width="100%" height={40} />}
-      {(query.isError || unreadable) && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
-      )}
-      {readable && (
-        <>
-          <SentenceList
-            sentences={readable.sentences}
-            onOpenRecord={onOpenRecord}
-          />
-          <p className="co-row-meta">
-            <WrittenBy by={readable.generated_by} />
-            <span>
-              {t("co.brief.generatedAt", {
-                when: formatDate(readable.generated_at, locale, RECORD_ZONE),
-              })}
-            </span>
-            <Button
-              small
-              onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
-            >
-              {t("co.brief.refresh")}
-            </Button>
-            {/* A refresh that failed must say so: the button re-enabling on
-                its own reads as "done", and the reader would take the brief
-                in front of them for the refreshed one. */}
-            {refresh.isError && (
-              <span className="co-restricted">
-                {t("co.brief.refreshFailed")}
-              </span>
-            )}
-          </p>
-        </>
       )}
     </section>
   );

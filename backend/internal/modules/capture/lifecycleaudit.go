@@ -3,11 +3,10 @@
 
 package capture
 
-// The audit half of the write shape for capture's own lifecycle records —
-// the connector connection a human grants and withdraws, and the exclusion
-// rules they keep. Every mutation of these rows is somebody's deliberate act
-// over their mailbox, which is exactly the kind of change the audit spine
-// exists to attribute.
+// The audit half of the write shape for capture's own lifecycle records — the
+// connector connection a human grants and withdraws. Every mutation of these
+// rows is somebody's deliberate act over their mailbox, which is exactly the
+// kind of change the audit spine exists to attribute.
 
 import (
 	"context"
@@ -22,19 +21,15 @@ import (
 // captureConnectionObject names the connector connection in the audit trail.
 const captureConnectionObject = "capture_connection"
 
-// captureExclusionRuleObject names a personal-mail exclusion rule in the
-// audit trail.
-const captureExclusionRuleObject = "capture_exclusion_rule"
-
 // auditLifecycle writes the audit row for one capture lifecycle mutation
 // inside that mutation's own transaction, so the record and its attribution
 // commit together or not at all.
 //
 // It is audit-only. The paired event half of the write shape needs a kernel
-// entity kind for the record it announces, and neither the connector
-// connection nor the exclusion rule is modelled as one — the closed event
-// catalog defines no verb that could carry them. This is the same ratified
-// posture the capture-settings write holds (EVT-NOEVT-3), not an omission.
+// entity kind for the record it announces, and the connector connection is not
+// modelled as one — the closed event catalog defines no verb that could carry
+// it. This is the same ratified posture the capture-settings write holds
+// (EVT-NOEVT-3), not an omission.
 //
 // before is nil when the mutation creates the record. Neither image ever
 // carries credential material: the vault is the custodian of the secret and
@@ -57,17 +52,5 @@ func connectionAuditImage(provider, status string, accountLabel *string) map[str
 		"provider":      provider,
 		"status":        status,
 		"account_label": accountLabel,
-	}
-}
-
-// exclusionAuditImage is one side of an exclusion rule's audit trail. The
-// archived flag is what makes a removal legible: the rule's kind and value
-// survive on both images, so the trail answers WHICH privacy boundary moved,
-// not merely that one did.
-func exclusionAuditImage(kind, value string, archived bool) map[string]any {
-	return map[string]any{
-		"kind":     kind,
-		"value":    value,
-		"archived": archived,
 	}
 }

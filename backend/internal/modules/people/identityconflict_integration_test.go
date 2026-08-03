@@ -37,8 +37,12 @@ type evidenceEntry struct {
 // Person A, the phone lane to Person B".
 func (e *dedupeEnv) seedConflictingPair(ctx context.Context, t *testing.T, phone string, ci connector.ChannelIdentity) (personA, personB ids.PersonID) {
 	t.Helper()
-	personA = e.seedPerson(ctx, t, "Person A", []string{"a@identityconflict.test"}, nil)
-	personB = e.seedPerson(ctx, t, "Person B", []string{"b@identityconflict.test"}, []string{phone})
+	// Deliberately UNALIKE names on the same mail domain. This suite is about a
+	// conflict between two identity LANES — a phone naming one person, a channel
+	// handle naming another — so the pair must not also collide on name
+	// similarity, which would put a second row in the queue these tests count.
+	personA = e.seedPerson(ctx, t, "Ada Lovelace", []string{"a@identityconflict.test"}, nil)
+	personB = e.seedPerson(ctx, t, "Grace Hopper", []string{"b@identityconflict.test"}, []string{phone})
 	e.bindIdentity(ctx, t, personA, ci)
 	return personA, personB
 }
@@ -65,7 +69,7 @@ func TestExactLaneConflictEnqueuesOneIdentityReviewNamingBothPersonsAndLanes(t *
 	personA, personB := e.seedConflictingPair(ctx, t, "+4915100000099", ci)
 
 	candidate := PersonCandidate{
-		FullName:          "Person B",
+		FullName:          "Grace Hopper",
 		Phones:            []string{"+4915100000099"},
 		ChannelIdentities: []connector.ChannelIdentity{ci},
 	}
@@ -121,7 +125,7 @@ func TestExactLaneConflictEnqueueWritesNothingOntoTheRival(t *testing.T) {
 	personA, personB := e.seedConflictingPair(ctx, t, "+4915100000098", ci)
 
 	candidate := PersonCandidate{
-		FullName:          "Person B",
+		FullName:          "Grace Hopper",
 		Phones:            []string{"+4915100000098"},
 		ChannelIdentities: []connector.ChannelIdentity{ci},
 	}
@@ -149,7 +153,7 @@ func TestRepeatedConflictingMessageDoesNotEnqueueASecondReview(t *testing.T) {
 	personA, _ := e.seedConflictingPair(ctx, t, "+4915100000097", ci)
 
 	candidate := PersonCandidate{
-		FullName:          "Person B",
+		FullName:          "Grace Hopper",
 		Phones:            []string{"+4915100000097"},
 		ChannelIdentities: []connector.ChannelIdentity{ci},
 	}

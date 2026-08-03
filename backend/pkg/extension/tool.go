@@ -99,6 +99,12 @@ var toolNameGrammar = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 type Tool struct {
 	// Name is the tool verb, lower snake_case, unique within the unit.
 	Name string
+	// Title is the human-readable label tools/list shows in place of Name
+	// (the protocol's display precedence is title > name). Optional: a unit
+	// that declares none is listed under its verb, which is what a client
+	// falls back to anyway. It carries no authority and the manifest
+	// generator does not read it — a display string is not a declaration.
+	Title string
 	// Version is the tool's own version, recorded for the registry; it
 	// carries no authority (decisions bind to digests, not versions).
 	Version string

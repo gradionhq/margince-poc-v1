@@ -235,6 +235,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/consent-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the OAuth consent screen renders for one pending authorization.
+         * @description Session-authenticated. Resolves the requesting client from the database and lists the
+         *     passports the signed-in human may lend to it: their own, unrevoked, unexpired, and not
+         *     already bound to a connection. What the client asked for excludes none of them, because
+         *     a lend grants the passport's own scopes. Human-only — an agent must never read or drive
+         *     a consent screen.
+         */
+        get: operations["getConsentRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people": {
         parameters: {
             query?: never;
@@ -2901,6 +2925,70 @@ export interface paths {
         patch: operations["updateCaptureSettings"];
         trace?: never;
     };
+    "/capture/consumer-mail-domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace's own consumer-mail domain list (CAP-PARAM-5).
+         * @description The workspace's additions to and carve-outs from the shipped consumer-mail baseline.
+         *     Mail from a consumer domain still creates the person; what it never creates is a
+         *     company. Every human role may read the list; only admin/ops may change it. Governed by
+         *     the `capture_settings` RBAC object.
+         *
+         *     Human-only, like the personal-mail exclusion list it replaces: the list names the domains
+         *     this installation corresponds with and which of them it treats as consumer mail, which is
+         *     capture posture rather than record data, and no agent task needs it.
+         */
+        get: operations["listConsumerMailDomains"];
+        put?: never;
+        /**
+         * Add a consumer-mail domain, or carve one out (admin/ops).
+         * @description Admin/ops-only, human session only — an agent never changes a workspace-wide capture
+         *     posture. `kind: extra` marks a domain the baseline missed as consumer mail; `kind: never`
+         *     takes one back out and wins over the baseline, which is the only way back in for an
+         *     operator whose real customers mail from a domain the shipped list claims.
+         *
+         *     The domain is normalized to its registrable form (`mail.gmx.net` is stored as `gmx.net`),
+         *     because that is what the matcher keys on. Idempotent on the domain: re-adding returns the
+         *     existing entry and changing an entry's kind updates it, since a domain cannot be both
+         *     added and carved out. Audit-only write (no event stream, EVT-NOEVT-3).
+         */
+        post: operations["addConsumerMailDomain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/consumer-mail-domains/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw a consumer-mail list entry (admin/ops).
+         * @description Returns the workspace to the shipped baseline's answer for that domain. Idempotent:
+         *     withdrawing an entry that is not there is a no-op, because the caller's intent is
+         *     already satisfied.
+         */
+        delete: operations["removeConsumerMailDomain"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/usage": {
         parameters: {
             query?: never;
@@ -3079,59 +3167,6 @@ export interface paths {
          */
         post: operations["undoDedupeDisposition"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/capture/exclusions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List the calling user's personal-mail exclusion rules (RC-2).
-         * @description The bounded per-user rule set that gates whether ingestion writes anything at all (RC-2):
-         *     exclude by sender domain, recipient domain, or mail label — deliberately NOT a filtering
-         *     DSL. A matching message produces zero CRM rows plus a `capture.skipped{personal_exclusion}`
-         *     event (capture.md CAP-DDL-3, EVT-SEM-10). Personal by nature — a rep manages their own.
-         */
-        get: operations["listCaptureExclusions"];
-        put?: never;
-        /**
-         * Add a personal-mail exclusion rule (RC-2).
-         * @description Adds one bounded rule — `kind` ∈ `sender_domain` | `recipient_domain` | `label`, `value`
-         *     the domain or label. Idempotent on (user, kind, value): re-adding an existing rule is a
-         *     no-op returning the existing row. Human-only — an agent must not widen or narrow a human's
-         *     personal-mail boundary.
-         */
-        post: operations["createCaptureExclusion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/capture/exclusions/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove a personal-mail exclusion rule (RC-2).
-         * @description Removes one of the caller's own rules. Idempotent. Human-only.
-         */
-        delete: operations["deleteCaptureExclusion"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4782,6 +4817,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who on our team knows this contact, and how well.
+         * @description The person-anchored answer to the question the company connections card answers
+         *     per account: which colleagues have a real recorded relationship with this
+         *     contact, warmest first.
+         *
+         *     Warmth is the per-user relationship strength (PO-F-3b) — the same recency ×
+         *     frequency × reciprocity arithmetic as the contact's workspace-wide score, over
+         *     only the interactions THAT colleague was in. The two are not comparable by
+         *     addition and are never merged: a contact can be warm to the company while the
+         *     colleague beside them has barely met them, and that gap is the answer to "who
+         *     should make the introduction".
+         *
+         *     A colleague with no qualifying interaction in the window carries the `none`
+         *     band and no number — "we have never spoken" and "we spoke and it went cold" are
+         *     different facts, and a zero would render them identically.
+         *
+         *     Departed colleagues are absent: the surface exists to name someone who can act.
+         *     A contact the caller cannot read answers 404, never a leak of its existence.
+         */
+        get: operations["getPersonNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who covers this deal, and what is wrong with how it is covered.
+         * @description Every seat on the deal, which of them are actually engaged, which colleagues
+         *     carry the contact, and the risks that follow.
+         *
+         *     **Engaged means a two-way exchange**, not a seat on a list: both an inbound and
+         *     an outbound qualifying interaction in the window. A deal threaded only through
+         *     people who never replied is exactly what these flags exist to catch, and it is
+         *     the same test the deal-health composite uses — one definition, so two screens
+         *     cannot disagree about the same deal.
+         *
+         *     Risk kinds and their sources: `single_threaded_theirs` is REPORT-PARAM-1
+         *     verbatim (fewer than two engaged contacts); `single_threaded_ours` is
+         *     GRAPH-RISK-1, a statement about OUR coverage rather than the customer's, which
+         *     is why it carries its own id; `coverage_gap` is a deal with seats but no engaged
+         *     champion — a well-threaded deal nobody inside is arguing for.
+         *
+         *     Every risk carries the ids behind it. A flag a human cannot drill into is a red
+         *     dot nobody can act on.
+         */
+        get: operations["getDealCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/linkedin-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import your own LinkedIn connections export.
+         * @description Upload the `Connections.csv` LinkedIn hands every member under
+         *     Settings → Data privacy → Get a copy of your data. No LinkedIn app or API
+         *     approval is involved: this is your own export, imported into your own network.
+         *
+         *     **The imported rows are not contacts.** They are graph substrate — they never
+         *     appear in search, lists, the people screens, or the assistant's record tools,
+         *     nothing can write to them, and no outreach can reach them. They exist to answer
+         *     one question: does anyone here already know someone at this company.
+         *
+         *     The network is yours. The owner is the authenticated caller, never a field in
+         *     the file, so nobody can attribute a stranger's connections to a colleague.
+         *
+         *     Re-importing a refreshed export updates rather than duplicates. Rows with no
+         *     usable name are counted as skipped rather than silently dropped — an import that
+         *     quietly ignored half a file while reporting success is worse than one that fails.
+         *
+         *     Matching runs after the import and follows the house dedupe rule: an exact email
+         *     match confirms automatically, name-plus-employer only suggests, and an ambiguous
+         *     name suggests nothing. Nothing here ever creates a person.
+         */
+        post: operations["importLinkedInConnections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/linkedin-reach": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which accounts your imported network reaches.
+         * @description The account-level payoff of importing an export, and the one answer the ghosts
+         *     exist to give: for each organization on file, how many of your connections work
+         *     there, and how many of those are already contacts.
+         *
+         *     Ranked by connection count, then by name, so two reads of an unchanged network
+         *     return the same order.
+         *
+         *     Only organizations the caller can READ appear, under the ordinary organization
+         *     row scope. A connection whose employer resolved to no account is not reported
+         *     here — there is no account to name — which is why the totals on this response and
+         *     on the import summary differ and are both true.
+         */
+        get: operations["getMyLinkedInReach"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/linkedin-account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your own LinkedIn account as this CRM records it.
+         * @description Always the CALLER's row, never anybody else's. A colleague's professional
+         *     network is theirs, and no seat — including admin — reads or edits another
+         *     member's LinkedIn account through this API.
+         *
+         *     A member who has never been asked has no row, and that is not an error: the
+         *     response is simply not connected. The connection count is reported either
+         *     way, because an export can be uploaded from Settings without ever going
+         *     through the onboarding step.
+         */
+        get: operations["getMyLinkedInAccount"];
+        /**
+         * Record or correct your own LinkedIn profile.
+         * @description The profile URL is what the imported network is attributed to, so a member
+         *     can see and fix it. An empty `profile_url` CLEARS the stored value — a
+         *     member emptying the field means "do not record this", not "leave it".
+         *
+         *     `connected` records the authorization and never revokes one: disconnecting
+         *     is a deliberate act of its own, not a side effect of editing a URL.
+         */
+        put: operations["saveMyLinkedInAccount"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -5368,6 +5579,34 @@ export interface components {
             auto_enrich?: boolean;
         };
         /**
+         * @description One entry on the workspace's own consumer-mail list (CAP-PARAM-5). `extra` marks a
+         *     consumer domain the shipped baseline missed; `never` takes one back out of the baseline
+         *     that claimed it. Either way the domain is stored in its registrable form, which is what
+         *     the matcher keys on.
+         */
+        ConsumerMailDomain: {
+            /** Format: uuid */
+            id: string;
+            /** @description The registrable domain (e.g. `gmx.net`). */
+            domain: string;
+            /**
+             * @description `extra` — consumer mail the baseline missed. `never` — not consumer mail, whatever the baseline says.
+             * @enum {string}
+             */
+            kind: "extra" | "never";
+            /** Format: date-time */
+            readonly created_at?: string;
+        };
+        AddConsumerMailDomainRequest: {
+            /** @description A mail domain; normalized to its registrable form before it is stored. */
+            domain: string;
+            /** @enum {string} */
+            kind: "extra" | "never";
+        };
+        ConsumerMailDomainListResponse: {
+            data: components["schemas"]["ConsumerMailDomain"][];
+        };
+        /**
          * @description A per-user mail/calendar capture connection + sync state (capture.md CAP-DDL-2). The
          *     credential itself is NEVER in this shape — it lives encrypted in the vault, referenced only
          *     server-side by `credential_ref`.
@@ -5783,32 +6022,6 @@ export interface components {
             payload_capture_enabled: boolean;
             /** @description Every task with at least one terminal call, sorted — the complete filter option set (matches the terminal-only list), independent of the current page. */
             tasks: string[];
-        };
-        /**
-         * @description One bounded personal-mail exclusion rule (RC-2; capture.md CAP-DDL-3). A matching message
-         *     produces zero CRM rows and a `capture.skipped{personal_exclusion}` event. Deliberately not a
-         *     filtering DSL — a small typed (kind, value) pair, per connected user.
-         */
-        CaptureExclusionRule: {
-            /** Format: uuid */
-            id: string;
-            /**
-             * @description Match a sender domain, a recipient domain, or a mail label.
-             * @enum {string}
-             */
-            kind: "sender_domain" | "recipient_domain" | "label";
-            /** @description The normalized domain (e.g. `personal-family.example`) or the provider mail-label name. */
-            value: string;
-            /** Format: date-time */
-            readonly created_at?: string;
-        };
-        CreateCaptureExclusionRequest: {
-            /** @enum {string} */
-            kind: "sender_domain" | "recipient_domain" | "label";
-            value: string;
-        };
-        CaptureExclusionRuleListResponse: {
-            data: components["schemas"]["CaptureExclusionRule"][];
         };
         /** @description One workspace-level messaging-channel binding. The bot token never appears in this shape — it lives sealed in the vault, and it is the only secret a binding holds. */
         ChannelConnection: {
@@ -6840,6 +7053,192 @@ export interface components {
              */
             logo_url?: string | null;
         };
+        /** @description One colleague's own relationship with this contact. */
+        PersonNetworkColleague: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /** @description PO-F-3b, computed at read; null when the band is `none`. */
+            strength?: number | null;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+            interactions_90d: number;
+            /** Format: date-time */
+            last_at?: string | null;
+        };
+        /**
+         * @description The colleagues who know this contact, warmest first. Ordering is the answer, not
+         *     a presentation detail: it is who to ask.
+         */
+        PersonNetwork: {
+            /** Format: uuid */
+            person_id: string;
+            colleagues: components["schemas"]["PersonNetworkColleague"][];
+        };
+        /** @description One stakeholder seat, and whether it is a relationship or just a name. */
+        DealCoverageSeat: {
+            /** Format: uuid */
+            person_id: string;
+            role: string;
+            /** @description A two-way exchange in the window — both directions, not just our sends. */
+            engaged: boolean;
+        };
+        /**
+         * @description One finding, with the records behind it. `kind` names the rule so a surface can
+         *     explain the flag rather than assert it.
+         */
+        DealCoverageRisk: {
+            /** @enum {string} */
+            kind: "single_threaded_theirs" | "single_threaded_ours" | "coverage_gap" | "champion_left" | "stakeholder_left" | "going_cold";
+            summary: string;
+            person_ids?: string[];
+            user_ids?: string[];
+            /**
+             * @description Days since the deal's last captured touch, on `going_cold` only; null on every
+             *     other kind. It carries the number rather than a second `kind`, so the 30-day and
+             *     60-day no-touch views (REPORT-PARAM-2) are the same finding filtered — a deal at
+             *     61 days cannot appear on one surface and not the other.
+             */
+            days_since_touch?: number | null;
+        };
+        DealCoverage: {
+            /** Format: uuid */
+            deal_id: string;
+            stakeholders: components["schemas"]["DealCoverageSeat"][];
+            our_side: components["schemas"]["PersonNetworkColleague"][];
+            risks: components["schemas"]["DealCoverageRisk"][];
+        };
+        LinkedInAccount: {
+            /** @description Whether this member has authorized LinkedIn. */
+            connected: boolean;
+            /** Format: date-time */
+            connected_at?: string | null;
+            /**
+             * Format: uri
+             * @description The member's own public profile — what their imported network is attributed to.
+             */
+            profile_url?: string | null;
+            /** @description How many connections this member's imports currently hold (tombstoned rows excluded). */
+            connections: number;
+        };
+        SaveLinkedInAccountRequest: {
+            /** @description Absolute http(s) URL. Empty clears the stored value. */
+            profile_url?: string;
+            /**
+             * @description Record the authorization. Never revokes an existing one.
+             * @default false
+             */
+            connected: boolean;
+        };
+        /**
+         * @description What one import did, in the terms someone asked to trust it would check.
+         *     `skipped` is reported rather than hidden: a file half-ignored under a success
+         *     message is worse than a refusal.
+         */
+        LinkedInImportSummary: {
+            /** @description Connection rows found in the file. */
+            rows: number;
+            /** @description Rows stored (created or updated). */
+            imported: number;
+            /** @description Rows with no usable name — they identify nobody. */
+            skipped: number;
+            /** @description Matched to a contact by exact email address, which is identity here. */
+            confirmed: number;
+            /** @description Matched by name and employer — plausible, awaiting a human. */
+            suggested: number;
+        };
+        /**
+         * @description One imported connection, in the terms a human needs to judge the matcher's guess.
+         *     It is NOT a contact and never becomes one: it carries no id a record route
+         *     accepts, no timeline, and nothing can write to it.
+         *
+         *     The ORIGINAL name and company are what is shown, never the folded forms the
+         *     matcher compares on — a person confirming a match has to see what LinkedIn
+         *     actually said.
+         */
+        LinkedInConnection: {
+            /** Format: uuid */
+            id: string;
+            full_name: string;
+            /** @description Their headline role, as the export spelled it. */
+            position?: string | null;
+            company_name?: string | null;
+            /**
+             * @description Present only when this connection allowed their address to be exported. Its
+             *     presence is why a row confirmed itself; its absence is why most did not.
+             */
+            email?: string | null;
+            /** Format: date */
+            connected_on?: string | null;
+            /** @enum {string} */
+            match_status: "unmatched" | "suggested" | "confirmed" | "rejected";
+            /**
+             * Format: uuid
+             * @description The contact this is suggested to be, or confirmed as. Null when the matcher found nobody.
+             */
+            matched_person_id?: string | null;
+            /**
+             * @description The suggested contact's name, resolved under the caller's person row scope.
+             *     Null when the caller cannot read that contact — the suggestion is then not
+             *     actionable and the surface says so, rather than naming a record through a
+             *     side door.
+             */
+            matched_person_name?: string | null;
+            /** Format: uuid */
+            matched_org_id?: string | null;
+            matched_org_name?: string | null;
+        };
+        LinkedInConnectionListResponse: {
+            data: components["schemas"]["LinkedInConnection"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description An empty body accepts the matcher's own suggestion. `person_id` overrides it,
+         *     which is how a human corrects a wrong guess rather than rejecting it and losing
+         *     the connection entirely.
+         */
+        ConfirmLinkedInMatchRequest: {
+            /**
+             * Format: uuid
+             * @description The contact to link to. Omitted means the already-suggested one.
+             */
+            person_id?: string | null;
+        };
+        /** @description One decision's outcome, including what it did to the contact. */
+        LinkedInMatchDecision: {
+            connection: components["schemas"]["LinkedInConnection"];
+            /**
+             * @description Whether the confirmation wrote a LinkedIn handle onto the contact. False when
+             *     the contact already carried one (never overwritten), when the member has
+             *     recorded no profile URL of their own, and on every rejection.
+             */
+            profile_url_written: boolean;
+        };
+        /** @description One account this member's network reaches. */
+        LinkedInReachAccount: {
+            /** Format: uuid */
+            organization_id: string;
+            display_name: string;
+            /** @description How many of the caller's connections resolved to this account. An account with none is not listed. */
+            connections: number;
+            /**
+             * @description How many of those are already contacts — confirmed matches only. The gap
+             *     between this and `connections` is the answer the import was for: people you
+             *     know at this account who are not in the CRM.
+             */
+            contacts_on_file: number;
+        };
+        LinkedInReachResponse: {
+            accounts: components["schemas"]["LinkedInReachAccount"][];
+            /** @description Every account reached, not just the page returned — a truncated list read as the whole network would understate reach. */
+            accounts_total: number;
+            /**
+             * @description Connections whose employer matched no account on file. Reported because it is
+             *     the honest size of what this view cannot show, and because it is the number
+             *     that shrinks as accounts are created.
+             */
+            unresolved_connections: number;
+        };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
          *     always nodes in the same payload — an edge naming a record the caller may not
@@ -6859,10 +7258,12 @@ export interface components {
              *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
              *     the organization that records the edge to its counterparty.
              *     `owns` — `from` is the workspace member who owns the account.
-             *     `in_contact_with` — `from` is the workspace member who has recorded interactions
-             *     (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-             *     those interactions, so a task assigned to a teammate does not make one: an
-             *     assignment is intent, a logged email is contact.
+             *     `in_contact_with` — `from` is the workspace member who has been IN recorded
+             *     interactions (email, call, meeting) with the contact at `to`. It is drawn from
+             *     the recorded participants of those interactions, so it holds for
+             *     connector-captured mail as well as manually logged activity. Being copied on a
+             *     thread does not make one, and neither does a task assigned to a teammate: a cc
+             *     is exposure and an assignment is intent, while a logged exchange is contact.
              * @enum {string}
              */
             kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with" | "owns" | "in_contact_with";
@@ -6872,6 +7273,33 @@ export interface components {
              *     both `owns` and `in_contact_with`.
              */
             role?: string | null;
+            /**
+             * @description How warm this particular colleague's relationship with this contact is, 0–100,
+             *     on `in_contact_with` edges only; null on every other kind, which describes a
+             *     structural fact rather than a relationship.
+             *
+             *     It is the per-user relationship strength (PO-F-3b): the same recency ×
+             *     frequency × reciprocity arithmetic as the workspace-wide contact score, over
+             *     only the interactions THIS colleague was in. It is deliberately not comparable
+             *     by addition to the contact's own score — one answers "how warm is this contact
+             *     to us", the other "to this person among us", and neither is derivable from the
+             *     other.
+             *
+             *     Computed at read from exact timestamps and counts, never stored, so it decays
+             *     with the clock rather than with whenever a job last ran.
+             *
+             *     Null also when the colleague and contact have no qualifying interaction in the
+             *     scoring window, which is not the same as a zero — see `strength_bucket`.
+             */
+            strength?: number | null;
+            /**
+             * @description The display band for `strength`, so a surface renders the same words everywhere.
+             *     `none` means no qualifying interaction at all and is shown as "no signal yet",
+             *     never as a zero: "we have never spoken" and "we spoke and it went cold" are
+             *     different facts about an account.
+             * @enum {string|null}
+             */
+            strength_bucket?: "none" | "weak" | "moderate" | "strong" | null;
         };
         /**
          * @description The warm-intro route the account's most recent open signal proposes: which signal,
@@ -8650,8 +9078,14 @@ export interface components {
             page: components["schemas"]["PageInfo"];
         };
         ContextEntityRef: {
-            /** @enum {string} */
-            type: "person" | "organization" | "deal" | "lead" | "activity";
+            /**
+             * @description `user` is a workspace MEMBER, not a record — it appears only in the
+             *     `who_knows` section, where the item is a colleague who interacts with the
+             *     anchor contact. It carries the member's display name as `summary` and
+             *     routes nowhere: a client renders it as a name, not as a link to a record.
+             * @enum {string}
+             */
+            type: "person" | "organization" | "deal" | "lead" | "activity" | "user";
             /** Format: uuid */
             id: string;
         };
@@ -10589,6 +11023,31 @@ export interface components {
             /** Format: date-time */
             expires_at: string;
         };
+        /**
+         * @description One passport the signed-in human may lend to the requesting client. `scopes` is both
+         *     what the passport carries and what a connection lending it receives: the client's
+         *     request does not narrow the grant, so there is no second, smaller set beside it.
+         */
+        ConsentPassportOption: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            scopes: ("read" | "draft" | "write" | "send" | "enrich")[];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        /**
+         * @description What the consent screen renders. The client name is resolved from the database, never
+         *     from the request URL, so no caller can put words on a consent screen. The consent
+         *     nonce is NOT here: it reaches the screen in the redirect fragment, because the
+         *     consent cookie is `Path=/oauth/authorize` and never arrives at this endpoint.
+         */
+        ConsentRequest: {
+            client_name: string;
+            /** @description The client asked to stay connected without asking again (offline_access). */
+            offline: boolean;
+            passports: components["schemas"]["ConsentPassportOption"][];
+        };
         /** @description Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token. */
         PassportSummary: {
             /** Format: uuid */
@@ -11388,6 +11847,38 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    getConsentRequest: {
+        parameters: {
+            query: {
+                client_id: string;
+                /**
+                 * @description The space-delimited scopes the client requested. Only the offline_access marker in it
+                 *     is read, and reported back as `offline`: the access scopes bound nothing, since a lend
+                 *     grants the chosen passport's own.
+                 */
+                scope: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The consent screen's contents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsentRequest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listPeople: {
@@ -14202,6 +14693,14 @@ export interface operations {
                             /** Format: date-time */
                             end: string;
                         }[];
+                        /**
+                         * @description True when at least one more free slot exists after the last one returned: the
+                         *     walk is capped and found a further candidate before stopping. To reach the rest,
+                         *     ask again with `from` set after the last slot returned — narrowing the window
+                         *     does not help, since the walk starts at `from` either way. Declared because a
+                         *     capped list read as complete is how a caller concludes there is no later opening.
+                         */
+                        truncated: boolean;
                     };
                 };
             };
@@ -14325,6 +14824,14 @@ export interface operations {
                             /** Format: date-time */
                             end: string;
                         }[];
+                        /**
+                         * @description True when at least one more free slot exists after the last one returned: the
+                         *     walk is capped and found a further candidate before stopping. To reach the rest,
+                         *     ask again with `from` set after the last slot returned — narrowing the window
+                         *     does not help, since the walk starts at `from` either way. Declared because a
+                         *     capped list read as complete is how a caller concludes there is no later opening.
+                         */
+                        truncated: boolean;
                     };
                 };
             };
@@ -17097,6 +17604,78 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listConsumerMailDomains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's list entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumerMailDomainListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    addConsumerMailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddConsumerMailDomainRequest"];
+            };
+        };
+        responses: {
+            /** @description The entry (or the existing one, on an idempotent re-add). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsumerMailDomain"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removeConsumerMailDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Entry withdrawn (or already absent). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     getAiUsage: {
         parameters: {
             query?: {
@@ -17316,76 +17895,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-        };
-    };
-    listCaptureExclusions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The calling user's exclusion rules. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CaptureExclusionRuleListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-        };
-    };
-    createCaptureExclusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCaptureExclusionRequest"];
-            };
-        };
-        responses: {
-            /** @description Rule created (or the existing rule, on an idempotent re-add). */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CaptureExclusionRule"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            422: components["responses"]["ValidationError"];
-        };
-    };
-    deleteCaptureExclusion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
-                id: components["parameters"]["Id"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Rule removed (or already absent). */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            401: components["responses"]["Unauthorized"];
-            404: components["responses"]["NotFound"];
         };
     };
     listApprovals: {
@@ -21328,6 +21837,163 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The colleagues who know this contact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonNetwork"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealCoverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal's coverage and its risks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealCoverage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    importLinkedInConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description LinkedIn `Connections.csv`.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What the import stored and what the matcher decided. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInImportSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getMyLinkedInReach: {
+        parameters: {
+            query?: {
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The accounts this member's network reaches. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInReachResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's LinkedIn account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    saveMyLinkedInAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLinkedInAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInAccount"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
         };
     };

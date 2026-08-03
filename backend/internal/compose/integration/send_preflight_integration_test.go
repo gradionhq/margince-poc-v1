@@ -201,7 +201,14 @@ func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
 // is where the "what do I do about it" has to live.
 func (p *preflightEnv) send(t *testing.T) (status int, code, message string) {
 	t.Helper()
+	// Both shapes of a 422: a per-field breakdown when the refusal names an
+	// input the caller can change, and the top-level code when it names a
+	// condition instead (no send-capable mailbox is authority, not an
+	// argument). Reading only the field list returned "" for the second kind,
+	// which reads as "no code" rather than "a code this helper cannot see".
 	var problem struct {
+		Code    string `json:"code"`
+		Detail  string `json:"detail"`
 		Details struct {
 			Errors []struct {
 				Field   string `json:"field"`
@@ -217,7 +224,7 @@ func (p *preflightEnv) send(t *testing.T) (status int, code, message string) {
 	if errs := problem.Details.Errors; len(errs) > 0 {
 		return status, errs[0].Code, errs[0].Message
 	}
-	return status, "", ""
+	return status, problem.Code, problem.Detail
 }
 
 // stagedDeliveries counts comms_outbound rows — the fact a refusal must not

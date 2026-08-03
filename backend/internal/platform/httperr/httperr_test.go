@@ -156,3 +156,56 @@ func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
 		})
 	}
 }
+
+// Classify is the verdict every surface reads, so the scrubbing that keeps
+// operator text off the REST wire has to live in it rather than in Write —
+// otherwise the MCP dispatcher, rendering the same Fault, would put a driver
+// message in front of an untrusted agent. Detail carries the sentinel's own
+// words and the raw cause comes back separately, for the surface to log.
+func TestClassify_withholdsInfrastructureTextFromEverySurface(t *testing.T) {
+	cause := &pgconn.PgError{Severity: "ERROR", Code: "23505", Message: "duplicate key on host db-internal:5432"}
+	fault, ok := Classify(fmt.Errorf("saving: %w: %w", apperrors.ErrConflict, cause))
+	if !ok {
+		t.Fatal("a wrapped sentinel was not classified")
+	}
+	if strings.Contains(fault.Detail, "db-internal") || strings.Contains(fault.Detail, "23505") {
+		t.Errorf("Detail = %q, want the sentinel's own words with no driver text", fault.Detail)
+	}
+	if fault.InfraCause == nil {
+		t.Error("InfraCause is nil — the surface has nothing to log, so the cause is lost entirely")
+	}
+}
+
+// Whether repeating a call could ever help is the one thing a caller most
+// needs from a verdict, and it is read off the status so that no surface has
+// to re-derive it. A rate limit clears on its own; a refusal does not.
+func TestFault_transientMeansRepeatingTheCallCanHelp(t *testing.T) {
+	cases := map[error]bool{
+		apperrors.ErrBudgetExceeded:                      true,
+		apperrors.ErrIncumbentBudgetExhausted:            true,
+		apperrors.ErrConflict:                            false,
+		apperrors.ErrConsentNotGranted:                   false,
+		apperrors.ErrSeatTierInsufficient:                false,
+		apperrors.ErrUnsupportedBySoR:                    false,
+		&datasource.UnsupportedEntityError{Type: "deal"}: false,
+	}
+	for err, want := range cases {
+		fault, ok := Classify(fmt.Errorf("call: %w", err))
+		if !ok {
+			t.Errorf("%v was not classified", err)
+			continue
+		}
+		if got := fault.Transient(); got != want {
+			t.Errorf("Classify(%v).Transient() = %v, want %v (status %d)", err, got, want, fault.Status)
+		}
+	}
+}
+
+// An error outside the taxonomy is the one case that must NOT be classified:
+// it is a server fault, and reporting it as anything else hands a caller a
+// verdict the system never actually reached.
+func TestClassify_leavesUnknownErrorsToTheOpaque500(t *testing.T) {
+	if fault, ok := Classify(errors.New("pgx: connection refused at 10.7.0.5:5432")); ok {
+		t.Errorf("an unmapped error was classified as %+v, want the unhandled path", fault)
+	}
+}

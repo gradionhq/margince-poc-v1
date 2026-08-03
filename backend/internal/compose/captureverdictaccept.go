@@ -101,7 +101,7 @@ func stageCounterpartyReview(ctx context.Context, svc *approvals.Service, row ca
 // exactly why an offer whose accept merely ADDS records is safe to leave sitting
 // in an inbox indefinitely.
 func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store,
-	timeline *activities.Store, pending *capture.PendingStore,
+	timeline *activities.Store, pending *capture.PendingStore, triage *domainTriageTrigger,
 ) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		var proposal counterpartyProposal
@@ -122,19 +122,33 @@ func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store,
 			UserID:     decider.UserID,
 			OnBehalfOf: decider.UserID,
 		})
-		return svc.RedeemAndApply(ctx, approvalID, counterpartyProposalKind, diffHash, func(tx pgx.Tx) error {
-			return applyCounterpartyAccept(execCtx, tx, store, timeline, pending, proposal)
-		})
+		var triageDomain string
+		if err := svc.RedeemAndApply(ctx, approvalID, counterpartyProposalKind, diffHash, func(tx pgx.Tx) error {
+			var applyErr error
+			triageDomain, applyErr = applyCounterpartyAccept(execCtx, tx, store, timeline, pending, proposal)
+			return applyErr
+		}); err != nil {
+			return err
+		}
+		// Post-commit, like every other path that opens this question: the
+		// records the human just released are durable, and queueing the read
+		// that decides their company must not be able to roll them back.
+		if triageDomain != "" && triage != nil {
+			triage.domainPending(execCtx, triageDomain)
+		}
+		return nil
 	}
 }
 
 // applyCounterpartyAccept creates the counterparty and closes its disposition.
 // Both on the redemption's transaction, so the ledger can never read `real`
 // without the records, nor the records exist under a still-open question.
+// It reports the domain still owed an organization verdict, for the caller to
+// queue once the redemption has committed.
 func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store,
 	timeline *activities.Store, pending *capture.PendingStore, proposal counterpartyProposal,
-) error {
-	suppressed, err := createCounterpartyRecords(ctx, tx, store, timeline, counterpartyCreation{
+) (string, error) {
+	created, err := createCounterpartyRecords(ctx, tx, store, timeline, counterpartyCreation{
 		Email:       proposal.Email,
 		DisplayName: proposal.DisplayName,
 		Domain:      proposal.Domain,
@@ -144,15 +158,15 @@ func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store
 		CapturedBy:  counterpartyExecutorActor,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
 	// An address erased while the offer sat in the inbox creates nothing, and
 	// the ledger says so rather than reporting `real` for a person who does not
 	// exist — the same correction the machine verdict makes.
-	if suppressed {
-		return pending.ResolveReviewed(ctx, tx, proposal.DispositionID,
+	if created.Suppressed {
+		return "", pending.ResolveReviewed(ctx, tx, proposal.DispositionID,
 			capture.PendingStatusSuppressed, "the address was erased before the review was accepted")
 	}
-	return pending.ResolveReviewed(ctx, tx, proposal.DispositionID, capture.PendingStatusReal,
+	return created.TriageDomain, pending.ResolveReviewed(ctx, tx, proposal.DispositionID, capture.PendingStatusReal,
 		"accepted in the review queue")
 }

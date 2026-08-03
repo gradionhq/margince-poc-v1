@@ -29,6 +29,11 @@ type commsAdapter struct {
 	// the HTTP transport passes, so the tool surface cannot accept a message
 	// nothing will carry.
 	stager activities.DeliveryStager
+	// channelStager is the same machinery in its channel shape. Two fields
+	// rather than one because the delivery store keeps two staging shapes: one
+	// struct carrying both an RFC822 subject and a channel recipient could
+	// describe a message that is half of each.
+	channelStager activities.ChannelDeliveryStager
 }
 
 var _ agents.Comms = commsAdapter{}
@@ -74,17 +79,41 @@ func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.
 	return json.Marshal(map[string]any{"activity_id": sent.Id, "status": "accepted"})
 }
 
+// SendMessage replies on a captured channel conversation through the SAME
+// store method the HTTP transport calls, so the consent gate, the recipient
+// resolution and the RBAC check cannot differ by transport. The recipient is
+// absent from the arguments by design: the store resolves it from the anchor.
+func (c commsAdapter) SendMessage(ctx context.Context, anchor ids.UUID, in agents.SendMessageArgs) (json.RawMessage, error) {
+	sent, err := c.store.SendMessage(ctx, ids.From[ids.ActivityKind](anchor), activities.SendMessageInput{
+		Body:           in.Body,
+		ConsentPurpose: in.ConsentPurpose,
+	}, c.gate, c.channelStager)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"activity_id": sent.Id, "status": "accepted"})
+}
+
+// IsChannelKind delegates to activities.IsChannelKind — the same test the
+// store's own SendMessage refuses on — so StageInfo's pre-check and Handle's
+// eventual refusal can never drift onto two different answers for the same kind.
+func (c commsAdapter) IsChannelKind(kind string) bool { return activities.IsChannelKind(kind) }
+
 func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to time.Time, durationMinutes int) (json.RawMessage, error) {
 	hostID, err := defaultHost(ctx, host)
 	if err != nil {
 		return nil, err
 	}
 	// The store applies its default slot duration when none is named.
-	slots, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
+	slots, truncated, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"slots": slots})
+	// truncated is not decoration on this surface. The walk stops at a cap, and
+	// a model handed a capped list with nothing marking it will tell a rep there
+	// is no later opening — the same failure AtRiskReport.Truncated and
+	// intro_path_to's candidates_truncated exist to prevent.
+	return json.Marshal(map[string]any{"slots": slots, "truncated": truncated})
 }
 
 func (c commsAdapter) BookMeeting(ctx context.Context, in agents.BookMeetingArgs) (json.RawMessage, error) {

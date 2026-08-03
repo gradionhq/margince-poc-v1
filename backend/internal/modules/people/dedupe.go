@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -56,6 +57,16 @@ type PersonCandidate struct {
 	// ChannelIdentities are the messaging-channel keys (provider +
 	// channel user id) an inbound channel message arrives with.
 	ChannelIdentities []connector.ChannelIdentity
+	// ConsumerMail decides whether a shared mail domain says anything about a
+	// shared EMPLOYER. Nil falls back to the shipped baseline, which is right
+	// for every caller that has no transaction-scoped matcher to hand.
+	//
+	// The workspace's own list has to be able to reach here, and specifically
+	// its carve-outs: a `never` entry says "this IS a company's domain,
+	// whatever the shipped list claims", and judging it by the baseline alone
+	// would keep dropping the employer agreement an admin has explicitly
+	// asserted.
+	ConsumerMail *freemail.Matcher
 	// CurrentPrimaryOrgID drives org_match = 1.0 when both sides share
 	// an employer. Nil when the candidate has no known employer yet.
 	CurrentPrimaryOrgID *ids.OrganizationID
@@ -209,10 +220,15 @@ func exactPersonByEmail(ctx context.Context, tx pgx.Tx, emails []string) (ids.Pe
 
 // personCandidateRow is one row of the restricted candidate set.
 type personCandidateRow struct {
-	id        ids.PersonID
-	fullName  string
-	orgID     *ids.OrganizationID
-	orgDomain *string
+	id       ids.PersonID
+	fullName string
+	orgID    *ids.OrganizationID
+	// orgDomain is a domain the incumbent's EMPLOYER is registered under;
+	// mailDomains are the ones their own live addresses sit on. Both say "these
+	// two work at the same place", and the second says it while the employer is
+	// still an open question — which is where a captured counterparty starts.
+	orgDomain   *string
+	mailDomains []string
 }
 
 // fuzzyPerson is PO-F-1 tier 2. The candidate set is restricted to
@@ -221,7 +237,16 @@ type personCandidateRow struct {
 // of walking the workspace.
 func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, p.full_name, r.organization_id, od.domain
+		SELECT p.id, p.full_name, r.organization_id, od.domain,
+		       -- EVERY live address, not an unordered LIMIT 1: a contact with a
+		       -- work and a personal address has two primaries as far as this
+		       -- query is concerned, and picking either at random would make
+		       -- the employer term depend on the plan Postgres chose. Archived
+		       -- addresses are excluded — an address somebody stopped using is
+		       -- not evidence of where they work now.
+		       (SELECT array_agg(DISTINCT split_part(pe.email, '@', 2))
+		          FROM person_email pe
+		         WHERE pe.person_id = p.id AND pe.archived_at IS NULL)
 		  FROM person p
 		  LEFT JOIN relationship r
 		    ON r.person_id = p.id AND r.kind = 'employment'
@@ -240,7 +265,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 	best := PersonResolution{Decision: DecisionNoMatch}
 	for rows.Next() {
 		var row personCandidateRow
-		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain); err != nil {
+		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain, &row.mailDomains); err != nil {
 			return PersonResolution{}, fmt.Errorf("scan person candidate: %w", err)
 		}
 		confidence := personConfidence(c, row)
@@ -268,8 +293,16 @@ func personConfidence(c PersonCandidate, row personCandidateRow) float64 {
 		dedupeOrgDomainWeight*orgMatch(c, row)
 }
 
-// orgMatch is PO-F-1's employer agreement term, most-specific first: a
-// shared employer row beats a shared email domain.
+// orgMatch is PO-F-1's employer agreement term, most-specific first: a shared
+// employer row beats a shared company domain, which beats two addresses simply
+// sitting on the same domain.
+//
+// That last rung is what keeps the term alive for a captured counterparty.
+// Capture creates the person and withholds the company until a site read judges
+// the domain, so for the whole time that question is open there is no employer
+// row and no organization_domain to agree about — and two colleagues at a new
+// customer would stop meeting at the fuzzy tier just when their records are
+// newest and most likely to be twins.
 func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if c.CurrentPrimaryOrgID != nil && row.orgID != nil && *c.CurrentPrimaryOrgID == *row.orgID {
 		return 1.0
@@ -277,8 +310,36 @@ func orgMatch(c PersonCandidate, row personCandidateRow) float64 {
 	if row.orgDomain != nil && candidateSharesDomain(c, *row.orgDomain) {
 		return 0.8
 	}
+	for _, domain := range row.mailDomains {
+		if sharedEmployerDomain(c, domain) {
+			return 0.8
+		}
+	}
 	return 0.0
 }
+
+// sharedEmployerDomain reports whether two addresses sitting on the same mail
+// domain says anything about a shared EMPLOYER. On a consumer mailbox provider
+// it says nothing at all — two people at gmail.com share a mail host, not a
+// job — and scoring it would put every same-named pair of private addresses in
+// the review queue, which is exactly where "same domain" carries least signal.
+//
+// The candidate's own matcher decides when it carries one, so a workspace that
+// has corrected the shipped list is obeyed here as well as in capture — its
+// carve-outs are assertions that a domain IS an employer's, and honouring them
+// only on the capture side would leave dedupe dropping evidence the admin
+// deliberately restored.
+func sharedEmployerDomain(c PersonCandidate, domain string) bool {
+	matcher := c.ConsumerMail
+	if matcher == nil {
+		matcher = consumerMailBaseline
+	}
+	return candidateSharesDomain(c, domain) && !matcher.IsConsumer(domain)
+}
+
+// consumerMailBaseline is the shipped list with no workspace overlay — the
+// answer for a caller that built no matcher.
+var consumerMailBaseline = freemail.New(nil, nil)
 
 // candidateSharesDomain reports whether any candidate email sits on an
 // organization domain the incumbent is mapped to.
@@ -308,100 +369,4 @@ func emailDomain(e string) string {
 		return ""
 	}
 	return normalizeEmail(e)[at+1:]
-}
-
-// OrganizationCandidate is the input to PO-F-2.
-type OrganizationCandidate struct {
-	DisplayName string
-	// Domains are the candidate's claimed domains; a free-mail domain
-	// must be filtered by the caller before it reaches here — this
-	// resolver matches domains, it does not judge them.
-	Domains []string
-}
-
-// OrganizationMatch is PO-F-2's output.
-type OrganizationMatch struct {
-	Decision       DedupeDecision
-	OrganizationID ids.OrganizationID
-	Confidence     float64
-}
-
-// DedupeOrganization is PO-F-2 — the org half of the one dedupe
-// implementation. Domain is the exact key; name similarity alone is the
-// fuzzy tier, because without a domain there is nothing to anchor on.
-func DedupeOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
-	if hit, found, err := exactOrgByDomain(ctx, tx, c.Domains); err != nil || found {
-		return OrganizationMatch{Decision: DecisionExactCollision, OrganizationID: hit}, err
-	}
-	if NormalizeOrgName(c.DisplayName) == "" {
-		return OrganizationMatch{Decision: DecisionNoMatch}, nil
-	}
-	return fuzzyOrganization(ctx, tx, c)
-}
-
-// exactOrgByDomain is PO-F-2 tier 1: any candidate domain already mapped
-// to a live org. This is also the capture employer-inference path — a
-// domain hit lands the person on the existing company.
-func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string) (ids.OrganizationID, bool, error) {
-	if len(domains) == 0 {
-		return ids.OrganizationID{}, false, nil
-	}
-	lowered := make([]string, 0, len(domains))
-	for _, d := range domains {
-		lowered = append(lowered, normalizeDomain(d))
-	}
-	var id ids.OrganizationID
-	err := tx.QueryRow(ctx, `
-		SELECT organization_id FROM organization_domain
-		WHERE domain = ANY($1) AND archived_at IS NULL
-		ORDER BY organization_id
-		LIMIT 1`, lowered).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ids.OrganizationID{}, false, nil
-	}
-	if err != nil {
-		return ids.OrganizationID{}, false, fmt.Errorf("dedupe org exact tier: %w", err)
-	}
-	return id, true, nil
-}
-
-// fuzzyOrganization scores name similarity over the trigram-restricted
-// candidate set. "Acme Inc" and "Acme GmbH" both normalize to "acme" and
-// land here — different legal entities are a human's call, not a merge.
-// The trigram filter is recall-only narrowing (scoring below is the
-// authority), so the candidate side is suffix-stripped to match what the
-// score compares; the stored side keeps its suffix, whose few trigrams
-// barely dent the similarity of a shared stem.
-func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
-	rows, err := tx.Query(ctx, `
-		SELECT id, display_name FROM organization
-		 WHERE archived_at IS NULL
-		   AND f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))`,
-		NormalizeOrgName(c.DisplayName))
-	if err != nil {
-		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
-	}
-	defer rows.Close()
-
-	best := OrganizationMatch{Decision: DecisionNoMatch}
-	for rows.Next() {
-		var id ids.OrganizationID
-		var name string
-		if err := rows.Scan(&id, &name); err != nil {
-			return OrganizationMatch{}, fmt.Errorf("scan org candidate: %w", err)
-		}
-		confidence := nameSimilarity(NormalizeOrgName(c.DisplayName), NormalizeOrgName(name))
-		if confidence > best.Confidence ||
-			(confidence == best.Confidence && best.OrganizationID != (ids.OrganizationID{}) && id.String() < best.OrganizationID.String()) {
-			best.Confidence, best.OrganizationID = confidence, id
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return OrganizationMatch{}, fmt.Errorf("drain org candidates: %w", err)
-	}
-	if best.Confidence >= dedupeReviewThreshold {
-		best.Decision = DecisionFuzzyReview
-		return best, nil
-	}
-	return OrganizationMatch{Decision: DecisionNoMatch}, nil
 }
