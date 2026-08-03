@@ -121,8 +121,9 @@ var kindDecidedEvents = map[string]decidedEcho{
 // both the decision-grant map and the visibility probe — one spelling, so a
 // typo in either cannot silently make a kind undecidable.
 const (
-	targetOffer   = "offer"
-	targetProduct = "product"
+	targetOffer        = "offer"
+	targetProduct      = "product"
+	targetRelationship = "relationship"
 )
 
 // selfOnlyKinds are the staging kinds whose proposal is nobody's business but
@@ -142,6 +143,61 @@ const (
 // webhooks module's selfOnlyEvents, which keeps the same three LinkedIn facts
 // off the workspace fan-out for the same reason.
 var selfOnlyKinds = map[string]bool{"linkedin_match": true}
+
+// targetProbe names HOW a target type's visibility is decided. It exists so the
+// answer "is this target type decidable at all" has ONE source: targetVisible
+// switches on it, and TargetTypeDecidable reports on it.
+//
+// That mattered the moment the tool surface started minting staged rows for types
+// nobody had checked. A type with no rule is not decidable, which means its
+// staged row is invisible in the inbox AND undecidable at the decision — an
+// authority object a human can neither release nor reject, and the fan-out that
+// would have told them about it is dropped for the same reason. The composition
+// layer derives the obligation over the generated policy table
+// (TestEveryConfirmFirstTargetTypeIsDecidable), so a confirm-first verb whose
+// target type has no rule here fails a gate instead of shipping a zombie.
+type targetProbe int
+
+const (
+	// probeNoRule is the zero value on purpose: an unrecognized type falls here
+	// and fails closed.
+	probeNoRule targetProbe = iota
+	// probeOwnScope — the row carries owner_id, so its own row scope answers.
+	probeOwnScope
+	// probeInheritedScope — the row owns no owner_id and inherits from what it
+	// points at: an offer from its deal, a signal from its subject, an activity
+	// from any linked record, an edge from ALL of its endpoints.
+	probeInheritedScope
+	// probeExistence — workspace-shared admin config with no row scope; the
+	// decision-grant check is the authority and existence is the floor.
+	probeExistence
+	// probeActingWorkspace — the target IS a workspace (an effective-dated price
+	// sheet with no row of its own yet), so the floor is that it is THIS one.
+	probeActingWorkspace
+)
+
+func probeFor(targetType string) targetProbe {
+	switch targetType {
+	case "person", "organization", "deal", "lead":
+		return probeOwnScope
+	case targetOffer, "signal", objectActivity, targetRelationship:
+		return probeInheritedScope
+	case targetProduct, "custom_field":
+		return probeExistence
+	case "fx_rate", "ai_model_rate":
+		return probeActingWorkspace
+	default:
+		return probeNoRule
+	}
+}
+
+// TargetTypeDecidable reports whether a staged row against this target type can
+// be seen and decided at all. Exported for the composition layer's gate: a
+// confirm-first verb whose target type answers false stages authority objects
+// that no human can ever release or reject.
+func TargetTypeDecidable(targetType string) bool {
+	return probeFor(targetType) != probeNoRule
+}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
@@ -192,14 +248,14 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 	if targetType == nil || targetID == nil {
 		return false, nil
 	}
-	switch *targetType {
-	case "person", "organization", "deal", "lead":
+	switch probeFor(*targetType) {
+	case probeOwnScope:
 		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
-	case targetOffer, "signal", "activity":
+	case probeInheritedScope:
 		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
-	case targetProduct, "custom_field":
+	case probeExistence:
 		return targetExists(ctx, tx, *targetType, *targetID)
-	case "fx_rate", "ai_model_rate":
+	case probeActingWorkspace:
 		// Effective-dated price sheets are workspace-shared admin config
 		// with no row scope. A refresh proposal targets the workspace (a
 		// brand-new currency/model has no row yet), so existence is not the
@@ -211,7 +267,7 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 		wsID, ok := principal.WorkspaceID(ctx)
 		return ok && *targetID == wsID, nil
 	default:
-		return false, nil // unknown target type: fail closed
+		return false, nil // no rule for this target type: fail closed
 	}
 }
 
@@ -232,8 +288,14 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		return auth.VisibleTo(ctx, tx, "deal", dealID)
 	}
 	ensure := auth.EnsureSignalVisible
-	if targetType == "activity" {
+	switch targetType {
+	case objectActivity:
 		ensure = auth.EnsureActivityVisible
+	case targetRelationship:
+		// An edge inherits the CONJUNCTION of its endpoints' scope, which is one
+		// spelling in platform/auth because people's own reads and this probe are
+		// two readers of the same rule.
+		ensure = auth.EnsureRelationshipVisible
 	}
 	switch err := ensure(ctx, tx, targetID); {
 	case err == nil:

@@ -349,3 +349,33 @@ func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
 	}
 	return parsed.Properties.RecordType.Enum
 }
+
+// The create and patch descriptions must not converge.
+//
+// They differ on one thing that matters: an edge's endpoints can be NAMED on
+// create and cannot be patched at all, because an edge's ends are what it is. The
+// branch that says so was keyed on `shapes[EntityRelationship]` at first, and both
+// maps carry that key — so the patch tool shipped the create tool's pairing rule
+// and the sentence written for the patch tool was unreachable.
+func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
+	create := describeRecordFields(createShapes)
+	patch := describeRecordFields(updateShapes)
+
+	// The pairing rule is create-only: naming a pair is a thing only a create can
+	// do.
+	const pairingRule = "Each kind requires its OWN endpoint pair"
+	if !strings.Contains(create, pairingRule) {
+		t.Errorf("create_record's description does not state the per-kind endpoint pairing rule, which "+
+			"is invisible from a flat field list: %q", create)
+	}
+	if strings.Contains(patch, pairingRule) {
+		t.Error("update_record's description states the endpoint pairing rule, and a patch cannot reach " +
+			"an endpoint — so it is advice the caller cannot act on")
+	}
+
+	// And the patch tool says what IS true for it, rather than saying nothing.
+	if !strings.Contains(patch, "cannot be patched") {
+		t.Errorf("update_record's description never says an edge's endpoints are unpatchable, which is "+
+			"the first thing a caller looks for and does not find: %q", patch)
+	}
+}

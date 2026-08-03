@@ -182,3 +182,74 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 		t.Errorf("forwarded If-Match = %q, want it unset for an unpinned approval", forwarded)
 	}
 }
+
+// undecidableConfirmFirstTypes are the confirm-first target types the approvals
+// inbox has no visibility rule for, each with what it costs.
+//
+// The cost is the same for every entry and it is severe: `decidable` backs the
+// inbox list, the single Get and the Decide, so a row it rejects is invisible AND
+// undecidable — an authority object a human can neither release nor reject. The
+// approval.requested fan-out is dropped for the same reason
+// (webhooks.approvalTargetVisible has the matching arms), so nobody is even told.
+// The row then sits pending until the staging TTL clears it, and an agent
+// retrying a legitimate refusal accumulates more of them.
+//
+// This is a backlog, not a design: every entry is a confirm-first verb the tool
+// surface or a passport's REST call can stage today. It is written down so the
+// class is enumerated rather than invisible, and so it can only shrink — a NEW
+// confirm-first record type joins it deliberately or fails the gate below.
+var undecidableConfirmFirstTypes = map[string]string{
+	"list":                 "approvals.targetVisible has no `list` arm — a staged list change is invisible in the inbox and cannot be decided",
+	"tag":                  "no `tag` arm; same effect",
+	"project":              "no `project` arm, though the row is owner-scoped exactly like a deal — this one is a straightforward auth.VisibleTo addition",
+	"record_grant":         "no `record_grant` arm; share_record is also a dead end at redemption (see synthesizedVerbs' deadEndVerbs)",
+	"saved_view":           "no `saved_view` arm",
+	"offer_template":       "no `offer_template` arm",
+	"overlay_connection":   "no `overlay_connection` arm",
+	"webhook_subscription": "no `webhook_subscription` arm",
+}
+
+// Every confirm-first operation that names a concrete record type must stage a
+// row a human can actually SEE and DECIDE.
+//
+// The read-side twin of the pin gate above, and it closes the same shape of hole
+// one level further on: a pinned target nobody can see is still a zombie. The
+// invariant is derived from the generated policy table rather than from a list of
+// the types someone remembered, so a verb that becomes confirm-first upstream
+// fails here until its target type gains a visibility rule or a ratified reason.
+func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
+	for recordType, cost := range undecidableConfirmFirstTypes {
+		if strings.TrimSpace(cost) == "" {
+			t.Errorf("undecidableConfirmFirstTypes[%s] has no reason — a waiver must say what it costs", recordType)
+		}
+	}
+
+	used := map[string]bool{}
+	checked := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
+			continue
+		}
+		checked++
+		if approvals.TargetTypeDecidable(string(pol.RecordType)) {
+			continue
+		}
+		if _, ratified := undecidableConfirmFirstTypes[string(pol.RecordType)]; ratified {
+			used[string(pol.RecordType)] = true
+			continue
+		}
+		t.Errorf("%s (%s) stages against %q, which approvals.targetVisible has no rule for — the staged "+
+			"row would be invisible in the inbox and undecidable at the decision, so no human could ever "+
+			"release or reject it. Give the type a visibility arm, or ratify the residue in "+
+			"undecidableConfirmFirstTypes with what it costs.", route, pol.Op, pol.RecordType)
+	}
+	if checked == 0 {
+		t.Fatal("no confirm-first record-typed routes in the generated policy — the gate no longer covers anything")
+	}
+	for recordType := range undecidableConfirmFirstTypes {
+		if !used[recordType] {
+			t.Errorf("undecidableConfirmFirstTypes[%s] matches no confirm-first route, or the type gained a "+
+				"visibility rule — stale waiver, remove it", recordType)
+		}
+	}
+}

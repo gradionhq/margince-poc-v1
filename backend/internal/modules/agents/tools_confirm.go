@@ -272,17 +272,22 @@ func recordLabel(rec datasource.Record) string {
 		DisplayName string `json:"display_name"`
 		Name        string `json:"name"`
 		Email       string `json:"email"`
-		// Kind is last because it is the weakest label — it names a CLASS, not
-		// an instance. It is here for the one record type that has no name of
-		// any sort: a relationship is an edge, and its identity is its kind plus
-		// two endpoints. Without it a human is asked to approve
-		// "Archive relationship 0195c3…", which tells them nothing about what
-		// disappears; with it they at least read "employment".
-		Kind string `json:"kind"`
+		Kind        string `json:"kind"`
 	}
 	//craft:ignore swallowed-errors label extraction is best-effort by design — unparseable fields fall through to the id below
 	_ = json.Unmarshal(rec.Fields, &f)
-	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email, f.Kind} {
+	// An edge has no name of any sort: its identity is its kind plus two
+	// endpoints, so "Archive relationship 0195c3…" tells the approving human
+	// nothing about what disappears, while "employment" at least names the class.
+	//
+	// Scoped to that ONE type rather than added to the ladder below. `kind` is a
+	// field an activity also carries, and there the id is the better answer: a
+	// staged overwrite reading `Update activity "note"` would name a class where a
+	// human needs to know WHICH note, and would suppress the id that told them.
+	if rec.Ref.Type == datasource.EntityRelationship && f.Kind != "" {
+		return fmt.Sprintf("%q", f.Kind)
+	}
+	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email} {
 		if s != "" {
 			return fmt.Sprintf("%q", s)
 		}

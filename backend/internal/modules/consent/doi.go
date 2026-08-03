@@ -35,6 +35,11 @@ type IssuedDOI struct {
 	ExpiresAt time.Time
 }
 
+// purposeIDField names the wire path every purpose refusal on this surface
+// points at. Named once because three refusals use it, and a field slot holds a
+// wire field path, never prose.
+const purposeIDField = "purpose_id"
+
 // IssueDoubleOptIn mints the single-use confirmation token a DOI grant
 // must later present. Only the sha256 lands in the database — the
 // session/passport secret discipline — so a stolen table cannot confirm
@@ -45,11 +50,6 @@ type IssuedDOI struct {
 // stance); the deliver flag is recorded on the audit row so the
 // issuance intent stays attributable, and the plaintext never lands in
 // audit or outbox payloads.
-// purposeIDField names the wire path every purpose refusal on this surface
-// points at. Named once because three refusals use it, and a field slot holds a
-// wire field path, never prose.
-const purposeIDField = "purpose_id"
-
 func (s *Store) IssueDoubleOptIn(ctx context.Context, personID ids.PersonID, purposeID ids.PurposeID, deliver bool) (IssuedDOI, error) {
 	// A token confirms consent FOR a purpose; without one there is nothing to
 	// confirm. Unguarded, the zero UUID reaches the purpose read and answers

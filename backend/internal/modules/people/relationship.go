@@ -14,7 +14,6 @@ package people
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -80,37 +79,6 @@ func scanRelationship(r pgx.Row) (relationshipRow, error) {
 		&out.DealID, &out.ProjectID, &out.Role, &out.IsCurrentPrimary, &out.StartedAt, &out.EndedAt,
 		&out.Source, &out.CapturedBy, &out.Version, &out.CreatedAt, &out.UpdatedAt, &out.ArchivedAt)
 	return out, err
-}
-
-// relationshipEndpointScope renders "every non-null endpoint is
-// visible": one EXISTS per endpoint table under the caller's own/team
-// predicate. Only a caller unbounded over EVERY endpoint table carries no
-// clause — person and organization hold capture privacy, so that is the
-// system principal alone.
-func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
-	actor, ok := principal.Actor(ctx)
-	if !ok {
-		return "", errors.New("crmpeople: no actor bound to context")
-	}
-	if auth.UnboundedFor(actor, "person", "organization", "deal", projectObjectName) {
-		return "", nil
-	}
-	var clauses []string
-	for _, endpoint := range []struct{ column, table string }{
-		{"person_id", "person"},
-		{"organization_id", "organization"},
-		{"counterparty_org_id", "organization"},
-		{"deal_id", "deal"},
-		{"project_id", projectObjectName},
-	} {
-		predicate := auth.VisiblePredicate(actor, endpoint.table, arg)
-		clauses = append(clauses, fmt.Sprintf(
-			`(%[1]s.%[2]s IS NULL OR EXISTS (
-			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,
-			alias, endpoint.column, endpoint.table, predicate("ep"),
-		))
-	}
-	return "(" + strings.Join(clauses, " AND ") + ")", nil
 }
 
 type CreateRelationshipInput struct {
@@ -304,7 +272,7 @@ func (s *Store) visibleRelationship(ctx context.Context, tx pgx.Tx, id ids.UUID)
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
-	scope, err := relationshipEndpointScope(ctx, "r", arg)
+	scope, err := auth.RelationshipEndpointScope(ctx, "r", arg)
 	if err != nil {
 		return relationshipRow{}, err
 	}

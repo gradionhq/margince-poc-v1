@@ -24,7 +24,10 @@ package integration
 // query against real rows.
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -127,8 +130,8 @@ type requiredIDCase struct {
 // answering not-found for a subject nobody sent.
 func requiredIDCases(f requiredIDFixtures, absent string) map[string]requiredIDCase {
 	return map[string]requiredIDCase{
-		// The asymmetry PR #370 created: the MCP twin was guarded at
-		// Registry.Invoke while REST answered a bare 404 for the same mistake.
+		// The MCP twin is guarded at Registry.Invoke, so this route is the half
+		// that has to keep up: one rule, one answer, whichever surface asks.
 		"AdvanceDealRequest.to_stage_id": {
 			method: "POST", path: "/v1/deals/" + f.deal + "/advance",
 			omitted: anyMap{}, supplied: anyMap{"to_stage_id": absent}, field: "to_stage_id",
@@ -281,4 +284,93 @@ func seedDealForRequiredIDs(t *testing.T, e *env) string {
 		t.Fatalf("create deal → %d", status)
 	}
 	return deal.ID
+}
+
+// The same rule, reached through the AGENT gate instead of the handler.
+//
+// A passport's REST call to a dynamic-tier tool resolves its tier BEFORE the
+// handler runs (compose/agentgate.go), so `advance_deal` has a second entry point
+// for the very field U3 unified — and the session-driven pair above cannot see
+// it. One rule must read the same on both, or the asymmetry has simply moved from
+// one transport to one credential type.
+func TestAPassportReadsTheSameRefusalAsASessionForAnOmittedStage(t *testing.T) {
+	e := setup(t)
+	e.slug = "required-ids-agent"
+	bootstrapWorkspaceSession(t, e, "Required IDs Agent", "agent-ids@fable.test", "Admin")
+	deal := seedDealForRequiredIDs(t, e)
+
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := e.call(t, "POST", "/v1/passports", anyMap{
+		"label": "stage agent", "scopes": []string{"read", "write"},
+	}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
+
+	var asSession, asPassport problemBody
+	sessionStatus := e.call(t, "POST", "/v1/deals/"+deal+"/advance", anyMap{}, nil, &asSession)
+	passportStatus := e.call(t, "POST", "/v1/deals/"+deal+"/advance", anyMap{}, bearer, &asPassport)
+
+	if sessionStatus != http.StatusUnprocessableEntity || passportStatus != http.StatusUnprocessableEntity {
+		t.Fatalf("session → %d, passport → %d; want 422 from both", sessionStatus, passportStatus)
+	}
+	if asSession.Detail != asPassport.Detail {
+		t.Errorf("one rule, two sentences:\n  session:  %q\n  passport: %q", asSession.Detail, asPassport.Detail)
+	}
+	for _, answer := range []problemBody{asSession, asPassport} {
+		if !namesField(answer, "to_stage_id") {
+			t.Errorf("the refusal names %+v, want the wire field to_stage_id", answer.Details.Errors)
+		}
+	}
+
+	// And an unreadable body is a DIFFERENT fault: answering "to_stage_id is
+	// required" for JSON that never parsed points the caller at a field that may
+	// well be there.
+	malformed := postRawBody(t, e, "/v1/deals/"+deal+"/advance", "{not json", bearer)
+	if malformed.status != http.StatusUnprocessableEntity {
+		t.Fatalf("a malformed body → %d, want 422", malformed.status)
+	}
+	if malformed.problem.Detail == asPassport.Detail {
+		t.Errorf("an unreadable body and an omitted key answer the same sentence %q — two faults, one message",
+			malformed.problem.Detail)
+	}
+}
+
+// rawAnswer is a response to a body the harness cannot marshal for us, because
+// the point is that it is not valid JSON.
+type rawAnswer struct {
+	status  int
+	problem problemBody
+}
+
+// postRawBody sends bytes verbatim. env.call marshals its body, so it can never
+// produce the malformed-JSON case the gate has to tell apart from an omitted key.
+func postRawBody(t *testing.T, e *env, path, body string, headers map[string]string) rawAnswer {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, e.ts.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", path, err)
+	}
+	defer closeBody(t, resp)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading response: %v", err)
+	}
+	out := rawAnswer{status: resp.StatusCode}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &out.problem); err != nil {
+			t.Fatalf("POST %s: decoding %q: %v", path, raw, err)
+		}
+	}
+	return out
 }

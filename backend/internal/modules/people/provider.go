@@ -44,6 +44,13 @@ func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {
 	return datasource.EntityRef{Type: t, ID: ids.UUID(id)}
 }
 
+// edgeRef is ref for a relationship: the row carries the kernel id directly
+// rather than the contract's, because an edge has no contract shape the store
+// returns — it returns its own row.
+func edgeRef(id ids.UUID) datasource.EntityRef {
+	return datasource.EntityRef{Type: datasource.EntityRelationship, ID: id}
+}
+
 func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource.Record, error) {
 	switch r.Type {
 	case datasource.EntityPerson:
@@ -182,7 +189,7 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 		row, err := p.store.CreateRelationship(ctx, relationshipCreateInput(req))
 		// The edge's own id, not an endpoint's: the caller asked for a
 		// relationship and the read-back has to reach the row it created.
-		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
+		return edgeRef(row.ID), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}
 	}
@@ -221,7 +228,7 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 			return datasource.EntityRef{}, err
 		}
 		row, err := p.store.UpdateRelationship(ctx, in.Ref.ID, relationshipUpdateInput(req, in.IfVersion))
-		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
+		return edgeRef(row.ID), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}
@@ -237,7 +244,7 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 		return ref(datasource.EntityOrganization, v.Id), err
 	case datasource.EntityRelationship:
 		row, err := p.store.ArchiveRelationship(ctx, r.ID)
-		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
+		return edgeRef(row.ID), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}

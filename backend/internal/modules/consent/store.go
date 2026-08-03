@@ -239,11 +239,6 @@ func consentSubject(in RecordInput) (subject, error) {
 	return subject{}, &ValidationError{Field: "subject", Reason: "consent needs a subject — a person or a lead"}
 }
 
-// Record sets one subject×purpose state and appends the proof row —
-// audited (consent_grant/consent_withdraw) and emitted (consent.changed)
-// in the same transaction as every other mutation. The subject is a
-// person or, before promotion, a lead (E12.20). Re-asserting the
-// current state is idempotent: no second proof row, no second event.
 // admitRecord settles everything decidable before the transaction opens: which
 // subject the request is about, that it names a purpose at all, that the caller
 // may write consent for that subject, and that the state is one a caller may

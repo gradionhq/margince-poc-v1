@@ -31,7 +31,6 @@ package deals
 
 import (
 	"encoding/json"
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,7 +38,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr/faulttest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -128,9 +127,9 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 			},
 		},
 		{
-			// The asymmetry PR #370 created: advance_deal is guarded on the MCP
-			// side at Registry.Invoke, so REST answered a bare 404 for the
-			// identical mistake — one rule, two answers.
+			// advance_deal is guarded on the MCP side at Registry.Invoke, so this
+			// mapping is what keeps REST from answering a bare 404 for the
+			// identical mistake.
 			name:  "AdvanceDealRequest",
 			shape: reflect.TypeFor[crmcontracts.AdvanceDealRequest](),
 			call: func(t *testing.T, body []byte) error {
@@ -168,38 +167,8 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 				if err != nil {
 					t.Fatalf("marshal probe body: %v", err)
 				}
-				assertNamesTheOmittedID(t, tc.call(t, body), field)
+				faulttest.AssertNamesOmittedID(t, tc.call(t, body), field)
 			})
 		}
 	}
-}
-
-// assertNamesTheOmittedID is the one assertion every probe makes: the refusal
-// classifies as the caller's mistake and names the wire field they omitted.
-//
-// It asserts the OBSERVABLE property rather than a concrete error type, because
-// there are two legitimate carriers — this module's RequiredFieldError for a
-// required non-id field, and httperr.RequireBodyID for the ids — and a caller
-// cannot tell them apart, which is the point.
-func assertNamesTheOmittedID(t *testing.T, err error, field string) {
-	t.Helper()
-	if err == nil {
-		t.Fatalf("an absent %s was accepted, so the caller is sent looking for a record it never "+
-			"named", field)
-	}
-	fault, ok := httperr.Classify(err)
-	if !ok {
-		t.Fatalf("an absent %s was answered with %v, which is outside the taxonomy — a surface would "+
-			"report the caller's own omission as an internal server fault", field, err)
-	}
-	if fault.Status != http.StatusUnprocessableEntity {
-		t.Errorf("an absent %s answered status %d, want 422 (404 is the defect this closes)", field, fault.Status)
-	}
-	for _, refusal := range fault.Fields {
-		if refusal.Field == field {
-			return
-		}
-	}
-	t.Errorf("the refusal for an absent %s names %+v, want the wire field %q — the name is what a "+
-		"caller branches on and what a model reads back", field, fault.Fields, field)
 }

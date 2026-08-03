@@ -26,14 +26,12 @@ import (
 // than as the set being denied.
 type UnsupportedEntityError struct{ Type string }
 
-// Error says which of the two claims it is making. "known types are …" said
-// only one of them, and the vocabulary it renders now contains a member no
-// provider serves every verb for: `relationship` has record verbs and no
-// search, no schema descriptor, no attachment writer. So that phrasing produced
-// a sentence refusing relationship WHILE listing relationship as available —
-// each hand-listed default branch would have emitted it. Naming the vocabulary
-// as a vocabulary keeps the hint (a caller learns the spelling) without the
-// implied promise that every member reaches every verb.
+// Error makes two claims and keeps them apart, because the vocabulary contains a
+// member no provider serves every verb for: `relationship` has record verbs and
+// no search, no schema descriptor, no attachment writer. So the hint names the
+// vocabulary AS a vocabulary — a caller learns the spelling — without the implied
+// promise that every member reaches every verb. Phrased as "the types served
+// here", the sentence would refuse relationship while listing it as available.
 func (e *UnsupportedEntityError) Error() string {
 	return "entity_type " + e.Type + " is not served here; the vocabulary is " + entityVocabulary +
 		", and a valid type can name a verb or provider that does not serve it"

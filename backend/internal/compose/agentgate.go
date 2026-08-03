@@ -355,8 +355,19 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
-	if err := json.Unmarshal(body, &args); err != nil || args.ToStageID.IsZero() {
-		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "required", "to_stage_id must be a stage UUID")
+	// Two different faults, so two different answers. An unreadable body is not
+	// an omitted key, and telling the caller "to_stage_id is required" when the
+	// JSON never parsed points them at a field that may well be there.
+	if err := json.Unmarshal(body, &args); err != nil {
+		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "invalid",
+			"the request body is not readable JSON, so the target stage cannot be resolved")
+	}
+	// The omission goes through the one implementation, so a passport reaching
+	// this gate and a session reaching advanceDealInput read the SAME sentence.
+	// The gate resolves the tier before the handler runs, so without this the
+	// rule had two spellings on the one field U3 unified.
+	if err := httperr.RequireBodyID("to_stage_id", args.ToStageID); err != nil {
+		return mcp.TierResolverInput{}, err
 	}
 	semantic, pipelineID, err := deps.stages.StageSemantic(ctx, args.ToStageID)
 	if err != nil {

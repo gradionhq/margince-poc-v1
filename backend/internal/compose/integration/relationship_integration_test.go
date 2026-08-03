@@ -184,20 +184,31 @@ func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
 		t.Errorf("target_version = %d, want the edge's own %d", *pin, edge.Version)
 	}
 
+	assertDecidableInTheInbox(t, e.env, approvalID, "relationship")
+
 	// The edge is untouched while the approval is pending.
-	var listed struct {
+	var parked struct {
 		Data []struct {
 			ID         string  `json:"id"`
 			ArchivedAt *string `json:"archived_at"`
 		} `json:"data"`
 	}
-	if got := e.call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &listed); got != http.StatusOK {
+	if got := e.call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &parked); got != http.StatusOK {
 		t.Fatalf("list while parked → %d", got)
 	}
-	for _, rel := range listed.Data {
+	for _, rel := range parked.Data {
 		if rel.ID == edge.ID && rel.ArchivedAt != nil {
 			t.Errorf("the edge was archived while its approval was still pending")
 		}
+	}
+
+	// And it can be REJECTED, which is the half a caller cannot fake: a decision
+	// runs the same visibility predicate as the list.
+	if got := e.call(t, "POST", "/v1/approvals/"+approvalID+"/reject", anyMap{
+		"reason": "probe",
+	}, nil, nil); got != http.StatusOK {
+		t.Fatalf("deciding the staged archive → %d, want 200 — a row the inbox lists and cannot decide is "+
+			"the same dead end one step later", got)
 	}
 }
 
@@ -234,4 +245,35 @@ func TestPartnerPromotionLifecycle(t *testing.T) {
 	if status := e.call(t, "GET", "/v1/partners?cert_status=suspended", nil, nil, &partners); status != http.StatusOK {
 		t.Fatalf("filtered list → %d", status)
 	}
+}
+
+// assertDecidableInTheInbox is the assertion that makes a 403 approval_required
+// mean something: a staged row a human cannot SEE is one they can never release
+// or reject, and `decidable` backs the list, the single read and the decision
+// alike — so an approval whose target type the inbox has no visibility rule for
+// is a zombie, and the fan-out that would have told anyone is dropped too.
+func assertDecidableInTheInbox(t *testing.T, e *env, approvalID, wantTargetType string) {
+	t.Helper()
+	var inbox struct {
+		Data []struct {
+			ID         string `json:"id"`
+			TargetType string `json:"target_entity_type"`
+		} `json:"data"`
+	}
+	if got := e.call(t, "GET", "/v1/approvals?status=pending", nil, nil, &inbox); got != http.StatusOK {
+		t.Fatalf("list approvals → %d", got)
+	}
+	for _, a := range inbox.Data {
+		if a.ID != approvalID {
+			continue
+		}
+		if a.TargetType != wantTargetType {
+			t.Errorf("the staged row's target_entity_type is %q, want %q", a.TargetType, wantTargetType)
+		}
+		if got := e.call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, nil); got != http.StatusOK {
+			t.Fatalf("GET the staged approval → %d, want 200", got)
+		}
+		return
+	}
+	t.Fatalf("the staged approval is not in the pending inbox (%d rows) — nobody can act on it", len(inbox.Data))
 }

@@ -148,7 +148,7 @@ func (s *Store) RemoveProjectStakeholder(ctx context.Context, projectID ids.Proj
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		kindPos, projectPos, personPos := arg(projectStakeholderKind), arg(projectID), arg(personID)
-		scope, err := relationshipEndpointScope(ctx, "r", arg)
+		scope, err := auth.RelationshipEndpointScope(ctx, "r", arg)
 		if err != nil {
 			return err
 		}

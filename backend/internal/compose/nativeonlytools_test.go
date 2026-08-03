@@ -15,8 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -272,4 +276,93 @@ func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 	if *calls == 0 {
 		t.Error("the guard never re-read workspace.x_sor_mode")
 	}
+}
+
+// Every nativeOnly… guard in this file must be pinned by the wiring suite.
+//
+// The unit specs above prove what a guard DOES given a mode; only
+// integration/overlay_toolsurface_integration_test.go proves a guard is actually
+// wired, and its map is written by hand. That map has been wrong exactly this way
+// before — intro_path_to and at_risk_relationships carried guards it had never
+// examined — so the obligation is derived here instead of being remembered:
+// declaring a guard enrols its tool.
+//
+// The guard→tool link cannot be read off a type (a decorator is invisible from the
+// tool spec), so it is read off the DECLARATION: the doc comment of every
+// nativeOnly… function must name the tool or tools it guards, and each of those
+// names must appear in the pin. That makes the comment load-bearing rather than
+// decorative, which is the point — a guard whose comment does not say what it
+// guards cannot be checked by anything.
+func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
+	const guardFile = "nativeonlytools.go"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, guardFile, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", guardFile, err)
+	}
+	pinned := pinnedNativeOnlyTools(t)
+
+	guards := 0
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || !strings.HasPrefix(fn.Name.Name, "nativeOnly") {
+			continue
+		}
+		guards++
+		doc := fn.Doc.Text()
+		named := []string{}
+		for tool := range pinned {
+			if strings.Contains(doc, tool) {
+				named = append(named, tool)
+			}
+		}
+		if len(named) == 0 {
+			t.Errorf("%s guards something the wiring pin does not cover. Its doc comment must name the "+
+				"tool(s) it guards, and each must appear in nativeOnlyAgentTools "+
+				"(compose/integration/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
+				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", fn.Name.Name, doc)
+		}
+	}
+	if guards == 0 {
+		t.Fatalf("no nativeOnly… declaration found in %s — the walk is reading the wrong file", guardFile)
+	}
+}
+
+// pinnedNativeOnlyTools reads the tool names out of the integration suite's pin.
+// Parsed rather than duplicated: a copy here would be a third hand-kept list, and
+// the whole point is that there be one.
+func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
+	t.Helper()
+	const pinFile = "integration/overlay_toolsurface_integration_test.go"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, pinFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", pinFile, err)
+	}
+	out := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "nativeOnlyAgentTools" {
+			return true
+		}
+		ast.Inspect(fn.Body, func(inner ast.Node) bool {
+			kv, ok := inner.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			if key, ok := kv.Key.(*ast.BasicLit); ok && key.Kind == token.STRING {
+				name, err := strconv.Unquote(key.Value)
+				if err != nil {
+					t.Fatalf("unquoting a pinned tool name: %v", err)
+				}
+				out[name] = true
+			}
+			return true
+		})
+		return false
+	})
+	if len(out) == 0 {
+		t.Fatalf("no tool names found in %s's nativeOnlyAgentTools — the pin moved or was renamed", pinFile)
+	}
+	return out
 }

@@ -117,7 +117,18 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		b.WriteString(": ")
 		b.WriteString(strings.Join(contractFieldNames(shape), ", "))
 	}
-	b.WriteString(". A task is record_type=activity with kind=task. ")
+	b.WriteString(". ")
+	writeFieldAdvisories(&b, shapes)
+	return b.String()
+}
+
+// writeFieldAdvisories appends the things a caller CANNOT see from a field list:
+// which fields lie, which are not fields at all, and which key shape reaches a
+// custom field. Each is keyed on a field the shapes actually declare, so an
+// advisory appears on the tool it is true of — the create tool and the patch tool
+// disagree about several of them, and the wrong advice is worse than none.
+func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
+	b.WriteString("A task is record_type=activity with kind=task. ")
 	// Only where the shapes actually carry `source`. On create it is accepted
 	// and then overwritten, so believing it took effect would be wrong; on
 	// update no request type has it at all, so it is REFUSED as an unknown key
@@ -142,15 +153,22 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	// invisible from a flat list of names. A caller working from names alone
 	// sends a plausible pair and gets a shape refusal it cannot predict.
 	//
-	// Keyed on the shape actually being described, so the create tool carries
-	// this and the patch tool does not: a patch cannot reach an endpoint at all.
-	if _, creatable := shapes[datasource.EntityRelationship]; creatable {
+	// Keyed on an ENDPOINT FIELD, not on the record type, because both maps carry
+	// relationship — the patch tool serves it too. Only the create shape declares
+	// `counterparty_org_id`, so this is the honest test for "can the caller name
+	// an endpoint at all", which is what the pairing rule is about.
+	if describesField(shapes, "counterparty_org_id") {
 		b.WriteString("A person's employer is a relationship, not a field on the person: ")
 		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
 		b.WriteString("Each kind requires its OWN endpoint pair and rejects any other — ")
 		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
 		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
 		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
+		// An edge is returned only by the call that WRITES it: read_record and
+		// search_records do not serve `relationship` (the contract has no
+		// single-relationship GET), so an id thrown away is an id nothing on this
+		// surface will hand back.
+		b.WriteString("Keep the id a relationship write returns — no read tool serves an edge. ")
 	} else {
 		// The patch tool still owes the reader the pointer, because a person's
 		// employer is the field they will look for first and not find.
@@ -175,7 +193,6 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
 	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
 	b.WriteString("so re-read the record if you are unsure a value landed.")
-	return b.String()
 }
 
 // customFieldPrefix is the only shape an extra key may take: the

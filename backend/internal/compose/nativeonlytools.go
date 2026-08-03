@@ -136,11 +136,10 @@ func (r nativeOnlyRetriever) AssembleContext(ctx context.Context, anchor datasou
 	return r.inner.AssembleContext(ctx, anchor, opts)
 }
 
-// nativeOnlyIntroPath and nativeOnlyAtRisk guard the two relationship-graph
-// tools. Both ground on the interaction projection and the native employment
-// and deal tables, none of which the incumbent mirror holds — so in overlay
-// mode they would answer "nobody can get you in" and "nothing is at risk",
-// which are believable answers rather than visible failures.
+// nativeOnlyIntroPath guards intro_path_to. It grounds on the interaction
+// projection and the native employment table, neither of which the incumbent
+// mirror holds — so in overlay mode it would answer "nobody here can get you in",
+// which is a believable answer rather than a visible failure.
 func nativeOnlyIntroPath(mode overlayModeChecker, list agents.IntroPathLister) agents.IntroPathLister {
 	return func(ctx context.Context, orgID ids.UUID) ([]agents.IntroRoute, bool, error) {
 		overlay, err := mode.isOverlayUncached(ctx)
@@ -154,6 +153,9 @@ func nativeOnlyIntroPath(mode overlayModeChecker, list agents.IntroPathLister) a
 	}
 }
 
+// nativeOnlyAtRisk guards at_risk_relationships, over the caller's own native
+// deal rows and the same interaction projection. Unguarded it would answer
+// "nothing is at risk" for a workspace whose deals it cannot see.
 func nativeOnlyAtRisk(mode overlayModeChecker, list agents.AtRiskLister) agents.AtRiskLister {
 	return func(ctx context.Context) (agents.AtRiskReport, error) {
 		overlay, err := mode.isOverlayUncached(ctx)

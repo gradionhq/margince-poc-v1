@@ -62,10 +62,10 @@ func requireBodyID(field string, id openapi_types.UUID) error {
 // advanceDealInput maps the advance body onto the store input.
 //
 // It exists so the guard sits in a mapping both transports could share rather
-// than inside the HTTP handler: the MCP twin (advance_deal) is guarded at
-// Registry.Invoke, so REST answered a bare 404 for the identical mistake — the
-// "one rule, two answers" shape PR #370 removed from UpdateRelationship and then
-// created here.
+// than inside the HTTP handler. The MCP twin (advance_deal) is guarded at
+// Registry.Invoke and the agent gate resolves this tool's tier before the handler
+// runs, so `to_stage_id` has three readers — and one rule with three spellings is
+// three chances for a caller to be told something different for one mistake.
 func advanceDealInput(req crmcontracts.AdvanceDealRequest, ifVersion *int64) (AdvanceDealInput, error) {
 	// Unchecked, the zero UUID travels to the stage lookup, whose composite
 	// WHERE matches nothing and answers a bare not-found — for a deal that is in

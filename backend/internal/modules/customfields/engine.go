@@ -43,20 +43,17 @@ const (
 var FieldTypes = []string{TypeText, TypeNumber, TypeDate, TypeCurrency, TypePicklist, TypeBoolean}
 
 // FieldObjects is the closed, ordered set of core objects a custom field can
-// attach to: those whose store READS the cf_* columns through the fieldcatalog
-// seam and whose contract shapes CARRY the values on the wire.
+// attach to. A member must satisfy BOTH properties, and neither is something the
+// entity vocabulary says anything about — which is why this is spelled out rather
+// than derived from it:
 //
-// It used to be datasource.EntityTypes() — the whole entity vocabulary — and
-// that derivation over-promised, because neither of those two properties is
-// something the vocabulary says anything about. `object=activity` is the proof:
-// it has been accepted by this engine and served by nobody since the day it
-// shipped. The activity store has no fieldcatalog wiring and the Activity
-// contract schema has no additionalProperties, so a custom field on an activity
-// can be created and never read back. Only the SPA's picker hides it, which is
-// a screen, not a gate.
+//   - its store reads and writes the cf_* columns through the fieldcatalog seam
+//   - its contract create and read shapes declare the additionalProperties bag a
+//     cf_* value travels in
 //
-// So the set is spelled out, and the two exclusions are named rather than left
-// to be inferred from an absence:
+// Fail either and the field is creatable and never served: the ALTER runs, the
+// column exists, and every read drops the value. The two exclusions are named
+// rather than left to be inferred from an absence:
 //
 //   - activity — no store wiring, no wire carriage. The already-shipped defect
 //     above; naming it here is what closes it.

@@ -64,11 +64,12 @@ func EntityTypes() []EntityType {
 }
 
 // RecordType names the entity types that are records — EntityType minus
-// activity, which is a timeline event and so is never itself a grouping
-// target. It is the one vocabulary behind every polymorphic reference TO a
-// record: activity links, list membership, tags, saved views and record
-// grants all spell their target with this set, and each of those columns'
-// CHECK constraints is pinned to it by TestEveryDomainEnumMatchesItsSchemaCheck.
+// activity (a timeline event) and relationship (an edge: nothing points AT one),
+// neither of which is ever itself a grouping target. It is the one vocabulary
+// behind every polymorphic reference TO a record: activity links, list
+// membership, tags, saved views and record grants all spell their target with
+// this set, and each of those columns' CHECK constraints is pinned to it by
+// TestEveryDomainEnumMatchesItsSchemaCheck.
 type RecordType string
 
 // The record vocabulary. Each value is mirrored by a schema CHECK, pinned

@@ -276,9 +276,10 @@ func TestAnEdgeCannotBeCreatedOverAnEndpointTheCallerCannotSee(t *testing.T) {
 	}
 }
 
-// The refusals a caller can act on. #370 gave the shape and date rules their own
-// fault verdicts; this is the check that they reach the TOOL surface, which
-// never runs the HTTP mapper those verdicts used to live in.
+// The refusals a caller can act on. The shape and date rules carry their own
+// fault verdicts, and this is the check that those verdicts reach the TOOL
+// surface — which never runs the HTTP mapper, so a verdict that lived only in a
+// transport branch would arrive as an internal fault with advice to retry.
 func TestAMisshapenEdgeIsRefusedWithSomethingTheCallerCanAct(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})

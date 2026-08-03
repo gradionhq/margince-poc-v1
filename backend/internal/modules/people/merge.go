@@ -92,12 +92,12 @@ type relinkCounts struct {
 	ActivityLinks int64 `json:"activity_links"`
 }
 
-// MergePerson merges person source→target and returns the survivor.
 // targetIDField names the wire path the merge bodies use for the SURVIVOR. Named
 // once because both merge verbs refuse on it, and a field slot holds a wire
 // field path, never prose.
 const targetIDField = "target_id"
 
+// MergePerson merges person source→target and returns the survivor.
 func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
 	// target_id is required by the contract, which is true only if checked. An
 	// absent key decodes to the zero UUID, and the self-merge guard below does
