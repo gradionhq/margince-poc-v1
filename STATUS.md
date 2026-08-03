@@ -1726,6 +1726,42 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
 
+## Open follow-ups — the identity chokepoint (2026-08-03)
+
+Person, organization and lead rows are now minted through one door
+(`people/resolvecreate.go`), which takes the PO-F-1/PO-F-2 verdict as an
+argument and refuses an exact-key collision. `backend/dedupespine_test.go`
+derives the sanctioned insert sites from the tree, so a new bypass fails the
+build. Shipped across #372, #373, #375, #377, #378 — the detail is in those
+commits, not here.
+
+What is still open:
+
+- **No `lock_timeout` on the organization-name lock's transactions.** The key
+  is workspace-wide and held to commit, so a stuck holder consumes a pool
+  connection and every name writer waits behind it indefinitely. Nothing in the
+  backend sets `lock_timeout` today (only `customfields/create.go` does, for its
+  own reason), so this is a wider decision than one call site.
+- **`display_name` / `legal_name` have no `maxLength` in `crm.yaml`.** The
+  similarity metric is capped at `nameScoringMaxRunes` so an oversized name
+  cannot pin a connection, but the column still accepts a megabyte. The bound
+  belongs in the contract; raised upstream.
+- **The AI company-identity sweep is not built.** It is what would decide that
+  `speedkit.com` and `baqend.com` are one company before a signature reveals it,
+  and it is also the only thing that would re-detect a pair that raced past the
+  name lock — the lock narrows that window, it does not close it. Needs an
+  `identity_pair_verdict` table so a "not the same company" answer is not
+  re-asked and re-billed on every run.
+- **Two duplicate organizations exist in the dev database.** Baqend
+  (`baqend.com` / `speedkit.com`) and Dibalog Travel (`.de` / `.eu`) predate the
+  fix. The rename re-check only fires on a rename, so they will not surface by
+  themselves — dispose of them through `/dedupe/candidates`.
+
+Upstream spec raises owed for this work are listed under the 2026-08-01 heading
+below (PO-F-2 reading `legal_name`, the rename re-check as a data-hygiene rule,
+the lead LinkedIn 409 as an E12.11 extension, and the chokepoint obligation
+itself).
+
 ## Upstream spec raises owed from 2026-08-01
 
 From the founder's company-page review. Nothing edited in the spec repo —
