@@ -31,7 +31,11 @@ import {
 import { formatDateTime } from "../format/format";
 import { formatCountdown, useNow } from "../format/now";
 import { useLocale, useT } from "../i18n";
-import { approvalKindLabel } from "./approvalkind";
+import {
+  approvalKindLabel,
+  EDITABLE_FIELDS,
+  type EditableField,
+} from "./approvalkind";
 import {
   isAlreadyDecided,
   isVersionSkew,
@@ -75,10 +79,28 @@ export function confidenceLevel(
   return "low";
 }
 
-function editableStrings(change: Record<string, unknown>): [string, string][] {
-  return Object.entries(change).filter((entry): entry is [string, string] => {
-    return typeof entry[1] === "string";
-  });
+// What the inline editor offers for one proposal.
+//
+// The default is every string field as a text box, which is the right shape
+// for a payload whose values are prose. A kind that declares an EDITABLE_FIELDS
+// policy gets exactly the fields it named, in the shape it named them —
+// identifiers and enums are not prose, and offering them as free text asks a
+// reader to type their way into a refusal.
+function editableStrings(
+  kind: string,
+  change: Record<string, unknown>,
+): EditableField[] {
+  const declared = EDITABLE_FIELDS[kind];
+  if (declared) {
+    // A declared field the payload does not carry is skipped rather than
+    // rendered empty: an editor offering a field that is not in the change
+    // would ADD it on approve, and the server reads an added path as a
+    // retargeted edit.
+    return declared.filter((entry) => typeof change[entry.field] === "string");
+  }
+  return Object.entries(change)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([field]) => ({ field, as: "text" }) as const);
 }
 
 // The per-claim evidence chips, shared by the row and the detail modal (was
@@ -507,7 +529,7 @@ export function ApprovalRow({
   });
 
   const change = (approval.proposed_change ?? {}) as Record<string, unknown>;
-  const strings = editableStrings(change);
+  const strings = editableStrings(approval.kind, change);
   const level = confidenceLevel(approval.confidence);
 
   const problem =
@@ -516,7 +538,14 @@ export function ApprovalRow({
   const alreadyDecided = problem ? isAlreadyDecided(problem) : false;
 
   const startEdit = () => {
-    setDraft(Object.fromEntries(strings));
+    setDraft(
+      Object.fromEntries(
+        strings.map((entry) => [
+          entry.field,
+          String(change[entry.field] ?? ""),
+        ]),
+      ),
+    );
     setEditing(true);
   };
 
@@ -607,21 +636,43 @@ export function ApprovalRow({
               marginTop: 10,
             }}
           >
-            {strings.map(([key]) => (
-              <div className="field" key={key}>
-                <span className="t-label" id={`edit-${approval.id}-${key}`}>
-                  {key}
+            {strings.map((entry) => (
+              <div className="field" key={entry.field}>
+                <span
+                  className="t-label"
+                  id={`edit-${approval.id}-${entry.field}`}
+                >
+                  {entry.field}
                 </span>
-                <TextInput
-                  aria-labelledby={`edit-${approval.id}-${key}`}
-                  value={draft[key] ?? ""}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      [key]: event.target.value,
-                    }))
-                  }
-                />
+                {entry.as === "choice" ? (
+                  <select
+                    aria-labelledby={`edit-${approval.id}-${entry.field}`}
+                    value={draft[entry.field] ?? ""}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        [entry.field]: event.target.value,
+                      }))
+                    }
+                  >
+                    {entry.options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <TextInput
+                    aria-labelledby={`edit-${approval.id}-${entry.field}`}
+                    value={draft[entry.field] ?? ""}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        [entry.field]: event.target.value,
+                      }))
+                    }
+                  />
+                )}
               </div>
             ))}
             <div className="approval-gate">

@@ -91,6 +91,9 @@ function isDetailUrl(url: string): boolean {
 function inboxBackend(
   calls: { url: string; body: unknown }[],
   agentTools: components["schemas"]["AgentTool"][] = [],
+  // The row the queue serves. Defaults to the send_email fixture every test
+  // below reads; a kind whose editor differs supplies its own.
+  row: Approval = approval,
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
@@ -107,7 +110,7 @@ function inboxBackend(
         body = null;
       }
       calls.push({ url, body });
-      return jsonResponse({ ...approval, status: "approved" });
+      return jsonResponse({ ...row, status: "approved" });
     }
     if (url.includes("/digest")) {
       // no nightly digest yet — home renders no digest card at all
@@ -121,7 +124,7 @@ function inboxBackend(
       const status = statusOf(url);
       calls.push({ url, body: null });
       if (status === "pending") {
-        return jsonResponse({ data: [approval], page: { next_cursor: null } });
+        return jsonResponse({ data: [row], page: { next_cursor: null } });
       }
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
@@ -158,6 +161,56 @@ describe("InboxScreen (B-EP09.12a)", () => {
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(posts()[0].body).toMatchObject({
       edited_payload: { subject: "Follow-up (edited)" },
+    });
+  });
+
+  // A lifecycle proposal is built out of identifiers and one enum. The
+  // editor's default — every string field as free text — offers a reader two
+  // ways to type themselves into a server refusal: re-aiming the proposal at
+  // another record, or naming a stage that does not exist. Neither belongs on
+  // the screen of someone who was only answering the question in front of them.
+  it("offers a lifecycle proposal's stage as a choice, and nothing else", async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const proposal = {
+      ...approval,
+      kind: "lifecycle_change",
+      summary:
+        "Their mail says the contract ended. Move this account from prospect to former_customer?",
+      proposed_change: {
+        organization_id: "org-1",
+        current_lifecycle: "prospect",
+        proposed_lifecycle: "former_customer",
+        signal_id: "sig-1",
+        because: "They wrote that the contract ends on 31 July.",
+      },
+    } as Approval;
+    vi.stubGlobal("fetch", inboxBackend(calls, [], proposal));
+    render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText("Account stage")).toBeTruthy());
+    await userEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const stage = screen.getByRole("combobox", { name: "proposed_lifecycle" });
+    expect(
+      screen.queryByRole("textbox", { name: "organization_id" }),
+    ).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "signal_id" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "because" })).toBeNull();
+
+    await userEvent.selectOptions(stage, "disqualified");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Approve edited" }),
+    );
+    const posts = () => calls.filter((c) => c.url.includes("/approve"));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    // The whole payload goes up with one field changed: the server reads an
+    // added or dropped path as a retargeted edit and refuses it.
+    expect(posts()[0].body).toMatchObject({
+      edited_payload: {
+        organization_id: "org-1",
+        current_lifecycle: "prospect",
+        proposed_lifecycle: "disqualified",
+        signal_id: "sig-1",
+      },
     });
   });
 

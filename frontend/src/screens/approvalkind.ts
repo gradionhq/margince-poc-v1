@@ -38,8 +38,57 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   deal_follow_up: "approval.kind.deal_follow_up",
   capture_counterparty: "approval.kind.capture_counterparty",
   org_name_promotion: "approval.kind.org_name_promotion",
+  lifecycle_change: "approval.kind.lifecycle_change",
   fx_rate_proposal: "approval.kind.fx_rate_proposal",
   ai_model_rate_proposal: "approval.kind.ai_model_rate_proposal",
+};
+
+// What a reader may CHANGE before accepting, per kind.
+//
+// The inline editor's default is every string field of the proposed_change,
+// rendered as a text box. That default is right for a rename — the value IS
+// prose — and wrong for a proposal built out of identifiers and enums. Editing
+// `organization_id` re-aims the proposal at another record, and the server
+// refuses that (assertSameEntityRefs); editing `proposed_lifecycle` by typing
+// produces an invalid stage, and the server refuses that too. Both refusals
+// are correct and neither is a thing to show a reader who was only trying to
+// answer the question in front of them.
+//
+// So a kind may declare which fields it offers and what each one accepts. A
+// kind that declares nothing keeps the default, which is why adding this
+// changed no existing surface.
+export type EditableField =
+  | { readonly field: string; readonly as: "text" }
+  | {
+      readonly field: string;
+      readonly as: "choice";
+      readonly options: readonly string[];
+    };
+
+const ORG_LIFECYCLE_STAGES = [
+  "unknown",
+  "target",
+  "prospect",
+  "opportunity",
+  "customer",
+  "former_customer",
+  "disqualified",
+] as const;
+
+export const EDITABLE_FIELDS: Readonly<
+  Record<string, readonly EditableField[]>
+> = {
+  // The stage is the whole question. Everything else in the payload — which
+  // account, which signal, the stage it is in now — is what the question is
+  // ABOUT, and a reader who disagrees with any of that says no rather than
+  // editing it into a different question.
+  lifecycle_change: [
+    {
+      field: "proposed_lifecycle",
+      as: "choice",
+      options: ORG_LIFECYCLE_STAGES,
+    },
+  ],
 };
 
 /** humanize turns an unmapped wire enum into readable words. */
