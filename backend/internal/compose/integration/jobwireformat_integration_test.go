@@ -9,10 +9,11 @@ package integration
 // real Postgres.
 //
 // The struct-tag gate over the args types reads tag TEXT and stops there. It
-// cannot see a marshaled row, and the per-workspace reads of the job table
-// select `args->>'workspace_id'` rather than the Go field — so a tag the gate
-// approves and an encoder that ships some other key would both read green
-// while the query returned null for work a tenant really did.
+// cannot see a marshaled row, and the per-workspace reads of the job table are
+// built later in this phase and will select `args->>'workspace_id'` rather than
+// the Go field — so a tag the gate approves and an encoder that ships some
+// other key would both read green while that query returned null for work a
+// tenant really did.
 //
 // The claim is a biconditional: a non-null workspace_id means tenant work, a
 // null means a dispatcher. A dispatcher therefore rides in the same batch. A
@@ -39,9 +40,9 @@ import (
 // per-workspace queries use, not a decode back into the Go struct, which would
 // agree with itself whatever key the encoder chose. river_job is not
 // workspace-scoped, so it is read off the pool directly.
-func workspaceKeysOnTheWire(t *testing.T, e *Env, highWater int64) map[string]*string {
+func workspaceKeysOnTheWire(ctx context.Context, t *testing.T, e *Env, highWater int64) map[string]*string {
 	t.Helper()
-	rows, err := e.Pool.Query(context.Background(),
+	rows, err := e.Pool.Query(ctx,
 		`SELECT kind, args->>'workspace_id' FROM river_job WHERE id > $1`, highWater)
 	if err != nil {
 		t.Fatalf("reading back the enqueued jobs: %v", err)
@@ -66,7 +67,7 @@ func workspaceKeysOnTheWire(t *testing.T, e *Env, highWater int64) map[string]*s
 
 func TestRiverShipsTheWorkspaceUnderTheKeyThePerWorkspaceReadsSelect(t *testing.T) {
 	e := Setup(t)
-	ensureRiverSchema(t)
+	ApplyRiverSchema(t)
 	inserter, err := jobs.NewInserter(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("jobs.NewInserter: %v", err)
@@ -100,10 +101,12 @@ func TestRiverShipsTheWorkspaceUnderTheKeyThePerWorkspaceReadsSelect(t *testing.
 	}
 	dispatcher := jobs.FleetWide(compose.TelegramPollSweepArgs{})
 
-	// river_job is not workspace-scoped and River assigns its ids, so the batch
-	// is fenced by the table's high-water mark rather than by a workspace tx or
-	// a truncate: another suite's leftover rows in this process would otherwise
-	// answer a query keyed on kind alone.
+	// The high-water mark fences the read to rows THIS test inserted. river_job
+	// is not workspace-scoped, so there is no tenant predicate to narrow a
+	// kind-keyed query with, and the fence is what makes the assertions
+	// independent of whether the table arrived empty — an emptiness the reset
+	// grants only as a side effect of river_job being an ordinary public table
+	// on its list, not as anything the job substrate promises.
 	var highWater int64
 	if err := e.Pool.QueryRow(ctx, `SELECT coalesce(max(id), 0) FROM river_job`).Scan(&highWater); err != nil {
 		t.Fatalf("reading the river_job high-water mark: %v", err)
@@ -118,7 +121,7 @@ func TestRiverShipsTheWorkspaceUnderTheKeyThePerWorkspaceReadsSelect(t *testing.
 		t.Fatalf("enqueueing %s: %v", dispatcher.Kind(), err)
 	}
 
-	onWire := workspaceKeysOnTheWire(t, e, highWater)
+	onWire := workspaceKeysOnTheWire(ctx, t, e, highWater)
 	if len(onWire) != len(tenantJobs)+1 {
 		t.Fatalf("river_job holds %d of this batch's kinds, want %d — an insert that never landed would make every assertion below vacuous", len(onWire), len(tenantJobs)+1)
 	}
