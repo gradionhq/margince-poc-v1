@@ -302,7 +302,11 @@ func (e *dedupeEnv) refreshInBackground(ctx context.Context, ci connector.Channe
 // in which nothing ever blocked reports that instead of passing having proved
 // nothing. The pid makes it exact — pg_stat_activity is cluster-wide, and the
 // parallel lane runs a dozen packages against one server.
-func waitUntilBlockedBy(t *testing.T, probe pgx.Tx, pid int, done <-chan error) {
+// It reports whether a backend blocked, rather than deciding: for the refresh
+// races below "finished first" means the run proved nothing and must fail loudly,
+// while for the organization-name lock it is the expected answer on the path
+// that owes no lock. One probe, two policies.
+func waitUntilBlockedBy(t *testing.T, probe pgx.Tx, pid int, done <-chan error) (bool, error) {
 	t.Helper()
 	// Generous enough that a loaded machine cannot trip it, small enough that a
 	// genuine miss reports in seconds rather than minutes.
@@ -317,15 +321,26 @@ func waitUntilBlockedBy(t *testing.T, probe pgx.Tx, pid int, done <-chan error) 
 			t.Fatalf("probing for a waiting backend: %v", err)
 		}
 		if blocked {
-			return
+			return true, nil
 		}
 		select {
 		case err := <-done:
-			t.Fatalf("the second refresh finished (%v) without ever waiting on the first — it never reached the binding, so this run exercises no ordering at all", err)
+			return false, err
 		default:
 		}
 	}
-	t.Fatalf("no backend waited on the held row within %d probes — the second refresh never reached the binding, so this run proved nothing", maxProbes)
+	t.Fatalf("no backend waited on the held row within %d probes — the writer never reached the lock, so this run proved nothing", maxProbes)
+	return false, nil
+}
+
+// mustBlockOn is waitUntilBlockedBy for a caller where finishing without ever
+// waiting means the run exercised no ordering at all.
+func mustBlockOn(t *testing.T, probe pgx.Tx, pid int, done <-chan error) {
+	t.Helper()
+	if blocked, err := waitUntilBlockedBy(t, probe, pid, done); !blocked {
+		t.Fatalf("the second writer finished (%v) without ever waiting on the first — "+
+			"it never reached the binding, so this run exercises no ordering at all", err)
+	}
 }
 
 // The trail has to name the handle a refresh actually displaced. Two messages
@@ -346,7 +361,7 @@ func TestConcurrentUsernameRefreshesAuditTheRealPriorValue(t *testing.T) {
 	toB.Username, toC.Username = "handle_b", "handle_c"
 	blocker, pid := e.beginBlockingRefresh(ctx, t, toB)
 	displaced := e.refreshInBackground(ctx, toC)
-	waitUntilBlockedBy(t, blocker, pid, displaced)
+	mustBlockOn(t, blocker, pid, displaced)
 	if err := blocker.Commit(ctx); err != nil {
 		t.Fatalf("committing the first rename: %v", err)
 	}
@@ -393,7 +408,7 @@ func TestTwoMessagesReportingTheSameRenameAuditItOnce(t *testing.T) {
 	renamed.Username = "handle_b"
 	blocker, pid := e.beginBlockingRefresh(ctx, t, renamed)
 	second := e.refreshInBackground(ctx, renamed)
-	waitUntilBlockedBy(t, blocker, pid, second)
+	mustBlockOn(t, blocker, pid, second)
 	if err := blocker.Commit(ctx); err != nil {
 		t.Fatalf("committing the rename: %v", err)
 	}
