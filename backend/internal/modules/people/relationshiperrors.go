@@ -3,25 +3,17 @@
 
 package people
 
-// The relationship-edge input refusals, split out of relationship.go when that
-// file hit the 500-line cap. relationship.go owns the writes; this names what an
-// edge may not be.
+// What a relationship edge may not be. relationship.go owns the writes; these
+// are the input refusals its constraint mapping answers with.
 //
-// Both types replace a RequiredFieldError that carried prose in its Field —
-// "kind: <kind> endpoint shape" and "ended_at: must not precede started_at" —
-// which is the slot both surfaces publish as the machine-readable field name.
+// Each carries its verdict on itself, so one mapping serves every surface, and
+// each carries the RIGHT verdict: a FieldFault names an argument the caller can
+// change, a MessageFault names a condition no single argument owns.
 
 // RelationshipShapeError refuses an edge whose endpoints do not match its kind
 // — an employment without an organization, a deal stakeholder without a deal.
 //
-// It replaces a RequiredFieldError carrying "kind: <kind> endpoint shape" in its
-// Field, which is the slot both surfaces publish as the machine-readable field
-// name: REST put that sentence in details.errors[].field and the MCP dispatcher
-// rendered it as the field token in `validation_error <sentence>=required`.
-// Nothing can branch on that, and `required` was false anyway — the endpoints
-// were supplied, just not the ones this kind takes.
-//
-// MessageFault, not FieldFault: the mismatch is between the kind and the pair of
+// MessageFault, not FieldFault: the mismatch is between the kind and the PAIR of
 // endpoints, so no single argument is the wrong one. Naming one would send the
 // caller to change a field that may well be correct.
 type RelationshipShapeError struct{ Kind string }
@@ -47,5 +39,5 @@ func (e *RelationshipDatesError) Error() string {
 
 // FieldFault names ended_at: it is a real argument, and moving it is the fix.
 func (e *RelationshipDatesError) FieldFault() (field, code, message string) {
-	return "ended_at", "invalid_range", e.Error()
+	return "ended_at", "invalid_date_range", e.Error()
 }

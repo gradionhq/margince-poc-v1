@@ -61,21 +61,16 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 	if req.Name == "" {
 		return CreateDealInput{}, &RequiredFieldError{Field: "name"}
 	}
-	// A deal is born INTO a stage of a pipeline; neither is defaultable here
-	// (which pipeline a workspace means is a config question, and guessing one
-	// would file deals somewhere nobody chose). Unchecked, both zero UUIDs
-	// travel to ensureOpenBirthStage, whose composite lookup answers a bare
-	// ErrNotFound naming neither.
-	for _, required := range []struct {
-		field string
-		id    openapi_types.UUID
-	}{
-		{"pipeline_id", req.PipelineId},
-		{"stage_id", req.StageId},
-	} {
-		if err := requireBodyID(required.field, required.id); err != nil {
-			return CreateDealInput{}, err
-		}
+	// A deal is born INTO a stage of a pipeline, and neither is defaultable here:
+	// which pipeline a workspace means is a config question, and guessing would
+	// file deals somewhere nobody chose. Unchecked, both zero UUIDs travel to
+	// ensureOpenBirthStage, whose composite lookup answers a bare ErrNotFound
+	// naming neither.
+	if err := requireBodyID("pipeline_id", req.PipelineId); err != nil {
+		return CreateDealInput{}, err
+	}
+	if err := requireBodyID("stage_id", req.StageId); err != nil {
+		return CreateDealInput{}, err
 	}
 	in := CreateDealInput{
 		Name:           req.Name,

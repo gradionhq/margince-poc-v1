@@ -27,16 +27,16 @@ package backendarch
 // stores, so a transport-owned mapping there is complete. A module that GAINS a
 // provider inherits the obligation automatically, which is the point.
 //
-// The tree it reads is `internal/modules` PLUS `internal/compose`, and the
-// second root was added because the gate read green on the defect it describes.
-// compose is not a module, but it owns engines that query across domain tables
-// and cannot live in one — the report engine is the case — and it wires them
-// straight into the tool registry. So `run_report` answered an unknown filters
-// key with "the tool failed for an internal reason" while
-// FieldNotAllowedError's only 422 mapping sat in writeReportError, an HTTP-only
-// helper, one directory outside this walk. The doc above already warned that a
-// gate which under-obligates reads green while the bug ships; a gate that reads
-// the wrong TREE does the same thing more quietly.
+// The tree it reads is `internal/modules` PLUS `internal/compose`. compose is
+// not a module, but it owns the engines that query ACROSS domain tables and so
+// cannot live in one — the report engine is the case — and it wires them straight
+// into the tool registry. Any tier the tool surface can reach owes the same
+// obligation, so the scope is "reachable", not "is a module".
+//
+// That makes the path list a load-bearing claim rather than configuration: it
+// asserts where obligated code lives, and it needs re-checking whenever a new
+// tier starts serving the surface. A gate reading the wrong tree reads green for
+// a reason nobody is looking at.
 
 import (
 	"go/ast"

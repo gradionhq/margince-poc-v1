@@ -203,11 +203,12 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		return nil
 	}
 	sort.Strings(unknown)
-	// Split along provenance, not along sentence structure. The refused keys are
-	// the caller's own text and ride in Cause, where the echo bound applies; the
-	// accepted list is reflected off the contract and rides in Guidance, which is
-	// not bounded — one long unknown key used to consume the whole budget and
-	// truncate the accepted list mid-word, removing the only actionable half.
+	// Split along PROVENANCE, not along sentence structure: the refused keys are
+	// the caller's own text and ride in Cause, where the echo bound applies, while
+	// the accepted list is reflected off the contract and rides in Guidance, which
+	// is not bounded. Bounded together, one long unknown key consumes the whole
+	// budget and cuts the accepted list mid-word — deleting the actionable half of
+	// a message whose reader has just proved it does not know the vocabulary.
 	//
 	// The claim is about this tool's VOCABULARY, never about what the record can
 	// store: an activity stores links, so "cannot store links" would be false and

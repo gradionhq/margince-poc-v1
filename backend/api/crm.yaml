@@ -2416,10 +2416,12 @@ paths:
                   truncated:
                     type: boolean
                     description: |
-                      True when the slot walk stopped at its cap (20) with window left to scan, so
-                      free slots exist after the last one returned. Declared because the cap is not
-                      optional and a capped list read as complete is how a caller — a model in
-                      particular — concludes there is no later opening. Narrow the window to see more.
+                      True when at least one more free slot exists after the last one returned — the
+                      walk is capped at 20 and found a further candidate before stopping. Declared
+                      because the cap is not optional, and a capped list read as complete is how a
+                      caller — a model in particular — concludes there is no later opening. To reach
+                      the rest, ask again with `from` set after the last slot returned; narrowing the
+                      window does not help, since the walk starts at `from` either way.
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /bookings:
@@ -2518,10 +2520,12 @@ paths:
                   truncated:
                     type: boolean
                     description: |
-                      True when the slot walk stopped at its cap (20) with window left to scan, so
-                      free slots exist after the last one returned. Declared because the cap is not
-                      optional and a capped list read as complete is how a caller — a model in
-                      particular — concludes there is no later opening. Narrow the window to see more.
+                      True when at least one more free slot exists after the last one returned — the
+                      walk is capped at 20 and found a further candidate before stopping. Declared
+                      because the cap is not optional, and a capped list read as complete is how a
+                      caller — a model in particular — concludes there is no later opening. To reach
+                      the rest, ask again with `from` set after the last slot returned; narrowing the
+                      window does not help, since the walk starts at `from` either way.
         '404': { $ref: '#/components/responses/NotFound' }
 
   /public/booking/{host_slug}:

@@ -445,20 +445,11 @@ func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error)
 		httperr.Write(w, r, detail)
 		return
 	}
-	var unsupported *UnsupportedEntityTypeError
-	if errors.As(err, &unsupported) {
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusUnprocessableEntity,
-			Code:   "unsupported_entity_type",
-			Detail: unsupported.Error(),
-		})
-		return
-	}
-	var refused *ExtractionAcceptError
-	if errors.As(err, &refused) {
-		httperr.Write(w, r, httperr.Validation(refused.Field, refused.Code, refused.Message))
-		return
-	}
+	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own
+	// verdicts (MessageFault / FieldFault), so httperr.Classify renders both at
+	// the fallthrough below with the same status, code and detail these branches
+	// used to spell by hand. Two spellings of one refusal is how the surfaces came
+	// to disagree in the first place.
 	var amountPair *deals.AmountCurrencyPairError
 	if errors.As(err, &amountPair) {
 		httperr.Write(w, r, httperr.Validation(acceptFieldCurrency, "amount_currency_pair", amountPair.Error()))

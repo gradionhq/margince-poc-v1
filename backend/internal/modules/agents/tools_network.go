@@ -164,8 +164,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := requireID("person_id", args.PersonID); err != nil {
 		return nil, err
 	}
-	personID := args.PersonID
-	colleagues, err := t.list(ctx, personID)
+	colleagues, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +178,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
 	return json.Marshal(map[string]any{
-		"person_id": personID, "colleagues": colleagues,
+		"person_id": args.PersonID, "colleagues": colleagues,
 	})
 }
 
@@ -242,8 +241,7 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err := requireID("organization_id", args.OrganizationID); err != nil {
 		return nil, err
 	}
-	orgID := args.OrganizationID
-	routes, truncated, err := t.list(ctx, orgID)
+	routes, truncated, err := t.list(ctx, args.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +252,7 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		routes = []IntroRoute{}
 	}
 	return json.Marshal(map[string]any{
-		"organization_id": orgID, "routes": routes,
+		"organization_id": args.OrganizationID, "routes": routes,
 		// Warmth is computed AFTER the read, so an account with more contacts
 		// than the fetch bound contributes only the first slice of them and the
 		// genuinely warmest route can fall outside it. Saying so is the "no

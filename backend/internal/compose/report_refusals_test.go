@@ -24,10 +24,10 @@ import (
 )
 
 func TestAnUnknownReportFieldIsAClassifiedCallerFault(t *testing.T) {
-	// The verdict used to live only in writeReportError, an HTTP-only helper. The
-	// MCP surface reaches this engine through run_report and never runs that
-	// helper, so an unknown filters key or group_by came back as "the tool failed
-	// for an internal reason; retry" — after the engine had already settled it.
+	// The verdict lives on the error, not in a transport helper: the MCP surface
+	// reaches this engine through run_report and runs no HTTP helper, so a verdict
+	// kept there would reach an agent as "the tool failed for an internal reason;
+	// retry" — after the engine had already settled the call.
 	fault, ok := httperr.Classify(&FieldNotAllowedError{Field: "nonsense"})
 	if !ok {
 		t.Fatal("FieldNotAllowedError is classified by nothing, so the tool surface reports it as an " +
@@ -46,10 +46,11 @@ func TestAnUnknownReportFieldIsAClassifiedCallerFault(t *testing.T) {
 	}
 }
 
-func TestAnUnknownReportFieldIsRefusedThroughEveryVocabularyDoor(t *testing.T) {
-	// Derived rather than spot-checked: each of the three plan arguments is its
-	// own door into the vocabulary, and one of them being classified says nothing
-	// about the others.
+func TestEveryVocabularyDoorRefusesAsACallerFault(t *testing.T) {
+	// One door being classified says nothing about the others, so each is entered
+	// here: a plan reaches the vocabulary through group_by, through an aggregate's
+	// field, and through its function name — and a plan that selects nothing at all
+	// reaches none of them and needs its own answer.
 	spec := reportSpec{
 		dimensions: map[string]string{"stage": "t.stage_id"},
 		measures:   map[string]string{"amount": "t.amount_minor"},
@@ -70,6 +71,10 @@ func TestAnUnknownReportFieldIsRefusedThroughEveryVocabularyDoor(t *testing.T) {
 			_, _, err := aggregateSelect(spec, reportAggregate{Fn: "nonsense"})
 			return err
 		}},
+		{"a plan selecting nothing", func() error {
+			_, _, err := buildSelectList(spec, nil, nil)
+			return err
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
@@ -88,10 +93,9 @@ func TestAnUnknownReportFieldIsRefusedThroughEveryVocabularyDoor(t *testing.T) {
 }
 
 func TestAReportWithNoRowsAnswersAnEmptyArray(t *testing.T) {
-	// reportOutcome.Rows is what the MCP runner marshals straight through, so
-	// "matched nothing" has to already be an array by the time it gets there. The
-	// REST handler was papering over the nil by copying into a sized slice before
-	// adding derivation handles; the runner had no such step and emitted null.
+	// reportOutcome.Rows is marshalled straight through on the tool surface, so
+	// "matched nothing" has to already BE an array by the time it gets there —
+	// there is no transport step left to normalize it.
 	outcome := reportOutcome{Rows: scanned(t)}
 	encoded, err := json.Marshal(map[string]any{"rows": outcome.Rows})
 	if err != nil {

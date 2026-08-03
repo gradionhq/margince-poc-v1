@@ -45,18 +45,15 @@ const (
 )
 
 // SchedulingArgumentError refuses a from/to/start/end/duration combination no
-// calendar can answer, naming the argument to change and the machine code for
-// why. Availability and booking share it because they refuse the same shape of
-// mistake about the same kind of argument.
+// calendar can answer. Availability and booking share it because they refuse the
+// same shape of mistake about the same kind of argument.
 //
-// It exists because these refusals used to be RequiredFieldError with
-// prose stuffed into the Field slot ("to (must follow from)"), and Field is what
-// both surfaces publish as the machine-readable field name: REST put that
-// parenthetical in details.errors[].field and the MCP dispatcher rendered
-// `validation_error to (must follow from)=required`. Two things were wrong at
-// once — the field name was not a field name, and `required` is false for a
-// value that was supplied and merely inconsistent. A caller cannot branch on
-// either.
+// Field carries a wire field name and nothing else: both surfaces publish it as
+// the MACHINE field — REST as details.errors[].field, the MCP dispatcher as the
+// field token in `<field>=<code>` — so an explanation there is unreadable by the
+// only party that would act on it. The explanation is Message. And the Code says
+// what is actually wrong: a value that was supplied and merely inconsistent is
+// not `required`.
 type SchedulingArgumentError struct {
 	Field   string
 	Code    string
@@ -76,7 +73,7 @@ func (e *SchedulingArgumentError) FieldFault() (field, code, message string) {
 // bound and its message cannot drift apart.
 var (
 	errAvailabilityToNotAfterFrom = &SchedulingArgumentError{
-		Field: "to", Code: "invalid_range",
+		Field: "to", Code: "invalid_date_range",
 		Message: "`to` must be later than `from`",
 	}
 	errAvailabilityWindowTooWide = &SchedulingArgumentError{
@@ -89,11 +86,12 @@ var (
 		Message: fmt.Sprintf("`duration_minutes` must be between %d and %d",
 			int(minSlotDuration.Minutes()), int(maxSlotDuration.Minutes())),
 	}
-	// The booking twin of errAvailabilityToNotAfterFrom. book_meeting's
-	// StageInfo pre-empts this before an approval is minted; the store is what
-	// makes it true on every path, REST included.
+	// The booking twin of errAvailabilityToNotAfterFrom. book_meeting's StageInfo
+	// pre-empts the same condition in its own terms so no approval is minted for
+	// an unbookable slot; this is what makes it true on every path that does not
+	// stage, REST included.
 	errBookingEndNotAfterStart = &SchedulingArgumentError{
-		Field: "end", Code: "invalid_range",
+		Field: "end", Code: "invalid_date_range",
 		Message: "`end` must be later than `start`",
 	}
 )
@@ -108,11 +106,11 @@ type slot struct {
 // non-positive duration means the caller named none and takes the
 // default.
 //
-// truncated reports that the walk stopped at maxProposedSlots with window left
-// to scan, so later free slots exist that this answer does not carry. It is
-// returned rather than left implicit because both callers put the slots on a
-// wire: a capped list presented as the whole truth is how a model comes to tell
-// someone there is no later opening.
+// truncated reports that at least one more free slot exists after the last one
+// returned. It is returned rather than left implicit because every caller puts
+// these slots on a wire, and a capped list presented as the whole truth is how a
+// model comes to tell someone there is no later opening. To reach the rest, ask
+// again with `from` after the last slot returned.
 func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time.Time, duration time.Duration) (free []slot, truncated bool, err error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, false, err
@@ -183,14 +181,15 @@ func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time
 // align to the duration grid, never before the caller's window, and
 // must END inside business hours (17:00 sharp is fine, 17:01 is not).
 //
-// truncated reports that the cap stopped the walk before the window ran out, so
-// the answer is a prefix of what is free rather than all of it.
+// truncated reports that a further free slot EXISTS beyond the ones returned —
+// established by finding it, not inferred from hitting the cap. A window holding
+// exactly maxProposedSlots free slots withheld nothing, and saying otherwise
+// would send a caller looking for slots that are not there.
 func freeSlots(from, to time.Time, duration time.Duration, busy []slot) (free []slot, truncated bool) {
-	// Empty, never nil: "the host is booked solid" is a real answer and has to
-	// arrive shaped like the array the contract declares. Normalized HERE rather
-	// than in each transport because only two of the three callers remembered —
-	// the MCP adapter marshalled the nil straight through as `null`, which a
-	// model reads as "unknown" instead of "none free".
+	// Empty, never nil: "the host is booked solid" is a real answer and arrives
+	// shaped like the array the contract declares. Normalized here, once, so no
+	// transport can put `null` on the wire — which a model reads as "unknown"
+	// rather than "none free".
 	free = []slot{}
 	cursor := from.UTC().Truncate(duration)
 	if cursor.Before(from.UTC()) {
@@ -209,12 +208,13 @@ func freeSlots(from, to time.Time, duration time.Duration, busy []slot) (free []
 		if overlapsAny(candidate, busy) {
 			continue
 		}
+		// One past the cap, then trimmed: the extra candidate is the evidence
+		// that something was actually withheld. Stopping AT the cap could not
+		// tell "twenty and no more" from "twenty of many", and only the second
+		// is a truncated answer.
 		free = append(free, candidate)
-		if len(free) == maxProposedSlots {
-			// The cap is hit with window still unwalked, so there may well be
-			// more. Saying "maybe more" rather than probing for one more slot
-			// keeps the walk bounded; the caller's remedy is a narrower window.
-			return free, true
+		if len(free) > maxProposedSlots {
+			return free[:maxProposedSlots], true
 		}
 	}
 	return free, false

@@ -3,9 +3,8 @@
 
 package compose
 
-// The report engine's refusal vocabulary, split out of report.go when that file
-// hit the 500-line cap. What separates the two is direction: report.go compiles
-// and runs a plan, this names what a plan may not say.
+// The report engine's refusal vocabulary. report.go compiles and runs a plan;
+// this names what a plan may not say.
 
 import "fmt"
 
@@ -17,20 +16,30 @@ func (e *FieldNotAllowedError) Error() string {
 }
 
 // MessageFault carries the 422 verdict on the error itself, so the ONE taxonomy
-// (httperr.Classify) answers it wherever it travels.
+// (httperr.Classify) answers it on every surface that can reach this engine —
+// the MCP tool surface reaches it through run_report and runs no HTTP helper.
 //
-// It used to live only in writeReportError, an HTTP-only helper. The MCP tool
-// surface reaches this engine through run_report and never runs that helper, so
-// an unknown `filters` key or `group_by` — precisely what the tool's own
-// description promises to police — came back to the agent as "the tool failed
-// for an internal reason; retry". The engine had already settled the call.
-//
-// MessageFault rather than FieldFault, deliberately: the rejected name is a
-// VALUE the caller placed inside group_by/filters/aggregates, not a contract
-// field path of its own. Putting it in a field slot would tell a client to fix
-// an argument by that name, which is the mistake MessageFault exists to avoid.
-// The message quotes the token, which is what locates it.
+// MessageFault rather than FieldFault: the rejected name is a VALUE the caller
+// placed inside group_by/filters/aggregates, not a contract field path of its
+// own. Putting it in a field slot would tell a client to fix an argument by that
+// name, which is the mistake MessageFault exists to avoid. The message quotes the
+// token, which is what locates it.
 func (e *FieldNotAllowedError) MessageFault() (code, message string) {
 	return "report_field_not_allowed",
 		e.Error() + " — use a name from the report's documented dimensions, filters and measures"
+}
+
+// EmptyReportPlanError refuses a plan that would select no column at all —
+// neither a grouping dimension nor an aggregate, so there is nothing to compute.
+//
+// MessageFault: the fix is to ADD an argument, so no supplied one is wrong.
+type EmptyReportPlanError struct{}
+
+func (e *EmptyReportPlanError) Error() string {
+	return "report: this plan selects nothing"
+}
+
+func (e *EmptyReportPlanError) MessageFault() (code, message string) {
+	return "report_empty_plan",
+		e.Error() + " — name at least one `group_by` dimension or one entry in `aggregates`"
 }

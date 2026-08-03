@@ -26,9 +26,15 @@ package backendarch
 //
 // Scope is DERIVED: the types policed are those implementing FieldFault or
 // FieldFaults anywhere under internal/, so a new refusal type inherits this
-// without being listed. MessageFault implementors are deliberately out of scope
-// — they publish no field, so an internal label like compose's `fn=count` cannot
-// reach a caller as a field name.
+// without being listed.
+//
+// MessageFault implementors are out of scope because the taxonomy publishes no
+// field for them at all — their whole answer is a code and a message. That is a
+// claim about the taxonomy, not about the types: a MessageFault type may still
+// keep a Field member for its own message (compose's FieldNotAllowedError holds
+// the rejected token that way), and a transport branch that lifted such a member
+// into a wire `field` would be outside this walk. The report transport did
+// exactly that until it was deleted in favour of the fault.
 
 import (
 	"go/ast"

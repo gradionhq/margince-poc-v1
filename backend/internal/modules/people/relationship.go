@@ -323,7 +323,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			RETURNING `+relationshipColumns,
 			id, in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt)
 		if out, err = scanRelationship(row); err != nil {
-			return err
+			// Through the SAME constraint mapping the insert uses. A patch can
+			// violate rel_dates exactly as a create can — moving ended_at behind
+			// started_at — and without this the two verbs answered one rule two
+			// ways: a named refusal on create, the generic constraint net on
+			// update. current.Kind, because a patch cannot change the kind.
+			return mapRelationshipConstraint(err, current.Kind)
 		}
 		return emitRelationshipChange(ctx, tx, "update", out)
 	})

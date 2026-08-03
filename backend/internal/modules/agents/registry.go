@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -29,6 +30,11 @@ import (
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]mcp.Tool
+	// requiredIDs[tool] is the argument names that tool declares BOTH required
+	// and format:uuid, read off its own schema once at registration. Invoke
+	// enforces them, so "required" is true of the surface rather than of
+	// whichever handlers remembered to check.
+	requiredIDs map[string][]string
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -40,7 +46,12 @@ type Registry struct {
 }
 
 func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
-	return &Registry{tools: map[string]mcp.Tool{}, approvals: approvals, gate: gate}
+	return &Registry{
+		tools:       map[string]mcp.Tool{},
+		requiredIDs: map[string][]string{},
+		approvals:   approvals,
+		gate:        gate,
+	}
 }
 
 var _ mcp.Registry = (*Registry)(nil)
@@ -87,6 +98,74 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
+	r.requiredIDs[spec.Name] = requiredIDArgs(spec.InputSchema)
+}
+
+// requiredIDArgs reports the arguments a schema declares both required and
+// format:uuid — the ones an absent key silently zero-values.
+//
+// Only top-level properties. A uuid nested in an array item is required GIVEN
+// its parent, and an absent parent is a legal call; enforcing it here would
+// refuse `log_activity` with no links.
+func requiredIDArgs(inputSchema json.RawMessage) []string {
+	var schema struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Format string `json:"format"`
+		} `json:"properties"`
+	}
+	// Unmarshal cannot fail: Register ran assertObjectSchemas first.
+	if err := json.Unmarshal(inputSchema, &schema); err != nil {
+		//craft:ignore panic-in-domain composition-time assertion — assertObjectSchemas already parsed this schema
+		panic("crmagents: schema parsed at registration no longer parses: " + err.Error())
+	}
+	var out []string
+	for _, name := range schema.Required {
+		if schema.Properties[name].Format == "uuid" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// requireDeclaredIDs enforces the schema's own `required` for uuid arguments.
+//
+// This is a surface-wide invariant with one spelling, not a per-handler habit,
+// because the failure it prevents is invisible at the handler: `ids.UUID`
+// refuses a malformed value inside decodeArgs but zero-values an ABSENT key
+// without any error, so the handler receives a well-formed id that names
+// nothing. It then reaches a store lookup, matches no row, and the caller is
+// told a record it never mentioned does not exist. Thirteen tools had that
+// defect at once, which is what a chokepoint is for.
+func (r *Registry) requireDeclaredIDs(name string, args json.RawMessage) error {
+	r.mu.RLock()
+	required := r.requiredIDs[name]
+	r.mu.RUnlock()
+	if len(required) == 0 {
+		return nil
+	}
+	var present map[string]json.RawMessage
+	if err := json.Unmarshal(args, &present); err != nil {
+		// Not an object at all. decodeArgs says that in the handler's own terms.
+		return nil
+	}
+	for _, field := range required {
+		raw, supplied := present[field]
+		if !supplied {
+			return &BadArgsError{Cause: fmt.Errorf("`%s` is required", field)}
+		}
+		var id ids.UUID
+		if err := json.Unmarshal(raw, &id); err != nil {
+			// Malformed rather than absent. decodeArgs refuses it in the
+			// handler, quoting the value, which is the more useful message.
+			continue
+		}
+		if err := requireID(field, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path
@@ -107,14 +186,40 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return nil, err
 	}
 
+	// A TierDynamic tool decides its own tier by READING the record an argument
+	// names, so for those the arguments have to be sound before authority can be
+	// decided at all — a zero deal_id would otherwise reach the stage lookup and
+	// come back as a bare not-found from inside the gate, where no argument check
+	// downstream can reach it. Admit calls resolve after scope and seat, so this
+	// still runs behind the authority checks that do not depend on arguments.
 	resolve := func() (mcp.TierResolverInput, error) {
+		if err := r.requireDeclaredIDs(spec.Name, args); err != nil {
+			return mcp.TierResolverInput{}, err
+		}
 		return mcp.TierResolverInput{Args: args}, nil
 	}
 	if dyn, ok := t.(dynamicTool); ok {
-		resolve = func() (mcp.TierResolverInput, error) { return dyn.ResolverInput(ctx, args) }
+		resolve = func() (mcp.TierResolverInput, error) {
+			if err := r.requireDeclaredIDs(spec.Name, args); err != nil {
+				return mcp.TierResolverInput{}, err
+			}
+			return dyn.ResolverInput(ctx, args)
+		}
 	}
 
-	ctx, err = r.gate.Admit(ctx, spec, resolve)
+	admitted, err := r.gate.Admit(ctx, spec, resolve)
+	// The same check again for every tool whose tier is STATIC, because Admit
+	// never calls the resolver for those. Placed after authority and before
+	// staging, and both halves matter: a caller the gate turns away learns
+	// nothing about arguments, while a caller it would send to the approval queue
+	// is told about its own missing id first — staging an unrunnable call spends
+	// a human's yes on something that was never going to happen.
+	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
+		if idErr := r.requireDeclaredIDs(spec.Name, args); idErr != nil {
+			return nil, idErr
+		}
+	}
+	ctx = admitted
 	switch {
 	case err == nil:
 		// An auto-execute call may still carry approval_id: the retry of a

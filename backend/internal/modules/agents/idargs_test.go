@@ -27,10 +27,12 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -174,10 +176,15 @@ func errorText(t *testing.T, res map[string]any) string {
 
 // uuidProps reports the argument names a tool declares as format:uuid,
 // including those nested one level inside an array-of-object property
-// (book_meeting's and log_activity's `links` carry entity_id there).
-func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) []string {
+// (book_meeting's and log_activity's `links` carry entity_id there), and which
+// of the top-level ones the schema marks required.
+//
+// A nested id is never reported as required: it is required only GIVEN its
+// parent array, and an absent parent is a different (legal) call.
+func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) (all, required []string) {
 	t.Helper()
 	var schema struct {
+		Required   []string `json:"required"`
 		Properties map[string]struct {
 			Format string `json:"format"`
 			Items  struct {
@@ -190,19 +197,27 @@ func uuidProps(t *testing.T, name string, inputSchema json.RawMessage) []string 
 	if err := json.Unmarshal(inputSchema, &schema); err != nil {
 		t.Fatalf("%s: inputSchema does not parse: %v", name, err)
 	}
-	var found []string
+	isRequired := make(map[string]bool, len(schema.Required))
+	for _, r := range schema.Required {
+		isRequired[r] = true
+	}
 	for prop, def := range schema.Properties {
 		if def.Format == "uuid" {
-			found = append(found, prop)
+			all = append(all, prop)
+			if isRequired[prop] {
+				required = append(required, prop)
+			}
 			continue
 		}
 		for nested, nestedDef := range def.Items.Properties {
 			if nestedDef.Format == "uuid" {
-				found = append(found, prop+"[]."+nested)
+				all = append(all, prop+"[]."+nested)
 			}
 		}
 	}
-	return found
+	sort.Strings(all)
+	sort.Strings(required)
+	return all, required
 }
 
 // malformedCall renders a tools/call putting a non-canonical UUID in prop and
@@ -227,7 +242,8 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 	// registry.tools IS the universe — walking it rather than a name list is
 	// what makes a newly registered tool inherit the obligation.
 	for name, tool := range s.registry.tools {
-		for _, prop := range uuidProps(t, name, tool.Spec().InputSchema) {
+		allProps, _ := uuidProps(t, name, tool.Spec().InputSchema)
+		for _, prop := range allProps {
 			probed++
 			res := s.call(ctx, malformedCall(name, prop))
 			if res["isError"] != true {
@@ -250,29 +266,108 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 }
 
 func TestARequiredIDMustBePresentNotZero(t *testing.T) {
-	// ids.UUID refuses a malformed value and zero-values an ABSENT key without
-	// complaint, so "required" in a schema is a claim only requireID makes true.
-	// Left unchecked the zero UUID reaches a store lookup that matches nothing
-	// and answers a bare not-found naming no argument.
-	s := idProbeDispatcher(t)
-	ctx := scopedAgentCtx(principal.ScopeRead)
-	for _, tc := range []struct{ tool, field string }{
-		{"who_knows", "person_id"},
-		{"account_coverage", "deal_id"},
-		{"intro_path_to", "organization_id"},
-	} {
-		t.Run(tc.tool, func(t *testing.T) {
-			res := s.call(ctx, json.RawMessage(fmt.Sprintf(`{"name":%q,"arguments":{}}`, tc.tool)))
-			if res["isError"] != true {
-				t.Fatalf("an absent %s was accepted", tc.field)
+	// ids.UUID refuses a MALFORMED value inside decodeArgs and zero-values an
+	// ABSENT key without complaint, so "required" in a schema is a claim only a
+	// check in the handler makes true. Left unchecked the zero UUID reaches a
+	// store lookup that matches nothing and answers a bare not-found naming no
+	// argument — which is how create_record's deal and project cases became
+	// unusable, and the same shape on every other tool that takes an id.
+	//
+	// Derived from each tool's own `required` array, not a list kept here: the
+	// first version of this walk hardcoded the three tools under review and so
+	// certified a dozen it had never looked at — thirteen of which were defective.
+	//
+	// Probed through Registry.Invoke, which is where the enforcement lives and
+	// the only path to a Handle in this package. Not through the handler: a
+	// per-handler check is what thirteen tools individually forgot, and a walk
+	// that probes handlers would pass again the moment a fourteenth does. Not
+	// through the dispatcher either — that adds the seat/scope gate without
+	// adding anything this walk is about.
+	registry := idProbeDispatcher(t).registry
+	// Every scope the surface defines, so admission never stands between the
+	// walk and the validation it is here to check.
+	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeDraft,
+		principal.ScopeWrite, principal.ScopeSend, principal.ScopeEnrich)
+
+	probed := 0
+	for name, tool := range registry.tools {
+		_, required := uuidProps(t, name, tool.Spec().InputSchema)
+		for _, prop := range required {
+			probed++
+			// Every OTHER required argument is supplied, so the only thing
+			// missing is the id under test — otherwise a tool refusing on a
+			// different absent field would pass while never checking the id.
+			args := absentIDArgs(t, name, tool.Spec().InputSchema, prop)
+			var badArgs *BadArgsError
+			_, err := registry.Invoke(ctx, name, args)
+			if err == nil {
+				t.Errorf("%s accepted an absent %q", name, prop)
+				continue
 			}
-			answer := errorText(t, res)
-			if strings.Contains(answer, internalFaultAdvice) {
-				t.Fatalf("an absent %s reported an internal fault: %q", tc.field, answer)
+			if !errors.As(err, &badArgs) {
+				t.Errorf("%s answered an absent %q with %T (%v), want *BadArgsError.\n"+
+					"An unguarded zero UUID reaches a lookup that matches nothing, and the caller "+
+					"is told a record it never named does not exist.", name, prop, err, err)
+				continue
 			}
-			if !strings.Contains(answer, tc.field) {
-				t.Errorf("the refusal does not name %s: %q", tc.field, answer)
+			if !strings.Contains(badArgs.Error(), prop) {
+				t.Errorf("%s refused an absent %q without naming it: %q",
+					name, prop, badArgs.Error())
 			}
-		})
+		}
 	}
+	if probed == 0 {
+		t.Fatal("no required format:uuid argument found on any tool — the walk proved nothing")
+	}
+}
+
+// absentIDArgs renders an arguments object satisfying every required argument
+// EXCEPT omit, so the refusal under test is about that argument alone.
+func absentIDArgs(t *testing.T, tool string, inputSchema json.RawMessage, omit string) json.RawMessage {
+	t.Helper()
+	var schema struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Type   string          `json:"type"`
+			Format string          `json:"format"`
+			Enum   []string        `json:"enum"`
+			Items  json.RawMessage `json:"items"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(inputSchema, &schema); err != nil {
+		t.Fatalf("%s: inputSchema does not parse: %v", tool, err)
+	}
+	args := map[string]any{}
+	for _, name := range schema.Required {
+		if name == omit {
+			continue
+		}
+		def, declared := schema.Properties[name]
+		if !declared {
+			t.Fatalf("%s declares %q required but does not define it", tool, name)
+		}
+		switch {
+		case def.Format == "uuid":
+			args[name] = ids.NewV7().String()
+		case len(def.Enum) > 0:
+			// A closed vocabulary refuses anything else, and that refusal would
+			// mask the one under test.
+			args[name] = def.Enum[0]
+		case def.Type == "array":
+			args[name] = []any{}
+		case def.Type == "object":
+			args[name] = map[string]any{}
+		case def.Type == "integer", def.Type == "number":
+			args[name] = 1
+		case def.Type == "boolean":
+			args[name] = true
+		default:
+			args[name] = "probe"
+		}
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal probe args: %v", err)
+	}
+	return encoded
 }

@@ -294,7 +294,9 @@ func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggre
 		columns = append(columns, name)
 	}
 	if len(selects) == 0 {
-		return nil, nil, &FieldNotAllowedError{Field: "(empty plan)"}
+		// Its own refusal: nothing here is out of vocabulary, so the vocabulary
+		// error would name a field the caller never wrote.
+		return nil, nil, &EmptyReportPlanError{}
 	}
 	return columns, selects, nil
 }
@@ -408,11 +410,10 @@ func reportSQL(spec reportSpec, selects, where, groupBy []string) string {
 // scanReportRows shapes each result row into a column→value map, rendering
 // values wire-friendly.
 func scanReportRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
-	// Empty, never nil. "No deals in that stage" is a real answer and has to
-	// arrive shaped like the array it is: nil marshals to `null`, which a model
-	// reads as "unknown". REST was papering over this by copying into a sized
-	// slice for the derivation handles; the MCP runner marshalled these bytes
-	// straight through and emitted null. Normalizing here makes both agree.
+	// Empty, never nil. "No deals in that stage" is a real answer and arrives
+	// shaped like the array it is: nil marshals to `null`, which a model reads as
+	// "unknown". Normalized here so no transport can put null on the wire —
+	// reportOutcome.Rows is marshalled straight through on the tool surface.
 	rows := []map[string]any{}
 	for pgRows.Next() {
 		values, err := pgRows.Values()
