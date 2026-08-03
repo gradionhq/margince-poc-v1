@@ -8,15 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
@@ -247,4 +252,46 @@ func dropResetCustomFieldColumns(ctx context.Context, schemaPool *pgxpool.Pool) 
 		}
 	}
 	return nil
+}
+
+// ResetData wipes a non-production installation to its first-boot state.
+// Gate order, fail-closed: environment first (production has no such
+// endpoint, checked before any auth so a misconfigured deployment never
+// leaks that the operation exists) → human-only (an agent never wipes
+// tenant data) → admin-only → the typed confirmation run enforces.
+func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if h.pool == nil || !h.env.IsNonProduction() {
+		httperr.Write(w, r, apperrors.ErrNotFound)
+		return
+	}
+	if err := auth.RequireHuman(ctx); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	if err := auth.RequireAdmin(ctx); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	var req crmcontracts.ResetDataJSONRequestBody
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	summary, err := h.run(ctx, req.Confirmation)
+	if errors.Is(err, errResetConfirmationMismatch) {
+		httperr.Write(w, r, httperr.Validation("confirmation", "confirmation_mismatch",
+			"The typed confirmation does not match the organization name."))
+		return
+	}
+	if err != nil {
+		// The cause (e.g. an unresolved FK cycle naming tables) never reaches
+		// the client — httperr.Write maps an unmapped error to an opaque 500
+		// and logs the cause server-side.
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, map[string]any{
+		"status":         "reset",
+		"tables_cleared": summary.TablesCleared,
+	})
 }

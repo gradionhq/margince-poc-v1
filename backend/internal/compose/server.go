@@ -86,6 +86,7 @@ type Server struct {
 	embedReindexHandlers
 	rateRefreshHandlers
 	webhooksHandlers
+	dataResetHandlers
 	org360Handlers
 	orgBriefHandlers
 

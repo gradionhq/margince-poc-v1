@@ -23,11 +23,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // Option customizes the wiring for one process role; everything not
@@ -193,6 +195,21 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)
 		s.schemaPoolReady = schemaPool.Ping
+	}
+}
+
+// WithDataReset wires the non-production admin data-reset endpoint
+// (POST /admin/reset-data): pool is the app-role pool the sweep runs
+// through, schemaPool (may be nil) is the owner-privileged pool that
+// finalizes cf_* column drops — nil skips that finalize step, the reset
+// itself still succeeds. Absent this option, or outside a non-production
+// posture, the endpoint answers 404 (dataResetHandlers' zero value has a
+// nil pool, the same closed default).
+func WithDataReset(pool, schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runtimeenv.Environment) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.dataResetHandlers = dataResetHandlers{
+			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
+		}
 	}
 }
 
