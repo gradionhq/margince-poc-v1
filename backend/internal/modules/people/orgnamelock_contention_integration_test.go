@@ -60,14 +60,22 @@ func (e *dedupeEnv) holdOrgNameLock(ctx context.Context, t *testing.T) (pgx.Tx, 
 }
 
 // An apply that carries a legal name owes the name lock BEFORE it touches the
-// organization row, whatever that name's value is: an empty one still writes the
-// row and still reaches the duplicate re-check, so it can hold the row while
-// wanting the name lock — the cycle a concurrent human rename completes.
-func TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock(t *testing.T) {
+// organization row, so it cannot hold that row while wanting the lock — the
+// cycle a concurrent human rename completes.
+//
+// The case is an apply CLEARING a name it is allowed to overwrite. That is the
+// one an implementation is most likely to wave through as "no name here": it
+// carries an empty value, yet it writes the row like any other write and lands
+// in the duplicate re-check, which is what wants the lock. A non-empty value
+// would prove the ordering too, but it would not tell a gate that reads the
+// VALUE apart from one that reads the FIELD — and that is the distinction the
+// ordering rests on.
+func TestAnEvidenceApplyClearingANameWaitsOnTheNameLock(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
+	legal := "Kranz Logistik GmbH"
 	org, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
-		DisplayName: "Kranz Logistik", Source: "manual",
+		DisplayName: "Kranz Logistik", LegalName: &legal, Source: "manual",
 		Domains: []OrgDomainInput{{Domain: "kranz.test", IsPrimary: true}},
 	})
 	if err != nil {
@@ -84,14 +92,15 @@ func TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			// The empty value is the case worth pinning: it writes the row
-			// like any other and is the easiest to mistake for "no name".
-			_, err = applyEvidenceFields(ctx, tx, workspaceID(ctx), orgID, "site_read", by,
+			// Overwrite, so the clear actually reaches the column: the fill
+			// arm has nothing to fill and would write no row at all.
+			_, err = applyEvidenceFieldsWithOverwrite(ctx, tx, workspaceID(ctx), orgID, "site_read", by,
 				[]ColdStartFieldInput{{
 					Field: fieldLegalName, Value: "",
 					EvidenceSnippet: "the imprint no longer states a registered name",
 					SourceURL:       "https://kranz.test/impressum", Confidence: 1,
-				}})
+				}},
+				map[string]bool{fieldLegalName: true})
 			return err
 		})
 	}()
