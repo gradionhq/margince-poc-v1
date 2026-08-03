@@ -176,13 +176,17 @@ func healthByKind(ctx context.Context, pool *pgxpool.Pool, workspaceID string, d
 // persists an AttemptError like any other failure, while a cancellation
 // with no cause appends nothing, and the row is terminal either way.
 //
-// The order is finalized_at when the row is finalized, attempted_at when it
-// is not, and created_at when it has never run — with id breaking ties, a
-// total order over columns that always exist. attempted_at is the rung that
-// matters for a RETRYABLE row: it is when the last attempt started, so a
-// job created weeks ago and failing now sorts as the recent event it is,
-// rather than by the creation date it happens to carry. The attempt error's
-// own timestamp is deliberately NOT cast in SQL:
+// failed_at is read from COLUMNS, not from the attempt error's own
+// timestamp: River sets AttemptError.At to the attempt's START (job_executor
+// sets `At: e.start`), so a long-running job that failed after an hour would
+// report the hour-ago moment it began and sort ahead of failures that
+// actually happened later. finalized_at is the real failure moment for a
+// terminal row, attempted_at is the closest available for a retryable one,
+// and created_at covers a row that has never run — a total order over
+// columns that always exist, with id breaking ties.
+//
+// Reading a column rather than the stored JSON also avoids casting
+// app-written text in SQL:
 // that column is app-written, and one malformed value would turn the whole
 // endpoint into a 500 rather than one row into an approximation.
 func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string, dispatcherKinds []string) ([]Failure, error) {
@@ -193,7 +197,6 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		       attempt::int,
 		       max_attempts::int,
 		       coalesce(finalized_at, attempted_at, created_at),
-		       errors[cardinality(errors)]->>'at',
 		       errors[cardinality(errors)]->>'error'
 		FROM river_job
 		WHERE state::text IN ('retryable','discarded','cancelled')
@@ -212,23 +215,16 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		var (
 			f          Failure
 			fallbackAt time.Time
-			attemptAt  *string
 			stored     *string
 		)
 		if err := rows.Scan(&f.Kind, &f.WorkspaceID, &f.State, &f.Attempt,
-			&f.MaxAttempts, &fallbackAt, &attemptAt, &stored); err != nil {
+			&f.MaxAttempts, &fallbackAt, &stored); err != nil {
 			return nil, fmt.Errorf("jobs: scanning recent job failures: %w", err)
 		}
-		// UTC on both branches. pgx returns a timestamptz in the session's
-		// zone while the attempt error's own timestamp is RFC 3339 in UTC,
-		// so mixing them unresolved puts two offsets in one array — both
-		// valid, and needlessly hostile to whoever reads the list.
+		// UTC because pgx returns a timestamptz in the session's zone, and
+		// two offsets inside one array is needlessly hostile to whoever
+		// reads the list.
 		f.FailedAt = fallbackAt.UTC()
-		if attemptAt != nil {
-			if at, err := time.Parse(time.RFC3339Nano, *attemptAt); err == nil {
-				f.FailedAt = at.UTC()
-			}
-		}
 		if stored != nil {
 			f.StoredReason = *stored
 		}
@@ -238,13 +234,10 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		return nil, fmt.Errorf("jobs: reading recent job failures: %w", err)
 	}
 
-	// SELECTED by coalesce(finalized_at, attempted_at, created_at) — a total order over
-	// columns that always exist, which is what makes the LIMIT pick the
-	// genuinely most recent rows — but PRESENTED in the order of the
-	// failed_at actually shown. Those two can disagree, because the
-	// displayed value prefers the attempt error's own timestamp, and a list
-	// whose visible field does not descend reads as a bug even when the
-	// selection was right.
+	// Sorted on the same expression the SELECT ordered by, so the visible
+	// failed_at descends exactly as the field name promises. The database
+	// already returns them in this order; re-sorting keeps that true if the
+	// two ever drift apart.
 	slices.SortStableFunc(out, func(a, b Failure) int { return b.FailedAt.Compare(a.FailedAt) })
 	return out, nil
 }

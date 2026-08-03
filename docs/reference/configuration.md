@@ -107,7 +107,10 @@ time.
 Four things worth knowing before you build an alert on these:
 
 - **An empty `workspace_id` means a dispatcher**, exactly and in both
-  directions. A job that does tenant work declares its workspace, so a null
+  directions. A row whose workspace key is present but *empty* is malformed
+  rather than fleet-wide, and appears under
+  `workspace_id="malformed_workspace_id"` so it is visible instead of being
+  miscounted as a dispatcher. A job that does tenant work declares its workspace, so a null
   there is a fan-out job and nothing else. The label carries the **id**,
   never a name: the exposition endpoint has no redaction path.
 - **A job scheduled for the future is counted in depth but contributes no

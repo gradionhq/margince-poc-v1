@@ -353,8 +353,8 @@ Both surfaces are DB-derived at read time, because `cmd/worker` — where the
 dispatchers run — serves no HTTP surface at all, so an in-process counter there
 would be invisible to every scrape while the api's own copy reported zero.
 What the families mean, and the four limits worth knowing before alerting on
-them: [docs/reference/configuration.md](docs/reference/configuration.md),
-"Reading the job surfaces".
+them:
+[docs/reference/configuration.md#reading-the-job-surfaces](docs/reference/configuration.md#reading-the-job-surfaces).
 
 **Carried forward from Phase 1 C, in priority order.** The first is the
 highest-value work left in this topic:
@@ -396,15 +396,17 @@ carry a different run token, so `ByArgs` uniqueness does not suppress the new
 run's children and both fleets run — bounded by `UpsertEmbedding`'s content-hash
 skip-compare, not by anything stopping them.
 
-**Owed by #390, and the reason a blocker survived five task reviews.** No
-fitness test asserts that a workspace worker declares a `Timeout`. The GDPR
-retention worker shipped without one through five per-task reviews and was
-caught only by the whole-branch pass — under River's 1-minute default it would
-have been cancelled mid-pass nightly, burned its three attempts, and left a
-permanently failing `privacy_retention_workspace` row for the one obligation
-whose whole point is auditability. Only `embedDriftWorkspaceWorker` is pinned
-today; `backend/` already has the scanner infrastructure to derive the rest.
-This is the rule-2 answer and wants its own diff.
+**Owed by #390, and the reason a blocker survived five task reviews.** What is
+missing is the FITNESS TEST, not the timeout: `privacyRetentionWorkspaceWorker`
+declares `Timeout` (`privacyRetentionPassTimeout`) and has since #390 fixed it.
+The gap is that nothing stops the next worker shipping without one. That worker
+went through five per-task reviews without a `Timeout` and was caught only by the
+whole-branch pass — under River's 1-minute default it would have been cancelled
+mid-pass nightly, burned its three attempts, and left a permanently failing
+`privacy_retention_workspace` row for the one obligation whose whole point is
+auditability. Only `embedDriftWorkspaceWorker` is pinned by a test today;
+`backend/` already has the scanner infrastructure to derive the rest. This is
+the rule-2 answer and wants its own diff.
 
 **Migration numbers race, and local gates provably cannot catch it.** #390's
 migration was renumbered twice — 0171 → 0172 → 0174 — and the second collision

@@ -8849,7 +8849,7 @@ export interface components {
             /** @description Discarded or cancelled: this work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately. */
             dead: number;
             /** @description How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late. */
-            oldest_waiting_age_seconds?: number | null;
+            oldest_waiting_age_seconds: number | null;
         };
         JobFailure: {
             kind: string;
@@ -8857,7 +8857,7 @@ export interface components {
              * Format: uuid
              * @description Null for a dispatcher.
              */
-            workspace_id?: string | null;
+            workspace_id: string | null;
             /** @enum {string} */
             state: "retryable" | "discarded" | "cancelled";
             attempt: number;

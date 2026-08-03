@@ -10043,7 +10043,7 @@ type JobFailure struct {
 	State  JobFailureState `json:"state"`
 
 	// WorkspaceId Null for a dispatcher.
-	WorkspaceId *openapi_types.UUID `json:"workspace_id,omitempty"`
+	WorkspaceId *openapi_types.UUID `json:"workspace_id"`
 }
 
 // JobFailureState defines model for JobFailure.State.
@@ -10073,7 +10073,7 @@ type JobKindHealth struct {
 	Kind string `json:"kind"`
 
 	// OldestWaitingAgeSeconds How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late.
-	OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds,omitempty"`
+	OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds"`
 	Queue                   string `json:"queue"`
 
 	// Retrying Failed at least once and backing off toward another attempt.

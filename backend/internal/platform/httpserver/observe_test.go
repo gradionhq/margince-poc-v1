@@ -286,7 +286,17 @@ func TestMetricsHandsTheJobSectionItsOwnDeadlineNotTheRequests(t *testing.T) {
 // exposition parses as a smaller fleet rather than as a broken one, so a
 // refused write ends the body instead of being rendered past.
 func TestMetricsStopsWritingWhenTheJobSectionRefusesAWrite(t *testing.T) {
-	jobStats := func(context.Context, io.Writer) error { return errors.New("connection reset") }
+	// A writer that actually REFUSES, passed through the callback exactly as
+	// the real section receives it. Returning a synthetic error without
+	// touching w would exercise the handler's branch while proving nothing
+	// about the truncated-scrape path this test is named for.
+	refused := errors.New("connection reset")
+	jobStats := func(_ context.Context, w io.Writer) error {
+		if _, err := w.Write([]byte("margince_job_queue_depth{queue=\"q\",workspace_id=\"\"} 1\n")); err != nil {
+			return err
+		}
+		return refused
+	}
 	overlayReached := false
 
 	rec := httptest.NewRecorder()

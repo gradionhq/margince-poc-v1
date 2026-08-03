@@ -232,9 +232,14 @@ func callerOrDispatcher(caller ids.UUID, stored *string) *openapi_types.UUID {
 	return &id
 }
 
-// secondsOrAbsent rounds a measured age to whole seconds, and keeps an
+// secondsOrAbsent TRUNCATES a measured age to whole seconds, and keeps an
 // absent one absent: null means nothing of this kind is runnable, which is
 // a different claim from "something became runnable a moment ago".
+//
+// Truncation rather than rounding is deliberate and harmless here: the
+// value answers "how long has this been waiting", where reporting 41s for
+// 41.7s understates by less than a second and never overstates. A gauge
+// that rounded up could report a job as waiting a second it has not.
 func secondsOrAbsent(age *float64) *int {
 	if age == nil {
 		return nil

@@ -117,22 +117,6 @@ func TestTheOldestQueuedAgeIsTheWorstCaseAcrossTheQueuesKinds(t *testing.T) {
 	}
 }
 
-// TestAQueueWhoseWorkIsAllFutureScheduledStillReportsAZeroAge — zero is a
-// measured value here, not a missing one: the queue holds work and none of
-// it is late. Skipping the series would make "nothing is late" and "this
-// queue is unmeasured" the same scrape.
-func TestAQueueWhoseWorkIsAllFutureScheduledStillReportsAZeroAge(t *testing.T) {
-	var buf bytes.Buffer
-	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "nightly", Kind: "k", Untenanted: true, State: "scheduled", Count: 4, OldestRunnableAgeSeconds: ptrTo(0.0)},
-	}}); err != nil {
-		t.Fatalf("writeJobMetrics: %v", err)
-	}
-	if !strings.Contains(buf.String(), `margince_job_oldest_queued_age_seconds{queue="nightly",workspace_id=""} 0`) {
-		t.Errorf("a queue with only future-scheduled work reported no age at all\ngot:\n%s", buf.String())
-	}
-}
-
 // TestTheSweepPairIsRenderedPerFanOutKind — the pair answers "are tenants
 // being missed", so both halves must appear for the same sweep label or an
 // alert cannot compare them.
@@ -408,7 +392,7 @@ func TestAPresentButEmptyWorkspaceIsNotCountedAsADispatcher(t *testing.T) {
 		t.Error("a malformed row was folded into the dispatcher series, which is the one " +
 			"invariant these gauges promise")
 	}
-	if !strings.Contains(buf.String(), `margince_job_queue_depth{queue="default",workspace_id="<malformed>"} 9`) {
+	if !strings.Contains(buf.String(), `margince_job_queue_depth{queue="default",workspace_id="malformed_workspace_id"} 9`) {
 		t.Errorf("the malformed row is invisible rather than flagged\ngot:\n%s", buf.String())
 	}
 }

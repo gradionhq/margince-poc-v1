@@ -181,7 +181,10 @@ func statsByState(ctx context.Context, pool *pgxpool.Pool) ([]StateRow, error) {
 //
 // The sweep tag is what separates a fleet pass from a workspace job someone
 // triggered by hand. A dispatcher's own row carries no workspace and is
-// excluded: it is not one workspace's share of anything.
+// excluded: it is not one workspace's share of anything. A row whose
+// workspace key is PRESENT but empty is excluded by the same test rather
+// than counted as a workspace of its own — it is malformed, and a phantom
+// tenant here would misreport how much of the fleet a pass actually covers.
 func statsBySweep(ctx context.Context, pool *pgxpool.Pool) ([]SweepPass, error) {
 	const q = `
 		SELECT kind,
@@ -192,7 +195,7 @@ func statsBySweep(ctx context.Context, pool *pgxpool.Pool) ([]SweepPass, error) 
 		           kind, state::text AS state
 		    FROM river_job
 		    WHERE ` + sweepTagPredicate + `
-		      AND args->>'workspace_id' IS NOT NULL
+		      AND coalesce(args->>'workspace_id', '') <> ''
 		    ORDER BY kind, args->>'workspace_id', created_at DESC, id DESC
 		) latest
 		GROUP BY kind`

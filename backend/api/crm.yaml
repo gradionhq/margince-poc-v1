@@ -12527,7 +12527,7 @@ components:
     JobKindHealth:
       type: object
       additionalProperties: false
-      required: [kind, queue, fleet_wide, waiting, running, retrying, dead]
+      required: [kind, queue, fleet_wide, waiting, running, retrying, dead, oldest_waiting_age_seconds]
       properties:
         kind: { type: string, description: The stable job identifier River persists in river_job.kind. }
         queue: { type: string }
@@ -12553,7 +12553,7 @@ components:
     JobFailure:
       type: object
       additionalProperties: false
-      required: [kind, state, attempt, max_attempts, failed_at, reason]
+      required: [kind, workspace_id, state, attempt, max_attempts, failed_at, reason]
       properties:
         kind: { type: string }
         workspace_id:

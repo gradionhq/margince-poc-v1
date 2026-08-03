@@ -137,7 +137,13 @@ func (a jobSeries) ageFrom(qk queueKey, r jobs.StateRow) {
 // breaking the one invariant every reader of these gauges stands on. It
 // gets a value of its own so it is visible as the anomaly it is, and the
 // cardinality it can add is exactly one.
-const malformedWorkspaceLabel = "<malformed>"
+//
+// Plain ASCII, so label() passes it through unchanged rather than escaping
+// it into something unreadable. A raw workspace id equal to this string
+// would be indistinguishable from the marker — but such a row is itself
+// malformed (a real id is a uuid), it lands on the same series, and the
+// invariant that matters, empty ⇔ dispatcher, is untouched either way.
+const malformedWorkspaceLabel = "malformed_workspace_id"
 
 // workspaceLabelFor answers the workspace label for one group: empty for a
 // dispatcher, the id for tenant work, and a marker for a row that is
@@ -325,8 +331,13 @@ func writeFamilyHeader(w io.Writer, name, help string) error {
 // distinct malformed workspace ids differing only in a control byte would
 // collapse to the same label set, and duplicate series are exactly the
 // thing that makes a scrape unparseable — the failure this escaping exists
-// to prevent. The substitution is reversible by eye and appears only on a
-// row that is already broken.
+// to prevent.
+//
+// A literal '<' is escaped the same way, and that is what makes the mapping
+// INJECTIVE rather than merely printable. Without it, a value containing
+// the literal six characters "<0x09>" would render identically to one
+// containing a real tab — reintroducing exactly the collision this function
+// exists to remove. Every '<' in the output therefore begins an escape.
 func label(value string) string {
 	var b strings.Builder
 	b.Grow(len(value) + 2)
@@ -339,7 +350,7 @@ func label(value string) string {
 			b.WriteString(`\"`)
 		case r == '\n':
 			b.WriteString(`\n`)
-		case r < ' ' || r == 0x7f:
+		case r < ' ' || r == 0x7f || r == '<':
 			fmt.Fprintf(&b, "<0x%02x>", r)
 		default:
 			b.WriteRune(r)

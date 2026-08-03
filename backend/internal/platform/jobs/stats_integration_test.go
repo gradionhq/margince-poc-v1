@@ -243,13 +243,16 @@ func TestAPresentButEmptyWorkspaceIsNotReportedAsADispatcher(t *testing.T) {
 		t.Fatalf("Stats: %v", err)
 	}
 
+	var sawDispatcher, sawMalformed bool
 	for _, r := range snap.Rows {
 		switch r.Kind {
 		case "real_dispatcher":
+			sawDispatcher = true
 			if !r.Untenanted {
 				t.Error("a row with no workspace key at all was not reported as untenanted")
 			}
 		case "malformed_row":
+			sawMalformed = true
 			if r.Untenanted {
 				t.Error("a row whose workspace key is PRESENT but empty was reported as a " +
 					"dispatcher; the empty label would then mean two different things")
@@ -258,6 +261,50 @@ func TestAPresentButEmptyWorkspaceIsNotReportedAsADispatcher(t *testing.T) {
 				t.Errorf("WorkspaceID = %q, want the stored empty string verbatim", r.WorkspaceID)
 			}
 		}
+	}
+	// Without these, a snapshot missing either row passes every assertion
+	// above by never entering its arm — the distinction would be untested
+	// while the test reported green.
+	if !sawDispatcher {
+		t.Error("the untenanted dispatcher row never reached the snapshot")
+	}
+	if !sawMalformed {
+		t.Error("the present-but-empty row never reached the snapshot")
+	}
+}
+
+// TestASweepChildWithAnEmptyWorkspaceIsNotCountedAsATenant — the sweep pair
+// answers "how much of the fleet did this pass cover", so a malformed row
+// admitted as a workspace of its own inflates the fleet with a phantom
+// tenant. It is excluded by the same test the state read uses.
+func TestASweepChildWithAnEmptyWorkspaceIsNotCountedAsATenant(t *testing.T) {
+	_, pool := migratedAppPool(t)
+	ctx := t.Context()
+	tenant := ids.NewV7()
+
+	seedJob(ctx, t, pool, seed{
+		Kind: "sweep_child", State: "completed",
+		Workspace: tenant, Tags: []string{jobs.SweepTag},
+	})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO river_job (state, kind, queue, args, tags, errors, max_attempts,
+		                       attempt, created_at, scheduled_at)
+		VALUES ('available', 'sweep_child', 'default', '{"workspace_id": ""}'::jsonb,
+		        ARRAY['sweep']::varchar(255)[], '{}'::jsonb[], 3, 0, now(), now())`); err != nil {
+		t.Fatalf("seeding a tagged present-but-empty workspace row: %v", err)
+	}
+
+	snap, err := jobs.Stats(ctx, pool)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	pass, ok := sweepFor(snap, "sweep_child")
+	if !ok {
+		t.Fatal("the real tagged child is missing from the sweep read")
+	}
+	if pass.Workspaces != 1 {
+		t.Errorf("Workspaces = %d, want 1: a row whose workspace key is present but empty "+
+			"is malformed, not a tenant this pass covered", pass.Workspaces)
 	}
 }
 

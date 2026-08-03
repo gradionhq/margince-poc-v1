@@ -109,10 +109,18 @@ func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 	return CloseDateWorkspaceArgs{Workspace: ws}
 }
 
-// TestEveryFanOutChildIsMarkedAsOneWorkspacesShareOfAFleetPass — the sweep
-// gauges cannot tell a fleet pass from a hand-triggered workspace job by
-// kind alone, because they are the same kind. The tag is the difference.
-func TestEveryFanOutChildIsMarkedAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
+// TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass — the
+// sweep gauges cannot tell a fleet pass from a hand-triggered workspace job
+// by kind alone, because they are the same kind. The tag is the difference.
+//
+// This covers the dispatchWith choke point ONLY. The five dispatchers that
+// loop single client.Insert calls (jobs_capture.go x2, telegrampoll.go,
+// voicebuild.go, jobs_overlay.go) are not reachable from here — they resolve
+// a River client from context — so a regression in any of them would still
+// pass. Their tagging is held by markedAsFleetPass' own registry comment and
+// by review, which is why a fitness test over fan-out SITES is carried as
+// the highest-value follow-up in STATUS.md rather than claimed here.
+func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
 	var got []river.InsertManyParams
 	insert := func(_ context.Context, params []river.InsertManyParams) error {
 		got = params
@@ -145,6 +153,11 @@ func TestEveryFanOutChildIsMarkedAsOneWorkspacesShareOfAFleetPass(t *testing.T) 
 // still owns.
 func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
 	opts := workspaceSweepOpts("default", sweepWorkspaceMaxAttempts)
+	// Spare CAPACITY is the case a length check cannot see: append would
+	// write into the caller's own backing array and leave len unchanged, so
+	// the aliasing this test exists to catch would go unnoticed.
+	opts.Tags = append(make([]string, 0, 4), "caller-owned")
+	backing := opts.Tags[:cap(opts.Tags)]
 	before := len(opts.Tags)
 	insert := func(context.Context, []river.InsertManyParams) error { return nil }
 
@@ -157,6 +170,15 @@ func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
 	if len(opts.Tags) != before {
 		t.Errorf("the caller's opts grew to %d tags over three passes; the tag must be "+
 			"applied to a copy", len(opts.Tags))
+	}
+	if opts.Tags[0] != "caller-owned" {
+		t.Errorf("the caller's own tag was overwritten: %v", opts.Tags)
+	}
+	for i, tag := range backing[before:] {
+		if tag != "" {
+			t.Errorf("the fan-out wrote %q into the caller's spare capacity at index %d; "+
+				"the copy must not alias the caller's backing array", tag, before+i)
+		}
 	}
 }
 
