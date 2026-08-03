@@ -234,9 +234,13 @@ func malformedCall(tool, prop string) json.RawMessage {
 
 func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 	s := idProbeDispatcher(t)
-	// Every scope the surface defines, so admission never stands between the
-	// walk and the validation it is here to check.
-	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeWrite, principal.ScopeSend)
+	// EVERY scope the surface defines. A missing one does not shrink the walk
+	// visibly — the gate refuses on authority before validation runs, and the
+	// refusal is not internalFaultAdvice, so the case reads as a pass while
+	// testing nothing. ScopeDraft was absent and draft_email was silently
+	// uncovered; the guard below is what makes that impossible to repeat.
+	ctx := scopedAgentCtx(principal.ScopeRead, principal.ScopeDraft,
+		principal.ScopeWrite, principal.ScopeSend, principal.ScopeEnrich)
 
 	probed := 0
 	// registry.tools IS the universe — walking it rather than a name list is
@@ -250,11 +254,32 @@ func TestAMalformedIDIsRefusedAsTheCallersMistakeOnEveryTool(t *testing.T) {
 				t.Errorf("%s accepted %q as a UUID", name, prop)
 				continue
 			}
-			if answer := errorText(t, res); strings.Contains(answer, internalFaultAdvice) {
+			answer := errorText(t, res)
+			// The walk has to have REACHED validation. An authority refusal is
+			// not the internal fault, so it would otherwise count as a pass
+			// while the argument was never looked at.
+			if strings.Contains(answer, "scope") || strings.Contains(answer, "seat") {
+				t.Errorf("%s refused a malformed %q on authority, not on the argument: %q\n"+
+					"This case proves nothing about validation — grant the scope in this walk's "+
+					"context so the call reaches the tool.", name, prop, answer)
+				continue
+			}
+			if strings.Contains(answer, internalFaultAdvice) {
 				t.Errorf("%s reported a malformed %q as an internal fault: %q\n"+
 					"An agent is the only party that can fix its own typo, and this answer "+
 					"withholds the argument and offers a retry that cannot succeed. Declare the "+
 					"argument as ids.UUID so decodeArgs refuses it.", name, prop, answer)
+				continue
+			}
+			// And it must say WHICH id. `merge_records` takes source_id and
+			// target_id; `advance_deal` takes deal_id and to_stage_id — a refusal
+			// that quotes only the bad value leaves the agent guessing which slot
+			// it sat in. Nested and approval ids are out of scope here: the
+			// chokepoint skips array members (required only GIVEN their parent),
+			// and approval_id is consumed by splitApproval before it is reached.
+			if !strings.Contains(prop, "[].") && prop != "approval_id" &&
+				!strings.Contains(answer, prop) {
+				t.Errorf("%s refused a malformed %q without naming it: %q", name, prop, answer)
 			}
 		}
 	}

@@ -30,11 +30,11 @@ import (
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]mcp.Tool
-	// requiredIDs[tool] is the argument names that tool declares BOTH required
-	// and format:uuid, read off its own schema once at registration. Invoke
-	// enforces them, so "required" is true of the surface rather than of
-	// whichever handlers remembered to check.
-	requiredIDs map[string][]string
+	// idArgs[tool] is what that tool's schema says about its uuid arguments,
+	// read off the schema once at registration. Invoke enforces it, so the
+	// schema's claims are true of the surface rather than of whichever handlers
+	// remembered to check them.
+	idArgs map[string]idArgSpec
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -47,10 +47,10 @@ type Registry struct {
 
 func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 	return &Registry{
-		tools:       map[string]mcp.Tool{},
-		requiredIDs: map[string][]string{},
-		approvals:   approvals,
-		gate:        gate,
+		tools:     map[string]mcp.Tool{},
+		idArgs:    map[string]idArgSpec{},
+		approvals: approvals,
+		gate:      gate,
 	}
 }
 
@@ -98,16 +98,22 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: duplicate tool %s", spec.Name))
 	}
 	r.tools[spec.Name] = t
-	r.requiredIDs[spec.Name] = requiredIDArgs(spec.InputSchema)
+	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
 }
 
-// requiredIDArgs reports the arguments a schema declares both required and
-// format:uuid — the ones an absent key silently zero-values.
+// idArgSpec is what a tool's schema says about its uuid arguments: every one it
+// declares, and which of them it declares required.
+type idArgSpec struct {
+	all      []string
+	required map[string]bool
+}
+
+// declaredIDArgs reads a schema's uuid arguments once, at registration.
 //
-// Only top-level properties. A uuid nested in an array item is required GIVEN
-// its parent, and an absent parent is a legal call; enforcing it here would
-// refuse `log_activity` with no links.
-func requiredIDArgs(inputSchema json.RawMessage) []string {
+// Only top-level properties. A uuid nested in an array item is required GIVEN its
+// parent, and an absent parent is a legal call; enforcing it here would refuse
+// `log_activity` with no links.
+func declaredIDArgs(inputSchema json.RawMessage) idArgSpec {
 	var schema struct {
 		Required   []string `json:"required"`
 		Properties map[string]struct {
@@ -119,30 +125,46 @@ func requiredIDArgs(inputSchema json.RawMessage) []string {
 		//craft:ignore panic-in-domain composition-time assertion — assertObjectSchemas already parsed this schema
 		panic("crmagents: schema parsed at registration no longer parses: " + err.Error())
 	}
-	var out []string
-	for _, name := range schema.Required {
-		if schema.Properties[name].Format == "uuid" {
-			out = append(out, name)
+	spec := idArgSpec{required: map[string]bool{}}
+	for name, prop := range schema.Properties {
+		if prop.Format == "uuid" {
+			spec.all = append(spec.all, name)
 		}
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(spec.all)
+	for _, name := range schema.Required {
+		if schema.Properties[name].Format == "uuid" {
+			spec.required[name] = true
+		}
+	}
+	return spec
 }
 
-// requireDeclaredIDs enforces the schema's own `required` for uuid arguments.
+// requireDeclaredIDs holds every claim a tool's schema makes about its uuid
+// arguments: a required one is present, and any one supplied is a real UUID.
 //
-// This is a surface-wide invariant with one spelling, not a per-handler habit,
-// because the failure it prevents is invisible at the handler: `ids.UUID`
-// refuses a malformed value inside decodeArgs but zero-values an ABSENT key
-// without any error, so the handler receives a well-formed id that names
-// nothing. It then reaches a store lookup, matches no row, and the caller is
-// told a record it never mentioned does not exist. Thirteen tools had that
-// defect at once, which is what a chokepoint is for.
+// Surface-wide with one spelling rather than a per-handler habit, because the
+// failure it prevents is invisible at the handler. `ids.UUID` refuses a malformed
+// value inside decodeArgs but zero-values an ABSENT key without any error, so the
+// handler receives a well-formed id that names nothing, reaches a store lookup,
+// matches no row — and the caller is told a record it never mentioned does not
+// exist. Thirteen tools carried that defect at once, which is what a chokepoint
+// is for.
+//
+// It also names WHICH id is malformed, which the handler cannot: encoding/json
+// discards the field path when a value's own UnmarshalText fails, so decodeArgs
+// can only report `ids: "x" is not a canonical UUID`. On a tool taking one id
+// that is merely terse; on `merge_records` or `advance_deal` it does not say
+// which of two ids to fix.
+//
+// Every missing required id is collected before answering. Reporting them one per
+// round trip is accurate and still wasteful — an agent spends a call per field to
+// learn what one refusal could have told it.
 func (r *Registry) requireDeclaredIDs(name string, args json.RawMessage) error {
 	r.mu.RLock()
-	required := r.requiredIDs[name]
+	spec := r.idArgs[name]
 	r.mu.RUnlock()
-	if len(required) == 0 {
+	if len(spec.all) == 0 {
 		return nil
 	}
 	var present map[string]json.RawMessage
@@ -150,22 +172,39 @@ func (r *Registry) requireDeclaredIDs(name string, args json.RawMessage) error {
 		// Not an object at all. decodeArgs says that in the handler's own terms.
 		return nil
 	}
-	for _, field := range required {
+	var missing []string
+	for _, field := range spec.all {
 		raw, supplied := present[field]
 		if !supplied {
-			return &BadArgsError{Cause: fmt.Errorf("`%s` is required", field)}
+			if spec.required[field] {
+				missing = append(missing, "`"+field+"`")
+			}
+			continue
 		}
 		var id ids.UUID
 		if err := json.Unmarshal(raw, &id); err != nil {
-			// Malformed rather than absent. decodeArgs refuses it in the
-			// handler, quoting the value, which is the more useful message.
-			continue
+			return &BadArgsError{Cause: fmt.Errorf("`%s` is not a canonical UUID", field)}
 		}
-		if err := requireID(field, id); err != nil {
-			return err
+		if spec.required[field] && id.IsZero() {
+			// An explicit null or all-zero uuid names no record any more than an
+			// absent key does, so it joins them rather than travelling onward.
+			missing = append(missing, "`"+field+"`")
 		}
 	}
+	if len(missing) > 0 {
+		return &BadArgsError{Cause: fmt.Errorf("%s %s required",
+			strings.Join(missing, ", "), plural(len(missing), "is", "are"))}
+	}
 	return nil
+}
+
+// plural picks the verb form for a list of n items, so a refusal naming two
+// fields does not read as though it named one.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path

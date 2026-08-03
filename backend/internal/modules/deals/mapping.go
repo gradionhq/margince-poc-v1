@@ -13,6 +13,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // RequiredFieldError maps to 422 on both surfaces.
@@ -60,6 +61,14 @@ func requireBodyID(field string, id openapi_types.UUID) error {
 func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error) {
 	if req.Name == "" {
 		return CreateDealInput{}, &RequiredFieldError{Field: "name"}
+	}
+	// Provenance first, and before the structural checks below: a caller writing
+	// the importer's namespace is claiming to BE the importer, and that is refused
+	// on the attempt rather than only on an otherwise-complete body. Answering
+	// "pipeline_id is required" to a forged-provenance write would tell the caller
+	// how to make the forgery land.
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateDealInput{}, err
 	}
 	// A deal is born INTO a stage of a pipeline, and neither is defaultable here:
 	// which pipeline a workspace means is a config question, and guessing would

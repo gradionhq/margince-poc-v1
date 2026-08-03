@@ -117,7 +117,7 @@ var _ migration.Writers = (*flipWriters)(nil)
 
 // provenance is the imported row's source stamp.
 func (w *flipWriters) provenance(object, ext string) string {
-	return fmt.Sprintf("%s:%s:%s", w.incumbent, object, ext)
+	return provenance.ReservedSourceSystemPrefix + fmt.Sprintf("%s:%s:%s", w.incumbent, object, ext)
 }
 
 // importSourceSystem namespaces the source_system the flip writes on the
@@ -148,12 +148,16 @@ func (w *flipWriters) Exists(ctx context.Context, object, ext string) (bool, err
 }
 
 // lookup answers whether this external id already landed natively, via
-// the ENGINE-OWNED identity map. It deliberately does not read the rows'
-// own source/source_system columns: those are client-writable on every
-// create path, so a caller could pre-plant a row under an incumbent id
-// and have the flip treat the real estate record as already imported —
-// suppressing it, and capturing the activities that resolve through the
-// same identity.
+// the ENGINE-OWNED identity map — never by reading a row's own
+// provenance. Outside the reserved import namespace those columns are
+// client-writable, so a caller could pre-plant a row under an incumbent
+// id and have the flip treat the real estate record as already
+// imported: suppressing it, and capturing the activities that resolve
+// through the same identity.
+//
+// The crash repair (flipreconcile.go) DOES read provenance back, and
+// the two are consistent: it matches only the reserved prefix, which no
+// client-facing path can write, and only on live rows.
 func (w *flipWriters) lookup(ctx context.Context, object, ext string) (ids.UUID, bool, error) {
 	if !flipImportable(object) {
 		return ids.UUID{}, false, fmt.Errorf("flip import: %q is not an importable object", object)
@@ -192,12 +196,23 @@ func (w *flipWriters) remember(ctx context.Context, object, ext string, id ids.U
 
 // Ensure lands one estate row through the owning store.
 func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.Row) (migration.EnsureResult, error) {
-	if _, found, err := w.lookup(ctx, object, row.ExternalID); err != nil {
+	if id, found, err := w.lookup(ctx, object, row.ExternalID); err != nil {
 		return migration.EnsureResult{}, err
 	} else if found {
 		// The flip's source is a FROZEN snapshot, so an already-landed
 		// row cannot differ from what is stored: nothing to rewrite, and
 		// the report says so rather than claiming an update.
+		//
+		// A deal is the exception, because landing it takes TWO steps —
+		// born open, then advanced to its terminal stage. An adopted
+		// orphan (created before a crash, recovered by the reconcile)
+		// completed only the first, so returning Unchanged here would
+		// leave a closed-won estate deal parked open forever, reported as
+		// converged. Re-asserting the close is idempotent: a deal that
+		// already reached its terminal stage needs nothing.
+		if object == flipObjectDeal {
+			return w.settleAdoptedDeal(ctx, ids.From[ids.DealKind](id), row)
+		}
 		return migration.EnsureResult{Unchanged: true}, nil
 	}
 	switch object {
@@ -349,68 +364,6 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 		return migration.EnsureResult{}, err
 	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
-}
-
-func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectDeal)
-	if err != nil {
-		return migration.EnsureResult{}, err
-	}
-	stages, err := w.stageCatalog(ctx)
-	if err != nil {
-		return migration.EnsureResult{}, err
-	}
-	rawStage := fieldString(row.Fields, "stage_id")
-	placement := stages.place(rawStage)
-
-	name := strings.TrimSpace(fieldString(row.Fields, "name"))
-	if name == "" {
-		name = overlayUnnamed
-	}
-	in := deals.CreateDealInput{
-		Name:       name,
-		Currency:   fieldStringPtr(row.Fields, "currency"),
-		PipelineID: placement.pipeline,
-		StageID:    placement.birthStage,
-		OwnerID:    owner,
-		Source:     w.provenance(flipObjectDeal, row.ExternalID),
-	}
-	if minor, ok := fieldInt64(row.Fields, "amount_minor"); ok {
-		in.AmountMinor = &minor
-	}
-	if closeAt, ok := overlayTime(row.Fields, "expected_close_date"); ok {
-		in.ExpectedClose = &closeAt
-	}
-	deal, err := w.deals.CreateDeal(ctx, in)
-	if err != nil {
-		return migration.EnsureResult{}, fmt.Errorf("flip import: creating deal %s: %w", row.ExternalID, err)
-	}
-	dealID := ids.From[ids.DealKind](ids.UUID(deal.Id))
-	if err := w.remember(ctx, flipObjectDeal, row.ExternalID, ids.UUID(deal.Id)); err != nil {
-		return migration.EnsureResult{}, err
-	}
-
-	// A closed estate deal is born open (the store's open-birth-stage
-	// rule), then advanced to the terminal stage — the same won/lost path
-	// a native close takes, FX freeze included.
-	if placement.closedStage != nil {
-		var lostReason *string
-		if placement.closedSemantic == "lost" {
-			reason := "imported closed-lost from the incumbent estate"
-			lostReason = &reason
-		}
-		if _, err := w.deals.AdvanceDeal(ctx, dealID, deals.AdvanceDealInput{ToStageID: *placement.closedStage, LostReason: lostReason}); err != nil {
-			return migration.EnsureResult{}, fmt.Errorf("flip import: closing imported deal %s: %w", row.ExternalID, err)
-		}
-	}
-	notes := stageDisclosure(placement, rawStage, row.ExternalID)
-	if disclosure != "" {
-		if notes != "" {
-			notes += "; "
-		}
-		notes += disclosure
-	}
-	return migration.EnsureResult{Created: true, Disclosure: notes}, nil
 }
 
 func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {

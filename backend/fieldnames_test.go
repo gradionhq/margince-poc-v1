@@ -170,10 +170,19 @@ func TestAPublishedFieldNameIsAFieldNameNotProse(t *testing.T) {
 	}
 }
 
-// stringLiteralPrefix returns the literal text of a string expression, or of the
-// leftmost operand of a concatenation. A built-up value still has to START with
-// something field-shaped: `"kind: " + kind` fails on its prefix, which is the
-// point — the alternative is judging nothing about computed field names at all.
+// stringLiteralPrefix returns the literal text of a string expression, or the
+// ACCUMULATED literal prefix of a concatenation — every literal operand from the
+// left, joined, up to the first computed one.
+//
+// Accumulating rather than taking the leftmost operand is what makes the gate
+// hold against the obvious evasion. `"kind: " + kind` fails on its space either
+// way, but splitting it as `"kind" + ": " + kind` parses as
+// `(("kind" + ": ") + kind)`, whose leftmost operand is the perfectly
+// field-shaped `"kind"` — so a leftmost-only reading certifies the exact prose it
+// exists to refuse. Joined, the prefix is `kind: ` and the space fails it again.
+//
+// A trailing dot is dropped so a legitimate nested path (`"edits." + key`) is not
+// read as malformed.
 func stringLiteralPrefix(expr ast.Expr) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
@@ -189,14 +198,16 @@ func stringLiteralPrefix(expr ast.Expr) (string, bool) {
 		if e.Op != token.ADD {
 			return "", false
 		}
-		// A concatenation's prefix is judged with its trailing separator
-		// dropped, so a legitimate `"edits." + key` path is not read as a
-		// malformed name while `"kind: " + kind` still fails on the space.
-		text, ok := stringLiteralPrefix(e.X)
+		left, ok := stringLiteralPrefix(e.X)
 		if !ok {
 			return "", false
 		}
-		return strings.TrimSuffix(text, "."), true
+		// The right operand joins the prefix only when it too is literal; a
+		// computed one ends the prefix and leaves what precedes it to be judged.
+		if right, literal := stringLiteralPrefix(e.Y); literal {
+			left += right
+		}
+		return strings.TrimSuffix(left, "."), true
 	}
 	return "", false
 }
