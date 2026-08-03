@@ -1,4 +1,4 @@
--- 0169: where an account STANDS and what it IS to us become two fields
+-- 0171: where an account STANDS and what it IS to us become two fields
 -- (PO-DDL-4 / PO-DDL-4b, ADR-0079 / A124).
 --
 -- organization.classification held one value and answered two questions. Two

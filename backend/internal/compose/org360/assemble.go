@@ -33,6 +33,7 @@ const (
 	sectionStrength        = crmcontracts.Organization360SectionsOmitted("strength")
 	sectionActivities      = crmcontracts.Organization360SectionsOmitted("activities")
 	sectionLastTouch       = crmcontracts.Organization360SectionsOmitted("last_touch")
+	sectionStateStrip      = crmcontracts.Organization360SectionsOmitted("state_strip")
 	sectionTags            = crmcontracts.Organization360SectionsOmitted("tags")
 	sectionListMemberships = crmcontracts.Organization360SectionsOmitted("list_memberships")
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
@@ -95,6 +96,7 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionDeals, a.readDeals},
 		{sectionActivities, a.readTimeline},
 		{sectionLastTouch, a.readLastTouch},
+		{sectionStateStrip, a.readStateStrip},
 		{sectionNextSteps, a.readNextSteps},
 		{sectionTags, a.readTags},
 		{sectionListMemberships, a.readListMemberships},
@@ -135,6 +137,9 @@ type assembly struct {
 
 	contacts      []people.ContactStrength
 	contactsRead  bool
+	advice        suggestionInputs
+	adviceRead    bool
+	adviceErr     error
 	staged        []crmcontracts.Approval
 	stagedRead    bool
 	stagedRefused bool
@@ -300,6 +305,63 @@ func (a *assembly) readLastTouch() error {
 		a.out.LastOutboundAt = &when
 	}
 	return rows.Err()
+}
+
+// suggestionInputsOnce reads the newest message, the open pipeline and the
+// scheduled-task flag ONCE. The state strip and the suggestions are two
+// readings of the same three facts, and reading them twice would let the strip
+// say an account is waiting while the nudge beneath it disagreed — the
+// composite read exists to make that impossible.
+func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
+	if !a.adviceRead {
+		a.advice, a.adviceErr = gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+		a.adviceRead = true
+	}
+	return a.advice, a.adviceErr
+}
+
+// readStateStrip is the three readings the overview leads with (AC-company-13).
+//
+// The account half needs no grant beyond the organization the caller already
+// read. The other two are gated independently and answer NULL rather than a
+// zero when refused: "no open deals" and "you may not see the deals" are
+// different facts, and only one of them is about the account.
+func (a *assembly) readStateStrip() error {
+	in, err := a.suggestionInputsOnce()
+	if err != nil {
+		return err
+	}
+	strip := crmcontracts.Organization360StateStrip{}
+	if lc := a.out.Organization.Lifecycle; lc != nil {
+		strip.Account.Lifecycle = crmcontracts.Organization360StateStripAccountLifecycle(*lc)
+	}
+	if types := a.out.Organization.RelationshipTypes; types != nil {
+		for _, relType := range *types {
+			strip.Account.RelationshipTypes = append(strip.Account.RelationshipTypes,
+				crmcontracts.Organization360StateStripAccountRelationshipTypes(relType))
+		}
+	}
+
+	if in.timeline {
+		strip.Engagement = new(struct {
+			LastInboundAt  *time.Time                                            `json:"last_inbound_at,omitempty"`
+			LastOutboundAt *time.Time                                            `json:"last_outbound_at,omitempty"`
+			State          crmcontracts.Organization360StateStripEngagementState `json:"state"`
+		})
+		strip.Engagement.LastInboundAt = a.out.LastInboundAt
+		strip.Engagement.LastOutboundAt = a.out.LastOutboundAt
+		strip.Engagement.State = engagementState(in, a.now)
+	}
+	if in.pipeline {
+		strip.Commercial = new(struct {
+			OpenCount    int `json:"open_count"`
+			StalledCount int `json:"stalled_count"`
+		})
+		strip.Commercial.OpenCount = in.open.OpenCount
+		strip.Commercial.StalledCount = len(in.open.Stalled)
+	}
+	a.out.StateStrip = &strip
+	return nil
 }
 
 func (a *assembly) readNextSteps() error {

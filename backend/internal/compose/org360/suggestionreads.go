@@ -33,6 +33,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -378,3 +379,35 @@ func gatherSuggestionInputs(
 	}
 	return in, nil
 }
+
+// engagementState is PO-F-4: whose move is it, from the newest message that can
+// answer that question.
+//
+// The order below IS the spec's evaluation order and the states are mutually
+// exclusive — the first match wins, so a silent account reads as dormant rather
+// than as whichever side happened to write last a year ago.
+//
+// waiting_on_them reuses noReplyDays rather than restating it, which is what
+// makes the strip and the no_reply suggestion beneath it agree by construction
+// instead of by coincidence.
+func engagementState(in suggestionInputs, now time.Time) crmcontracts.Organization360StateStripEngagementState {
+	if !in.hasNewest {
+		return "never_contacted"
+	}
+	age := now.Sub(in.newest.At)
+	switch {
+	case age > engagementDormantDays*24*time.Hour:
+		return "dormant"
+	case in.newest.Direction == "outbound" && age >= noReplyDays*24*time.Hour:
+		return "waiting_on_them"
+	case in.newest.Direction == "inbound" && age >= noReplyDays*24*time.Hour:
+		return "waiting_on_us"
+	}
+	return "active"
+}
+
+// engagementDormantDays (PO-PARAM-4) is where "whose move is it" stops being a
+// useful question. Past it the distinction is not actionable, and a strip still
+// saying "waiting on them" after a quarter would be advising a reply to a
+// conversation nobody remembers.
+const engagementDormantDays = 90

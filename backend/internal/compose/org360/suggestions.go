@@ -80,7 +80,10 @@ func (a *assembly) readSuggestions() error {
 	if _, err := actingUser(a.ctx); err != nil {
 		return err
 	}
-	in, err := gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+	// The SAME read the state strip used. Two readings of the newest message
+	// could disagree with each other inside one page — the composite read
+	// exists to make that impossible.
+	in, err := a.suggestionInputsOnce()
 	if err != nil {
 		return err
 	}

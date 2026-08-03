@@ -3832,6 +3832,7 @@ const (
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
+	Organization360SectionsOmittedStateStrip       Organization360SectionsOmitted = "state_strip"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
 	Organization360SectionsOmittedSuggestions      Organization360SectionsOmitted = "suggestions"
 	Organization360SectionsOmittedTags             Organization360SectionsOmitted = "tags"
@@ -3855,6 +3856,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedPeople:
 		return true
 	case Organization360SectionsOmittedSinceLastVisit:
+		return true
+	case Organization360SectionsOmittedStateStrip:
 		return true
 	case Organization360SectionsOmittedStrength:
 		return true
@@ -3903,6 +3906,99 @@ func (e Organization360DealStatus) Valid() bool {
 	case Organization360DealStatusOpen:
 		return true
 	case Organization360DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripAccountLifecycle.
+const (
+	Organization360StateStripAccountLifecycleCustomer       Organization360StateStripAccountLifecycle = "customer"
+	Organization360StateStripAccountLifecycleDisqualified   Organization360StateStripAccountLifecycle = "disqualified"
+	Organization360StateStripAccountLifecycleFormerCustomer Organization360StateStripAccountLifecycle = "former_customer"
+	Organization360StateStripAccountLifecycleOpportunity    Organization360StateStripAccountLifecycle = "opportunity"
+	Organization360StateStripAccountLifecycleProspect       Organization360StateStripAccountLifecycle = "prospect"
+	Organization360StateStripAccountLifecycleTarget         Organization360StateStripAccountLifecycle = "target"
+	Organization360StateStripAccountLifecycleUnknown        Organization360StateStripAccountLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripAccountLifecycle enum.
+func (e Organization360StateStripAccountLifecycle) Valid() bool {
+	switch e {
+	case Organization360StateStripAccountLifecycleCustomer:
+		return true
+	case Organization360StateStripAccountLifecycleDisqualified:
+		return true
+	case Organization360StateStripAccountLifecycleFormerCustomer:
+		return true
+	case Organization360StateStripAccountLifecycleOpportunity:
+		return true
+	case Organization360StateStripAccountLifecycleProspect:
+		return true
+	case Organization360StateStripAccountLifecycleTarget:
+		return true
+	case Organization360StateStripAccountLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripAccountRelationshipTypes.
+const (
+	Organization360StateStripAccountRelationshipTypesCompetitor       Organization360StateStripAccountRelationshipTypes = "competitor"
+	Organization360StateStripAccountRelationshipTypesCustomer         Organization360StateStripAccountRelationshipTypes = "customer"
+	Organization360StateStripAccountRelationshipTypesInvestor         Organization360StateStripAccountRelationshipTypes = "investor"
+	Organization360StateStripAccountRelationshipTypesOther            Organization360StateStripAccountRelationshipTypes = "other"
+	Organization360StateStripAccountRelationshipTypesPartner          Organization360StateStripAccountRelationshipTypes = "partner"
+	Organization360StateStripAccountRelationshipTypesPortfolioCompany Organization360StateStripAccountRelationshipTypes = "portfolio_company"
+	Organization360StateStripAccountRelationshipTypesSupplier         Organization360StateStripAccountRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripAccountRelationshipTypes enum.
+func (e Organization360StateStripAccountRelationshipTypes) Valid() bool {
+	switch e {
+	case Organization360StateStripAccountRelationshipTypesCompetitor:
+		return true
+	case Organization360StateStripAccountRelationshipTypesCustomer:
+		return true
+	case Organization360StateStripAccountRelationshipTypesInvestor:
+		return true
+	case Organization360StateStripAccountRelationshipTypesOther:
+		return true
+	case Organization360StateStripAccountRelationshipTypesPartner:
+		return true
+	case Organization360StateStripAccountRelationshipTypesPortfolioCompany:
+		return true
+	case Organization360StateStripAccountRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripEngagementState.
+const (
+	Organization360StateStripEngagementStateActive         Organization360StateStripEngagementState = "active"
+	Organization360StateStripEngagementStateDormant        Organization360StateStripEngagementState = "dormant"
+	Organization360StateStripEngagementStateNeverContacted Organization360StateStripEngagementState = "never_contacted"
+	Organization360StateStripEngagementStateWaitingOnThem  Organization360StateStripEngagementState = "waiting_on_them"
+	Organization360StateStripEngagementStateWaitingOnUs    Organization360StateStripEngagementState = "waiting_on_us"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripEngagementState enum.
+func (e Organization360StateStripEngagementState) Valid() bool {
+	switch e {
+	case Organization360StateStripEngagementStateActive:
+		return true
+	case Organization360StateStripEngagementStateDormant:
+		return true
+	case Organization360StateStripEngagementStateNeverContacted:
+		return true
+	case Organization360StateStripEngagementStateWaitingOnThem:
+		return true
+	case Organization360StateStripEngagementStateWaitingOnUs:
 		return true
 	default:
 		return false
@@ -6620,22 +6716,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
-	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
-	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
-	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
+	Automatic  VoiceProfileVersionReason = "automatic"
+	Manual     VoiceProfileVersionReason = "manual"
+	Onboarding VoiceProfileVersionReason = "onboarding"
+	Rollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case VoiceProfileVersionReasonAutomatic:
+	case Automatic:
 		return true
-	case VoiceProfileVersionReasonManual:
+	case Manual:
 		return true
-	case VoiceProfileVersionReasonOnboarding:
+	case Onboarding:
 		return true
-	case VoiceProfileVersionReasonRollback:
+	case Rollback:
 		return true
 	default:
 		return false
@@ -11105,6 +11201,12 @@ type Organization360 struct {
 	// the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
 	SinceLastVisit *Organization360SinceLastVisit `json:"since_last_visit,omitempty"`
 
+	// StateStrip The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+	// independently gated: a caller who may read the account but not its mail gets the account
+	// half and a null engagement, because a state inferred from data they were not allowed to see
+	// would be a conclusion the page has no basis for — and it is the one a rep would act on.
+	StateStrip *Organization360StateStrip `json:"state_strip,omitempty"`
+
 	// Strength Relationship strength for an ACCOUNT: the §4 score of its strongest current
 	// contact (one strong relationship makes an account warm; an average would dilute
 	// it), plus who carries it and how many contacts it was chosen from. A separate
@@ -11228,6 +11330,41 @@ type Organization360SinceLastVisit struct {
 	// record page pay for an unbounded backlog.
 	PendingProposals *int `json:"pending_proposals,omitempty"`
 }
+
+// Organization360StateStrip The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+// independently gated: a caller who may read the account but not its mail gets the account
+// half and a null engagement, because a state inferred from data they were not allowed to see
+// would be a conclusion the page has no basis for — and it is the one a rep would act on.
+type Organization360StateStrip struct {
+	Account struct {
+		Lifecycle         Organization360StateStripAccountLifecycle           `json:"lifecycle"`
+		RelationshipTypes []Organization360StateStripAccountRelationshipTypes `json:"relationship_types"`
+	} `json:"account"`
+
+	// Commercial Null when the caller has no deal grant.
+	Commercial *struct {
+		OpenCount    int `json:"open_count"`
+		StalledCount int `json:"stalled_count"`
+	} `json:"commercial,omitempty"`
+
+	// Engagement Null when the caller has no activity grant — not assessed, as distinct from never contacted.
+	Engagement *struct {
+		LastInboundAt  *time.Time `json:"last_inbound_at,omitempty"`
+		LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+		// State PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+		State Organization360StateStripEngagementState `json:"state"`
+	} `json:"engagement,omitempty"`
+}
+
+// Organization360StateStripAccountLifecycle defines model for Organization360StateStrip.Account.Lifecycle.
+type Organization360StateStripAccountLifecycle string
+
+// Organization360StateStripAccountRelationshipTypes defines model for Organization360StateStrip.Account.RelationshipTypes.
+type Organization360StateStripAccountRelationshipTypes string
+
+// Organization360StateStripEngagementState PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+type Organization360StateStripEngagementState string
 
 // Organization360Suggestion One deterministic next-step suggestion. It is derived, not decided: the rule
 // that fired, the records it fired on, and nothing the reader cannot check.

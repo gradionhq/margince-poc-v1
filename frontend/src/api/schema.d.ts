@@ -6843,6 +6843,36 @@ export interface components {
             /** Format: date-time */
             last_viewed_at: string;
         };
+        /**
+         * @description The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+         *     independently gated: a caller who may read the account but not its mail gets the account
+         *     half and a null engagement, because a state inferred from data they were not allowed to see
+         *     would be a conclusion the page has no basis for — and it is the one a rep would act on.
+         */
+        Organization360StateStrip: {
+            account: {
+                /** @enum {string} */
+                lifecycle: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+                relationship_types: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
+            };
+            /** @description Null when the caller has no activity grant — not assessed, as distinct from never contacted. */
+            engagement?: {
+                /**
+                 * @description PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+                 * @enum {string}
+                 */
+                state: "never_contacted" | "active" | "waiting_on_them" | "waiting_on_us" | "dormant";
+                /** Format: date-time */
+                last_inbound_at?: string | null;
+                /** Format: date-time */
+                last_outbound_at?: string | null;
+            } | null;
+            /** @description Null when the caller has no deal grant. */
+            commercial?: {
+                open_count: number;
+                stalled_count: number;
+            } | null;
+        };
         /** @description One current employee of the account, as the company view shows them. */
         Organization360Contact: {
             /** Format: uuid */
@@ -6988,8 +7018,9 @@ export interface components {
              * @description When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
              */
             last_outbound_at?: string | null;
+            state_strip?: components["schemas"]["Organization360StateStrip"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
