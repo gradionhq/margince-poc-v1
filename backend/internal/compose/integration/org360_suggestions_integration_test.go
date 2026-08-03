@@ -161,7 +161,7 @@ func TestTheMostUrgentAdviceLeadsAFullCard(t *testing.T) {
 // maxListedSuggestions mirrors the card's own cap (org360.maxSuggestions). Spelled
 // here because the integration package cannot see the unexported constant, and a
 // test that derived it from the answer could not tell a cap from a coincidence.
-const maxListedSuggestions = 5
+const maxListedSuggestions = 3
 
 // Every figure a suggestion states is the ACCOUNT's, never this read's.
 //

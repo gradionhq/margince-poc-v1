@@ -4005,6 +4005,27 @@ func (e Organization360StateStripEngagementState) Valid() bool {
 	}
 }
 
+// Defines values for Organization360SuggestionActionKind.
+const (
+	AddTask    Organization360SuggestionActionKind = "add_task"
+	DraftReply Organization360SuggestionActionKind = "draft_reply"
+	OpenDeal   Organization360SuggestionActionKind = "open_deal"
+)
+
+// Valid indicates whether the value is a known member of the Organization360SuggestionActionKind enum.
+func (e Organization360SuggestionActionKind) Valid() bool {
+	switch e {
+	case AddTask:
+		return true
+	case DraftReply:
+		return true
+	case OpenDeal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Organization360SuggestionKind.
 const (
 	Organization360SuggestionKindNoNextStep  Organization360SuggestionKind = "no_next_step"
@@ -11372,6 +11393,26 @@ type Organization360StateStripEngagementState string
 // Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
 // it offers are the same governed endpoints the rep would have used anyway.
 type Organization360Suggestion struct {
+	// Action What performing this advice means, named by the server rather than inferred by the
+	// client from the evidence order (AC-company-14). A rule that cannot name an action
+	// carries null and the card advises without offering a button, which is honest — a
+	// control that does nothing teaches the reader to stop pressing them.
+	//
+	// Nothing here stages or sends. Each kind opens a governed surface the rep would have
+	// used anyway, prefilled from the evidence the rule fired on.
+	Action *struct {
+		// ActivityId The unanswered outbound message a `draft_reply` anchors on.
+		ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+		// DealId The deal an `open_deal` opens, and the optional link an `add_task` carries.
+		DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+		// Kind `draft_reply` — open the composer on the message that went unanswered.
+		// `open_deal` — open the deal that stalled.
+		// `add_task` — log the next step this account does not have.
+		Kind Organization360SuggestionActionKind `json:"kind"`
+	} `json:"action,omitempty"`
+
 	// Evidence The records the rule fired on — always ones this reader can open.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
 
@@ -11394,6 +11435,11 @@ type Organization360Suggestion struct {
 	SubjectId   *openapi_types.UUID                   `json:"subject_id,omitempty"`
 	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
 }
+
+// Organization360SuggestionActionKind `draft_reply` — open the composer on the message that went unanswered.
+// `open_deal` — open the deal that stalled.
+// `add_task` — log the next step this account does not have.
+type Organization360SuggestionActionKind string
 
 // Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
 // `stalled_deal` — an open deal idle past the 60-day stall window.

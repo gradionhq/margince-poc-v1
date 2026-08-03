@@ -10826,6 +10826,33 @@ components:
           type: array
           description: The records the rule fired on — always ones this reader can open.
           items: { $ref: '#/components/schemas/OrganizationBriefEvidence' }
+        action:
+          type: [object, 'null']
+          description: |
+            What performing this advice means, named by the server rather than inferred by the
+            client from the evidence order (AC-company-14). A rule that cannot name an action
+            carries null and the card advises without offering a button, which is honest — a
+            control that does nothing teaches the reader to stop pressing them.
+
+            Nothing here stages or sends. Each kind opens a governed surface the rep would have
+            used anyway, prefilled from the evidence the rule fired on.
+          required: [kind]
+          properties:
+            kind:
+              type: string
+              enum: [draft_reply, open_deal, add_task]
+              description: |
+                `draft_reply` — open the composer on the message that went unanswered.
+                `open_deal` — open the deal that stalled.
+                `add_task` — log the next step this account does not have.
+            activity_id:
+              type: [string, 'null']
+              format: uuid
+              description: The unanswered outbound message a `draft_reply` anchors on.
+            deal_id:
+              type: [string, 'null']
+              format: uuid
+              description: The deal an `open_deal` opens, and the optional link an `add_task` carries.
 
     Organization360SinceLastVisit:
       type: object

@@ -6975,6 +6975,34 @@ export interface components {
             subject_id?: string | null;
             /** @description The records the rule fired on — always ones this reader can open. */
             evidence: components["schemas"]["OrganizationBriefEvidence"][];
+            /**
+             * @description What performing this advice means, named by the server rather than inferred by the
+             *     client from the evidence order (AC-company-14). A rule that cannot name an action
+             *     carries null and the card advises without offering a button, which is honest — a
+             *     control that does nothing teaches the reader to stop pressing them.
+             *
+             *     Nothing here stages or sends. Each kind opens a governed surface the rep would have
+             *     used anyway, prefilled from the evidence the rule fired on.
+             */
+            action?: {
+                /**
+                 * @description `draft_reply` — open the composer on the message that went unanswered.
+                 *     `open_deal` — open the deal that stalled.
+                 *     `add_task` — log the next step this account does not have.
+                 * @enum {string}
+                 */
+                kind: "draft_reply" | "open_deal" | "add_task";
+                /**
+                 * Format: uuid
+                 * @description The unanswered outbound message a `draft_reply` anchors on.
+                 */
+                activity_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description The deal an `open_deal` opens, and the optional link an `add_task` carries.
+                 */
+                deal_id?: string | null;
+            } | null;
         };
         /**
          * @description What changed on this account since the caller last acknowledged seeing it. Read-only:
