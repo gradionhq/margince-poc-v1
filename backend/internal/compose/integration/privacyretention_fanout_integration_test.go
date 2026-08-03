@@ -225,27 +225,23 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 // the schedule a boot pass hides. RunOnStart fires once whatever the cadence
 // is, so a dispatcher wired to a constant instead of the operator's
 // --retention-interval looks identical at boot and then never runs again — a
-// dead pass with every gate green. Two dispatches inside this window can only
-// happen if the configured interval is what River is scheduling on.
+// dead storage-limitation obligation with every gate green. Two dispatches less
+// than dispatchGapBound apart can only happen if a cadence far shorter than any
+// constant in reach is what River is scheduling on.
 func TestPrivacyRetentionDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	e := Setup(t)
 	ApplyRiverSchema(t)
 
-	_, completed, _ := startRetentionRunner(t, e, 2*time.Second)
+	_, completed, _ := startRetentionRunner(t, e, dispatchInterval)
+	// Generous compared with the gap bound: a run this slow is a sick machine,
+	// and the assertion that decides the outcome is the gap below, not this.
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.PrivacyRetentionArgs{}.Kind()
-	dispatched := make(map[int64]struct{}, 2)
-	for len(dispatched) < 2 {
-		select {
-		case <-waitCtx.Done():
-			t.Fatalf("saw %d of 2 %s dispatches: %v — the pass fired at boot and then never again, so the operator's interval is not what schedules it",
-				len(dispatched), kind, waitCtx.Err())
-		case ev := <-completed:
-			if ev != nil && ev.Job != nil && ev.Job.Kind == kind {
-				dispatched[ev.Job.ID] = struct{}{}
-			}
-		}
+	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
+	if gap := second.Sub(first); gap > dispatchGapBound {
+		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and dispatchScanInterval is the one that would look exactly like this",
+			kind, gap, dispatchGapBound, dispatchInterval)
 	}
 }
 
