@@ -32,7 +32,7 @@ import (
 // incomplete: the api enqueue and the deferred-retry sweep converge on one
 // job per build row.
 type VoiceBuildArgs struct {
-	Workspace   ids.UUID `json:"workspace"`
+	Workspace   ids.UUID `json:"workspace_id"`
 	ProfileID   string   `json:"profile_id"`
 	BuildID     string   `json:"build_id"`
 	RequestedBy string   `json:"requested_by"`
