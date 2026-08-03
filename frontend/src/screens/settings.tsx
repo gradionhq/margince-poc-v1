@@ -63,6 +63,7 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
+import { ConnectedAgentsCard } from "./connected-agents";
 import { ConnectorsCard } from "./connectors";
 import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
@@ -280,6 +281,9 @@ function AiSettingsTab() {
       {canSeeRuntime && <AiCallsCard />}
       <AutonomyCard />
       <PassportCard />
+      {/* Directly after the passports, because it is the second half of one
+          story: mint a passport, then lend it to a client that connects. */}
+      <ConnectedAgentsCard />
       <AgentToolsCard />
       <AutomationsLinkCard />
     </>
@@ -457,7 +461,20 @@ function PassportCard() {
           {mint.error instanceof Error ? mint.error.message : null}
         </p>
       )}
-      <QueryGate query={list} empty={(page) => page.data.length === 0}>
+      <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+        {t("settings.passportsLendHint")}
+      </p>
+      {/* Only what this human MINTED. A row carrying a connection was issued by
+          the token exchange to a client — it belongs to ConnectedAgentsCard,
+          and listing it here put a raw DCR client id among the names the human
+          chose. `connection` is the server's own statement of which kind a row
+          is; the `oauth:` label prefix is display text and decides nothing. */}
+      <QueryGate
+        query={list}
+        empty={(page) =>
+          page.data.every((passport) => passport.connection != null)
+        }
+      >
         {(page) => (
           <ul
             style={{
@@ -468,63 +485,69 @@ function PassportCard() {
               marginTop: 12,
             }}
           >
-            {page.data.map((passport) => {
-              const revoked = passport.revoked_at != null;
-              return (
-                <li
-                  key={passport.id}
-                  data-passport={passport.id}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    // struck, not dimmed — dimming would drop the row
-                    // under the AA contrast floor (B-EP09.21)
-                    textDecoration: revoked ? "line-through" : undefined,
-                  }}
-                >
-                  <strong>{passport.label}</strong>
-                  {/* The credential exists but is withheld by design (shown
+            {page.data
+              .filter((passport) => passport.connection == null)
+              .map((passport) => {
+                const revoked = passport.revoked_at != null;
+                return (
+                  <li
+                    key={passport.id}
+                    data-passport={passport.id}
+                    style={{
+                      display: "flex",
+                      gap: "var(--space-2)",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      // struck, not dimmed — dimming would drop the row
+                      // under the AA contrast floor (B-EP09.21)
+                      textDecoration: revoked ? "line-through" : undefined,
+                    }}
+                  >
+                    <strong>{passport.label}</strong>
+                    {/* The credential exists but is withheld by design (shown
                       once at mint) — masked reads as "withheld", not absent. */}
-                  <span className="t-label">{t("settings.token")}</span>
-                  <FieldGuard mode="masked" />
-                  <ScopeChips scopes={passport.scopes} />
-                  <span className="t-small">
-                    {t("settings.created", {
-                      date: formatDate(
-                        passport.created_at,
-                        locale,
-                        "Europe/Berlin",
-                      ),
-                    })}
-                  </span>
-                  {passport.expires_at && (
+                    <span className="t-label">{t("settings.token")}</span>
+                    <FieldGuard mode="masked" />
+                    <ScopeChips scopes={passport.scopes} />
                     <span className="t-small">
-                      {t("settings.expires", {
+                      {t("settings.created", {
                         date: formatDate(
-                          passport.expires_at,
+                          passport.created_at,
                           locale,
                           "Europe/Berlin",
                         ),
                       })}
                     </span>
-                  )}
-                  {revoked && (
-                    <Badge tone="danger">{t("settings.revoked")}</Badge>
-                  )}
-                  {!revoked && (
-                    <Button
-                      small
-                      variant="danger"
-                      onClick={() => setConfirmId(passport.id)}
-                    >
-                      {t("settings.revoke")}
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
+                    {/* A credential's lifetime is a personal deadline, so it
+                        reads on the viewer's own calendar — the same
+                        zone-by-purpose split the consent screen makes. created_at
+                        above stays the fixed record zone. */}
+                    {passport.expires_at && (
+                      <span className="t-small">
+                        {t("settings.expires", {
+                          date: formatDate(
+                            passport.expires_at,
+                            locale,
+                            Intl.DateTimeFormat().resolvedOptions().timeZone,
+                          ),
+                        })}
+                      </span>
+                    )}
+                    {revoked && (
+                      <Badge tone="danger">{t("settings.revoked")}</Badge>
+                    )}
+                    {!revoked && (
+                      <Button
+                        small
+                        variant="danger"
+                        onClick={() => setConfirmId(passport.id)}
+                      >
+                        {t("settings.revoke")}
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
           </ul>
         )}
       </QueryGate>
@@ -573,8 +596,13 @@ function AgentToolsCard() {
       return data;
     },
   });
+  // Live, and the human's OWN to lend. A connection's credential is neither:
+  // the server refuses to lend a grant-bound passport (identity's
+  // lendablePassportPredicate), so offering one here would name a choice the
+  // consent screen cannot honour — and would put a raw DCR client id back in
+  // front of a reader the rest of this change just took it away from.
   const lendable = (passports.data?.data ?? []).filter(
-    (p) => p.revoked_at == null,
+    (p) => p.revoked_at == null && p.connection == null,
   );
   // The filter follows the selector: a passport revoked while it was the
   // chosen scope drops out of the options, and the <select> then shows "all
