@@ -14,13 +14,14 @@ package compose
 // fleet and enqueues the children in the same transaction, and each child leaves
 // that set when it reaches a terminal outcome. The child that empties it hands
 // the marker back. So the marker is held for as long as the RUN has outstanding
-// work, not for as long as any one job row is alive — and every write fences on
-// the run id the job carries, so a straggler of a finished run acts on nothing.
+// work, not for as long as any one job row is alive — and every MARKER write
+// fences on the run id the job carries, so a straggler of a finished run cannot
+// move the marker. It still does its own embedding work; only its bookkeeping is
+// neutered (search.ReembedClaim.StealAfter states what that costs).
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -210,7 +211,7 @@ func (w *embedReindexWorkspaceWorker) reembed(ctx context.Context, args EmbedRei
 		return err
 	}
 	if w.embedder == nil {
-		return fmt.Errorf("embed_reindex_workspace: no embed lane configured on this worker role")
+		return errors.New("embed_reindex_workspace: worker has no embed lane — configure --ai-routing (or --ai-fake) on the worker role")
 	}
 	return w.store.ReembedWorkspace(wsCtx,
 		search.ReembedPass{Run: args.Run, Identity: args.Identity},

@@ -74,8 +74,8 @@ type embedDriftWorkspaceWorker struct {
 	log      *slog.Logger
 }
 
-// Timeout disables River's 1-minute default, the embedReindexWorker's own
-// reasoning: the pass is bounded by the pending backlog, not a wall
+// Timeout disables River's 1-minute default, the embedReindexWorkspaceWorker's
+// own reasoning: the pass is bounded by the pending backlog, not a wall
 // clock, and each embed is bounded by the model lane's per-call timeout.
 func (w *embedDriftWorkspaceWorker) Timeout(*river.Job[EmbedDriftWorkspaceArgs]) time.Duration {
 	return -1

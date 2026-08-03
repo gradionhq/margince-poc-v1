@@ -239,7 +239,10 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
 			Code:   "reindex_running",
-			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for an hour",
+			// The window is rendered from the constant that enforces it: a
+			// message naming its own duration is a message that lies the day
+			// reembedStaleAfter moves.
+			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + reembedStaleAfter.String(),
 		})
 		return
 	}

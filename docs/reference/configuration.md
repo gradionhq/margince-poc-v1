@@ -81,6 +81,16 @@ recorded on the timeline, answers `202`, and then sits `pending` in
 `comms_outbound` indefinitely with no reason string, because nothing has yet
 tried and failed. Run a worker, or accept that mail is queued and not sent.
 
+**A failed outbound webhook is never re-attempted without this process either.**
+Both roles run the `cg:webhooks` consumer when `--webhook-key` is set, so an
+api-only deployment still makes each delivery's FIRST attempt — but the retry
+sweep is a River periodic job (`webhook_retry` → one `webhook_retry_workspace`
+row per live workspace) and only `cmd/worker` runs a River runner. In an api-only
+deployment a delivery that fails its first attempt sits `retrying` forever, never
+reaching its 6-attempt budget and so never reaching `dead_lettered` either. The
+api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
+[explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md#6-the-two-runtime-lanes-and-where-they-run).
+
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |

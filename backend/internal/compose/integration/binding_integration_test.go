@@ -172,12 +172,21 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
 	if ran {
 		t.Fatal("a refused claim must not enqueue a second run's dispatcher")
 	}
+}
 
-	// An unseeded marker is a deployment that skipped boot, not a run holding
-	// the marker: the two answer different status codes, so they must not
-	// collapse into one error.
-	fresh := setupSearch(t)
-	err = fresh.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil })
+// TestClaimAndEnqueueReembeddingNamesAnUnseededMarker is the other half of the
+// refusal: an unseeded marker is a deployment that skipped boot, not a run
+// holding the marker, and the two answer different status codes — so they must
+// not collapse into one error.
+//
+// Its own test because setupSearch RESETS the database. Asserting this inside
+// the single-flight test would mean tearing down the very claim that test is
+// about, and would hold only for as long as it stayed the last assertion in the
+// function.
+func TestClaimAndEnqueueReembeddingNamesAnUnseededMarker(t *testing.T) {
+	e := setupSearch(t)
+	err := e.store.ClaimAndEnqueueReembedding(context.Background(),
+		claimOf("fake/unseeded@1024"), func(pgx.Tx) error { return nil })
 	if !errors.Is(err, search.ErrBindingNotSeeded) {
 		t.Fatalf("claim against an unseeded marker = %v, want ErrBindingNotSeeded", err)
 	}

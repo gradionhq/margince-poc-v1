@@ -136,9 +136,21 @@ type ReembedClaim struct {
 	// What makes the bound meaningful is that a WORKING run keeps its marker
 	// fresh: ReembedWorkspace refreshes it as it goes, so it never reads staler
 	// than ReembedProgressStaleness plus the one embed in flight when that
-	// interval elapses. What makes stealing SAFE is the run id: the dispossessed
-	// run's stragglers carry a Run the marker no longer names, so they act on
-	// nothing.
+	// interval elapses.
+	//
+	// What a steal stops, exactly: the dispossessed run's MARKER WRITES. Its
+	// children carry a Run the marker no longer names, so their progress notes,
+	// their FinishWorkspaceReembedding and their release all match no row and
+	// cannot move — let alone release — the new run's set.
+	//
+	// What a steal does NOT stop: the children themselves. Nothing here cancels
+	// a River job, and the new run's children carry a different Run in their
+	// args, so ByArgs uniqueness does not suppress them either — both fleets run
+	// at once. That is real model spend, not a no-op, and it is accepted rather
+	// than overlooked: UpsertEmbedding's content-hash skip-compare means the
+	// loser of the race per entity re-embeds nothing, so the overspend is
+	// bounded by whatever was genuinely stale when the steal happened, and a
+	// steal only fires against a run that has already stopped reporting progress.
 	//
 	// Zero never steals, which is what an ordinary confirm passes.
 	StealAfter time.Duration
@@ -400,7 +412,7 @@ func systemWorkspaceContext(ctx context.Context, wsID ids.UUID) context.Context 
 // principal — the enumeration pendingStats (this file) drives its
 // per-workspace rollup loop from.
 func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error) {
-	// rls-exempt: fleet enumeration — the workspace table lists every tenant before the per-workspace tx each caller opens next (retention.go:128 precedent).
+	// rls-exempt: fleet enumeration — the workspace table lists every tenant before the per-workspace tx each caller opens next (compose/dispatch.go enumerateWorkspaces is the sanctioned spelling; backend/jobfleetscan_test.go ratifies this site as a read).
 	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("search: enumerating workspaces: %w", err)

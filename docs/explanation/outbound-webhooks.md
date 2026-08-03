@@ -369,8 +369,10 @@ Delivery is a background capability, gated on the deployment signing key:
 - **`cmd/api` under `--inline-relay`** (the default single-process dev/small-deploy shape) runs the
   same consumer inline, on the in-process relay group, when the key is set — **but not the sweep**.
   The sweep is a River periodic job and `cmd/api` runs no River runner, so re-attempting a parked
-  delivery needs the worker role. An installation running only the api delivers on the bus and never
-  retries what failed.
+  delivery needs the worker role — `cmd/worker` is load-bearing for E10 retry, and the api's boot
+  line says so. An installation running only the api makes each delivery's first attempt and never
+  retries what failed: a failed delivery sits `retrying` indefinitely, so it never spends its
+  6-attempt budget and never reaches `dead_lettered` either.
 - Either lane carries the identity-backed `authz.Resolver` for the owner-scope gate; the HTTP-transport
   deliverer that serves **replay only** needs no resolver (replay re-sends an already-authorized
   delivery, it never fans out).

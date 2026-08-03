@@ -217,7 +217,7 @@ it("Rebuild index stays available even when no reindex is needed, and posts forc
   });
 });
 
-it("F2: a stuck reembedding marker shows 'reindexing since' and keeps Rebuild enabled", () => {
+it("F2: a stuck reembedding marker shows the age of the last progress and keeps Rebuild enabled", () => {
   // A drift-cancelled/retry-discarded job can leave the marker stuck at
   // reembedding with no live worker behind it — the SPA must still let an
   // operator judge "stuck" and re-kick it, not just show a spinner forever.
