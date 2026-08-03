@@ -108,6 +108,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/webhook-subscriptions/{id}":                              {Op: "archiveWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/activities":                                                 {Op: "listActivities", Access: "tool", Tool: "search_records", RecordType: "activity", Tier: "auto_execute"},
 	"GET /v1/activities/{id}":                                            {Op: "getActivity", Access: "tool", Tool: "read_record", RecordType: "activity", Tier: "auto_execute"},
+	"GET /v1/admin/job-health":                                           {Op: "getJobHealth", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/agent-tools":                                                {Op: "listAgentTools", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/ai/calls":                                                   {Op: "listAiCalls", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/ai/calls/{id}":                                              {Op: "getAiCall", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

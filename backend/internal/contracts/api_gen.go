@@ -3219,6 +3219,27 @@ func (e IssuePassportRequestScopes) Valid() bool {
 	}
 }
 
+// Defines values for JobFailureState.
+const (
+	Cancelled JobFailureState = "cancelled"
+	Discarded JobFailureState = "discarded"
+	Retryable JobFailureState = "retryable"
+)
+
+// Valid indicates whether the value is a known member of the JobFailureState enum.
+func (e JobFailureState) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Discarded:
+		return true
+	case Retryable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LeadStatus.
 const (
 	LeadStatusDisqualified LeadStatus = "disqualified"
@@ -10008,6 +10029,59 @@ type IssuePassportResponse struct {
 
 	// Token The bearer token — shown ONCE, stored only as a hash.
 	Token string `json:"token"`
+}
+
+// JobFailure defines model for JobFailure.
+type JobFailure struct {
+	Attempt     int       `json:"attempt"`
+	FailedAt    time.Time `json:"failed_at"`
+	Kind        string    `json:"kind"`
+	MaxAttempts int       `json:"max_attempts"`
+
+	// Reason The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here.
+	Reason string          `json:"reason"`
+	State  JobFailureState `json:"state"`
+
+	// WorkspaceId Null for a dispatcher.
+	WorkspaceId *openapi_types.UUID `json:"workspace_id,omitempty"`
+}
+
+// JobFailureState defines model for JobFailure.State.
+type JobFailureState string
+
+// JobHealth defines model for JobHealth.
+type JobHealth struct {
+	GeneratedAt time.Time       `json:"generated_at"`
+	Kinds       []JobKindHealth `json:"kinds"`
+
+	// RecentFailures Most recent first, capped at 50. A bounded list, not a log.
+	RecentFailures []JobFailure `json:"recent_failures"`
+
+	// WorkspaceId The workspace these counts are scoped to — the caller's own.
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// JobKindHealth defines model for JobKindHealth.
+type JobKindHealth struct {
+	// Dead Discarded or cancelled: this work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately.
+	Dead int `json:"dead"`
+
+	// FleetWide True for a dispatcher — a job that fans work out and does no tenant work of its own. Its rows carry no workspace.
+	FleetWide bool `json:"fleet_wide"`
+
+	// Kind The stable job identifier River persists in river_job.kind.
+	Kind string `json:"kind"`
+
+	// OldestWaitingAgeSeconds How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late.
+	OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds,omitempty"`
+	Queue                   string `json:"queue"`
+
+	// Retrying Failed at least once and backing off toward another attempt.
+	Retrying int `json:"retrying"`
+	Running  int `json:"running"`
+
+	// Waiting Available, scheduled or pending: queued and not yet started.
+	Waiting int `json:"waiting"`
 }
 
 // Lead A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
@@ -22619,6 +22693,9 @@ type ServerInterface interface {
 	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-message)
 	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
+	// What the background system is holding, and whose work failed.
+	// (GET /admin/job-health)
+	GetJobHealth(w http.ResponseWriter, r *http.Request)
 	// Reset a non-production installation to its first-boot state.
 	// (POST /admin/reset-data)
 	ResetData(w http.ResponseWriter, r *http.Request)
@@ -23540,6 +23617,12 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-message)
 func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the background system is holding, and whose work failed.
+// (GET /admin/job-health)
+func (_ Unimplemented) GetJobHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25856,6 +25939,26 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetJobHealth operation middleware
+func (siw *ServerInterfaceWrapper) GetJobHealth(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJobHealth(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39372,6 +39475,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/job-health", wrapper.GetJobHealth)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/admin/reset-data", wrapper.ResetData)
