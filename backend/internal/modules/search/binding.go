@@ -134,10 +134,11 @@ type ReembedClaim struct {
 	// for good, and no job anywhere to explain why. So a human keeps a way back.
 	//
 	// What makes the bound meaningful is that a WORKING run keeps its marker
-	// fresh: ReembedWorkspace refreshes it as it goes, never letting it read
-	// staler than ReembedProgressStaleness. What makes stealing SAFE is the run
-	// id: the dispossessed run's stragglers carry a Run the marker no longer
-	// names, so they act on nothing.
+	// fresh: ReembedWorkspace refreshes it as it goes, so it never reads staler
+	// than ReembedProgressStaleness plus the one embed in flight when that
+	// interval elapses. What makes stealing SAFE is the run id: the dispossessed
+	// run's stragglers carry a Run the marker no longer names, so they act on
+	// nothing.
 	//
 	// Zero never steals, which is what an ordinary confirm passes.
 	StealAfter time.Duration

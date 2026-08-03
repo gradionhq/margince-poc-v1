@@ -157,10 +157,6 @@ type embedReindexWorkspaceWorker struct {
 	river.WorkerDefaults[EmbedReindexWorkspaceArgs]
 	store    *search.Store
 	embedder search.Embedder
-	// now paces the pass's progress reporting. Nil takes the wall clock, which
-	// is what every process role wires; a suite pins it rather than waiting out
-	// a real reporting interval.
-	now func() time.Time
 }
 
 // Timeout disables River's 1-minute default: re-embedding a workspace is a
@@ -217,6 +213,6 @@ func (w *embedReindexWorkspaceWorker) reembed(ctx context.Context, args EmbedRei
 		return fmt.Errorf("embed_reindex_workspace: no embed lane configured on this worker role")
 	}
 	return w.store.ReembedWorkspace(wsCtx,
-		search.ReembedPass{Run: args.Run, Identity: args.Identity, Now: w.now},
+		search.ReembedPass{Run: args.Run, Identity: args.Identity},
 		ids.From[ids.WorkspaceKind](args.Workspace), w.embedder)
 }

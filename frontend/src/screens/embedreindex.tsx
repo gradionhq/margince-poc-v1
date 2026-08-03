@@ -121,7 +121,7 @@ function StatusHeader({
         // makes the judgment possible, and it is why the label says "last
         // progress" rather than "reindexing since".
         <span className="t-small">
-          {t("embedreindex.reembeddingSince", {
+          {t("embedreindex.lastProgress", {
             duration: formatDuration(
               Math.max(0, Date.now() - new Date(data.updated_at).getTime()),
               locale,

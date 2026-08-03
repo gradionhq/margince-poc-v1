@@ -35,8 +35,8 @@ type ReembedPass struct {
 	// compared against what the embedder reports NOW, and a mismatch is drift.
 	Identity string
 	// Now is the clock the progress pacing reads. Nil takes the wall clock,
-	// which is what the worker passes; a suite pins it, because the alternative
-	// is a test that waits out a real interval.
+	// which is what the worker leaves it at; a suite pins it, because the
+	// alternative is a test that waits out a real interval.
 	Now func() time.Time
 }
 
