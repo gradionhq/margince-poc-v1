@@ -189,6 +189,13 @@ export interface paths {
          * @description Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
          *     revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
          *     only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+         *
+         *     Two kinds of row arrive together and `connection` is what tells them apart: a passport the
+         *     human minted (`connection: null`) is a template they may lend on the consent screen, while a
+         *     connection's credential (`connection` present) is what an MCP client received *after* a lend.
+         *     A connection is listed **once**, not once per token rotation: every refresh revokes that
+         *     connection's passport and mints a replacement under the same grant, so only the newest
+         *     passport per grant is returned and its `connection.connected_at` is the grant's own age.
          */
         get: operations["listPassports"];
         put?: never;
@@ -11065,6 +11072,14 @@ export interface components {
             scopes: string[];
             /** @description The agent this passport is bound to, if any. */
             agent_id?: string | null;
+            /**
+             * @description Present when this passport IS a connection's credential — issued to an MCP client by the
+             *     token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+             *     not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+             *     `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+             *     can also type.
+             */
+            connection?: components["schemas"]["PassportConnection"];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -11073,6 +11088,45 @@ export interface components {
             last_used_at?: string | null;
             /** Format: date-time */
             revoked_at?: string | null;
+        };
+        /**
+         * @description The connection a grant-bound passport belongs to, so Settings can name it by the client the
+         *     human actually approved instead of the raw DCR client id its label carries.
+         */
+        PassportConnection: {
+            /** @description The registered OAuth client id (the DCR identifier). */
+            client_id: string;
+            /**
+             * @description Whether this connection may mint itself a replacement credential — the grant's
+             *     `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+             *     passport's own `expires_at` mean two different things: a renewable connection is simply
+             *     between credentials once that moment passes, while a non-renewable one has ENDED, with
+             *     nothing recording that it did. A reader that treats every expiry as the end reports live
+             *     connections as dead.
+             */
+            renewable: boolean;
+            /**
+             * @description The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+             *     registration is gone, so a connection is never nameless.
+             */
+            client_name: string;
+            /**
+             * Format: date-time
+             * @description When the connection was established — the GRANT's age, not the current passport's. Token
+             *     rotation replaces the passport every renewal; a date that moved with it would report a
+             *     connection as newer than the consent that authorized it.
+             */
+            connected_at: string;
+            /**
+             * Format: uuid
+             * @description The passport the human lent to create this connection. Null for a connection established
+             *     before that provenance was recorded, and null once the lent passport is deleted outright.
+             *     It is never re-checked: a lend survives the lent passport's revocation by design, so this
+             *     answers "where did this come from", never "may this still connect".
+             */
+            lent_passport_id?: string | null;
+            /** @description The lent passport's label at read time, for display beside `lent_passport_id`. */
+            lent_passport_label?: string | null;
         };
         /**
          * @description One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +

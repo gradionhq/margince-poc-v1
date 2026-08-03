@@ -11673,13 +11673,53 @@ type PartnerPartnerRole string
 // PartnerRelationshipStage defines model for Partner.RelationshipStage.
 type PartnerRelationshipStage string
 
+// PassportConnection The connection a grant-bound passport belongs to, so Settings can name it by the client the
+// human actually approved instead of the raw DCR client id its label carries.
+type PassportConnection struct {
+	// ClientId The registered OAuth client id (the DCR identifier).
+	ClientId string `json:"client_id"`
+
+	// ClientName The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+	// registration is gone, so a connection is never nameless.
+	ClientName string `json:"client_name"`
+
+	// ConnectedAt When the connection was established — the GRANT's age, not the current passport's. Token
+	// rotation replaces the passport every renewal; a date that moved with it would report a
+	// connection as newer than the consent that authorized it.
+	ConnectedAt time.Time `json:"connected_at"`
+
+	// LentPassportId The passport the human lent to create this connection. Null for a connection established
+	// before that provenance was recorded, and null once the lent passport is deleted outright.
+	// It is never re-checked: a lend survives the lent passport's revocation by design, so this
+	// answers "where did this come from", never "may this still connect".
+	LentPassportId *openapi_types.UUID `json:"lent_passport_id,omitempty"`
+
+	// LentPassportLabel The lent passport's label at read time, for display beside `lent_passport_id`.
+	LentPassportLabel *string `json:"lent_passport_label,omitempty"`
+
+	// Renewable Whether this connection may mint itself a replacement credential — the grant's
+	// `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+	// passport's own `expires_at` mean two different things: a renewable connection is simply
+	// between credentials once that moment passes, while a non-renewable one has ENDED, with
+	// nothing recording that it did. A reader that treats every expiry as the end reports live
+	// connections as dead.
+	Renewable bool `json:"renewable"`
+}
+
 // PassportSummary Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
 type PassportSummary struct {
 	// AgentId The agent this passport is bound to, if any.
-	AgentId   *string            `json:"agent_id,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Connection Present when this passport IS a connection's credential — issued to an MCP client by the
+	// token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+	// not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+	// `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+	// can also type.
+	Connection *PassportConnection `json:"connection,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	ExpiresAt  *time.Time          `json:"expires_at,omitempty"`
+	Id         openapi_types.UUID  `json:"id"`
 
 	// Label Human-given name for the passport (e.g. "Marcus's Claude").
 	Label      string     `json:"label"`
