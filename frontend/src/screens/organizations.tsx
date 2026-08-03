@@ -1181,6 +1181,19 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
 
 // One fact row: the value carries its own evidence mark, the same
 // affordance every derived value on this page uses.
+// Why a fact looks wrong, in the words a reader can act on. Typed against the
+// schema union, so a rule added upstream fails the build here rather than
+// rendering a raw reason code.
+type FactSuspectReason = NonNullable<OrganizationFact["suspect_reason"]>;
+
+const FACT_SUSPECT_LABELS: Record<FactSuspectReason, MessageKey> = {
+  phone_shaped_location: "co.factSuspect.phoneShapedLocation",
+  not_a_phone: "co.factSuspect.notAPhone",
+  not_a_year: "co.factSuspect.notAYear",
+  not_an_email: "co.factSuspect.notAnEmail",
+  not_a_size: "co.factSuspect.notASize",
+};
+
 function FactRow({
   fact,
   onOpenHistory,
@@ -1196,6 +1209,17 @@ function FactRow({
           source={derivedSource(fact, locale)}
           onOpenHistory={onOpenHistory}
         />
+        {/* The value contradicts its own field — a phone number filed as a
+            location, a register number filed as a headcount. The fact is still
+            shown with its evidence: hiding it would be a worse answer than
+            flagging it, and the reader is the one who can tell. */}
+        {fact.suspect_reason && (
+          <span className="co-fact-suspect">
+            <Badge tone="warn">
+              {t(FACT_SUSPECT_LABELS[fact.suspect_reason])}
+            </Badge>
+          </span>
+        )}
       </div>
     </div>
   );

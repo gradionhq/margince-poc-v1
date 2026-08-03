@@ -4062,6 +4062,36 @@ func (e OrganizationFactSource) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationFactSuspectReason.
+const (
+	OrganizationFactSuspectReasonLessThannil         OrganizationFactSuspectReason = "<nil>"
+	OrganizationFactSuspectReasonNotAPhone           OrganizationFactSuspectReason = "not_a_phone"
+	OrganizationFactSuspectReasonNotASize            OrganizationFactSuspectReason = "not_a_size"
+	OrganizationFactSuspectReasonNotAYear            OrganizationFactSuspectReason = "not_a_year"
+	OrganizationFactSuspectReasonNotAnEmail          OrganizationFactSuspectReason = "not_an_email"
+	OrganizationFactSuspectReasonPhoneShapedLocation OrganizationFactSuspectReason = "phone_shaped_location"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationFactSuspectReason enum.
+func (e OrganizationFactSuspectReason) Valid() bool {
+	switch e {
+	case OrganizationFactSuspectReasonLessThannil:
+		return true
+	case OrganizationFactSuspectReasonNotAPhone:
+		return true
+	case OrganizationFactSuspectReasonNotASize:
+		return true
+	case OrganizationFactSuspectReasonNotAYear:
+		return true
+	case OrganizationFactSuspectReasonNotAnEmail:
+		return true
+	case OrganizationFactSuspectReasonPhoneShapedLocation:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationGraphGroupsOmitted.
 const (
 	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
@@ -6563,22 +6593,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -11286,9 +11316,12 @@ type OrganizationFact struct {
 	Field           OrganizationFactField    `json:"field"`
 	Source          OrganizationFactSource   `json:"source"`
 	SourceUrl       *string                  `json:"source_url,omitempty"`
-	UpdatedAt       time.Time                `json:"updated_at"`
-	Value           string                   `json:"value"`
-	ValueKey        string                   `json:"value_key"`
+
+	// SuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+	SuspectReason *OrganizationFactSuspectReason `json:"suspect_reason,omitempty"`
+	UpdatedAt     time.Time                      `json:"updated_at"`
+	Value         string                         `json:"value"`
+	ValueKey      string                         `json:"value_key"`
 }
 
 // OrganizationFactCategory defines model for OrganizationFact.Category.
@@ -11299,6 +11332,9 @@ type OrganizationFactField string
 
 // OrganizationFactSource defines model for OrganizationFact.Source.
 type OrganizationFactSource string
+
+// OrganizationFactSuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+type OrganizationFactSuspectReason string
 
 // OrganizationFactListResponse defines model for OrganizationFactListResponse.
 type OrganizationFactListResponse struct {

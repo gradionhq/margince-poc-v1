@@ -487,6 +487,13 @@ export const en = {
   "org.relType.portfolio_company": "Portfolio company",
   "org.relType.competitor": "Competitor",
   "org.relType.other": "Other",
+  // Why a stored fact contradicts its own field. The fact is still shown
+  // with its evidence — a reader can tell, and hiding it would be worse.
+  "co.factSuspect.phoneShapedLocation": "Looks like a phone number",
+  "co.factSuspect.notAPhone": "Does not look like a phone number",
+  "co.factSuspect.notAYear": "Does not look like a year",
+  "co.factSuspect.notAnEmail": "Does not look like an email address",
+  "co.factSuspect.notASize": "Does not look like a headcount",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and

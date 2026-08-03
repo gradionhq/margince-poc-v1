@@ -9408,6 +9408,11 @@ export interface components {
             /** Format: uri */
             source_url?: string | null;
             confidence?: number | null;
+            /**
+             * @description Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+             * @enum {string|null}
+             */
+            readonly suspect_reason?: null | "phone_shaped_location" | "not_a_phone" | "not_a_year" | "not_an_email" | "not_a_size";
             /** Format: date-time */
             updated_at: string;
         };
