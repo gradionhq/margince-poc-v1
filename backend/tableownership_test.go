@@ -69,6 +69,7 @@ var tableOwners = map[string]string{
 	"organization":                   "internal/modules/people",
 	"organization_domain":            "internal/modules/people",
 	"organization_relationship_type": "internal/modules/people",
+	"signal_thread_scan":             "internal/compose",
 	"relationship":                   "internal/modules/people",
 	"partner":                        "internal/modules/people",
 	"lead":                           "internal/modules/people",
