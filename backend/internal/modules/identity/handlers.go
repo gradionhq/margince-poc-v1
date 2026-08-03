@@ -118,15 +118,6 @@ func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handl
 	return h
 }
 
-// WithNonProduction injects the deployment posture the composition root
-// resolves from runtimeenv.Environment. Without it /me reports production
-// (the fail-closed default: hide the destructive reset action rather than
-// risk exposing it under an unwired role).
-func (h Handlers) WithNonProduction(nonProduction bool) Handlers {
-	h.nonProduction = nonProduction
-	return h
-}
-
 // WithMCPResource injects the canonical MCP resource URL the RFC 9728
 // protected-resource document advertises. The composition root computes
 // it from --public-base-url, never from a request, so the audience the
