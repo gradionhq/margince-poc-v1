@@ -14,6 +14,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -200,21 +201,12 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 // class is enumerated rather than invisible, and so it can only shrink — a NEW
 // confirm-first record type joins it deliberately or fails the gate below.
 var undecidableConfirmFirstTypes = map[string]string{
-	"list": "archiveList stages against a list; a curator cannot release or reject the deletion of " +
-		"their own segment. The row is owner-scoped, so this is an auth.VisibleTo arm.",
-	"tag": "archiveTag — same shape and the same one-line fix as `list`.",
 	"record_grant": "createRecordGrant/revokeRecordGrant. Left waived rather than fixed because " +
 		"visibility is not the only gap: share_record ALSO dead-ends at redemption (deadEndVerbs in " +
 		"agentpolicysynthesis_test.go — the grant verbs reject any non-human principal, so an " +
 		"agent-staged, human-approved grant is refused as the redeeming agent every time). An arm here " +
 		"would make the row decidable and the operation would still never land, which is worse than an " +
 		"honest dead end. Answer the redemption question first.",
-	"saved_view": "archiveSavedView; the owner cannot release the deletion of their own view. " +
-		"Owner-scoped, so an auth.VisibleTo arm.",
-	"offer_template": "archiveOfferTemplate; workspace-shared config with no row scope, so it wants " +
-		"the targetExists floor `product` and `custom_field` already use, not a scope probe.",
-	"webhook_subscription": "archiveWebhookSubscription; the subscription owner cannot release the " +
-		"deletion of their own endpoint. Owner-scoped.",
 }
 
 // Every confirm-first operation that names a concrete record type must stage a
@@ -273,5 +265,72 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 			t.Errorf("undecidableConfirmFirstTypes[%s] matches no confirm-first route, or the type gained a "+
 				"visibility rule — stale waiver, remove it", recordType)
 		}
+	}
+}
+
+// The approvals inbox and the webhook fan-out each decide, from the staged
+// target's type, whether an approval may be shown at all — and BOTH must have a
+// rule for a type or NEITHER may. A type only the inbox classifies is an
+// approval.requested silently dropped, so nobody is told authority is waiting; a
+// type only the fan-out classifies is a staged row the inbox strands, which
+// nothing then clears.
+//
+// Two hand-written classifications in two modules that must agree is the shape
+// that drifts, and it did twice: `project` gained an inbox rule and the fan-out
+// never noticed, and the rate sheets gained one the fan-out never noticed either.
+// The assertion belongs in the composition layer because a module never imports a
+// sibling and this layer imports both.
+//
+// THE SUBJECT SET IS THE UNION OF THREE SOURCES, and each is there because the
+// others cannot see part of the invariant:
+//
+//   - every record type in the generated policy table — so a type the CONTRACT
+//     adds is covered without anybody remembering to extend a list, and so the
+//     gate cannot pass vacuously if both enumerators below went empty;
+//   - every type the approvals inbox classifies — because a target staged by a
+//     server-side proposal flow rather than by an agent's call (an effective-dated
+//     rate sheet) appears in NO agent policy, which is precisely how the second
+//     drift hid from a gate that walked the policy table alone;
+//   - every type the fan-out classifies — the mirror direction, a type the
+//     fan-out delivers on and the inbox strands.
+//
+// A gate whose subject set is narrower than the invariant it claims reads the
+// wrong tree, which is quieter than reading it wrongly.
+func TestTheInboxAndTheFanOutClassifyEveryTargetTypeAlike(t *testing.T) {
+	subjects := map[string]bool{}
+	for _, pol := range agentPolicies {
+		if pol.RecordType != "" {
+			subjects[string(pol.RecordType)] = true
+		}
+	}
+	for _, targetType := range approvals.ClassifiedTargetTypes() {
+		subjects[targetType] = true
+	}
+	for _, targetType := range webhooks.ClassifiedApprovalTargetTypes() {
+		subjects[targetType] = true
+	}
+
+	for recordType := range subjects {
+		// The pair is asked with a target id present because the question is
+		// whether the TYPE carries a rule: the id-less shape is settled before
+		// any type is consulted, and would report every type alike.
+		inbox := approvals.TargetShapeDecidable(recordType, true)
+		fanOut := webhooks.ApprovalTargetClassified(recordType)
+		if inbox == fanOut {
+			continue
+		}
+		known, missing := "the approvals inbox", "the webhook fan-out"
+		if fanOut {
+			known, missing = missing, known
+		}
+		t.Errorf("%s classifies target type %q and %s does not — give %s the arm that mirrors the "+
+			"owning store's read rule, so a staged row is both decidable and announced",
+			known, recordType, missing, missing)
+	}
+	// The floor that keeps agreement from being vacuous: both classifications
+	// answer false for everything when both are empty, which is agreement over
+	// nothing.
+	if len(subjects) == 0 {
+		t.Fatal("the union of the policy table and both classifications is empty — the parity gate covers nothing")
 	}
 }

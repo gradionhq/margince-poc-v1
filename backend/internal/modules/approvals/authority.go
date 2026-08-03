@@ -3,7 +3,9 @@
 
 // The decision-authority predicate: who may see and decide a staged
 // approval. One predicate (decidable) backs List, Get and Decide alike
-// (C3/ADR-0036) — what you cannot see you cannot decide.
+// (C3/ADR-0036) — what you cannot see you cannot decide. Its target half —
+// whether the record a staged row points at is one this human may see — is
+// targetvisibility.go.
 
 package approvals
 
@@ -16,7 +18,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -64,8 +65,8 @@ var decisionGrants = map[string][]struct {
 	// A rate refresh proposes an effective-dated row on a workspace-shared
 	// price sheet; deciding it needs the same admin/ops Create grant the
 	// editor's write path requires.
-	"fx_rate_proposal":       {{"fx_rate", principal.ActionCreate}},
-	"ai_model_rate_proposal": {{"ai_model_rate", principal.ActionCreate}},
+	"fx_rate_proposal":       {{targetFxRate, principal.ActionCreate}},
+	"ai_model_rate_proposal": {{targetAIModelRate, principal.ActionCreate}},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{tableOrganization, principal.ActionUpdate}},
@@ -126,6 +127,14 @@ const (
 	targetOffer        = "offer"
 	targetProduct      = "product"
 	targetRelationship = "relationship"
+	targetSavedView    = "saved_view"
+	targetSignal       = "signal"
+	targetTag          = "tag"
+	// The effective-dated rate sheets. Both are named twice — the probe
+	// classification and the decision-grant map — and both are workspace-scoped
+	// config with no row of their own until a proposal is accepted.
+	targetFxRate      = "fx_rate"
+	targetAIModelRate = "ai_model_rate"
 	// The row-scoped record tables. Named as a SET rather than one at a time: this
 	// package spells them in the probe classification, the decision-grant map and
 	// the version-table whitelist, and a typo makes a target undecidable in the
@@ -135,6 +144,7 @@ const (
 	tableDeal         = "deal"
 	tableLead         = "lead"
 	tableProject      = "project"
+	tableList         = "list"
 )
 
 // selfOnlyKinds are the staging kinds whose proposal is nobody's business but
@@ -155,105 +165,6 @@ const (
 // off the workspace fan-out for the same reason.
 var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 
-// targetProbe names HOW a target type's visibility is decided. It exists so the
-// answer "is a staged row against this target decidable at all" has ONE source:
-// targetVisible switches on it, and TargetShapeDecidable reports on it.
-//
-// That mattered the moment the tool surface started minting staged rows for types
-// nobody had checked. A type with no rule is not decidable, which means its
-// staged row is invisible in the inbox AND undecidable at the decision — an
-// authority object a human can neither release nor reject, and the fan-out that
-// would have told them about it is dropped for the same reason. The composition
-// layer derives the obligation over the generated policy table
-// (TestEveryConfirmFirstTargetTypeIsDecidable), so a confirm-first verb whose
-// staged shape has no rule here fails a gate instead of shipping a zombie.
-type targetProbe int
-
-const (
-	// probeNoRule is the zero value on purpose: an unrecognized type falls here
-	// and fails closed.
-	probeNoRule targetProbe = iota
-	// probeOwnScope — the row carries owner_id, so its own row scope answers.
-	probeOwnScope
-	// probeInheritedScope — the row owns no owner_id and inherits from what it
-	// points at: an offer from its deal, a signal from its subject, an activity
-	// from any linked record, an edge from ALL of its endpoints.
-	probeInheritedScope
-	// probeExistence — workspace-shared admin config with no row scope; the
-	// decision-grant check is the authority and existence is the floor.
-	probeExistence
-	// probeActingWorkspace — the target IS a workspace (an effective-dated price
-	// sheet with no row of its own yet), so the floor is that it is THIS one.
-	probeActingWorkspace
-)
-
-func probeFor(targetType string) targetProbe {
-	switch targetType {
-	case tablePerson, tableOrganization, tableDeal, tableLead, tableProject:
-		return probeOwnScope
-	case targetOffer, "signal", objectActivity, targetRelationship:
-		return probeInheritedScope
-	case targetProduct, "custom_field":
-		return probeExistence
-	case "fx_rate", "ai_model_rate":
-		return probeActingWorkspace
-	default:
-		return probeNoRule
-	}
-}
-
-// targetShape is a staged target reduced to which halves it carries, which is
-// all the shape rule below needs — and naming the two at every call site is what
-// keeps a caller from transposing them.
-type targetShape struct{ hasType, hasID bool }
-
-// settledByShape answers the staged shapes whose decidability the target PAIR
-// settles on its own, before any row is probed:
-//
-//   - NO target id — whether the row names a target type (a staged CREATE,
-//     whose record does not exist yet) or nothing at all (a cold-start
-//     proposal, which is about no record yet) — is scoped by the DECISION
-//     GRANTS alone. There is no row whose scope could bound it, and its
-//     authority is the grant on the type, which requireDecisionGrants demands
-//     of the caller before any of this is reached.
-//   - An id with NO type is not decidable. It names a concrete record the
-//     probe cannot resolve, and treating it as unbounded would put that
-//     record's summary and proposed change in the inbox of everyone holding
-//     the object grant, and let any of them decide a write against a row their
-//     own scope hides.
-//
-// A pair carrying BOTH halves is not settled here: it goes to the target type's
-// own probe. ONE spelling of the rule, because targetVisible runs it for the
-// inbox and the decision while TargetShapeDecidable reports it to the
-// composition layer's gate — a second copy would let the gate read green over
-// the predicate a human's inbox actually runs.
-func settledByShape(shape targetShape) (settled, visible bool) {
-	if !shape.hasID {
-		return true, true
-	}
-	if !shape.hasType {
-		return true, false
-	}
-	return false, false
-}
-
-// TargetShapeDecidable reports whether a staged row carrying this target SHAPE
-// — the target type, plus whether the staging names a concrete target id — can
-// be seen and decided at all. Exported for the composition layer's gate: a
-// confirm-first verb whose staged shape answers false mints authority objects
-// no human can ever release or reject.
-//
-// The type alone is not the question, and asking it that way reads green over
-// half the class: a staging with no target id is decidable whatever its type
-// is, and a type with a probe below is still undecidable when the id that probe
-// needs is absent.
-func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
-	if settled, visible := settledByShape(targetShape{hasType: true, hasID: hasTargetID}); settled {
-		return visible
-	}
-	return probeFor(targetType) != probeNoRule
-}
-
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
 // require AND can see the target row under their own/team/all scope. It
@@ -273,117 +184,6 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 		}
 	}
 	return targetVisible(ctx, tx, a.TargetType, a.TargetID)
-}
-
-// targetVisible applies the target row's own/team/all row scope to the
-// approval: holding deal.update does not entitle a rep to see — or
-// decide — a staged change against another team's deal. The probe uses
-// the same platform/auth clauses the owning store's reads use, so the
-// approval surface can never disclose more than the record itself would.
-//
-// A pair missing either half is answered by settledByShape, which states that
-// rule; a pair carrying both goes to the type's probe below, and a target the
-// probe errors on stays invisible.
-//
-// It takes the pair rather than a row because a target-FILTERED read asks the
-// same question about a target the client named, before any row is in hand.
-// That read is entered only with BOTH halves in hand (ListInput.targeted), so
-// the id-less shape can never turn a type filter into a page of rows whose own
-// targets the caller cannot see. An unrecognized type must fail closed there
-// too: auth.VisibleTo errors on a table it does not row-scope, so the switch
-// below — not the caller — is what keeps a made-up target_entity_type from
-// reaching it.
-func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
-	if settled, visible := settledByShape(targetShape{hasType: targetType != nil, hasID: targetID != nil}); settled {
-		return visible, nil
-	}
-	switch probeFor(*targetType) {
-	case probeOwnScope:
-		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
-	case probeInheritedScope:
-		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
-	case probeExistence:
-		return targetExists(ctx, tx, *targetType, *targetID)
-	case probeActingWorkspace:
-		// Effective-dated price sheets are workspace-shared admin config
-		// with no row scope. A refresh proposal targets the workspace (a
-		// brand-new currency/model has no row yet), so existence is not the
-		// floor here — the decision-grant check above (admin/ops Create) is
-		// the authority. The floor that remains is that the shown target IS
-		// the acting workspace: a proposal whose target_id is some other
-		// workspace is not decidable here (its effect would write to this
-		// context's sheet, not the claimed one).
-		wsID, ok := principal.WorkspaceID(ctx)
-		return ok && *targetID == wsID, nil
-	default:
-		return false, nil // no rule for this target type: fail closed
-	}
-}
-
-// targetVisibleThroughParent answers for the target kinds that carry no
-// owner_id of their own and are visible exactly when the record they hang off
-// is — the same anchoring each one's own store applies, so a staged action
-// discloses nothing the record itself would not.
-func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
-	if targetType == targetOffer {
-		var dealID ids.UUID
-		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, targetID).Scan(&dealID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return auth.VisibleTo(ctx, tx, tableDeal, dealID)
-	}
-	var ensure func(context.Context, pgx.Tx, ids.UUID) error
-	switch targetType {
-	case "signal":
-		ensure = auth.EnsureSignalVisible
-	case objectActivity:
-		ensure = auth.EnsureActivityVisible
-	case targetRelationship:
-		// An edge inherits the CONJUNCTION of its endpoints' scope, which is one
-		// spelling in platform/auth because people's own reads and this probe are
-		// two readers of the same rule.
-		ensure = auth.EnsureRelationshipVisible
-	default:
-		// TOTAL on purpose. A signal default read as "whatever is left", so a type
-		// added to probeFor's inherited-scope arm — which looks like the whole act
-		// of enrolling one — would have been probed against the SIGNAL table: a
-		// wrong-scope answer rather than a closed one, from the branch that exists
-		// to be closed. probeFor is the one source only if this cannot silently
-		// disagree with it.
-		return false, fmt.Errorf(
-			"crmapprovals: %q is classified as inherited-scope with no parent probe", targetType)
-	}
-	switch err := ensure(ctx, tx, targetID); {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, apperrors.ErrNotFound):
-		return false, nil
-	default:
-		return false, err
-	}
-}
-
-// targetExists is the floor for workspace-shared admin config that carries no
-// row scope at all: the decision-grant check is the authority question, but a
-// staging against a record that does not exist is still not decidable.
-//
-// A retired custom field is deliberately still a target — retire is a status
-// flip that keeps the row live, and a staged edit against a retired field
-// stays decidable — so only the product read excludes archived rows.
-func targetExists(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
-	query := `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`
-	if targetType == targetProduct {
-		query = `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`
-	}
-	var exists bool
-	if err := tx.QueryRow(ctx, query, targetID).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists, nil
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {

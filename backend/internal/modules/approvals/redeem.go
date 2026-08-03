@@ -139,7 +139,7 @@ func validateRedemptionTarget(ctx context.Context, tx pgx.Tx, a row) error {
 // could never verify.
 var versionTables = map[string]bool{
 	tablePerson: true, tableOrganization: true, tableDeal: true, tableLead: true, objectActivity: true,
-	targetOffer: true, targetProduct: true, "list": true, "tag": true, targetRelationship: true,
+	targetOffer: true, targetProduct: true, tableList: true, targetTag: true, targetRelationship: true,
 	tableProject: true,
 }
 
