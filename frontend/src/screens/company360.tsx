@@ -18,7 +18,11 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
-import { routesTo, useOrganizationGraph } from "./connections";
+import {
+  routesTo,
+  type StrengthBucket,
+  useOrganizationGraph,
+} from "./connections";
 import {
   byReach,
   missingRoles,
@@ -714,6 +718,15 @@ function ContactRow({
  * button that opens onto nothing — makes the reader wonder whether the read
  * failed.
  */
+// The server's own bands, in this surface's words. Derived nowhere: the score
+// behind them is the black box AC-company-3 took off this page.
+const ROUTE_BAND_LABELS: Record<StrengthBucket, MessageKey> = {
+  strong: "co.routeIn.band.strong",
+  moderate: "co.routeIn.band.some",
+  weak: "co.routeIn.band.faint",
+  none: "co.routeIn.band.unknown",
+};
+
 function RouteInAction({
   orgId,
   contact,
@@ -747,8 +760,20 @@ function RouteInAction({
           {(query.isError || (!query.isPending && !readable)) && (
             <p className="co-restricted">{t("co.section.unavailable")}</p>
           )}
+          {/* "Nobody" is a claim about the account, and only a COMPLETE read
+              can make it. The graph caps its contact ring and withholds whole
+              groups the caller may not read, so a page showing 25 contacts can
+              hold a graph that saw 15 — and a rep told "nobody here has
+              written to them" would stop looking. Partial says so instead. */}
           {readable && routes.length === 0 && (
-            <EmptyState>{t("co.routeIn.none")}</EmptyState>
+            <EmptyState>
+              {t(
+                (readable.groups_omitted?.length ?? 0) > 0 ||
+                  (readable.dropped_count ?? 0) > 0
+                  ? "co.routeIn.partial"
+                  : "co.routeIn.none",
+              )}
+            </EmptyState>
           )}
           {readable && routes.length > 0 && (
             <ul className="co-list">
@@ -758,15 +783,7 @@ function RouteInAction({
                   {/* The strength band, not the number: the score itself is
                       the black box AC-company-3 took off this page. */}
                   <span className="co-row-meta">
-                    {t(
-                      route.strength == null
-                        ? "co.routeIn.band.unknown"
-                        : route.strength >= 0.66
-                          ? "co.routeIn.band.strong"
-                          : route.strength >= 0.33
-                            ? "co.routeIn.band.some"
-                            : "co.routeIn.band.faint",
-                    )}
+                    {t(ROUTE_BAND_LABELS[route.bucket])}
                   </span>
                 </li>
               ))}

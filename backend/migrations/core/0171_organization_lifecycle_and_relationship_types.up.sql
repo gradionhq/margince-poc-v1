@@ -109,7 +109,10 @@ INSERT INTO organization_relationship_type (workspace_id, organization_id, relat
 SELECT p.workspace_id, p.organization_id, 'partner', 'migration', 'migration'
 FROM partner p
 JOIN organization o ON o.id = p.organization_id
-WHERE o.archived_at IS NULL
+-- LIVE partner rows only. An archived extension is not a partnership the
+-- partner API will admit to (it filters archived_at IS NULL), so importing one
+-- would mint a type row the invariant then refuses to let anyone remove.
+WHERE o.archived_at IS NULL AND p.archived_at IS NULL
 ON CONFLICT DO NOTHING;
 
 -- classification is RETIRED, not dropped: kept one release, written by

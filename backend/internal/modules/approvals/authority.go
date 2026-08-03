@@ -90,7 +90,12 @@ var decisionGrants = map[string][]struct {
 	// correspondence says the contract ended while the record still reads as
 	// live) moves the account's stage — the same update authority the header's
 	// own stage picker needs.
-	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}},
+	// It also carries the signal's own summary in its payload and settles that
+	// signal on accept, so it needs the signal grant too. Without it an
+	// organization editor could read model-derived correspondence and close a
+	// signal they have no standing to see — the ordinary triage path takes
+	// signal:update and EnsureSignalVisible for exactly that reason.
+	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}, {"signal", principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{tableDeal, principal.ActionUpdate}},

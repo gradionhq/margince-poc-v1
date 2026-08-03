@@ -544,13 +544,40 @@ describe("routes in to one contact", () => {
       { id: "p-1", kind: "person", label: "Dana Buyer", root: false },
       { id: "p-2", kind: "person", label: "Otto Other", root: false },
     ],
+    // Real wire values: strength is an INTEGER 0-100 and the band comes with
+    // it. A fixture using fractions would pass against a component that read
+    // the number as a 0-1 fraction — which is exactly the bug that shipped.
     edges: [
-      { from: "u-1", to: "p-1", kind: "in_contact_with", strength: 0.2 },
-      { from: "u-2", to: "p-1", kind: "in_contact_with", strength: 0.9 },
-      { from: "u-1", to: "p-2", kind: "in_contact_with", strength: 0.8 },
+      {
+        from: "u-1",
+        to: "p-1",
+        kind: "in_contact_with",
+        strength: 20,
+        strength_bucket: "weak",
+      },
+      {
+        from: "u-2",
+        to: "p-1",
+        kind: "in_contact_with",
+        strength: 90,
+        strength_bucket: "strong",
+      },
+      {
+        from: "u-1",
+        to: "p-2",
+        kind: "in_contact_with",
+        strength: 80,
+        strength_bucket: "strong",
+      },
       { from: "u-1", to: "org", kind: "owns", strength: null },
       // An edge from someone the node caps trimmed out of the payload.
-      { from: "u-9", to: "p-1", kind: "in_contact_with", strength: 1 },
+      {
+        from: "u-9",
+        to: "p-1",
+        kind: "in_contact_with",
+        strength: 100,
+        strength_bucket: "strong",
+      },
     ],
     groups_omitted: [],
     dropped_count: 0,
@@ -566,6 +593,16 @@ describe("routes in to one contact", () => {
   it("leaves out contacts with someone else, and edges of another kind", () => {
     expect(routesTo(graph, "p-2").map((route) => route.label)).toEqual([
       "Lars",
+    ]);
+  });
+
+  it("bands each route by the SERVER's own bucket, never by the number", () => {
+    // A component deriving bands from `strength` as a 0-1 fraction calls every
+    // real score strong. The bucket is what the rest of the product renders,
+    // and the 0-100 number is the black box AC-company-3 took off this page.
+    expect(routesTo(graph, "p-1").map((route) => route.bucket)).toEqual([
+      "strong",
+      "weak",
     ]);
   });
 

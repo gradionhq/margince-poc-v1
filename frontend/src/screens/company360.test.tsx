@@ -127,7 +127,13 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
             { id: "p-1", kind: "person", label: "Dana Buyer", root: false },
           ],
           edges: [
-            { from: "u-2", to: "p-1", kind: "in_contact_with", strength: 0.9 },
+            {
+              from: "u-2",
+              to: "p-1",
+              kind: "in_contact_with",
+              strength: 90,
+              strength_bucket: "strong",
+            },
           ],
           groups_omitted: [],
           dropped_count: 0,

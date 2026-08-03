@@ -568,6 +568,8 @@ export const en = {
   "co.routeIn.open": "Route in",
   "co.routeIn.title": "Who here talks to {name}",
   "co.routeIn.none": "Nobody here has written to them yet.",
+  "co.routeIn.partial":
+    "No way in among the connections this page could read — some were withheld or left out.",
   "co.routeIn.band.strong": "in regular contact",
   "co.routeIn.band.some": "some contact",
   "co.routeIn.band.faint": "barely in contact",

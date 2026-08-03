@@ -349,9 +349,9 @@ function strongestContactEdge(
 export function routesTo(
   graph: Graph,
   personId: string,
-): { id: string; label: string; strength: number | null }[] {
+): { id: string; label: string; bucket: StrengthBucket }[] {
   const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
-  const routes: { id: string; label: string; strength: number | null }[] = [];
+  const routes: { id: string; label: string; bucket: StrengthBucket }[] = [];
   for (const edge of graph.edges) {
     if (edge.kind !== "in_contact_with" || edge.to !== personId) {
       continue;
@@ -363,11 +363,30 @@ export function routesTo(
     if (label === undefined) {
       continue;
     }
-    routes.push({ id: edge.from, label, strength: edge.strength ?? null });
+    // The SERVER's band, never one derived here from the number. `strength` is
+    // an integer 0-100 and a re-derivation that read it as a fraction would
+    // call every real score strong — and the 0-100 number is the black box
+    // AC-company-3 took off this page, so it does not come back as a threshold
+    // either.
+    routes.push({
+      id: edge.from,
+      label,
+      bucket: edge.strength_bucket ?? "none",
+    });
   }
-  routes.sort((a, b) => (b.strength ?? -1) - (a.strength ?? -1));
+  routes.sort((a, b) => BUCKET_ORDER[b.bucket] - BUCKET_ORDER[a.bucket]);
   return routes;
 }
+
+/** The display bands, worst to best, as the contract declares them. */
+export type StrengthBucket = "none" | "weak" | "moderate" | "strong";
+
+const BUCKET_ORDER: Record<StrengthBucket, number> = {
+  none: 0,
+  weak: 1,
+  moderate: 2,
+  strong: 3,
+};
 
 /**
  * NodeList renders one group of connections, each row reachable by keyboard

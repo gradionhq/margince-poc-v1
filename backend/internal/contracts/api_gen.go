@@ -4010,17 +4010,17 @@ func (e Organization360StateStripEngagementState) Valid() bool {
 
 // Defines values for Organization360StateStripSignalSeverity.
 const (
-	Organization360StateStripSignalSeverityCrit Organization360StateStripSignalSeverity = "crit"
-	Organization360StateStripSignalSeverityInfo Organization360StateStripSignalSeverity = "info"
-	Organization360StateStripSignalSeverityWarn Organization360StateStripSignalSeverity = "warn"
+	Organization360StateStripSignalSeverityInfo   Organization360StateStripSignalSeverity = "info"
+	Organization360StateStripSignalSeverityUrgent Organization360StateStripSignalSeverity = "urgent"
+	Organization360StateStripSignalSeverityWarn   Organization360StateStripSignalSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the Organization360StateStripSignalSeverity enum.
 func (e Organization360StateStripSignalSeverity) Valid() bool {
 	switch e {
-	case Organization360StateStripSignalSeverityCrit:
-		return true
 	case Organization360StateStripSignalSeverityInfo:
+		return true
+	case Organization360StateStripSignalSeverityUrgent:
 		return true
 	case Organization360StateStripSignalSeverityWarn:
 		return true

@@ -10805,7 +10805,7 @@ components:
               description: >-
                 The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed
                 here, because the strip states whatever the producers can raise.
-            severity: { type: string, enum: [info, warn, crit] }
+            severity: { type: string, enum: [info, warn, urgent] }
             summary:
               type: string
               description: >-

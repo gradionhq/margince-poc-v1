@@ -576,6 +576,8 @@ export const de = {
   "co.routeIn.open": "Zugang",
   "co.routeIn.title": "Wer hier mit {name} spricht",
   "co.routeIn.none": "Bisher hat hier niemand geschrieben.",
+  "co.routeIn.partial":
+    "Unter den lesbaren Verbindungen kein Zugang — einige wurden zurückgehalten oder ausgelassen.",
   "co.routeIn.band.strong": "regelmäßig in Kontakt",
   "co.routeIn.band.some": "etwas Kontakt",
   "co.routeIn.band.faint": "kaum in Kontakt",

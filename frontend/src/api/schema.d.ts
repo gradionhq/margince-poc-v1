@@ -6933,7 +6933,7 @@ export interface components {
                 /** @description The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise. */
                 kind: string;
                 /** @enum {string} */
-                severity: "info" | "warn" | "crit";
+                severity: "info" | "warn" | "urgent";
                 /** @description The signal's one sentence, in the words its producer wrote — the strip does not rephrase what a conversation said. */
                 summary: string;
             } | null;
