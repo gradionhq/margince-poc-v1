@@ -530,6 +530,8 @@ export const de = {
   "timeline.group.collapse": "Schließen",
   "timeline.group.openThread": "Ganzen Verlauf ansehen",
   "timeline.group.mayContinue": "kann früher weitergehen",
+  "tab.people": "Personen",
+  "tab.timeline": "Verlauf",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.

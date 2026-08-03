@@ -1309,7 +1309,7 @@ function FactsCard({
 // header's overflow menu. A tab of equal weight beside the account's story
 // said the two were the same kind of question. Partner stays a tab: it is a
 // form, not a reading of this account.
-const COMPANY_TABS = ["overview", "partner"] as const;
+const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // Partner is not a permanent tab. It renders the partner programme —
@@ -1333,7 +1333,7 @@ function companyTabsFor(
   const isPartner = (org.relationship_types ?? []).includes("partner");
   return isPartner || tab === "partner"
     ? COMPANY_TABS
-    : (["overview"] as const);
+    : (["overview", "people", "timeline"] as const);
 }
 
 // Which slice of the account's chronology is on screen. Activities is what
@@ -1624,6 +1624,8 @@ function CompanyRecord({
           onChange={onTab}
           labels={{
             overview: t("tab.overview"),
+            people: t("tab.people"),
+            timeline: t("tab.timeline"),
             partner: t("tab.partner"),
           }}
         />
@@ -2009,9 +2011,6 @@ function useChronologySlots({
         view?.activities?.page.has_more ?? false,
       ),
       timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
-      // Asking sits UNDER the account's own story, not above it: it is a tool
-      // for when the page did not already answer the question, and standing
-      // between the brief and the timeline it took the place of content.
       timelineFooter: (
         <>
           {/* Where the merged view stops being complete, said out loud.
@@ -2033,7 +2032,6 @@ function useChronologySlots({
             (filter === "all" && history.changesAreTheLimit)) && (
             <LoadMoreButton query={history.changes} />
           )}
-          <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
         </>
       ),
       timelineNotice: chronologyNotice(
@@ -2109,10 +2107,12 @@ function CompanyPage({
     overlay,
     loading,
     failed,
-    active: tab === "overview",
+    active: tab === "timeline",
   });
+  // An evidence mark asks where a value came from, and the answer is the
+  // record's change history — which now lives on its own tab.
   const showChanges = () => {
-    onTab("overview");
+    onTab("timeline");
     filterToChanges();
   };
   return (
@@ -2272,6 +2272,19 @@ function CompanyPage({
           openOnMount
           onClose={() => setTaskFormOpen(false)}
         />
+      )}
+      {/* The People tab gives the account team the whole middle column. The
+          rail's card is a summary; this is the roster, with room for the title
+          and the last exchange beside each name. */}
+      {/* Asking sits UNDER the account's own story: it is the tool for when the
+          page did not already answer the question. It belongs to the account
+          rather than to its history, so it stays on the overview instead of
+          following the chronology onto its own tab. */}
+      {tab === "overview" && (
+        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
+      )}
+      {tab === "people" && (
+        <PeopleCard view={view} writable={!org.archived_at} />
       )}
       {openTaskId && (
         <TaskDetailModal

@@ -203,6 +203,13 @@ function stubApi(enrich: () => Response) {
   );
 }
 
+// openHistory switches to the tab the account's chronology now lives on. The
+// timeline left the overview when the page gained People and History tabs, so
+// a test about the timeline has to go there first.
+async function openHistory() {
+  await userEvent.click(await screen.findByRole("button", { name: "History" }));
+}
+
 describe("company-360 enrichment", () => {
   it("stages an evidence-backed proposal: human labels, confidence, confirm-first banner", async () => {
     stubApi(() => jsonResponse(proposal));
@@ -1527,6 +1534,7 @@ describe("CompanyScreen — the record's history", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
@@ -1870,6 +1878,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
       },
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
     expect(
@@ -1898,6 +1907,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
       },
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
     expect(screen.queryByText(/more activities than fit here/)).toBeNull();
@@ -1953,6 +1963,7 @@ describe("CompanyScreen — the timeline filter does not follow you", () => {
       </QueryClientProvider>
     );
     const { rerender } = rtlRender(page("o-1"));
+    await openHistory();
 
     const pressed = (name: string) =>
       screen.getByRole("button", { name }).getAttribute("aria-pressed");
@@ -1964,6 +1975,7 @@ describe("CompanyScreen — the timeline filter does not follow you", () => {
     await waitFor(() => expect(pressed("Changes")).toBe("true"));
 
     rerender(page("o-2"));
+    await openHistory();
 
     await waitFor(() => expect(pressed("Activities")).toBe("true"));
   });

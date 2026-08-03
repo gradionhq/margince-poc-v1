@@ -407,13 +407,17 @@ describe("company view — the rails belong to the account, not to a tab", () =>
     expect(fetched.filter((path) => path.endsWith("/360")).length).toBe(before);
   });
 
-  it("leaves the timeline to the overview rather than repeating it under a form", async () => {
+  it("leaves the timeline to its own tab rather than repeating it under a form", async () => {
     stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("region", { name: "Timeline" });
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The chronology moved off the overview when the page gained its own
+    // History tab, so it is not under the partner form either.
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByRole("region", { name: "Timeline" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
-
     expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
   });
 });
@@ -1047,15 +1051,17 @@ it("does not offer a role the contact already holds on that deal", async () => {
 });
 
 describe("company view — Partner is not a permanent tab", () => {
-  it("shows no tab strip at all on an account with no partner programme", async () => {
+  it("offers the account's own tabs but not Partner on an account with no programme", async () => {
     stub(view());
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
 
-    // One tab is not a choice: the strip goes entirely rather than offering
-    // the reader the page they are already on.
+    // Overview, People and History belong to every account. Partner is a form
+    // about a commercial arrangement almost none of them have.
+    expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "People" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Overview" })).toBeNull();
   });
 
   it("shows both tabs once the account has a programme", async () => {
@@ -1241,5 +1247,48 @@ describe("company view — advice you can act on", () => {
     expect(
       screen.queryByRole("button", { name: "Add the next step" }),
     ).toBeNull();
+  });
+});
+
+describe("company view — the account's own tabs", () => {
+  it("gives People the whole middle column", async () => {
+    stub(
+      view({
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              title: "Managing director",
+              strength: { score: 0, bucket: "dormant" },
+              deal_roles: [],
+              consent: [],
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
+    // The rail's card is a summary; the tab is the roster. Both read the same
+    // section of the one composite read, so they cannot disagree.
+    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  it("keeps Ask on the overview rather than following the history", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // Asking is a tool for when the page did not answer the question. It
+    // belongs to the account, not to its chronology.
+    expect(screen.getByText("Ask Margince")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.queryByText("Ask Margince")).toBeNull();
   });
 });

@@ -521,6 +521,8 @@ export const en = {
   "timeline.group.collapse": "Close",
   "timeline.group.openThread": "View the whole thread",
   "timeline.group.mayContinue": "may continue earlier",
+  "tab.people": "People",
+  "tab.timeline": "History",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
