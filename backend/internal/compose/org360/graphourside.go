@@ -125,9 +125,12 @@ func (g *graphAssembly) readAccountOwner() error {
 // opening a busy account saw "nobody here has been in touch", and there was no
 // error anywhere to suggest otherwise.
 //
-// Real contact still means a real exchange: the projection counts only direct
-// participant roles, so a cc never becomes a connection, and a task or a note
-// is not an interaction at all.
+// Real contact still means a recorded exchange rather than an intention: a
+// task or a note is not an interaction at all. Every participant role does
+// count, cc included (ADR-0078) — in an account team the colleague permanently
+// in copy is frequently the one who knows the customer. Copy-only traffic is
+// one-directional, so the reciprocity term ranks that colleague below anyone
+// in a two-way thread instead of a role filter removing them.
 //
 // On gating: the contacts passed in are the ones the card has already PLACED,
 // which means they have already passed the person row-scope gate — and capture

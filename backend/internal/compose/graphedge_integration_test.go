@@ -276,7 +276,8 @@ func TestTheNightlyRebuildAgreesWithTheIncrementalPath(t *testing.T) {
 	now := time.Now().UTC()
 
 	// A spread of traffic across two colleagues and two contacts, including a
-	// cc row that must not count and an archived one that must not either.
+	// cc row — which counts, one-directionally — and an archived one, which
+	// does not count at all. Both paths must fold them the same way.
 	c1 := v.person(t, "Contact One")
 	c2 := v.person(t, "Contact Two")
 	var all []ids.UUID
