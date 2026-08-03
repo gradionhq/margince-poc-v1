@@ -49,6 +49,7 @@ func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelP
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
-	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s, %s)",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, channelNote, overlayNote, deepReadNote)
+	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, retention every %s, %s, %s, %s, %s)",
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, cfg.retentionInterval,
+		captureNote, channelNote, overlayNote, deepReadNote)
 }

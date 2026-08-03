@@ -63,7 +63,7 @@ type ratifiedFleetScan struct {
 var ratifiedFleetScans = map[string]ratifiedFleetScan{
 	"internal/compose/dispatch.go": {
 		2,
-		"the dispatch enumerations: all-live workspaces, and the archived-inclusive one retention needs because archiving does not un-store the claim snapshots inside a workspace. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
+		"the dispatch enumerations: all-live workspaces, and the archived-inclusive one the retention passes need because archiving does not un-store the data inside a workspace. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
 	},
 	"internal/compose/runnerservice.go": {
 		1,
@@ -92,10 +92,6 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 	"internal/modules/ai/voice_build_complete.go": {
 		1,
 		"the voice_build_retry DISPATCHER's due-scan: enqueues one voice_build per due build, a finer fan-out than per-workspace",
-	},
-	"internal/modules/privacy/retention.go": {
-		1,
-		"the nightly retention evaluator, driven by a ticker in cmd/worker rather than River — outside this phase's job layer",
 	},
 	"internal/modules/webhooks/deliverystore.go": {
 		1,

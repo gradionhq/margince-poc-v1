@@ -4,11 +4,14 @@
 package privacy
 
 // The retention engine (data-model §3.4, ADR-0011): a nightly pass
-// evaluates each workspace's enabled policies and applies the policy's
+// evaluates ONE workspace's enabled policies and applies the policy's
 // single action to over-age records, one audited transaction per
 // record. legal_hold rows are NEVER auto-acted, and an activity is
 // held transitively when any linked person/organization/deal is held —
 // a hold on the subject must cover the evidence about them.
+//
+// The fleet is somebody else's problem: this engine takes the workspace it
+// is given, so a tenant's pass has one caller to fail to.
 
 import (
 	"context"
@@ -25,7 +28,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/jurisdiction"
 )
 
@@ -72,7 +74,8 @@ const retentionBatch = 200
 // retention rule says otherwise.
 const embedCallRetention = 90
 
-// RetentionService drives the evaluator; the worker ticks it nightly.
+// RetentionService drives the evaluator over one bound workspace at a time;
+// the worker role schedules a pass per tenant.
 type RetentionService struct {
 	pool   *pgxpool.Pool
 	eraser *Eraser
@@ -172,31 +175,6 @@ var retentionSelectors = map[string]string{
 		WHERE occurred_at < now() - make_interval(days => $1) LIMIT $2`,
 }
 
-// Evaluate is one nightly pass over every live workspace. The unbounded
-// workspace list is fine here: it is bounded by fleet size (tenants per
-// install), not by tenant data volume.
-func (s *RetentionService) Evaluate(ctx context.Context) error {
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return err
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.WorkspaceID])
-	if err != nil {
-		return err
-	}
-	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID.UUID)
-		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
-		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
-		if err := s.evaluateWorkspace(wsCtx); err != nil {
-			// One tenant's failure must not starve the rest of the fleet.
-			s.log.Error("retention: workspace pass failed", "workspace", wsID, "err", err)
-		}
-	}
-	return nil
-}
-
 type retentionPolicy struct {
 	// ID stays ids.UUID: a retention policy is a config row, not a
 	// first-class entity, so the kernel mints no kind for it.
@@ -207,7 +185,12 @@ type retentionPolicy struct {
 	Action     string
 }
 
-func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
+// EvaluateWorkspace is ONE workspace's retention pass — the workspace the
+// caller's context is already bound to, with no enumeration of its own. Its
+// error is the tenant's verdict and belongs to whoever asked for the pass: a
+// pass that failed and reported success leaves subject data stored past its
+// policy with nothing recording that it happened.
+func (s *RetentionService) EvaluateWorkspace(ctx context.Context) error {
 	var policies []retentionPolicy
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
@@ -462,20 +445,4 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		policyID := pol.ID
 		return storekit.EmitEventForEntity(ctx, tx, auditID, pol.ObjectType, id, retentionAppliedPayload(pol.Action, &policyID, nil))
 	})
-}
-
-// RunRetention ticks the evaluator on the worker's schedule.
-func RunRetention(ctx context.Context, svc *RetentionService, interval time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := svc.Evaluate(ctx); err != nil {
-			log.Error("retention: pass failed", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
 }

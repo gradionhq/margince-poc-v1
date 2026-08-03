@@ -17,6 +17,7 @@ var (
 	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = IdempotencyRetentionWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = PrivacyRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}
@@ -57,6 +58,7 @@ var (
 	_ jobs.FleetWide = OrgNamePromotionArgs{}
 	_ jobs.FleetWide = OverlayReconcileArgs{}
 	_ jobs.FleetWide = ParticipantBackfillArgs{}
+	_ jobs.FleetWide = PrivacyRetentionArgs{}
 	_ jobs.FleetWide = TelegramPollSweepArgs{}
 	_ jobs.FleetWide = TimeScanArgs{}
 	_ jobs.FleetWide = VoiceBuildRetryArgs{}

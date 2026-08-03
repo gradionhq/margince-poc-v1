@@ -488,7 +488,7 @@ func TestRetentionRedactsTheDeliveryOfAnAgedOutActivity(t *testing.T) {
 	fresh := seedDelivery(t, e, "10 days", "This week's message", "still within the window", "sent", mailRecipientEmail, ids.UUID{})
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.Evaluate(context.Background()); err != nil {
+	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
 

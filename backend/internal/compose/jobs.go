@@ -75,8 +75,11 @@ type JobRunnerConfig struct {
 	CloseDateInterval time.Duration
 	ReconcileInterval time.Duration
 	TimeScanInterval  time.Duration
-	GmailRegistry     *capture.Registry
-	GmailWatch        GmailWatchConfig
+	// PrivacyRetention carries the GDPR retention dispatcher's cadence
+	// (jobs_privacyretention.go).
+	PrivacyRetention PrivacyRetentionConfig
+	GmailRegistry    *capture.Registry
+	GmailWatch       GmailWatchConfig
 	// ChannelVault is the custodian of a channel connection's sealed bot token.
 	// Nil means this role registers no Telegram poller at all: a poll cannot
 	// authenticate without the token, so a dispatcher wired without a vault
@@ -292,6 +295,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The ADR-0069 §3a embed drift sweep registers itself the same way
 	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
 	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
+	// The GDPR retention pass registers itself the same way
+	// (jobs_privacyretention.go).
+	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})

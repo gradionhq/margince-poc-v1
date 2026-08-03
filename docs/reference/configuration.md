@@ -90,7 +90,7 @@ tried and failed. Run a worker, or accept that mail is queued and not sent.
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
 | `--runner-interval` | — | `30s` | Surface-B scheduler tick |
-| `--retention-interval` | — | `24h` | retention evaluator pass interval |
+| `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
