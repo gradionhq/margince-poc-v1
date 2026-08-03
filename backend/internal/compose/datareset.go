@@ -87,6 +87,13 @@ func sweepWorkspaceData(ctx context.Context, tx pgx.Tx, tables []string) error {
 			if _, err := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT reset_sp"); err != nil {
 				return err
 			}
+			// A rollback leaves the savepoint defined but unusable for a
+			// subsequent SAVEPOINT of the same name until it's released —
+			// without this, repeated passes over a slow-to-clear table
+			// would pile up shadowed savepoints for the life of the tx.
+			if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT reset_sp"); err != nil {
+				return err
+			}
 			stuck = append(stuck, t)
 		}
 		if !progressed {
