@@ -12,6 +12,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -214,10 +215,14 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 			&f.MaxAttempts, &fallbackAt, &attemptAt, &stored); err != nil {
 			return nil, fmt.Errorf("jobs: scanning recent job failures: %w", err)
 		}
-		f.FailedAt = fallbackAt
+		// UTC on both branches. pgx returns a timestamptz in the session's
+		// zone while the attempt error's own timestamp is RFC 3339 in UTC,
+		// so mixing them unresolved puts two offsets in one array — both
+		// valid, and needlessly hostile to whoever reads the list.
+		f.FailedAt = fallbackAt.UTC()
 		if attemptAt != nil {
 			if at, err := time.Parse(time.RFC3339Nano, *attemptAt); err == nil {
-				f.FailedAt = at
+				f.FailedAt = at.UTC()
 			}
 		}
 		if stored != nil {
@@ -228,5 +233,14 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("jobs: reading recent job failures: %w", err)
 	}
+
+	// SELECTED by coalesce(finalized_at, created_at) — a total order over
+	// columns that always exist, which is what makes the LIMIT pick the
+	// genuinely most recent rows — but PRESENTED in the order of the
+	// failed_at actually shown. Those two can disagree, because the
+	// displayed value prefers the attempt error's own timestamp, and a list
+	// whose visible field does not descend reads as a bug even when the
+	// selection was right.
+	slices.SortStableFunc(out, func(a, b Failure) int { return b.FailedAt.Compare(a.FailedAt) })
 	return out, nil
 }

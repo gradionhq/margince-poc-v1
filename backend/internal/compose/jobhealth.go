@@ -83,6 +83,15 @@ func dispatcherKinds() []string {
 // known and where to look, and no more.
 const unvettedFailureReason = "the job failed for a reason this surface cannot vet; check the worker logs and the job row directly"
 
+// noRecordedCause is what a row with no stored error at all becomes.
+//
+// It is NOT the unvetted substitute. A cancelled job that never ran records
+// no attempt error, and telling its operator the job "failed for a reason
+// this surface cannot vet" asserts a failure that did not happen and points
+// at a log line nobody wrote. Nothing recorded is a different fact from
+// something unreadable, and the two must not render alike.
+const noRecordedCause = "this job recorded no cause; a job cancelled before it ran records none"
+
 // reasonFor renders a stored failure for a human.
 //
 // river_job.errors holds whatever the worker returned. jobs.Fault exists so
@@ -91,6 +100,9 @@ const unvettedFailureReason = "the job failed for a reason this surface cannot v
 // the column is checked, never trusted, and anything unrecognised becomes
 // the same fixed substitute.
 func reasonFor(stored string) string {
+	if stored == "" {
+		return noRecordedCause
+	}
 	if jobs.VettedSentence(stored) {
 		return stored
 	}

@@ -136,6 +136,14 @@ workspace's most recent child may be the successful one, and the failure is
 not reflected in `margince_sweep_workspaces_failed`. Per-connection health is
 visible on the endpoint below, by kind.
 
+**`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
+every workspace's id and every kind, because an operator scraping a service
+is outside the tenant boundary by construction (ADR-0080/A125 admits the id
+for exactly this reason, and only the id). That is a deliberate asymmetry
+with the admin endpoint below, which is scoped — so `/metrics` must stay
+behind the same access control as any other operator surface, never proxied
+to a tenant.
+
 **`GET /v1/admin/job-health` — whose work died, and why?** Admin-only and
 human-session-only; an agent passport is refused at the middleware and again
 in the handler. It reports, for each kind, the waiting/running/retrying/dead
@@ -151,7 +159,9 @@ counts and the oldest waiting age, plus up to 50 recent failures.
   bypassed the fault seam stored its raw cause — which routinely names an
   address or record a provider refused. Anything not in the closed
   vocabulary is replaced by one fixed substitute. River's stored panic trace
-  is never read at all.
+  is never read at all. A row that recorded no cause at all — a job cancelled
+  before it ran — says so, rather than borrowing the unvettable-failure
+  sentence and claiming a failure that never happened.
 
 ## cmd/worker — the background process role
 

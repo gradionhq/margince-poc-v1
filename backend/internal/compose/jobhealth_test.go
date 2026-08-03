@@ -103,7 +103,6 @@ func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 		// unvetted string — and the substitute must not tell an operator to
 		// read a process log that died before writing one.
 		"Stuck job rescued by JobRescuer",
-		"",
 	} {
 		got := reasonFor(raw)
 		if got == raw {
@@ -117,9 +116,27 @@ func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 				"mid-work and wrote none. got %q", got)
 		}
 	}
+}
 
-	if reasonFor("") == "" {
-		t.Error("an empty stored error must still produce a sentence")
+// TestARowThatRecordedNoCauseDoesNotClaimItFailed — a cancelled job that
+// never ran records no attempt error. Rendering that as "the job failed for
+// a reason this surface cannot vet" asserts a failure that did not happen
+// and points an operator at a log line nobody wrote. Nothing recorded and
+// something unreadable are different facts.
+func TestARowThatRecordedNoCauseDoesNotClaimItFailed(t *testing.T) {
+	got := reasonFor("")
+
+	if got == "" {
+		t.Fatal("an empty stored error must still produce a sentence")
+	}
+	if got == unvettedFailureReason {
+		t.Error("a row with no recorded cause was reported as an unvettable failure")
+	}
+	if strings.Contains(got, "failed") {
+		t.Errorf("reasonFor(\"\") = %q: it claims a failure that was never recorded", got)
+	}
+	if got != noRecordedCause {
+		t.Errorf("reasonFor(\"\") = %q, want the one fixed no-cause sentence", got)
 	}
 }
 
