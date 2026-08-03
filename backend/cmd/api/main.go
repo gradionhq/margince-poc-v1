@@ -179,7 +179,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
 	if cfg.inlineRelay {
-		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, cfg.webhookRetryInterval, logger)
+		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, logger)
 		if err != nil {
 			return err
 		}

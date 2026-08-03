@@ -122,9 +122,11 @@ func (r *Runner) SubscribeCompleted() (<-chan *river.Event, func()) {
 }
 
 // SubscribeFailed delivers job-FAILURE events — a job that errored and was
-// either set to retry or discarded. It is the third of the three terminal
-// outcomes a claimed job can reach, beside completion and cancellation, and
-// the only one the other two cannot be read to imply: a job that has neither
+// either set to retry or discarded. It fires per ATTEMPT, so unlike completion
+// and cancellation it does not announce a settled job: a caller that needs the
+// failure to be final must make the fault permanent and let the attempt budget
+// run out, or read the row's state itself. What it gives that the other two
+// cannot is any signal at all for a failing job — one that has neither
 // completed nor cancelled may equally be one still running. Subscribe before
 // Start so no failure is missed; call the returned cancel when done.
 func (r *Runner) SubscribeFailed() (<-chan *river.Event, func()) {

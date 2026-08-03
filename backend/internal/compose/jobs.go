@@ -79,8 +79,12 @@ type JobRunnerConfig struct {
 	// PrivacyRetention carries the GDPR retention dispatcher's cadence
 	// (jobs_privacyretention.go).
 	PrivacyRetention PrivacyRetentionConfig
-	GmailRegistry    *capture.Registry
-	GmailWatch       GmailWatchConfig
+	// WebhookRetry carries the outbound-webhook retry dispatcher's cadence
+	// and the delivery engine its workspace pass re-sends through
+	// (jobs_webhookretry.go).
+	WebhookRetry  WebhookRetryConfig
+	GmailRegistry *capture.Registry
+	GmailWatch    GmailWatchConfig
 	// ChannelVault is the custodian of a channel connection's sealed bot token.
 	// Nil means this role registers no Telegram poller at all: a poll cannot
 	// authenticate without the token, so a dispatcher wired without a vault
@@ -300,6 +304,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The GDPR retention pass registers itself the same way
 	// (jobs_privacyretention.go).
 	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
+	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go) —
+	// workers and tick only when a signing key gave this role a deliverer.
+	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})
@@ -460,6 +467,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// still gets its own job row, which is the observability this phase
 			// is after; per-workspace PARALLELISM is not.
 			overlayReconcileQueue: {MaxWorkers: 1},
+			// The webhook retry sweep dials endpoints this deployment does
+			// not control, a full batch of them per workspace and one after
+			// the other, so it gets its own bounded pool for the same reason
+			// deep reads do — and a small one, because the fleet's retries
+			// must not become the process's whole outbound load.
+			webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

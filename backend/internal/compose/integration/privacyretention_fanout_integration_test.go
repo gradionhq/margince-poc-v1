@@ -12,7 +12,6 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"testing"
 	"time"
@@ -36,24 +35,6 @@ func retentionPassCtx(ws ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system"})
 	return principal.WithCorrelationID(ctx, ids.NewV7())
-}
-
-// seedRetentionWorkspace mints an additional tenant. archived names a
-// workspace nobody looks at any more, which still stores everything it stored
-// the day it was archived.
-func seedRetentionWorkspace(t *testing.T, owner *pgx.Conn, name string, archived bool) ids.UUID {
-	t.Helper()
-	ws := ids.NewV7()
-	archivedAt := "NULL"
-	if archived {
-		archivedAt = "now()"
-	}
-	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO workspace (id, name, slug, base_currency, archived_at)
-		VALUES ($1, $2, $3, 'EUR', `+archivedAt+`)`, ws, name, name+"-"+ws.String()); err != nil {
-		t.Fatalf("seeding the %s workspace: %v", name, err)
-	}
-	return ws
 }
 
 // seedRetentionTenant plants the lead/unconverted anonymize policy and one
@@ -138,7 +119,7 @@ func leadName(t *testing.T, owner *pgx.Conn, lead ids.UUID) string {
 func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
-	victim := seedRetentionWorkspace(t, owner, "victim", false)
+	victim := seedExtraWorkspace(t, owner, "victim", false)
 	victimLead := seedRetentionTenant(t, owner, victim)
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
@@ -161,94 +142,17 @@ func TestRetentionReportsTheWorkspaceWhosePassFailed(t *testing.T) {
 	}
 }
 
-// recordRetentionOutcome files one workspace job's outcome under the tenant its
-// args name, reading the WIRE key rather than a decoded args struct — the same
-// `workspace_id` every per-workspace read of river_job selects.
-func recordRetentionOutcome(t *testing.T, into map[string]bool, ev *river.Event, kind string, completed bool) {
-	t.Helper()
-	if ev == nil || ev.Job == nil || ev.Job.Kind != kind {
-		return
-	}
-	var args struct {
-		Workspace string `json:"workspace_id"`
-	}
-	if err := json.Unmarshal(ev.Job.EncodedArgs, &args); err != nil {
-		t.Fatalf("decoding the %s args River persisted: %v", kind, err)
-	}
-	if args.Workspace == "" {
-		t.Fatalf("a %s row carries no workspace_id — the tenant it worked for is invisible to every per-workspace read of river_job", kind)
-	}
-	into[args.Workspace] = completed
-}
-
-// awaitRetentionOutcomes collects one outcome per tenant until want distinct
-// workspaces have reported, or the deadline fires. No polling, no sleep.
-func awaitRetentionOutcomes(ctx context.Context, t *testing.T, completed, failed <-chan *river.Event, kind string, want int) map[string]bool {
-	t.Helper()
-	outcomes := make(map[string]bool, want)
-	for len(outcomes) < want {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("timed out with %d of %d %s outcomes: %v", len(outcomes), want, kind, ctx.Err())
-		case ev := <-completed:
-			recordRetentionOutcome(t, outcomes, ev, kind, true)
-		case ev := <-failed:
-			recordRetentionOutcome(t, outcomes, ev, kind, false)
-		}
-	}
-	return outcomes
-}
-
-// awaitKindsCompleted blocks until every named kind has reported one
-// completion, or the deadline fires. No polling, no sleep.
-func awaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *river.Event, kinds ...string) {
-	t.Helper()
-	pending := make(map[string]struct{}, len(kinds))
-	for _, kind := range kinds {
-		pending[kind] = struct{}{}
-	}
-	for len(pending) > 0 {
-		select {
-		case <-ctx.Done():
-			t.Fatalf("timed out waiting on %d of %v to complete: %v", len(pending), kinds, ctx.Err())
-		case ev := <-completed:
-			if ev != nil && ev.Job != nil {
-				delete(pending, ev.Job.Kind)
-			}
-		}
-	}
-}
-
-// startRetentionRunner boots a worker-role job runner whose retention
-// dispatcher ticks on the given interval and returns it with its completion and
-// failure channels, subscribed BEFORE Start so the RunOnStart pass's outcomes
-// are never missed. The runner is stopped in cleanup.
+// startRetentionRunner boots a job runner whose retention dispatcher ticks on
+// the given interval, and returns it with the shared fan-out harness's
+// completion and failure channels.
 func startRetentionRunner(t *testing.T, e *Env, interval time.Duration) (*jobs.Runner, <-chan *river.Event, <-chan *river.Event) {
 	t.Helper()
-	runner, err := compose.NewJobRunner(e.Pool, slog.New(slog.DiscardHandler), compose.JobRunnerConfig{
+	return startTestJobRunner(t, e.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		PrivacyRetention:  compose.PrivacyRetentionConfig{Interval: interval},
 	})
-	if err != nil {
-		t.Fatalf("NewJobRunner: %v", err)
-	}
-	completed, cancelCompleted := runner.SubscribeCompleted()
-	t.Cleanup(cancelCompleted)
-	failed, cancelFailed := runner.SubscribeFailed()
-	t.Cleanup(cancelFailed)
-	if err := runner.Start(context.Background()); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	t.Cleanup(func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := runner.Stop(stopCtx); err != nil {
-			t.Errorf("Stop: %v", err)
-		}
-	})
-	return runner, completed, failed
 }
 
 // TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant is
@@ -260,8 +164,8 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 	e := Setup(t)
 	ApplyRiverSchema(t)
 	owner := OwnerConn(t)
-	victim := seedRetentionWorkspace(t, owner, "victim", false)
-	archived := seedRetentionWorkspace(t, owner, "archived", true)
+	victim := seedExtraWorkspace(t, owner, "victim", false)
+	archived := seedExtraWorkspace(t, owner, "archived", true)
 	victimLead := seedRetentionTenant(t, owner, victim)
 	healthyLead := seedRetentionTenant(t, owner, e.WS)
 	failLeadWritesFor(t, owner, victim)
@@ -270,7 +174,7 @@ func TestPrivacyRetentionFansOutOneJobPerWorkspaceAndFailsOnlyTheFailedTenant(t 
 	_, completed, failed := startRetentionRunner(t, e, time.Hour)
 	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	outcomes := awaitRetentionOutcomes(waitCtx, t, completed, failed,
+	outcomes := awaitWorkspaceJobOutcomes(waitCtx, t, completed, failed,
 		compose.PrivacyRetentionWorkspaceArgs{}.Kind(), 3)
 
 	for _, ws := range []ids.UUID{e.WS, victim, archived} {

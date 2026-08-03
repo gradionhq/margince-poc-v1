@@ -654,7 +654,7 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	// spent and the delivery is dead-lettered.
 	for i := 0; i < 8; i++ {
 		now = now.Add(64 * time.Second) // beyond the largest backoff gap
-		if err := deliverer.SweepOnce(context.Background()); err != nil {
+		if err := deliverer.SweepOnce(webhookSweepCtx(we.wsID)); err != nil {
 			t.Fatalf("sweep: %v", err)
 		}
 	}
@@ -759,13 +759,6 @@ func TestWebhookRetryThenDeadLetterThenReplay(t *testing.T) {
 	if want := verifySWSignature(t, secret, last.webhookID, replayTS, last.body); last.signature != want {
 		t.Fatalf("replay signature = %q, want %q", last.signature, want)
 	}
-
-	// RunRetrySweep drives SweepOnce on a ticker until its context is done;
-	// an already-cancelled context runs one pass then returns, exercising
-	// the loop without a real sleep.
-	cctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	deliverer.RunRetrySweep(cctx, time.Hour)
 }
 
 func assertDeliveryStatus(t *testing.T, we *webhookEnv, subID, wantStatus string, wantAttempts int) {

@@ -93,10 +93,6 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 		1,
 		"the voice_build_retry DISPATCHER's due-scan: enqueues one voice_build per due build, a finer fan-out than per-workspace",
 	},
-	"internal/modules/webhooks/deliverystore.go": {
-		1,
-		"the webhook delivery retry sweeper's fleet pass, driven by a ticker (Deliverer.SweepOnce) rather than River — outside this phase's job layer",
-	},
 	"internal/modules/overlay/metrics.go": {
 		1,
 		"a metrics read: aggregates overlay sync lag across the fleet for /metrics exposition, writes nothing",

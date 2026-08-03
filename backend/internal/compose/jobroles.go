@@ -39,6 +39,7 @@ var (
 	_ jobs.WorkspaceScoped = TelegramIngestArgs{}
 	_ jobs.WorkspaceScoped = TelegramPollArgs{}
 	_ jobs.WorkspaceScoped = VoiceBuildArgs{}
+	_ jobs.WorkspaceScoped = WebhookRetryWorkspaceArgs{}
 )
 
 var (
@@ -62,5 +63,6 @@ var (
 	_ jobs.FleetWide = TelegramPollSweepArgs{}
 	_ jobs.FleetWide = TimeScanArgs{}
 	_ jobs.FleetWide = VoiceBuildRetryArgs{}
+	_ jobs.FleetWide = WebhookRetryArgs{}
 	_ jobs.FleetWide = embedReindexArgs{}
 )

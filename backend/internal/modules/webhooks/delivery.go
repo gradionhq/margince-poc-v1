@@ -30,9 +30,16 @@ const (
 	// (1s, 2s, 4s, 8s, 16s) never reaches it within the budget, but it is
 	// the stated ceiling and guards against a future budget increase.
 	backoffCap = 32 * time.Second
-	// sweepBatch bounds how many due retries one sweep tick claims.
+	// sweepBatch bounds how many due retries one sweep pass claims.
 	sweepBatch = 128
 )
+
+// MaxSweepDuration is the ceiling on one workspace's retry pass: the batch
+// bound times the per-attempt bound, because the attempts inside a pass are
+// sequential. A scheduler that must cap the pass reads it from here rather
+// than re-deriving it from two constants it cannot see, so raising either
+// bound moves the cap with it.
+const MaxSweepDuration = sweepBatch * deliveryTimeout
 
 // backoff is the delay before the next attempt after `attempts` have
 // already failed: exponential 1s, 2s, 4s, … capped at backoffCap.
@@ -164,50 +171,31 @@ func (d *Deliverer) ownerCanSee(ctx context.Context, env kevents.Envelope, owner
 	return d.store.entityVisibleTo(ownerCtx, env.Type, env.Entity.Type, env.Entity.ID)
 }
 
-// RunRetrySweep re-attempts due retries on a ticker until ctx is
-// canceled. Each tick claims a bounded batch of parked deliveries whose
-// backoff has elapsed and whose subscription is still active.
-func (d *Deliverer) RunRetrySweep(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := d.SweepOnce(ctx); err != nil && ctx.Err() == nil {
-			d.log.Error("webhooks: retry sweep", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-// SweepOnce runs a single due-retry pass: it claims a bounded batch of
-// parked deliveries whose backoff has elapsed and re-attempts each. It is
-// the unit the ticker loop drives, exposed so a test can step the schedule
-// deterministically under an injected clock (no sleeps).
+// SweepOnce runs ONE workspace's due-retry pass: it claims a bounded batch
+// of parked deliveries whose backoff has elapsed and re-attempts each. The
+// tenant comes from ctx, so this pass never reaches past the workspace its
+// caller bound; the clock is injected, so a test steps the backoff schedule
+// deterministically rather than sleeping through it.
+//
+// The due scan failing IS this pass failing. It is the one workspace-level
+// error here, and a caller that recorded success over it would be reporting
+// a retry sweep that never scanned — leaving every delivery parked in that
+// tenant parked, with the subscriber simply stopping. A per-delivery
+// failure is the opposite: the outcome belongs on the delivery's own row
+// and the next pass re-claims it, so one unloadable delivery must not fail
+// the tenant's whole sweep.
 func (d *Deliverer) SweepOnce(ctx context.Context) error {
-	workspaces, err := d.store.liveWorkspaces(ctx)
+	due, err := d.store.dueRetries(ctx, d.clock(), sweepBatch)
 	if err != nil {
-		return err
+		return fmt.Errorf("webhooks: scanning due retries: %w", err)
 	}
-	now := d.clock()
-	for _, wsID := range workspaces {
-		wsCtx := d.systemContext(ctx, wsID)
-		due, err := d.store.dueRetries(wsCtx, now, sweepBatch)
+	for _, deliveryID := range due {
+		t, err := d.store.loadTarget(ctx, deliveryID)
 		if err != nil {
-			// One tenant's failure must not starve the rest of the fleet.
-			d.log.Error("webhooks: scanning due retries", "workspace", wsID, "err", err)
+			d.log.Warn("webhooks: loading due delivery", "delivery", deliveryID, "err", err)
 			continue
 		}
-		for _, deliveryID := range due {
-			t, err := d.store.loadTarget(wsCtx, deliveryID)
-			if err != nil {
-				d.log.Warn("webhooks: loading due delivery", "delivery", deliveryID, "err", err)
-				continue
-			}
-			d.deliverOnce(wsCtx, t)
-		}
+		d.deliverOnce(ctx, t)
 	}
 	return nil
 }

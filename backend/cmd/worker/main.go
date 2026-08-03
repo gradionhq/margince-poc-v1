@@ -37,6 +37,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -196,7 +197,25 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, stdout)
+	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key is
+	// configured: without one there is nothing to sign a delivery with. ONE
+	// deliverer serves both lanes — the cg:webhooks consumer that fans matching
+	// events to subscribers (owner-scoped, so a webhook never delivers an event
+	// its owner may not see, BYO-EVT-4) and the River retry sweep the runner
+	// below schedules — so this role holds one signing cipher and one outbound
+	// transport, not two that could drift apart. Built before the runner
+	// because the runner is what schedules the sweep.
+	var webhookDeliverer *webhooks.Deliverer
+	if cfg.webhookKey != "" {
+		webhookDeliverer, err = compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
+		if err != nil {
+			return fmt.Errorf("worker: %w", err)
+		}
+		_, _ = fmt.Fprintln(stdout, "worker delivering outbound webhooks (cg:webhooks)")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", webhookDeliverer.HandleEvent, logger, 0) })
+	}
+
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, webhookDeliverer, stdout)
 	if err != nil {
 		return err
 	}
@@ -205,21 +224,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
-
-	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key
-	// is configured: it consumes cg:webhooks to fan matching events to
-	// subscribers — owner-scoped, so a webhook never delivers an event its
-	// owner may not see (BYO-EVT-4) — and sweeps due retries on a ticker.
-	// Without the key the delivery worker stays off entirely.
-	if cfg.webhookKey != "" {
-		deliverer, err := compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
-		if err != nil {
-			return fmt.Errorf("worker: %w", err)
-		}
-		_, _ = fmt.Fprintf(stdout, "worker delivering outbound webhooks (cg:webhooks), retry sweep every %s\n", cfg.webhookRetryInterval)
-		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger, 0) })
-		background.Go(func() { deliverer.RunRetrySweep(ctx, cfg.webhookRetryInterval) })
-	}
 
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
@@ -276,7 +280,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -320,8 +324,14 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// The GDPR retention fan-out's cadence: --retention-interval is the
 		// schedule source, now read by River rather than by a ticker.
 		PrivacyRetention: compose.PrivacyRetentionConfig{Interval: cfg.retentionInterval},
-		GmailRegistry:    captureReg,
-		GmailWatch:       watchCfg,
+		// The retry sweep's cadence and the engine it re-sends through. A nil
+		// deliverer (no --webhook-key) registers neither half: nothing could
+		// sign the re-attempt anyway.
+		WebhookRetry: compose.WebhookRetryConfig{
+			Interval: cfg.webhookRetryInterval, Deliverer: webhookDeliverer,
+		},
+		GmailRegistry: captureReg,
+		GmailWatch:    watchCfg,
 		// The Telegram ingest worker builds its Sink from this — the same
 		// suppression-list config every other capture path shares.
 		CaptureConfig: cfg.captureConfig,

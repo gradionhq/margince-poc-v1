@@ -44,8 +44,8 @@ POST /webhook-subscriptions                   domain write → outbox → relay 
               2xx → delivered        non-2xx / transport error              6 attempts spent
                                      → retrying (backoff 1,2,4,8,16s)       → dead_lettered
                                             │                                       │
-                                     RunRetrySweep (ticker)              POST …/replay (human, audited)
-                                     claims due rows, re-attempts        resets budget, re-attempts
+                            webhook_retry_workspace (River)          POST …/replay (human, audited)
+                            claims due rows, re-attempts             resets budget, re-attempts
 ```
 
 **Why the two halves are separate.** The config surface can run with the read paths alive even when no
@@ -248,7 +248,7 @@ replayed after the bus stream has trimmed the source event.
     │
     └──attempt fails──▶ retrying           (non-2xx or transport error, budget left)
                           │                 next_retry_at = now + backoff(attempts)
-                          │ RunRetrySweep claims due rows
+                          │ the per-workspace retry job claims due rows
                           └──attempt fails, budget spent──▶ dead_lettered   (6 attempts)
                                                                 │
                                                           replay (human) ──▶ pending (fresh budget)
@@ -258,11 +258,14 @@ replayed after the bus stream has trimmed the source event.
   `1s, 2s, 4s, 8s, 16s`, capped at 32s (the cap never binds within the budget — it guards a future
   budget increase). Timestamps come from an **injected clock** so the schedule is deterministic under
   test (no sleeps).
-- **The sweeper** (`RunRetrySweep` / `SweepOnce`): a ticker claims a bounded batch (128) of `retrying`
-  rows whose `next_retry_at` has elapsed **and whose subscription is still active** — a paused
-  subscription's retries wait until it resumes. One tenant's scan failure is logged and skipped, never
-  allowed to starve the fleet. `SweepOnce` is exposed so a test can step the schedule under the
-  injected clock.
+- **The sweeper** (`SweepOnce`): ONE workspace's pass, taking its tenant from the context its caller
+  bound. It claims a bounded batch (128) of `retrying` rows whose `next_retry_at` has elapsed **and
+  whose subscription is still active** — a paused subscription's retries wait until it resumes. The
+  fleet is covered by fanning the pass out, one job row per live workspace (§6), so a tenant whose
+  due-scan fails **fails its own row** and the rest of the fleet is untouched; the failure is a
+  recorded job outcome, not a log line. Per-DELIVERY failures stay on the delivery row and never fail
+  the tenant's pass. `SweepOnce` takes an injected clock so a test can step the schedule with no
+  sleeps.
 - **`deliverOnce` never returns an error** — the outcome IS the record. A failure to *persist* the
   outcome is logged, but note the honest limit: an initial attempt whose outcome-write fails leaves the
   row `pending`, and the sweeper scans only `retrying` rows — so that delivery is **not** re-scanned
@@ -360,15 +363,23 @@ fresh fan-out.
 
 Delivery is a background capability, gated on the deployment signing key:
 
-- **`cmd/worker`** runs the `cg:webhooks` consumer + the retry sweep whenever `--webhook-key` /
-  `MARGINCE_WEBHOOK_KEY` is set. Unset, the delivery worker stays off entirely.
+- **`cmd/worker`** runs the `cg:webhooks` consumer AND the retry sweep whenever `--webhook-key` /
+  `MARGINCE_WEBHOOK_KEY` is set. Unset, the delivery worker stays off entirely. One deliverer serves
+  both lanes, so the role holds one signing cipher and one outbound transport.
 - **`cmd/api` under `--inline-relay`** (the default single-process dev/small-deploy shape) runs the
-  same consumer + sweep inline, on the in-process relay group, when the key is set.
+  same consumer inline, on the in-process relay group, when the key is set — **but not the sweep**.
+  The sweep is a River periodic job and `cmd/api` runs no River runner, so re-attempting a parked
+  delivery needs the worker role. An installation running only the api delivers on the bus and never
+  retries what failed.
 - Either lane carries the identity-backed `authz.Resolver` for the owner-scope gate; the HTTP-transport
   deliverer that serves **replay only** needs no resolver (replay re-sends an already-authorized
   delivery, it never fans out).
 
-The retry-sweep tick is `--webhook-retry-interval` (default `5s`). See
+The retry dispatcher's cadence is `--webhook-retry-interval` (worker only, default `30s`): each tick
+enqueues one `webhook_retry_workspace` job per live workspace. It paces the FLEET fan-out, not one
+delivery's backoff — the per-delivery schedule is the exponential ladder above, and the dial only
+decides how promptly an elapsed backoff is noticed. Archived workspaces are skipped: a delivery parked
+for a subscription nobody listens on any more is work nobody wants. See
 [reference/configuration.md](../reference/configuration.md) for the full flag/env table.
 
 ## 7. The SSRF guard on the dialer
