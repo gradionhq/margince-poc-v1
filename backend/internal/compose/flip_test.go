@@ -16,6 +16,7 @@ import (
 	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -224,19 +225,19 @@ func TestAdoptedDealClosesOnlyWhenItIsStillOpen(t *testing.T) {
 	// open birth stage and died before the close. Left alone it would be
 	// reported converged while sitting open, and the estate's won revenue
 	// would simply be missing.
-	if !adoptedDealNeedsClosing(closed, "open") {
+	if !adoptedDealNeedsClosing(closed, deals.DealOpen) {
 		t.Error("a deal the incumbent calls closed, still open natively, must be closed on the resumed attempt")
 	}
 	// The ordinary replay: the attempt that created it also closed it.
 	// Advancing again would refight a settled close and its FX freeze.
-	for _, status := range []string{"won", "lost"} {
+	for _, status := range []deals.DealStatus{deals.DealWon, deals.DealLost} {
 		if adoptedDealNeedsClosing(closed, status) {
 			t.Errorf("a deal already %s was advanced again", status)
 		}
 	}
 	// The incumbent says open, so open is correct and there is nothing
 	// to assert — closing here would invent a terminal state.
-	if adoptedDealNeedsClosing(open, "open") {
+	if adoptedDealNeedsClosing(open, deals.DealOpen) {
 		t.Error("an open incumbent deal must not be closed")
 	}
 }

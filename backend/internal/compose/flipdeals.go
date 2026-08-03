@@ -107,7 +107,7 @@ func (w *flipWriters) settleAdoptedDeal(ctx context.Context, dealID ids.DealID, 
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: reading adopted deal %s: %w", row.ExternalID, err)
 	}
-	if !adoptedDealNeedsClosing(placement, string(deal.Status)) {
+	if !adoptedDealNeedsClosing(placement, deals.DealStatus(deal.Status)) {
 		return migration.EnsureResult{Unchanged: true}, nil
 	}
 	var lostReason *string
@@ -129,6 +129,6 @@ func (w *flipWriters) settleAdoptedDeal(ctx context.Context, dealID ids.DealID, 
 // and that is still open natively. Both halves matter — re-advancing an
 // already-closed deal would refight a settled close (and its FX freeze),
 // while skipping an open one leaves the estate's revenue wrong.
-func adoptedDealNeedsClosing(placement flipPlacement, nativeStatus string) bool {
-	return placement.closedStage != nil && nativeStatus == "open"
+func adoptedDealNeedsClosing(placement flipPlacement, nativeStatus deals.DealStatus) bool {
+	return placement.closedStage != nil && nativeStatus == deals.DealOpen
 }

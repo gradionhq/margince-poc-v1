@@ -56,3 +56,16 @@ func TestActivityLogInputRefusesAReservedSource(t *testing.T) {
 		t.Errorf("refusal names field %q, want source", refused.Field)
 	}
 }
+
+func TestActivityLogInputAcceptsAnOrdinarySource(t *testing.T) {
+	// The guard is a prefix rule, not a ban on the field: an ordinary
+	// provenance string has to survive, or every capture connector that
+	// stamps its own source would start failing at the wire.
+	in, err := activityLogInput(crmcontracts.CreateActivityRequest{Kind: "note", Source: "webform"})
+	if err != nil {
+		t.Fatalf("an ordinary source must stay writable: %v", err)
+	}
+	if in.Source != "webform" {
+		t.Errorf("Source = %q, want it carried through", in.Source)
+	}
+}
