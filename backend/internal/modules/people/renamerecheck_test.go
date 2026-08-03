@@ -98,3 +98,34 @@ func TestAPlausibleNameIsFarInsideTheScoringBound(t *testing.T) {
 		t.Errorf("normalized %q lost its tail", normalized)
 	}
 }
+
+// The name lock is owed whenever an evidence apply COULD write a name, and the
+// loop that writes it keys off the field being present, not off its value
+// carrying one. Clearing a legal name to "" still writes the row and still ends
+// in the re-check, so gating the lock on the value would let that case take the
+// row lock first and reach for the name lock second — the ordering that
+// deadlocks against a human rename.
+func TestAnEvidenceApplyOwesTheNameLockWheneverItCarriesANameField(t *testing.T) {
+	cases := []struct {
+		name   string
+		fields []ColdStartFieldInput
+		owes   bool
+	}{
+		{"a stated legal name", []ColdStartFieldInput{{Field: "legal_name", Value: "Baqend GmbH"}}, true},
+		{"a CLEARED legal name", []ColdStartFieldInput{{Field: "legal_name", Value: ""}}, true},
+		{"legal name among others", []ColdStartFieldInput{
+			{Field: "industry", Value: "software"}, {Field: "legal_name", Value: "Acme AG"},
+		}, true},
+		{"no name field at all", []ColdStartFieldInput{
+			{Field: "industry", Value: "software"}, {Field: "registered_address", Value: "Hamburg"},
+		}, false},
+		{"nothing applied", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := carriesOrgName(tc.fields); got != tc.owes {
+				t.Errorf("carriesOrgName = %v, want %v", got, tc.owes)
+			}
+		})
+	}
+}

@@ -259,7 +259,7 @@ func applyEvidenceFieldsWithOverwrite(
 	// lock, and a path holding both in the other order deadlocks against a
 	// human rename. Whether a name is coming is knowable here, which is what
 	// makes the early take possible.
-	if fieldValue(fields, "legal_name") != "" {
+	if carriesOrgName(fields) {
 		if err := lockOrgNameWrites(ctx, tx); err != nil {
 			return nil, err
 		}
@@ -351,6 +351,24 @@ func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		return false, fmt.Errorf("fill %s: %w", column, err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// carriesOrgName reports whether this apply could write a name column, and so
+// whether it owes the name lock.
+//
+// It tests for the field's PRESENCE, not for a non-empty value, because the
+// loop below does: writeOrgColumn's overwrite arm matches on IS DISTINCT FROM,
+// so clearing a legal name to "" still writes the row and still ends in the
+// re-check. Gating on the value would let exactly that case take the row lock
+// and then reach for the name lock, which is the ordering that deadlocks
+// against a human rename.
+func carriesOrgName(fields []ColdStartFieldInput) bool {
+	for _, f := range fields {
+		if f.Field == "legal_name" {
+			return true
+		}
+	}
+	return false
 }
 
 func fieldValue(fields []ColdStartFieldInput, name string) string {
