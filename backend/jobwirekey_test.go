@@ -17,15 +17,28 @@ import (
 	"go/types"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// workspaceArgFloor guards against a vacuous pass. This gate only reports on
-// the types it FINDS, so a walker that matched nothing would read green. The
-// tree holds 26 workspace-scoped kinds today; the floor only has to be low
-// enough never to false-alarm and high enough to catch a walker that broke.
+// workspaceArgFloor guards against a vacuous pass on the scoped side. This
+// gate only reports on the types it FINDS, so a walker that matched nothing
+// would read green. The tree holds 26 workspace-scoped kinds today; the floor
+// only has to be low enough never to false-alarm and high enough to catch a
+// walker that broke.
 const workspaceArgFloor = 20
+
+// dispatcherArgFloor is workspaceArgFloor's other half. assertNoWorkspaceArg
+// only runs on types the walker routes to it as FleetWide; if a future
+// receiver shape (an embedded marker, a generic receiver, a rename) stops
+// methodsByType from seeing FleetWide(), those types fall into "declares
+// neither role" and are skipped entirely — checked (the scoped count) stays
+// unaffected and reads plausible while the dispatcher half is inspected zero
+// times. The tree holds 20 FleetWide kinds today; same reasoning as
+// workspaceArgFloor: low enough never to false-alarm, high enough to catch a
+// broken walker.
+const dispatcherArgFloor = 15
 
 // The ONE field name, type, and wire key every workspace-scoped args type
 // carries. The FIELD is `Workspace` because Go forbids a field and a method of
@@ -42,7 +55,7 @@ func TestEveryWorkspaceScopedArgsSpellsItsWorkspaceKeyTheSameWay(t *testing.T) {
 	byType := methodsByType(t, dir)
 	fset, files := parseGoFilesUnder(t, dir)
 
-	checked := 0
+	checked, dispatcherChecked := 0, 0
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -78,12 +91,16 @@ func TestEveryWorkspaceScopedArgsSpellsItsWorkspaceKeyTheSameWay(t *testing.T) {
 					assertWorkspaceArg(t, fset, typeSpec.Name.Name, structType)
 					continue
 				}
+				dispatcherChecked++
 				assertNoWorkspaceArg(t, fset, typeSpec.Name.Name, structType)
 			}
 		}
 	}
 	if checked < workspaceArgFloor {
 		t.Fatalf("inspected only %d workspace-scoped args types, expected at least %d — the walker matched nothing and this gate would pass vacuously", checked, workspaceArgFloor)
+	}
+	if dispatcherChecked < dispatcherArgFloor {
+		t.Fatalf("inspected only %d dispatcher (FleetWide) args types, expected at least %d — the walker matched nothing on the dispatcher side and this gate would pass vacuously", dispatcherChecked, dispatcherArgFloor)
 	}
 }
 
@@ -106,7 +123,7 @@ func assertWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, stru
 					pos.Filename, pos.Line, typeName, workspaceArgField, workspaceArgKey, workspaceArgField)
 				return
 			}
-			if got := jsonKey(field); got != workspaceArgKey {
+			if got := jsonKey(t, fset, typeName, field); got != workspaceArgKey {
 				t.Errorf("%s:%d: %s.%s ships as json:%q, want json:%q — a divergent key is invisible to args->>'workspace_id', and a null there reads as a dispatcher rather than as tenant work the query cannot see.",
 					pos.Filename, pos.Line, typeName, workspaceArgField, got, workspaceArgKey)
 			}
@@ -121,7 +138,18 @@ func assertWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, stru
 func assertNoWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, structType *ast.StructType) {
 	t.Helper()
 	for _, field := range structType.Fields.List {
-		if jsonKey(field) != workspaceArgKey {
+		if len(field.Names) == 0 {
+			// encoding/json flattens an embedded field's own fields into the
+			// marshaled object, but this walker only reads declared fields —
+			// it cannot see into another package's type to know whether the
+			// embedded type carries a workspace_id. Require the field
+			// declared here instead of resolving through it.
+			pos := fset.Position(field.Pos())
+			t.Errorf("%s:%d: %s embeds %s — a dispatcher's args must declare their fields, not embed them, because this gate reads declared fields and cannot see through an embedded type to a workspace key it might carry.",
+				pos.Filename, pos.Line, typeName, types.ExprString(field.Type))
+			continue
+		}
+		if jsonKey(t, fset, typeName, field) != workspaceArgKey {
 			continue
 		}
 		pos := fset.Position(field.Pos())
@@ -131,12 +159,22 @@ func assertNoWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, st
 }
 
 // jsonKey returns a field's wire name, dropping the `,omitempty`-style options
-// that would otherwise make an equality check miss.
-func jsonKey(field *ast.Field) string {
+// that would otherwise make an equality check miss. strconv.Unquote handles
+// both a raw-string tag and a quoted-string tag — trimming backticks alone
+// would silently misparse the second spelling into an empty key, which on the
+// dispatcher side reads as "no workspace_id" for a field that ships one.
+func jsonKey(t *testing.T, fset *token.FileSet, typeName string, field *ast.Field) string {
+	t.Helper()
 	if field.Tag == nil {
 		return ""
 	}
-	tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`")).Get("json")
+	raw, err := strconv.Unquote(field.Tag.Value)
+	if err != nil {
+		pos := fset.Position(field.Tag.Pos())
+		t.Fatalf("%s:%d: %s's struct tag %s will not unquote: %v — a tag this gate cannot parse is a tag it cannot verify.",
+			pos.Filename, pos.Line, typeName, field.Tag.Value, err)
+	}
+	tag := reflect.StructTag(raw).Get("json")
 	name, _, _ := strings.Cut(tag, ",")
 	return name
 }
