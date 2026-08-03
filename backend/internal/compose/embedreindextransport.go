@@ -55,15 +55,16 @@ const reembeddingStatus = "reembedding"
 // anything has to, and why taking it is safe are all one explanation, and it
 // lives on search.ReembedClaim.StealAfter rather than being restated here.
 //
-// What the number has to clear is the most a WORKING run's marker can lag, and
-// that is not a quantity this deployment can enforce: the longer of one
-// entity-table scan and search.ReembedProgressStaleness plus one embedding
-// upsert, both of which wait on pool acquisition and row locks before they do
-// any work of their own. An hour is fifty-five minutes clear of the reporting
-// interval, which is ample for every leg a healthy run plausibly has; a run
-// whose legs exceed it is one blocked on a database that is not answering, and
-// dispossessing that run is the right outcome, because it is not making progress
-// either.
+// What the number has to clear is the most a working PASS leaves the marker
+// unmoved — the longer of one entity-table scan and
+// search.ReembedProgressStaleness plus one embedding upsert, neither enforceable
+// from anywhere, since both wait on pool acquisition and row locks first — PLUS
+// the run-level legs no pass is running for: fan-out, queue wait, and the
+// attempt-to-attempt backoff, which embedReindexMaxAttempts' ladder stretches
+// into minutes. An hour is fifty-five minutes clear of the reporting interval
+// and ample for every leg a healthy run plausibly has; a run whose legs exceed
+// it is blocked on a database that is not answering, and dispossessing it is the
+// right outcome, because it is not making progress either.
 const reembedStaleAfter = time.Hour
 
 // humanStaleWindow renders the steal window for the operator-facing 409.
@@ -83,10 +84,9 @@ func humanStaleWindow(d time.Duration) string {
 }
 
 // humanProgressAge renders how long ago a run last reported, for the operator
-// reading a refusal. Rounded to the second because the marker's own resolution
-// is a database write and nothing downstream acts on the milliseconds; a lag
-// under that reads as words, since "0s ago" looks like a bug rather than a
-// run that reported a moment before the refusal.
+// reading a refusal. Rounded to the second, the marker's own resolution; under
+// that it reads as words, since "0s ago" looks like a broken clock rather than
+// like a run that reported a moment before the refusal.
 func humanProgressAge(d time.Duration) string {
 	if d < time.Second {
 		return "less than a second"
@@ -111,6 +111,28 @@ func embedReindexRunningDetail(force bool, lastProgress time.Duration) string {
 	return fmt.Sprintf(
 		"a fleet-wide reindex is already running and last reported progress %s ago; a forced takeover needs %s without progress, so let it finish or retry once it has stopped moving",
 		humanProgressAge(lastProgress), humanStaleWindow(reembedStaleAfter))
+}
+
+// reembedClaimFor mints the claim one confirm makes, and decides whether that
+// confirm may take the marker off somebody.
+//
+// force carries a SECOND meaning here, deliberately and not by accident: as well
+// as rebuilding a store that is already current, it takes the marker off a run
+// that has stopped moving. The contract has one flag and adding a field is a
+// contract change this work is scoped out of, so the two travel together — and
+// what makes carrying both tolerable is a judgement, not a guarantee. A working
+// pass reports around every leg of its own work (search.ReembedWorkspace), so
+// reembedStaleAfter sits far above what a healthy run plausibly leaves the
+// marker unmoved. It is not a proof — search.ReembedClaim.StealAfter names what
+// is and is not bounded — so an operator forcing a routine rebuild CAN in
+// principle dispossess a run wedged on a database that is not answering, a run
+// making no progress either.
+func reembedClaimFor(force bool, configured string) search.ReembedClaim {
+	claim := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: configured}
+	if force {
+		claim.StealAfter = reembedStaleAfter
+	}
+	return claim
 }
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
@@ -255,9 +277,10 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	// lastProgress is read here rather than after a refusal so the refusal costs
-	// no second round-trip: the claim below is the very next thing this handler
-	// does, so the age this reports is the age the CAS was evaluated against.
+	// lastProgress is the age THIS READ saw, not the age the CAS below evaluates:
+	// they are separate transactions, and the run in flight may note progress
+	// between them. It is read here anyway, so a refusal costs no second
+	// round-trip, and it is never anything but a figure in a message.
 	_, jobStatus, lastProgress, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		httperr.Write(w, r, err)
@@ -273,19 +296,7 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 	// the first. It still heals without a human: the in-flight run's own
 	// children cancel on the drift they now see (search.ErrIdentityDrift →
 	// river.JobCancel), which releases the marker for this confirm to retake.
-	//
-	// force carries a SECOND meaning here, deliberately and not by accident: as
-	// well as rebuilding a store that is already current, it takes the marker
-	// off a run that has stopped moving. The contract has one flag and adding a
-	// field is a contract change this work is scoped out of, so the two travel
-	// together — which is safe only because a run that is working keeps its
-	// marker fresh (search.ReembedWorkspace) and so is never stale enough to
-	// dispossess. An operator forcing a routine rebuild cannot take the marker
-	// off a live run, however long that run has been going.
-	claim := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: configured}
-	if force {
-		claim.StealAfter = reembedStaleAfter
-	}
+	claim := reembedClaimFor(force, configured)
 	err = e.store.ClaimAndEnqueueReembedding(ctx, claim, func(tx pgx.Tx) error {
 		return e.enqueue.EnqueueTx(ctx, tx, EmbedReindexArgs{Run: claim.Run, Identity: configured},
 			&river.InsertOpts{MaxAttempts: embedReindexMaxAttempts})

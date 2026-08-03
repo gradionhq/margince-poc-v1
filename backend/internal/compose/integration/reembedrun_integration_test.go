@@ -151,6 +151,18 @@ func steppingClock(step time.Duration) func() time.Time {
 	}
 }
 
+// markerAge is how long ago the binding marker last moved, measured by the
+// database's own clock — the same comparison the steal predicate makes.
+func markerAge(t *testing.T, e *searchEnv) time.Duration {
+	t.Helper()
+	var seconds float64
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT extract(epoch FROM now() - updated_at)::float8 FROM embed_store_binding WHERE singleton`).Scan(&seconds); err != nil {
+		t.Fatalf("reading the marker's age: %v", err)
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
 // ageMarkerPastTheStealWindow puts the marker's last movement two hours back,
 // which is what a run that stopped reporting leaves behind. Aged rather than
 // waited out: a suite that waits an hour is a suite nobody runs.
@@ -275,13 +287,22 @@ func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
 	ageMarkerPastTheStealWindow(t, e)
 
 	// The pass's own clock is the seam that says "the pass has begun": it is read
-	// for the first time as the pass starts reporting, so ageing the marker there
-	// makes everything the pass does next — its first scan above all — behave as
-	// if it took the whole steal window.
+	// for the first time as the pass reports for the first time, so ageing the
+	// marker there makes everything the pass does NEXT — its first scan above all
+	// — behave as if it took the whole steal window.
+	//
+	// That the marker is already fresh at this read is checked rather than
+	// assumed, and it is the whole reason this stands in for a scan: if a clock
+	// read is ever added ahead of the pass's first report, what is aged here would
+	// be the queue in front of the pass instead, and this suite would quietly stop
+	// covering the scan at all.
 	scanned := false
 	slowScan := func() time.Time {
 		if !scanned {
 			scanned = true
+			if age := markerAge(t, e); age > time.Minute {
+				t.Fatalf("the pass's first clock read found a marker last moved %v ago, want one just written — nothing had reported yet, so ageing it here simulates the queue ahead of the pass rather than its first scan", age)
+			}
 			ageMarkerPastTheStealWindow(t, e)
 		}
 		return time.Now()

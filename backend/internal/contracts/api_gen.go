@@ -9813,7 +9813,7 @@ type EmbedReindexStatus struct {
 		WorkspaceId     openapi_types.UUID `json:"workspace_id"`
 	} `json:"per_workspace"`
 
-	// PopulatedIdentity What the store's embeddings were last completed under (embed_store_binding.populated_identity).
+	// PopulatedIdentity The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference.
 	PopulatedIdentity string `json:"populated_identity"`
 
 	// ReindexNeeded Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.

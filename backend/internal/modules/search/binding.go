@@ -134,13 +134,20 @@ type ReembedClaim struct {
 	// discard, and its workspace stays in the pending set forever. A marker held
 	// for good, and no job anywhere to explain why. So a human keeps a way back.
 	//
-	// What makes the bound meaningful is that a WORKING run keeps its marker
-	// fresh: ReembedWorkspace refreshes it around every leg of its own pass, so it
-	// reads no staler than the longer of one entity-table scan and
-	// ReembedProgressStaleness plus one embedding upsert. Neither of those two is
-	// a bound this code can enforce (ReembedProgressStaleness says why), so a
-	// window set here is a judgement about how long a leg may plausibly take, not
-	// a proof that a healthy run cannot be dispossessed.
+	// What makes the bound meaningful is that a working PASS keeps its marker
+	// fresh: ReembedWorkspace refreshes it around every leg of its own work, so a
+	// pass leaves the marker unmoved for no longer than one entity-table scan, or
+	// ReembedProgressStaleness plus one embedding upsert, whichever is the longer.
+	// Neither of those is a bound this code can enforce — ReembedProgressStaleness
+	// says why.
+	//
+	// A RUN is more than its passes, and three of its legs move the marker not at
+	// all: the wait between the claim and the dispatcher's fan-out, a child's
+	// queue wait while no sibling of it is running, and the retry backoff between
+	// a child's attempts, which River's attempt⁴ ladder stretches into minutes by
+	// the last one. A window set here has to clear those too, and it clears all of
+	// them the same way: by judgement about how long each plausibly takes, never
+	// by proof that a healthy run cannot be dispossessed.
 	//
 	// What a steal stops, exactly: the dispossessed run's MARKER WRITES. Its
 	// children carry a Run the marker no longer names, so their progress notes,
@@ -280,16 +287,17 @@ func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, wo
 // a pass of any length costs at most one small write per interval, plus one on
 // each side of every entity-table scan.
 //
-// It is therefore ALMOST the bound on how stale a working run's marker can read,
-// and the shortfall is not a rounding error. A pass moves in two kinds of step,
-// and it can only report BETWEEN them: one liveEntitiesOf scan, and one
+// It is therefore ALMOST the bound on how long a working PASS leaves its marker
+// unmoved, and the shortfall is not a rounding error. A pass moves in two kinds
+// of step, and it can only report BETWEEN them: one liveEntitiesOf scan, and one
 // UpsertEmbedding. Both wait on pool acquisition and on row locks before doing
 // any work of their own, and neither of those waits is bounded by anything this
 // package controls — the model lane's per-call timeout caps only the model call
-// inside an upsert. So the honest bound is the longer of one scan and this
-// interval plus one upsert, where the second term is a wall time no code here
-// can enforce. A steal window has to clear that, and no value of it turns the
-// sum into a guarantee.
+// inside an upsert. So the honest bound over a pass is the longer of one scan and
+// this interval plus one upsert, where the second term is a wall time no code
+// here can enforce. A steal window has to clear that, and the run-level legs no
+// pass is running for at all (ReembedClaim.StealAfter lists them) — and no value
+// of it turns any of that into a guarantee.
 const ReembedProgressStaleness = 5 * time.Minute
 
 // noteReembedProgress moves run's marker forward to say the run is still

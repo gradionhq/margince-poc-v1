@@ -195,8 +195,10 @@ func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[E
 	if passErr == nil || drifted || job.Attempt >= job.MaxAttempts {
 		// The run will not come back to this workspace, whichever of the three
 		// happened, so it leaves the pending set — and releases the marker if it
-		// was the last one out. River offers no post-discard hook, which is why
-		// the exhausted attempt does this before returning its error.
+		// was the last one out. River's discard is observable (its failure event
+		// carries the row) but there is no hook that can RETRY, and none that runs
+		// inside the row's own transaction, which is why the exhausted attempt does
+		// this before returning its error.
 		if err := w.store.FinishWorkspaceReembedding(ctx, job.Args.Run,
 			ids.From[ids.WorkspaceKind](job.Args.Workspace)); err != nil {
 			// Retried on every attempt but the last, and on the drift path too,
@@ -205,10 +207,11 @@ func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[E
 			// only thing that will ever take this workspace out of the run's set.
 			//
 			// On the LAST attempt there is no retry — River discards a row that has
-			// run out, and it offers no post-discard hook — so a failure here, most
-			// naturally the same outage that failed the pass, leaves this workspace
-			// in the pending set and the marker held for good. A forced confirm's
-			// steal is the way back (search.ReembedClaim.StealAfter).
+			// run out, and nothing observing that discard can retry this write — so
+			// a failure here, most naturally the same outage that failed the pass,
+			// leaves this workspace in the pending set and the marker held for good.
+			// A forced confirm's steal is the way back
+			// (search.ReembedClaim.StealAfter).
 			return jobs.FaultContext(ctx, errors.Join(passErr, err))
 		}
 	}
