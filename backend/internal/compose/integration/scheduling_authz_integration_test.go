@@ -70,9 +70,17 @@ func TestAvailabilityBusyReadHonorsRowScope(t *testing.T) {
 	windowFrom, windowTo := slotStart.Add(-2*time.Hour), slotStart.Add(6*time.Hour)
 	proposes := func(ctx context.Context) bool {
 		t.Helper()
-		slots, err := e.Activities.Availability(ctx, ids.From[ids.UserKind](e.Rep1), windowFrom, windowTo, time.Hour)
+		slots, truncated, err := e.Activities.Availability(ctx, ids.From[ids.UserKind](e.Rep1), windowFrom, windowTo, time.Hour)
 		if err != nil {
 			t.Fatalf("availability: %v", err)
+		}
+		// An answer cut short by the slot cap would make "the slot is absent"
+		// ambiguous — absent because the row scope hid the meeting, or absent
+		// because the walk stopped early. This window is far too small for that,
+		// and asserting it keeps the row-scope conclusion below sound.
+		if truncated {
+			t.Fatalf("the %v window hit the slot cap; this test cannot tell a hidden slot from a dropped one",
+				windowTo.Sub(windowFrom))
 		}
 		for _, s := range slots {
 			if s.Start.Equal(slotStart) {

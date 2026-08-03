@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -171,6 +173,17 @@ type mergeArgs struct {
 // leads leave through their own lifecycle).
 var mergeableTypes = map[string]bool{"person": true, "organization": true}
 
+// mergeableTypeNames renders the vocabulary above for a refusal, sorted so the
+// message is byte-stable across processes rather than following map order.
+func mergeableTypeNames() []string {
+	names := make([]string, 0, len(mergeableTypes))
+	for name := range mergeableTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 type mergeRecords struct {
 	p datasource.SystemOfRecordProvider
 }
@@ -196,7 +209,10 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 		return StageInfo{}, err
 	}
 	if !mergeableTypes[args.RecordType] {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("record_type %q cannot be merged", args.RecordType)}
+		return StageInfo{}, &BadArgsError{
+			Cause:    fmt.Errorf("record_type %q cannot be merged", args.RecordType),
+			Guidance: "mergeable types are " + strings.Join(mergeableTypeNames(), ", "),
+		}
 	}
 	if args.SourceID == args.TargetID {
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf("source and target must differ")}

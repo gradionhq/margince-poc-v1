@@ -14623,6 +14623,14 @@ export interface operations {
                             /** Format: date-time */
                             end: string;
                         }[];
+                        /**
+                         * @description True when at least one more free slot exists after the last one returned: the
+                         *     walk is capped and found a further candidate before stopping. To reach the rest,
+                         *     ask again with `from` set after the last slot returned — narrowing the window
+                         *     does not help, since the walk starts at `from` either way. Declared because a
+                         *     capped list read as complete is how a caller concludes there is no later opening.
+                         */
+                        truncated: boolean;
                     };
                 };
             };
@@ -14746,6 +14754,14 @@ export interface operations {
                             /** Format: date-time */
                             end: string;
                         }[];
+                        /**
+                         * @description True when at least one more free slot exists after the last one returned: the
+                         *     walk is capped and found a further candidate before stopping. To reach the rest,
+                         *     ask again with `from` set after the last slot returned — narrowing the window
+                         *     does not help, since the walk starts at `from` either way. Declared because a
+                         *     capped list read as complete is how a caller concludes there is no later opening.
+                         */
+                        truncated: boolean;
                     };
                 };
             };

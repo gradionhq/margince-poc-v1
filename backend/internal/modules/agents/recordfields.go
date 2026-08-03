@@ -203,13 +203,20 @@ func rejectUnknownFields(shapes map[datasource.EntityType]reflect.Type, recordTy
 		return nil
 	}
 	sort.Strings(unknown)
-	// The claim is about this tool's VOCABULARY, never about what the record
-	// can store: an activity stores links, so "cannot store links" would be
-	// false and would send the caller looking for the wrong fix. Kept short
-	// because the whole message is bounded at maxBadArgsDetail and the
-	// accepted-field list is what falls off the end.
-	return &BadArgsError{Cause: fmt.Errorf("%s does not accept %s; accepts %s (or cf_<slug> for an active custom field)",
-		recordType, strings.Join(unknown, ", "), strings.Join(contractFieldNames(shape), ", "))}
+	// Split along PROVENANCE, not along sentence structure: the refused keys are
+	// the caller's own text and ride in Cause, where the echo bound applies, while
+	// the accepted list is reflected off the contract and rides in Guidance, which
+	// is not bounded. Bounded together, one long unknown key consumes the whole
+	// budget and cuts the accepted list mid-word — deleting the actionable half of
+	// a message whose reader has just proved it does not know the vocabulary.
+	//
+	// The claim is about this tool's VOCABULARY, never about what the record can
+	// store: an activity stores links, so "cannot store links" would be false and
+	// would send the caller looking for the wrong fix.
+	return &BadArgsError{
+		Cause:    fmt.Errorf("%s does not accept %s", recordType, strings.Join(unknown, ", ")),
+		Guidance: "accepts " + strings.Join(contractFieldNames(shape), ", ") + " (or cf_<slug> for an active custom field)",
+	}
 }
 
 // timestampNote is appended to every date-time argument the tool surface

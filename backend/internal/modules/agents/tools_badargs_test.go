@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 func TestBadArgsErrorBoundsWhatTheCallerCanEchoBack(t *testing.T) {
@@ -60,6 +62,38 @@ func TestBadArgsErrorKeepsAnOrdinaryMessageWhole(t *testing.T) {
 	}
 	if !strings.Contains(bad.Error(), "limit") {
 		t.Errorf("the refusal does not say which field was wrong: %q", bad.Error())
+	}
+}
+
+func TestALongUnknownKeyDoesNotEatTheAcceptedFieldList(t *testing.T) {
+	// The bound is on the CALLER's echo, and a refusal built from both halves
+	// used to spend it on the caller's key and truncate our own accepted-field
+	// list mid-word — deleting the only part of the message that says what to do
+	// next, precisely when the caller has proved it does not know.
+	long := strings.Repeat("wrongkey", 60)
+	err := rejectUnknownFields(createShapes, "person", json.RawMessage(`{"`+long+`":"x"}`))
+
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("an unknown field → %v, want BadArgsError", err)
+	}
+	message := bad.Error()
+	// The caller's half is still bounded — that property is the reason the bound
+	// exists and it has to survive the split. The marker proves the echo was cut,
+	// so this key really is long enough to have eaten the old budget.
+	if !strings.Contains(message, "…") {
+		t.Errorf("a %d-byte unknown key was echoed unbounded: %q", len(long), message)
+	}
+	if !strings.Contains(message, "wrongkey") {
+		t.Errorf("the refusal does not quote the key it refused: %q", message)
+	}
+	// Our half arrives whole. Checking the LAST accepted name, not merely that
+	// the word "accepts" appears: truncation kept the opening and dropped the
+	// end, so a prefix check would have passed on the defect.
+	accepted := contractFieldNames(createShapes[datasource.EntityPerson])
+	last := accepted[len(accepted)-1]
+	if !strings.Contains(message, last) {
+		t.Errorf("the accepted-field list is cut short — %q is missing from %q", last, message)
 	}
 }
 

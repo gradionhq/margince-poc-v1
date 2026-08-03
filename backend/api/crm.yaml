@@ -2403,7 +2403,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2413,6 +2413,14 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /bookings:
@@ -2498,7 +2506,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2508,6 +2516,14 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when at least one more free slot exists after the last one returned: the
+                      walk is capped and found a further candidate before stopping. To reach the rest,
+                      ask again with `from` set after the last slot returned — narrowing the window
+                      does not help, since the walk starts at `from` either way. Declared because a
+                      capped list read as complete is how a caller concludes there is no later opening.
         '404': { $ref: '#/components/responses/NotFound' }
 
   /public/booking/{host_slug}:

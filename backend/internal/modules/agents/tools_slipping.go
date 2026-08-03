@@ -140,10 +140,16 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 		return nil, err
 	}
 	if args.Segment != "slipping" {
-		return nil, &BadArgsError{Cause: fmt.Errorf("segment %q is not a known deal segment (want \"slipping\")", args.Segment)}
+		return nil, &BadArgsError{
+			Cause:    fmt.Errorf("segment %q is not a known deal segment", args.Segment),
+			Guidance: `the only segment this tool serves is "slipping"`,
+		}
 	}
 	if args.Limit < 0 {
-		return nil, &BadArgsError{Cause: fmt.Errorf("limit %d is negative; omit it or ask for 1..%d", args.Limit, maxFollowUpDrafts)}
+		return nil, &BadArgsError{
+			Cause:    fmt.Errorf("limit %d is negative", args.Limit),
+			Guidance: fmt.Sprintf("omit it, or ask for 1..%d", maxFollowUpDrafts),
+		}
 	}
 	candidates, err := t.list(ctx)
 	if err != nil {

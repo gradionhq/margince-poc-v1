@@ -13,7 +13,10 @@ import (
 	"errors"
 	"testing"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
@@ -31,7 +34,16 @@ func TestDealCreateInputRefusesTheImporterNamespace(t *testing.T) {
 }
 
 func TestDealCreateInputAcceptsAnOrdinarySource(t *testing.T) {
-	in, err := dealCreateInput(crmcontracts.CreateDealRequest{Name: "Real", Source: "webform"})
+	// pipeline_id and stage_id are supplied because the mapper now enforces them:
+	// a deal is born into a stage, and an absent id used to travel to the stage
+	// lookup as a zero UUID and come back as a bare not-found. They are noise to
+	// this test's subject, which is that `source` survives the mapping — but a
+	// request without them is no longer a request the mapper accepts.
+	in, err := dealCreateInput(crmcontracts.CreateDealRequest{
+		Name: "Real", Source: "webform",
+		PipelineId: openapi_types.UUID(ids.NewV7()),
+		StageId:    openapi_types.UUID(ids.NewV7()),
+	})
 	if err != nil {
 		t.Fatalf("an ordinary source must stay writable: %v", err)
 	}

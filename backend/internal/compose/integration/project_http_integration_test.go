@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 type projectDTO struct {
@@ -261,15 +263,28 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 	org := anchorOrg(t, e, "Umbrella")
 
 	// The shape of the refusal differs by cause and each is asserted exactly:
-	// a missing or blank field is the 422 that names it, while an unknown
-	// anchor company is a 404 because existence is hidden, not reported.
+	// a missing or blank field is the 422 that names it, while an anchor company
+	// that was NAMED and cannot be seen is a 404 because existence is hidden,
+	// not reported.
+	//
+	// The two organization cases are the distinction that matters, and it is not
+	// cosmetic: existence-hiding protects a row the caller POINTED AT, and there is
+	// no row to protect when no id was supplied. Answering 404 to an omitted id
+	// sends the caller looking for a company it never named.
 	for name, tc := range map[string]struct {
 		body anyMap
 		want int
 	}{
-		"no name":         {anyMap{"organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
-		"blank name":      {anyMap{"name": "   ", "organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
-		"no organization": {anyMap{"name": "Orphan", "source": "manual"}, http.StatusNotFound},
+		"no name":    {anyMap{"organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"blank name": {anyMap{"name": "   ", "organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"organization_id omitted": {
+			anyMap{"name": "Orphan", "source": "manual"},
+			http.StatusUnprocessableEntity,
+		},
+		"organization_id names nothing visible": {
+			anyMap{"name": "Orphan", "organization_id": ids.NewV7().String(), "source": "manual"},
+			http.StatusNotFound,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if status := e.call(t, "POST", "/v1/projects", tc.body, nil, nil); status != tc.want {

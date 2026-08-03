@@ -301,8 +301,11 @@ func (t sendMessageTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		return StageInfo{}, fmt.Errorf("crmagents: activity %s read back with unreadable fields: %w", args.ActivityID, err)
 	}
 	if !t.comms.IsChannelKind(anchor.Kind) {
-		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
-			"activity %s is a %q activity, not a messaging-channel conversation; reply on the channel the conversation was held on", args.ActivityID, anchor.Kind)}
+		return StageInfo{}, &BadArgsError{
+			Cause: fmt.Errorf("activity %s is a %q activity, not a messaging-channel conversation",
+				args.ActivityID, anchor.Kind),
+			Guidance: "reply on the channel the conversation was held on",
+		}
 	}
 	return StageInfo{
 		TargetType: string(datasource.EntityActivity), TargetID: args.ActivityID, TargetVersion: &rec.Version,

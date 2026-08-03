@@ -26,6 +26,17 @@ package backendarch
 // Modules with no provider are out of scope on purpose: MCP cannot reach their
 // stores, so a transport-owned mapping there is complete. A module that GAINS a
 // provider inherits the obligation automatically, which is the point.
+//
+// The tree it reads is `internal/modules` PLUS `internal/compose`. compose is
+// not a module, but it owns the engines that query ACROSS domain tables and so
+// cannot live in one — the report engine is the case — and it wires them straight
+// into the tool registry. Any tier the tool surface can reach owes the same
+// obligation, so the scope is "reachable", not "is a module".
+//
+// That makes the path list a load-bearing claim rather than configuration: it
+// asserts where obligated code lives, and it needs re-checking whenever a new
+// tier starts serving the surface. A gate reading the wrong tree reads green for
+// a reason nobody is looking at.
 
 import (
 	"go/ast"
@@ -40,6 +51,16 @@ import (
 
 const modulesDir = "internal/modules"
 
+// composeDir is the composition tier, walked as a single unit named "compose".
+// Every package under it collapses into that one unit deliberately: unlike
+// modules, compose subpackages are not isolation boundaries — they share the
+// tier's error vocabulary, and splitting them would let a type declared beside
+// its transport branch fall between two units.
+const composeDir = "internal/compose"
+
+// seamReachableRoots are the trees an MCP tool call can reach code in.
+var seamReachableRoots = []string{modulesDir, composeDir}
+
 // seamImportPath is the datasource seam — the MCP surface's door into a
 // module's stores. Importing it is the marker, deliberately BROADER than
 // "implements SystemOfRecordProvider": that interface is satisfied
@@ -49,50 +70,70 @@ const modulesDir = "internal/modules"
 // need it; a gate that under-obligates reads green while the bug ships.
 const seamImportPath = "github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 
-// moduleSource is one module's parsed non-test files.
+// moduleSource is one unit's parsed non-test files: a module under
+// internal/modules, or the whole compose tier.
 type moduleSource struct {
-	name  string
+	name string
+	// dir is the unit's root, so a finding can point at where to fix it.
+	dir   string
 	files map[string]*ast.File
 }
 
 func parseModules(t *testing.T) []moduleSource {
 	t.Helper()
-	byModule := map[string]map[string]*ast.File{}
+	byUnit := map[string]*moduleSource{}
 	fset := token.NewFileSet()
-	err := filepath.WalkDir(modulesDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		if !strings.HasSuffix(path, ".go") ||
-			strings.HasSuffix(path, "_test.go") ||
-			strings.HasSuffix(path, "_gen.go") {
+	for _, root := range seamReachableRoots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			path = filepath.ToSlash(path)
+			if !strings.HasSuffix(path, ".go") ||
+				strings.HasSuffix(path, "_test.go") ||
+				strings.HasSuffix(path, "_gen.go") {
+				return nil
+			}
+			// Under modules, the first path segment is the isolation boundary
+			// and so the unit. compose is one unit whatever its subpackages.
+			name := "compose"
+			dir := composeDir
+			if root == modulesDir {
+				rest := strings.TrimPrefix(path, modulesDir+"/")
+				name, _, _ = strings.Cut(rest, "/")
+				dir = modulesDir + "/" + name
+			}
+			file, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+			if parseErr != nil {
+				return parseErr
+			}
+			if byUnit[name] == nil {
+				byUnit[name] = &moduleSource{name: name, dir: dir, files: map[string]*ast.File{}}
+			}
+			byUnit[name].files[path] = file
 			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", root, err)
 		}
-		rest := strings.TrimPrefix(path, modulesDir+"/")
-		module := rest
-		if i := strings.IndexByte(rest, '/'); i >= 0 {
-			module = rest[:i]
-		}
-		file, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if parseErr != nil {
-			return parseErr
-		}
-		if byModule[module] == nil {
-			byModule[module] = map[string]*ast.File{}
-		}
-		byModule[module][path] = file
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking %s: %v", modulesDir, err)
 	}
-	if len(byModule) == 0 {
-		t.Fatalf("no modules found under %s — the gate is reading the wrong tree", modulesDir)
+	// Both roots must have produced something: a rename that emptied either one
+	// would otherwise shrink this gate's reach in silence.
+	for _, root := range seamReachableRoots {
+		found := false
+		for _, unit := range byUnit {
+			if strings.HasPrefix(unit.dir, root) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("no source found under %s — the gate is reading the wrong tree", root)
+		}
 	}
-	out := make([]moduleSource, 0, len(byModule))
-	for name, files := range byModule {
-		out = append(out, moduleSource{name: name, files: files})
+	out := make([]moduleSource, 0, len(byUnit))
+	for _, unit := range byUnit {
+		out = append(out, *unit)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
@@ -369,11 +410,11 @@ func TestSeamReachableModulesCarryTheirOwnFieldVerdict(t *testing.T) {
 			if carries[name] {
 				continue
 			}
-			t.Errorf("%s: %s.%s is mapped to a 422 in this module's HTTP transport but does not implement "+
-				"apperrors.FieldFault — the MCP surface reaches this module through the datasource seam, never "+
+			t.Errorf("%s: %s.%s is mapped to a 422 in this unit's HTTP transport but does not implement "+
+				"apperrors.FieldFault — the MCP surface reaches this code through the datasource seam, never "+
 				"through that transport, so it would report this refusal as an internal server fault and tell the "+
 				"agent to retry it. Add FieldFault() to the type and delete the transport branch.",
-				modulesDir+"/"+module.name, module.name, name)
+				module.dir, module.name, name)
 		}
 	}
 	if obligated == 0 {
