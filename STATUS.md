@@ -285,7 +285,7 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-08-03 (job observability, Phase 0 and Phase 1 PR 1, merged)
+## Session pickup — 2026-08-03 (job observability, Phase 0 + Phase 1 A/B, merged)
 
 **Every unit of tenant work now names one workspace, and spells it one way.**
 PR #367 bound each job to a single workspace; PR #374 made the wire agree with
@@ -307,9 +307,17 @@ recognized (the floor counted only the scoped side). The gate is syntactic, so
 `jobwireformat_integration_test.go` proves the other half — that a tagged type
 lands as `workspace_id` in `river_job.args` through River's own encoder.
 
-**The invariant is exact, with no exception.** A null `args->>'workspace_id'`
-means a dispatcher and nothing else: `embed_reindex` is now a dispatcher over a
-per-workspace `embed_reindex_workspace` worker, like every other fleet pass.
+**The invariant is exact, with no exception.** PR #390 shipped design PRs 2
+through 6 as one change: all four remaining fleet passes — GDPR retention,
+webhook retry, the agent scheduler, and `embed_reindex` — are now River
+dispatcher + workspace-worker pairs, so a null `args->>'workspace_id'`
+means a dispatcher and nothing else. `embed_reindex` in particular is a
+dispatcher over a per-workspace `embed_reindex_workspace` worker, like every
+other fleet pass, and the caveat that named it as the one exception is gone
+from both `platform/jobs/role.go` and `compose/embedreindextransport.go`.
+`ratifiedFleetScans` went 13 → 10, and its waiver bar now carries four honest
+classes — dispatcher enumeration, read-only, boot path, and tenant resolution
+for an untenanted inbound request — with "outside the job layer" struck by name.
 `backend/jobfleetwide_test.go` holds the other half of that — a kind declaring
 `FleetWide` must actually fan out, through one of a closed set of spellings, and
 must issue no inline SQL write in its own worker's methods. The fan-out arm is
@@ -325,24 +333,47 @@ are disposable at this stage and a stranded job failing loudly is the wanted
 behaviour, so recreate rather than debug: `make infra-reset && make db-up &&
 make migrate`.
 
-### Pick up here — Phase 1, PRs 2 through 8
+### Pick up here — Phase 1 C (PRs 7 and 8)
 
-Dependency-ordered; 2, 3 and 4 are independent of each other.
+Everything above is the invariant. C is its two consumers, and the whole reason
+the invariant was made exact.
 
-2. **Retention conversion** — the highest-value single item: a nightly GDPR pass
-   currently logs a tenant's failure and returns `nil`.
-3. **Webhook retry conversion.**
-4. **Agent scheduler conversion** — currently aborts the whole fleet on one
-   workspace's error.
-5. **`embed_reindex` conversion** + the `FleetWide`-means-dispatcher gate. This
-   is what makes the caveat above deletable.
-6. **Waiver deletions** in `ratifiedFleetScans`, and the raised waiver bar.
-7. **Fleet metrics** — `job_queue_depth{queue}` (OPS-MET-2) plus the sweep
-   counters. Foundation ADR-0080 / A125 admits a bounded `workspace_id` label on
-   the job-runtime metrics — the id, never a name, and **not** on OPS-MET-1's
-   latency histogram.
+7. **Fleet metrics** — `job_queue_depth{queue}` (OPS-MET-2, specified since V1
+   and never built) plus the sweep counters. Foundation ADR-0080 / A125 admits a
+   bounded `workspace_id` label on the job-runtime metrics — the id, never a
+   name, and **not** on OPS-MET-1's latency histogram.
 8. **The per-workspace read endpoint** over `/v1` — the consumer all of the
-   above exists to make honest.
+   above exists to make honest, and the contract change C was separated to
+   quarantine.
+
+**Two things #390 left honest rather than hidden.** A reader of the job layer
+needs both. `populated_identity` on `embed_store_binding` means "last
+**released** under", not "last completed under": the design does not track
+whether every child succeeded, so a run whose children all failed still releases
+and stamps — and `/readyz` then reports `active`, because it compares identities
+only and deliberately does not join the live entity scan. The usual mitigation
+(`ReindexNeeded` also consults pending embedding counts) holds for the SPA and
+does **not** reach `/readyz`. Separately, a forced reindex steal resets the
+pending set **without cancelling** the run it dispossesses; the old children
+carry a different run token, so `ByArgs` uniqueness does not suppress the new
+run's children and both fleets run — bounded by `UpsertEmbedding`'s content-hash
+skip-compare, not by anything stopping them.
+
+**Owed by #390, and the reason a blocker survived five task reviews.** No
+fitness test asserts that a workspace worker declares a `Timeout`. The GDPR
+retention worker shipped without one through five per-task reviews and was
+caught only by the whole-branch pass — under River's 1-minute default it would
+have been cancelled mid-pass nightly, burned its three attempts, and left a
+permanently failing `privacy_retention_workspace` row for the one obligation
+whose whole point is auditability. Only `embedDriftWorkspaceWorker` is pinned
+today; `backend/` already has the scanner infrastructure to derive the rest.
+This is the rule-2 answer and wants its own diff.
+
+**Migration numbers race, and local gates provably cannot catch it.** #390's
+migration was renumbered twice — 0171 → 0172 → 0174 — and the second collision
+was found only by CI, because `TestEmbeddedMigrationNamespacesLoad` passes on
+each side independently and the duplicate exists only once the two trees are
+combined. Renumber as the **last** action before merge.
 
 **Also still open, and deliberately not bundled:** eight workers call the
 binding guard as a validator and then re-bind in a per-kind helper. It touches
