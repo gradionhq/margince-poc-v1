@@ -20,10 +20,11 @@ package backendarch
 // fails here until someone decides which it is, and a waiver that stops being
 // true fails too — so the list of unguarded bodies can only shrink.
 //
-// Why a waiver list at all: the guarded pair sits in the deals mapping that both
-// transports share, and the rest each need their own REST mapping touched. Naming
-// them is what keeps the invariant from being quietly half-stated while the tool
-// surface alone is fixed.
+// Where the guard goes: httperr.RequireBodyID is the one implementation, called
+// from the point where the decoded body becomes store input — a mapping where the
+// module has one (deals), the store entry point where it does not, because that is
+// the door every transport comes through. Never in the HTTP handler alone, which
+// is what left the MCP twin and the REST route answering differently.
 
 import (
 	"go/ast"
@@ -40,31 +41,42 @@ const generatedContract = "internal/contracts/api_gen.go"
 // name today, proved by TestEveryRequiredBodyIDIsNamedWhenAbsent in the module
 // that owns the mapping.
 var probedRequiredIDBodies = map[string]bool{
-	"CreateDealRequest":    true,
-	"CreateProjectRequest": true,
+	"CreateDealRequest":            true,
+	"CreateProjectRequest":         true,
+	"AdvanceDealRequest":           true,
+	"CreateStageRequest":           true,
+	"AddListMemberRequest":         true,
+	"ApplyTagRequest":              true,
+	"RecordConsentRequest":         true,
+	"IssueDoubleOptInJSONBody":     true,
+	"SetProjectStakeholderRequest": true,
+	"CreateRecordGrantRequest":     true,
+	"MergePersonJSONBody":          true,
+	"MergeOrganizationJSONBody":    true,
+	"RelinkActivityJSONBody":       true,
 }
 
-// unguardedRequiredIDBodies names each body that still answers a bare not-found
-// for an id the caller never sent, with where the fix belongs. Removing an entry
-// means guarding the mapping and adding a probe beside the two above.
+// unguardedRequiredIDBodies is what is left, and both entries are WAIVERS rather
+// than gaps: neither can produce the defect. Every body that could has a guard
+// and a probe.
+//
+// The list is kept — rather than deleted along with the last real gap — because
+// the walk fails on a body it can neither find probed nor find waived. A required
+// id added upstream therefore lands here as a failure until someone decides which
+// it is, which is the difference between having fixed eleven things and having
+// closed the class.
 var unguardedRequiredIDBodies = map[string]string{
-	"AdvanceDealRequest":            "to_stage_id — deals/handlers_deal.go passes it raw. The MCP twin IS guarded at Registry.Invoke, so REST currently answers worse for the same mistake; the sharpest one to fix next",
-	"CreateStageRequest":            "pipeline_id — deals/handlers_stages.go",
-	"AddListMemberRequest":          "entity_id — collections/handlers.go, reaches auth.EnsureLinkTarget",
-	"ApplyTagRequest":               "entity_id — collections/handlers.go, reaches auth.EnsureLinkTarget",
-	"RecordConsentRequest":          "purpose_id — consent/handlers.go",
-	"IssueDoubleOptInJSONBody":      "purpose_id — consent/handlers.go",
-	"SetProjectStakeholderRequest":  "person_id — people/handlers_projectstakeholder.go",
-	"CreateRecordGrantRequest":      "record_id and subject_id — identity grants",
-	"MergePersonJSONBody":           "target_id — people/handlers_person.go; MergePerson checks source!=target and then locks the pair",
-	"MergeOrganizationJSONBody":     "target_id — people/handlers_organization.go, same shape",
-	"RelinkActivityJSONBody":        "entity_id — activities/handlers_lifecycle.go",
-	"UploadAttachmentMultipartBody": "entity_id — attachments",
 	// Not a request body at all: the GDPR data-subject-request ENTITY, whose `id`
 	// is its own primary key rather than a caller-supplied reference. Waived
 	// because the name heuristic above cannot tell the two apart, and narrowing
 	// the heuristic to exclude it would risk excluding a real body.
 	"DataSubjectRequest": "not a request body — the DSR entity; `id` is its own key, not a caller-supplied reference",
+	// Multipart never decodes into this generated type. The handler
+	// (activities/handlers_attachment.go) calls ParseMultipartForm and
+	// FormValue("entity_id"), so an absent part yields "" and ids.Parse already
+	// refuses it as a 422 naming the field. It cannot become a zero UUID reaching
+	// a lookup, which is the only hazard this gate is about.
+	"UploadAttachmentMultipartBody": "multipart; FormValue + ids.Parse already refuses an absent part as a 422",
 }
 
 func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {

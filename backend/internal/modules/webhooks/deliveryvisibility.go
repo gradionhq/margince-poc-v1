@@ -345,6 +345,13 @@ func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, ta
 		return s.rowScopedVisible(ctx, "activity", func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureActivityVisible(c, tx, targetID)
 		})
+	case "relationship":
+		// An edge inherits the CONJUNCTION of its endpoints' scope. The object-read
+		// floor is `relationship`, matching every other row-scoped arm here — the
+		// endpoint reads are the clause's own business.
+		return s.rowScopedVisible(ctx, "relationship", func(c context.Context, tx pgx.Tx) error {
+			return auth.EnsureRelationshipVisible(c, tx, targetID)
+		})
 	case "product":
 		// Rate-card products are workspace-shared config with no row scope —
 		// existence is the floor (approvals.targetVisible); an archived product

@@ -111,7 +111,18 @@ func coverageReader(pool *pgxpool.Pool) agents.CoverageReader {
 }
 
 func toAgentCoverage(c network.DealCoverage, names map[ids.UUID]string) agents.DealCoverageAnswer {
-	out := agents.DealCoverageAnswer{DealID: c.DealID}
+	// Both collections start EMPTY, never nil: a deal with no stakeholder seat
+	// and nobody on our side is the answer that says the deal is uncovered, and
+	// it is the answer a rep most needs. Marshalled from a nil slice it reaches a
+	// model as `null`, which reads as "unknown" — so the tool would hedge about
+	// coverage exactly where it has something definite to say. The same rule the
+	// sibling reads uphold (whoKnowsTool, introPathTool, list_pipelines), applied
+	// where the answer is BUILT rather than at the one tool that returns it.
+	out := agents.DealCoverageAnswer{
+		DealID:       c.DealID,
+		Stakeholders: make([]agents.CoverageSeat, 0, len(c.Stakeholders)),
+		OurSide:      make([]agents.KnownColleague, 0, len(c.OurSide)),
+	}
 	for _, s := range c.Stakeholders {
 		out.Stakeholders = append(out.Stakeholders, agents.CoverageSeat{
 			PersonID: s.PersonID, Role: s.Role, Engaged: s.Engaged,

@@ -15,8 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -156,6 +160,54 @@ func TestRetrieverServesNativeMode(t *testing.T) {
 	}
 }
 
+// --- list_pipelines ---
+
+func TestPipelineListerRefusesInOverlayMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		called = true
+		return nil, nil
+	}
+
+	_, err := nativeOnlyPipelines(overlayMode(), inner)(context.Background())
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("err = %v, want ErrUnsupportedBySoR", err)
+	}
+	if called {
+		t.Error("the native pipeline read ran for an overlay workspace — the native tables hold none " +
+			"of its configuration, so the answer would be 'this workspace has no pipelines'")
+	}
+}
+
+func TestPipelineListerServesNativeMode(t *testing.T) {
+	called := false
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		called = true
+		return nil, nil
+	}
+
+	if _, err := nativeOnlyPipelines(nativeMode(), inner)(context.Background()); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if !called {
+		t.Error("native mode did not reach the pipeline read")
+	}
+}
+
+func TestPipelineListerRefusesWhenModeCannotBeResolved(t *testing.T) {
+	// An unresolved mode refuses rather than defaulting to native: guessing
+	// wrong in that direction is the silent break the guard exists to stop.
+	inner := func(context.Context) ([]agents.Pipeline, error) {
+		t.Error("the native pipeline read ran without a resolved system-of-record mode")
+		return nil, nil
+	}
+
+	if _, err := nativeOnlyPipelines(unresolvableMode(), inner)(context.Background()); err == nil {
+		t.Fatal("err = nil, want the mode-resolution failure")
+	}
+}
+
 // --- whats_slipping_this_week ---
 
 func TestSlippingListerRefusesInOverlayMode(t *testing.T) {
@@ -224,4 +276,139 @@ func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 	if *calls == 0 {
 		t.Error("the guard never re-read workspace.x_sor_mode")
 	}
+}
+
+// Every nativeOnly… guard in this file must name the tool(s) it guards, and the
+// wiring pin must cover exactly those tools.
+//
+// The unit specs above prove what a guard DOES given a mode; only
+// integration/overlay_toolsurface_integration_test.go proves a guard is actually
+// wired, and its map is written by hand. So the obligation is derived here:
+// declaring a guard enrols its tool.
+//
+// The guard→tool link cannot be read off a type — a decorator is invisible from
+// the tool spec — so it is read off the DECLARATION's doc comment. That makes the
+// comment load-bearing, which is the point, but a comment is prose and prose can
+// be wrong in two ways this gate has to close:
+//
+//   - a guard that is a TYPE rather than a func (nativeOnlyRetriever is one, and it
+//     guards two of the eight pinned tools), which a FuncDecl-only walk never sees;
+//   - a doc that names SOME pinned tool rather than its own, which a
+//     does-it-mention-any check passes.
+//
+// Hence a bijection: every pinned tool is named by exactly one guard, and every
+// guard names at least one pinned tool. That also forces a guard handed to two
+// tools to name both — nativeOnlySlippingLister is one.
+func TestEveryNativeOnlyGuardNamesAToolThePinCovers(t *testing.T) {
+	const guardFile = "nativeonlytools.go"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, guardFile, nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", guardFile, err)
+	}
+	pinned := pinnedNativeOnlyTools(t)
+
+	// guard name → the doc comment that must name its tools. Both declaration
+	// shapes, because a guard may be a decorator func OR a decorator type.
+	docs := map[string]string{}
+	for _, decl := range file.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if strings.HasPrefix(d.Name.Name, nativeOnlyPrefix) {
+				docs[d.Name.Name] = d.Doc.Text()
+			}
+		case *ast.GenDecl:
+			for _, spec := range d.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || !strings.HasPrefix(ts.Name.Name, nativeOnlyPrefix) {
+					continue
+				}
+				// A single-spec GenDecl carries the doc; a grouped one leaves it
+				// on the spec.
+				doc := ts.Doc.Text()
+				if doc == "" {
+					doc = d.Doc.Text()
+				}
+				docs[ts.Name.Name] = doc
+			}
+		}
+	}
+	if len(docs) == 0 {
+		t.Fatalf("no %s… declaration found in %s — the walk is reading the wrong file", nativeOnlyPrefix, guardFile)
+	}
+
+	namedBy := map[string][]string{}
+	for guard, doc := range docs {
+		named := 0
+		for tool := range pinned {
+			if strings.Contains(doc, tool) {
+				namedBy[tool] = append(namedBy[tool], guard)
+				named++
+			}
+		}
+		if named == 0 {
+			t.Errorf("%s names no tool the wiring pin covers. Its doc comment must name the tool(s) it "+
+				"guards, and each must appear in nativeOnlyAgentTools "+
+				"(compose/integration/overlay_toolsurface_integration_test.go) — a guard nothing drives "+
+				"against a real overlay workspace is a guard nobody has tested.\ndoc: %q", guard, doc)
+		}
+	}
+
+	// The other direction, which is what catches a doc naming the wrong tool: a
+	// pinned tool no guard claims is either unguarded or guarded by a decorator
+	// whose comment points somewhere else.
+	for tool := range pinned {
+		switch len(namedBy[tool]) {
+		case 1:
+		case 0:
+			t.Errorf("the wiring pin covers %q and no nativeOnly… guard's doc names it — either the tool "+
+				"has no mode guard at all, or the guard that decorates it describes a different tool", tool)
+		default:
+			t.Errorf("%q is named by %v — two guards claiming one tool means at least one comment is "+
+				"describing something it does not decorate", tool, namedBy[tool])
+		}
+	}
+}
+
+// nativeOnlyPrefix is the naming convention the walk above depends on: a mode
+// guard in this file is named for what it guards against, not for what it wraps.
+const nativeOnlyPrefix = "nativeOnly"
+
+// pinnedNativeOnlyTools reads the tool names out of the integration suite's pin.
+// Parsed rather than duplicated: a copy here would be a third hand-kept list, and
+// the whole point is that there be one.
+func pinnedNativeOnlyTools(t *testing.T) map[string]bool {
+	t.Helper()
+	const pinFile = "integration/overlay_toolsurface_integration_test.go"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, pinFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", pinFile, err)
+	}
+	out := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "nativeOnlyAgentTools" {
+			return true
+		}
+		ast.Inspect(fn.Body, func(inner ast.Node) bool {
+			kv, ok := inner.(*ast.KeyValueExpr)
+			if !ok {
+				return true
+			}
+			if key, ok := kv.Key.(*ast.BasicLit); ok && key.Kind == token.STRING {
+				name, err := strconv.Unquote(key.Value)
+				if err != nil {
+					t.Fatalf("unquoting a pinned tool name: %v", err)
+				}
+				out[name] = true
+			}
+			return true
+		})
+		return false
+	})
+	if len(out) == 0 {
+		t.Fatalf("no tool names found in %s's nativeOnlyAgentTools — the pin moved or was renamed", pinFile)
+	}
+	return out
 }

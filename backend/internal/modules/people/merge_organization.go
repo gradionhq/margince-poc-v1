@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -30,6 +31,12 @@ import (
 // survivor. The org half additionally re-homes the hierarchy (A's
 // children become B's) and the deal/partner attributions.
 func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.OrganizationID) (crmcontracts.Organization, error) {
+	// Same rule, same reason as MergePerson: an omitted target_id is not caught
+	// by the self-merge check and would answer not-found for a survivor the
+	// caller never named.
+	if err := httperr.RequireBodyID(targetIDField, targetID.UUID); err != nil {
+		return crmcontracts.Organization{}, err
+	}
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
 		return crmcontracts.Organization{}, err
 	}
