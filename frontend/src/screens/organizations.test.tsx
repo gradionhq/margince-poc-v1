@@ -689,6 +689,42 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     // omits the field (untouched) rather than clearing the stored set.
     expect(patchBody).not.toHaveProperty("domains");
   });
+
+  // relationship_types is a REPLACE-SET, so the edit modal must prefill it:
+  // an unseeded multiselect collects as the empty string, which is the honest
+  // empty set, and saving an unrelated field would retire every type the
+  // account has without the reader touching them.
+  it("preserves the account's relationship types when an unrelated field is edited", async () => {
+    let patchBody: unknown = null;
+    const partner = {
+      ...org,
+      lifecycle: "customer",
+      relationship_types: ["partner", "supplier"],
+    };
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({ ...partner, industry: "Manufacturing", version: 2 });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(partner);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await userEvent.click(await openRecordMenu("edit-record"));
+    const industry = await screen.findByLabelText("Industry");
+    await userEvent.clear(industry);
+    await userEvent.type(industry, "Manufacturing");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({
+      industry: "Manufacturing",
+      relationship_types: ["partner", "supplier"],
+    });
+  });
 });
 
 // B7: the edit modal's repeatable domains field replace-sets the org's live
@@ -1158,8 +1194,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await screen.findByText("People & companies");
-    await userEvent.click(screen.getByText("People & companies"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1191,8 +1228,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await screen.findByText("People & companies");
-    await userEvent.click(screen.getByText("People & companies"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1413,8 +1451,9 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await screen.findByText("People & companies");
-    await userEvent.click(screen.getByText("People & companies"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );

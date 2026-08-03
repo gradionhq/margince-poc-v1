@@ -1,6 +1,6 @@
--- Reverse of 0169. classification was never dropped and never stopped being
+-- Reverse of 0175. classification was never dropped and never stopped being
 -- written by the migration's own backfill, so the down path only has to remove
--- what 0169 added: the type rows go with their table, and lifecycle goes with
+-- what 0175 added: the type rows go with their table, and lifecycle goes with
 -- its column. Nothing needs to be reconstructed.
 
 DROP TABLE IF EXISTS organization_relationship_type;

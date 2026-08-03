@@ -73,6 +73,7 @@ import {
   CreateAction,
   type CreateField,
   type FormRows,
+  joinMultiselectValue,
   splitMultiselectValue,
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
@@ -1390,6 +1391,12 @@ function CompanyEditAction({
         legal_name: org.legal_name ?? "",
         industry: org.industry ?? "",
         size_band: org.size_band ?? "",
+        // Both stage fields prefill from the live record. relationship_types
+        // is a REPLACE-SET: an unseeded multiselect collects as the empty
+        // string, which mapOrgUpdate reads as the honest empty set, so saving
+        // an unrelated field would clear every type the account has.
+        lifecycle: org.lifecycle ?? "",
+        relationship_types: joinMultiselectValue(org.relationship_types ?? []),
         // The repeatable domains field prefills from the org's live set;
         // its rows are string-keyed, so the primary flag stringifies to
         // match the "true"/"" the primary radio writes.

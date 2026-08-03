@@ -308,6 +308,18 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 			t.Errorf("overlay-mode %s = %d, want 422 — a provenance filter the mirror cannot answer must be refused, never ignored", path, code)
 		}
 	}
+	// The account's stage, what it is to us, and the provider thread are the
+	// same rule again: all three are OUR columns, so answering them from the
+	// mirror would return the unfiltered list looking like a filtered one.
+	for _, path := range []string{
+		"/v1/organizations?lifecycle=customer",
+		"/v1/organizations?relationship_type=partner",
+		"/v1/activities?thread_key=t-1",
+	} {
+		if code := e.call(t, "GET", path, nil, nil, nil); code != http.StatusUnprocessableEntity {
+			t.Errorf("overlay-mode %s = %d, want 422 — a filter with no mirror column must be refused, never ignored", path, code)
+		}
+	}
 	assertReportOpsRefusedInOverlay(t, e)
 
 	// --- bullet 3: an UNMAPPED user sees ZERO rows (fail-closed

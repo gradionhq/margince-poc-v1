@@ -55,22 +55,22 @@ function dayOf(atIso: string): string {
  * exists to prevent.
  */
 function bulkMembership(entries: readonly TimelineEntry[]): Set<string> {
-  const seen = new Map<string, { copies: number; attested: boolean }>();
+  const copies = new Map<string, number>();
   for (const entry of entries) {
     const key = groupKeyOf(entry);
     if (key?.kind !== "bulk") {
       continue;
     }
-    const found = seen.get(key.value) ?? { copies: 0, attested: false };
-    found.copies += 1;
-    found.attested = found.attested || Boolean(entry.bulkAttested);
-    seen.set(key.value, found);
+    copies.set(key.value, (copies.get(key.value) ?? 0) + 1);
   }
   const bulk = new Set<string>();
-  for (const [value, found] of seen) {
-    // Two same-subject messages are a coincidence, not a send. Only the
-    // sender's own attestation overrides the count.
-    if (found.attested || found.copies >= BULK_COPIES) {
+  for (const [value, count] of copies) {
+    // Two same-subject messages are a coincidence, not a send. The count is
+    // the only rule that can speak for a whole subject+day run: attestation
+    // is carried by ONE message and is applied per entry in groupChronology,
+    // because a reply that merely shares the subject and the day is not part
+    // of the send the sender attested to.
+    if (count >= BULK_COPIES) {
       bulk.add(value);
     }
   }
@@ -87,8 +87,13 @@ export function groupChronology(
 
   for (const entry of entries) {
     const key = groupKeyOf(entry);
-    const groupable =
-      key && (key.kind === "thread" || bulk.has(key.value)) ? key : undefined;
+    // A bulk key folds this entry when the run is large enough to have no
+    // other reading, or when THIS message carries the sender's own
+    // List-Unsubscribe attestation. One attested message does not speak for
+    // every same-subject message that day.
+    const bulkable =
+      key?.kind === "bulk" && (bulk.has(key.value) || Boolean(entry.bulkAttested));
+    const groupable = key && (key.kind === "thread" || bulkable) ? key : undefined;
     if (!groupable) {
       groups.push({
         id: entry.id,
@@ -115,8 +120,18 @@ export function groupChronology(
     groups.push(group);
   }
 
-  if (hasMore && groups.length > 0) {
-    groups[groups.length - 1].partial = true;
+  // The cut runs under the page's OLDEST entry, and that entry need not sit in
+  // the last group: a group takes the position of its NEWEST member, so an
+  // interleaved thread can hold the oldest message while ranking above a
+  // single row that arrived after it. Marking the last group would offer to
+  // continue a conversation that is already complete and stay silent about the
+  // one that is actually cut.
+  if (hasMore && entries.length > 0) {
+    const oldest = entries[entries.length - 1];
+    const cut = groups.find((group) => group.entries.includes(oldest));
+    if (cut) {
+      cut.partial = true;
+    }
   }
   return groups;
 }
@@ -137,7 +152,10 @@ function groupKeyOf(
   if (entry.kind !== "email") {
     return undefined;
   }
-  const subject = normalizeSubject(entry.title);
+  // The message's OWN subject, never the rendered title: `title` falls back to
+  // the body, and then to the kind, so a run of subjectless emails would share
+  // a key and fold into a bulk send that was never sent.
+  const subject = normalizeSubject(entry.subject ?? "");
   if (!subject) {
     return undefined;
   }

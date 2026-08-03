@@ -279,6 +279,14 @@ export type TimelineEntry = {
    */
   bulkAttested?: boolean;
   /**
+   * The message's own subject, when it had one — NOT the rendered `title`,
+   * which falls back to the body (or to the kind) so a subjectless row still
+   * has something to show. Bulk grouping keys on this: keyed on the title, two
+   * subjectless messages that happen to render the same text would fold into
+   * one summary and hide each other.
+   */
+  subject?: string | null;
+  /**
    * What the message actually said.
    *
    * A timeline of subject lines is a list of things you cannot read: the rep

@@ -229,6 +229,12 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 			{"domain", params.Domain != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
+			// Where the account stands and what it is to us are OUR columns.
+			// The mirror has neither, so filtering on them would silently
+			// return the unfiltered list — an answer that reads as a filtered
+			// one and is not.
+			{"lifecycle", params.Lifecycle != nil},
+			{"relationship_type", params.RelationshipType != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireOrganization,
 		func(data []crmcontracts.Organization, page crmcontracts.PageInfo) any {
@@ -304,6 +310,11 @@ func (s Server) ListActivities(w http.ResponseWriter, r *http.Request, params cr
 			{"entity_type", params.EntityType != nil},
 			{"entity_id", params.EntityId != nil},
 			{"assignee_id", params.AssigneeId != nil},
+			// thread_key is how the company timeline completes a group the
+			// page cut off. The mirror does not carry the provider thread, so
+			// answering it unfiltered would hand back unrelated items as if
+			// they were the rest of that conversation.
+			{"thread_key", params.ThreadKey != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireActivity,
 		func(data []crmcontracts.Activity, page crmcontracts.PageInfo) any {

@@ -342,6 +342,10 @@ export function activityTimeline(
     id: activity.id,
     kind: timelineKind(activity.kind),
     title: timelineTitle(activity),
+    // Carried beside the rendered title, which may be the body or the kind:
+    // bulk grouping needs the message's OWN subject or it folds unrelated
+    // subjectless rows together.
+    subject: activity.subject,
     // The body is already in the composite read this row came from, so a
     // timeline of unreadable subject lines was a rendering choice, not a
     // limit of what the page knew.

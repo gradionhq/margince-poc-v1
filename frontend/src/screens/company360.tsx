@@ -67,9 +67,12 @@ const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
 // make the tile disappear. An unmapped kind renders as its own words rather
 // than as an identifier — the same degradation an unmapped approval kind gets.
 function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
-  const key = (SIGNAL_KIND_LABELS as Record<string, MessageKey | undefined>)[
-    kind
-  ];
+  // Own-property only, as dealRoleLabel does below: a wire value named
+  // `toString` would otherwise find something on Object's prototype and pass
+  // the truthy check instead of degrading to its own words.
+  const key = Object.hasOwn(SIGNAL_KIND_LABELS, kind)
+    ? SIGNAL_KIND_LABELS[kind]
+    : undefined;
   return key ? t(key) : kind.replaceAll("_", " ");
 }
 
@@ -80,8 +83,15 @@ function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
 const SIGNAL_TONE: Record<string, "warn" | "danger" | undefined> = {
   info: undefined,
   warn: "warn",
-  crit: "danger",
+  urgent: "danger",
 };
+
+// Severity is a closed enum on the wire, but it arrives as a string like every
+// other wire value: an own-property check keeps a value named `toString` from
+// finding something on Object's prototype and typing as a tone.
+function signalTone(severity: string): "warn" | "danger" | undefined {
+  return Object.hasOwn(SIGNAL_TONE, severity) ? SIGNAL_TONE[severity] : undefined;
+}
 
 // The deal-stakeholder roles worth a word. `role` is free text on the wire
 // (the enum is an unminted contract extension, DEAL-EXT-5), so an unknown
@@ -1786,7 +1796,7 @@ export function StateStrip({
         <StatCard
           label={t("co.strip.signal")}
           value={signalKindLabel(strip.signal.kind, t)}
-          tone={SIGNAL_TONE[strip.signal.severity]}
+          tone={signalTone(strip.signal.severity)}
           detail={strip.signal.summary}
         />
       )}
