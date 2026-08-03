@@ -14,16 +14,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// ErrIdentityDrift marks a ReembedCorpus call whose target identity
+// ErrIdentityDrift marks a ReembedWorkspace call whose target identity
 // (argsIdentity, minted when the job was enqueued) no longer matches what
 // the embedder compose actually injects — an operator changed the live
-// embed binding config after enqueue. Task 15 maps this to
-// river.JobCancel rather than a retry: retrying would burn 25 attempts
+// embed binding config after enqueue. The caller maps this to
+// river.JobCancel rather than a retry: retrying would burn attempts
 // against an identity nothing serves anymore, when what the fleet
 // actually needs is a NEW job enqueued under the CURRENT config.
 var ErrIdentityDrift = errors.New("search: embedder identity drifted from the job's target identity")
 
-// ReembedCorpus rebuilds the embedding corpus fleet-wide under
+// ReembedWorkspace rebuilds one workspace's embedding corpus under
 // argsIdentity. It is resumable BY CONSTRUCTION, not by tracking its own
 // progress: UpsertEmbedding's content-hash + identity skip-compare
 // (embedding.go) makes a row already current under argsIdentity free to
@@ -31,34 +31,37 @@ var ErrIdentityDrift = errors.New("search: embedder identity drifted from the jo
 // nothing for entities already done — this routine simply calls
 // UpsertEmbedding for every live entity every time and lets that
 // skip-compare decide what actually needs a model call.
-func (s *Store) ReembedCorpus(ctx context.Context, embedder Embedder, argsIdentity string) error {
+//
+// Every UpsertEmbedding error propagates as-is (fail-loud): the job row
+// carrying this workspace fails and is retried, rather than this routine
+// silently leaving a partially re-embedded corpus behind a green pass.
+func (s *Store) ReembedWorkspace(ctx context.Context, wsID ids.WorkspaceID, embedder Embedder, argsIdentity string) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
 	// embedder compose hands this call is always the CURRENT one, so a
-	// mismatch here means argsIdentity is stale. Finishing anyway would
-	// call CompleteReembedding and stamp populated_identity with an
-	// identity the store was never actually re-embedded under — a lie
-	// that would only surface later, as a ReindexNeeded that never fires.
+	// mismatch here means argsIdentity is stale. Re-embedding anyway would
+	// index this workspace under a model the run does not target, and the
+	// run would go on to stamp populated_identity over it.
 	if identity, _ := embedder.EmbedIdentity(); identity != argsIdentity {
 		return ErrIdentityDrift
 	}
 
-	workspaces, err := s.fleetWorkspaceIDs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, wsID := range workspaces {
-		// system principal: re-embedding rebuilds an index over the WHOLE
-		// workspace, not one caller's row scope — the same posture as
-		// EmbedGen (embedgen.go:51-56) and pendingStats.
-		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
-
-		if err := s.reembedWorkspace(wsCtx, embedder); err != nil {
-			return fmt.Errorf("search: reembedding workspace %s: %w", wsID, err)
+	// system principal: re-embedding rebuilds an index over the WHOLE
+	// workspace, not one caller's row scope — the same posture as
+	// EmbedGen (embedgen.go:51-56) and pendingStats.
+	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
+	for entityType, src := range pendingSources {
+		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
+		if err != nil {
+			return err
+		}
+		for _, item := range items {
+			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
+				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
+			}
 		}
 	}
-
-	return s.CompleteReembedding(ctx, argsIdentity)
+	return nil
 }
 
 // liveEntity is one row selected for re-embedding: an id plus the exact
@@ -66,25 +69,6 @@ func (s *Store) ReembedCorpus(ctx context.Context, embedder Embedder, argsIdenti
 type liveEntity struct {
 	id   ids.UUID
 	text string
-}
-
-// reembedWorkspace re-embeds every live entity of every embeddable type
-// for the workspace bound in ctx. Every UpsertEmbedding error propagates
-// as-is (fail-loud): River retries the job rather than this routine
-// silently leaving a partially re-embedded corpus.
-func (s *Store) reembedWorkspace(ctx context.Context, embedder Embedder) error {
-	for entityType, src := range pendingSources {
-		items, err := s.liveEntitiesOf(ctx, entityType, src)
-		if err != nil {
-			return err
-		}
-		for _, item := range items {
-			if _, err := s.UpsertEmbedding(ctx, entityType, item.id, item.text, embedder); err != nil {
-				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
-			}
-		}
-	}
-	return nil
 }
 
 // liveEntitiesOf selects every live (non-archived) row's id and source

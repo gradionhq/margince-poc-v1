@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -127,7 +128,14 @@ func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
 	}
 }
 
-func TestClaimAndEnqueueReembeddingRunsCallbackInOneTx(t *testing.T) {
+// TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity proves what
+// makes the marker busy. The claim's dispatcher completes as soon as it has
+// fanned the fleet out, so "some job of this kind is still active" stops being
+// true long before the run is over: the run's target identity is what has to
+// refuse the second claim, and it is refused by name (ErrReembeddingInFlight)
+// rather than by a bare zero row count that could equally mean an unseeded
+// marker.
+func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/claim@1024"
@@ -136,7 +144,7 @@ func TestClaimAndEnqueueReembeddingRunsCallbackInOneTx(t *testing.T) {
 	}
 
 	var ran bool
-	err := e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error {
+	err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
@@ -154,25 +162,25 @@ func TestClaimAndEnqueueReembeddingRunsCallbackInOneTx(t *testing.T) {
 		t.Fatalf("status = %q, want reembedding after a successful claim", status)
 	}
 
-	// From reembedding: recovery — the CAS still moves (a no-op status
-	// value) and the callback still runs, e.g. a discarded job re-confirm.
 	ran = false
-	err = e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error {
+	err = e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("ClaimAndEnqueueReembedding from reembedding: %v", err)
+	if !errors.Is(err, search.ErrReembeddingInFlight) {
+		t.Fatalf("second claim = %v, want ErrReembeddingInFlight — two runs would fan out over each other's pending set", err)
 	}
-	if !ran {
-		t.Fatal("the callback must still run when recovering a stuck reembedding row")
+	if ran {
+		t.Fatal("a refused claim must not enqueue a second run's dispatcher")
 	}
-	_, status, _, err = e.store.PopulatedIdentity(ctx)
-	if err != nil {
-		t.Fatalf("PopulatedIdentity: %v", err)
-	}
-	if status != "reembedding" {
-		t.Fatalf("status = %q, want reembedding to persist across a recovery claim", status)
+
+	// An unseeded marker is a deployment that skipped boot, not a run holding
+	// the marker: the two answer different status codes, so they must not
+	// collapse into one error.
+	fresh := setupSearch(t)
+	err = fresh.store.ClaimAndEnqueueReembedding(ctx, identity, func(pgx.Tx) error { return nil })
+	if !errors.Is(err, search.ErrBindingNotSeeded) {
+		t.Fatalf("claim against an unseeded marker = %v, want ErrBindingNotSeeded", err)
 	}
 }
 
@@ -185,7 +193,7 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 	}
 
 	enqueueErr := errors.New("enqueue exploded")
-	err := e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error {
+	err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
 		return enqueueErr
 	})
 	if !errors.Is(err, enqueueErr) {
@@ -203,43 +211,60 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 	}
 }
 
-func TestCompleteReembeddingOnlyFromReembeddingStatus(t *testing.T) {
+// TestReleaseReembeddingOnlyEverActsOnItsOwnRun proves the release is fenced on
+// the identity the run claimed under: a release quoting some other identity —
+// a job row left over from a run that already ended — must not hand away a
+// marker the current run is still holding, and must not stamp the store
+// populated under a model nothing re-embedded it with.
+func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	const original = "fake/orig@1024"
-	const completed = "fake/completed@1024"
+	const claimed = "fake/claimed@1024"
+	const stranger = "fake/stranger@1024"
 	if err := e.store.SeedBinding(ctx, original); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	// Calling complete while idle must be a no-op: nothing was claimed, so
-	// nothing should be marked populated under a never-run job's identity.
-	if err := e.store.CompleteReembedding(ctx, completed); err != nil {
-		t.Fatalf("CompleteReembedding from idle: %v", err)
+	// Releasing while no run holds the marker must be a no-op: nothing was
+	// claimed, so nothing should read populated under a never-run job's identity.
+	if err := e.store.ReleaseReembedding(ctx, claimed); err != nil {
+		t.Fatalf("ReleaseReembedding with no run in flight: %v", err)
 	}
 	populated, status, _, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
 	if populated != original || status != "idle" {
-		t.Fatalf("CompleteReembedding from idle must no-op, got populated=%q status=%q", populated, status)
+		t.Fatalf("releasing an unclaimed marker must no-op, got populated=%q status=%q", populated, status)
 	}
 
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error { return nil }); err != nil {
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimed, func(tx pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
-	if err := e.store.CompleteReembedding(ctx, completed); err != nil {
-		t.Fatalf("CompleteReembedding from reembedding: %v", err)
+	if err := e.store.ReleaseReembedding(ctx, stranger); err != nil {
+		t.Fatalf("ReleaseReembedding under a stranger identity: %v", err)
 	}
 	populated, status, _, err = e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
-	if populated != completed {
-		t.Fatalf("populated_identity = %q, want %q", populated, completed)
+	if populated != original || status != "reembedding" {
+		t.Fatalf("a stranger run released the live claim: populated=%q status=%q", populated, status)
+	}
+
+	if err := e.store.ReleaseReembedding(ctx, claimed); err != nil {
+		t.Fatalf("ReleaseReembedding from the claiming run: %v", err)
+	}
+	populated, status, _, err = e.store.PopulatedIdentity(ctx)
+	if err != nil {
+		t.Fatalf("PopulatedIdentity: %v", err)
+	}
+	if populated != claimed {
+		t.Fatalf("populated_identity = %q, want %q", populated, claimed)
 	}
 	if status != "idle" {
-		t.Fatalf("status = %q, want idle after completion", status)
+		t.Fatalf("status = %q, want idle after the run released", status)
 	}
 }
 

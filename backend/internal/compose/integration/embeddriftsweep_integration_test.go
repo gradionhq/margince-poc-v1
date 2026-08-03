@@ -140,7 +140,7 @@ func TestSweepWorkspaceEmbeddingDriftWaitsOutARunningReindex(t *testing.T) {
 	if err := e.store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
 	e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Mid Reindex Person', 'manual', 'human:x')`)

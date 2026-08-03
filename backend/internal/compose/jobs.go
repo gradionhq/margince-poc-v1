@@ -153,9 +153,9 @@ type JobRunnerConfig struct {
 	// the render layer draws when no logo is on file.
 	Blobstore blobstore.Store
 	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
-	// embed-reindex worker re-embeds under. The worker registers
-	// regardless of whether this is nil: a picked-up embed_reindex job
-	// on a brainless worker role fails clearly (embedReindexWorker.Work)
+	// embed-reindex workspace worker re-embeds under. The workers register
+	// regardless of whether this is nil: a picked-up reindex job on a
+	// brainless worker role fails clearly (jobs_embedreindex.go)
 	// rather than sitting queued forever behind a job no one can work —
 	// the same posture as DeepReadBrain.
 	Embedder search.Embedder
@@ -240,11 +240,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// own per-connection credential (no deployment-wide OAuth app to gate
 	// on), so there is nothing to check for before wiring it up.
 	river.AddWorker(workers, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
-	// The embed-reindex job is not periodic — the api enqueues one job per
-	// confirmed reindex (embedreindextransport.go); the worker role only
-	// needs the worker registered, same posture as the deep-read worker
-	// above.
-	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
+	// The embed reindex registers itself the same way, workers only: it is not
+	// periodic, because the api enqueues its dispatcher once per confirmed
+	// reindex (jobs_embedreindex.go).
+	addEmbedReindexJobs(workers, pool, cfg.Embedder)
 	// The rate-refresh jobs are not periodic — the api enqueues one per admin
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).

@@ -21,6 +21,7 @@ var (
 	_ jobs.WorkspaceScoped = PrivacyRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = EmbedReindexWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}
 	_ jobs.WorkspaceScoped = OverlayReconcileWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GraphEdgeWorkspaceArgs{}
@@ -52,6 +53,7 @@ var (
 	_ jobs.FleetWide = CloseDateSweepArgs{}
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
 	_ jobs.FleetWide = EmbedDriftSweepArgs{}
+	_ jobs.FleetWide = EmbedReindexArgs{}
 	_ jobs.FleetWide = FollowUpReconcileArgs{}
 	_ jobs.FleetWide = GmailSyncArgs{}
 	_ jobs.FleetWide = GmailWatchArgs{}
@@ -66,5 +68,4 @@ var (
 	_ jobs.FleetWide = TimeScanArgs{}
 	_ jobs.FleetWide = VoiceBuildRetryArgs{}
 	_ jobs.FleetWide = WebhookRetryArgs{}
-	_ jobs.FleetWide = embedReindexArgs{}
 )
