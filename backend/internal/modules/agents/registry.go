@@ -34,6 +34,11 @@ type Registry struct {
 	// schema's claims are true of the surface rather than of whichever handlers
 	// remembered to check them.
 	idArgs map[string]idArgSpec
+	// numArgs[tool] is the range its schema advertises for each numeric
+	// argument, read off the schema once at registration. Invoke holds a
+	// supplied value to it, so `minimum`/`maximum` bind the surface instead of
+	// describing an intention.
+	numArgs map[string][]numBound
 	// approvals closes the 🟡 loop (stage on refusal, redeem on retry).
 	// Nil is a legal composition — the gate still refuses; refused calls
 	// just have nowhere to land.
@@ -48,6 +53,7 @@ func NewRegistry(approvals Approvals, gate *auth.Gate) *Registry {
 	return &Registry{
 		tools:     map[string]mcp.Tool{},
 		idArgs:    map[string]idArgSpec{},
+		numArgs:   map[string][]numBound{},
 		approvals: approvals,
 		gate:      gate,
 	}
@@ -98,6 +104,7 @@ func (r *Registry) Register(t mcp.Tool) {
 	}
 	r.tools[spec.Name] = t
 	r.idArgs[spec.Name] = declaredIDArgs(spec.InputSchema)
+	r.numArgs[spec.Name] = declaredNumBounds(spec.InputSchema)
 }
 
 // Invoke runs the admission gate, then the tool. There is no other path
@@ -122,15 +129,15 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return mcp.TierResolverInput{Args: args}, nil
 	}
 	if dyn, ok := t.(dynamicTool); ok {
-		// The id check runs HERE, and only for a dynamic tool, because a dynamic
-		// tool decides its own tier by READING the record an argument names: a zero
-		// deal_id would reach the stage lookup and come back as a bare not-found
-		// from inside the gate, where no downstream check can reach it. Admit calls
-		// resolve after scope and seat, so this still sits behind the authority
-		// checks that do not depend on arguments. Static-tier tools are covered by
-		// the call after Admit — Admit never invokes resolve for them.
+		// The argument checks run HERE, and only for a dynamic tool, because a
+		// dynamic tool decides its own tier by READING the record an argument names:
+		// a zero deal_id would reach the stage lookup and come back as a bare
+		// not-found from inside the gate, where no downstream check can reach it.
+		// Admit calls resolve after scope and seat, so this still sits behind the
+		// authority checks that do not depend on arguments. Static-tier tools are
+		// covered by the call after Admit — Admit never invokes resolve for them.
 		resolve = func() (mcp.TierResolverInput, error) {
-			if err := r.requireDeclaredIDs(name, args); err != nil {
+			if err := r.requireDeclaredArgs(name, args); err != nil {
 				return mcp.TierResolverInput{}, err
 			}
 			return dyn.ResolverInput(ctx, args)
@@ -141,11 +148,11 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	// Static-tier tools, whose resolver Admit never runs. After authority and
 	// before staging, and both halves matter: a caller the gate turns away learns
 	// nothing about arguments, while a caller it would send to the approval queue
-	// is told about its own missing id first — staging an unrunnable call spends a
-	// human's yes on something that was never going to happen.
+	// is told about its own bad arguments first — staging an unrunnable call spends
+	// a human's yes on something that was never going to happen.
 	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
-		if idErr := r.requireDeclaredIDs(name, args); idErr != nil {
-			return nil, idErr
+		if argErr := r.requireDeclaredArgs(name, args); argErr != nil {
+			return nil, argErr
 		}
 	}
 	ctx = admitted

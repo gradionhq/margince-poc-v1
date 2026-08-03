@@ -98,7 +98,7 @@ func TestExplainClassifiesEveryCallerFacingRefusal(t *testing.T) {
 		{"incumbent connected", fmt.Errorf("connect: %w", apperrors.ErrIncumbentAlreadyConnected), "incumbent_already_connected", false},
 		{"flip blocked", fmt.Errorf("flip: %w", apperrors.ErrOverlayFlipBlocked), "overlay_flip_blocked", false},
 		{"incumbent budget", fmt.Errorf("read: %w", apperrors.ErrIncumbentBudgetExhausted), "incumbent_budget_exhausted", true},
-		{"bad fields", &datasource.FieldDecodeError{Cause: errors.New(`unknown field "subjekt"`)}, "invalid_field", false},
+		{"bad fields", &datasource.FieldDecodeError{Cause: &datasource.UnknownFieldError{Fields: []string{"subjekt"}}}, "invalid_field", false},
 		{"unserved entity", &datasource.UnsupportedEntityError{Type: "invoice"}, "unsupported_entity_type", false},
 		{"malformed cursor", &storekit.MalformedCursorError{}, "malformed_cursor", false},
 		{"cursor sort mismatch", &storekit.CursorSortMismatchError{}, "cursor_param_mismatch", false},

@@ -7,6 +7,22 @@ package compose
 // ListObjects/ListFields serve and the ad-hoc report vocabulary. Static
 // by design (P11: declared in code, versioned with it); fork-owned x_
 // columns join through the custom seam with Custom=true.
+//
+// Every datasource.RecordType owes an entry here — a type the surface
+// admits to create, tag and list, and then cannot describe or report on,
+// is announced and not served. `activity` holds one too, so the set is a
+// superset of the record vocabulary rather than a copy of it: a timeline
+// event is reportable through the link-walk even though nothing points at
+// one.
+//
+// `relationship` deliberately holds none. An entry here IS the ad-hoc
+// report vocabulary, and runAdHocPlan scopes those rows with
+// auth.ScopeClauseFor over the entity's own table — which serves only
+// tables carrying owner_id. An edge has no owner: its visibility is its
+// two endpoints'. A relationship descriptor would therefore advertise a
+// groupable object whose plan errors on the scope clause instead of
+// refusing, and it earns one when the report path can walk to the anchor
+// record's visibility instead.
 
 import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -52,6 +68,17 @@ var schemaObjects = []datasource.ObjectDef{
 		{Name: "direction", Type: "text", Nullable: true},
 		{Name: "is_done", Type: "boolean"},
 		{Name: "occurred_at", Type: "timestamptz"},
+	}},
+	{Type: datasource.EntityProject, Label: "Project", Fields: []datasource.FieldDef{
+		{Name: "name", Type: "text"},
+		{Name: "key", Type: "text", Nullable: true},
+		{Name: "organization_id", Type: "uuid"},
+		{Name: "owner_id", Type: "uuid", Nullable: true},
+		{Name: "phase", Type: "text"},
+		{Name: "started_at", Type: "date", Nullable: true},
+		{Name: "target_end_date", Type: "date", Nullable: true},
+		{Name: "ended_at", Type: "date", Nullable: true},
+		{Name: "created_at", Type: "timestamptz"},
 	}},
 }
 
