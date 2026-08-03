@@ -7,7 +7,7 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM audit_log WHERE action = 'reset_data') THEN
-    RAISE EXCEPTION 'cannot roll back 0172: audit_log holds reset_data rows and is append-only — the verb cannot be removed from audit_log_action_check';
+    RAISE EXCEPTION 'cannot roll back 0173: audit_log holds reset_data rows and is append-only — the verb cannot be removed from audit_log_action_check';
   END IF;
 END $$;
 

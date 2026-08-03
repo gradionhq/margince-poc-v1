@@ -1,4 +1,4 @@
--- 0172: `reset_data` joins the audit verb vocabulary. The non-production
+-- 0173: `reset_data` joins the audit verb vocabulary. The non-production
 -- admin "reset data" endpoint (a dev-only sweep + reseed of the bound
 -- workspace) records itself as a workspace-entity audit row through the
 -- same storekit.AuditWithEvidence write shape every mutation uses — without
