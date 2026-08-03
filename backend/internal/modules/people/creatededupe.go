@@ -129,7 +129,11 @@ func manualDedupeOrganization(ctx context.Context, tx pgx.Tx, in CreateOrganizat
 	for _, d := range in.Domains {
 		domains = append(domains, d.Domain)
 	}
-	return DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: in.DisplayName, Domains: domains})
+	return DedupeOrganization(ctx, tx, OrganizationCandidate{
+		DisplayName: in.DisplayName,
+		LegalName:   deref(in.LegalName),
+		Domains:     domains,
+	})
 }
 
 // recordIfReview leaves the review trail a manual person create owes —
@@ -226,9 +230,18 @@ func nearMatchEvidence(field, created, incumbent string, confidence float64) []m
 // plus the append-only dedupe_near_match ledger line, both inside the
 // create's own transaction so the record and its review trail commit or
 // roll back together.
+// A pair the queue already holds is a no-op in BOTH stores: the candidate row
+// is refused by the pair-unique index, and the ledger line is skipped with it.
+// Appending a line per re-detection would grow the ledger without recording
+// anything new — the rename re-check runs on every rename, so a pair a human
+// left open would otherwise gain a line forever.
 func recordNearMatch(ctx context.Context, tx pgx.Tx, entityType string, createdID, matchedID ids.UUID, confidence float64, evidence []map[string]any, source, by string) error {
-	if _, err := recordDedupeCandidate(ctx, tx, entityType, createdID, matchedID, confidence, evidence, source, by); err != nil {
+	recorded, err := recordDedupeCandidate(ctx, tx, entityType, createdID, matchedID, confidence, evidence, source, by)
+	if err != nil {
 		return fmt.Errorf("record %s near-match candidate: %w", entityType, err)
+	}
+	if !recorded {
+		return nil
 	}
 	if _, err := storekit.LogSystem(ctx, tx, "dedupe_near_match", map[string]any{
 		"entity_type": entityType,

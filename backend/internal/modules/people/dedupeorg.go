@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package people
+
+// PO-F-2, the organization half of the one dedupe implementation. It lives
+// beside the person half (dedupe.go) rather than inside it because the two
+// ladders share only their vocabulary — the decision set, the threshold and
+// the name-similarity function — while their tiers read different tables and
+// weigh different evidence.
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// OrganizationCandidate is the input to PO-F-2.
+type OrganizationCandidate struct {
+	DisplayName string
+	// LegalName is the registered entity behind the display name. PO-F-2
+	// reads both because the same company is routinely captured twice under
+	// two spellings — a marketing name from one domain, the registered form
+	// from another — and the pair only collides on the legal axis.
+	LegalName string
+	// Domains are the candidate's claimed domains; a free-mail domain
+	// must be filtered by the caller before it reaches here — this
+	// resolver matches domains, it does not judge them.
+	Domains []string
+	// ExcludeID drops one organization from both tiers. The rename re-check
+	// scores an EXISTING row against its neighbours: without this it matches
+	// itself on every key it holds and masks every real rival behind a
+	// perfect self-score.
+	ExcludeID *ids.OrganizationID
+}
+
+// OrganizationMatch is PO-F-2's output.
+type OrganizationMatch struct {
+	Decision       DedupeDecision
+	OrganizationID ids.OrganizationID
+	Confidence     float64
+	// Ranked carries every candidate at or above the threshold, best first.
+	// The queue records ONE pair, but the best pair may already have been
+	// dispositioned `not_a_duplicate`, and a single-winner result would let
+	// that dismissal mask a genuine duplicate behind it forever.
+	Ranked []OrganizationCandidateScore
+}
+
+// OrganizationCandidateScore is one scored rival from the fuzzy tier.
+type OrganizationCandidateScore struct {
+	OrganizationID ids.OrganizationID
+	Confidence     float64
+}
+
+// DedupeOrganization is PO-F-2 — the org half of the one dedupe
+// implementation. Domain is the exact key; name similarity alone is the
+// fuzzy tier, because without a domain there is nothing to anchor on.
+func DedupeOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
+	if hit, found, err := exactOrgByDomain(ctx, tx, c.Domains, c.ExcludeID); err != nil || found {
+		return OrganizationMatch{Decision: DecisionExactCollision, OrganizationID: hit}, err
+	}
+	if NormalizeOrgName(c.DisplayName) == "" && NormalizeOrgName(c.LegalName) == "" {
+		return OrganizationMatch{Decision: DecisionNoMatch}, nil
+	}
+	return fuzzyOrganization(ctx, tx, c)
+}
+
+// exactOrgByDomain is PO-F-2 tier 1: any candidate domain already mapped
+// to a live org. This is also the capture employer-inference path — a
+// domain hit lands the person on the existing company.
+func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string, exclude *ids.OrganizationID) (ids.OrganizationID, bool, error) {
+	if len(domains) == 0 {
+		return ids.OrganizationID{}, false, nil
+	}
+	lowered := make([]string, 0, len(domains))
+	for _, d := range domains {
+		lowered = append(lowered, normalizeDomain(d))
+	}
+	var id ids.OrganizationID
+	err := tx.QueryRow(ctx, `
+		SELECT organization_id FROM organization_domain
+		WHERE domain = ANY($1) AND archived_at IS NULL
+		  AND ($2::uuid IS NULL OR organization_id <> $2)
+		ORDER BY organization_id
+		LIMIT 1`, lowered, exclude).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.OrganizationID{}, false, nil
+	}
+	if err != nil {
+		return ids.OrganizationID{}, false, fmt.Errorf("dedupe org exact tier: %w", err)
+	}
+	return id, true, nil
+}
+
+// fuzzyOrganization scores name similarity over the trigram-restricted
+// candidate set. "Acme Inc" and "Acme GmbH" both normalize to "acme" and
+// land here — different legal entities are a human's call, not a merge.
+// The trigram filter is recall-only narrowing (scoring below is the
+// authority), so the candidate side is suffix-stripped to match what the
+// score compares; the stored side keeps its suffix, whose few trigrams
+// barely dent the similarity of a shared stem.
+// Both name axes are compared on both sides: a record's registered name may
+// be stored as its display name and vice versa, so the score is the best of
+// the four pairings rather than display-against-display alone.
+func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
+	display, legal := NormalizeOrgName(c.DisplayName), NormalizeOrgName(c.LegalName)
+	rows, err := tx.Query(ctx, `
+		SELECT id, display_name, coalesce(legal_name, '') FROM organization
+		 WHERE archived_at IS NULL
+		   AND ($3::uuid IS NULL OR id <> $3)
+		   AND (f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))
+		        OR f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($2))
+		        OR f_fold_apostrophes(lower(coalesce(legal_name, ''))) % f_fold_apostrophes(lower($1))
+		        OR f_fold_apostrophes(lower(coalesce(legal_name, ''))) % f_fold_apostrophes(lower($2)))`,
+		display, legal, c.ExcludeID)
+	if err != nil {
+		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
+	}
+	defer rows.Close()
+
+	var ranked []OrganizationCandidateScore
+	for rows.Next() {
+		var id ids.OrganizationID
+		var name, rowLegal string
+		if err := rows.Scan(&id, &name, &rowLegal); err != nil {
+			return OrganizationMatch{}, fmt.Errorf("scan org candidate: %w", err)
+		}
+		confidence := bestOrgNameSimilarity(display, legal, NormalizeOrgName(name), NormalizeOrgName(rowLegal))
+		if confidence >= dedupeReviewThreshold {
+			ranked = append(ranked, OrganizationCandidateScore{OrganizationID: id, Confidence: confidence})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return OrganizationMatch{}, fmt.Errorf("drain org candidates: %w", err)
+	}
+	if len(ranked) == 0 {
+		return OrganizationMatch{Decision: DecisionNoMatch}, nil
+	}
+	// Confidence first, then the lowest id — a total order, so the queue does
+	// not shuffle between runs.
+	slices.SortFunc(ranked, func(a, b OrganizationCandidateScore) int {
+		if a.Confidence != b.Confidence {
+			return cmp.Compare(b.Confidence, a.Confidence)
+		}
+		return cmp.Compare(a.OrganizationID.String(), b.OrganizationID.String())
+	})
+	return OrganizationMatch{
+		Decision:       DecisionFuzzyReview,
+		OrganizationID: ranked[0].OrganizationID,
+		Confidence:     ranked[0].Confidence,
+		Ranked:         ranked,
+	}, nil
+}
+
+// bestOrgNameSimilarity scores every pairing of the two name axes. An empty
+// axis scores nothing rather than matching every other empty one: two
+// companies that both lack a registered name have said nothing about being
+// the same company.
+func bestOrgNameSimilarity(candidateDisplay, candidateLegal, rowDisplay, rowLegal string) float64 {
+	best := 0.0
+	for _, left := range []string{candidateDisplay, candidateLegal} {
+		for _, right := range []string{rowDisplay, rowLegal} {
+			if left == "" || right == "" {
+				continue
+			}
+			if score := nameSimilarity(left, right); score > best {
+				best = score
+			}
+		}
+	}
+	return best
+}

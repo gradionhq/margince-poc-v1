@@ -183,17 +183,16 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		return nil
 	}
 
-	wsID := workspaceID(ctx)
-	id := ids.New[ids.PersonKind]()
-	quarantined := quarantineSuspect(in.DisplayName, in.Domain)
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by, visibility, quarantined_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'owner', CASE WHEN $7 THEN now() ELSE NULL END)`,
-		id, wsID, name, in.OwnerID, in.Source, in.CapturedBy, quarantined); err != nil {
-		return fmt.Errorf("people: insert captured person: %w", err)
-	}
-	if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, in.CapturedBy,
-		[]PersonEmailInput{{Email: in.Email, EmailType: emailTypeWork, IsPrimary: true}}); err != nil {
+	id, err := createPerson(ctx, tx, match, PersonSpec{
+		FullName:    name,
+		OwnerID:     ownerFromUUID(&in.OwnerID),
+		Visibility:  visibilityOwner,
+		Quarantined: quarantineSuspect(in.DisplayName, in.Domain),
+		Emails:      []PersonEmailInput{{Email: in.Email, EmailType: emailTypeWork, IsPrimary: true}},
+		Source:      in.Source,
+		CapturedBy:  in.CapturedBy,
+	})
+	if err != nil {
 		return err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", entityPerson, id.UUID, nil, map[string]any{fieldFullName: name})

@@ -110,6 +110,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupLead.ExistingID.UUID)))
 		return
 	}
+	var dupLeadLinkedIn *DuplicateLeadLinkedInError
+	if errors.As(err, &dupLeadLinkedIn) {
+		httperr.Write(w, r, httperr.Duplicate("duplicate_linkedin_url", duplicateID(dupLeadLinkedIn.ExistingID.UUID)))
+		return
+	}
 	var promoted *AlreadyPromotedError
 	if errors.As(err, &promoted) {
 		e := &httperr.DetailedError{

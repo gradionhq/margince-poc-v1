@@ -23,16 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// DuplicateLeadError carries the live lead already holding an email
-// (uq_lead_email_dedupe → 409, features/01 §6.2).
-type DuplicateLeadError struct {
-	Email      string
-	ExistingID ids.LeadID
-}
-
-func (e *DuplicateLeadError) Error() string        { return "lead with email " + e.Email + " already exists" }
-func (e *DuplicateLeadError) Is(target error) bool { return target == apperrors.ErrConflict }
-
 type CreateLeadInput struct {
 	FullName        *string
 	Email           *string
@@ -87,6 +77,9 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			return nil
 		}
 		if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
+			return err
+		}
+		if err := ensureLeadLinkedInUnclaimed(ctx, tx, in.LinkedInURL); err != nil {
 			return err
 		}
 
@@ -197,34 +190,6 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []f
 		return nil, fmt.Errorf("read replayed lead: %w", err)
 	}
 	return &out, nil
-}
-
-// ensureLeadEmailUnclaimed answers the live-email dedupe probe with the
-// contract's 409, disclosing the existing id only when the caller could
-// read that row.
-func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) error {
-	if email == nil {
-		return nil
-	}
-	var existing ids.LeadID
-	err := tx.QueryRow(ctx,
-		`SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL`,
-		*email).Scan(&existing)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("probe email dedupe: %w", err)
-	}
-	dup := &DuplicateLeadError{Email: *email}
-	visible, err := auth.VisibleTo(ctx, tx, "lead", existing.UUID)
-	if err != nil {
-		return err
-	}
-	if visible {
-		dup.ExistingID = existing
-	}
-	return dup
 }
 
 // FindLeadByLinkedInURL is the E12.11 exact-match dedupe probe: the

@@ -5,7 +5,6 @@ package people
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -333,52 +332,69 @@ func promotableLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLea
 // else creates. Returns the person id, sets *merged, and (on the merge path)
 // the fields the merge actually applied so the person.updated event reports
 // the true delta (nil on the create path).
+// It runs the full PO-F-1 ladder rather than the single email probe it used
+// to: a lead whose address nobody holds may still name a person already in the
+// workspace under a spelling of the same name, and promoting it silently
+// minted the twin. The exact-email answer is unchanged; a near-match still
+// creates (DEDUPE_FUZZY_AUTOMERGE is pinned never) and now leaves the pair on
+// the review queue instead of nothing at all.
 func (s *Store) promoteTarget(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead, by string, merged *bool) (ids.PersonID, map[string]any, error) {
-	if lead.Email != nil {
-		var existing ids.PersonID
-		err := tx.QueryRow(ctx,
-			`SELECT person_id FROM person_email WHERE email = lower($1) AND archived_at IS NULL`,
-			string(*lead.Email)).Scan(&existing)
-		switch {
-		case err == nil:
-			// Merging returns the person, so it is a read: a match the
-			// promoter cannot see answers a bare conflict, not the record.
-			visible, verr := auth.VisibleTo(ctx, tx, "person", existing.UUID)
-			if verr != nil {
-				return ids.PersonID{}, nil, verr
-			}
-			if !visible {
-				return ids.PersonID{}, nil, apperrors.ErrConflict
-			}
-			*merged = true
-			mergeFields, merr := s.mergeLeadIntoPerson(ctx, tx, lead, existing)
-			return existing, mergeFields, merr
-		case !errors.Is(err, pgx.ErrNoRows):
-			return ids.PersonID{}, nil, fmt.Errorf("probe person email dedupe: %w", err)
-		}
-	}
-
 	name := deref(lead.FullName)
 	if name == "" {
 		// Identity was checked upstream, so an email exists; a person
 		// needs SOME name until enrichment fills it.
 		name = string(*lead.Email)
 	}
-	wsID := workspaceID(ctx)
-	id := ids.New[ids.PersonKind]()
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, title, owner_id, source, captured_by, converted_from_lead_id)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, wsID, name, lead.Title, uuidPtrToIDs(lead.OwnerId), lead.Source, by, ids.UUID(lead.Id)); err != nil {
-		return ids.PersonID{}, nil, fmt.Errorf("insert promoted person: %w", err)
-	}
+	var emails []string
 	if lead.Email != nil {
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
-			 VALUES ($1, $2, lower($3), 'work', true, 1, $4, $5)`,
-			wsID, id, string(*lead.Email), lead.Source, by); err != nil {
-			return ids.PersonID{}, nil, fmt.Errorf("insert promoted person email: %w", err)
+		emails = []string{string(*lead.Email)}
+	}
+	consumerMail, err := s.consumerMailMatcher(ctx, tx)
+	if err != nil {
+		return ids.PersonID{}, nil, err
+	}
+	match, err := DedupePerson(ctx, tx, PersonCandidate{
+		FullName: name, Emails: emails, ConsumerMail: consumerMail,
+	})
+	if err != nil {
+		return ids.PersonID{}, nil, err
+	}
+	if match.Decision == DecisionExactCollision {
+		// Merging returns the person, so it is a read: a match the
+		// promoter cannot see answers a bare conflict, not the record.
+		visible, verr := auth.VisibleTo(ctx, tx, "person", match.PersonID.UUID)
+		if verr != nil {
+			return ids.PersonID{}, nil, verr
 		}
+		if !visible {
+			return ids.PersonID{}, nil, apperrors.ErrConflict
+		}
+		*merged = true
+		mergeFields, merr := s.mergeLeadIntoPerson(ctx, tx, lead, match.PersonID)
+		return match.PersonID, mergeFields, merr
+	}
+
+	leadID := ids.UUID(lead.Id)
+	var leadEmails []PersonEmailInput
+	if lead.Email != nil {
+		leadEmails = []PersonEmailInput{{
+			Email: string(*lead.Email), EmailType: emailTypeWork, IsPrimary: true, Position: 1,
+		}}
+	}
+	id, err := createPerson(ctx, tx, match, PersonSpec{
+		FullName:            name,
+		Title:               lead.Title,
+		OwnerID:             ownerFromUUID(uuidPtrToIDs(lead.OwnerId)),
+		ConvertedFromLeadID: &leadID,
+		Emails:              leadEmails,
+		Source:              lead.Source,
+		CapturedBy:          by,
+	})
+	if err != nil {
+		return ids.PersonID{}, nil, err
+	}
+	if err := match.recordIfReview(ctx, tx, id, name, lead.Source, by); err != nil {
+		return ids.PersonID{}, nil, err
 	}
 	return id, nil, nil
 }

@@ -325,17 +325,27 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 // own. Nothing serializes two FIRST saves — neither has a row to lock — so the
 // uq_organization_anchor index is what decides: the loser is told the company
 // already exists rather than quietly minting a rival one.
+// It runs PO-F-2 like every other create — an installation whose own company
+// was already captured from mail should not silently gain a second row — but
+// files no review pair: during onboarding the anchor resembling a captured
+// record of the same company is the expected state, not a question for a
+// human (OrgSpec.IsAnchor).
 func createAnchorOrganization(ctx context.Context, tx pgx.Tx, displayName, by string) (ids.OrganizationID, error) {
-	orgID := ids.New[ids.OrganizationKind]()
-	_, err := tx.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-		 VALUES ($1, $2, $3, true, 'manual', $4)`,
-		orgID, workspaceID(ctx), displayName, by)
+	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: displayName})
+	if err != nil {
+		return ids.OrganizationID{}, err
+	}
+	orgID, err := createOrganization(ctx, tx, match, OrgSpec{
+		DisplayName: displayName,
+		IsAnchor:    true,
+		Source:      "manual",
+		CapturedBy:  by,
+	})
 	if constraint, dup := storekit.UniqueViolation(err); dup && constraint == "uq_organization_anchor" {
 		return ids.OrganizationID{}, fmt.Errorf("the company was created by someone else just now: %w", apperrors.ErrConflict)
 	}
 	if err != nil {
-		return ids.OrganizationID{}, fmt.Errorf("insert company: %w", err)
+		return ids.OrganizationID{}, err
 	}
 	return orgID, nil
 }
