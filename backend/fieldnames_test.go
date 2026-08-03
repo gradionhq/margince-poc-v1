@@ -101,6 +101,39 @@ func parseInternalTree(t *testing.T) []parsedFile {
 	return out
 }
 
+// fieldMemberIndex maps each struct type to the DECLARED position of its `Field`
+// member, so a positional composite literal can be judged at the right operand.
+//
+// Assuming position 0 is what a first draft of this gate did, and it is only
+// correct when Field happens to be declared first: for any other type, prose sat
+// in a later operand while the walk judged an unrelated one and reported green.
+func fieldMemberIndex(files []parsedFile) map[string]int {
+	out := map[string]int{}
+	for _, pf := range files {
+		ast.Inspect(pf.file, func(n ast.Node) bool {
+			spec, ok := n.(*ast.TypeSpec)
+			if !ok {
+				return true
+			}
+			structType, isStruct := spec.Type.(*ast.StructType)
+			if !isStruct {
+				return true
+			}
+			position := 0
+			for _, member := range structType.Fields.List {
+				for _, memberName := range member.Names {
+					if memberName.Name == "Field" {
+						out[spec.Name.Name] = position
+					}
+					position++
+				}
+			}
+			return true
+		})
+	}
+	return out
+}
+
 // typesPublishingAFieldName collects the type names that implement FieldFault or
 // FieldFaults. Keyed by name alone: a literal names its type unqualified inside
 // its own package, which is where these are all constructed.
@@ -127,6 +160,7 @@ func TestAPublishedFieldNameIsAFieldNameNotProse(t *testing.T) {
 		t.Fatal("no type implements FieldFault — the marker is stale and this gate asserts nothing")
 	}
 
+	fieldAt := fieldMemberIndex(files)
 	checked := 0
 	for _, pf := range files {
 		ast.Inspect(pf.file, func(n ast.Node) bool {
@@ -138,16 +172,31 @@ func TestAPublishedFieldNameIsAFieldNameNotProse(t *testing.T) {
 			if !ok || !policed[name.Name] {
 				return true
 			}
-			for _, elt := range lit.Elts {
+			for i, elt := range lit.Elts {
 				kv, ok := elt.(*ast.KeyValueExpr)
 				if !ok {
 					// A POSITIONAL literal (`&RequiredFieldError{"prose"}`) carries no
-					// key to match, so a keyed-only walk skips it entirely and reads
-					// green. Judge its first string operand instead.
-					if text, isLiteral := stringLiteralPrefix(elt); isLiteral {
-						checked++
-						reportIfProse(t, pf.path, name.Name, text)
+					// key to match, so a keyed-only walk skips it and reads green.
+					// Judge the operand at Field's DECLARED position — not operand 0,
+					// which would judge the wrong slot and certify prose sitting in
+					// the right one.
+					at, declared := fieldAt[name.Name]
+					if !declared || i != at {
+						// No Field member at all means the name, if any, is returned
+						// from inside the method and judged by the walk below.
+						continue
 					}
+					text, isLiteral := stringLiteralPrefix(elt)
+					if !isLiteral {
+						// A computed value in a positional field slot is unproven, not
+						// clean. Say so rather than pass in silence.
+						t.Errorf("%s: %s{…} sets Field positionally from a computed value, which this "+
+							"gate cannot judge. Use a keyed literal so the field slot is readable.",
+							pf.path, name.Name)
+						continue
+					}
+					checked++
+					reportIfProse(t, pf.path, name.Name, text)
 					continue
 				}
 				if key, ok := kv.Key.(*ast.Ident); !ok || key.Name != "Field" {
