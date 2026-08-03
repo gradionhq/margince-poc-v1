@@ -781,3 +781,56 @@ describe("sso_error is bounded and survives a repeated initializer", () => {
     }
   });
 });
+
+describe("the Core's presence across the surface's phases", () => {
+  // The Core is the product's presence, not a status light for the form. A
+  // wrong password is the person's typo, not the assistant's condition, so the
+  // orb never turns amber or red: the error summary beside the form carries the
+  // message, holds the focus, and is what a screen reader announces.
+  const alarmStates = new Set(["error", "attention"]);
+  const coreState = () =>
+    document
+      .querySelector("[data-core-state]")
+      ?.getAttribute("data-core-state");
+
+  it("keeps the brand hue when a sign-in fails", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid email or password" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(coreState()).toBe("listening");
+
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
+    await screen.findByRole("alert");
+
+    // The phase IS error — the surface knows, and the stylesheet can still
+    // react to it elsewhere. The ORB is what must not raise an alarm.
+    expect(
+      document.querySelector<HTMLElement>(".auth-surface")?.dataset.authPhase,
+    ).toBe("error");
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
+    // And it is back to waiting on the person, which is what the form is doing.
+    expect(coreState()).toBe("listening");
+  });
+
+  it("keeps the brand hue while signing in and on success", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "right{enter}");
+
+    await waitFor(() => expect(coreState()).toBe("success"));
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
+  });
+
+  // The unreachable-server screen is the one place a desaturated Core is the
+  // message ("not breathing, cannot be reached") — still not an alarm hue.
+  it("does not raise an alarm hue on the availability screen either", () => {
+    render(<AvailabilityScreen kind="connection" onRetry={vi.fn()} />);
+    expect(coreState()).toBe("unavailable");
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
+  });
+});
