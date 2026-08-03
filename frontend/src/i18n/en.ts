@@ -513,6 +513,14 @@ export const en = {
   "co.suggest.act.draftReply": "Draft a reply",
   "co.suggest.act.openDeal": "Open the deal",
   "co.suggest.act.addTask": "Add the next step",
+  // A conversation shown as one event says what it IS before what it
+  // says: the reader is scanning for an event, not a sentence.
+  "timeline.group.thread": "{count} messages",
+  "timeline.group.bulk": "sent to {count} people",
+  "timeline.group.expand": "Open",
+  "timeline.group.collapse": "Close",
+  "timeline.group.openThread": "View the whole thread",
+  "timeline.group.mayContinue": "may continue earlier",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and

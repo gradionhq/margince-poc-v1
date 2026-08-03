@@ -18,7 +18,11 @@ import {
   SegmentedControl,
   Skeleton,
 } from "../design-system/atoms";
-import { RecordView, type TimelineEntry } from "../design-system/composed";
+import {
+  RecordView,
+  type TimelineEntry,
+  type TimelineGroup,
+} from "../design-system/composed";
 import {
   EvidenceMark,
   type EvidenceMarkSource,
@@ -96,6 +100,7 @@ import {
   TaskQuickActions,
   useTaskUpdate,
 } from "./taskactions";
+import { groupChronology } from "./timelinegroups";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -1886,6 +1891,59 @@ function useAccountChronology({
 // filter above it, the load-more and disclosure below it, and the notice that
 // replaces the list when there is nothing honest to draw. Assembled here so
 // the page's render reads as a layout rather than as four nested ternaries.
+// useResetOnRecord is the chronology filter, owned by the ACCOUNT being read
+// rather than by the session. When both records are already cached the route
+// swaps one company for another without ever unmounting this component, so a
+// reader who checked Changes once met Changes on every account afterwards.
+function useResetOnRecord(
+  recordId: string,
+): [TimelineFilter, (next: TimelineFilter) => void] {
+  const [filter, setFilter] = useState<TimelineFilter>("activities");
+  const [filterFor, setFilterFor] = useState(recordId);
+  if (filterFor !== recordId) {
+    setFilterFor(recordId);
+    setFilter("activities");
+  }
+  return [filter, setFilter];
+}
+
+type ChronologySlots = {
+  timeline?: TimelineEntry[];
+  timelineGroups?: readonly TimelineGroup[];
+  timelineHeader?: ReactNode;
+  timelineFooter?: ReactNode;
+  timelineNotice?: ReactNode;
+  onOpenThread?: (threadKey: string) => void;
+};
+
+// ChronologyFilter narrows the account's own history. It sits ABOVE the list
+// rather than in the page's tab strip: it scopes this section, and a control
+// that looks like a tab reads as a different page.
+function ChronologyFilter({
+  filter,
+  onFilter,
+}: Readonly<{
+  filter: TimelineFilter;
+  onFilter: (next: TimelineFilter) => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="co-tabs">
+      <SegmentedControl
+        options={TIMELINE_FILTERS}
+        value={filter}
+        onChange={onFilter}
+        label={t("co.chronology.label")}
+        labels={{
+          activities: t("co.chronology.activities"),
+          changes: t("co.chronology.changes"),
+          all: t("co.chronology.all"),
+        }}
+      />
+    </div>
+  );
+}
+
 function useChronologySlots({
   org,
   view,
@@ -1903,25 +1961,11 @@ function useChronologySlots({
   // so it renders no timeline rather than an empty one.
   active: boolean;
 }>): {
-  slots: {
-    timeline?: TimelineEntry[];
-    timelineHeader?: ReactNode;
-    timelineFooter?: ReactNode;
-    timelineNotice?: ReactNode;
-  };
+  slots: ChronologySlots;
   showChanges: () => void;
 } {
   const t = useT();
-  const [filter, setFilter] = useState<TimelineFilter>("activities");
-  // The filter belongs to the account being read, not to the session. When
-  // both records are already cached the route swaps one company for another
-  // without ever unmounting this component, so a reader who checked Changes
-  // once met Changes on every account they opened afterwards.
-  const [filterFor, setFilterFor] = useState(org.id);
-  if (filterFor !== org.id) {
-    setFilterFor(org.id);
-    setFilter("activities");
-  }
+  const [filter, setFilter] = useResetOnRecord(org.id);
 
   const history = useAccountChronology({
     orgId: org.id,
@@ -1957,23 +2001,14 @@ function useChronologySlots({
     showChanges,
     slots: {
       timeline: history.entries,
-      // Above the list rather than in the page's tab strip: it narrows this
-      // section, and a control that looks like a tab reads as a new page.
-      timelineHeader: (
-        <div className="co-tabs">
-          <SegmentedControl
-            options={TIMELINE_FILTERS}
-            value={filter}
-            onChange={setFilter}
-            label={t("co.chronology.label")}
-            labels={{
-              activities: t("co.chronology.activities"),
-              changes: t("co.chronology.changes"),
-              all: t("co.chronology.all"),
-            }}
-          />
-        </div>
+      // Conversations, not messages. The account's timeline is where the same
+      // exchange showed up three times — a product update to three contacts
+      // was three rows, and a five-message thread was five.
+      timelineGroups: groupChronology(
+        history.entries,
+        view?.activities?.page.has_more ?? false,
       ),
+      timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
       // Asking sits UNDER the account's own story, not above it: it is a tool
       // for when the page did not already answer the question, and standing
       // between the brief and the timeline it took the place of content.

@@ -12,7 +12,7 @@ import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { Avatar, Badge } from "./atoms";
+import { Avatar, Badge, Button } from "./atoms";
 import {
   AutonomyDot,
   type ConfidenceLevel,
@@ -213,6 +213,22 @@ export function PipelineBoard({
 
 // ----- Record view + timeline -----
 
+/**
+ * TimelineGroup is a run of entries the reader sees as ONE event: a
+ * conversation, or one message sent to several people. It lives here with the
+ * component that renders it — the rules that BUILD one are a screen concern,
+ * but the shape is the list's own vocabulary.
+ */
+export type TimelineGroup = {
+  /** The newest member's id; the list keys on it. */
+  id: string;
+  kind: "thread" | "bulk" | "single";
+  /** Newest first, like the list itself. */
+  entries: TimelineEntry[];
+  /** This group may continue past what the page holds. */
+  partial: boolean;
+};
+
 export type TimelineEntry = {
   id: string;
   // The backend's activity kinds, not a reduced set: collapsing call, task
@@ -251,6 +267,17 @@ export type TimelineEntry = {
    * task), which render exactly as before.
    */
   direction?: "inbound" | "outbound" | null;
+  /**
+   * The provider's own conversation id, when capture stamped one. It is what
+   * makes a thread a thread — a subject match would merge two unrelated
+   * "Re: Update" exchanges and split one renamed mid-conversation.
+   */
+  threadKey?: string | null;
+  /**
+   * The SENDER declared this message bulk (RFC 2369 List-Unsubscribe). Per
+   * message, never per sender: the same address sends a newsletter and a reply.
+   */
+  bulkAttested?: boolean;
   /**
    * What the message actually said.
    *
@@ -292,6 +319,8 @@ export function RecordView({
   rail,
   aside,
   timeline,
+  timelineGroups,
+  onOpenThread,
   timelineHeader,
   timelineFooter,
   timelineNotice,
@@ -322,6 +351,13 @@ export function RecordView({
   // not empty. `[]` renders the section with its honest "nothing logged yet";
   // undefined omits the section, for a view whose body is not a history.
   timeline?: TimelineEntry[];
+  /**
+   * When set, the timeline renders CONVERSATIONS rather than messages. The
+   * flat list stays the default: a person's timeline is a handful of rows and
+   * grouping it would collapse events that were never one.
+   */
+  timelineGroups?: readonly TimelineGroup[];
+  onOpenThread?: (threadKey: string) => void;
   // Controls above the timeline list (filters), and below it (load more).
   timelineHeader?: ReactNode;
   timelineFooter?: ReactNode;
@@ -362,9 +398,16 @@ export function RecordView({
             <section aria-label={t("record.timeline")}>
               <h2 className="t-sub">{t("record.timeline")}</h2>
               {timelineHeader}
-              {timelineNotice ?? (
-                <TimelineList entries={timeline} zone={zone} />
-              )}
+              {timelineNotice ??
+                (timelineGroups ? (
+                  <GroupedTimelineList
+                    groups={timelineGroups}
+                    zone={zone}
+                    onOpenThread={onOpenThread}
+                  />
+                ) : (
+                  <TimelineList entries={timeline} zone={zone} />
+                ))}
               {timelineFooter}
             </section>
           )}
@@ -469,46 +512,152 @@ function TimelineList({
   entries,
   zone,
 }: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
-  const { locale } = useLocale();
-  const t = useT();
   return (
     <ul className="timeline">
-      {entries.map((entry) => {
-        const Icon = TIMELINE_ICON[entry.kind];
-        return (
-          <li key={entry.id} className={directionClass(entry.direction)}>
-            <span className="tl-icon">
-              <Icon aria-hidden />
-            </span>
-            {/* A div, not a span: a change row's detail is a field diff whose
+      {entries.map((entry) => (
+        <TimelineRow key={entry.id} entry={entry} zone={zone} />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * GroupedTimelineList renders conversations rather than messages.
+ *
+ * A collapsed group states what it IS before what it says — "5 messages" or
+ * "sent to 3 people" — because the reader is scanning for an event, not for a
+ * sentence. Expanding shows the same rows the flat list would have shown, from
+ * the same component, so the two can never drift.
+ *
+ * A group that may continue past the page says so. A summary that implied it
+ * was whole would be a worse answer than the repetition this replaced.
+ */
+export function GroupedTimelineList({
+  groups,
+  zone,
+  onOpenThread,
+}: Readonly<{
+  groups: readonly TimelineGroup[];
+  zone: string;
+  // Fetches the rest of a conversation the page holds only part of. Absent for
+  // a caller that cannot complete it — a bulk group has no thread to ask for.
+  onOpenThread?: (threadKey: string) => void;
+}>) {
+  return (
+    <ul className="timeline">
+      {groups.map((group) =>
+        group.kind === "single" ? (
+          <TimelineRow key={group.id} entry={group.entries[0]} zone={zone} />
+        ) : (
+          <TimelineGroupRow
+            key={group.id}
+            group={group}
+            zone={zone}
+            onOpenThread={onOpenThread}
+          />
+        ),
+      )}
+    </ul>
+  );
+}
+
+function TimelineGroupRow({
+  group,
+  zone,
+  onOpenThread,
+}: Readonly<{
+  group: TimelineGroup;
+  zone: string;
+  onOpenThread?: (threadKey: string) => void;
+}>) {
+  const { locale } = useLocale();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const newest = group.entries[0];
+  const Icon = TIMELINE_ICON[newest.kind];
+  const threadKey = newest.threadKey;
+  return (
+    <li className={directionClass(newest.direction)}>
+      <span className="tl-icon">
+        <Icon aria-hidden />
+      </span>
+      <div className="tl-body">
+        <span className="tl-title">{newest.title}</span>
+        <span className="tl-meta">
+          <span className="tl-group-count">
+            {group.kind === "bulk"
+              ? t("timeline.group.bulk", { count: group.entries.length })
+              : t("timeline.group.thread", { count: group.entries.length })}
+          </span>
+          <span>{formatDate(newest.atIso, locale, zone)}</span>
+          <ProvenanceTag provenance={newest.provenance} />
+          <Button small onClick={() => setOpen(!open)}>
+            {open ? t("timeline.group.collapse") : t("timeline.group.expand")}
+          </Button>
+          {/* Only a real conversation can be completed: a bulk group is one
+              send with no thread to ask the server for. */}
+          {group.partial && threadKey && onOpenThread && (
+            <Button small onClick={() => onOpenThread(threadKey)}>
+              {t("timeline.group.openThread")}
+            </Button>
+          )}
+          {group.partial && !threadKey && (
+            <span className="t-caption">{t("timeline.group.mayContinue")}</span>
+          )}
+        </span>
+        {open && (
+          <ul className="timeline tl-group-members">
+            {group.entries.map((entry) => (
+              <TimelineRow key={entry.id} entry={entry} zone={zone} />
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * TimelineRow is one entry. Split out of the list so a grouped view can render
+ * the SAME row inside an expanded conversation — a second rendering of a
+ * message would drift from this one the first time either changed.
+ */
+export function TimelineRow({
+  entry,
+  zone,
+}: Readonly<{ entry: TimelineEntry; zone: string }>) {
+  const { locale } = useLocale();
+  const t = useT();
+  const Icon = TIMELINE_ICON[entry.kind];
+  return (
+    <li className={directionClass(entry.direction)}>
+      <span className="tl-icon">
+        <Icon aria-hidden />
+      </span>
+      {/* A div, not a span: a change row's detail is a field diff whose
                 long-value side is a focusable region — flow content, invalid
                 inside phrasing content. The row lays out identically, because
                 .tl-body is a flex column either way. */}
-            <div className="tl-body">
-              <span className="tl-title">{entry.title}</span>
-              {entry.body && <TimelineText text={entry.body} />}
-              {entry.detail}
-              <span className="tl-meta">
-                {/* The direction is said in words as well as drawn, so it does
+      <div className="tl-body">
+        <span className="tl-title">{entry.title}</span>
+        {entry.body && <TimelineText text={entry.body} />}
+        {entry.detail}
+        <span className="tl-meta">
+          {/* The direction is said in words as well as drawn, so it does
                     not depend on telling two accent colours apart. */}
-                {entry.direction && (
-                  <span className="tl-direction">
-                    {entry.direction === "outbound"
-                      ? t("timeline.sent")
-                      : t("timeline.received")}
-                  </span>
-                )}
-                <span>{formatDate(entry.atIso, locale, zone)}</span>
-                <ProvenanceTag provenance={entry.provenance} />
-                {entry.via}
-              </span>
-            </div>
-            {entry.actions && (
-              <span className="tl-actions">{entry.actions}</span>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+          {entry.direction && (
+            <span className="tl-direction">
+              {entry.direction === "outbound"
+                ? t("timeline.sent")
+                : t("timeline.received")}
+            </span>
+          )}
+          <span>{formatDate(entry.atIso, locale, zone)}</span>
+          <ProvenanceTag provenance={entry.provenance} />
+          {entry.via}
+        </span>
+      </div>
+      {entry.actions && <span className="tl-actions">{entry.actions}</span>}
+    </li>
   );
 }

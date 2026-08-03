@@ -347,6 +347,8 @@ export function activityTimeline(
     // limit of what the page knew.
     body: activity.body,
     direction: activity.direction,
+    threadKey: activity.thread_key,
+    bulkAttested: activity.bulk_mail_attested,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by, viewerUserId),
     actions: renderActions?.(activity),

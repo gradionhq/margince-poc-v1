@@ -523,6 +523,13 @@ export const de = {
   "co.suggest.act.draftReply": "Antwort entwerfen",
   "co.suggest.act.openDeal": "Deal öffnen",
   "co.suggest.act.addTask": "Nächsten Schritt anlegen",
+  // Ein Verlauf als ein Ereignis sagt zuerst, WAS er ist.
+  "timeline.group.thread": "{count} Nachrichten",
+  "timeline.group.bulk": "an {count} Personen gesendet",
+  "timeline.group.expand": "Öffnen",
+  "timeline.group.collapse": "Schließen",
+  "timeline.group.openThread": "Ganzen Verlauf ansehen",
+  "timeline.group.mayContinue": "kann früher weitergehen",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
