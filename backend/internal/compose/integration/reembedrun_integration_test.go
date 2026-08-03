@@ -1,0 +1,197 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package integration
+
+// The binding marker's RUN lifecycle. A reindex is one claim and N job rows, so
+// the marker has to say which run holds it and which workspaces that run is
+// still waiting on — and every one of these scenarios is a way the two could
+// come apart: a straggler of a finished run, a dispatcher fanning out twice, and
+// a run that stopped moving with no job left to release it.
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// claimOf is an ordinary confirm's claim: a fresh run over identity, with no
+// licence to take the marker off anybody (StealAfter zero).
+func claimOf(identity string) search.ReembedClaim {
+	return search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity}
+}
+
+// TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt is why the fence
+// is the run and not the target identity. A forced rebuild re-runs deliberately
+// under the SAME identity, so an identity fence does not fence at all between
+// consecutive runs: a child that outlived its own run — River's rescuer returns
+// a long-running row to retryable while the original goroutine is still
+// embedding, and both then finish — would remove its workspace from the NEXT
+// run's set and, if that emptied it, release a marker whose own children are
+// still working. That is the fleet reporting itself re-embedded while it is not.
+func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+	const identity = "fake/same-identity@1024"
+	if err := e.store.SeedBinding(ctx, identity); err != nil {
+		t.Fatalf("SeedBinding: %v", err)
+	}
+	ws := ids.From[ids.WorkspaceKind](e.WS)
+
+	finished := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, finished, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming the first run: %v", err)
+	}
+	if err := e.store.SeedReembeddingFleet(ctx, finished.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("seeding the first run: %v", err)
+	}
+	if err := e.store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
+		t.Fatalf("finishing the first run's only workspace: %v", err)
+	}
+
+	// The replacement run: same identity, as `force` produces.
+	current := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, current, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming the replacement run: %v", err)
+	}
+	if err := e.store.SeedReembeddingFleet(ctx, current.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("seeding the replacement run: %v", err)
+	}
+
+	// The first run's straggler finally returns.
+	if err := e.store.FinishWorkspaceReembedding(ctx, finished.Run, ws); err != nil {
+		t.Fatalf("the straggler must be a no-op, got: %v", err)
+	}
+
+	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	if err != nil {
+		t.Fatalf("PopulatedIdentity: %v", err)
+	}
+	if status != "reembedding" {
+		t.Fatalf("marker status = %q, want reembedding — a straggler of the previous run released a run whose own workspace is still outstanding", status)
+	}
+	// The set itself, not only the status: a straggler that emptied it without
+	// releasing would leave the replacement run holding a marker its own child
+	// can no longer account for, which the status alone does not show.
+	var pending int
+	if err := e.owner.QueryRow(ctx,
+		`SELECT cardinality(reembedding_pending) FROM embed_store_binding WHERE singleton`).Scan(&pending); err != nil {
+		t.Fatalf("reading the replacement run's pending set: %v", err)
+	}
+	if pending != 1 {
+		t.Fatalf("the replacement run has %d workspaces outstanding, want 1 — a straggler of the previous run took one out of a set that was never its own", pending)
+	}
+	// And the replacement's own child still empties its set when it reports.
+	if err := e.store.FinishWorkspaceReembedding(ctx, current.Run, ws); err != nil {
+		t.Fatalf("finishing the replacement run's workspace: %v", err)
+	}
+	if _, status, _, err = e.store.PopulatedIdentity(ctx); err != nil {
+		t.Fatalf("PopulatedIdentity: %v", err)
+	}
+	if status != "idle" {
+		t.Fatalf("marker status = %q after the replacement run's own workspace finished, want idle", status)
+	}
+}
+
+// TestASecondFanOutOfTheSameRunIsRefused pins the seed-once rule. A dispatcher
+// that committed its fan-out and then died before River finalised it comes back
+// on a retry; re-seeding would put back workspaces whose children have since
+// finished, and ByArgs uniqueness may decline to re-enqueue a child that is
+// still running — leaving those workspaces in the set with nothing left to take
+// them out.
+func TestASecondFanOutOfTheSameRunIsRefused(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+	const identity = "fake/seed-once@1024"
+	if err := e.store.SeedBinding(ctx, identity); err != nil {
+		t.Fatalf("SeedBinding: %v", err)
+	}
+	claim := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, claim, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming: %v", err)
+	}
+	fleet := []ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS)}
+	if err := e.store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+
+	var reFannedOut bool
+	err := e.store.SeedReembeddingFleet(ctx, claim.Run, fleet, func(pgx.Tx) error {
+		reFannedOut = true
+		return nil
+	})
+	if !errors.Is(err, search.ErrReembeddingSuperseded) {
+		t.Fatalf("second seed of the same run = %v, want ErrReembeddingSuperseded", err)
+	}
+	if reFannedOut {
+		t.Fatal("a refused seed must not fan the fleet out a second time")
+	}
+}
+
+// TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving is the recovery
+// affordance. The release is not airtight and cannot be — River discards a job
+// rescued past its attempts WITHOUT running it, so a child killed outright never
+// reaches the code that would take its workspace out of the set — and the marker
+// would then be held forever, every confirm answering 409 with no job anywhere
+// left to explain why. An ordinary confirm must still be refused, so the escape
+// hatch cannot be mistaken for the normal path.
+func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+	const identity = "fake/stuck@1024"
+	if err := e.store.SeedBinding(ctx, identity); err != nil {
+		t.Fatalf("SeedBinding: %v", err)
+	}
+	stuck := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, stuck, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming the run that will wedge: %v", err)
+	}
+	if err := e.store.SeedReembeddingFleet(ctx, stuck.Run,
+		[]ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS)}, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("seeding the wedged run: %v", err)
+	}
+
+	// The child was killed outright: its workspace never leaves the set, and the
+	// marker has not moved since. Aged rather than waited out — a suite that
+	// waited an hour would be a suite nobody runs.
+	if _, err := e.owner.Exec(ctx,
+		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
+		t.Fatalf("ageing the wedged marker: %v", err)
+	}
+
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
+		t.Fatalf("an ordinary confirm over a stale marker = %v, want ErrReembeddingInFlight — stealing must be something a human asked for", err)
+	}
+
+	taking := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour}
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, taking, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("a forced confirm over a marker nothing is moving: %v", err)
+	}
+	// The taken-over marker belongs to the new run outright: the wedged run's
+	// pending set is gone, so its own straggler could only act on nothing.
+	if err := e.store.FinishWorkspaceReembedding(ctx, stuck.Run, ids.From[ids.WorkspaceKind](e.WS)); err != nil {
+		t.Fatalf("the dispossessed run's straggler must be a no-op, got: %v", err)
+	}
+	_, status, _, err := e.store.PopulatedIdentity(ctx)
+	if err != nil {
+		t.Fatalf("PopulatedIdentity: %v", err)
+	}
+	if status != "reembedding" {
+		t.Fatalf("marker status = %q, want reembedding — the run that took the marker still holds it", status)
+	}
+
+	// A run that IS moving keeps its marker, however old the wedged one was.
+	if err := e.store.ClaimAndEnqueueReembedding(ctx,
+		search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
+		func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
+		t.Fatalf("a forced confirm over a freshly claimed marker = %v, want ErrReembeddingInFlight", err)
+	}
+}

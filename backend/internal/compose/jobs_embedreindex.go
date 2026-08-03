@@ -9,12 +9,13 @@ package compose
 // grows one line as this surface does. There is no periodic entry: a reindex is
 // a human's confirm at the transport beside this file, never a cadence.
 //
-// The binding marker is what makes the run one run. The confirm claims it under
-// the run's target identity, this dispatcher seeds the marker's pending set with
-// the fleet and enqueues the children in the same transaction, and each child
-// leaves that set when it reaches a terminal outcome. The child that empties it
-// hands the marker back. So the marker is held for as long as the RUN has
-// outstanding work, not for as long as any one job row is alive.
+// The binding marker is what makes the run one run. The confirm claims it under a
+// freshly minted run id, this dispatcher seeds the marker's pending set with the
+// fleet and enqueues the children in the same transaction, and each child leaves
+// that set when it reaches a terminal outcome. The child that empties it hands
+// the marker back. So the marker is held for as long as the RUN has outstanding
+// work, not for as long as any one job row is alive — and every write fences on
+// the run id the job carries, so a straggler of a finished run acts on nothing.
 
 import (
 	"context"
@@ -54,12 +55,14 @@ func addEmbedReindexJobs(workers *river.Workers, pool *pgxpool.Pool, embedder se
 	river.AddWorker(workers, &embedReindexWorkspaceWorker{store: store, embedder: embedder})
 }
 
-// EmbedReindexArgs schedules one fleet-wide re-embed under the identity in force
-// when the confirm claimed the marker, so a mid-flight config change is
-// detectable as drift downstream (search.ErrIdentityDrift) rather than the fleet
-// silently re-embedding under whatever it now reports.
+// EmbedReindexArgs schedules one fleet-wide re-embed. Identity is the embed
+// binding in force when the confirm claimed the marker, so a mid-flight config
+// change is detectable as drift downstream (search.ErrIdentityDrift) rather than
+// the fleet silently re-embedding under whatever it now reports; Run names the
+// claim this row is allowed to act on.
 type EmbedReindexArgs struct {
-	Identity string `json:"identity"`
+	Run      ids.UUID `json:"run_id"`
+	Identity string   `json:"identity"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
@@ -79,17 +82,19 @@ type embedReindexWorker struct {
 }
 
 func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[EmbedReindexArgs]) error {
-	err := w.fanOut(ctx, job.Args.Identity)
+	err := w.fanOut(ctx, job.Args)
 	if errors.Is(err, search.ErrReembeddingSuperseded) {
-		// A later run holds the marker, so this row's fan-out is nobody's work
-		// to do: a permanent condition, not one more attempts would clear.
+		// Either a later run holds the marker or this run has already fanned
+		// out, so this row's work is nobody's to do: a permanent condition, not
+		// one more attempts would clear.
 		return river.JobCancel(err)
 	}
 	if err != nil && job.Attempt >= job.MaxAttempts {
 		// A run holds the marker only while it has outstanding work. This one
 		// never got any queued and has no attempt left to, so it gives it back
 		// rather than leaving every later confirm refused by a run that ended.
-		return jobs.FaultContext(ctx, errors.Join(err, w.store.ReleaseReembedding(ctx, job.Args.Identity)))
+		// The release refuses itself if the set is not empty after all.
+		return jobs.FaultContext(ctx, errors.Join(err, w.store.ReleaseReembedding(ctx, job.Args.Run)))
 	}
 	return jobs.FaultContext(ctx, err)
 }
@@ -98,7 +103,7 @@ func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[EmbedReind
 // as ONE transaction: a fan-out whose insert failed leaves no pending set for
 // the retry to double-count, and a seeded set always has the children that will
 // empty it.
-func (w *embedReindexWorker) fanOut(ctx context.Context, identity string) error {
+func (w *embedReindexWorker) fanOut(ctx context.Context, args EmbedReindexArgs) error {
 	workspaces, err := enumerateWorkspaces(ctx, w.pool)
 	if err != nil {
 		return err
@@ -106,17 +111,17 @@ func (w *embedReindexWorker) fanOut(ctx context.Context, identity string) error 
 	if len(workspaces) == 0 {
 		// A run with no tenant to cover has no outstanding work the moment it
 		// starts, and a marker held past that refuses every later confirm.
-		return w.store.ReleaseReembedding(ctx, identity)
+		return w.store.ReleaseReembedding(ctx, args.Run)
 	}
 	pending := make([]ids.WorkspaceID, 0, len(workspaces))
 	for _, ws := range workspaces {
 		pending = append(pending, ids.From[ids.WorkspaceKind](ws))
 	}
-	return w.store.SeedReembeddingFleet(ctx, identity, pending, func(tx pgx.Tx) error {
+	return w.store.SeedReembeddingFleet(ctx, args.Run, pending, func(tx pgx.Tx) error {
 		return dispatchWith(ctx, workspaces, txInsertMany(tx),
 			workspaceSweepOpts(aiCaptureQueue, embedReindexMaxAttempts),
 			func(ws ids.UUID) river.JobArgs {
-				return EmbedReindexWorkspaceArgs{Workspace: ws, Identity: identity}
+				return EmbedReindexWorkspaceArgs{Workspace: ws, Run: args.Run, Identity: args.Identity}
 			})
 	})
 }
@@ -133,9 +138,10 @@ func txInsertMany(tx pgx.Tx) insertManyFunc {
 }
 
 // EmbedReindexWorkspaceArgs re-embeds one workspace's corpus under the run's
-// target identity.
+// target identity, and reports that workspace finished with the run it names.
 type EmbedReindexWorkspaceArgs struct {
 	Workspace ids.UUID `json:"workspace_id"`
+	Run       ids.UUID `json:"run_id"`
 	Identity  string   `json:"identity"`
 }
 
@@ -172,8 +178,12 @@ func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[E
 		// happened, so it leaves the pending set — and releases the marker if it
 		// was the last one out. River offers no post-discard hook, which is why
 		// the exhausted attempt does this before returning its error.
-		if err := w.store.FinishWorkspaceReembedding(ctx, job.Args.Identity,
+		if err := w.store.FinishWorkspaceReembedding(ctx, job.Args.Run,
 			ids.From[ids.WorkspaceKind](job.Args.Workspace)); err != nil {
+			// Retryable even on the drift path, and deliberately: the drift
+			// guard short-circuits before any model call, so an attempt spent
+			// re-trying this write costs nothing, and it is the only thing that
+			// will ever take this workspace out of the run's set.
 			return jobs.FaultContext(ctx, errors.Join(passErr, err))
 		}
 	}
@@ -187,6 +197,10 @@ func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[E
 }
 
 func (w *embedReindexWorkspaceWorker) reembed(ctx context.Context, args EmbedReindexWorkspaceArgs) error {
+	// workspaceJobCtx earns its place here as the zero-workspace guard, not as
+	// the binding that matters: ReembedWorkspace rebinds the same tenant under
+	// the SYSTEM principal, because an index rebuilt through one caller's row
+	// scope would silently omit what that caller cannot see.
 	wsCtx, err := workspaceJobCtx(ctx, args)
 	if err != nil {
 		return err

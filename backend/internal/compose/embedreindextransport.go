@@ -49,6 +49,18 @@ import (
 // carries while a fleet-wide re-embed is in flight (binding.go's own CAS).
 const reembeddingStatus = "reembedding"
 
+// reembedStaleAfter is how long a run may leave the marker untouched before a
+// FORCED confirm is allowed to take it back. Every child bumps updated_at as it
+// finishes, so a run that has not moved this long is a run nothing is finishing.
+//
+// It matches River's own RescueAfter, which is what makes the number principled
+// rather than picked: past that window River has itself already rescued or
+// discarded whatever was running, so a marker still unmoved is being held by
+// nothing. Stealing is safe by construction rather than by timing — the stolen
+// run's stragglers carry a run id the marker no longer names, so they act on
+// nothing — and this bound only decides how long a human waits.
+const reembedStaleAfter = time.Hour
+
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
 // needs: the insert rides the claim's own transaction, so a claim that
 // could not queue its dispatcher rolls back whole.
@@ -206,15 +218,25 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 	// the first. It still heals without a human: the in-flight run's own
 	// children cancel on the drift they now see (search.ErrIdentityDrift →
 	// river.JobCancel), which releases the marker for this confirm to retake.
-	err = e.store.ClaimAndEnqueueReembedding(ctx, configured, func(tx pgx.Tx) error {
-		return e.enqueue.EnqueueTx(ctx, tx, EmbedReindexArgs{Identity: configured},
+	//
+	// force carries a second meaning here, and it is the recovery path: it takes
+	// the marker off a run that has stopped moving. A run whose last child was
+	// killed outright never reaches the code that would release it — River
+	// discards a job rescued past its attempts without running it — and without
+	// this the marker would be held forever with no job left to explain it.
+	claim := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: configured}
+	if force {
+		claim.StealAfter = reembedStaleAfter
+	}
+	err = e.store.ClaimAndEnqueueReembedding(ctx, claim, func(tx pgx.Tx) error {
+		return e.enqueue.EnqueueTx(ctx, tx, EmbedReindexArgs{Run: claim.Run, Identity: configured},
 			&river.InsertOpts{MaxAttempts: embedReindexMaxAttempts})
 	})
 	if errors.Is(err, search.ErrReembeddingInFlight) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
 			Code:   "reindex_running",
-			Detail: "a fleet-wide reindex is already running",
+			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for an hour",
 		})
 		return
 	}

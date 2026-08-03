@@ -128,14 +128,13 @@ func TestSeedBindingIsIdempotentAndConcurrentSafe(t *testing.T) {
 	}
 }
 
-// TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity proves what
-// makes the marker busy. The claim's dispatcher completes as soon as it has
-// fanned the fleet out, so "some job of this kind is still active" stops being
-// true long before the run is over: the run's target identity is what has to
-// refuse the second claim, and it is refused by name (ErrReembeddingInFlight)
-// rather than by a bare zero row count that could equally mean an unseeded
-// marker.
-func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity(t *testing.T) {
+// TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun proves what makes the
+// marker busy. The claim's dispatcher completes as soon as it has fanned the
+// fleet out, so "some job of this kind is still active" stops being true long
+// before the run is over: the run holding the marker is what has to refuse the
+// second claim, and it is refused by name (ErrReembeddingInFlight) rather than
+// by a bare zero row count that could equally mean an unseeded marker.
+func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRun(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	const identity = "fake/claim@1024"
@@ -144,7 +143,7 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity(t *testing.T)
 	}
 
 	var ran bool
-	err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
+	err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
@@ -163,7 +162,7 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity(t *testing.T)
 	}
 
 	ran = false
-	err = e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
+	err = e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		ran = true
 		return nil
 	})
@@ -178,7 +177,7 @@ func TestClaimAndEnqueueReembeddingIsSingleFlightOnTheRunsIdentity(t *testing.T)
 	// the marker: the two answer different status codes, so they must not
 	// collapse into one error.
 	fresh := setupSearch(t)
-	err = fresh.store.ClaimAndEnqueueReembedding(ctx, identity, func(pgx.Tx) error { return nil })
+	err = fresh.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil })
 	if !errors.Is(err, search.ErrBindingNotSeeded) {
 		t.Fatalf("claim against an unseeded marker = %v, want ErrBindingNotSeeded", err)
 	}
@@ -193,7 +192,7 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 	}
 
 	enqueueErr := errors.New("enqueue exploded")
-	err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(tx pgx.Tx) error {
+	err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(tx pgx.Tx) error {
 		return enqueueErr
 	})
 	if !errors.Is(err, enqueueErr) {
@@ -212,23 +211,22 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 }
 
 // TestReleaseReembeddingOnlyEverActsOnItsOwnRun proves the release is fenced on
-// the identity the run claimed under: a release quoting some other identity —
-// a job row left over from a run that already ended — must not hand away a
-// marker the current run is still holding, and must not stamp the store
-// populated under a model nothing re-embedded it with.
+// the run that claimed the marker: a release quoting some other run — a job row
+// left over from a run that already ended — must not hand away a marker the
+// current run is still holding, and must not stamp the store populated under a
+// model nothing re-embedded it with.
 func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
 	const original = "fake/orig@1024"
 	const claimed = "fake/claimed@1024"
-	const stranger = "fake/stranger@1024"
 	if err := e.store.SeedBinding(ctx, original); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
 	// Releasing while no run holds the marker must be a no-op: nothing was
 	// claimed, so nothing should read populated under a never-run job's identity.
-	if err := e.store.ReleaseReembedding(ctx, claimed); err != nil {
+	if err := e.store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
 		t.Fatalf("ReleaseReembedding with no run in flight: %v", err)
 	}
 	populated, status, _, err := e.store.PopulatedIdentity(ctx)
@@ -239,21 +237,22 @@ func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 		t.Fatalf("releasing an unclaimed marker must no-op, got populated=%q status=%q", populated, status)
 	}
 
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimed, func(tx pgx.Tx) error { return nil }); err != nil {
+	run := ids.NewV7()
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, search.ReembedClaim{Run: run, TargetIdentity: claimed}, func(tx pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
-	if err := e.store.ReleaseReembedding(ctx, stranger); err != nil {
-		t.Fatalf("ReleaseReembedding under a stranger identity: %v", err)
+	if err := e.store.ReleaseReembedding(ctx, ids.NewV7()); err != nil {
+		t.Fatalf("ReleaseReembedding under a run that does not hold the marker: %v", err)
 	}
 	populated, status, _, err = e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
 	if populated != original || status != "reembedding" {
-		t.Fatalf("a stranger run released the live claim: populated=%q status=%q", populated, status)
+		t.Fatalf("a run that does not hold the marker released it: populated=%q status=%q", populated, status)
 	}
 
-	if err := e.store.ReleaseReembedding(ctx, claimed); err != nil {
+	if err := e.store.ReleaseReembedding(ctx, run); err != nil {
 		t.Fatalf("ReleaseReembedding from the claiming run: %v", err)
 	}
 	populated, status, _, err = e.store.PopulatedIdentity(ctx)

@@ -23,14 +23,14 @@ import (
 var ErrBindingNotSeeded = errors.New("search: embed store binding marker not seeded")
 
 // ErrReembeddingInFlight refuses a claim while another run still holds the
-// marker. The run's target identity IS the claim — it is set and cleared with
-// the status — so a second confirm is refused by the marker itself rather than
-// by whether some job row happens to still be active.
+// marker. The run id IS the claim — it is set and cleared with the status — so a
+// second confirm is refused by the marker itself rather than by whether some job
+// row happens to still be active.
 var ErrReembeddingInFlight = errors.New("search: a fleet-wide reembed already holds the binding marker")
 
-// ErrReembeddingSuperseded marks a run acting on a marker that no longer names
-// its identity: the run it belongs to released the marker already. Its work is
-// a later generation's to do, so the caller stops rather than retries.
+// ErrReembeddingSuperseded marks a job acting on a marker that no longer names
+// its run, or that its run has already fanned out. Either way the work is not
+// this row's to do, so the caller stops rather than retries.
 var ErrReembeddingSuperseded = errors.New("search: the reembed run no longer holds the binding marker")
 
 // pendingSource mirrors one embedText entry (embedgen.go:35-41) rewritten
@@ -77,8 +77,9 @@ func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) erro
 
 // PopulatedIdentity is the one-PK read /readyz uses (Task 17): the marker's
 // own view of what the store is populated under, the job lifecycle status,
-// and when that status last changed (updatedAt — the figure a stuck-
-// "reembedding" recovery affordance shows a human as "reindexing since").
+// and when the run last moved (updatedAt — what a human is shown as
+// "reindexing since", and the age ReembedClaim.StealAfter measures to let a
+// forced confirm take a marker back off a run that stopped moving).
 // It never joins the live entity scan — that cost belongs to the ops
 // status endpoint, not the readiness probe.
 func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status string, updatedAt time.Time, err error) {
@@ -112,17 +113,41 @@ func (s *Store) ReindexNeeded(ctx context.Context, configuredIdentity string) (b
 	return pending > 0, nil
 }
 
-// ClaimAndEnqueueReembedding claims the marker for a run targeting
-// targetIdentity and runs the caller's enqueue in ONE raw-pool transaction
-// (the store-owned-tx + callback shape, compose/deepreadtransport.go:97-107):
-// if enqueue errors the whole transaction rolls back, so the claim can never
-// outlive a job that was never actually queued.
+// ReembedClaim is one attempt to take the marker for a new run.
+type ReembedClaim struct {
+	// Run identifies this run for the whole of its life. It is what every later
+	// write fences on, because the identity cannot: a forced rebuild re-runs
+	// deliberately under the SAME identity, so a straggler of a finished run
+	// would otherwise still match the marker of the run that replaced it and
+	// could release a run whose own children are still working.
+	Run ids.UUID
+	// TargetIdentity is the embed binding the run re-embeds under, stamped onto
+	// populated_identity when the run releases.
+	TargetIdentity string
+	// StealAfter takes the marker from a run whose last movement is older than
+	// this. The release is not airtight and cannot be: River discards a job
+	// rescued past its attempts WITHOUT running it, an externally cancelled job
+	// never reaches its own terminal branch, and either leaves a workspace in
+	// the pending set with nothing left to take it out — a marker held forever
+	// and no job anywhere to explain why. So a human keeps a way back. It is
+	// safe by construction rather than by timing: the stolen run's stragglers
+	// carry its Run, which the marker no longer names, so they act on nothing.
+	//
+	// Zero never steals, which is what an ordinary confirm passes.
+	StealAfter time.Duration
+}
+
+// ClaimAndEnqueueReembedding claims the marker for claim's run and runs the
+// caller's enqueue in ONE raw-pool transaction (the store-owned-tx + callback
+// shape, compose/deepreadtransport.go:97-107): if enqueue errors the whole
+// transaction rolls back, so the claim can never outlive a job that was never
+// actually queued.
 //
-// The claim is single-flight because it fires only on a marker holding NO run
-// identity. That is the whole of it: a run's dispatcher completes in
-// milliseconds once it has fanned out, so "is some job still active" would stop
-// answering the question long before the run is over.
-func (s *Store) ClaimAndEnqueueReembedding(ctx context.Context, targetIdentity string, enqueue func(tx pgx.Tx) error) error {
+// The claim is single-flight because it fires only on a marker no run holds (or
+// one abandoned for longer than StealAfter). That is the whole of it: a run's
+// dispatcher completes in milliseconds once it has fanned out, so "is some job
+// still active" would stop answering the question long before the run is over.
+func (s *Store) ClaimAndEnqueueReembedding(ctx context.Context, claim ReembedClaim, enqueue func(tx pgx.Tx) error) error {
 	// rls-exempt: deployment metadata, no workspace_id — the CAS and the
 	// job enqueue share one non-tenant transaction so a rolled-back enqueue
 	// always undoes the claim; WithInfraTx is the platform's cross-tenant
@@ -130,8 +155,11 @@ func (s *Store) ClaimAndEnqueueReembedding(ctx context.Context, targetIdentity s
 	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE embed_store_binding
-			SET status = 'reembedding', reembedding_identity = $1, reembedding_pending = '{}', updated_at = now()
-			WHERE reembedding_identity IS NULL`, targetIdentity)
+			SET status = 'reembedding', reembedding_run = $1, reembedding_identity = $2,
+			    reembedding_pending = '{}', updated_at = now()
+			WHERE reembedding_run IS NULL
+			   OR ($3 > 0 AND updated_at < now() - make_interval(secs => $3))`,
+			claim.Run, claim.TargetIdentity, claim.StealAfter.Seconds())
 		if err != nil {
 			return fmt.Errorf("search: claiming reembedding: %w", err)
 		}
@@ -158,19 +186,23 @@ func refusedClaimReason(ctx context.Context, tx pgx.Tx) error {
 	return ErrReembeddingInFlight
 }
 
-// SeedReembeddingFleet records the workspaces the run targeting targetIdentity
-// must still cover and runs the caller's enqueue in the SAME transaction, so a
-// fan-out that failed to insert leaves no half-seeded set behind for the next
-// attempt to double-count.
+// SeedReembeddingFleet records the workspaces run must still cover and runs the
+// caller's enqueue in the SAME transaction, so a fan-out that failed to insert
+// leaves no half-seeded set behind for the next attempt to double-count.
 //
-// A marker that no longer names targetIdentity belongs to a later run, so the
-// seed is refused (ErrReembeddingSuperseded) and the enqueue never happens.
-func (s *Store) SeedReembeddingFleet(ctx context.Context, targetIdentity string, workspaces []ids.WorkspaceID, enqueue func(tx pgx.Tx) error) error {
+// It seeds ONCE: the marker must still name run AND still hold an empty set.
+// Because the seed and the enqueue commit together, a non-empty set means this
+// run's children are already queued, so a retried dispatcher re-seeding would
+// put back workspaces whose children have since finished — children a ByArgs
+// unique-skip may then decline to re-enqueue, leaving those workspaces in the
+// set with nothing left to take them out. Either refusal is
+// ErrReembeddingSuperseded, and the enqueue never happens.
+func (s *Store) SeedReembeddingFleet(ctx context.Context, run ids.UUID, workspaces []ids.WorkspaceID, enqueue func(tx pgx.Tx) error) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE embed_store_binding SET reembedding_pending = $2, updated_at = now()
-			WHERE reembedding_identity = $1`, targetIdentity, workspaces)
+			WHERE reembedding_run = $1 AND cardinality(reembedding_pending) = 0`, run, workspaces)
 		if err != nil {
 			return fmt.Errorf("search: seeding the reembedding fleet: %w", err)
 		}
@@ -181,25 +213,26 @@ func (s *Store) SeedReembeddingFleet(ctx context.Context, targetIdentity string,
 	})
 }
 
-// FinishWorkspaceReembedding takes workspace out of the pending set of the run
-// targeting targetIdentity, and releases the marker when it was the last one
-// outstanding. Every terminal outcome a workspace can reach — re-embedded,
-// cancelled on drift, or out of attempts — is a workspace this run will not
-// come back to, so all of them arrive here.
+// FinishWorkspaceReembedding takes workspace out of run's pending set, and
+// releases the marker when it was the last one outstanding. Every terminal
+// outcome a workspace can reach — re-embedded, cancelled on drift, or out of
+// attempts — is a workspace this run will not come back to, so all of them
+// arrive here.
 //
 // Removal is idempotent (array_remove of an absent element changes nothing), so
-// a retried job is harmless; and it is fenced on the run's identity, so a
-// workspace belonging to a run that has already released matches no row and
-// leaves the current run's set alone.
-func (s *Store) FinishWorkspaceReembedding(ctx context.Context, targetIdentity string, workspace ids.WorkspaceID) error {
+// a retried job is harmless; and it is fenced on the RUN, so a workspace
+// belonging to a run that has already released matches no row and leaves the
+// current run's set alone — which the target identity could not do, since a
+// forced rebuild re-runs under the same one.
+func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, workspace ids.WorkspaceID) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var remaining int
 		err := tx.QueryRow(ctx, `
 			UPDATE embed_store_binding
 			SET reembedding_pending = array_remove(reembedding_pending, $2), updated_at = now()
-			WHERE reembedding_identity = $1
-			RETURNING cardinality(reembedding_pending)`, targetIdentity, workspace).Scan(&remaining)
+			WHERE reembedding_run = $1
+			RETURNING cardinality(reembedding_pending)`, run, workspace).Scan(&remaining)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -209,30 +242,33 @@ func (s *Store) FinishWorkspaceReembedding(ctx context.Context, targetIdentity s
 		if remaining > 0 {
 			return nil
 		}
-		return releaseReembeddingTx(ctx, tx, targetIdentity)
+		return releaseReembeddingTx(ctx, tx, run)
 	})
 }
 
-// ReleaseReembedding hands the marker back from the run targeting
-// targetIdentity and stamps it populated under that identity. It writes the
-// RUN's identity, never the live config — a run finishing under a binding the
-// operator has since changed must not stamp the marker as if the new config
-// were populated.
-func (s *Store) ReleaseReembedding(ctx context.Context, targetIdentity string) error {
+// ReleaseReembedding hands the marker back from run and stamps the store
+// populated under what that run targeted. It is refused while the run still has
+// a workspace outstanding, so a caller that failed before it fanned out cannot
+// take the marker away from children that are already working.
+func (s *Store) ReleaseReembedding(ctx context.Context, run ids.UUID) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return releaseReembeddingTx(ctx, tx, targetIdentity)
+		return releaseReembeddingTx(ctx, tx, run)
 	})
 }
 
-// releaseReembeddingTx is the one spelling of the release, fenced on the run's
-// own identity so a marker held by a later run is left alone.
-func releaseReembeddingTx(ctx context.Context, tx pgx.Tx, targetIdentity string) error {
+// releaseReembeddingTx is the one spelling of the release, fenced on the run so
+// a marker held by a later run is left alone. populated_identity takes the RUN's
+// target, never the live config — Postgres evaluates the assignment against the
+// pre-update row — because a run finishing under a binding the operator has
+// since changed must not stamp the marker as if the new config were populated.
+func releaseReembeddingTx(ctx context.Context, tx pgx.Tx, run ids.UUID) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE embed_store_binding
-		SET populated_identity = $1, status = 'idle',
-		    reembedding_identity = NULL, reembedding_pending = '{}', updated_at = now()
-		WHERE reembedding_identity = $1`, targetIdentity)
+		SET populated_identity = reembedding_identity, status = 'idle',
+		    reembedding_run = NULL, reembedding_identity = NULL,
+		    reembedding_pending = '{}', updated_at = now()
+		WHERE reembedding_run = $1 AND cardinality(reembedding_pending) = 0`, run)
 	if err != nil {
 		return fmt.Errorf("search: releasing the reembedding marker: %w", err)
 	}

@@ -13,6 +13,7 @@ package integration
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ type reembedFleetEnv struct {
 	*searchEnv
 	embedder search.Embedder
 	identity string
+	run      ids.UUID
 }
 
 // setupReembedFleet seeds the marker, claims a run under the fake embed lane's
@@ -45,10 +47,12 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 	if err := e.store.SeedBinding(ctx, identity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, identity, func(pgx.Tx) error { return nil }); err != nil {
+	run := ids.NewV7()
+	if err := e.store.ClaimAndEnqueueReembedding(ctx,
+		search.ReembedClaim{Run: run, TargetIdentity: identity}, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("claiming the run: %v", err)
 	}
-	return &reembedFleetEnv{searchEnv: e, embedder: embedder, identity: identity}
+	return &reembedFleetEnv{searchEnv: e, embedder: embedder, identity: identity, run: run}
 }
 
 // TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
@@ -82,7 +86,7 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 		TimeScanInterval:  time.Hour,
 		Embedder:          re.embedder,
 	})
-	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Identity: re.identity}, nil); err != nil {
+	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Run: re.run, Identity: re.identity}, nil); err != nil {
 		t.Fatalf("enqueueing the run's dispatcher: %v", err)
 	}
 
@@ -126,6 +130,47 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	}
 }
 
+// TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun wires the store's escape
+// hatch to the surface a human actually has. Nothing else clears the marker: a
+// restart does not (SeedBinding is ON CONFLICT DO NOTHING), and the release
+// cannot be made airtight — River discards a job rescued past its attempts
+// WITHOUT running it, so a child killed outright never takes its workspace out of
+// the run's set. Without this, that installation answers 409 to every reindex
+// forever. `force` on its own must NOT steal, or the escape hatch becomes the
+// normal path and two runs fan out over each other.
+func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
+	router := embedReindexRouter(t, "reindex-wedged-v1")
+	e := setupEmbedReindex(t, router)
+
+	if status, _, _ := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+		t.Fatalf("first confirm -> %d, want 202", status)
+	}
+	// A forced confirm while the run is genuinely moving must still be refused:
+	// the marker was claimed a moment ago, so nothing here is stale.
+	if status, _, problem := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusConflict || problem.Code != "reindex_running" {
+		t.Fatalf("forced confirm over a live run -> %d %+v, want 409 reindex_running", status, problem)
+	}
+
+	// The run's only child was killed outright: its workspace never left the set
+	// and the marker has not moved since. Aged rather than waited out — a suite
+	// that waited an hour is a suite nobody runs.
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
+		t.Fatalf("ageing the wedged marker: %v", err)
+	}
+
+	if status, _, problem := embedConfirm(t, e, nil); status != http.StatusConflict || problem.Code != "reindex_running" {
+		t.Fatalf("bare confirm over a wedged marker -> %d %+v, want 409 — taking a run's marker away is something a human asks for", status, problem)
+	}
+	status, confirmed, problem := embedConfirm(t, e, anyMap{"force": true})
+	if status != http.StatusAccepted {
+		t.Fatalf("forced confirm over a wedged marker -> %d %+v, want 202 — an installation with no way back answers 409 forever", status, problem)
+	}
+	if confirmed.Status != "reembedding" {
+		t.Fatalf("status after taking the marker over = %q, want reembedding", confirmed.Status)
+	}
+}
+
 // TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack pins the one path
 // with no child to release the marker. A deployment whose only workspace is
 // archived has nothing to re-embed, and a run that claimed the marker and then
@@ -144,7 +189,7 @@ func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) 
 		TimeScanInterval:  time.Hour,
 		Embedder:          re.embedder,
 	})
-	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Identity: re.identity}, nil); err != nil {
+	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Run: re.run, Identity: re.identity}, nil); err != nil {
 		t.Fatalf("enqueueing the run's dispatcher: %v", err)
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

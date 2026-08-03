@@ -184,9 +184,9 @@ func seedStaleEmbeddingRow(t *testing.T, e *env, wsID string) {
 
 // newEmbedReindexRunner builds (but does not start) the real worker-role
 // River runner over embedder — compose.NewJobRunner exactly as
-// cmd/worker wires it, so the embed_reindex job that runs here is the
+// cmd/worker wires it, so the reindex jobs that run here are the
 // same code the production worker binary runs, not a hand-called
-// ReembedCorpus standing in for it. The three always-on periodic passes
+// store pass standing in for it. The three always-on periodic passes
 // are given a long interval so they don't interleave noise into this
 // suite's completion/cancellation stream.
 func newEmbedReindexRunner(t *testing.T, e *env, embedder search.Embedder) *jobs.Runner {

@@ -248,15 +248,16 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 	}
 	second := seedExtraWorkspace(t, e.owner, "reembed-marker", false)
 
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, target, func(pgx.Tx) error { return nil }); err != nil {
+	run := claimOf(target)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, run, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
 	}
 	fleet := []ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS), ids.From[ids.WorkspaceKind](second)}
-	if err := e.store.SeedReembeddingFleet(ctx, target, fleet, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.store.SeedReembeddingFleet(ctx, run.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("SeedReembeddingFleet: %v", err)
 	}
 
-	if err := e.store.FinishWorkspaceReembedding(ctx, target, fleet[0]); err != nil {
+	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("finishing the first workspace: %v", err)
 	}
 	got, status, _, err := e.store.PopulatedIdentity(ctx)
@@ -269,7 +270,7 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 
 	// Idempotent: the same workspace reporting twice (a retried job) must not
 	// count as the second workspace and release early.
-	if err := e.store.FinishWorkspaceReembedding(ctx, target, fleet[0]); err != nil {
+	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("re-finishing the first workspace: %v", err)
 	}
 	_, status, _, err = e.store.PopulatedIdentity(ctx)
@@ -280,7 +281,7 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 		t.Fatalf("marker = %q after ONE workspace reported twice, want reembedding", status)
 	}
 
-	if err := e.store.FinishWorkspaceReembedding(ctx, target, fleet[1]); err != nil {
+	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[1]); err != nil {
 		t.Fatalf("finishing the last workspace: %v", err)
 	}
 	got, status, _, err = e.store.PopulatedIdentity(ctx)
@@ -293,10 +294,10 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 
 	// A straggler from the released run must find nothing to act on rather
 	// than re-releasing a marker a later run may hold by then.
-	if err := e.store.FinishWorkspaceReembedding(ctx, target, fleet[0]); err != nil {
+	if err := e.store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
 		t.Fatalf("a straggler of a released run must be a no-op, got: %v", err)
 	}
-	if err := e.store.ClaimAndEnqueueReembedding(ctx, target, func(pgx.Tx) error { return nil }); err != nil {
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(target), func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("the released marker must be claimable again: %v", err)
 	}
 }
