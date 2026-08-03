@@ -62,7 +62,12 @@ import {
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
 import { TimelineActions } from "./compose";
-import { CreateAction, type CreateField, type FormRows } from "./create";
+import {
+  CreateAction,
+  type CreateField,
+  type FormRows,
+  splitMultiselectValue,
+} from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
@@ -114,6 +119,32 @@ const CLASSIFICATION_LABELS: Record<Classification, MessageKey> = {
   partner: "org.class.partner",
   competitor: "org.class.competitor",
   other: "org.class.other",
+};
+
+// Where the account stands with us, and what it is to us (ADR-0079/A124).
+// Typed against the schema unions, so a value added upstream fails the build
+// here rather than reaching a reader as a raw enum.
+type Lifecycle = NonNullable<Organization["lifecycle"]>;
+type RelationshipType = NonNullable<Organization["relationship_types"]>[number];
+
+const LIFECYCLE_LABELS: Record<Lifecycle, MessageKey> = {
+  unknown: "org.lifecycle.unknown",
+  target: "org.lifecycle.target",
+  prospect: "org.lifecycle.prospect",
+  opportunity: "org.lifecycle.opportunity",
+  customer: "org.lifecycle.customer",
+  former_customer: "org.lifecycle.former_customer",
+  disqualified: "org.lifecycle.disqualified",
+};
+
+const RELATIONSHIP_TYPE_LABELS: Record<RelationshipType, MessageKey> = {
+  customer: "org.relType.customer",
+  partner: "org.relType.partner",
+  supplier: "org.relType.supplier",
+  investor: "org.relType.investor",
+  portfolio_company: "org.relType.portfolio_company",
+  competitor: "org.relType.competitor",
+  other: "org.relType.other",
 };
 type CreateOrganizationRequest =
   components["schemas"]["CreateOrganizationRequest"];
@@ -269,6 +300,21 @@ export function mapOrgUpdate(
   if (!sameDomainSet(desired, current)) {
     body.domains = desired;
   }
+  const lifecycle = stringField(values.lifecycle).trim();
+  if (lifecycle) {
+    body.lifecycle = lifecycle as NonNullable<
+      UpdateOrganizationRequest["lifecycle"]
+    >;
+  }
+  // Always sent when the field was rendered, even empty: this is a replace-set,
+  // and "the user cleared every type" is an edit, not an absence. The form
+  // channel joins a multiselect into one comma string, so an empty string is
+  // the honest empty set.
+  if (values.relationship_types !== undefined) {
+    body.relationship_types = splitMultiselectValue(
+      stringField(values.relationship_types),
+    ) as NonNullable<UpdateOrganizationRequest["relationship_types"]>;
+  }
   return body;
 }
 
@@ -300,6 +346,29 @@ const companyCreateFields: CreateField[] = [
 // proposals — so a select for it would collect an answer and drop it. The
 // badge names the value; changing it needs a contract that does not exist
 // yet (raised in STATUS.md).
+// The two vocabularies that replaced classification (ADR-0079/A124): where the
+// account stands with us, and what it is to us. Kept in wire order so the
+// select reads as a progression rather than an alphabet.
+export const LIFECYCLE_OPTIONS = [
+  "unknown",
+  "target",
+  "prospect",
+  "opportunity",
+  "customer",
+  "former_customer",
+  "disqualified",
+] as const;
+
+export const RELATIONSHIP_TYPE_OPTIONS = [
+  "customer",
+  "partner",
+  "supplier",
+  "investor",
+  "portfolio_company",
+  "competitor",
+  "other",
+] as const;
+
 export function companyEditFields(
   owners: readonly { id: string; display_name: string }[],
   hasOwner: boolean,
@@ -332,6 +401,27 @@ export function companyEditFields(
       options: owners.map((user) => ({
         value: user.id,
         label: user.display_name,
+      })),
+    },
+    // Where the account stands, and what it is to us — the two questions the
+    // retired classification tried to answer with one value, and the reason
+    // neither was editable from this page at all.
+    {
+      key: "lifecycle",
+      label: "org.lifecycle",
+      type: "select",
+      options: LIFECYCLE_OPTIONS.map((value) => ({
+        value,
+        label: LIFECYCLE_LABELS[value],
+      })),
+    },
+    {
+      key: "relationship_types",
+      label: "org.relationshipTypes",
+      type: "multiselect",
+      options: RELATIONSHIP_TYPE_OPTIONS.map((value) => ({
+        value,
+        label: RELATIONSHIP_TYPE_LABELS[value],
       })),
     },
     {
@@ -1333,11 +1423,19 @@ function CompanyActionBadges({
   const writable = !org.archived_at;
   return (
     <>
-      {org.classification && (
-        <span title={t("org.class.explain")}>
-          <Badge>{t(CLASSIFICATION_LABELS[org.classification])}</Badge>
-        </span>
+      {/* Where the account stands, then what it is to us. Two badges, because
+          they answer two questions — the retired classification held one value
+          and so could answer only one, which is how an account whose contract
+          had ended still read as "Prospect". `unknown` is not drawn: a badge
+          saying nobody has assessed this yet is noise on every new record. */}
+      {org.lifecycle && org.lifecycle !== "unknown" && (
+        <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
       )}
+      {(org.relationship_types ?? []).map((relType) => (
+        <Badge key={relType} tone="accent">
+          {t(RELATIONSHIP_TYPE_LABELS[relType])}
+        </Badge>
+      ))}
       {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
       {/* An archived record read from a mirror offers nothing at all: every
           write is refused and the history is a native read the mirror has no

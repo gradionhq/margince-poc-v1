@@ -480,6 +480,24 @@ export const de = {
   "org.classification": "Typ",
   // Nur dort angeboten, wo es noch kein Partnerprogramm gibt: der Tab mit dem
   // Formular erscheint erst, wenn eines besteht — so entsteht das erste.
+  // Wo der Account bei uns steht, und was er für uns ist — die zwei Fragen,
+  // die die abgelöste Einstufung mit einem Wert beantworten wollte.
+  "org.lifecycle": "Phase",
+  "org.relationshipTypes": "Beziehung zu uns",
+  "org.lifecycle.unknown": "Nicht eingeschätzt",
+  "org.lifecycle.target": "Zielkunde",
+  "org.lifecycle.prospect": "Interessent",
+  "org.lifecycle.opportunity": "Chance",
+  "org.lifecycle.customer": "Kunde",
+  "org.lifecycle.former_customer": "Ehemaliger Kunde",
+  "org.lifecycle.disqualified": "Disqualifiziert",
+  "org.relType.customer": "Kunde",
+  "org.relType.partner": "Partner",
+  "org.relType.supplier": "Lieferant",
+  "org.relType.investor": "Investor",
+  "org.relType.portfolio_company": "Portfoliounternehmen",
+  "org.relType.competitor": "Wettbewerber",
+  "org.relType.other": "Sonstige",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.

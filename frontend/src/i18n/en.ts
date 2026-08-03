@@ -469,6 +469,24 @@ export const en = {
   "org.classification": "Type",
   // Offered only where there is no partner programme yet: the tab that holds
   // the form appears once one exists, so this is how the first one is made.
+  // Where the account stands with us, and what it is to us — the two
+  // questions the retired classification answered with one value.
+  "org.lifecycle": "Stage",
+  "org.relationshipTypes": "Relationship to us",
+  "org.lifecycle.unknown": "Not assessed",
+  "org.lifecycle.target": "Target",
+  "org.lifecycle.prospect": "Prospect",
+  "org.lifecycle.opportunity": "Opportunity",
+  "org.lifecycle.customer": "Customer",
+  "org.lifecycle.former_customer": "Former customer",
+  "org.lifecycle.disqualified": "Disqualified",
+  "org.relType.customer": "Customer",
+  "org.relType.partner": "Partner",
+  "org.relType.supplier": "Supplier",
+  "org.relType.investor": "Investor",
+  "org.relType.portfolio_company": "Portfolio company",
+  "org.relType.competitor": "Competitor",
+  "org.relType.other": "Other",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
