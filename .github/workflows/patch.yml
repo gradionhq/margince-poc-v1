@@ -20,6 +20,9 @@ on:
 
 permissions:
   contents: read
+  # Pull the private release-management image from ghcr.io with the default
+  # GITHUB_TOKEN.
+  packages: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,9 +30,8 @@ concurrency:
 
 env:
   # The release-management CLI image, published :latest from constellation's
-  # main (gradionhq/margince-constellation). It is private, so the pull
-  # authenticates with a PAT carrying read:packages (secret GHCR_PULL_TOKEN);
-  # the default GITHUB_TOKEN only reads this repository's own packages.
+  # main (gradionhq/margince-constellation). The pull authenticates with the
+  # job's default GITHUB_TOKEN (packages: read).
   RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
 
 jobs:
@@ -45,7 +47,7 @@ jobs:
           fetch-depth: 0
       - name: Log in to ghcr.io
         env:
-          GHCR_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       - name: Create the patch for what landed on main
