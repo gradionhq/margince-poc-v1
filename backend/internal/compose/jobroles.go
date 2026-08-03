@@ -12,6 +12,7 @@ package compose
 import "github.com/gradionhq/margince/backend/internal/platform/jobs"
 
 var (
+	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}
 	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
@@ -43,6 +44,7 @@ var (
 )
 
 var (
+	_ jobs.FleetWide = AgentSchedulerArgs{}
 	_ jobs.FleetWide = CaptureAutoEnrichSweepArgs{}
 	_ jobs.FleetWide = CaptureClassifyArgs{}
 	_ jobs.FleetWide = CaptureDigestArgs{}

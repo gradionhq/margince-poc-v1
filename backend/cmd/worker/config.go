@@ -76,7 +76,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
-	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
+	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
@@ -145,9 +145,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 }
 
 // validateSchedulerIntervals rejects a non-positive value for any duration
-// that becomes a time.Ticker period or a River periodic schedule: a
-// time.Ticker panics on a non-positive duration, and a non-positive River
-// interval continuously reschedules its maintenance job. These are strictly
+// that becomes a River periodic schedule. River refuses none of them:
+// PeriodicInterval(0) yields Next(t) == t, so the enqueuer re-derives a run
+// time that never advances and fires as fast as Postgres accepts an insert,
+// and compose reads a non-positive interval as "no cadence given" and
+// registers no schedule at all — a role that meant to sweep silently never
+// would. Both readings are wrong for an operator's dial. These are strictly
 // scheduling PERIODS. Two duration flags are deliberately NOT in this set:
 // gmail-watch-renew-within is a renewal THRESHOLD (a lead time —
 // time.Now().Add(within) in DueWatches), so zero validly means "renew

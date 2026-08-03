@@ -81,9 +81,12 @@ type JobRunnerConfig struct {
 	PrivacyRetention PrivacyRetentionConfig
 	// WebhookRetry: the retry dispatcher's cadence and its delivery engine
 	// (jobs_webhookretry.go).
-	WebhookRetry  WebhookRetryConfig
-	GmailRegistry *capture.Registry
-	GmailWatch    GmailWatchConfig
+	WebhookRetry WebhookRetryConfig
+	// AgentScheduler: the Surface-B dispatcher's cadence and the runner one
+	// workspace's pass ticks (jobs_agentscheduler.go).
+	AgentScheduler AgentSchedulerConfig
+	GmailRegistry  *capture.Registry
+	GmailWatch     GmailWatchConfig
 	// ChannelVault is the custodian of a channel connection's sealed bot token.
 	// Nil means this role registers no Telegram poller at all: a poll cannot
 	// authenticate without the token, so a dispatcher wired without a vault
@@ -305,6 +308,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
 	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
 	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
+	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
+	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})
@@ -469,6 +474,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// does not control: long and outbound-bound, so the same posture
 			// deep reads take (webhookRetryQueue).
 			webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
+			// A batch of agent runs, each entitled to the full RunWallClock —
+			// the longest pass in the tree (agentSchedulerQueue).
+			agentSchedulerQueue: {MaxWorkers: agentSchedulerMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

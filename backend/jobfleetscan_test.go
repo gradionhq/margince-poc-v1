@@ -65,10 +65,6 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 		2,
 		"the dispatch enumerations: all-live workspaces, and the archived-inclusive one the retention passes need because archiving does not un-store the data inside a workspace. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
 	},
-	"internal/compose/runnerservice.go": {
-		1,
-		"the agent scheduler's own fleet pass, driven by a ticker rather than River — outside this phase's job layer",
-	},
 	"internal/modules/identity/installation.go": {
 		1,
 		"boot path: resolves the singleton organization and refuses to serve when a second exists (ADR-0061 §3) — it IS the workspace authority, not a consumer of it",

@@ -147,6 +147,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// cmd/api's relay group; a bare goroutine would be killed mid-handler
 	// when the relay returns.
 	var background sync.WaitGroup
+	// Declared out here because the job runner below schedules the SAME
+	// service the resume subscriber consumes into: one governed registry and
+	// one brain per role, never two that could drift apart.
+	var runnerSvc *compose.RunnerService
 	if modelPath.AgentLoop != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
 		// The Surface-B runner's agent tools reach overlay write-back through
@@ -157,10 +161,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if rverr != nil {
 			return rverr
 		}
-		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
-		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
-		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
-		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
+		runnerSvc = compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
+		_, _ = fmt.Fprintln(stdout, "worker resuming approved Surface-B runs (cg:overnight-agent)")
+		background.Go(func() { runResumeSubscriber(ctx, rdb, runnerSvc, logger) })
 	}
 	if modelPath.Embedder != nil {
 		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
@@ -211,7 +214,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", webhookDeliverer.HandleEvent, logger, 0) })
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, webhookDeliverer, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, webhookDeliverer, runnerSvc, stdout)
 	if err != nil {
 		return err
 	}
@@ -276,7 +279,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -323,6 +326,10 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// A nil deliverer (no --webhook-key) registers neither half.
 		WebhookRetry: compose.WebhookRetryConfig{
 			Interval: cfg.webhookRetryInterval, Deliverer: webhookDeliverer,
+		},
+		// A nil service (no declared model) registers neither half.
+		AgentScheduler: compose.AgentSchedulerConfig{
+			Interval: cfg.runnerInterval, Service: runnerSvc,
 		},
 		GmailRegistry: captureReg,
 		GmailWatch:    watchCfg,
@@ -431,21 +438,6 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil
-	}
-}
-
-func runScheduler(ctx context.Context, svc *compose.RunnerService, interval time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := svc.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Error("runner scheduler tick", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
 	}
 }
 

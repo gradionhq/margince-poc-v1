@@ -56,7 +56,14 @@ func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelP
 	if cfg.webhookKey != "" {
 		webhookNote = fmt.Sprintf("webhook retry every %s", cfg.webhookRetryInterval)
 	}
-	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, retention every %s, %s, %s, %s, %s, %s)",
+	// Gated on a declared model, and it must say so by name: without one the
+	// agent catalog is never seeded, so no morning brief and no at-risk sweep
+	// ever runs while every other lane in this line reads healthy.
+	schedulerNote := "agent scheduler off (no model path: no brief and no at-risk sweep will run — configure --ai-routing)"
+	if modelPath.AgentLoop != nil {
+		schedulerNote = fmt.Sprintf("agent scheduler every %s", cfg.runnerInterval)
+	}
+	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, retention every %s, %s, %s, %s, %s, %s, %s)",
 		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, cfg.retentionInterval,
-		captureNote, channelNote, overlayNote, deepReadNote, webhookNote)
+		captureNote, channelNote, overlayNote, deepReadNote, webhookNote, schedulerNote)
 }
