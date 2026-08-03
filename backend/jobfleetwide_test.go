@@ -77,8 +77,8 @@ const fleetWideDispatcherFloor = 20
 var fanOutHelpers = []string{"dispatchPerWorkspace", "dispatchWith"}
 
 // riverInsertMethods are the River client's own enqueue methods. They count as
-// a fan-out only alongside riverClientResolver, so a store method that happens
-// to be called Insert cannot satisfy this gate.
+// a fan-out only alongside riverClientResolverPrefix, so a store method that
+// happens to be called Insert cannot satisfy this gate.
 var riverInsertMethods = []string{"Insert", "InsertMany", "InsertManyTx"}
 
 // riverClientResolverPrefix is how a Work body gets hold of the River client it
