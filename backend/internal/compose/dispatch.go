@@ -13,6 +13,7 @@ package compose
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,11 +34,15 @@ func enumerateWorkspaces(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, e
 }
 
 // enumerateEveryWorkspace reads EVERY workspace, archived ones included —
-// unlike the passes that work on behalf of a live tenant. Archiving a
-// workspace does not un-store the snapshots inside it: skipping those rows
-// would keep subject data forever in exactly the workspaces nobody looks at
-// any more, and idempotency_key.workspace_id is ON DELETE RESTRICT, so the
-// leftovers would also refuse the eventual hard delete.
+// unlike the passes that work on behalf of a live tenant. Archiving a workspace
+// does not un-store the data inside it, and both retention passes fan out over
+// this enumeration for that reason.
+//
+// GDPR storage limitation does not pause because a tenant stopped logging in:
+// skipping archived rows would hold personal data past its retention floor in
+// exactly the workspaces nobody looks at any more. Idempotency claim retention
+// needs them for a second reason — idempotency_key.workspace_id is ON DELETE
+// RESTRICT, so leftover claims also refuse the eventual hard delete.
 func enumerateEveryWorkspace(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; retention reads every tenant, archived included, before any per-workspace tx exists.
 	rows, err := pool.Query(ctx, `SELECT id FROM workspace ORDER BY created_at`)
@@ -74,6 +79,32 @@ const (
 // because retryable is one of activeSweepStates, a backing-off job would
 // suppress the tick's own re-enqueue of that workspace until it discarded.
 const sweepWorkspaceMaxAttempts = 3
+
+// periodicWhenPositive is a dispatcher's schedule when interval is a cadence,
+// and NO entry at all when it is not. Every addXJobs helper that takes an
+// operator-set interval routes through it, so the reasoning below is stated
+// here rather than once per pass.
+//
+// A non-positive interval leaves the WORKERS registered and omits only the
+// SCHEDULE. The split is the point: the workers are a capability (a row an
+// earlier boot queued still gets worked, the posture the deep-read and
+// embed-reindex workers take) while the periodic entry is a cadence, and River
+// has no cadence to offer for a zero duration. It does not refuse one either —
+// PeriodicInterval(0) yields Next(t) == t, so the enqueuer re-derives a run time
+// that never advances and dispatches as fast as Postgres accepts an insert.
+// Absent by omission is the only honest reading of "no cadence given".
+//
+// Absent by omission is NOT allowed to reach a deployment that meant to run the
+// pass: every one of these flags carries a positive default and cmd/worker's
+// validateSchedulerIntervals refuses a non-positive one at boot. The omission
+// serves the callers that wire a runner for a few named passes and never meant
+// to run this one at all.
+func periodicWhenPositive(interval time.Duration, args func() (river.JobArgs, *river.InsertOpts), opts *river.PeriodicJobOpts) []*river.PeriodicJob {
+	if interval <= 0 {
+		return nil
+	}
+	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(interval), args, opts)}
+}
 
 // workspaceSweepOpts is the enqueue policy for one fanned-out workspace job.
 // A kind whose tick is slower than the ladder would run may take a larger

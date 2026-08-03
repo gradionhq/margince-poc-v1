@@ -36,11 +36,13 @@ into consent's handlers.
   **and** an unbounded row scope) gathers everything held about a person — channels, deals, leads,
   activities, attachments, consent + its proof log, raw capture, field origins — into one export
   package, itself audited (`action=export`).
-- **The nightly retention evaluator** (`RunRetention`, scheduled in `cmd/worker`, default every 24h) —
-  evaluates each workspace's enabled policies and applies the policy's single action to over-age
-  records, **one audited transaction per record**. `legal_hold` rows are never auto-acted, and an
-  activity is held transitively when any linked person/organization/deal is held. A policy whose scope
-  the engine doesn't understand is **skipped loudly**, never half-applied.
+- **The nightly retention evaluator** (`EvaluateWorkspace`, run as one River job per workspace off
+  the `privacy_retention` dispatcher in `cmd/worker`, default every 24h) — evaluates **one**
+  workspace's enabled policies and applies the policy's single action to over-age records, **one
+  audited transaction per record**, and a tenant whose pass fails fails its own job row.
+  `legal_hold` rows are never auto-acted, and an activity is held transitively when any linked
+  person/organization/deal is held. A policy whose scope the engine doesn't understand is
+  **skipped loudly**, never half-applied.
 
 ## The single-transaction cross-store exception
 
@@ -74,6 +76,6 @@ same-age note is erased).
 | Consent state + proof log | `internal/modules/consent/` (`consent_purpose`, `person_consent`, `consent_event`) |
 | Art. 17 erasure | `internal/modules/privacy/erasure.go` (`NewEraser`, `ErasePerson`) |
 | Art. 15 SAR | `internal/modules/privacy/sar.go` (`AssembleSAR`) |
-| Retention evaluator | `internal/modules/privacy/retention.go` (`RunRetention`), scheduled in `cmd/worker` |
+| Retention evaluator | `internal/modules/privacy/retention.go` (`EvaluateWorkspace`), fanned out per workspace by `internal/compose/jobs_privacyretention.go` in `cmd/worker` |
 | Cross-store ratification | `backend/tableownership_test.go` |
 | Jurisdiction packs | `internal/shared/ports/jurisdiction/`, `internal/modules/de/` |

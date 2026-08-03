@@ -190,12 +190,20 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		// No inline relay to stop unless --inline-relay wires one below.
 	}
 	if cfg.inlineRelay {
-		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, cfg.webhookRetryInterval, logger)
+		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, logger)
 		if err != nil {
 			return err
 		}
 		stopRelay = stop
 		opts = append(opts, busReady)
+		if cfg.webhookKey != "" {
+			// Say the half this role does NOT do, by name. The inline consumer
+			// makes first delivery attempts and parks the ones that fail; the
+			// retry sweep is a River periodic job and this role runs no runner,
+			// so an api-only installation never re-attempts a parked delivery
+			// and nothing else here would ever say so.
+			_, _ = fmt.Fprintln(stdout, "api webhook delivery inline (cg:webhooks first attempts); re-attempting a PARKED delivery needs cmd/worker")
+		}
 	}
 
 	// ONE resolution point: coldStartOptions, offerDraftOptions and the

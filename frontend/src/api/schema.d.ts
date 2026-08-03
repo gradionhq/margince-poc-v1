@@ -2282,7 +2282,9 @@ export interface paths {
          * The embed-store binding marker + the derived reindex-needed signal.
          * @description The deployment-level `embed_store_binding` marker (ADR-0068 design §5.6) plus a live
          *     per-workspace scan: `configured_identity` is the live embed binding's provider/model@dims
-         *     (Task 9); `populated_identity` is what the store's embeddings were last completed under.
+         *     (Task 9); `populated_identity` is the identity the last reindex run was RELEASED under —
+         *     a run releases once no workspace of it has an outcome left to reach, exhausted attempts
+         *     included, so it is not a claim that every workspace was re-embedded under it.
          *     `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
          *     true when the two identities differ or any live entity still lacks a current-identity
          *     embedding row. Read and the confirm route below are both admin/ops-only (the
@@ -5782,7 +5784,7 @@ export interface components {
         EmbedReindexStatus: {
             /** @description The live embed binding's provider/model@dims (Task 9). */
             configured_identity: string;
-            /** @description What the store's embeddings were last completed under (embed_store_binding.populated_identity). */
+            /** @description The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference. */
             populated_identity: string;
             /**
              * @description The marker's own job-lifecycle state (embed_store_binding.status).

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -14,51 +15,118 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// ErrIdentityDrift marks a ReembedCorpus call whose target identity
-// (argsIdentity, minted when the job was enqueued) no longer matches what
-// the embedder compose actually injects — an operator changed the live
-// embed binding config after enqueue. Task 15 maps this to
-// river.JobCancel rather than a retry: retrying would burn 25 attempts
+// ErrIdentityDrift marks a ReembedWorkspace call whose target identity
+// (ReembedPass.Identity, captured when the run was claimed) no longer matches
+// what the embedder compose actually injects — an operator changed the live
+// embed binding config after enqueue. The caller maps this to
+// river.JobCancel rather than a retry: retrying would burn attempts
 // against an identity nothing serves anymore, when what the fleet
 // actually needs is a NEW job enqueued under the CURRENT config.
 var ErrIdentityDrift = errors.New("search: embedder identity drifted from the job's target identity")
 
-// ReembedCorpus rebuilds the embedding corpus fleet-wide under
-// argsIdentity. It is resumable BY CONSTRUCTION, not by tracking its own
+// ReembedPass is one workspace's slice of a run: the run it reports its progress
+// to, the identity it must still be re-embedding under, and the clock that
+// progress reporting is paced by.
+type ReembedPass struct {
+	// Run is the claim this pass belongs to. Every marker write fences on it, so
+	// a pass that outlived its own run reports into nothing.
+	Run ids.UUID
+	// Identity is the embed binding captured when the run was claimed. It is
+	// compared against what the embedder reports NOW, and a mismatch is drift.
+	Identity string
+	// Now is the clock the progress pacing reads. Nil takes the wall clock,
+	// which is what the worker leaves it at; a suite pins it, because the
+	// alternative is a test that waits out a real interval.
+	Now func() time.Time
+}
+
+// ReembedWorkspace rebuilds one workspace's embedding corpus under
+// pass.Identity. It is resumable BY CONSTRUCTION, not by tracking its own
 // progress: UpsertEmbedding's content-hash + identity skip-compare
-// (embedding.go) makes a row already current under argsIdentity free to
+// (embedding.go) makes a row already current under that identity free to
 // revisit, so a crash, a retry, or a deliberate second run all cost
 // nothing for entities already done — this routine simply calls
 // UpsertEmbedding for every live entity every time and lets that
 // skip-compare decide what actually needs a model call.
-func (s *Store) ReembedCorpus(ctx context.Context, embedder Embedder, argsIdentity string) error {
+//
+// Every UpsertEmbedding error propagates as-is (fail-loud): the job row
+// carrying this workspace fails and is retried, rather than this routine
+// silently leaving a partially re-embedded corpus behind a green pass.
+//
+// It also reports its own progress onto the run's marker as it goes, because a
+// pass this long is otherwise indistinguishable from one that died: nothing else
+// moves the marker between the fan-out and the workspace finishing, and
+// ReembedClaim.StealAfter reads exactly that gap. Progress is reported BEFORE
+// each leg that cannot report from inside itself, never only after one has
+// completed — what that bounds, and the part of it nothing here can bound, is
+// stated on ReembedProgressStaleness.
+func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids.WorkspaceID, embedder Embedder) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
 	// embedder compose hands this call is always the CURRENT one, so a
-	// mismatch here means argsIdentity is stale. Finishing anyway would
-	// call CompleteReembedding and stamp populated_identity with an
-	// identity the store was never actually re-embedded under — a lie
-	// that would only surface later, as a ReindexNeeded that never fires.
-	if identity, _ := embedder.EmbedIdentity(); identity != argsIdentity {
+	// mismatch here means the pass's identity is stale. Re-embedding anyway
+	// would index this workspace under a model the run does not target, and the
+	// run would go on to stamp populated_identity over it.
+	if identity, _ := embedder.EmbedIdentity(); identity != pass.Identity {
 		return ErrIdentityDrift
 	}
-
-	workspaces, err := s.fleetWorkspaceIDs(ctx)
-	if err != nil {
-		return err
+	now := pass.Now
+	if now == nil {
+		now = time.Now
 	}
-	for _, wsID := range workspaces {
-		// system principal: re-embedding rebuilds an index over the WHOLE
-		// workspace, not one caller's row scope — the same posture as
-		// EmbedGen (embedgen.go:51-56) and pendingStats.
-		wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 
-		if err := s.reembedWorkspace(wsCtx, embedder); err != nil {
-			return fmt.Errorf("search: reembedding workspace %s: %w", wsID, err)
+	// system principal: re-embedding rebuilds an index over the WHOLE
+	// workspace, not one caller's row scope — the same posture as
+	// EmbedGen (embedgen.go:51-56) and pendingStats.
+	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
+
+	// note says the run is still working, and restarts the pacing from the write
+	// that just landed rather than from when the caller wished it had.
+	var noted time.Time
+	note := func() error {
+		if err := s.noteReembedProgress(ctx, pass.Run); err != nil {
+			return err
+		}
+		noted = now()
+		return nil
+	}
+
+	for entityType, src := range pendingSources {
+		// The marker is refreshed on BOTH sides of the scan, and the first of
+		// those notes is also the one that covers the start of the pass: nothing
+		// runs ahead of it. A scan materializes a whole entity table for the
+		// workspace and can take longer than the reporting interval on its own, so
+		// a pass that only reported after an entity finished would spend its
+		// dominant leg looking dead. The note before the scan is what the scan's
+		// own duration is measured from; the note after it is where the embed
+		// loop's pacing restarts.
+		if err := note(); err != nil {
+			return err
+		}
+		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
+		if err != nil {
+			return err
+		}
+		if err := note(); err != nil {
+			return err
+		}
+		for _, item := range items {
+			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
+				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
+			}
+			// Paced by the clock and not by a count of entities: an entity is not a
+			// unit of time, so a count would have to be divided by the slowest an
+			// entity can be. This carries the one upsert in flight when the interval
+			// elapses, whose wall time is the residual ReembedProgressStaleness
+			// states and nothing here can cap.
+			if now().Sub(noted) >= ReembedProgressStaleness {
+				if err := note(); err != nil {
+					return err
+				}
+			}
 		}
 	}
-
-	return s.CompleteReembedding(ctx, argsIdentity)
+	return nil
 }
 
 // liveEntity is one row selected for re-embedding: an id plus the exact
@@ -66,25 +134,6 @@ func (s *Store) ReembedCorpus(ctx context.Context, embedder Embedder, argsIdenti
 type liveEntity struct {
 	id   ids.UUID
 	text string
-}
-
-// reembedWorkspace re-embeds every live entity of every embeddable type
-// for the workspace bound in ctx. Every UpsertEmbedding error propagates
-// as-is (fail-loud): River retries the job rather than this routine
-// silently leaving a partially re-embedded corpus.
-func (s *Store) reembedWorkspace(ctx context.Context, embedder Embedder) error {
-	for entityType, src := range pendingSources {
-		items, err := s.liveEntitiesOf(ctx, entityType, src)
-		if err != nil {
-			return err
-		}
-		for _, item := range items {
-			if _, err := s.UpsertEmbedding(ctx, entityType, item.id, item.text, embedder); err != nil {
-				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
-			}
-		}
-	}
-	return nil
 }
 
 // liveEntitiesOf selects every live (non-archived) row's id and source

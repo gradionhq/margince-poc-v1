@@ -46,7 +46,7 @@ func (s *Store) SweepWorkspaceEmbeddingDrift(ctx context.Context, wsID ids.Works
 
 	// system principal: the sweep repairs an index over the WHOLE
 	// workspace, not one caller's row scope — the same posture as
-	// EmbedGen and ReembedCorpus.
+	// EmbedGen and ReembedWorkspace.
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
 	healed := 0
 	for entityType, src := range pendingSources {

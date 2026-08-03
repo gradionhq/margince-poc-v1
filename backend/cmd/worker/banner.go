@@ -16,7 +16,7 @@ import (
 
 // jobRunnerBanner names, for every lane, the configuration that enabled it or
 // the reason it is off.
-func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, vault keyvault.Vault) string {
+func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, vault keyvault.Vault, runnerSvc *compose.RunnerService) string {
 	gmailWired := cfg.gmailAppWired()
 	providers := "imap"
 	if gmailWired {
@@ -49,6 +49,25 @@ func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelP
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
-	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s, %s)",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, channelNote, overlayNote, deepReadNote)
+	// Gated on the signing key, and it must say so by name: an api that HAS the
+	// key still accepts subscriptions and parks failed deliveries, while a
+	// worker booted without it re-attempts none of them.
+	webhookNote := "webhook retry off (no --webhook-key: parked deliveries are NOT re-attempted)"
+	if cfg.webhookKey != "" {
+		webhookNote = fmt.Sprintf("webhook retry every %s", cfg.webhookRetryInterval)
+	}
+	// Read off the SERVICE, which is the value registration itself gates on
+	// (compose.AgentSchedulerConfig.Service) — not off the model path that
+	// happens to decide it today. A banner announcing a cadence on a worker
+	// that registered no scheduler is worse than no banner, and this line is
+	// the one place an operator looks. Without a service the agent catalog is
+	// never seeded, so no morning brief and no at-risk sweep ever runs while
+	// every other lane here reads healthy; say so by name.
+	schedulerNote := "agent scheduler off (no model path: no brief and no at-risk sweep will run — configure --ai-routing)"
+	if runnerSvc != nil {
+		schedulerNote = fmt.Sprintf("agent scheduler every %s", cfg.runnerInterval)
+	}
+	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, retention every %s, %s, %s, %s, %s, %s, %s)",
+		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, cfg.retentionInterval,
+		captureNote, channelNote, overlayNote, deepReadNote, webhookNote, schedulerNote)
 }

@@ -81,6 +81,16 @@ recorded on the timeline, answers `202`, and then sits `pending` in
 `comms_outbound` indefinitely with no reason string, because nothing has yet
 tried and failed. Run a worker, or accept that mail is queued and not sent.
 
+**A failed outbound webhook is never re-attempted without this process either.**
+Both roles run the `cg:webhooks` consumer when `--webhook-key` is set, so an
+api-only deployment still makes each delivery's FIRST attempt — but the retry
+sweep is a River periodic job (`webhook_retry` → one `webhook_retry_workspace`
+row per live workspace) and only `cmd/worker` runs a River runner. In an api-only
+deployment a delivery that fails its first attempt sits `retrying` forever, never
+reaching its 6-attempt budget and so never reaching `dead_lettered` either. The
+api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
+[explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md#6-the-two-runtime-lanes-and-where-they-run).
+
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
@@ -89,12 +99,12 @@ tried and failed. Run a worker, or accept that mail is queued and not sent.
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
-| `--runner-interval` | — | `30s` | Surface-B scheduler tick |
-| `--retention-interval` | — | `24h` | retention evaluator pass interval |
+| `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |
+| `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
-| `--webhook-retry-interval` | — | `5s` | outbound-webhook retry-sweep tick interval |
+| `--webhook-retry-interval` | — | `30s` | how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace (worker role only) |
 | `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--overlay-reconcile-interval` | — | `2m` | overlay-mode incumbent mirror sweep interval. Every tick spends incumbent API quota per object class even when nothing changed (9 classes ≈ 11 REST calls/tick against HubSpot's 90k/day), so lengthen it on a dev box. `POST /overlay/reconcile` ("Sync now") only marks the workspace due — the sweep still waits for the next tick, so a long interval makes that button feel slow |
 | `--overlay-backfill-limit` | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | cap the overlay INITIAL mirror backfill at N records per object class — dev/demo, so connecting a real portal doesn't pull it all onto a laptop. Only the backfill is capped: later incremental sweeps still bring in anything edited after the sweep window, which opens shortly before the connect instant (a clock-skew grace). A class the cap actually cuts short reports `backfillComplete: false` permanently (`overlay_backfill_cursor.truncated`) — unsetting the limit does NOT resume it, since the cursor is already `done`; reset that class's `overlay_backfill_cursor` row (or reconnect, which purges it) to backfill it for real. Don't change the limit mid-backfill either — the running count rides in `overlay_backfill_cursor` as a `<count>\|<inner>` prefix the uncapped adapter rejects, which fails that class every sweep until the cursor row is cleared |

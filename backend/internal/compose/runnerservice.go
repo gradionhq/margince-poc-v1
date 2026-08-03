@@ -34,10 +34,9 @@ const RunWallClock = 15 * time.Minute
 const claimBatch = 4
 
 // RunnerService drives scheduled Surface-B runs. It is the WORKER's
-// entry point: Tick seeds + executes due jobs, HandleEvent resumes
-// suspended runs when their approval is decided.
+// entry point: TickWorkspace seeds + executes one tenant's due jobs,
+// HandleEvent resumes suspended runs when their approval is decided.
 type RunnerService struct {
-	pool      *pgxpool.Pool
 	store     *runner.Store
 	runner    *runner.Runner
 	identity  *identity.Service
@@ -55,7 +54,6 @@ type RunnerService struct {
 // (reads and non-SoR tools are unaffected).
 func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *RunnerService {
 	return &RunnerService{
-		pool:      pool,
 		store:     runner.NewStore(pool),
 		runner:    runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
 		identity:  identity.NewService(pool),
@@ -64,33 +62,34 @@ func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain complet
 	}
 }
 
-// Tick is one scheduler pass: per live workspace, seed today's due
-// catalog occurrences and execute claimed jobs. Tenancy is honest —
-// each workspace's work happens under its own GUC-bound context.
-func (s *RunnerService) Tick(ctx context.Context) error {
-	workspaces, err := s.liveWorkspaces(ctx)
+// TickWorkspace is ONE tenant's scheduler pass: seed the catalog
+// occurrences due at now, then execute the jobs it can claim. wsCtx must
+// already carry the workspace — the caller binds it, so this pass can
+// only ever touch the tenant it was handed.
+//
+// A seeding or claiming failure is returned, and returning it is the
+// point: it is this tenant's pass that could not run, and its own job row
+// is where that has to land. Execution failures do NOT come back here —
+// executeJob records each on the job row it belongs to, because a brief
+// that never ran must say why on the row an operator reads, not take the
+// whole pass down with it.
+func (s *RunnerService) TickWorkspace(wsCtx context.Context, now time.Time) error {
+	now = now.UTC()
+	for _, spec := range runner.Catalog() {
+		if due := spec.DueAt(now); !now.Before(due) {
+			// Cron-seeded jobs carry no passport yet: execution fails
+			// loudly rather than running with ambient authority.
+			if err := s.store.EnqueueJob(wsCtx, spec.Name, spec.TriggerRef(now), nil, due); err != nil {
+				return err
+			}
+		}
+	}
+	jobs, err := s.store.ClaimDueJobs(wsCtx, claimBatch)
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC()
-	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		for _, spec := range runner.Catalog() {
-			if due := spec.DueAt(now); !now.Before(due) {
-				// Cron-seeded jobs carry no passport yet: execution fails
-				// loudly rather than running with ambient authority.
-				if err := s.store.EnqueueJob(wsCtx, spec.Name, spec.TriggerRef(now), nil, due); err != nil {
-					return err
-				}
-			}
-		}
-		jobs, err := s.store.ClaimDueJobs(wsCtx, claimBatch)
-		if err != nil {
-			return err
-		}
-		for _, job := range jobs {
-			s.executeJob(wsCtx, job)
-		}
+	for _, job := range jobs {
+		s.executeJob(wsCtx, job)
 	}
 	return nil
 }
@@ -263,24 +262,4 @@ func (s *RunnerService) seedGrounding(ctx context.Context, goal string) []runner
 		}
 	}
 	return grounding
-}
-
-// liveWorkspaces lists tenants to schedule for. The workspace table is
-// deliberately outside RLS (it IS the tenant root), so this is the one
-// legitimate cross-tenant read the scheduler makes.
-func (s *RunnerService) liveWorkspaces(ctx context.Context) ([]ids.UUID, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("runner: listing workspaces: %w", err)
-	}
-	defer rows.Close()
-	var out []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }

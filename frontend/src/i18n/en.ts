@@ -2897,7 +2897,7 @@ export const en = {
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
-  "embedreindex.reembeddingSince": "Reindexing since {duration}",
+  "embedreindex.lastProgress": "Last progress {duration} ago",
   "embedreindex.entitiesPending": "{count} entities pending",
   "embedreindex.workspacePending": "{count} pending",
   "embedreindex.reviewCta": "Review & reindex",

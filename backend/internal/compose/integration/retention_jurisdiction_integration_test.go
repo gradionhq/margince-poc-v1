@@ -90,7 +90,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
-	if err := svc.Evaluate(context.Background()); err != nil {
+	if err := svc.EvaluateWorkspace(retentionPassCtx(e.WS)); err != nil {
 		t.Fatal(err)
 	}
 

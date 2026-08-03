@@ -121,6 +121,18 @@ func (r *Runner) SubscribeCompleted() (<-chan *river.Event, func()) {
 	return r.client.Subscribe(river.EventKindJobCompleted)
 }
 
+// SubscribeFailed delivers job-FAILURE events — a job that errored and was
+// either set to retry or discarded. It fires per ATTEMPT, so unlike completion
+// and cancellation it does not announce a settled job: a caller that needs the
+// failure to be final must make the fault permanent and let the attempt budget
+// run out, or read the row's state itself. What it gives that the other two
+// cannot is any signal at all for a failing job — one that has neither
+// completed nor cancelled may equally be one still running. Subscribe before
+// Start so no failure is missed; call the returned cancel when done.
+func (r *Runner) SubscribeFailed() (<-chan *river.Event, func()) {
+	return r.client.Subscribe(river.EventKindJobFailed)
+}
+
 // SubscribeCancelled delivers job-cancellation events (river.JobCancel) —
 // the counterpart to SubscribeCompleted for a job that deliberately stops
 // rather than finishing normally (e.g. the embed-reindex worker's

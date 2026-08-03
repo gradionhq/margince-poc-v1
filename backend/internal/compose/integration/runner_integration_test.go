@@ -108,6 +108,17 @@ func setupRunner(t *testing.T) *runnerEnv {
 	}
 }
 
+// tick runs ONE workspace's scheduler pass, under the bound context and the
+// clock reading the job worker hands it in production — the fan-out that puts
+// a tenant's pass on its own job row is agentscheduler_fanout's subject, not
+// this suite's.
+func (re *runnerEnv) tick(t *testing.T) {
+	t.Helper()
+	if err := re.svc.TickWorkspace(re.wsCtx, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (re *runnerEnv) enqueue(t *testing.T, spec, trigger string, passport *ids.PassportID) {
 	t.Helper()
 	if err := re.store.EnqueueJob(re.wsCtx, spec, trigger, passport, time.Now().Add(-time.Minute)); err != nil {
@@ -142,9 +153,7 @@ func TestRunnerFullLoopWritesAsGovernedAgent(t *testing.T) {
 		`{"final":{"summary":"one at-risk deal flagged"}}`,
 	)
 	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 
 	status, trace, _ := re.runRow(t, trigger)
 	if status != "completed" {
@@ -180,9 +189,7 @@ func TestRunnerFullLoopWritesAsGovernedAgent(t *testing.T) {
 	// Idempotency: re-seeding and re-ticking the same occurrence starts
 	// no second run.
 	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 	var runs int
 	err = database.WithWorkspaceTx(re.wsCtx, re.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
@@ -212,9 +219,7 @@ func TestRunnerConfirmationRequiredSuspendApproveResume(t *testing.T) {
 		`{"final":{"summary":"archive executed after approval"}}`,
 	)
 	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 
 	status, _, approvalID := re.runRow(t, trigger)
 	if status != "awaiting_approval" || approvalID == nil {
@@ -271,9 +276,7 @@ func TestRunnerConfirmationRequiredRejectionReplansWithoutEffect(t *testing.T) {
 		`{"final":{"summary":"left the record alone after rejection"}}`,
 	)
 	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 	_, _, approvalID := re.runRow(t, trigger)
 	if approvalID == nil {
 		t.Fatal("no staged approval")
@@ -301,9 +304,7 @@ func TestRunnerJobWithoutPassportFailsLoudly(t *testing.T) {
 	re := setupRunner(t)
 	trigger := "morning_brief:e2e-no-passport"
 	re.enqueue(t, "morning_brief", trigger, nil)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 	var status, lastError string
 	err := database.WithWorkspaceTx(re.wsCtx, re.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
@@ -367,9 +368,7 @@ func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
 		`{"final":{"summary":"archive executed after approval"}}`,
 	)
 	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
-	if err := re.svc.Tick(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	re.tick(t)
 	_, _, approvalID := re.runRow(t, trigger)
 	if approvalID == nil {
 		t.Fatal("no staged approval")

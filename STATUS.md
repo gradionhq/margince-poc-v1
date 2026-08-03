@@ -307,10 +307,14 @@ recognized (the floor counted only the scoped side). The gate is syntactic, so
 `jobwireformat_integration_test.go` proves the other half — that a tagged type
 lands as `workspace_id` in `river_job.args` through River's own encoder.
 
-**The invariant is not yet exact, by one named kind.** `embed_reindex` does
-tenant work under the `FleetWide` marker with no workspace key at all, so a null
-still means "a dispatcher, OR `embed_reindex`". Both `jobs/role.go` and
-`embedreindextransport.go` now say so; PR 5 below is what deletes the caveat.
+**The invariant is exact, with no exception.** A null `args->>'workspace_id'`
+means a dispatcher and nothing else: `embed_reindex` is now a dispatcher over a
+per-workspace `embed_reindex_workspace` worker, like every other fleet pass.
+`backend/jobfleetwide_test.go` holds the other half of that — a kind declaring
+`FleetWide` must actually fan out, through one of a closed set of spellings, and
+must issue no inline SQL write in its own worker's methods. The fan-out arm is
+the load-bearing one: a worker that loops the fleet calling a store per tenant
+satisfies RLS and binds every GUC, and fails only here.
 
 **No transition was written for rows queued under the old key, deliberately.**
 They decode to a zero workspace, the binding guard refuses them before any

@@ -54,6 +54,15 @@ func (s Server) readyzEmbedState() func(context.Context) string {
 			return "reembedding"
 		}
 		if populated == engine.currentIdentity() {
+			// "active" is exactly the marker's own claim, which is that the last
+			// run was RELEASED under this identity — not that every workspace
+			// finished re-embedding under it (search's releaseReembeddingTx). A run
+			// whose children all exhausted their attempts still releases, so this
+			// line can read active over a store that was never rebuilt. Joining the
+			// live entity scan would settle it and is refused here for the same
+			// reason PopulatedIdentity refuses it: this is a readiness probe, and
+			// that cost belongs to the ops status endpoint, which reports the
+			// pending counts that do tell an operator the difference.
 			return "active"
 		}
 		return "needs_reindex"

@@ -15,32 +15,31 @@ import (
 
 // apiConfig is the parsed boot configuration of the api process.
 type apiConfig struct {
-	dsn                  string
-	configPath           string
-	schemaDSN            string
-	addr                 string
-	redisAddr            string
-	inlineRelay          bool
-	routingPath          string
-	fakeBrain            bool
-	logLevel             string
-	logFormat            string
-	publicBaseURL        string
-	apiBaseURL           string
-	gmailClientID        string
-	gmailClientSecret    string
-	gmailPushToken       string
-	gmailPushAudience    string
-	gmailPushSA          string
-	gmailJWKSURL         string
-	graphClientID        string
-	graphClientSecret    string
-	graphTenant          string
-	hubspotAppSecret     string
-	connectorStateKey    string
-	webhookKey           string
-	webhookRetryInterval time.Duration
-	oauthAccessTokenTTL  time.Duration
+	dsn                 string
+	configPath          string
+	schemaDSN           string
+	addr                string
+	redisAddr           string
+	inlineRelay         bool
+	routingPath         string
+	fakeBrain           bool
+	logLevel            string
+	logFormat           string
+	publicBaseURL       string
+	apiBaseURL          string
+	gmailClientID       string
+	gmailClientSecret   string
+	gmailPushToken      string
+	gmailPushAudience   string
+	gmailPushSA         string
+	gmailJWKSURL        string
+	graphClientID       string
+	graphClientSecret   string
+	graphTenant         string
+	hubspotAppSecret    string
+	connectorStateKey   string
+	webhookKey          string
+	oauthAccessTokenTTL time.Duration
 }
 
 // parseAPIFlags parses and validates the boot flags; the DSN is the one
@@ -73,8 +72,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.hubspotAppSecret, "hubspot-app-secret", os.Getenv("MARGINCE_HUBSPOT_APP_SECRET"), "HubSpot app client secret; verifies inbound overlay webhook v3 signatures and, when set, mounts /webhooks/hubspot (absent otherwise)")
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", os.Getenv("MARGINCE_API_BASE_URL"), "the api's externally-reachable base for the OAuth callback redirect_uri; defaults to --public-base-url (same-origin deployments), set only when the api is on a different origin than the SPA (e.g. dev)")
 	fs.StringVar(&cfg.connectorStateKey, "connector-state-key", os.Getenv("MARGINCE_CONNECTOR_STATE_KEY"), "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
-	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer + retry sweep. Empty = those paths answer 503 and no inline delivery runs.")
-	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval (inline-relay only)")
+	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer. Empty = those paths answer 503 and no inline delivery runs. Re-attempting a parked delivery is the worker role's River job, never this one's.")
 	accessTokenTTL, err := envDuration("MARGINCE_OAUTH_ACCESS_TOKEN_TTL")
 	if err != nil {
 		return apiConfig{}, err
