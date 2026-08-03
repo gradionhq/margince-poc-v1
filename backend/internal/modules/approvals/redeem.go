@@ -138,9 +138,9 @@ func validateRedemptionTarget(ctx context.Context, tx pgx.Tx, a row) error {
 // must leave TargetVersion nil for it rather than mint a pin redemption
 // could never verify.
 var versionTables = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
-	targetOffer: true, targetProduct: true, "list": true, "tag": true, "relationship": true,
-	"project": true,
+	tablePerson: true, tableOrganization: true, tableDeal: true, tableLead: true, objectActivity: true,
+	targetOffer: true, targetProduct: true, "list": true, "tag": true, targetRelationship: true,
+	tableProject: true,
 }
 
 // contextTargetKinds are the staging kinds whose target_entity names what the

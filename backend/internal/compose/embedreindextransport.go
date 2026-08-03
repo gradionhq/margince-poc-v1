@@ -60,8 +60,13 @@ type embedReindexArgs struct {
 // Kind is the stable job identifier River persists in river_job.
 func (embedReindexArgs) Kind() string { return "embed_reindex" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
+// FleetWide marks this fleet-wide and single-flight (jobs.FleetWide) — and
+// this kind is that marker's ONE named exception rather than a dispatcher: it
+// re-embeds every workspace's corpus inside a single row, binding each
+// workspace before it writes, so the writes are scoped even though there is no
+// row per workspace to fail as. Do not read it as precedent — a new fleet-wide
+// worker that writes is the shape jobs.FleetWide exists to name, and belongs
+// behind a per-workspace fan-out.
 func (embedReindexArgs) FleetWide() {}
 
 // errReindexAlreadyRunning signals the confirm callback's own unique-skip

@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -406,6 +407,33 @@ func Validation(field, code, message string) *DetailedError {
 		Detail: message,
 		Fields: []FieldError{{Field: field, Code: code, Message: message}},
 	}
+}
+
+// RequireBodyID refuses a required body id the caller simply omitted, naming the
+// wire field. Nil when the id is present.
+//
+// The defect it closes is the generator's: oapi-codegen renders a REQUIRED body
+// id as a non-pointer UUID, and encoding/json leaves an absent key at the zero
+// value with no error. So "required" in the contract is a claim only this check
+// makes true — and what made it worth a named helper is where the zero value
+// LANDS. It reaches a lookup or a link-target probe, matches no row, and comes
+// back as a bare not-found: the caller is told a record it never mentioned does
+// not exist, on a request whose real fault was an absent key.
+//
+// It lives here rather than per-module because Classify matches *DetailedError
+// before anything else, so one call answers a 422 naming the field on REST AND
+// the same field-named sentence on the MCP tool surface — which never runs a
+// module's HTTP mapper. A module error type per caller would be a second
+// spelling of a rule whose wire output is byte-identical.
+//
+// The id arrives as ids.UUID: this package deliberately does not import the
+// generated contracts, so the openapi_types.UUID conversion happens at the call
+// site, where the contract type legally lives.
+func RequireBodyID(field string, id ids.UUID) error {
+	if id.IsZero() {
+		return Validation(field, "required", field+" is required")
+	}
+	return nil
 }
 
 // fieldDetails renders the per-field breakdown into the contract's

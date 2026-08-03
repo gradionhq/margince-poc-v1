@@ -26,8 +26,15 @@ import (
 // than as the set being denied.
 type UnsupportedEntityError struct{ Type string }
 
+// Error makes two claims and keeps them apart, because the vocabulary contains a
+// member no provider serves every verb for: `relationship` has record verbs and
+// no search, no schema descriptor, no attachment writer. So the hint names the
+// vocabulary AS a vocabulary — a caller learns the spelling — without the implied
+// promise that every member reaches every verb. Phrased as "the types served
+// here", the sentence would refuse relationship while listing it as available.
 func (e *UnsupportedEntityError) Error() string {
-	return "entity_type " + e.Type + " is not served here; known types are " + entityVocabulary
+	return "entity_type " + e.Type + " is not served here; the vocabulary is " + entityVocabulary +
+		", and a valid type can name a verb or provider that does not serve it"
 }
 
 // entityVocabulary renders the known set from EntityTypes rather than

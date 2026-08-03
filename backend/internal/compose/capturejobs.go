@@ -243,7 +243,7 @@ func (w *captureDigestWorkspaceWorker) Work(ctx context.Context, job *river.Job[
 // CaptureBackfillArgs pages ONE bounded backfill run (ADR-0063). Unique by
 // args while incomplete: start and any retry converge on one job.
 type CaptureBackfillArgs struct {
-	Workspace  ids.UUID `json:"workspace"`
+	Workspace  ids.UUID `json:"workspace_id"`
 	BackfillID string   `json:"backfill_id"`
 }
 

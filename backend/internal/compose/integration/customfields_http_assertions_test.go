@@ -391,12 +391,16 @@ func assertListFiltering(t *testing.T, e *env) {
 		t.Fatalf("status=retired must include only the retired field: %+v", retiredOnly.Data)
 	}
 
+	// A DIFFERENT valid target object, not just any string: the object parameter
+	// is membership-checked against customfields.FieldObjects, so a non-target
+	// (`activity`, `relationship`) answers 422 and would prove nothing about
+	// filtering.
 	var otherObject customFieldListWire
-	if s := e.call(t, "GET", "/v1/custom-fields?object=activity", nil, nil, &otherObject); s != http.StatusOK {
+	if s := e.call(t, "GET", "/v1/custom-fields?object=organization", nil, nil, &otherObject); s != http.StatusOK {
 		t.Fatalf("list other-object status = %d, want 200: %+v", s, otherObject)
 	}
 	if containsID(otherObject.Data, active.ID) || containsID(otherObject.Data, retiring.ID) {
-		t.Fatalf("object filter leaked a lead field into the activity list: %+v", otherObject.Data)
+		t.Fatalf("object filter leaked a lead field into the organization list: %+v", otherObject.Data)
 	}
 }
 

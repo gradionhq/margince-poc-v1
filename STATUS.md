@@ -285,6 +285,66 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-03 (job observability, Phase 0 and Phase 1 PR 1, merged)
+
+**Every unit of tenant work now names one workspace, and spells it one way.**
+PR #367 bound each job to a single workspace; PR #374 made the wire agree with
+that. Seven kinds carried the workspace as `json:"workspace"` while nineteen
+used `json:"workspace_id"`, so `args->>'workspace_id'` was partial over tenant
+jobs — and a null in that column meant either "a dispatcher, which does no
+tenant work" or "a kind that spells its key differently". Every read planned on
+top of `river_job` resolves that ambiguity the reassuring way: it reports the
+divergent kind as no work at all.
+
+`backend/jobwirekey_test.go` is what keeps it true, in both directions —
+workspace-scoped args must carry `Workspace ids.UUID` tagged `workspace_id`, a
+dispatcher must carry no such key, and each half has its own vacuous-pass floor
+so a walker that matched nothing cannot read green. Two of its rules were
+written only after review found the first version passing on real holes: a type
+declaring TWO fields tagged `workspace_id` (`encoding/json` drops both, so the
+row ships no workspace at all), and a dispatcher whose marker stopped being
+recognized (the floor counted only the scoped side). The gate is syntactic, so
+`jobwireformat_integration_test.go` proves the other half — that a tagged type
+lands as `workspace_id` in `river_job.args` through River's own encoder.
+
+**The invariant is not yet exact, by one named kind.** `embed_reindex` does
+tenant work under the `FleetWide` marker with no workspace key at all, so a null
+still means "a dispatcher, OR `embed_reindex`". Both `jobs/role.go` and
+`embedreindextransport.go` now say so; PR 5 below is what deletes the caveat.
+
+**No transition was written for rows queued under the old key, deliberately.**
+They decode to a zero workspace, the binding guard refuses them before any
+tenant read or write, and they strand. Four kinds do not heal —
+`telegram_ingest` permanently, because the poll acks Telegram and advances the
+channel offset in the same transaction as the ingest enqueue. Local databases
+are disposable at this stage and a stranded job failing loudly is the wanted
+behaviour, so recreate rather than debug: `make infra-reset && make db-up &&
+make migrate`.
+
+### Pick up here — Phase 1, PRs 2 through 8
+
+Dependency-ordered; 2, 3 and 4 are independent of each other.
+
+2. **Retention conversion** — the highest-value single item: a nightly GDPR pass
+   currently logs a tenant's failure and returns `nil`.
+3. **Webhook retry conversion.**
+4. **Agent scheduler conversion** — currently aborts the whole fleet on one
+   workspace's error.
+5. **`embed_reindex` conversion** + the `FleetWide`-means-dispatcher gate. This
+   is what makes the caveat above deletable.
+6. **Waiver deletions** in `ratifiedFleetScans`, and the raised waiver bar.
+7. **Fleet metrics** — `job_queue_depth{queue}` (OPS-MET-2) plus the sweep
+   counters. Foundation ADR-0080 / A125 admits a bounded `workspace_id` label on
+   the job-runtime metrics — the id, never a name, and **not** on OPS-MET-1's
+   latency histogram.
+8. **The per-workspace read endpoint** over `/v1` — the consumer all of the
+   above exists to make honest.
+
+**Also still open, and deliberately not bundled:** eight workers call the
+binding guard as a validator and then re-bind in a per-kind helper. It touches
+the same seams and is tempting to fold into any of the above. Don't — it is a
+cross-package signature change and wants its own reviewable diff.
+
 ## Session pickup — 2026-08-02 (capture stops inventing companies, PR #365, merged)
 
 **Capture no longer derives an organization from a mail domain.** The person is
@@ -1687,6 +1747,42 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     mode, so no caller sets `req.Tools`; the native adapters currently reject a
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
+
+## Open follow-ups — the identity chokepoint (2026-08-03)
+
+Person, organization and lead rows are now minted through one door
+(`people/resolvecreate.go`), which takes the PO-F-1/PO-F-2 verdict as an
+argument and refuses an exact-key collision. `backend/dedupespine_test.go`
+derives the sanctioned insert sites from the tree, so a new bypass fails the
+build. Shipped across #372, #373, #375, #377, #378 — the detail is in those
+commits, not here.
+
+What is still open:
+
+- **No `lock_timeout` on the organization-name lock's transactions.** The key
+  is workspace-wide and held to commit, so a stuck holder consumes a pool
+  connection and every name writer waits behind it indefinitely. Nothing in the
+  backend sets `lock_timeout` today (only `customfields/create.go` does, for its
+  own reason), so this is a wider decision than one call site.
+- **`display_name` / `legal_name` have no `maxLength` in `crm.yaml`.** The
+  similarity metric is capped at `nameScoringMaxRunes` so an oversized name
+  cannot pin a connection, but the column still accepts a megabyte. The bound
+  belongs in the contract; raised upstream.
+- **The AI company-identity sweep is not built.** It is what would decide that
+  `speedkit.com` and `baqend.com` are one company before a signature reveals it,
+  and it is also the only thing that would re-detect a pair that raced past the
+  name lock — the lock narrows that window, it does not close it. Needs an
+  `identity_pair_verdict` table so a "not the same company" answer is not
+  re-asked and re-billed on every run.
+- **Two duplicate organizations exist in the dev database.** Baqend
+  (`baqend.com` / `speedkit.com`) and Dibalog Travel (`.de` / `.eu`) predate the
+  fix. The rename re-check only fires on a rename, so they will not surface by
+  themselves — dispose of them through `/dedupe/candidates`.
+
+Upstream spec raises owed for this work are listed under the 2026-08-01 heading
+below (PO-F-2 reading `legal_name`, the rename re-check as a data-hygiene rule,
+the lead LinkedIn 409 as an E12.11 extension, and the chokepoint obligation
+itself).
 
 ## Upstream spec raises owed from 2026-08-01
 

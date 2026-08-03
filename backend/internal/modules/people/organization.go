@@ -205,6 +205,16 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("read organization before update: %w", err)
 		}
+		// Only a rename needs the name lock, and only a rename should pay for
+		// it: the key is workspace-wide, so taking it for an owner change would
+		// serialize every organization write behind an edit that cannot create
+		// a duplicate. Taken here, ahead of the patch's row lock, per the
+		// ordering rule on lockOrgNameWrites.
+		if in.DisplayName != nil || in.LegalName != nil {
+			if err := lockOrgNameWrites(ctx, tx); err != nil {
+				return err
+			}
+		}
 		p, err := buildOrganizationPatch(ctx, tx, current, in)
 		if err != nil {
 			return err

@@ -154,6 +154,55 @@ func TestSupportsWriteMatchesTheProviderVerbs(t *testing.T) {
 	}
 }
 
+// A vocabulary member the mirror does not carry gets the DECLARED capability
+// refusal; a string that is not a vocabulary member at all gets the
+// unknown-entity one. The two answers mean different things and a caller acts on
+// them differently — "stop asking for this in overlay mode" versus "you
+// misspelled the type" — so conflating them is the defect, whichever way round.
+//
+// Derived from EntityTypes() minus knownEntityTypes rather than naming project
+// and relationship: the next vocabulary member added without a mirror
+// projection is covered without an edit here.
+func TestARecognizedTypeTheMirrorDoesNotCarryIsDeclaredUnsupportedNotUnknown(t *testing.T) {
+	mirrored := map[datasource.EntityType]bool{}
+	for _, et := range knownEntityTypes {
+		mirrored[et] = true
+	}
+	unmirrored := []datasource.EntityType{}
+	for _, et := range datasource.EntityTypes() {
+		if !mirrored[et] {
+			unmirrored = append(unmirrored, et)
+		}
+	}
+	if len(unmirrored) == 0 {
+		t.Fatal("every vocabulary member is mirrored — this walk passed vacuously")
+	}
+
+	for _, et := range unmirrored {
+		for _, verb := range AllWriteVerbs() {
+			err := requireSupportedWrite(verb, et)
+			if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+				t.Errorf("requireSupportedWrite(%s, %s) = %v, want ErrUnsupportedBySoR — %s is in the "+
+					"seam vocabulary, so refusing it as an unknown entity_type tells the caller their "+
+					"type does not exist anywhere", verb, et, err, et)
+			}
+			var unknown *datasource.UnsupportedEntityError
+			if errors.As(err, &unknown) {
+				t.Errorf("requireSupportedWrite(%s, %s) answered UnsupportedEntityError, whose message "+
+					"names the vocabulary %s belongs to", verb, et, et)
+			}
+		}
+	}
+
+	// The other half of the discrimination: a non-member is still unknown.
+	for _, verb := range AllWriteVerbs() {
+		var unknown *datasource.UnsupportedEntityError
+		if err := requireSupportedWrite(verb, datasource.EntityType("widget")); !errors.As(err, &unknown) {
+			t.Errorf("requireSupportedWrite(%s, widget) = %v, want UnsupportedEntityError", verb, err)
+		}
+	}
+}
+
 func TestCompleteWritePatchActivityCarriesKindForward(t *testing.T) {
 	p := NewProvider(nil, nil)
 	fields := map[string]any{"subject": "Follow up"}

@@ -11158,9 +11158,14 @@ type OrganizationGraphEdge struct {
 	// `in_contact_with` — `from` is the workspace member who has been IN recorded
 	// interactions (email, call, meeting) with the contact at `to`. It is drawn from
 	// the recorded participants of those interactions, so it holds for
-	// connector-captured mail as well as manually logged activity. Being copied on a
-	// thread does not make one, and neither does a task assigned to a teammate: a cc
-	// is exposure and an assignment is intent, while a logged exchange is contact.
+	// connector-captured mail as well as manually logged activity. Every participant
+	// role makes one, `cc` included: in an account team the person permanently in
+	// copy is frequently the one who knows the customer, so excluding them removes
+	// exactly the people this edge exists to find. The quality bar sits in the score
+	// rather than a role filter — copy traffic is one-directional, so the reciprocity
+	// term ranks a permanently-cc'd colleague below anyone in a two-way thread. A
+	// task assigned to a teammate still makes none: an assignment is intent, while a
+	// recorded interaction is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
@@ -11205,9 +11210,14 @@ type OrganizationGraphEdge struct {
 // `in_contact_with` — `from` is the workspace member who has been IN recorded
 // interactions (email, call, meeting) with the contact at `to`. It is drawn from
 // the recorded participants of those interactions, so it holds for
-// connector-captured mail as well as manually logged activity. Being copied on a
-// thread does not make one, and neither does a task assigned to a teammate: a cc
-// is exposure and an assignment is intent, while a logged exchange is contact.
+// connector-captured mail as well as manually logged activity. Every participant
+// role makes one, `cc` included: in an account team the person permanently in
+// copy is frequently the one who knows the customer, so excluding them removes
+// exactly the people this edge exists to find. The quality bar sits in the score
+// rather than a role filter — copy traffic is one-directional, so the reciprocity
+// term ranks a permanently-cc'd colleague below anyone in a two-way thread. A
+// task assigned to a teammate still makes none: an assignment is intent, while a
+// recorded interaction is contact.
 type OrganizationGraphEdgeKind string
 
 // OrganizationGraphEdgeStrengthBucket The display band for `strength`, so a surface renders the same words everywhere.

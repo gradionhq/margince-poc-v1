@@ -90,7 +90,7 @@ func relationshipListWhere(ctx context.Context, in ListRelationshipsInput, arg f
 		}
 		where = append(where, storekit.SQLf("r.id > $%d", arg(after)))
 	}
-	scope, err := relationshipEndpointScope(ctx, "r", arg)
+	scope, err := auth.RelationshipEndpointScope(ctx, "r", arg)
 	if err != nil {
 		return nil, err
 	}

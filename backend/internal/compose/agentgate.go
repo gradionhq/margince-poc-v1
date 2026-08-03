@@ -355,8 +355,34 @@ func advanceDealTierInput(ctx context.Context, deps tierDeps, _ agentPolicy, _ *
 	var args struct {
 		ToStageID ids.UUID `json:"to_stage_id"`
 	}
-	if err := json.Unmarshal(body, &args); err != nil || args.ToStageID.IsZero() {
-		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "required", "to_stage_id must be a stage UUID")
+	// THREE faults, three answers, and the order matters because each later check
+	// presumes the earlier one passed.
+	//
+	// json.Unmarshal alone cannot tell them apart: it fails identically for a body
+	// that is not JSON and for a body that is perfectly good JSON carrying a
+	// to_stage_id the UUID decoder refuses. Answering "not readable JSON" to the
+	// second sends the caller hunting a syntax error that is not there, while the
+	// real fault — a value they can see and fix — goes unnamed.
+	if !json.Valid(body) {
+		// malformed_json, the code httperr.Decode answers on the session half of
+		// this same route — one mistake must not carry two machine codes keyed on
+		// which credential the caller presented.
+		return mcp.TierResolverInput{}, httperr.Validation("body", "malformed_json",
+			"the request body is not readable JSON")
+	}
+	if err := json.Unmarshal(body, &args); err != nil {
+		// Valid JSON the shape refuses: a non-object, or a to_stage_id that is not
+		// a UUID string. Naming the field is right for both — the fix is to send an
+		// object carrying a canonical UUID there.
+		return mcp.TierResolverInput{}, httperr.Validation("to_stage_id", "invalid",
+			"to_stage_id must be a canonical UUID string on a JSON object body")
+	}
+	// The omission goes through the one implementation, so a passport reaching
+	// this gate and a session reaching advanceDealInput read the SAME sentence.
+	// The gate resolves the tier before the handler runs, so without this the
+	// rule had two spellings on the one field U3 unified.
+	if err := httperr.RequireBodyID("to_stage_id", args.ToStageID); err != nil {
+		return mcp.TierResolverInput{}, err
 	}
 	semantic, pipelineID, err := deps.stages.StageSemantic(ctx, args.ToStageID)
 	if err != nil {

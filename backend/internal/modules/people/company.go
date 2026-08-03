@@ -84,10 +84,10 @@ type companyField struct {
 var companyFields = []companyField{
 	{name: fieldDisplayName},
 	{name: fieldOfferSummary},
-	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1`},
-	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1`},
+	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS DISTINCT FROM $2`},
+	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`},
 	{name: fieldRegisterVat},
-	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1`},
+	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS DISTINCT FROM $2`},
 	{name: fieldICP},
 	{name: fieldValueProposition},
 	{name: fieldUSP},
@@ -291,6 +291,11 @@ func anchorOrganization(ctx context.Context, tx pgx.Tx, lock bool) (ids.Organiza
 // action and the event the caller emits. Creating and updating carry different
 // authority, so each arm gates on its own.
 func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by string) (ids.OrganizationID, bool, error) {
+	// The name lock precedes the row lock below, the one order every path
+	// holding both must use (UpdateOrganization says why).
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
+		return ids.OrganizationID{}, false, err
+	}
 	// The company is a single standing record, not an optimistically
 	// concurrent one: the form carries no version, so the row is LOCKED for
 	// the rest of the transaction instead. Two admins saving at once serialize
@@ -312,11 +317,21 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 	if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 		return ids.OrganizationID{}, false, err
 	}
-	if _, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE organization SET display_name = $2, version = version + 1
 		 WHERE id = $1 AND display_name IS DISTINCT FROM $2`,
-		orgID, displayName); err != nil {
+		orgID, displayName)
+	if err != nil {
 		return ids.OrganizationID{}, false, fmt.Errorf("update company name: %w", err)
+	}
+	// Renaming the workspace's own company can walk it onto a record captured
+	// from its own mail, which is the same duplicate every other rename path
+	// files. The IS DISTINCT FROM above means a row was touched only when the
+	// name actually moved, so that is the signal to look.
+	if tag.RowsAffected() > 0 {
+		if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+			return ids.OrganizationID{}, false, err
+		}
 	}
 	return orgID, false, nil
 }
@@ -351,67 +366,6 @@ func createAnchorOrganization(ctx context.Context, tx pgx.Tx, displayName, by st
 		return ids.OrganizationID{}, err
 	}
 	return orgID, nil
-}
-
-// writeCompanyFields applies the submitted fields: the column-backed ones onto
-// their column (a human's own form overwrites — unlike a read-back, which only
-// fills blanks), and every one onto its provenance row. Returns what changed,
-// for the audit delta.
-func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, by string, fields map[string]*string) (map[string]any, error) {
-	applied := map[string]any{}
-	for _, spec := range companyFields {
-		field := spec.name
-		value, sent := fields[field]
-		if !sent || value == nil {
-			continue
-		}
-		trimmed := strings.TrimSpace(*value)
-		if spec.update != "" {
-			if err := setCompanyColumn(ctx, tx, orgID, spec, trimmed); err != nil {
-				return nil, err
-			}
-		}
-		if trimmed == "" {
-			if _, err := tx.Exec(ctx,
-				`DELETE FROM organization_profile_field
-				 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
-				workspaceID(ctx), orgID, field); err != nil {
-				return nil, fmt.Errorf("clear company field %s: %w", field, err)
-			}
-			applied[field] = nil
-			continue
-		}
-		// A human-typed value has no snippet to quote — the human IS the
-		// evidence, which is what source=human + captured_by=human:<id>
-		// record. Confidence is 1: they are not guessing about themselves.
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, $3, $4, '', '', 1, 'human', $5)
-			ON CONFLICT (workspace_id, organization_id, field)
-			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
-			              confidence = 1, source = 'human',
-			              captured_by = EXCLUDED.captured_by, captured_at = now()`,
-			workspaceID(ctx), orgID, field, trimmed, by); err != nil {
-			return nil, fmt.Errorf("save company field %s: %w", field, err)
-		}
-		applied[field] = trimmed
-	}
-	return applied, nil
-}
-
-// setCompanyColumn writes a column-backed field, clearing it to NULL rather
-// than storing an empty string — an unfilled field reads as absent, never as
-// the empty answer.
-func setCompanyColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, spec companyField, value string) error {
-	var stored *string
-	if value != "" {
-		stored = &value
-	}
-	if _, err := tx.Exec(ctx, spec.update, orgID, stored); err != nil {
-		return fmt.Errorf("set %s: %w", spec.name, err)
-	}
-	return nil
 }
 
 // readCompany assembles the form's view: the name and website from the
