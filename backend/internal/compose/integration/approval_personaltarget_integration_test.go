@@ -79,11 +79,11 @@ func TestAStagedViewArchiveIsDecidableByItsOwnerAlone(t *testing.T) {
 	}
 }
 
-// assertCannotDecideStagedApproval holds one non-owner to the full
-// existence-hiding contract: the row is absent from their inbox, and absent —
-// not forbidden — from the single read and from BOTH directions of the decision.
-// A reject is a decision too, so an approval a seat cannot see is one they
-// cannot dismiss either.
+// assertCannotDecideStagedApproval holds one seat that could not read the staged
+// target to the full existence-hiding contract: the row is absent from their
+// inbox, and absent — not forbidden — from the single read and from BOTH
+// directions of the decision. A reject is a decision too, so an approval a seat
+// cannot see is one they cannot dismiss either.
 func assertCannotDecideStagedApproval(ctx context.Context, t *testing.T, svc *approvals.Service, who string, approvalID ids.ApprovalID) {
 	t.Helper()
 	pending, _, err := svc.List(ctx, approvals.ListInput{Status: strPtr("pending"), Limit: 50})
@@ -92,7 +92,7 @@ func assertCannotDecideStagedApproval(ctx context.Context, t *testing.T, svc *ap
 	}
 	for _, a := range pending {
 		if a.ID == approvalID {
-			t.Errorf("%s sees the archive staged against another owner's private view", who)
+			t.Errorf("%s sees a staged approval whose target their own read path refuses them", who)
 		}
 	}
 	if _, err := svc.Get(ctx, approvalID); !errors.Is(err, apperrors.ErrNotFound) {

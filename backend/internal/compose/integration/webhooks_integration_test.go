@@ -497,11 +497,13 @@ func TestWebhookFanOutFailsClosedForUnclassifiedSubject(t *testing.T) {
 // coldstart.* fan-out is bounded by the approval TARGET's visibility, not
 // fanned out workspace-wide (BYO-EVT-4 / the I2 leak): a subscriber only
 // receives an approval event when it can see the record the staged change
-// targets. An approval whose target the owner can see is delivered; a
-// target-less approval and one whose target does not resolve under the
-// owner's scope are both fail-closed (undelivered) — the staged-change
-// detail (summary, edited_change, target ids) never reaches an owner who
-// could not read the target directly.
+// targets — under both halves of that record's read rule, the object-read grant
+// on its type and the store's own row rule. An approval whose target the owner
+// can see is delivered; a target-less approval, one whose target does not
+// resolve, and one whose type the owner's live role no longer grants read on are
+// all fail-closed (undelivered) — the staged-change detail (summary,
+// edited_change, target ids) never reaches an owner who could not read the target
+// directly.
 func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
 	we := setupWebhooks(t)
 	rcv := newReceiver(t, http.StatusOK)
@@ -510,47 +512,48 @@ func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
 
 	we.createSubscription(t, rcv.server.URL+"/hook", []string{"approval.decided", "coldstart.accepted"})
 
-	person := "person"
-	handle := func(eventType string, approvalID ids.UUID) {
+	// postsFor stages ONE approval against a target pair and reports how many
+	// POSTs the fan-out produced for it — the whole per-case observation in one
+	// place, so each case below reads as the claim it makes.
+	postsFor := func(eventType string, targetType *string, targetID *ids.UUID) int64 {
+		t.Helper()
+		approvalID := ids.NewV7()
+		we.insertApproval(t, approvalID, targetType, targetID)
 		env := makeEnvelopeFor(we.wsID, eventType, "approval")
 		env.Entity.ID = approvalID
+		before := rcv.count.Load()
 		if err := deliverer.HandleEvent(context.Background(), env); err != nil {
 			t.Fatalf("handle %s: %v", eventType, err)
 		}
+		return rcv.count.Load() - before
 	}
+	person, product := "person", "product"
 
 	// Case A: an approval targeting a person the owner (bootstrap admin,
 	// row_scope=all) can see → delivered.
 	visibleTarget := we.seedPerson(t, "Visible Approval Target")
-	visibleApproval := ids.NewV7()
-	we.insertApproval(t, visibleApproval, &person, &visibleTarget)
-	before := rcv.count.Load()
-	handle("approval.decided", visibleApproval)
-	if got := rcv.count.Load() - before; got != 1 {
+	if got := postsFor("approval.decided", &person, &visibleTarget); got != 1 {
 		t.Fatalf("approval over a visible target produced %d POSTs, want 1", got)
 	}
 
 	// Case B: a target-less approval cannot be scope-bounded → fail-closed.
-	targetlessApproval := ids.NewV7()
-	we.insertApproval(t, targetlessApproval, nil, nil)
-	before = rcv.count.Load()
-	handle("approval.decided", targetlessApproval)
-	if got := rcv.count.Load() - before; got != 0 {
+	if got := postsFor("approval.decided", nil, nil); got != 0 {
 		t.Fatalf("target-less approval produced %d POSTs, want 0 (fail-closed)", got)
 	}
 
 	// Case C: an approval over a workspace-shared product target that DOES
-	// NOT EXIST is fail-closed — existence is the floor the approval-target
+	// NOT EXIST is fail-closed — existence is the row half the approval-target
 	// gate shares (approvalTargetVisible mirrors approvals.targetVisible), so
 	// a phantom product id delivers nothing.
-	product := "product"
 	missingProductTarget := ids.NewV7()
-	missingProductApproval := ids.NewV7()
-	we.insertApproval(t, missingProductApproval, &product, &missingProductTarget)
-	before = rcv.count.Load()
-	handle("approval.decided", missingProductApproval)
-	if got := rcv.count.Load() - before; got != 0 {
+	if got := postsFor("approval.decided", &product, &missingProductTarget); got != 0 {
 		t.Fatalf("approval over a non-existent product produced %d POSTs, want 0 (existence floor)", got)
+	}
+
+	// Case D: a cold-start echo shares entity "approval" and the same gate —
+	// a target-less coldstart.accepted is fail-closed too.
+	if got := postsFor("coldstart.accepted", nil, nil); got != 0 {
+		t.Fatalf("target-less coldstart echo produced %d POSTs, want 0 (fail-closed)", got)
 	}
 
 	// Case E: an approval over a REAL product target IS delivered — product
@@ -558,23 +561,36 @@ func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
 	// stages against, so a visible target must fan out (they were previously
 	// suppressed by entityVisibleTo's fail-closed default).
 	realProduct := we.seedProduct(t, "Enterprise Plan")
-	visibleProductApproval := ids.NewV7()
-	we.insertApproval(t, visibleProductApproval, &product, &realProduct)
-	before = rcv.count.Load()
-	handle("approval.decided", visibleProductApproval)
-	if got := rcv.count.Load() - before; got != 1 {
+	if got := postsFor("approval.decided", &product, &realProduct); got != 1 {
 		t.Fatalf("approval over an existing product produced %d POSTs, want 1", got)
 	}
 
-	// Case D: a cold-start echo shares entity "approval" and the same gate —
-	// a target-less coldstart.accepted is fail-closed too.
-	coldstartApproval := ids.NewV7()
-	we.insertApproval(t, coldstartApproval, nil, nil)
-	before = rcv.count.Load()
-	handle("coldstart.accepted", coldstartApproval)
-	if got := rcv.count.Load() - before; got != 0 {
-		t.Fatalf("target-less coldstart echo produced %d POSTs, want 0 (fail-closed)", got)
+	// Case F: the SAME real product, after the owner's live role loses
+	// product.READ while keeping the write grants — a shape a role document may
+	// carry, since the four CRUD booleans are independent. Existence still holds
+	// and case E just delivered on it, so only the object-read floor can withhold
+	// this, and it must: the envelope carries the staged summary and change for a
+	// record every product surface now refuses the owner. Last, because it narrows
+	// the role for good.
+	we.dropObjectReadFromEveryRole(t, product)
+	if got := postsFor("approval.decided", &product, &realProduct); got != 0 {
+		t.Fatalf("approval over a product the owner may no longer READ produced %d POSTs, want 0 — the "+
+			"fan-out may never disclose a staged change the API would refuse", got)
 	}
+}
+
+// dropObjectReadFromEveryRole rewrites the workspace's role documents so one
+// object keeps its write grants and loses read. It is the custom-role shape the
+// object-read floor exists for: policy validation accepts it (the CRUD booleans
+// are independent and merge independently), so a live seat can hold delete on a
+// record type it may not read.
+func (we *webhookEnv) dropObjectReadFromEveryRole(t *testing.T, object string) {
+	t.Helper()
+	we.execInWorkspace(t,
+		`UPDATE role SET permissions = jsonb_set(permissions, ARRAY['objects', $2::text],
+			'{"create":true,"read":false,"update":true,"delete":true}'::jsonb)
+		 WHERE workspace_id = $1`,
+		we.wsID, object)
 }
 
 // seedPerson inserts a person row under a workspace-bound owner tx (FORCE

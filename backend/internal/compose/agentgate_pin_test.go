@@ -236,16 +236,22 @@ var undecidableConfirmFirstTypes = map[string]string{
 // a role document may actually hold. It returns the reason it failed, so the
 // route names its own defect.
 //
-// Both halves, because either one alone certifies a row nobody can release. A
-// shape with no visibility rule is invisible in the inbox; a decision grant on an
-// object outside identity's RBAC vocabulary is refused for every principal that
-// can exist. Same dead row, reached from the two sides of `decidable` — and a
-// gate that proves one dimension reads green over the other.
+// Every half, because any one alone certifies a row nobody can release. A shape
+// with no visibility rule is invisible in the inbox; a grant on an object outside
+// identity's RBAC vocabulary is refused for every principal that can exist —
+// which applies to the target-READ floor targetVisible composes above every arm
+// exactly as it applies to the decision grants. Same dead row, reached from the
+// sides of `decidable` — and a gate that proves one dimension reads green over
+// the others.
 func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
 	recordType := string(pol.RecordType)
 	if !approvals.TargetShapeDecidable(recordType, hasTargetID) {
 		return false, "approvals.targetVisible has no rule for the shape it stages, so the row is " +
 			"invisible in the inbox and undecidable at the decision"
+	}
+	if !identity.RBACObjectGrantable(recordType) {
+		return false, "stages against a type outside the RBAC object vocabulary a role document may name, so " +
+			"the target-read floor every visibility arm rides is satisfied by no principal that can exist"
 	}
 	objects, err := approvals.DecisionGrantObjects(pol.Tool, recordType)
 	if err != nil {
@@ -346,6 +352,23 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 //
 // A gate whose subject set is narrower than the invariant it claims reads the
 // wrong tree, which is quieter than reading it wrongly.
+//
+// WHAT IS DERIVED HERE, AND WHAT IS NOT. Two dimensions are derived from the
+// union above: that both surfaces classify a type or neither does, and that a
+// classified type is an RBAC object a role document may name — the second because
+// BOTH surfaces gate a classified target on read of that type, so a type outside
+// identity's vocabulary is a floor no principal can pass and a disclosure rule
+// that silently means "never".
+//
+// What this layer canNOT derive is the CONTENT of each surface's floor. Both
+// probes are package-internal on purpose (a module does not export its
+// authorization internals so a test can drive them), so "do both actually require
+// object-read for every type they classify" is not observable from here — which is
+// exactly how the two agreed on the vocabulary while disagreeing on the floor.
+// That half is gated inside each module, over each module's own classification
+// table, by approvals.TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType and
+// webhooks.TestEveryClassifiedApprovalTargetRidesTheObjectReadFloor. Those two
+// tests and this one are the whole invariant; none of the three is complete alone.
 func TestTheInboxAndTheFanOutClassifyEveryTargetTypeAlike(t *testing.T) {
 	subjects := map[string]bool{}
 	for _, pol := range agentPolicies {
@@ -366,16 +389,21 @@ func TestTheInboxAndTheFanOutClassifyEveryTargetTypeAlike(t *testing.T) {
 		// any type is consulted, and would report every type alike.
 		inbox := approvals.TargetShapeDecidable(recordType, true)
 		fanOut := webhooks.ApprovalTargetClassified(recordType)
-		if inbox == fanOut {
+		if inbox != fanOut {
+			known, missing := "the approvals inbox", "the webhook fan-out"
+			if fanOut {
+				known, missing = missing, known
+			}
+			t.Errorf("%s classifies target type %q and %s does not — give %s the arm that mirrors the "+
+				"owning store's read rule, so a staged row is both decidable and announced",
+				known, recordType, missing, missing)
 			continue
 		}
-		known, missing := "the approvals inbox", "the webhook fan-out"
-		if fanOut {
-			known, missing = missing, known
+		if inbox && !identity.RBACObjectGrantable(recordType) {
+			t.Errorf("both surfaces classify target type %q, which is outside the RBAC object vocabulary a role "+
+				"document may name — each gates a classified target on read of its type, so no principal that "+
+				"can exist may be shown or told about one", recordType)
 		}
-		t.Errorf("%s classifies target type %q and %s does not — give %s the arm that mirrors the "+
-			"owning store's read rule, so a staged row is both decidable and announced",
-			known, recordType, missing, missing)
 	}
 	// The floor that keeps agreement from being vacuous: both classifications
 	// answer false for everything when both are empty, which is agreement over

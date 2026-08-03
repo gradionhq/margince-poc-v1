@@ -2,10 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // The target half of the decision-authority predicate: whether the record a
-// staged row points at is one the asking human may see. Each arm mirrors the
-// READ RULE of the store that owns the target, because a probe wider than that
-// store discloses a record through the inbox, and a probe narrower than it
+// staged row points at is one the asking human may see. It composes what the
+// owning store's read path composes — the object-level READ grant on the
+// target's type, and then that store's own row rule — because a probe wider than
+// that store discloses a record through the inbox, and a probe narrower than it
 // strands the staged row where nobody can release or reject it.
+//
+// The object half is applied ONCE, above every arm; each arm below is the row
+// half alone.
 
 package approvals
 
@@ -24,10 +28,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// targetProbe names HOW a target type's visibility is decided. It exists so the
-// answer "is a staged row against this target decidable at all" has ONE source:
-// targetVisible dispatches on it, TargetShapeDecidable reports on it, and
-// ClassifiedTargetTypes enumerates what carries one.
+// targetProbe names HOW the ROW half of a target type's visibility is decided —
+// the object-read grant on the type is composed above every one of them, in
+// targetVisible. It exists so the answer "is a staged row against this target
+// decidable at all" has ONE source: targetVisible dispatches on it,
+// TargetShapeDecidable reports on it, and ClassifiedTargetTypes enumerates what
+// carries one.
 //
 // That mattered the moment the tool surface started minting staged rows for types
 // nobody had checked. A type with no rule is not decidable, which means its
@@ -49,8 +55,10 @@ const (
 	// points at: an offer from its deal, a signal from its subject, an activity
 	// from any linked record, an edge from ALL of its endpoints.
 	probeInheritedScope
-	// probeExistence — workspace-shared admin config with no row scope; the
-	// decision-grant check is the authority and existence is the floor.
+	// probeExistence — workspace-shared config with no row scope of its own, so
+	// the row half is existence alone: a staging against a row that is gone is
+	// not decidable. The object-read floor and the decision grants are the
+	// authority.
 	probeExistence
 	// probeOwnerOnly — the row is PERSONAL state, which its owning store serves
 	// to one human and nobody else, so the probe is that same ownership. It is
@@ -126,10 +134,10 @@ type targetShape struct{ hasType, hasID bool }
 //
 //   - NO target id — whether the row names a target type (a staged CREATE,
 //     whose record does not exist yet) or nothing at all (a cold-start
-//     proposal, which is about no record yet) — is scoped by the DECISION
-//     GRANTS alone. There is no row whose scope could bound it, and its
-//     authority is the grant on the type, which requireDecisionGrants demands
-//     of the caller before any of this is reached.
+//     proposal, which is about no record yet) — carries no ROW half at all.
+//     There is nothing whose scope could bound it, so what remains is the
+//     object-read floor on the type it names (targetVisible applies it) and the
+//     grants requireDecisionGrants demands of the caller.
 //   - An id with NO type is not decidable. It names a concrete record the
 //     probe cannot resolve, and treating it as unbounded would put that
 //     record's summary and proposed change in the inbox of everyone holding
@@ -161,6 +169,12 @@ func settledByShape(shape targetShape) (settled, visible bool) {
 // half the class: a staging with no target id is decidable whatever its type
 // is, and a type with a probe below is still undecidable when the id that probe
 // needs is absent.
+//
+// It answers the shape and the row half's classification, which is all a SHAPE
+// can answer. The object-read floor targetVisible composes above every arm is a
+// question about the asking human, so the gate proves that half its own way:
+// read on the staged target's own type has to be a grant some role document may
+// name, or no principal that can exist passes the floor.
 func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
 	if settled, visible := settledByShape(targetShape{hasType: true, hasID: hasTargetID}); settled {
 		return visible
@@ -168,16 +182,21 @@ func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
 	return probeFor(targetType) != probeNoRule
 }
 
-// targetVisible applies the target record's OWN read rule to the approval:
-// holding deal.update does not entitle a rep to see — or decide — a staged change
-// against another team's deal, and holding saved_view.delete does not entitle
-// anyone to a colleague's private view. Each probe below is the rule the owning
-// store itself reads by, so the approval surface can never disclose more than the
-// record would.
+// targetVisible applies the target record's OWN read rule to the approval —
+// BOTH halves of it, in the order the owning store applies them. The object-READ
+// grant on the target's type comes first: holding tag.delete does not entitle a
+// human to the tags they may not read, nor to the change staged against one. The
+// arm then applies that store's row rule: holding deal.update does not entitle a
+// rep to see — or decide — a staged change against another team's deal, and
+// holding saved_view.delete does not entitle anyone to a colleague's private
+// view. With the decision grants requireDecisionGrants demands (authority.go),
+// those are the whole predicate — read the target's type, see its row, hold what
+// the effect needs — so the inbox can never disclose more than the record would.
 //
 // A pair missing either half is answered by settledByShape, which states that
-// rule; a pair carrying both goes to the type's probe below, and a target the
-// probe errors on stays invisible.
+// rule — still under the floor whenever it names a type at all; a pair carrying
+// both goes to the type's probe below, and a target the probe errors on stays
+// invisible.
 //
 // It takes the pair rather than a row because a target-FILTERED read asks the
 // same question about a target the client named, before any row is in hand.
@@ -188,7 +207,26 @@ func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
 // below — not the caller — is what keeps a made-up target_entity_type from
 // reaching it.
 func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
-	if settled, visible := settledByShape(targetShape{hasType: targetType != nil, hasID: targetID != nil}); settled {
+	settled, visible := settledByShape(targetShape{hasType: targetType != nil, hasID: targetID != nil})
+	if targetType == nil {
+		// No type is no object to require a read grant ON, and settledByShape
+		// settles both such shapes: a target-LESS proposal, which is about no
+		// record at all, and an id whose table the staging never named.
+		return visible, nil
+	}
+	// The object-read floor, ONE rule above every arm rather than a line inside
+	// each: it is the half the owning store applies before its own row rule, so
+	// an arm added later inherits it without anyone remembering. A denial reads
+	// as not-visible — the caller turns that into the same existence-hiding
+	// answer the record's own read gives, never a 403 that would confirm the row.
+	readable, err := objectReadable(ctx, *targetType)
+	if err != nil || !readable {
+		return false, err
+	}
+	if settled {
+		// A staged CREATE: no row exists yet whose scope could bound it, so read
+		// on the type its row will land in is the whole rule the floor above just
+		// applied, and the decision grants carry the rest of the authority.
 		return visible, nil
 	}
 	switch probeFor(*targetType) {
@@ -204,15 +242,34 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 		// Effective-dated price sheets are workspace-shared admin config
 		// with no row scope. A refresh proposal targets the workspace (a
 		// brand-new currency/model has no row yet), so existence is not the
-		// floor here — the decision-grant check above (admin/ops Create) is
-		// the authority. The floor that remains is that the shown target IS
-		// the acting workspace: a proposal whose target_id is some other
-		// workspace is not decidable here (its effect would write to this
-		// context's sheet, not the claimed one).
+		// row half here — the object-read floor above and the decision-grant
+		// check (admin/ops Create) carry the authority. The row half that
+		// remains is that the shown target IS the acting workspace: a proposal
+		// whose target_id is some other workspace is not decidable here (its
+		// effect would write to this context's sheet, not the claimed one).
 		wsID, ok := principal.WorkspaceID(ctx)
 		return ok && *targetID == wsID, nil
 	default:
 		return false, nil // no rule for this target type: fail closed
+	}
+}
+
+// objectReadable reports whether the asking human holds the object-level READ
+// grant on a staged target's type — the auth.Require half every owning store
+// applies before it looks at a row at all.
+//
+// A denial is an ANSWER, not an error: the inbox hides an approval it may not
+// disclose exactly as the record's own read hides the record, so a permission
+// denial must reach the caller as not-visible and become a 404, never a 403 that
+// would confirm the staged row exists. Any other resolution failure surfaces.
+func objectReadable(ctx context.Context, object string) (bool, error) {
+	switch err := auth.Require(ctx, object, principal.ActionRead); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return false, nil
+	default:
+		return false, err
 	}
 }
 

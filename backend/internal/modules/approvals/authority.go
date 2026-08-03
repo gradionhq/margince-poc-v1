@@ -202,7 +202,8 @@ var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
-// require AND can see the target row under their own/team/all scope. It
+// require AND could read the staged target itself — the object-read grant
+// on its type, then that record's own row rule (targetvisibility.go). It
 // backs List, Get and Decide alike, so triage visibility and the decision
 // gate can never drift apart — you see exactly what you could act on, and
 // what you cannot see you cannot decide (in either direction). An unknown

@@ -3,12 +3,13 @@
 
 package webhooks
 
-// The approval fan-out gate, in the two dimensions that resolve without a
-// database: which halves of the staged target the envelope carries, and how the
-// target's TYPE is classified. Each shape has its own floor, and each
-// classification has to mirror the read rule of the store that owns the target.
-// The row-scoped branches' object-read hardening is covered in unit_test.go; the
-// database-backed probes live in the compose integration lane.
+// The approval fan-out gate, in the three dimensions that resolve without a
+// database: which halves of the staged target the envelope carries, how the
+// target's TYPE is classified, and the object-read floor every classification
+// rides. Each shape has its own floor, and each classification has to mirror the
+// read rule of the store that owns the target. The direct-subject path's own
+// object-read hardening is covered in unit_test.go; the database-backed row
+// probes live in the compose integration lane.
 
 import (
 	"context"
@@ -110,46 +111,84 @@ func TestEveryApprovalTargetTakesItsOwningStoresRule(t *testing.T) {
 	}
 }
 
-// The owner-only arm rides the SAME object-read floor every row-scoped arm
-// applies; only the row half differs. A fan-out owner whose live role no longer
-// grants saved_view.read must not learn a colleague's — or their own — view was
-// staged for archive.
+// writerWithoutReadOn is a fan-out owner holding every grant on one object
+// EXCEPT read, at the widest row scope — so nothing but the missing read grant
+// can be what withholds a delivery from them.
+func writerWithoutReadOn(object string) context.Context {
+	return readerOf(object, principal.ObjectGrant{Create: true, Update: true, Delete: true})
+}
+
+// The object-READ grant on the staged target's own type is the floor under EVERY
+// arm, and the subject set is this gate's own classification table rather than a
+// list of the arms — an arm added later inherits the assertion instead of waiting
+// for someone to extend a list. It is the same enumeration the composition
+// layer's parity gate reads (ClassifiedApprovalTargetTypes).
 //
-// The nil pool proves the short-circuit: were the object-read half dropped, the
-// ownership probe would drive it into the pool and fail loudly instead of
-// answering the clean deny below.
-func TestAnOwnerOnlyApprovalTargetRequiresObjectReadCapability(t *testing.T) {
+// The hole it closes is the one the seeded roles hide: a role document granting
+// `tag.delete` with `tag.read` false is valid, and the fan-out payload carries
+// summary and edited_change to a subscription owner with no entry gate of its own
+// — so a floor that held for the row-scoped arms and not for shared config made
+// the WIDER disclosure the laxer surface.
+//
+// The nil pool is the assertion that the floor answers before any query is
+// issued; an arm reached without it dereferences the pool, which is recovered
+// here so the failure names the invariant instead of surfacing as a panic in
+// whichever arm ran.
+func TestEveryClassifiedApprovalTargetRidesTheObjectReadFloor(t *testing.T) {
+	s := NewStore(nil, nil)
+	target := ids.NewV7()
+
+	for _, targetType := range ClassifiedApprovalTargetTypes() {
+		t.Run(targetType, func(t *testing.T) {
+			defer func() {
+				if reached := recover(); reached != nil {
+					t.Errorf("the gate reached its row arm without the object-read floor (%v) — the floor must "+
+						"answer above every arm, so a new arm inherits it", reached)
+				}
+			}()
+			ctx := principal.WithWorkspaceID(writerWithoutReadOn(targetType), target)
+			ok, err := s.approvalTargetVisible(ctx, targetType, target)
+			if err != nil {
+				t.Fatalf("approvalTargetVisible: %v — a missing read grant is an ANSWER, not an error", err)
+			}
+			if ok {
+				t.Errorf("an owner holding every %s grant EXCEPT read receives the staged change against one — "+
+					"the fan-out would disclose a record the API refuses them", targetType)
+			}
+		})
+	}
+}
+
+// The owner-only arm's row half is OWNERSHIP, and the floor admits before it
+// rather than instead of it. The negative — no read grant, no delivery — is
+// derived for every classified type by the gate above; what this asserts is that
+// a grant-holding owner is not refused by the floor and does reach the ownership
+// probe, so the deny above can only have come from the missing grant.
+//
+// The nil pool is the proof: reaching the probe fails loudly, which is anything
+// but a clean deny.
+func TestTheOwnerOnlyArmIsReachedWhenTheReadFloorAdmits(t *testing.T) {
 	s := NewStore(nil, nil)
 	viewID := ids.NewV7()
 
-	if ok, err := s.approvalTargetVisible(readerOf("saved_view", principal.ObjectGrant{Delete: true}), "saved_view", viewID); ok || err != nil {
-		t.Fatalf("staged view archive to an owner without saved_view.read = (%v, %v), want (false, nil)", ok, err)
+	//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
+	defer func() { _ = recover() }()
+	ctx := readerOf("saved_view", principal.ObjectGrant{Read: true})
+	if ok, err := s.approvalTargetVisible(ctx, "saved_view", viewID); !ok && err == nil {
+		t.Fatal("with saved_view.read, approvalTargetVisible returned a clean deny — the read gate must " +
+			"have admitted it and reached the ownership probe")
 	}
-
-	// The same owner WITH the read grant passes the object-read half and reaches
-	// the ownership probe, which on a nil pool fails loudly — anything but the
-	// clean deny above — proving the denial came from the missing grant.
-	func() {
-		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
-		defer func() { _ = recover() }()
-		ctx := readerOf("saved_view", principal.ObjectGrant{Read: true})
-		if ok, err := s.approvalTargetVisible(ctx, "saved_view", viewID); !ok && err == nil {
-			t.Fatal("with saved_view.read, approvalTargetVisible returned a clean deny — the read gate must " +
-				"have admitted it and reached the ownership probe")
-		}
-	}()
 }
 
 // The rate-sheet arm, whose target is a WORKSPACE rather than a record: a
-// proposal for a currency or model the sheet has never priced has no row, so the
-// floor is the object-read grant plus the identity of the workspace named.
+// proposal for a currency or model the sheet has never priced has no row, so its
+// row half is the identity of the workspace named. A proposal naming some other
+// tenant's sheet must not be announced as if it were this one's — the accepted
+// effect writes to the acting workspace's sheet.
 //
-// Both halves are asserted because each alone is a real defect. Without the read
-// grant a rep who owns a subscription would receive proposed FX and model pricing
-// that no surface will show them; without the workspace check a proposal naming
-// some other tenant's sheet would be announced as if it were this one's. The nil
-// pool proves the arm reaches no table at all.
-func TestARateSheetApprovalNeedsTheReadGrantAndThisWorkspace(t *testing.T) {
+// The read half this arm also owes is derived for every classified type by the
+// floor gate above; the nil pool proves this arm reaches no table at all.
+func TestARateSheetApprovalIsAnnouncedOnlyForThisWorkspace(t *testing.T) {
 	s := NewStore(nil, nil)
 	here := ids.NewV7()
 	elsewhere := ids.NewV7()
@@ -164,14 +203,6 @@ func TestARateSheetApprovalNeedsTheReadGrantAndThisWorkspace(t *testing.T) {
 			if ok, err := s.approvalTargetVisible(admin, targetType, elsewhere); ok || err != nil {
 				t.Errorf("proposal naming ANOTHER workspace = (%v, %v), want (false, nil) — the accepted effect "+
 					"writes to the acting workspace's sheet, not the claimed one", ok, err)
-			}
-
-			// A rep holds no grant on either sheet at all (the seeded RBAC gives
-			// both to admin/ops alone), which is exactly why this arm carries the
-			// read half its shared-config neighbours do not.
-			rep := principal.WithWorkspaceID(readerOf("deal", principal.ObjectGrant{Read: true}), here)
-			if ok, err := s.approvalTargetVisible(rep, targetType, here); ok || err != nil {
-				t.Errorf("proposal to an owner without %s.read = (%v, %v), want (false, nil)", targetType, ok, err)
 			}
 
 			// No workspace bound is not "any workspace": it fails closed rather

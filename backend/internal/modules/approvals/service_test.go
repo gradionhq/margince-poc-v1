@@ -279,21 +279,23 @@ func TestKindHasDecisionGrantsMatchesTheMap(t *testing.T) {
 // in the workspace it names: a foreign or absent workspace context must not see
 // or decide it. This is the tenant-isolation floor for the fx_rate /
 // ai_model_rate branch of targetVisible, which touches no tx (the nil tx here
-// is never dereferenced) — the switch decides on the context workspace alone.
+// is never dereferenced) — the sheet's read grant is held throughout, so the
+// workspace comparison is what each case measures.
 func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 	ws := ids.NewV7()
 	other := ids.NewV7()
 	for _, targetType := range []string{"fx_rate", "ai_model_rate"} {
 		tt := targetType
 		a := row{TargetType: &tt, TargetID: &ws}
+		reader := humanCtx(grants(map[string]principal.ObjectGrant{tt: {Read: true}}))
 		cases := []struct {
 			name string
 			ctx  context.Context
 			want bool
 		}{
-			{"owning workspace", principal.WithWorkspaceID(context.Background(), ws), true},
-			{"foreign workspace", principal.WithWorkspaceID(context.Background(), other), false},
-			{"no workspace context", context.Background(), false},
+			{"owning workspace", principal.WithWorkspaceID(reader, ws), true},
+			{"foreign workspace", principal.WithWorkspaceID(reader, other), false},
+			{"no workspace context", reader, false},
 		}
 		for _, c := range cases {
 			t.Run(targetType+"/"+c.name, func(t *testing.T) {
@@ -318,10 +320,17 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 // No shape here reaches a row probe, so the nil tx is never dereferenced. What a
 // both-halves pair against a REAL type then shows is row-scope work and lives in
 // the compose integration lane.
+//
+// The caller holds read on BOTH types named below, so the object-read floor
+// admits every case and each answer is the shape rule's own — the floor's
+// negatives are TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType.
 func TestTargetVisibleAnswersEachStagedShape(t *testing.T) {
 	staged := tableProject
 	unknown := "chartreuse"
 	target := ids.NewV7()
+	ctx := humanCtx(grants(map[string]principal.ObjectGrant{
+		staged: {Read: true}, unknown: {Read: true},
+	}))
 
 	for _, c := range []struct {
 		name       string
@@ -348,7 +357,7 @@ func TestTargetVisibleAnswersEachStagedShape(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := targetVisible(context.Background(), nil, c.targetType, c.targetID)
+			got, err := targetVisible(ctx, nil, c.targetType, c.targetID)
 			if err != nil {
 				t.Fatalf("targetVisible: %v", err)
 			}

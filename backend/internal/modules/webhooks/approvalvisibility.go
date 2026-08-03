@@ -4,10 +4,14 @@
 // The approval fan-out gate: an approval.*/coldstart.* envelope carries
 // staged-change detail (summary, edited_change, target ids), so it may reach a
 // subscription owner only when that owner could read the TARGET record itself.
-// Each arm mirrors the READ RULE of the store owning the target — wider is a
-// disclosure over a webhook the API would refuse; narrower is a staged approval
-// nobody is ever told about. The event-subject gate every other subscribable
-// event goes through is deliveryvisibility.go, whose primitives this shares.
+// The gate composes what the owning store's read path composes — the
+// object-level READ grant on the target's type, then that store's own row rule —
+// because wider is a disclosure over a webhook the API would refuse, and
+// narrower is a staged approval nobody is ever told about.
+//
+// The object half is applied ONCE, above every arm; each arm below is the row
+// half alone. The event-subject gate every other subscribable event goes through
+// is deliveryvisibility.go, whose primitives this shares.
 
 package webhooks
 
@@ -79,9 +83,8 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 //   - A type with NO id is a staged CREATE: there is no record yet whose scope
 //     could bound the fan-out, so the floor is the object-read grant on the
 //     type it will write. An owner who may read that type learns a create was
-//     proposed on it; one who may not learns nothing — the object-read floor
-//     every row-scoped branch of approvalTargetVisible applies before its own
-//     row half.
+//     proposed on it; one who may not learns nothing — the same floor
+//     approvalTargetVisible applies above every one of its arms.
 //   - BOTH halves go to the target record's own visibility rule.
 func (s *Store) approvalShapeVisible(ctx context.Context, targetType *string, targetID *ids.UUID) (bool, error) {
 	if targetType == nil {
@@ -95,7 +98,8 @@ func (s *Store) approvalShapeVisible(ctx context.Context, targetType *string, ta
 
 // sharedConfigExistence are the approval target types whose owning store
 // applies NO row scope of its own — workspace-shared config an object grant
-// governs — mapped to the existence query that is their whole fan-out floor.
+// governs — mapped to the existence query that is their ROW half, under the same
+// object-read floor every other arm rides.
 //
 // Each query mirrors what its own store's read path admits, and the archive
 // predicate differs across them for ONE reason, stated here rather than repeated
@@ -141,25 +145,16 @@ const (
 	targetRuleOwnerOnly
 	// targetRuleSharedConfig — workspace-shared config with no row scope. There
 	// is no per-owner boundary to honor and the envelope names the config row
-	// itself, so existence is the whole floor, exactly as the sibling inbox has
-	// it: the decision-grant check is the authority question there, and this arm
-	// deliberately reports the same set (sharedConfigExistence carries the
-	// queries).
+	// itself, so the ROW half is existence alone: a staged effect against a row
+	// that is gone could never land (sharedConfigExistence carries the queries).
+	// The object-read floor above governs it like every other arm.
 	targetRuleSharedConfig
 	// targetRuleActingWorkspace — the target IS a workspace, not a record: an
 	// effective-dated rate sheet has no row of its own until a proposal is
 	// accepted, so a brand-new currency or model has nothing whose existence
-	// could be the floor.
-	//
-	// Two halves remain, and both are needed. The named target must be THIS
-	// workspace — the same floor the sibling inbox applies, since the accepted
+	// could be the row half. What remains is that the named target must be THIS
+	// workspace — the same rule the sibling inbox applies, since the accepted
 	// effect writes to the acting workspace's sheet and not to the claimed one.
-	// And the object-read grant must admit, which the shared-config arm above
-	// does NOT require: those config objects are readable by every seat that
-	// reads records at all, so existence is their whole boundary,
-	// whereas the rate sheets are granted to admin/ops alone. Without the read
-	// half a rep who happens to own a subscription would receive proposed FX and
-	// model pricing that no surface will show them.
 	targetRuleActingWorkspace
 )
 
@@ -225,22 +220,32 @@ func ClassifiedApprovalTargetTypes() []string {
 // envelope discloses the target's details (summary, target ids, edited_change): a
 // subscriber may receive an approval only about a target it could itself read,
 // never one it cannot. This is the target-visibility half of
-// approvals.targetVisible (approvals/targetvisibility.go); wherever the target
-// carries a row scope, it is HARDENED with the object-read capability
-// (auth.Require) exactly as entityVisibleTo hardens the primary read path (the P0
-// gate): a lingering row scope with no current read grant must not leak the
-// payload through the approval path any more than through the direct-subject
-// path. It deliberately omits ONLY the inbox's `decidable` decision-grant half —
-// that governs who may ACT on an approval (authorization), not who may learn a
-// visible target's proposed change — so a webhook owner's fan-out set may be
-// broader than the inbox's decidable set while disclosing nothing beyond what the
-// owner could already read. Diverging here from the sibling's row-scope-only probe is
-// deliberate: the webhook fan-out has no handler-level approval.read entry gate
-// (the inbox does), so the target object-read is the read-path floor this gate
-// owes on its own. Unknown target type: fail closed. Self-contained (a module
-// never imports a sibling); the row-scoped branches must stay in step with
+// approvals.targetVisible (approvals/targetvisibility.go), and it composes the
+// same two halves in the same order — the object-READ grant on the target's type,
+// then the row rule of the store that owns it.
+//
+// The object-read half is applied ONCE here, above the switch, so an arm added
+// later inherits it: no classified target type may be answered without it,
+// whatever row rule it takes. The row-scoped helpers apply it for themselves as
+// well because entityVisibleTo enters them directly for the DIRECT-subject
+// events, where this frame does not run; re-asking a pure capability question
+// costs nothing, while dropping it from either place is a hole. This gate owes
+// the read half on its own account too: unlike the inbox it has no handler-level
+// approval.read entry gate, so a lingering row scope with no current read grant
+// must not leak the payload through the fan-out.
+//
+// It deliberately omits ONLY the inbox's `decidable` decision-grant half — that
+// governs who may ACT on an approval (authorization), not who may learn a visible
+// target's proposed change — so a webhook owner's fan-out set may be broader than
+// the inbox's decidable set while disclosing nothing beyond what the owner could
+// already read. Unknown target type: fail closed. Self-contained (a module never
+// imports a sibling); the row-scoped branches must stay in step with
 // entityVisibleTo above.
 func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
+	readable, err := objectReadable(ctx, targetType)
+	if err != nil || !readable {
+		return false, err
+	}
 	switch approvalTargetRuleFor(targetType) {
 	case targetRuleRowScoped:
 		return s.rowScopedVisible(ctx, targetType, func(c context.Context, tx pgx.Tx) error {
@@ -249,15 +254,26 @@ func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, ta
 	case targetRuleInheritedScope:
 		return s.approvalTargetVisibleThroughParent(ctx, targetType, targetID)
 	case targetRuleOwnerOnly:
-		// The owner-only row probe rides the same object-read floor every
-		// row-scoped arm applies; only the row half differs.
+		// Personal state differs from its row-scoped neighbours in the row half
+		// alone: ownership equality instead of own/team/all.
 		return s.rowScopedVisible(ctx, targetType, func(c context.Context, tx pgx.Tx) error {
 			return ensureSavedViewOwnedByActor(c, tx, targetID)
 		})
 	case targetRuleSharedConfig:
+		// No per-owner boundary exists on workspace-shared config, so the row
+		// half is that the row is still there to be acted on.
 		return s.rowExists(ctx, sharedConfigExistence[targetType], targetID)
 	case targetRuleActingWorkspace:
-		return actingWorkspaceVisible(ctx, targetType, targetID)
+		// The row half for a target that IS a workspace rather than a record: the
+		// workspace named must be the one this envelope belongs to, because the
+		// accepted effect writes to the acting workspace's sheet and not to the
+		// claimed one. It reaches no table (the row the proposal would create does
+		// not exist yet) and asks no grant — the floor above already did, which is
+		// what keeps a rep who happens to own a subscription from receiving
+		// proposed FX and model pricing that no surface will show them. An unbound
+		// workspace fails closed rather than comparing against the nil UUID.
+		ws, bound := principal.WorkspaceID(ctx)
+		return bound && targetID == ws, nil
 	default:
 		// Unknown target type: fail closed, exactly like approvals.targetVisible.
 		return false, nil
@@ -290,24 +306,6 @@ func (s *Store) approvalTargetVisibleThroughParent(ctx context.Context, targetTy
 		// branch fell last, which is a wrong answer rather than a closed one.
 		return false, fmt.Errorf("webhooks: %q is classified as inherited-scope with no parent probe", targetType)
 	}
-}
-
-// actingWorkspaceVisible is the floor for a staged target that IS a workspace
-// rather than a record. Both halves are the read path's, as far as one exists
-// here: the object-read grant on the rate sheet, and that the workspace named is
-// the one this envelope belongs to. It reaches no table, because the row the
-// proposal would create does not exist yet.
-//
-// A target naming some OTHER workspace is not this fan-out's to deliver — the
-// accepted effect writes to the acting workspace's sheet — and an unbound
-// workspace fails closed rather than comparing against the nil UUID.
-func actingWorkspaceVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
-	readable, err := objectReadable(ctx, targetType)
-	if err != nil || !readable {
-		return false, err
-	}
-	ws, bound := principal.WorkspaceID(ctx)
-	return bound && targetID == ws, nil
 }
 
 // ensureSavedViewOwnedByActor is the row half of the owner-only floor: the view

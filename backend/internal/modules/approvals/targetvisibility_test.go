@@ -67,6 +67,65 @@ func TestEveryTargetProbeMirrorsItsOwningStoresReadRule(t *testing.T) {
 	}
 }
 
+// The object-READ grant on the staged target's own type is the floor under EVERY
+// arm, and the subject set is the classification table itself rather than a list
+// of the arms — an arm added later inherits this assertion instead of waiting for
+// someone to extend a list. It is the same enumeration the composition layer's
+// parity gate reads (ClassifiedTargetTypes).
+//
+// The hole it closes: a role document granting `tag.delete` with `tag.read`
+// false is valid, and such a human satisfies archive_record's decision grant. On
+// the row half alone the inbox would list that staging — summary and proposed
+// change included — while every direct tag read refuses them. Both shapes are
+// asserted because both disclose: a staged CREATE names only the type, and its
+// floor is read on the type whose row it would land in.
+//
+// The principal holds every OTHER grant on the type and the widest row scope, so
+// nothing but the missing read can be what refuses. The nil tx is the assertion
+// that the floor answers before any query is issued; an arm reached without it
+// dereferences the tx, which is recovered here so the failure names the invariant
+// instead of surfacing as a panic in whichever arm ran.
+func TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType(t *testing.T) {
+	target := ids.NewV7()
+	for _, targetType := range ClassifiedTargetTypes() {
+		t.Run(targetType, func(t *testing.T) {
+			ctx := principal.WithWorkspaceID(principal.WithActor(context.Background(), principal.Principal{
+				Type:   principal.PrincipalHuman,
+				UserID: ids.NewV7(),
+				Permissions: principal.Permissions{
+					Objects:  map[string]principal.ObjectGrant{targetType: {Create: true, Update: true, Delete: true}},
+					RowScope: principal.RowScopeAll,
+				},
+			}), target)
+			for _, shape := range []struct {
+				name     string
+				targetID *ids.UUID
+			}{
+				{"a staged change against one row", &target},
+				{"a staged create of this type", nil},
+			} {
+				t.Run(shape.name, func(t *testing.T) {
+					defer func() {
+						if reached := recover(); reached != nil {
+							t.Errorf("the probe reached its row arm without the object-read floor (%v) — the "+
+								"floor must answer above every arm, so a new arm inherits it", reached)
+						}
+					}()
+					tt := targetType
+					visible, err := targetVisible(ctx, nil, &tt, shape.targetID)
+					if err != nil {
+						t.Fatalf("targetVisible: %v — a missing read grant is an ANSWER, not an error", err)
+					}
+					if visible {
+						t.Errorf("a human holding every %s grant EXCEPT read can see the staged change against "+
+							"one — the inbox would disclose a record its own read path refuses them", targetType)
+					}
+				})
+			}
+		})
+	}
+}
+
 // The workspace-shared targets must never reach the row-scope clause, and this
 // is why it matters: platform/auth interpolates only the tables that HAVE an
 // owner_id, so asking it about one that does not is an ERROR — a 500 to the
