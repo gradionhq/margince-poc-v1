@@ -54,7 +54,8 @@ var searchable = []datasource.EntityType{datasource.EntityPerson, datasource.Ent
 
 func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasource.Record, error) {
 	switch ref.Type {
-	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead,
+		datasource.EntityRelationship:
 		return p.people.Read(ctx, ref)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Read(ctx, ref)
@@ -118,7 +119,8 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
 	switch in.EntityType {
-	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead,
+		datasource.EntityRelationship:
 		return p.people.Create(ctx, in)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Create(ctx, in)
@@ -131,7 +133,8 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 
 func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	switch in.Ref.Type {
-	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead,
+		datasource.EntityRelationship:
 		return p.people.Update(ctx, in)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Update(ctx, in)
@@ -144,7 +147,7 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
 	switch r.Type {
-	case datasource.EntityPerson, datasource.EntityOrganization:
+	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityRelationship:
 		return p.people.Archive(ctx, r)
 	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Archive(ctx, r)

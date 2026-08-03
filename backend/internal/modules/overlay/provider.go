@@ -246,8 +246,12 @@ func mirrorRowMatchesText(row Row, lowerText string) bool {
 	return false
 }
 
-// knownEntityTypes is the fixed set of entity types the overlay mirror
-// can ever hold (datasource.go's frozen EntityType constants).
+// knownEntityTypes is the set of entity types the overlay mirror can hold — a
+// SUBSET of the seam's vocabulary, not a copy of it. `project` and
+// `relationship` are full members of datasource.EntityTypes() and have no
+// mirror projection, which is why a write naming one answers the declared
+// unsupported-by-SoR sentinel (requireSupportedWrite) rather than
+// UnsupportedEntityError.
 var knownEntityTypes = []datasource.EntityType{
 	datasource.EntityPerson,
 	datasource.EntityOrganization,

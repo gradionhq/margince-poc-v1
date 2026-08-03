@@ -341,12 +341,14 @@ func handleImage(provider string, handle *string) map[string]any {
 	}}
 }
 
-// emptyToNil mirrors the column's NULLIF: "no handle" is one state, not two.
-func emptyToNil(handle string) *string {
-	if handle == "" {
+// emptyToNil mirrors the columns' NULLIF: absent is one state, not two. Shared
+// by the channel handle and the organization name columns, both of which read
+// NULL as "not set" and would otherwise grow a second, silent spelling of it.
+func emptyToNil(value string) *string {
+	if value == "" {
 		return nil
 	}
-	return &handle
+	return &value
 }
 
 // channelCounterpartyName is the display name we can honestly store for a

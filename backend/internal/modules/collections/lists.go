@@ -49,6 +49,12 @@ var memberEntityTables = func() map[string]bool {
 // points at.
 const entityTypeField = "entity_type"
 
+// entityIDField names its sibling — the polymorphic TARGET a member or a tag
+// application points at. Named beside entity_type because the two travel
+// together in every body on this surface, and a refusal has to name the wire
+// path, never prose.
+const entityIDField = "entity_id"
+
 // memberEntityVocabulary renders the accepted set for the refusal message.
 // Derived from the same map the check uses, because a message that restates
 // the vocabulary drifts from it silently — the caller is then told a record

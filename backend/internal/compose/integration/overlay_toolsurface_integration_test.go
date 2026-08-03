@@ -40,11 +40,20 @@ import (
 )
 
 // nativeOnlyAgentTools are the tools whose only implementation reads the
-// native domain tables: the compiled report engine, the two retrieval-
-// grounded context intents, and the pipeline-risk scan. None has a mirror
-// projection to serve, so each owes an honest refusal in overlay mode. The
-// args only have to be well-formed — the refusal must land before any record
-// lookup, so a not-found in place of the sentinel means the guard runs late.
+// native domain tables: the compiled report engine, the two retrieval-grounded
+// context intents, the pipeline-risk scan and its draft sibling, the two
+// relationship-graph reads, and the pipeline configuration read. None has a
+// mirror projection to serve, so each owes an honest refusal in overlay mode.
+// The args only have to be well-formed — the refusal must land before any
+// record lookup, so a not-found in place of the sentinel means the guard runs
+// late.
+//
+// Every `nativeOnly…` guard in compose/nativeonlytools.go must name its tool
+// here, and every tool here must be named by exactly one guard —
+// TestEveryNativeOnlyGuardNamesAToolThePinCovers holds the two in step. So a
+// newly guarded tool is enrolled by the gate rather than by being remembered,
+// which is what "which tools read native tables is not visible from a tool spec"
+// otherwise costs.
 func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 	return map[string]string{
 		"run_report":               `{"report":"deals-by-stage"}`,
@@ -52,14 +61,37 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 		"prep_for_meeting":         fmt.Sprintf(`{"record_type":"person","record_id":%q}`, anchor),
 		"whats_slipping_this_week": `{}`,
 		"draft_follow_ups_for":     `{"segment":"slipping"}`,
+		"intro_path_to":            fmt.Sprintf(`{"organization_id":%q}`, anchor),
+		"at_risk_relationships":    `{}`,
+		"list_pipelines":           `{}`,
 	}
+}
+
+// nativeToolReaderPerms is overlayReaderPerms plus the `pipeline` object.
+// list_pipelines rides the deals module's own config read, which is RBAC-gated
+// on `pipeline` — so a reader without that grant is refused for a reason that
+// has nothing to do with system-of-record mode, and the native half of this
+// suite would be asserting the wrong thing.
+func nativeToolReaderPerms() principal.Permissions {
+	perms := overlayReaderPerms
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+1)
+	for object, grant := range perms.Objects {
+		objects[object] = grant
+	}
+	objects["pipeline"] = principal.ObjectGrant{Read: true}
+	perms.Objects = objects
+	return perms
 }
 
 func TestOverlayAgentToolsRefuseRatherThanAnswerFromNativeTables(t *testing.T) {
 	e := Setup(t)
 	ws, user := seedOverlayModeWorkspace(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
-	ctx := overlayActorCtx(ws, user)
+	// Every object grant a guarded read could need, so an unwired guard fails
+	// with the native-table answer this suite exists to forbid rather than with
+	// "permission denied" — which would pass the assertion for a reason that has
+	// nothing to do with system-of-record mode.
+	ctx := overlayActorCtxWith(ws, user, nativeToolReaderPerms())
 
 	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
 		t.Run(name, func(t *testing.T) {
@@ -305,13 +337,15 @@ func seedNativeModeWorkspaceForFlip(t *testing.T) (ws, user ids.UUID) {
 func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
-	ctx := e.As(e.Rep1, nil, overlayReaderPerms)
+	ctx := e.As(e.Rep1, nil, nativeToolReaderPerms())
 
-	// The two anchored intents may honestly answer not-found (their anchor id
-	// is minted, not seeded); the two that take no record must SUCCEED, so a
+	// The anchored intents may honestly answer not-found (their anchor id is
+	// minted, not seeded); the ones that take no record must SUCCEED, so a
 	// native report path that broke outright cannot hide behind "well, it
 	// didn't say unsupported_by_sor".
-	anchored := map[string]bool{"catch_me_up_on": true, "prep_for_meeting": true}
+	anchored := map[string]bool{
+		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
+	}
 
 	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {
 		t.Run(name, func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -125,6 +126,14 @@ func (s *Store) listStaticMembers(ctx context.Context, tx pgx.Tx, listID ids.Lis
 }
 
 func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType string, entityID ids.UUID) (memberRow, error) {
+	// The contract declares entity_id required, which is a claim only a check
+	// makes true: an absent key decodes to the zero UUID with no error, reaches
+	// the link-target gate below, matches nothing, and answers not-found for a
+	// record the caller never named. The guard is at the STORE entry, not in the
+	// handler, because this is the door every transport comes through.
+	if err := httperr.RequireBodyID(entityIDField, entityID); err != nil {
+		return memberRow{}, err
+	}
 	if err := auth.Require(ctx, "list", principal.ActionUpdate); err != nil {
 		return memberRow{}, err
 	}

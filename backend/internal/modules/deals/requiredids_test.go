@@ -31,7 +31,6 @@ package deals
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,6 +38,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr/faulttest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -81,6 +81,8 @@ func completeBody(t *testing.T, shape reflect.Type, omit string) map[string]any 
 			body[name] = ids.NewV7().String()
 		case reflect.TypeFor[string]():
 			body[name] = "probe"
+		case reflect.TypeFor[int]():
+			body[name] = 1
 		default:
 			t.Fatalf("%s.%s is a required %s this probe cannot populate — extend completeBody",
 				shape.Name(), field.Name, field.Type)
@@ -124,6 +126,35 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 				return err
 			},
 		},
+		{
+			// advance_deal is guarded on the MCP side at Registry.Invoke, so this
+			// mapping is what keeps REST from answering a bare 404 for the
+			// identical mistake.
+			name:  "AdvanceDealRequest",
+			shape: reflect.TypeFor[crmcontracts.AdvanceDealRequest](),
+			call: func(t *testing.T, body []byte) error {
+				t.Helper()
+				var req crmcontracts.AdvanceDealRequest
+				if err := json.Unmarshal(body, &req); err != nil {
+					t.Fatalf("probe body does not decode: %v", err)
+				}
+				_, err := advanceDealInput(req, nil)
+				return err
+			},
+		},
+		{
+			name:  "CreateStageRequest",
+			shape: reflect.TypeFor[crmcontracts.CreateStageRequest](),
+			call: func(t *testing.T, body []byte) error {
+				t.Helper()
+				var req crmcontracts.CreateStageRequest
+				if err := json.Unmarshal(body, &req); err != nil {
+					t.Fatalf("probe body does not decode: %v", err)
+				}
+				_, err := stageCreateInput(req)
+				return err
+			},
+		},
 	} {
 		fields := requiredIDFields(tc.shape)
 		if len(fields) == 0 {
@@ -136,17 +167,7 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 				if err != nil {
 					t.Fatalf("marshal probe body: %v", err)
 				}
-				var missing *RequiredFieldError
-				err = tc.call(t, body)
-				if !errors.As(err, &missing) {
-					t.Fatalf("an absent %s was answered with %T (%v); want *RequiredFieldError, or the "+
-						"caller is sent looking for a record it never named. Validate it in the mapping, "+
-						"which both transports share.", field, err, err)
-				}
-				if missing.Field != field {
-					t.Errorf("the refusal names %q, want the wire field %q — the name is what a caller "+
-						"branches on and what a model reads back", missing.Field, field)
-				}
+				faulttest.AssertNamesOmittedID(t, tc.call(t, body), field)
 			})
 		}
 	}

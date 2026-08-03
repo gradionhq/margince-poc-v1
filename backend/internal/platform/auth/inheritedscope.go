@@ -13,6 +13,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -174,6 +175,104 @@ func EnsureActivityVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) erro
 func probeExistsLive(ctx context.Context, tx pgx.Tx, from, alias string, idPos int, clause string, args []any) error {
 	q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE %s.id = $%d AND %s.archived_at IS NULL`,
 		from, alias, idPos, alias)
+	if clause != "" {
+		q += " AND " + clause
+	}
+	q += ")"
+
+	var visible bool
+	if err := tx.QueryRow(ctx, q, args...).Scan(&visible); err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+// RelationshipEndpointScope is the edge analogue: a relationship owns no
+// owner_id, and its sensitivity is the CONJUNCTION of its endpoints' — an edge
+// names two records, so one readable by someone who cannot read either end would
+// disclose that record's existence and its link to the other.
+//
+// Every non-null endpoint must be visible under the caller's row scope, on read
+// exactly as on write. Only a caller unbounded over EVERY endpoint table carries
+// no clause; person and organization hold capture privacy, so that is the system
+// principal alone.
+//
+// It lives here rather than in people for the reason the two rules above do:
+// scope policy has exactly one spelling (ADR-0054 §8), and this rule now has two
+// readers in different modules — people's own list and read SQL, and the
+// approvals inbox, which must decide whether a staged archive of an edge is
+// visible to the human being asked to approve it. A second copy of a conjunction
+// is a second place for one of its five arms to be forgotten.
+//
+// alias names the relationship table in the outer query.
+func RelationshipEndpointScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if UnboundedFor(p, relationshipEndpoints()...) {
+		return "", nil
+	}
+	clauses := make([]string, 0, len(relationshipEndpointColumns))
+	for _, endpoint := range relationshipEndpointColumns {
+		predicate := VisiblePredicate(p, endpoint.table, arg)
+		clauses = append(clauses, fmt.Sprintf(
+			`(%[1]s.%[2]s IS NULL OR EXISTS (
+			   SELECT 1 FROM %[3]s ep WHERE ep.id = %[1]s.%[2]s AND ep.archived_at IS NULL AND %[4]s))`,
+			alias, endpoint.column, endpoint.table, predicate("ep"),
+		))
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", nil
+}
+
+// relationshipEndpointColumns is every endpoint an edge can carry, paired with
+// the table it points at. Two columns point at `organization`, which is why this
+// is a slice and not a map.
+var relationshipEndpointColumns = []struct{ column, table string }{
+	{"person_id", tablePerson},
+	{"organization_id", tableOrganization},
+	{"counterparty_org_id", tableOrganization},
+	{"deal_id", tableDeal},
+	{"project_id", tableProject},
+}
+
+// relationshipEndpoints is the distinct endpoint TABLES, for the unbounded
+// short-circuit. Derived from the column list so the two cannot disagree about
+// which tables an edge can reach.
+func relationshipEndpoints() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(relationshipEndpointColumns))
+	for _, endpoint := range relationshipEndpointColumns {
+		if seen[endpoint.table] {
+			continue
+		}
+		seen[endpoint.table] = true
+		out = append(out, endpoint.table)
+	}
+	return out
+}
+
+// EnsureRelationshipVisible probes one edge under the endpoint-conjunction rule.
+// Absence and out-of-scope answer identically (existence-hiding), which is what
+// lets the approvals inbox ask "may this human see the edge this archive targets"
+// without disclosing that the edge exists.
+//
+// Archived edges still answer visible, matching the clause the owning store uses:
+// an approval staged against an edge that was archived in the meantime stays
+// DECIDABLE, so a human can reject it rather than find an undecidable row.
+func EnsureRelationshipVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+
+	clause, err := RelationshipEndpointScope(ctx, "r", arg)
+	if err != nil {
+		return err
+	}
+	q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM relationship r WHERE r.id = $%d`, idPos)
 	if clause != "" {
 		q += " AND " + clause
 	}
