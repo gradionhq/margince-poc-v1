@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -69,17 +70,12 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		return fmt.Errorf("people: reading the renamed organization: %w", err)
 	}
 
-	// Two organizations converging on ONE name concurrently would, at READ
-	// COMMITTED, each read before the other committed, each find nothing, and
-	// both land with no pair filed — the duplicate this whole path exists to
-	// catch, missed by a race. Taking the normalized names as write identities
-	// serializes them, so the second sees the first.
-	//
-	// BOTH axes are locked, because either can be the one that collides: two
-	// records converging on a shared registered name while their display names
-	// stay different is the same race, and locking only the display name would
-	// leave it open. The keys are taken in a fixed order so two renames naming
-	// the same pair in opposite orders cannot deadlock.
+	// Two organizations converging on names that score against each other would,
+	// at READ COMMITTED, each read before the other committed, each find
+	// nothing, and both land with no pair filed — the duplicate this whole path
+	// exists to catch, missed by a race. Both axes are locked, because either
+	// can be the colliding one: two records converging on a shared registered
+	// name while their display names stay different is the same race.
 	if err := lockOrgNameIdentities(ctx, tx, display, legal); err != nil {
 		return err
 	}
@@ -117,12 +113,28 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	return nil
 }
 
-// lockOrgNameIdentities takes each distinct normalized name as a write
-// identity, sorted so the order is the same for every caller.
+// lockOrgNameIdentities serializes the writers whose names could score against
+// each other, sorted so the order is the same for every caller and two writers
+// naming the same pair cannot deadlock.
+//
+// The key is the FIRST token of the normalized name, not the whole name. The
+// tier this guards matches on similarity, not equality: "Baqend" and "Baqend
+// Solutions" normalize to different strings yet score well above the threshold,
+// so keying on the whole name would serialize only the exact-equal case and let
+// every other near-match race — which is the shape the guard exists for. Jaro-
+// Winkler weights a shared prefix heavily, so a leading token is the cheap
+// approximation of "could these two score against each other".
+//
+// What it does NOT cover, stated rather than implied: two names that score
+// above the threshold WITHOUT sharing a leading token ("Acme Ltd" against
+// "ACME-Group Ltd" once normalization splits them differently) can still race
+// and both land unfiled. Closing that needs a range lock over a similarity
+// neighbourhood, which an advisory key cannot express — the honest remedy is
+// the nightly sweep, which re-scores everything regardless of how it arrived.
 func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) error {
 	keys := make([]string, 0, len(names))
 	for _, name := range names {
-		if key := NormalizeOrgName(name); key != "" {
+		if key := orgNameLockKey(name); key != "" {
 			keys = append(keys, key)
 		}
 	}
@@ -133,6 +145,21 @@ func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) erro
 		}
 	}
 	return nil
+}
+
+// orgNameLockKey is the leading normalized token of an organization name, or
+// "" when the name carries none.
+//
+// Sharing a first word is not a false grouping: "Acme Logistics" and "Acme
+// Bakery" score 0.76 against each other, above the review threshold, so the
+// tier would file them as a pair anyway. The key groups exactly the records
+// that already have something to say to each other.
+func orgNameLockKey(name string) string {
+	normalized := NormalizeOrgName(name)
+	if normalized == "" {
+		return ""
+	}
+	return strings.Fields(normalized)[0]
 }
 
 // orgPairAlreadyFiled reports whether the queue already holds this pair, in
