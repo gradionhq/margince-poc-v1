@@ -40,6 +40,12 @@
 .ob-gate .core {
   --coreSize: 170px;
   --coreGlass: 108px;
+  /* The column's cadence is not one repeated gap. The Core stands clear of the
+     headline, the headline and its promise sentence sit together as a pair, and
+     the ask stands clear of both — so the reader's eye is given three things,
+     not five evenly spaced ones. The flex gap is the pair's spacing; these two
+     margins buy the breaks around it. */
+  margin-bottom: var(--space-3);
 }
 
 @keyframes ob-gate-rise {
@@ -93,7 +99,7 @@
   color: var(--textPrimary);
 }
 .ob-gate-sub {
-  margin: 0;
+  margin: 0 0 var(--space-3);
   max-width: 452px;
   font-size: 14.5px;
   line-height: 1.62;
@@ -104,12 +110,18 @@
 
 .ob-gate-form {
   width: 100%;
-  margin-top: var(--space-2);
+  display: flex;
+  justify-content: center;
 }
 /* One box, two controls: the ring is on the wrapper (`:focus-within`) and
    suppressed on the bare input, the way `.auth-shell` does it — a leading field
-   and a trailing action inside one outline rather than beside it. */
+   and a trailing action inside one outline rather than beside it.
+   Capped deliberately narrower than the promise sentence above it: a field that
+   spans the column reads as a form, and one question should read as one
+   question. */
 .ob-gate-field {
+  width: 100%;
+  max-width: 420px;
   display: flex;
   align-items: center;
   min-height: 52px;
@@ -282,6 +294,7 @@
   min-height: 26px;
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   font-family: var(--f-mono);
   font-size: 12px;
   letter-spacing: 0.02em;
@@ -300,18 +313,77 @@
   animation: ob-scan-fade 0.4s ease both;
 }
 
+/* The phase row's own pulse. The Core says the machine is working, but the line
+   that reports WHAT it is working on had no liveness of its own, so a phase that
+   sits for a few seconds read as a stall. Decorative — the row already says the
+   phase in words, and the counts below already say the read is still running. */
+.ob-scan-phase-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+  animation: ob-scan-pulse 2s ease-in-out infinite;
+}
+@keyframes ob-scan-pulse {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.82);
+  }
+}
+/* Settled: the work is over, so nothing about the row may still imply motion. */
+.ob-scan.is-settled .ob-scan-phase-dot {
+  animation: none;
+  background: var(--success);
+}
+
 /* The pages, one tile each, in arrival order. No denominator exists on the
    wire, so this is a growing row and never a filling bar. */
 .ob-scan-strip {
+  position: relative;
   list-style: none;
   margin: 0;
   padding: 0;
-  width: 100%;
+  /* Shrink-wraps its tiles rather than spanning the column, because the sheen
+     below is positioned against this box: at full width the light swept a mostly
+     empty strip and read as a stray band beside the tiles instead of as light
+     crossing them. Wrapping still works — the column is the ceiling. */
+  width: auto;
+  max-width: 100%;
   min-height: 22px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 6px;
+}
+/* A slow light crossing the tiles: the strip's own way of saying the crawl is
+   still going, which the growing row alone cannot say (a row that has not gained
+   a tile for a few seconds looks finished). It stops when the read does. */
+.ob-scan-strip::after {
+  content: "";
+  position: absolute;
+  inset: -4px -6px;
+  pointer-events: none;
+  border-radius: var(--r-sm);
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    var(--accentLight) 50%,
+    transparent 70%
+  );
+  animation: ob-scan-sheen 2.6s ease-in-out infinite;
+}
+@keyframes ob-scan-sheen {
+  from {
+    transform: translateX(-70%);
+  }
+  to {
+    transform: translateX(70%);
+  }
+}
+.ob-scan.is-settled .ob-scan-strip::after {
+  animation: none;
+  opacity: 0;
 }
 @keyframes ob-scan-tile-in {
   from {
@@ -331,8 +403,8 @@
   animation: ob-scan-tile-in 0.32s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 /* Shape as well as colour, because a tile is a colour to most people and a
-   shape to some: read is a filled square, skipped a hollow one, failed a
-   diamond. The accessible name says which in words regardless. */
+   shape to some: read is a filled square, skipped a hollow one, failed a hollow
+   circle. The accessible name says which in words regardless. */
 .ob-scan-tile[data-page-status="fetched"] {
   background: var(--accent);
 }
@@ -358,6 +430,12 @@
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
+/* One of these three numbers is the payoff and the other two are context, so the
+   eye is told which one to follow. It is also the only one that climbs. */
+.ob-scan-counts .ob-scan-found {
+  color: var(--accent);
+  font-weight: 500;
+}
 /* A drawn separator rather than a character: a middot in a string would be copy
    outside the catalog, and a screen reader reads it aloud. */
 .ob-scan-counts span + span::before {
@@ -371,16 +449,24 @@
   background: var(--borderStrong);
 }
 
+/* A footnote under a report, not a card on top of one.
+ *
+ * Filled and bordered, this block was the heaviest thing on a screen whose
+ * subject is the read — the disclosure outweighed the work it annotates. It says
+ * the same three things over a hairline instead: label, what is answering, what
+ * it has cost, with the spend pushed to the far edge so the number a reader looks
+ * for sits where numbers sit. Nothing is hidden; the weight is what changes.
+ */
 .ob-scan-cost {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--aiMed);
-  border-radius: var(--r-sm);
-  background: var(--aiLight);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+  text-align: left;
 }
 .ob-scan-cost-label {
   margin: 0;
@@ -393,19 +479,32 @@
 }
 
 .ob-scan-cost-model {
-  margin: var(--space-1) 0 0;
-  color: var(--textContent);
+  margin: 0;
+  color: var(--textMeta);
   font-family: var(--f-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   overflow-wrap: anywhere;
 }
 .ob-scan-cost-line {
   margin: 0;
-  min-height: 18px;
+  min-height: 15px;
   font-family: var(--f-mono);
-  font-size: 12px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
-  color: var(--textContent);
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+/* Under 480px the three parts cannot share a line without the model name
+   crushing the spend, so the row becomes two: label with spend, model beneath. */
+@media (max-width: 479px) {
+  .ob-scan-cost {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .ob-scan-cost-model {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
 }
 
 /* ===== the snippet layer (decorative) =================================== */
@@ -565,6 +664,18 @@
   .ob-scan-tile,
   .ob-snip {
     animation: none;
+  }
+  /* The two liveness loops are pure motion, so under reduced motion they resolve
+     to their resting look rather than to a still frame mid-cycle: the dot stays
+     lit (the phase text and the counts already say the read is running) and the
+     sheen is simply not drawn. */
+  .ob-scan-phase-dot {
+    animation: none;
+    opacity: 1;
+  }
+  .ob-scan-strip::after {
+    animation: none;
+    opacity: 0;
   }
 }
 

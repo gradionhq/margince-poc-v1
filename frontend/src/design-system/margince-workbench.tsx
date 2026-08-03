@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
@@ -224,7 +225,10 @@ function AiRuntimeChip({
         className="mw-aistat-btn"
         aria-expanded={open}
         aria-controls={popoverId}
-        aria-label={labels.chip}
+        // The spend is IN the name, not replaced by it: a bare label overrode the
+        // figure the button visibly carries, so the one number the comment below
+        // promises is always visible was the one a screen reader never heard.
+        aria-label={`${labels.chip}: ${spend}`}
         onClick={() => {
           // The press acts on what the reader SEES, not on the pin flag: a
           // popover already open by hover or focus closes, a closed one pins.
@@ -240,6 +244,7 @@ function AiRuntimeChip({
       >
         <i aria-hidden />
         <strong>{spend}</strong>
+        <ChevronDown className="mw-aistat-caret" aria-hidden size={12} />
       </button>
       <div className="mw-aistat-pop" id={popoverId} hidden={!open}>
         <p className="mw-aistat-h">{labels.answering}</p>

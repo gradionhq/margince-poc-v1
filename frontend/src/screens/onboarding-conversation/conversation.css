@@ -11,6 +11,14 @@
   gap: var(--space-4);
   overflow-y: auto;
   padding: var(--space-2) 0;
+  /* The transcript is the conversation column's scroller, and it scrolls without
+     drawing a bar across the turns. The bar is what is hidden, never the
+     scrolling: the wheel, the keyboard and the follow-the-latest behaviour are
+     untouched. */
+  scrollbar-width: none;
+}
+.ob-conv-thread::-webkit-scrollbar {
+  display: none;
 }
 
 .ob-conv-narration {

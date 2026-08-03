@@ -60,7 +60,7 @@ function renderWorkbench() {
 describe("the runtime chip", () => {
   it("toggles what the reader can see, not a pin flag behind it", async () => {
     renderWorkbench();
-    const chip = screen.getByRole("button", { name: LABELS.chip });
+    const chip = screen.getByRole("button", { name: new RegExp(LABELS.chip) });
 
     // Tab moves focus onto the chip, which opens the popover on its own — the
     // keyboard's equivalent of the pointer arriving.
@@ -79,9 +79,22 @@ describe("the runtime chip", () => {
     expect(chip).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("puts the spend it shows into the name a screen reader hears", () => {
+    renderWorkbench();
+
+    // The chip's whole purpose is that nobody has to ask what a run costs. A
+    // bare aria-label would override the figure on screen, so the one number
+    // that must always be available would be the one never announced.
+    expect(
+      screen.getByRole("button", {
+        name: `${LABELS.chip}: ${LABELS.awaiting}`,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("closes on Escape when the keyboard is what opened it", async () => {
     renderWorkbench();
-    const chip = screen.getByRole("button", { name: LABELS.chip });
+    const chip = screen.getByRole("button", { name: new RegExp(LABELS.chip) });
 
     await userEvent.tab();
     expect(chip).toHaveAttribute("aria-expanded", "true");
@@ -92,7 +105,7 @@ describe("the runtime chip", () => {
 
   it("opens again after focus leaves and comes back", async () => {
     renderWorkbench();
-    const chip = screen.getByRole("button", { name: LABELS.chip });
+    const chip = screen.getByRole("button", { name: new RegExp(LABELS.chip) });
 
     await userEvent.tab();
     await userEvent.keyboard("{Escape}");

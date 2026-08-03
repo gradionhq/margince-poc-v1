@@ -235,6 +235,7 @@ function GateColumn({
     () => new Intl.NumberFormat(scan?.locale),
     [scan?.locale],
   );
+  const settled = scan !== undefined && SETTLED.has(scan.read.status);
   const head: Readonly<{
     core: MarginceCoreState;
     title: string;
@@ -250,10 +251,10 @@ function GateColumn({
         }
       : {
           core: coreStateFor(scan.read.status),
-          title: SETTLED.has(scan.read.status)
+          title: settled
             ? t("ob.scan.doneTitle", { host: scan.host })
             : t("ob.scan.title", { host: scan.host }),
-          sub: SETTLED.has(scan.read.status)
+          sub: settled
             ? t("ob.scan.doneSub", {
                 facts: counts.format(scan.read.facts.length),
                 fields: counts.format(scan.read.profile_fields.length),
@@ -267,7 +268,11 @@ function GateColumn({
     // the page it has to stay out of.
     <div className="ob-gate-stage">
       {scan === undefined ? null : <FactSnippets facts={scan.read.facts} />}
-      <div className={`ob-gate${scan === undefined ? "" : " ob-scan"}`}>
+      <div
+        className={`ob-gate${scan === undefined ? "" : " ob-scan"}${
+          settled ? " is-settled" : ""
+        }`}
+      >
         <MarginceCoreScene state={head.core} />
         <h1 className="ob-gate-title">{head.title}</h1>
         <p className="ob-gate-sub">{head.sub}</p>
@@ -409,6 +414,7 @@ function TheatreTail({
     <>
       {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
       <p className="ob-scan-phase" aria-live="polite">
+        <span className="ob-scan-phase-dot" aria-hidden />
         {phase === null ? null : (
           <span key={phase} className="ob-scan-phase-text">
             {t(phase)}
@@ -440,7 +446,7 @@ function TheatreTail({
         <span>
           {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
         </span>
-        <span>
+        <span className="ob-scan-found">
           {t("ob.scan.factsSoFar", { count: counts.format(read.facts.length) })}
         </span>
         {settled ? null : <span>{t("ob.scan.stillReading")}</span>}

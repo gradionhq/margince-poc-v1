@@ -17,6 +17,14 @@
   overflow: hidden;
   background: var(--bgElevated);
 }
+@supports (height: 100dvh) {
+  /* 100vh on mobile Safari measures the viewport with the URL bar collapsed, so
+     the shell runs taller than the screen and the artifact pane begins below the
+     fold. dvh is the height actually available. */
+  .mw-shell {
+    height: 100dvh;
+  }
+}
 
 .mw-body {
   display: grid;
@@ -92,7 +100,9 @@
   height: 17px;
   place-items: center;
   color: var(--textMeta);
-  border: 1px solid var(--borderSubtle);
+  /* --borderStrong, matching the connector between stops: the discs and the
+     hairline joining them are one drawing, and two greys made it two. */
+  border: 1px solid var(--borderStrong);
   border-radius: var(--r-full);
   background: var(--bgElevated);
   font-size: 9px;
@@ -204,6 +214,30 @@
   border-radius: var(--r-full);
   background: var(--aiLight);
   cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+.mw-aistat-btn:hover {
+  border-color: var(--ai);
+  background: color-mix(in srgb, var(--ai) 14%, var(--bgElevated));
+}
+.mw-aistat-btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--aiLight);
+}
+/* The caret is the only thing that says this opens. It turns with the popover, so
+   the control's state is legible without reading the panel it controls. */
+.mw-aistat-caret {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--aiText);
+  transition: transform 0.16s ease;
+}
+.mw-aistat-btn[aria-expanded="true"] .mw-aistat-caret {
+  transform: rotate(180deg);
 }
 
 .mw-aistat-btn i {
@@ -231,6 +265,13 @@
   border-radius: var(--r-md);
   background: var(--bgElevated);
   box-shadow: var(--shadow-pop);
+  animation: mw-aistat-in 0.16s ease both;
+}
+@keyframes mw-aistat-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .mw-aistat-h,
@@ -303,6 +344,17 @@
    the light theme, so the split that carries the whole two-pane idea would read
    as an accident of the border; --bgCard plus the strong border is a recess a
    reader sees before they read a word of it. */
+/* The artifact pane scrolls without drawing a bar over the content. Only the
+   elements that actually scroll get this: the conversation column is
+   `overflow: hidden` and its transcript owns the scrolling, so the rule belongs
+   there (see .ob-conv-thread) and here — not on the column between them. */
+.mw-artifact {
+  scrollbar-width: none;
+}
+.mw-artifact::-webkit-scrollbar {
+  display: none;
+}
+
 .mw-artifact {
   min-width: 0;
   min-height: 0;
@@ -364,7 +416,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mw-identity i[data-state="working"] {
+  .mw-identity i[data-state="working"],
+  .mw-aistat-pop {
     animation: none;
+  }
+  .mw-aistat-caret {
+    transition: none;
   }
 }
