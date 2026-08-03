@@ -45,7 +45,7 @@ func (e *revocationEnv) connectOAuth(t *testing.T) connectFixture {
 // access, and an admin is the one human deactivation refuses to touch.
 func (e *revocationEnv) connectOAuthFor(t *testing.T, consenter Identity) connectFixture {
 	t.Helper()
-	// No lent passport: the pre-0171 shape, and the one the lock-order suite
+	// No lent passport: the pre-0172 shape, and the one the lock-order suite
 	// wants — nothing here depends on provenance.
 	return e.connectOAuthLent(t, consenter, nil, "lock order")
 }

@@ -59,7 +59,7 @@ import (
 // TestALentPassportRevokedAfterConsentStillRedeems).
 //
 // oauth_authorization_code.lent_passport_id NAMES the lent passport (migration
-// 0171), and that does not move this boundary — writing the id down is not the
+// 0172), and that does not move this boundary — writing the id down is not the
 // same act as consulting it. What WOULD move it is a redemption that reads the
 // column to decide anything: that is a decision about what a lend means, taken
 // in a WHERE clause, and the test above is what fails when someone takes it.

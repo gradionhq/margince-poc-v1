@@ -264,7 +264,7 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 // switch that ends connections derived from it — ending a connection goes through
 // its grant.
 //
-// The code row DOES name the lent passport (lent_passport_id, migration 0171),
+// The code row DOES name the lent passport (lent_passport_id, migration 0172),
 // and this test is what keeps that column honest. It exists so Settings can say
 // where a connection came from; the moment a WHERE clause reads it, this test
 // fails and says so — that would be a decision about what a lend means, not a
