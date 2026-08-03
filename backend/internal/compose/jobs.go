@@ -123,9 +123,14 @@ type JobRunnerConfig struct {
 	// configured, and the consequence is deliberate: deferred senders stay
 	// deferred rather than being created on sight. An installation without a
 	// model keeps the old junk OUT, it does not fall back to letting it in.
-	VerdictBrain    completer
-	OverlayVault    keyvault.Vault
-	OverlayInterval time.Duration
+	VerdictBrain completer
+	// SignalExtractBrain is the signal_extract lane. Nil = no AI configured,
+	// and the consequence is stated rather than hidden: the deterministic
+	// ghosted-thread rule still runs, and what only a reader can get out of
+	// the prose simply is not extracted.
+	SignalExtractBrain completer
+	OverlayVault       keyvault.Vault
+	OverlayInterval    time.Duration
 	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
 	// SAME Redis the api's force-fresh meter uses, so both lanes share one
 	// per-workspace-per-incumbent count (keeping the raw-Redis dependency in
@@ -316,6 +321,21 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
 	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
 	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
+
+	// The signal producers (SIG-F-3), hourly. The deterministic ghosted-thread
+	// rule runs whether or not a model lane is configured; the extractor is
+	// added to the same pass when one is. Run-on-start so an installation
+	// upgrading into this surface does not wait an hour for its first signal.
+	river.AddWorker(workers, &signalScanWorker{pool: pool})
+	river.AddWorker(workers, &signalScanWorkspaceWorker{
+		pool: pool, extractor: newSignalExtractorIfConfigured(pool, cfg.SignalExtractBrain, log),
+		now: time.Now, log: log,
+	})
+	periodic = append(periodic, river.NewPeriodicJob(
+		river.PeriodicInterval(time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) { return SignalScanArgs{}, sweepInsertOpts() },
+		&river.PeriodicJobOpts{RunOnStart: true},
+	))
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})

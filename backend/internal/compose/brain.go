@@ -68,6 +68,12 @@ type ModelPath struct {
 	// classify labels a known contact's mail for attention, this decides
 	// whether a stranger becomes a record at all.
 	CaptureCounterpartyVerdict completer
+	// SignalExtract is the SIG-F-3 lane that reads the material events out of
+	// a settled conversation. It is a separate task from CaptureClassify
+	// because it answers a different question at a different price: classify
+	// routes attention over a whole backlog, this reads one conversation
+	// closely enough to say what was decided in it.
+	SignalExtract completer
 	// Enrich is the §2.9 evidence-or-omit signature field extraction lane.
 	Enrich completer
 	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
@@ -184,6 +190,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		OfferDraft:                 brain(ai.TaskOfferDraft),
 		CaptureClassify:            brain(ai.TaskCaptureClassify),
 		CaptureCounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
+		SignalExtract:              brain(ai.TaskSignalExtract),
 		Enrich:                     brain(ai.TaskEnrich),
 		VoiceBuild:                 brain(ai.TaskVoiceBuild),
 		Embedder:                   router,

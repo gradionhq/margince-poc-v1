@@ -1,0 +1,43 @@
+name: both_sides_promise_something
+task: signal_extract
+site: thread_events
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  - direction: inbound
+    subject: 'Warehouse rollout — next steps'
+    body: |
+      Hi Lars,
+
+      good call today. We're opening a second warehouse in Graz in Q1 and will
+      need the same integration there — I'd like to get a quote for that scope
+      before the budget round closes.
+
+      I'll send you our current volumes by Friday so you have something to
+      price against.
+
+      Best,
+      Ines
+expect:
+  outcome: accepted
+  answer:
+    - kind: new_opportunity
+      message: 1
+    - kind: commitment_made
+      message: 1
+  rubric: >
+    One message states two different material things, and both belong on the
+    account. A second warehouse needing the same integration, with a quote
+    wanted before the budget round, is a new_opportunity — a new need with
+    money attached, not a restatement of existing work. "I'll send you our
+    current volumes by Friday" is a commitment_made: a specific thing, by a
+    named time, promised to us. Score both, cited on message 1; reporting only
+    one is a partial reading and scores lower, and reporting a contract_ended
+    anywhere here is wrong. Reporting the same event twice is refused by the
+    validator before scoring. Then score each summary as one plain sentence a
+    colleague could act on, and each confidence as a real judgement, since an
+    event below the 0.7 floor is dropped and never asked about again.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
