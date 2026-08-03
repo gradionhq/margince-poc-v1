@@ -105,11 +105,15 @@ func (c commsAdapter) Availability(ctx context.Context, host *ids.UUID, from, to
 		return nil, err
 	}
 	// The store applies its default slot duration when none is named.
-	slots, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
+	slots, truncated, err := c.store.Availability(ctx, ids.From[ids.UserKind](hostID), from, to, time.Duration(durationMinutes)*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(map[string]any{"slots": slots})
+	// truncated is not decoration on this surface. The walk stops at a cap, and
+	// a model handed a capped list with nothing marking it will tell a rep there
+	// is no later opening — the same failure AtRiskReport.Truncated and
+	// intro_path_to's candidates_truncated exist to prevent.
+	return json.Marshal(map[string]any{"slots": slots, "truncated": truncated})
 }
 
 func (c commsAdapter) BookMeeting(ctx context.Context, in agents.BookMeetingArgs) (json.RawMessage, error) {

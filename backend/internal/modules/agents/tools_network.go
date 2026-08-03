@@ -156,16 +156,12 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		PersonID string `json:"person_id"`
+		PersonID ids.UUID `json:"person_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	personID, err := ids.Parse(args.PersonID)
-	if err != nil {
-		return nil, err
-	}
-	colleagues, err := t.list(ctx, personID)
+	colleagues, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +175,7 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	// answer that says the account is cold — and turning it into a failure
 	// would make the model narrate a problem instead of a fact.
 	return json.Marshal(map[string]any{
-		"person_id": personID, "colleagues": colleagues,
+		"person_id": args.PersonID, "colleagues": colleagues,
 	})
 }
 
@@ -201,16 +197,12 @@ func (t accountCoverageTool) Spec() mcp.ToolSpec {
 
 func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		DealID string `json:"deal_id"`
+		DealID ids.UUID `json:"deal_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	dealID, err := ids.Parse(args.DealID)
-	if err != nil {
-		return nil, err
-	}
-	answer, err := t.read(ctx, dealID)
+	answer, err := t.read(ctx, args.DealID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,16 +227,12 @@ func (t introPathTool) Spec() mcp.ToolSpec {
 
 func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		OrganizationID string `json:"organization_id"`
+		OrganizationID ids.UUID `json:"organization_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	orgID, err := ids.Parse(args.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	routes, truncated, err := t.list(ctx, orgID)
+	routes, truncated, err := t.list(ctx, args.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +243,7 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		routes = []IntroRoute{}
 	}
 	return json.Marshal(map[string]any{
-		"organization_id": orgID, "routes": routes,
+		"organization_id": args.OrganizationID, "routes": routes,
 		// Warmth is computed AFTER the read, so an account with more contacts
 		// than the fetch bound contributes only the first slice of them and the
 		// genuinely warmest route can fall outside it. Saying so is the "no

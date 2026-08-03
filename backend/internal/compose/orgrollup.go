@@ -168,7 +168,23 @@ type FXRateUnavailableError struct {
 	AsOf     time.Time
 }
 
-func (e FXRateUnavailableError) Error() string {
+// Error names the missing rate and what to load, on a POINTER receiver to match
+// MessageFault below. Split receivers would let a `return FXRateUnavailableError{…}`
+// without the & compile, satisfy error, and be missed by every errors.As in the
+// tree — turning a governed 422 into an opaque 500.
+func (e *FXRateUnavailableError) Error() string {
 	return fmt.Sprintf("no stored FX rate for %s as of %s; record today's rate for %s before retrying the rollup",
 		e.Currency, e.AsOf.Format(time.DateOnly), e.Currency)
+}
+
+// MessageFault carries the 422 on the error itself, so the taxonomy answers it
+// on any surface and not only where orgrollup_handlers runs.
+//
+// MessageFault is the whole point here rather than an incidental choice: the
+// missing rate is workspace data, not an argument, and this is the exact case
+// the fault-form doc names — an agent told to fix `fx_rate_to_base` on a call
+// that has no such argument will either retry unchanged or invent a value. The
+// message says what is absent and who must load it.
+func (e *FXRateUnavailableError) MessageFault() (code, message string) {
+	return "fx_rate_unavailable", e.Error()
 }

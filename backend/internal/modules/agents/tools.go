@@ -74,6 +74,11 @@ type FieldOwnership interface {
 
 // decodeArgs is the surface's input validation: strict JSON (unknown
 // argument names are errors, not silent drops).
+//
+// It does NOT settle whether a required uuid argument was supplied: `ids.UUID`
+// zero-values an absent key without erroring, so that claim is made once for the
+// whole surface at Registry.Invoke (requireDeclaredIDs) rather than in each
+// handler — which is how thirteen handlers came to miss it.
 func decodeArgs[T any](in json.RawMessage, into *T) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
 	dec.DisallowUnknownFields()
@@ -95,10 +100,28 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 const maxBadArgsDetail = 200
 
 // BadArgsError maps to a tool-call validation failure.
-type BadArgsError struct{ Cause error }
+//
+// The two members have opposite provenance, and that is the whole reason they
+// are separate. Cause quotes the CALLER — the decoder echoes the JSON key it
+// refused — so it is bounded and escaped. Guidance is OURS: a fixed vocabulary
+// reflected off the contract, chosen by no caller.
+type BadArgsError struct {
+	Cause error
+	// Guidance is server-authored text appended after the echo, and it is NOT
+	// bounded. Bounding it with the echo is what made the accepted-field list
+	// truncate mid-word on a long unknown key — cutting away the list the
+	// message exists to teach, exactly when the caller most needed it. The
+	// bound guards against an unbounded write into a run's transcript by the
+	// model being prompted; our own strings were never that.
+	Guidance string
+}
 
 func (e *BadArgsError) Error() string {
-	return "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
+	msg := "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
+	if e.Guidance == "" {
+		return msg
+	}
+	return msg + "; " + e.Guidance
 }
 func (e *BadArgsError) Unwrap() error { return e.Cause }
 

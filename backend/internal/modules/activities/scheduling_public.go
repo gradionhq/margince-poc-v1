@@ -122,15 +122,12 @@ func (h Handlers) GetPublicAvailability(w http.ResponseWriter, r *http.Request, 
 	if params.DurationMinutes != nil {
 		duration = time.Duration(*params.DurationMinutes) * time.Minute
 	}
-	slots, err := h.store.Availability(r.Context(), page.HostUserID, params.From, params.To, duration)
+	slots, truncated, err := h.store.Availability(r.Context(), page.HostUserID, params.From, params.To, duration)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	if slots == nil {
-		slots = []slot{}
-	}
-	httperr.WriteJSON(w, http.StatusOK, map[string]any{"slots": slots})
+	httperr.WriteJSON(w, http.StatusOK, map[string]any{"slots": slots, "truncated": truncated})
 }
 
 // BookPublicMeeting implements (POST /public/booking/{host_slug}):

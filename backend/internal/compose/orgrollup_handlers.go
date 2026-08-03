@@ -11,7 +11,6 @@ package compose
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -47,13 +46,17 @@ func (h orgRollupHandlers) GetOrganizationHierarchyRollup(w http.ResponseWriter,
 
 	result, err := OrgHierarchyRollup(r.Context(), h.pool, ids.UUID(id), scope, h.now)
 	if err != nil {
+		// This branch survives its MessageFault twin only because it adds the
+		// machine-readable details a fault cannot carry. Detail is the error's OWN
+		// text, never a re-worded copy — that is what keeps both surfaces saying
+		// the same thing about the same condition.
 		var fxErr *FXRateUnavailableError
 		if errors.As(err, &fxErr) {
 			asOf := fxErr.AsOf.Format(time.DateOnly)
 			httperr.Write(w, r, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
 				Code:   "fx_rate_unavailable",
-				Detail: fmt.Sprintf("no stored FX rate for %s as of %s", fxErr.Currency, asOf),
+				Detail: fxErr.Error(),
 				Details: map[string]any{
 					"currency": fxErr.Currency, //nolint:goconst // a details-map key, coincidentally the same text as a SQL column/report-field name elsewhere in this package — not the same concept
 					"as_of":    asOf,
