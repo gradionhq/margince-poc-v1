@@ -428,5 +428,15 @@ func (s *Store) PromoteOrgNameTx(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		crmcontracts.PublicEventOrganizationUpdated{ChangedFields: after}); err != nil {
 		return false, fmt.Errorf("people: emitting organization.updated for the promotion: %w", err)
 	}
+	// The name this row was created under was a guess from its mail domain;
+	// the one it just took is the company's own. That is the first moment a
+	// twin captured from another domain can be recognised, so ask now.
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return false, err
+	}
+	if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+		return false, err
+	}
 	return true, nil
 }

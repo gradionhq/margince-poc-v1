@@ -152,17 +152,20 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 // merge proposal after the transaction commits rather than folding the two
 // together here. A replay of the same natural key is not a collision — the
 // idempotent upsert path handles it.
+// The probe itself is storekit's, shared with the direct-create path: the two
+// lead write shapes answer a claimed identity differently — that path refuses
+// with the incumbent's id, this one stages a merge for a human — but they must
+// not disagree about what "already claimed" means.
 func (s *Sink) findLeadCollision(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (*ids.LeadID, json.RawMessage, error) {
-	var existing ids.LeadID
-	err := tx.QueryRow(ctx, `
-		SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
-		  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
-		fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, nil
-	}
+	existing, found, err := storekit.LiveLeadByEmail(ctx, tx, fields.Email, &storekit.LeadSourceKey{
+		SourceSystem: rec.NaturalKey.SourceSystem,
+		SourceID:     rec.NaturalKey.SourceID,
+	})
 	if err != nil {
 		return nil, nil, err
+	}
+	if !found {
+		return nil, nil, nil
 	}
 	// An incumbent outside the granting human's row scope is not the
 	// connector's to resolve: it can be neither merged into nor ignored in

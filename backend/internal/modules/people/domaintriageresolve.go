@@ -186,14 +186,6 @@ func (s *Store) adoptOrCreateTriagedOrg(ctx context.Context, tx pgx.Tx, in Resol
 	if err := auth.Require(ctx, entityOrganization, principal.ActionCreate); err != nil {
 		return ResolveDomainTriageResult{}, err
 	}
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain}})
-	if err != nil {
-		return ResolveDomainTriageResult{}, err
-	}
-	if match.Decision == DecisionExactCollision {
-		return ResolveDomainTriageResult{OrganizationID: &match.OrganizationID}, nil
-	}
-
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return ResolveDomainTriageResult{}, err
@@ -209,19 +201,32 @@ func (s *Store) adoptOrCreateTriagedOrg(ctx context.Context, tx pgx.Tx, in Resol
 		displayName, nameSource = in.Domain, nameSourceDomain
 	}
 
-	wsID := workspaceID(ctx)
-	orgID := ids.New[ids.OrganizationKind]()
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
-		orgID, wsID, displayName, nameSource, prior.OwnerID, domainTriageSource(in.Domain), by); err != nil {
-		return ResolveDomainTriageResult{}, fmt.Errorf("people: creating the organization triage confirmed for %s: %w", in.Domain, err)
+	// The name is settled BEFORE PO-F-2 runs, because the name is half of what
+	// PO-F-2 reads. Asking about the domain alone leaves the fuzzy tier nothing
+	// to score, and two domains of one company ("acme.de", "acme.eu") derive
+	// the same label — the shape that put one company in a workspace twice.
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
+		DisplayName: displayName,
+		Domains:     []string{in.Domain},
+	})
+	if err != nil {
+		return ResolveDomainTriageResult{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-		VALUES ($1, $2, lower($3), true, $4, $5)`,
-		wsID, orgID, in.Domain, domainTriageSource(in.Domain), by); err != nil {
-		return ResolveDomainTriageResult{}, fmt.Errorf("people: recording the domain of the organization for %s: %w", in.Domain, err)
+	if match.Decision == DecisionExactCollision {
+		return ResolveDomainTriageResult{OrganizationID: &match.OrganizationID}, nil
+	}
+
+	orgID, err := createOrganization(ctx, tx, match, OrgSpec{
+		DisplayName: displayName,
+		NameSource:  nameSource,
+		OwnerID:     ownerFromUUID(prior.OwnerID),
+		Visibility:  visibilityOwner,
+		Domains:     []OrgDomainInput{{Domain: in.Domain, IsPrimary: true}},
+		Source:      domainTriageSource(in.Domain),
+		CapturedBy:  by,
+	})
+	if err != nil {
+		return ResolveDomainTriageResult{}, err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{
 		fieldDisplayName: displayName, auditKeyNameSource: nameSource, auditKeyDomain: in.Domain,
@@ -231,6 +236,12 @@ func (s *Store) adoptOrCreateTriagedOrg(ctx context.Context, tx pgx.Tx, in Resol
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID,
 		crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}); err != nil {
+		return ResolveDomainTriageResult{}, err
+	}
+	// A near-match creates anyway — triage is resolving a question a human
+	// already answered, and DEDUPE_FUZZY_AUTOMERGE is pinned never — but the
+	// pair goes on the review queue so the twin is visible.
+	if err := match.recordIfReview(ctx, tx, orgID, displayName, domainTriageSource(in.Domain), by); err != nil {
 		return ResolveDomainTriageResult{}, err
 	}
 	return ResolveDomainTriageResult{OrganizationID: &orgID, OrgCreated: true}, nil

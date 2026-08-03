@@ -29,6 +29,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// coldStartSource is the provenance an organization minted by an accepted
+// cold-start proposal carries.
+const coldStartSource = "coldstart"
+
 // ColdStartFieldInput is one accepted, evidenced field.
 type ColdStartFieldInput struct {
 	Field           string
@@ -92,7 +96,7 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 // just minted — all inside the caller's transaction.
 func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.OrganizationID, error) {
 	wsID := workspaceID(ctx)
-	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, wsID, host, by, in.Fields)
+	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, host, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
@@ -163,19 +167,7 @@ func coldStartApplyPayload(created bool, in ApplyColdStartProfileInput, host, by
 // names, or creates it (with its primary domain) when absent. It reports
 // whether it created the org so the caller selects the create/update audit
 // action and event.
-func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, host, by string, fields []ColdStartFieldInput) (ids.OrganizationID, bool, error) {
-	var orgID ids.OrganizationID
-	err := tx.QueryRow(ctx,
-		`SELECT organization_id FROM organization_domain WHERE domain = lower($1) AND archived_at IS NULL`,
-		host).Scan(&orgID)
-	if err == nil {
-		return orgID, false, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.OrganizationID{}, false, fmt.Errorf("resolve organization by domain: %w", err)
-	}
-
-	orgID = ids.New[ids.OrganizationKind]()
+func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, host, by string, fields []ColdStartFieldInput) (ids.OrganizationID, bool, error) {
 	// Name-source authority (ADR-0072/A118, PO-F-2a). Without a scraped legal
 	// name the org is named from the domain's registrable label ("Docusign",
 	// not "eu.docusign.net") and marked provisional ('domain'), overwritable by
@@ -188,21 +180,39 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, wsID ids.Worksp
 		displayName = host
 	}
 	nameSource := nameSourceDomain
-	if legal := fieldValue(fields, "legal_name"); legal != "" {
+	legal := fieldValue(fields, "legal_name")
+	if legal != "" {
 		displayName = legal
 		nameSource = nameSourceDossier
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, name_source, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'coldstart', $5)`,
-		orgID, wsID, displayName, nameSource, by); err != nil {
-		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization: %w", err)
+
+	// PO-F-2 rather than a bare domain lookup: the site's own legal name is the
+	// strongest signal this path has, and a company already captured from a
+	// different domain collides on exactly that name and on nothing else.
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
+		DisplayName: displayName,
+		LegalName:   legal,
+		Domains:     []string{host},
+	})
+	if err != nil {
+		return ids.OrganizationID{}, false, err
 	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-		 VALUES ($1, $2, lower($3), true, 'coldstart', $4)`,
-		wsID, orgID, host, by); err != nil {
-		return ids.OrganizationID{}, false, fmt.Errorf("insert coldstart organization domain: %w", err)
+	if match.Decision == DecisionExactCollision {
+		return match.OrganizationID, false, nil
+	}
+
+	orgID, err := createOrganization(ctx, tx, match, OrgSpec{
+		DisplayName: displayName,
+		NameSource:  nameSource,
+		Domains:     []OrgDomainInput{{Domain: host, IsPrimary: true}},
+		Source:      coldStartSource,
+		CapturedBy:  by,
+	})
+	if err != nil {
+		return ids.OrganizationID{}, false, err
+	}
+	if err := match.recordIfReview(ctx, tx, orgID, displayName, coldStartSource, by); err != nil {
+		return ids.OrganizationID{}, false, err
 	}
 	return orgID, true, nil
 }
@@ -278,6 +288,15 @@ func applyEvidenceFieldsWithOverwrite(
 			WHERE $10 OR organization_profile_field.captured_by NOT LIKE 'human:%'`,
 			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, source, by, overwrite[f.Field]); err != nil {
 			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
+		}
+	}
+	// A filled legal name is new identity information about a record that
+	// already exists — the axis PO-F-2 had nothing to compare when the row was
+	// created, and the axis on which a company captured twice under two
+	// marketing names finally collides.
+	if _, named := applied["legal_name"]; named {
+		if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+			return nil, err
 		}
 	}
 	return applied, nil
