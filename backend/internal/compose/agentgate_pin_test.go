@@ -366,9 +366,14 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 // object-read for every type they classify" is not observable from here — which is
 // exactly how the two agreed on the vocabulary while disagreeing on the floor.
 // That half is gated inside each module, over each module's own classification
-// table, by approvals.TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType and
-// webhooks.TestEveryClassifiedApprovalTargetRidesTheObjectReadFloor. Those two
-// tests and this one are the whole invariant; none of the three is complete alone.
+// table: the object-read floor by
+// approvals.TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType and
+// webhooks.TestEveryClassifiedApprovalTargetRidesTheObjectReadFloor, and the one
+// classification that floor is NOT enough for — a staged create against a
+// personal table, bounded by the member it was staged for — by each module's
+// ...IsDecidableByItsStagerAlone / ...IsAnnouncedToItsStagerAlone twin. Those
+// module-internal gates and this one are the whole invariant; none is complete
+// alone.
 func TestTheInboxAndTheFanOutClassifyEveryTargetTypeAlike(t *testing.T) {
 	subjects := map[string]bool{}
 	for _, pol := range agentPolicies {

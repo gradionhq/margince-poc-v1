@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -349,21 +350,19 @@ func TestRowScopedSubjectRequiresObjectReadCapability(t *testing.T) {
 		t.Fatalf("entityVisibleTo without deal.read = (%v, %v), want (false, nil)", ok, err)
 	}
 
-	// The same owner WITH deal.read passes the object-read half and proceeds
-	// to the row-scope probe, which on a nil pool fails loudly (a panic or an
-	// error) — anything but the clean (false, nil) deny above. This proves the
-	// earlier denial came from the missing read grant, not from some other
-	// short-circuit that would also block a properly-granted owner.
+	// The same owner WITH deal.read passes the object-read half and proceeds to
+	// the row-scope probe, whose transaction refuses an unbound workspace with
+	// database.ErrNoWorkspace before it touches the pool. That named sentinel is
+	// the assertion: only the arm having RUN can produce it, so the deny above
+	// can only have come from the missing read grant.
 	withRead := noRead
 	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
-	func() {
-		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
-		defer func() { _ = recover() }()
-		ctx := principal.WithActor(context.Background(), withRead)
-		if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); !ok && err == nil {
-			t.Fatal("with deal.read, entityVisibleTo returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
-		}
-	}()
+	ctx = principal.WithActor(context.Background(), withRead)
+	if ok, err := s.entityVisibleTo(ctx, "deal.updated", "deal", ids.NewV7()); ok ||
+		!errors.Is(err, database.ErrNoWorkspace) {
+		t.Fatalf("with deal.read, entityVisibleTo = (%v, %v); want the row-scope probe to have been reached — "+
+			"the read gate must ADMIT a grant-holding owner, not deny them cleanly", ok, err)
+	}
 }
 
 // TestApprovalTargetRequiresObjectReadCapability pins the same P0 invariant on
@@ -394,19 +393,18 @@ func TestApprovalTargetRequiresObjectReadCapability(t *testing.T) {
 	}
 
 	// The same owner WITH deal.read passes the object-read half and proceeds to
-	// the row-scope probe, which on a nil pool fails loudly — anything but the
-	// clean (false, nil) deny above — proving the earlier denial came from the
-	// missing read grant, not some other short-circuit.
+	// the row-scope probe, whose transaction refuses an unbound workspace with
+	// database.ErrNoWorkspace before it touches the pool — a named sentinel only
+	// the arm having RUN can produce, so the deny above can only have come from
+	// the missing read grant.
 	withRead := noRead
 	withRead.Permissions.Objects = map[string]principal.ObjectGrant{"deal": {Read: true}}
-	func() {
-		//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
-		defer func() { _ = recover() }()
-		ctx := principal.WithActor(context.Background(), withRead)
-		if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); !ok && err == nil {
-			t.Fatal("with deal.read, approvalTargetVisible returned a clean deny — the read gate must have admitted it and reached the row-scope probe")
-		}
-	}()
+	ctx = principal.WithActor(context.Background(), withRead)
+	if ok, err := s.approvalTargetVisible(ctx, "deal", ids.NewV7()); ok ||
+		!errors.Is(err, database.ErrNoWorkspace) {
+		t.Fatalf("with deal.read, approvalTargetVisible = (%v, %v); want the row-scope probe to have been "+
+			"reached — the read gate must ADMIT a grant-holding owner, not deny them cleanly", ok, err)
+	}
 }
 
 func TestOwnerResolvesHumanBehindTheCall(t *testing.T) {

@@ -137,7 +137,9 @@ type targetShape struct{ hasType, hasID bool }
 //     proposal, which is about no record yet) — carries no ROW half at all.
 //     There is nothing whose scope could bound it, so what remains is the
 //     object-read floor on the type it names (targetVisible applies it) and the
-//     grants requireDecisionGrants demands of the caller.
+//     grants requireDecisionGrants demands of the caller. One id-less shape
+//     needs more than that floor and gets it from the staged row rather than
+//     from the pair: stagedForStagerOnly below.
 //   - An id with NO type is not decidable. It names a concrete record the
 //     probe cannot resolve, and treating it as unbounded would put that
 //     record's summary and proposed change in the inbox of everyone holding
@@ -157,6 +159,26 @@ func settledByShape(shape targetShape) (settled, visible bool) {
 		return true, false
 	}
 	return false, false
+}
+
+// stagedForStagerOnly reports the staged shape whose only honest bound is the
+// IDENTITY of the member it was staged for: a target type whose owning store
+// serves its rows to one human each, staged with no target id.
+//
+// Read on the type is the floor for every other id-less create, and for an
+// owner-only type it is the wrong floor — read on a personal table is held by
+// every seat allowed rows of its own there, so it would put one human's private
+// row in front of all of them, since the summary and the proposed change ARE
+// that row's content. Neither is existence a floor: the record does not exist
+// yet. What remains is what the staging itself recorded — the member it was
+// staged for — which is the same predicate selfOnlyKinds applies for a kind
+// whose subject is one member's own business.
+//
+// Derived from the probe classification rather than named type by type, so a
+// personal table enrolled in probeOwnerOnly later inherits the rule instead of
+// falling into the read-on-the-type default.
+func stagedForStagerOnly(targetType *string, hasTargetID bool) bool {
+	return targetType != nil && !hasTargetID && probeFor(*targetType) == probeOwnerOnly
 }
 
 // TargetShapeDecidable reports whether a staged row carrying this target SHAPE
@@ -231,7 +253,16 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 	}
 	switch probeFor(*targetType) {
 	case probeOwnScope:
-		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
+		// The LIVE probe, because the scope clause alone answers two staged rows
+		// it should not. An unbounded actor's clause renders EMPTY, and a probe
+		// that treats an empty clause as "admitted" never queries at all — so an
+		// all-scope human sees, and decides, a staging whose target id names no
+		// row. And Art. 17 erasure anonymizes a person IN PLACE, stamping
+		// archived_at while leaving owner_id alone, so a scope-only probe answers
+		// "still yours" for a row every live read path now refuses. Existence is
+		// the floor the workspace-shared arms already take; these tables carry it
+		// for the same reason, archive being the delete on all of them.
+		return probeAnswer(auth.EnsureVisibleLive(ctx, tx, *targetType, *targetID))
 	case probeInheritedScope:
 		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
 	case probeExistence:
@@ -287,18 +318,27 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		if err != nil {
 			return false, err
 		}
-		return auth.VisibleTo(ctx, tx, tableDeal, dealID)
+		// The offer's own existence is settled by the lookup above; the parent hop
+		// takes the LIVE probe for the reason the own-scope arm does — an
+		// unbounded actor must not skip the deal's existence, and a staged send
+		// against an erased deal's offer is not a decision anyone still owes.
+		return probeAnswer(auth.EnsureVisibleLive(ctx, tx, tableDeal, dealID))
 	}
 	var ensure func(context.Context, pgx.Tx, ids.UUID) error
 	switch targetType {
 	case targetSignal:
-		ensure = auth.EnsureSignalVisible
+		ensure = auth.EnsureSignalVisibleLive
 	case objectActivity:
-		ensure = auth.EnsureActivityVisible
+		ensure = auth.EnsureActivityVisibleLive
 	case targetRelationship:
 		// An edge inherits the CONJUNCTION of its endpoints' scope, which is one
 		// spelling in platform/auth because people's own reads and this probe are
-		// two readers of the same rule.
+		// two readers of the same rule. It is the one arm with no live variant:
+		// the clause already probes existence for every actor — an unbounded one
+		// included — and the same rule states, for this caller by name, that an
+		// edge archived after the staging stays DECIDABLE so a human can reject
+		// it. Narrowing it here would strand the row and disagree with the store
+		// the probe exists to mirror.
 		ensure = auth.EnsureRelationshipVisible
 	default:
 		// TOTAL on purpose. A signal default read as "whatever is left", so a type
@@ -310,7 +350,16 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 		return false, fmt.Errorf(
 			"crmapprovals: %q is classified as inherited-scope with no parent probe", targetType)
 	}
-	switch err := ensure(ctx, tx, targetID); {
+	return probeAnswer(ensure(ctx, tx, targetID))
+}
+
+// probeAnswer turns a row probe's error into the visibility ANSWER the inbox
+// needs: absent or out of scope is not-visible — the two are indistinguishable
+// by design, which is what lets the inbox hide a staged row the same way the
+// record's own read hides the record — and anything else is a real failure the
+// caller surfaces rather than reads as a refusal.
+func probeAnswer(err error) (bool, error) {
+	switch {
 	case err == nil:
 		return true, nil
 	case errors.Is(err, apperrors.ErrNotFound):

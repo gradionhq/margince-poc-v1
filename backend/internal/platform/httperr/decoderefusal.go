@@ -54,6 +54,23 @@ func RestateDecodeError(err error) error {
 	return &restatedDecodeError{detail: detail, cause: err}
 }
 
+// SafeDecodeError answers a decode failure in words the caller may read, and
+// reports whether the original's own words were WITHHELD to do it. It is
+// RestateDecodeError plus the answer for the shapes no branch can name: those
+// get genericDecodeDetail, and `withheld` is the surface's cue that it owes the
+// original to a log rather than to the caller.
+//
+// The pairing lives here because all three decode surfaces owe both halves — a
+// shape we can name is restated, and one we cannot is masked and logged — and a
+// surface that only asks RestateDecodeError reads nil as "safe to show" and
+// ships whatever a third-party value unmarshaler wrote about this program.
+func SafeDecodeError(err error) (safe error, withheld bool) {
+	if restated := RestateDecodeError(err); restated != nil {
+		return restated, false
+	}
+	return &restatedDecodeError{detail: genericDecodeDetail, cause: err}, true
+}
+
 // restatedDecodeError carries the caller-facing sentence while keeping the
 // decoder's original reachable: Error() is what any surface may show, Unwrap is
 // what an operator's log and an errors.As on a typed cause still reach.

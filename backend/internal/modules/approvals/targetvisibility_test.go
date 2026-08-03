@@ -137,13 +137,13 @@ func TestASharedConfigTargetNeverReachesTheRowScopeClause(t *testing.T) {
 	for _, targetType := range []string{targetTag, "webhook_subscription", "offer_template"} {
 		t.Run(targetType, func(t *testing.T) {
 			if got := probeFor(targetType); got == probeOwnScope {
-				t.Fatalf("%q is classified as own-scope, which would ask auth.VisibleTo about a table it "+
-					"does not row-scope", targetType)
+				t.Fatalf("%q is classified as own-scope, which would ask the row-scope probe about a table "+
+					"platform/auth does not row-scope", targetType)
 			}
-			if _, err := auth.VisibleTo(ctx, nil, targetType, ids.NewV7()); err == nil {
-				t.Errorf("auth.VisibleTo(%q) answered without error — this test guards the arm NOT taken, so "+
-					"if the table became row-scoped, revisit the classification rather than deleting this case",
-					targetType)
+			if err := auth.EnsureVisibleLive(ctx, nil, targetType, ids.NewV7()); err == nil {
+				t.Errorf("the row-scope probe answered for %q without error — this test guards the arm NOT "+
+					"taken, so if the table became row-scoped, revisit the classification rather than deleting "+
+					"this case", targetType)
 			}
 			if _, ok := existenceProbes[targetType]; !ok {
 				t.Errorf("%q has no existence query, so its probe would fail loudly instead of refusing", targetType)
@@ -168,6 +168,71 @@ func TestAPersonalTargetIsProbedByOwnershipNotRowScope(t *testing.T) {
 	if clause != "" {
 		t.Errorf("an all-scope human's saved_view clause is %q, want empty — this case exists because an "+
 			"empty clause means every row, which is the widening the ownership probe avoids", clause)
+	}
+}
+
+// A staged CREATE against a personal table is the one id-less shape whose floor
+// is NOT read on the type. Read on such a table is held by every seat allowed
+// rows of its own there, and the staged summary and proposed change ARE the
+// private row's content — so read alone would put one human's query in front of
+// all of them, in an inbox that also lets any of them decide it. No row exists
+// yet for an ownership probe to ask, so the bound is the member the staging
+// recorded.
+//
+// Derived over the classification rather than named type by type: a personal
+// table enrolled as owner-only later inherits the rule instead of falling into
+// the read-on-the-type default. The nil tx is the proof that no row is probed —
+// there is none to probe.
+func TestAStagedCreateOnAPersonalTableIsDecidableByItsStagerAlone(t *testing.T) {
+	stagerUUID := ids.NewV7()
+	stager := ids.From[ids.UserKind](stagerUUID)
+
+	personal := 0
+	for _, targetType := range ClassifiedTargetTypes() {
+		if probeFor(targetType) != probeOwnerOnly {
+			continue
+		}
+		personal++
+		t.Run(targetType, func(t *testing.T) {
+			tt := targetType
+			// create_record resolves its decision grant from the target type, so
+			// both seats below hold create AND read on it: nothing but the staged-for
+			// identity can be what separates them.
+			seat := func(user ids.UUID) (context.Context, principal.Principal) {
+				p := principal.Principal{
+					Type:   principal.PrincipalHuman,
+					UserID: user,
+					Permissions: principal.Permissions{
+						Objects:  map[string]principal.ObjectGrant{tt: {Read: true, Create: true}},
+						RowScope: principal.RowScopeAll,
+					},
+				}
+				return principal.WithActor(context.Background(), p), p
+			}
+			staged := row{Kind: "create_record", TargetType: &tt, OnBehalfOf: &stager}
+
+			ctx, p := seat(stagerUUID)
+			if ok, err := decidable(ctx, nil, p, staged); !ok || err != nil {
+				t.Fatalf("the member it was staged for = (%v, %v), want (true, nil) — the rule narrows the "+
+					"shape to one seat, it must not strand the row", ok, err)
+			}
+
+			ctx, p = seat(ids.NewV7())
+			if ok, err := decidable(ctx, nil, p, staged); ok || err != nil {
+				t.Errorf("another seat holding the same %s grants = (%v, %v), want (false, nil) — read on a "+
+					"personal table is not permission to read one colleague's row", targetType, ok, err)
+			}
+
+			ctx, p = seat(stagerUUID)
+			if ok, err := decidable(ctx, nil, p, row{Kind: "create_record", TargetType: &tt}); ok || err != nil {
+				t.Errorf("a staging attributable to no member = (%v, %v), want (false, nil) — one nobody is "+
+					"recorded for is one nobody may read, not one everybody may", ok, err)
+			}
+		})
+	}
+	if personal == 0 {
+		t.Fatal("no target type is classified owner-only, so this gate asserts nothing — if personal state " +
+			"stopped being staged, delete the probe and this case together rather than leaving an empty loop")
 	}
 }
 

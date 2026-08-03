@@ -206,15 +206,21 @@ var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 // on its type, then that record's own row rule (targetvisibility.go). It
 // backs List, Get and Decide alike, so triage visibility and the decision
 // gate can never drift apart — you see exactly what you could act on, and
-// what you cannot see you cannot decide (in either direction). An unknown
-// kind (no mapping) or unknown target type is not decidable: fail-closed.
+// what you cannot see you cannot decide (in either direction). Two shapes
+// narrow that to ONE seat, the member the row was staged for: a self-only
+// kind, and a staged create against a table whose rows belong to one human
+// each. An unknown kind (no mapping) or unknown target type is not
+// decidable: fail-closed.
 func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bool, error) {
 	if requireDecisionGrants(p, a) != nil {
 		return false, nil
 	}
-	if selfOnlyKinds[a.Kind] {
-		// Fail-closed on a missing stager: a self-only proposal nobody is
-		// recorded for is one nobody may read, not one everybody may.
+	if selfOnlyKinds[a.Kind] || stagedForStagerOnly(a.TargetType, a.TargetID != nil) {
+		// Two routes to the same predicate: a kind whose subject is one member's
+		// own business, and a staged create against a table whose rows belong to
+		// one human each — where no row exists yet for an ownership probe to ask.
+		// Fail-closed on a missing stager: a proposal nobody is recorded for is
+		// one nobody may read, not one everybody may.
 		if a.OnBehalfOf == nil || p.UserID == ids.Nil || a.OnBehalfOf.UUID != p.UserID {
 			return false, nil
 		}

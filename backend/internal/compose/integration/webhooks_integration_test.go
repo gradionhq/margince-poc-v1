@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -584,13 +585,47 @@ func TestWebhookApprovalFanOutGatesOnTargetVisibility(t *testing.T) {
 // object-read floor exists for: policy validation accepts it (the CRUD booleans
 // are independent and merge independently), so a live seat can hold delete on a
 // record type it may not read.
+// It asserts both ends, because every silent outcome of this rewrite looks like
+// a passing case: a workspace that granted no read to begin with, a jsonb_set
+// over a document with no `objects` key (a no-op) and one over a NULL document
+// (which answers NULL and takes the write grants with it) all leave the fan-out
+// at zero for a reason that is not the read floor.
 func (we *webhookEnv) dropObjectReadFromEveryRole(t *testing.T, object string) {
 	t.Helper()
-	we.execInWorkspace(t,
+	if readers := we.rolesGranting(t, object, "read"); readers == 0 {
+		t.Fatalf("no role in this workspace grants %s.read, so removing it proves nothing — the case before "+
+			"this one delivered on that grant, and this one is about its absence", object)
+	}
+	rewritten := we.execInWorkspace(t,
 		`UPDATE role SET permissions = jsonb_set(permissions, ARRAY['objects', $2::text],
 			'{"create":true,"read":false,"update":true,"delete":true}'::jsonb)
-		 WHERE workspace_id = $1`,
+		 WHERE workspace_id = $1 AND permissions -> 'objects' IS NOT NULL`,
 		we.wsID, object)
+	if rewritten == 0 {
+		t.Fatal("the rewrite matched no role document, so the grants the fan-out reads are the ones it started with")
+	}
+	if left := we.rolesGranting(t, object, "read"); left != 0 {
+		t.Fatalf("%d role document(s) still grant %s.read after the rewrite", left, object)
+	}
+	if writers := we.rolesGranting(t, object, "delete"); writers != rewritten {
+		t.Fatalf("%d of %d rewritten roles still hold %s.delete — the case needs the WRITE grants to survive, "+
+			"or the withheld fan-out is only a role that lost everything", writers, rewritten, object)
+	}
+}
+
+// rolesGranting counts the workspace's role documents granting one action on one
+// object, read under the workspace GUC because `role` is FORCE-RLS like every
+// other tenant table.
+func (we *webhookEnv) rolesGranting(t *testing.T, object, action string) int {
+	t.Helper()
+	var count int
+	we.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM role
+			 WHERE workspace_id = $1 AND permissions -> 'objects' -> $2 ->> $3 = 'true'`,
+			we.wsID, object, action).Scan(&count)
+	})
+	return count
 }
 
 // seedPerson inserts a person row under a workspace-bound owner tx (FORCE
@@ -631,8 +666,24 @@ func (we *webhookEnv) insertApproval(t *testing.T, id ids.UUID, targetType *stri
 
 // execInWorkspace runs one statement under a workspace-bound owner tx so
 // FORCE RLS admits the write, committing it (the same pattern the
-// revoked-owner test uses to mutate app_user).
-func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) {
+// revoked-owner test uses to mutate app_user). It answers the rows the
+// statement matched: a rewrite that silently matched nothing is the failure
+// mode a fixture cannot see any other way.
+func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) int {
+	t.Helper()
+	var affected int64
+	we.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(context.Background(), sql, args...)
+		affected = tag.RowsAffected()
+		return err
+	})
+	return int(affected)
+}
+
+// inWorkspaceTx binds the workspace GUC on an owner tx, runs one statement
+// through it and commits — the one spelling of that shape, so a reading fixture
+// and a writing one cannot bind the tenant differently.
+func (we *webhookEnv) inWorkspaceTx(t *testing.T, run func(pgx.Tx) error) {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := we.owner.Begin(ctx)
@@ -644,8 +695,8 @@ func (we *webhookEnv) execInWorkspace(t *testing.T, sql string, args ...any) {
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, we.wsID.String()); err != nil {
 		t.Fatalf("set guc: %v", err)
 	}
-	if _, err := tx.Exec(ctx, sql, args...); err != nil {
-		t.Fatalf("exec: %v", err)
+	if err := run(tx); err != nil {
+		t.Fatalf("statement: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit: %v", err)

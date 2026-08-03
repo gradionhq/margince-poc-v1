@@ -13,19 +13,29 @@ package webhooks
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// readerOf is a fan-out owner whose only capability is reading one object type.
-// RowScopeAll is deliberate: no shape in this file may reach a row probe, and
-// the widest scope is what would drive one into the nil pool if it did.
+// readerOf is a fan-out owner whose only capability is one grant on one object
+// type. RowScopeAll is deliberate: the widest scope is what drives a row probe
+// into the nil pool, which is how these cases tell "answered above the probe"
+// from "answered by it".
 func readerOf(object string, grant principal.ObjectGrant) context.Context {
+	return readerAs(ids.NewV7(), object, grant)
+}
+
+// readerAs is readerOf for the cases that need to name the owner: a staged
+// change against personal state is bounded by WHICH human receives it, so the
+// user id has to be the fixture's to choose.
+func readerAs(user ids.UUID, object string, grant principal.ObjectGrant) context.Context {
 	return principal.WithActor(context.Background(), principal.Principal{
 		Type:   principal.PrincipalHuman,
-		UserID: ids.NewV7(),
+		UserID: user,
 		Permissions: principal.Permissions{
 			Objects:  map[string]principal.ObjectGrant{object: grant},
 			RowScope: principal.RowScopeAll,
@@ -47,14 +57,64 @@ func TestApprovalForAStagedCreateDeliversOnTheObjectReadGrant(t *testing.T) {
 	s := NewStore(nil, nil)
 	targetType := "project"
 
-	if ok, err := s.approvalShapeVisible(readerOf("project", principal.ObjectGrant{Read: true}), &targetType, nil); !ok || err != nil {
+	if ok, err := s.approvalShapeVisible(readerOf("project", principal.ObjectGrant{Read: true}), &targetType, nil, nil); !ok || err != nil {
 		t.Fatalf("staged project create to an owner holding project.read = (%v, %v), want (true, nil)", ok, err)
 	}
 
 	// The negative that matters: the create grant is not the read grant. An
 	// owner who cannot read projects must not learn one was proposed.
-	if ok, err := s.approvalShapeVisible(readerOf("project", principal.ObjectGrant{Create: true}), &targetType, nil); ok || err != nil {
+	if ok, err := s.approvalShapeVisible(readerOf("project", principal.ObjectGrant{Create: true}), &targetType, nil, nil); ok || err != nil {
 		t.Fatalf("staged project create to an owner without project.read = (%v, %v), want (false, nil)", ok, err)
+	}
+}
+
+// The one id-less shape read on the type is the WRONG floor for: a staged create
+// against a personal table. Read on such a table is held by every seat allowed
+// rows of its own there, and the envelope's summary and edited_change ARE the
+// private row's content — so the floor would announce one human's query to all
+// of them. No row exists yet to probe ownership against, so the bound is the
+// member the staging recorded.
+//
+// Derived over this gate's own classification, so a table enrolled as owner-only
+// later inherits the rule rather than falling into the read-on-the-type default.
+// The nil pool proves no arm below is reached: there is no row to reach for.
+func TestAStagedCreateOnAPersonalTableIsAnnouncedToItsStagerAlone(t *testing.T) {
+	s := NewStore(nil, nil)
+	stager := ids.NewV7()
+
+	personal := 0
+	for _, targetType := range ClassifiedApprovalTargetTypes() {
+		if approvalTargetRuleFor(targetType) != targetRuleOwnerOnly {
+			continue
+		}
+		personal++
+		t.Run(targetType, func(t *testing.T) {
+			tt := targetType
+			read := principal.ObjectGrant{Read: true}
+
+			if ok, err := s.approvalShapeVisible(readerAs(stager, tt, read), &tt, nil, &stager); !ok || err != nil {
+				t.Fatalf("the member it was staged for = (%v, %v), want (true, nil) — the rule bounds the "+
+					"announcement to one owner, it must not silence it entirely", ok, err)
+			}
+			if ok, err := s.approvalShapeVisible(readerAs(ids.NewV7(), tt, read), &tt, nil, &stager); ok || err != nil {
+				t.Errorf("another owner holding %s.read = (%v, %v), want (false, nil) — read on a personal "+
+					"table is not permission to receive one colleague's row", targetType, ok, err)
+			}
+			if ok, err := s.approvalShapeVisible(readerAs(stager, tt, read), &tt, nil, nil); ok || err != nil {
+				t.Errorf("a staging attributable to no member = (%v, %v), want (false, nil) — one nobody is "+
+					"recorded for is announced to nobody, not to everybody", ok, err)
+			}
+			// The read grant is still owed above the identity: a seat that may not
+			// read the type has no business receiving its staged content either.
+			noRead := readerAs(stager, tt, principal.ObjectGrant{Create: true})
+			if ok, err := s.approvalShapeVisible(noRead, &tt, nil, &stager); ok || err != nil {
+				t.Errorf("the staged-for member WITHOUT %s.read = (%v, %v), want (false, nil)", targetType, ok, err)
+			}
+		})
+	}
+	if personal == 0 {
+		t.Fatal("no target type is classified owner-only, so this gate asserts nothing — if personal state " +
+			"stopped being staged, delete the arm and this case together rather than leaving an empty loop")
 	}
 }
 
@@ -67,10 +127,10 @@ func TestApprovalWithNoTargetTypeIsNotDelivered(t *testing.T) {
 	ctx := readerOf("project", principal.ObjectGrant{Read: true})
 	targetID := ids.NewV7()
 
-	if ok, err := s.approvalShapeVisible(ctx, nil, nil); ok || err != nil {
+	if ok, err := s.approvalShapeVisible(ctx, nil, nil, nil); ok || err != nil {
 		t.Errorf("target-less approval = (%v, %v), want (false, nil)", ok, err)
 	}
-	if ok, err := s.approvalShapeVisible(ctx, nil, &targetID); ok || err != nil {
+	if ok, err := s.approvalShapeVisible(ctx, nil, &targetID, nil); ok || err != nil {
 		t.Errorf("approval carrying an id with no type = (%v, %v), want (false, nil)", ok, err)
 	}
 }
@@ -165,18 +225,23 @@ func TestEveryClassifiedApprovalTargetRidesTheObjectReadFloor(t *testing.T) {
 // a grant-holding owner is not refused by the floor and does reach the ownership
 // probe, so the deny above can only have come from the missing grant.
 //
-// The nil pool is the proof: reaching the probe fails loudly, which is anything
-// but a clean deny.
+// Reaching the probe is asserted by a NAMED value rather than by a panic: the
+// probe opens its transaction through WithWorkspaceTx, which refuses an unbound
+// workspace with database.ErrNoWorkspace before it touches the pool. That
+// sentinel can only be produced by the arm having run, and a test that asserts
+// it cannot pass on some unrelated failure the way a bare recover can.
 func TestTheOwnerOnlyArmIsReachedWhenTheReadFloorAdmits(t *testing.T) {
 	s := NewStore(nil, nil)
 	viewID := ids.NewV7()
 
-	//craft:ignore swallowed-errors recover's value is deliberately discarded: a nil-pool probe panic is itself proof the read gate admitted the call and reached the probe
-	defer func() { _ = recover() }()
 	ctx := readerOf("saved_view", principal.ObjectGrant{Read: true})
-	if ok, err := s.approvalTargetVisible(ctx, "saved_view", viewID); !ok && err == nil {
-		t.Fatal("with saved_view.read, approvalTargetVisible returned a clean deny — the read gate must " +
-			"have admitted it and reached the ownership probe")
+	ok, err := s.approvalTargetVisible(ctx, "saved_view", viewID)
+	if ok {
+		t.Fatal("approvalTargetVisible delivered a saved-view approval with no ownership probe possible")
+	}
+	if !errors.Is(err, database.ErrNoWorkspace) {
+		t.Fatalf("with saved_view.read, approvalTargetVisible = (%v, %v); want the ownership probe to have been "+
+			"reached — the read gate must ADMIT a grant-holding owner, not deny them cleanly", ok, err)
 	}
 }
 

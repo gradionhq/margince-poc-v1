@@ -56,11 +56,12 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 	var (
 		targetType *string
 		targetID   *ids.UUID
+		stagedFor  *ids.UUID
 	)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT target_entity_type, target_entity_id FROM approval WHERE id = $1`,
-			approvalID).Scan(&targetType, &targetID)
+			`SELECT target_entity_type, target_entity_id, on_behalf_of FROM approval WHERE id = $1`,
+			approvalID).Scan(&targetType, &targetID, &stagedFor)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -68,7 +69,7 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 	if err != nil {
 		return false, err
 	}
-	return s.approvalShapeVisible(ctx, targetType, targetID)
+	return s.approvalShapeVisible(ctx, targetType, targetID, stagedFor)
 }
 
 // approvalShapeVisible answers the fan-out question for each shape a staged
@@ -85,15 +86,51 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 //     type it will write. An owner who may read that type learns a create was
 //     proposed on it; one who may not learns nothing — the same floor
 //     approvalTargetVisible applies above every one of its arms.
+//   - A staged create against a PERSONAL table is the one id-less shape that
+//     floor is wrong for, and it is bounded by the member the row was staged
+//     for instead (stagedForOwnerOnly).
 //   - BOTH halves go to the target record's own visibility rule.
-func (s *Store) approvalShapeVisible(ctx context.Context, targetType *string, targetID *ids.UUID) (bool, error) {
+func (s *Store) approvalShapeVisible(ctx context.Context, targetType *string, targetID *ids.UUID, stagedFor *ids.UUID) (bool, error) {
 	if targetType == nil {
 		return false, nil
 	}
 	if targetID == nil {
+		if approvalTargetRuleFor(*targetType) == targetRuleOwnerOnly {
+			return s.stagedForOwnerOnly(ctx, *targetType, stagedFor)
+		}
 		return objectReadable(ctx, *targetType)
 	}
 	return s.approvalTargetVisible(ctx, *targetType, *targetID)
+}
+
+// stagedForOwnerOnly is the fan-out half of the owner-only CREATE rule: a
+// staged create against a table whose rows belong to one human each is
+// announced to that human and to nobody else.
+//
+// Read on the type cannot be the floor here, the way it is for a
+// workspace-shared type: read on a personal table is held by every seat allowed
+// rows of its own there, and the envelope's summary and edited_change ARE the
+// private row's content. Existence cannot be the floor either — the record does
+// not exist yet — so what remains is the member the staging recorded. An
+// unrecorded stager fans out to nobody: a proposal attributable to no member is
+// not one every member may read.
+//
+// The read grant still applies above it, because a seat that may not read the
+// type at all has no business receiving its staged content either. Mirrors the
+// approvals inbox's stagedForStagerOnly, which decides the same shape.
+func (s *Store) stagedForOwnerOnly(ctx context.Context, targetType string, stagedFor *ids.UUID) (bool, error) {
+	readable, err := objectReadable(ctx, targetType)
+	if err != nil || !readable {
+		return false, err
+	}
+	if stagedFor == nil {
+		return false, nil
+	}
+	who, err := owner(ctx)
+	if err != nil {
+		return false, err
+	}
+	return who != ids.Nil && who == *stagedFor, nil
 }
 
 // sharedConfigExistence are the approval target types whose owning store

@@ -76,13 +76,12 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 // decoder internals: the caller gets a sentence that says what to check, and
 // the decoder's own words go to the log rather than nowhere.
 func bodyDecodeRefusal(r *http.Request, err error) error {
-	restated := RestateDecodeError(err)
-	if restated == nil {
+	safe, withheld := SafeDecodeError(err)
+	if withheld {
 		slog.WarnContext(r.Context(), "unnamed request-body decode failure",
 			"method", r.Method, "path", r.URL.Path, "err", err)
-		return Validation("body", "malformed_json", genericDecodeDetail)
 	}
-	return Validation("body", "malformed_json", restated.Error())
+	return Validation("body", "malformed_json", safe.Error())
 }
 
 // WriteJSON writes a JSON response with the given status.

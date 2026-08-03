@@ -101,9 +101,12 @@ func TestALongUnknownKeyDoesNotEatTheAcceptedFieldList(t *testing.T) {
 
 // A refused call is read by a model, which can act on the argument name and the
 // shape it wanted and on nothing else. The Go struct decodeArgs was filling is
-// both unactionable and none of an agent's business — while the decoder's
-// unknown-field refusal quotes the caller's OWN key, which is the most
-// actionable thing this surface ever says, so it travels unchanged.
+// both unactionable and none of an agent's business — while the unknown-key
+// refusal quotes the caller's OWN argument name, which is the most actionable
+// thing this surface ever says, so it travels verbatim. It may, because it is
+// OUR refusal and carries its own type; the case below asserts that type, since
+// telling the two provenances apart by prose is what let a library's sentence
+// through in the first place.
 func TestDecodeArgsRefusalNamesTheArgumentAndNeverTheProgram(t *testing.T) {
 	goInternals := []string{"Go struct", "Go value", "uuid.UUID", "ids.UUID", "2006", "github.com/"}
 	for _, tc := range []struct{ name, in, want string }{
@@ -133,6 +136,63 @@ func TestDecodeArgsRefusalNamesTheArgumentAndNeverTheProgram(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The unknown-key refusal this surface echoes is OURS, and the assertion is its
+// TYPE. That is the whole mechanism separating the one decode message an agent may
+// read from the ones it may not: encoding/json's own unknown-field text is prose
+// only a string match could recognise, and a string match is how a library's
+// sentence reached a caller on the sibling route.
+func TestTheUnknownArgumentRefusalIsOurOwnTypedOne(t *testing.T) {
+	var args struct {
+		Limit int `json:"limit"`
+	}
+	// A key that only case-FOLDS onto an argument counts as unknown here, exactly
+	// as it does on the REST body and at the provider seam: encoding/json would
+	// have matched it and written the value.
+	for _, in := range []string{`{"limitt":1}`, `{"LIMIT":1}`} {
+		err := decodeArgs(json.RawMessage(in), &args)
+		var unknown *datasource.UnknownFieldError
+		if !errors.As(err, &unknown) {
+			t.Fatalf("arguments %s → %v, want a datasource.UnknownFieldError the surface may echo verbatim", in, err)
+		}
+	}
+}
+
+// errValueUnmarshalerInternals stands for the words a value type's own
+// UnmarshalJSON writes about the program that called it — google/uuid's
+// `invalid UUID length: 6` is the shipped example, and no branch of the
+// restatement can name that shape.
+var errValueUnmarshalerInternals = errors.New("cannot unmarshal into Go struct field crmsecrets.Vault.key")
+
+type thirdPartyValue string
+
+func (*thirdPartyValue) UnmarshalJSON([]byte) error { return errValueUnmarshalerInternals }
+
+// A decode failure no branch can NAME is masked, not echoed. Nil from the
+// restatement means "no shape recognised", never "safe to show": what is left at
+// that point was written about this program, by an author the caller never
+// addressed. The caller gets a sentence saying what to check; the withheld words
+// stay in the chain, which is what the log reads.
+func TestAnUnnameableDecodeFailureIsMaskedAndKeptForTheLog(t *testing.T) {
+	var args struct {
+		Segment thirdPartyValue `json:"segment"`
+	}
+	err := decodeArgs(json.RawMessage(`{"segment":"x"}`), &args)
+
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("a value unmarshaler's refusal → %v, want BadArgsError", err)
+	}
+	if strings.Contains(bad.Error(), "Go struct field") || strings.Contains(bad.Error(), "crmsecrets") {
+		t.Errorf("the refusal repeats a value unmarshaler's words about this program: %q", bad.Error())
+	}
+	if !strings.Contains(bad.Error(), "check each value's type") {
+		t.Errorf("the masked refusal says nothing to act on: %q", bad.Error())
+	}
+	if !errors.Is(err, errValueUnmarshalerInternals) {
+		t.Error("the withheld original is not reachable through the chain, so an operator's log gets nothing")
 	}
 }
 
