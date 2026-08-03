@@ -321,12 +321,23 @@ func callJobHealth(t *testing.T, p principal.Principal) *httptest.ResponseRecord
 	return rec
 }
 
-// TestTheJobHealthReadCarriesADeadline — this endpoint reads the same
-// unindexed table the exposition endpoint does, where a 2s budget exists
-// precisely to stop an unbounded scan holding a request thread and a pool
-// connection. Both readers of river_job carry a bound, and this is what
-// keeps the pair from drifting apart.
-func TestTheJobHealthReadCarriesADeadline(t *testing.T) {
+// TestTheJobHealthReadTimeoutIsABudgetNotAnAbsentBound checks the CONSTANT,
+// not that the handler applies it.
+//
+// The name says so because the distinction matters: a refactor that dropped
+// the context.WithTimeout call while keeping the constant would leave this
+// test green and the property false. Proving the application at runtime
+// needs the read behind an injectable seam, which this handler has no
+// production reason to grow — so what guards it is that the call sits one
+// line from the constant, and that GetJobHealth's own doc comment says why
+// it is there.
+//
+// What this DOES catch is the constant being zeroed or widened into
+// meaninglessness, which is the realistic regression: the exposition
+// endpoint bounds its read of this same unindexed table at 2s precisely to
+// stop a scan holding a request thread and a pool connection, and a bound
+// that is not a bound would let the two readers drift apart again.
+func TestTheJobHealthReadTimeoutIsABudgetNotAnAbsentBound(t *testing.T) {
 	if jobHealthReadTimeout <= 0 {
 		t.Fatalf("jobHealthReadTimeout = %v; an unbounded read is what the budget exists "+
 			"to prevent", jobHealthReadTimeout)
