@@ -140,7 +140,7 @@ type resetSummary struct{ TablesCleared int }
 // handler (Task 6) invokes. schemaPool is the owner-privileged pool the
 // cf_* column finalize runs on; nil skips that step (no schema pool
 // configured — the reset itself still succeeds, only the DDL cleanup is
-// skipped).
+// skipped). log defaults to slog.Default() when nil.
 type dataResetHandlers struct {
 	pool       *pgxpool.Pool
 	schemaPool *pgxpool.Pool
@@ -155,6 +155,10 @@ type dataResetHandlers struct {
 // one transaction. cf_* column drops run after commit (separate owner
 // connection) since DDL cannot share the app-role transaction.
 func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetSummary, error) {
+	logger := h.log
+	if logger == nil {
+		logger = slog.Default()
+	}
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return resetSummary{}, database.ErrNoWorkspace
@@ -206,7 +210,7 @@ func (h dataResetHandlers) run(ctx context.Context, confirmation string) (resetS
 	// run (no schema pool configured); logged, not swallowed.
 	if h.schemaPool != nil {
 		if err := dropResetCustomFieldColumns(ctx, h.schemaPool); err != nil {
-			h.log.Error("data reset: cf_ column drop failed", "err", err)
+			logger.Error("data reset: cf_ column drop failed", "err", err)
 		}
 	}
 	return resetSummary{TablesCleared: cleared}, nil
