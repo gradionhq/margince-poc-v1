@@ -235,10 +235,13 @@ type OverlayMetrics struct {
 // jobStats renders the job-runtime section. Unlike extra it takes a
 // context, because it queries at scrape time, and it is handed THIS
 // handler's deadline-bound ctx rather than the request's — an unbounded
-// job read is the one thing the 2s budget below exists to stop. A section
-// that returns an error has already decided the exposition cannot continue
-// safely; the handler stops writing and logs rather than serving a
-// truncated body as if it were whole.
+// job read is the one thing the 2s budget below exists to stop.
+//
+// A section that could not MEASURE writes nothing and returns nil, so the
+// rest of the exposition still serves; the error return is reserved for a
+// refused WRITE, which in practice means the scraper's connection is
+// already gone. The handler logs it and stops rather than writing further
+// sections into a socket that is not there.
 //
 // The parameter list has reached the point where a further section should
 // become a struct rather than a seventh argument.

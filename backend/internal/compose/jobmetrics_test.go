@@ -5,6 +5,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -264,4 +265,77 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 		return 0, w.err
 	}
 	return len(p), nil
+}
+
+// TestAQueueHoldingOnlyDeadWorkReportsNoAgeAtAll — the gauge answers "how
+// long has the oldest RUNNABLE job waited", and a queue whose rows are all
+// discarded has no such job. A zero there would read as a healthy queue on
+// the one gauge meant to notice work is stuck.
+func TestAQueueHoldingOnlyDeadWorkReportsNoAgeAtAll(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "graveyard", Kind: "k", State: "discarded", Count: 50},
+		{Queue: "graveyard", Kind: "k", State: "cancelled", Count: 2},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	if strings.Contains(buf.String(), `margince_job_oldest_queued_age_seconds{queue="graveyard"`) {
+		t.Errorf("a queue with nothing runnable reported an age\ngot:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), `margince_job_discarded{kind="k",workspace_id=""} 50`) {
+		t.Errorf("the dead work itself went missing\ngot:\n%s", buf.String())
+	}
+}
+
+// TestALabelValueCannotBreakTheWholeExposition — workspace_id is
+// args->>'workspace_id' verbatim from a table with no constraint on it and
+// direct app-role CRUD. Go's %q would encode a tab as \t, which the
+// Prometheus text format does not define, and a parser meeting an undefined
+// escape rejects the ENTIRE scrape — every metric, not the one series.
+func TestALabelValueCannotBreakTheWholeExposition(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: "k", WorkspaceID: "a\tb\x00c", State: "available", Count: 1},
+		{Queue: `qu"ote`, Kind: "k", WorkspaceID: "x\ny", State: "available", Count: 1},
+		{Queue: "default", Kind: `back\slash`, WorkspaceID: "", State: "discarded", Count: 1},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	got := buf.String()
+
+	for _, forbidden := range []string{`\t`, `\x00`, `\u`} {
+		if strings.Contains(got, forbidden) {
+			t.Errorf("the exposition carries %s, an escape the text format does not define"+
+				"\ngot:\n%s", forbidden, got)
+		}
+	}
+	if !strings.Contains(got, `workspace_id="abc"`) {
+		t.Errorf("control characters were not dropped from the label\ngot:\n%s", got)
+	}
+	for _, want := range []string{`queue="qu\"ote"`, `kind="back\\slash"`, `workspace_id="x\ny"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("exposition missing %q — the three defined escapes must still be emitted"+
+				"\ngot:\n%s", want, got)
+		}
+	}
+}
+
+// TestTheJobSectionWritesNothingWhenTheReadFails — a scrape that emitted
+// zeroes it did not measure is worse than a gap: a gap is visible on a
+// graph, and a fabricated zero reads as a healthy empty queue. This is the
+// posture Metrics already takes for the outbox backlog, and it is the seam
+// between the pool and the renderer that nothing else covers.
+func TestTheJobSectionWritesNothingWhenTheReadFails(t *testing.T) {
+	unreadable := func(context.Context) (jobs.Snapshot, error) {
+		return jobs.Snapshot{}, errors.New("the job table could not be read in time")
+	}
+	var buf bytes.Buffer
+
+	if err := jobMetricsSection(unreadable)(context.Background(), &buf); err != nil {
+		t.Fatalf("an unreadable section must not fail the whole scrape: %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("an unmeasured section wrote %d bytes; a fabricated zero is "+
+			"indistinguishable from a healthy empty queue\ngot:\n%s", buf.Len(), buf.String())
+	}
 }

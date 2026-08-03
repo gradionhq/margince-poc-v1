@@ -18,8 +18,7 @@ import (
 	"io"
 	"log/slog"
 	"slices"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
@@ -51,6 +50,81 @@ type kindKey struct{ kind, workspace string }
 // carries the state itself so an operator can see what appeared.
 type stateKey struct{ state, queue, workspace string }
 
+// The river_job_state values this renderer classifies by name. Named so
+// the spelling that decides which gauge a row lands on exists once.
+const (
+	stateRunning   = "running"
+	stateDiscarded = "discarded"
+	stateCancelled = "cancelled"
+)
+
+// jobSeries is one pass of the snapshot, bucketed per family.
+type jobSeries struct {
+	depth        map[queueKey]int64
+	running      map[queueKey]int64
+	discarded    map[kindKey]int64
+	cancelled    map[kindKey]int64
+	oldest       map[queueKey]float64
+	unrecognised map[stateKey]int64
+}
+
+// aggregate buckets every row exactly once. Split out of writeJobMetrics so
+// the classification reads as one list of cases rather than as a preamble to
+// seven writes.
+func aggregate(rows []jobs.StateRow) jobSeries {
+	a := jobSeries{
+		depth:        map[queueKey]int64{},
+		running:      map[queueKey]int64{},
+		discarded:    map[kindKey]int64{},
+		cancelled:    map[kindKey]int64{},
+		oldest:       map[queueKey]float64{},
+		unrecognised: map[stateKey]int64{},
+	}
+	for _, r := range rows {
+		qk := queueKey{queue: r.Queue, workspace: r.WorkspaceID}
+		kk := kindKey{kind: r.Kind, workspace: r.WorkspaceID}
+		switch {
+		case queueDepthStates[r.State]:
+			a.depth[qk] += r.Count
+		case r.State == stateRunning:
+			a.running[qk] += r.Count
+		case r.State == stateDiscarded:
+			a.discarded[kk] += r.Count
+		case r.State == stateCancelled:
+			// Reported apart from discarded on purpose. River cancels
+			// deliberately, without spending every attempt, so folding the
+			// two together would make the discarded gauge's own HELP text
+			// false for half the rows under it.
+			a.cancelled[kk] += r.Count
+		default:
+			a.unrecognised[stateKey{state: r.State, queue: r.Queue, workspace: r.WorkspaceID}] += r.Count
+		}
+		a.ageFrom(qk, r)
+	}
+	return a
+}
+
+// ageFrom folds one row into the per-queue oldest-runnable age.
+//
+// The age is the WORST case across the kinds sharing a queue; reporting the
+// last row read would make the number depend on the order the database
+// returned groups in.
+//
+// Only rows that could still RUN contribute a series at all. A zero from a
+// queue holding queued work is a measured value — the work is there and
+// none of it is late — but a queue holding nothing except discarded rows
+// has no runnable job to age, and emitting a zero for it would answer "how
+// long has the oldest runnable job waited" with a number about work that
+// will never run.
+func (a jobSeries) ageFrom(qk queueKey, r jobs.StateRow) {
+	if !queueDepthStates[r.State] && r.State != stateRunning {
+		return
+	}
+	if _, seen := a.oldest[qk]; !seen || r.OldestRunnableAgeSeconds > a.oldest[qk] {
+		a.oldest[qk] = r.OldestRunnableAgeSeconds
+	}
+}
+
 // writeJobMetrics renders the job-runtime section. Pure over snap so the
 // exposition text is provable without a database.
 //
@@ -64,42 +138,10 @@ type stateKey struct{ state, queue, workspace string }
 // swallowed a refused write would serve a truncated exposition, which
 // parses as a smaller fleet rather than as a broken one.
 func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
-	depth := map[queueKey]int64{}
-	running := map[queueKey]int64{}
-	discarded := map[kindKey]int64{}
-	cancelled := map[kindKey]int64{}
-	oldest := map[queueKey]float64{}
-	unrecognised := map[stateKey]int64{}
-
-	for _, r := range snap.Rows {
-		qk := queueKey{queue: r.Queue, workspace: r.WorkspaceID}
-		kk := kindKey{kind: r.Kind, workspace: r.WorkspaceID}
-		switch {
-		case queueDepthStates[r.State]:
-			depth[qk] += r.Count
-		case r.State == "running":
-			running[qk] += r.Count
-		case r.State == "discarded":
-			discarded[kk] += r.Count
-		case r.State == "cancelled":
-			// Reported apart from discarded on purpose. River cancels
-			// deliberately, without spending every attempt, so folding the
-			// two together would make the discarded gauge's own HELP text
-			// false for half the rows under it.
-			cancelled[kk] += r.Count
-		default:
-			unrecognised[stateKey{state: r.State, queue: r.Queue, workspace: r.WorkspaceID}] += r.Count
-		}
-
-		// The age is the WORST case across the kinds sharing a queue.
-		// Reporting the last row read would make the number depend on the
-		// order the database returned groups in. A zero is a measured value
-		// here — the queue holds work and none of it is late — so the series
-		// is written whenever the queue has any row at all.
-		if _, seen := oldest[qk]; !seen || r.OldestRunnableAgeSeconds > oldest[qk] {
-			oldest[qk] = r.OldestRunnableAgeSeconds
-		}
-	}
+	a := aggregate(snap.Rows)
+	depth, running := a.depth, a.running
+	discarded, cancelled := a.discarded, a.cancelled
+	oldest, unrecognised := a.oldest, a.unrecognised
 
 	if err := writeQueueGauge(w, "margince_job_queue_depth",
 		"Jobs waiting to run (available + scheduled + retryable + pending) per queue and workspace. An empty workspace_id is a dispatcher, which does no tenant work.",
@@ -135,8 +177,8 @@ func writeQueueGauge(w io.Writer, name, help string, series map[queueKey]int64) 
 		return err
 	}
 	for _, k := range sortedQueueKeys(series) {
-		if _, err := fmt.Fprintf(w, "%s{queue=%q,workspace_id=%q} %d\n",
-			name, k.queue, k.workspace, series[k]); err != nil {
+		if _, err := fmt.Fprintf(w, "%s{queue=%s,workspace_id=%s} %d\n",
+			name, label(k.queue), label(k.workspace), series[k]); err != nil {
 			return err
 		}
 	}
@@ -151,8 +193,8 @@ func writeKindGauge(w io.Writer, name, help string, series map[kindKey]int64) er
 		return cmp.Or(cmp.Compare(a.kind, b.kind), cmp.Compare(a.workspace, b.workspace))
 	})
 	for _, k := range keys {
-		if _, err := fmt.Fprintf(w, "%s{kind=%q,workspace_id=%q} %d\n",
-			name, k.kind, k.workspace, series[k]); err != nil {
+		if _, err := fmt.Fprintf(w, "%s{kind=%s,workspace_id=%s} %d\n",
+			name, label(k.kind), label(k.workspace), series[k]); err != nil {
 			return err
 		}
 	}
@@ -166,8 +208,8 @@ func writeAgeGauge(w io.Writer, series map[queueKey]float64) error {
 		return err
 	}
 	for _, k := range sortedQueueKeys(series) {
-		if _, err := fmt.Fprintf(w, "%s{queue=%q,workspace_id=%q} %.0f\n",
-			name, k.queue, k.workspace, series[k]); err != nil {
+		if _, err := fmt.Fprintf(w, "%s{queue=%s,workspace_id=%s} %.0f\n",
+			name, label(k.queue), label(k.workspace), series[k]); err != nil {
 			return err
 		}
 	}
@@ -188,8 +230,8 @@ func writeSweepGauges(w io.Writer, sweeps []jobs.SweepPass) error {
 		return err
 	}
 	for _, s := range ordered {
-		if _, err := fmt.Fprintf(w, "margince_sweep_workspaces_total{sweep=%q} %d\n",
-			s.Kind, s.Workspaces); err != nil {
+		if _, err := fmt.Fprintf(w, "margince_sweep_workspaces_total{sweep=%s} %d\n",
+			label(s.Kind), s.Workspaces); err != nil {
 			return err
 		}
 	}
@@ -199,8 +241,8 @@ func writeSweepGauges(w io.Writer, sweeps []jobs.SweepPass) error {
 		return err
 	}
 	for _, s := range ordered {
-		if _, err := fmt.Fprintf(w, "margince_sweep_workspaces_failed{sweep=%q} %d\n",
-			s.Kind, s.Failed); err != nil {
+		if _, err := fmt.Fprintf(w, "margince_sweep_workspaces_failed{sweep=%s} %d\n",
+			label(s.Kind), s.Failed); err != nil {
 			return err
 		}
 	}
@@ -228,8 +270,8 @@ func writeUnrecognisedStateGauge(w io.Writer, series map[stateKey]int64) error {
 			cmp.Compare(a.workspace, b.workspace))
 	})
 	for _, k := range keys {
-		if _, err := fmt.Fprintf(w, "%s{state=%q,queue=%q,workspace_id=%q} %d\n",
-			name, k.state, k.queue, k.workspace, series[k]); err != nil {
+		if _, err := fmt.Fprintf(w, "%s{state=%s,queue=%s,workspace_id=%s} %d\n",
+			name, label(k.state), label(k.queue), label(k.workspace), series[k]); err != nil {
 			return err
 		}
 	}
@@ -239,6 +281,41 @@ func writeUnrecognisedStateGauge(w io.Writer, series map[stateKey]int64) error {
 func writeFamilyHeader(w io.Writer, name, help string) error {
 	_, err := fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n", name, help, name)
 	return err
+}
+
+// label renders one label value for the Prometheus text format, which
+// defines exactly three escapes — backslash, double quote and newline —
+// and no others.
+//
+// Go's %q is not that format. It emits \t, \r and \xNN for control
+// characters, and a parser meeting an escape the format does not define
+// rejects the whole exposition rather than the one series. That matters
+// here because workspace_id is args->>'workspace_id' verbatim from a table
+// with no constraint on it and direct app-role CRUD, so a single
+// raw-inserted row could otherwise poison every scrape for every metric.
+// Anything outside the three escapes is dropped rather than encoded: a
+// control character in a label value is already a broken row, and a
+// readable scrape that omits it beats a rejected one that carries it.
+func label(value string) string {
+	var b strings.Builder
+	b.Grow(len(value) + 2)
+	b.WriteByte('"')
+	for _, r := range value {
+		switch {
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r == '"':
+			b.WriteString(`\"`)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r < ' ' || r == 0x7f:
+			// Dropped: see above.
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 // sortedQueueKeys orders the per-queue series. A scrape target's series
@@ -260,19 +337,23 @@ func sortedKeysOf[K comparable, V any](series map[K]V, order func(a, b K) int) [
 	return keys
 }
 
-// jobMetricsSection binds the job gauges to a pool. A failed read logs and
-// writes NOTHING for the section: a scrape that emits zeroes it did not
-// measure is worse than a gap, because a gap is visible on a graph while a
-// fabricated zero reads as a healthy empty queue. This is the same posture
-// Metrics already takes for the outbox backlog.
+// jobMetricsSection binds the job gauges to a snapshot reader. A failed
+// read logs and writes NOTHING for the section: a scrape that emits zeroes
+// it did not measure is worse than a gap, because a gap is visible on a
+// graph while a fabricated zero reads as a healthy empty queue. This is the
+// same posture Metrics already takes for the outbox backlog.
+//
+// The reader is a closure rather than the pool itself, matching how the
+// outbox backlog is injected next door — so that posture is provable
+// without a database, which is the only way it stays true.
 //
 // The ctx handed in is the exposition handler's own budget context, NOT the
 // request's. The overlay section next door passes r.Context() and so runs
 // unbounded; this read is the one that needs the budget, because it scans a
 // table no index covers.
-func jobMetricsSection(pool *pgxpool.Pool) func(context.Context, io.Writer) error {
+func jobMetricsSection(read func(context.Context) (jobs.Snapshot, error)) func(context.Context, io.Writer) error {
 	return func(ctx context.Context, w io.Writer) error {
-		snap, err := jobs.Stats(ctx, pool)
+		snap, err := read(ctx)
 		if err != nil {
 			slog.ErrorContext(ctx, "metrics: job stats query failed", "err", err)
 			// A section that could not be measured is absent, not fatal: the

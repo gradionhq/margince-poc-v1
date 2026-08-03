@@ -197,16 +197,19 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 // unique key, so this changes no scheduling behaviour.
 //
 // EVERY fan-out site calls it, not only dispatchWith. Five dispatchers fan
-// out with a loop of single inserts instead — gmailSyncWorker and
-// gmailWatchWorker (jobs_capture.go), telegramPollSweepWorker
-// (telegrampoll.go) and voiceBuildRetryWorker (voicebuild.go) — and a site
-// that forgets the tag is silently absent from the sweep gauges while the
-// gauge's own HELP text blames River's retention for the gap.
+// out with a loop of single inserts instead, and each one calls it
+// directly: gmailSyncWorker and gmailWatchWorker (jobs_capture.go),
+// telegramPollSweepWorker (telegrampoll.go), voiceBuildRetryWorker
+// (voicebuild.go) and overlayReconcileWorker (jobs_overlay.go). A site that
+// forgets the tag is silently absent from the sweep gauges while the
+// gauge's own HELP text blames River's retention for the gap. Nothing
+// derives that obligation yet — this list is the registry, so it has to be
+// right.
 //
-// It COPIES because every dispatcher passes a value built once by
-// workspaceSweepOpts and reused for the life of the process: appending in
-// place would grow one tag per pass and hand the caller back a mutated
-// struct.
+// It COPIES because a single dispatch shares ONE opts value across every
+// workspace in its loop, and voiceBuildInsertOpts' value is shared with the
+// user-initiated build path besides. Appending in place would grow one tag
+// per workspace and hand the caller back a mutated struct.
 //
 // A nil opts yields a tag-ONLY value on purpose. River merges the explicit
 // opts with the args' own InsertOpts field by field, falling back to the

@@ -138,10 +138,11 @@ func TestEveryFanOutChildIsMarkedAsOneWorkspacesShareOfAFleetPass(t *testing.T) 
 	}
 }
 
-// TestTheFanOutTagDoesNotMutateTheCallersInsertOpts — every dispatcher
-// passes a shared opts value built once by workspaceSweepOpts and reused
-// for the life of the process. Appending to it in place would accumulate
-// one tag per pass, forever, on a struct the caller still owns.
+// TestTheFanOutTagDoesNotMutateTheCallersInsertOpts — one dispatch shares
+// ONE opts value across every workspace in its loop, and voiceBuildInsertOpts'
+// value is shared with the user-initiated build path besides. Appending to
+// it in place would accumulate one tag per workspace on a struct the caller
+// still owns.
 func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
 	opts := workspaceSweepOpts("default", sweepWorkspaceMaxAttempts)
 	before := len(opts.Tags)
@@ -181,7 +182,7 @@ func TestTheFanOutTagCarriesTheCallersEnqueuePolicyThrough(t *testing.T) {
 	}
 }
 
-// TestTheFanOutTagIsStampedOnceEvenIfTheCallerAlreadySetIt — the three
+// TestTheFanOutTagIsStampedOnceEvenIfTheCallerAlreadySetIt — the five
 // dispatchers that loop single inserts call markedAsFleetPass directly, and
 // a caller that had already tagged its opts must not end up with the tag
 // twice: River validates tags but does not deduplicate them, and a
