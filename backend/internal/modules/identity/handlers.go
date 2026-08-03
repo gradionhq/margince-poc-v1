@@ -19,7 +19,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -45,6 +44,22 @@ type Handlers struct {
 	// sleeping. Nil in production.
 	resetSendStarted func()
 
+	// oidc is the configured federated sign-in provider (A107/ADR-0061 §6);
+	// nil means the installation configured none — the two OIDC endpoints
+	// answer 404 and the capabilities probe lists no provider, so the login
+	// screen draws no button it cannot honor.
+	oidc *OIDCLogin
+	// passwordDisabled turns email+password sign-in OFF, which an operator may
+	// do only once a federated provider can carry the installation
+	// (deployconfig refuses to disable the last method). Spelled negatively so
+	// the zero Handlers value keeps password login enabled — the posture every
+	// role and every test that wires nothing must get.
+	//
+	// It gates the whole password FAMILY: login and both recovery endpoints. A
+	// reset link that still mints a session would be the bypass the operator
+	// turned password off to close.
+	passwordDisabled bool
+
 	// The unauthenticated endpoints carry their own throttles: login
 	// attempts cost a full Argon2 verification each and reset requests
 	// cost the operator an outbound mail. Fixed windows, in-process
@@ -53,6 +68,7 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+	oidcPerIP     *ratelimit.Limiter // 30/min per client IP — each start costs a provider round-trip and a state row
 
 	// sorMode answers whether the caller's workspace reads from an
 	// incumbent overlay mirror, so /me can tell the client its
@@ -90,6 +106,7 @@ func NewHandlers(svc *Service) Handlers {
 		loginPerIP:    ratelimit.New(30, time.Minute),
 		resetPerEmail: ratelimit.New(3, time.Hour),
 		resetPerIP:    ratelimit.New(30, time.Hour),
+		oidcPerIP:     ratelimit.New(30, time.Minute),
 	}
 }
 
@@ -101,6 +118,19 @@ func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handl
 	h.resetMailer = m
 	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
+}
+
+// WithPasswordLogin sets whether email+password sign-in is offered. The
+// composition root passes the deployment's `auth.password.enabled`; every
+// role that passes nothing keeps it on, which is the default posture.
+func (h Handlers) WithPasswordLogin(enabled bool) Handlers {
+	h.passwordDisabled = !enabled
+	return h
+}
+
+// passwordEnabled answers whether the password family may be served at all.
+func (h Handlers) passwordEnabled() bool {
+	return !h.passwordDisabled
 }
 
 // WithSorMode injects the workspace system-of-record mode resolver the
@@ -165,19 +195,41 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 // nothing beyond what the login UI needs.
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
-		Password:      true,
-		PasswordReset: h.resetMailer != nil,
+		Password: h.passwordEnabled(),
+		// Reported from the SAME field the endpoints refuse on: an
+		// installation that turned password login off offers no way back in
+		// through a reset link either, so advertising one would be a dead
+		// affordance twice over.
+		PasswordReset: h.passwordEnabled() && h.resetMailer != nil,
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
 		Label string `json:"label"`
-	}, 0)
+	}, 0, 1)
+	if h.oidc != nil {
+		// Listed because the flow behind it is wired, not because a provider
+		// is named in configuration: h.oidc exists only once the composition
+		// root built a usable relying party.
+		caps.OidcProviders = append(caps.OidcProviders, struct {
+			Key   string `json:"key"`
+			Label string `json:"label"`
+		}{Key: h.oidc.key, Label: h.oidc.label})
+	}
 	httperr.WriteJSON(w, http.StatusOK, caps)
 }
 
 // Login implements (POST /auth/login). The route is public; the singleton
 // organization is bound by the middleware (installation.go).
 func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.passwordEnabled() {
+		// An installation that authenticates through a provider does not
+		// accept a password from anyone — refused BEFORE the body is read, so
+		// no credential is even parsed on a surface that cannot honor one.
+		// The same 501 shape the reset flow uses for an absent method, and the
+		// capabilities probe already told the login screen not to offer it.
+		httperr.NotImplemented(w, r, "Login")
+		return
+	}
 	var req crmcontracts.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, r, httperr.Validation("body", "malformed_json", err.Error()))
@@ -230,100 +282,6 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
-}
-
-// IssuePassport implements (POST /passports): the session user mints an
-// agent bearer token bound to their OWN identity — on_behalf_of is never
-// a request field, so a passport cannot outreach its issuer by
-// construction.
-func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
-	id, ok := identityFrom(r.Context())
-	if !ok {
-		httperr.Unauthorized(w, r, "passports are minted by a signed-in human, not an agent")
-		return
-	}
-	var req crmcontracts.IssuePassportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httperr.Write(w, r, httperr.Validation("body", "malformed_json", err.Error()))
-		return
-	}
-
-	in := IssuePassportInput{Label: req.Label}
-	for _, sc := range req.Scopes {
-		in.Scopes = append(in.Scopes, string(sc))
-	}
-	if req.TtlHours != nil {
-		ttl := time.Duration(*req.TtlHours) * time.Hour
-		in.TTL = &ttl
-	}
-
-	issued, err := h.svc.IssuePassport(r.Context(), id, in)
-	if err != nil {
-		var badScope *InvalidScopeError
-		if errors.As(err, &badScope) {
-			httperr.Write(w, r, httperr.Validation("scopes", "invalid_scope", badScope.Error()))
-			return
-		}
-		httperr.Write(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePassportResponse{
-		PassportId: openapi_types.UUID(issued.ID.UUID),
-		Token:      issued.Token,
-		Scopes:     issued.Scopes,
-		OnBehalfOf: openapi_types.UUID(id.UserID.UUID),
-		ExpiresAt:  issued.ExpiresAt,
-	})
-}
-
-// ListPassports implements (GET /passports): passport metadata for the
-// Settings list. Tokens are never re-disclosed. Two contract fields answer as
-// absent because nothing stores them: agent_id has no storage at all (the
-// A1/local path has no agent-connection table), and last_used_at has a column
-// that nothing writes yet — its debounced stamp on the authenticated /mcp path
-// arrives with the per-workspace admin surface.
-func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
-	identity, ok := identityFrom(r.Context())
-	if !ok {
-		httperr.Unauthorized(w, r, "passports are listed by a signed-in human")
-		return
-	}
-	rows, err := h.svc.ListPassports(r.Context(), identity)
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	data := make([]crmcontracts.PassportSummary, 0, len(rows))
-	for _, p := range rows {
-		summary := crmcontracts.PassportSummary{
-			Id:        openapi_types.UUID(p.ID.UUID),
-			Scopes:    p.Scopes,
-			CreatedAt: p.CreatedAt,
-			ExpiresAt: &p.ExpiresAt,
-			RevokedAt: p.RevokedAt,
-		}
-		if p.Label != nil {
-			summary.Label = *p.Label
-		}
-		data = append(data, summary)
-	}
-	httperr.WriteJSON(w, http.StatusOK, struct {
-		Data []crmcontracts.PassportSummary `json:"data"`
-	}{Data: data})
-}
-
-// RevokePassport implements (DELETE /passports/{id}): the kill switch.
-func (h Handlers) RevokePassport(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	identity, ok := identityFrom(r.Context())
-	if !ok {
-		httperr.Unauthorized(w, r, "passports are revoked by a signed-in human")
-		return
-	}
-	if err := h.svc.RevokePassport(r.Context(), identity, ids.From[ids.PassportKind](ids.UUID(id))); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // serveAsAgent admits a passport bearer under the agent principal. ctx is

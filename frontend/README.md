@@ -39,16 +39,22 @@ VITE_UI_PREVIEW_OIDC=1 pnpm dev     # login screen, with the SSO block drawn
 **A preview build draws controls this installation cannot honour, so it must never
 be what ships** — `dev` and `build` stay unchanged and stay honest.
 
-`/auth/capabilities` serves `oidc_providers: []` because the OIDC flow has not
-shipped (§19), and `ProviderButtons` correctly renders nothing for an empty
-list — so the block is otherwise only visible in Storybook. With the switch on,
-two providers are substituted **at the render boundary in `AuthScreen`**, after
-the query: the wire is untouched, the query cache still holds the server's real
-empty answer, and the buttons **complete no sign-in** — `startFederatedSignIn`
-stays inert, because the contract documents no OIDC start or callback path. The
-labels are deliberately not in the i18n catalogs: `oidc_providers[].label` is
-server-owned copy that §11.5 says is never translated. A preview build logs a
-one-time `console.warn` saying exactly this.
+The flow itself has shipped: `startFederatedSignIn` navigates to
+`/v1/auth/oidc/{provider}/start`, and a button drawn for a provider the server
+actually configured completes a real sign-in. What an installation usually lacks
+is the operator setting — with no `auth.oidc` block the server builds no relying
+party, `/auth/capabilities` serves `oidc_providers: []`, and `ProviderButtons`
+correctly renders nothing for an empty list, so the block is otherwise only
+visible in Storybook.
+
+With the switch on, two providers are substituted **at the render boundary in
+`AuthScreen`**, after the query: the wire is untouched and the query cache still
+holds the server's real empty answer. The buttons navigate for real, and on such
+an installation the start endpoint answers **404** — the preview draws the block,
+it cannot conjure the provider behind it. The labels are deliberately not in the
+i18n catalogs: `oidc_providers[].label` is server-owned copy that §11.5 says is
+never translated. A preview build logs a one-time `console.warn` saying exactly
+this.
 
 The same switch marks the second of those two providers **not yet available** —
 `previewedUnavailableProviders()`, a set of keys `ProviderButtons` renders as a

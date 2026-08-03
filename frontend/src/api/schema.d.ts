@@ -157,6 +157,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/oidc/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The federated sign-in provider key, matching `oidc_providers[].key` in
+                 *     `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+                 *     typo cannot address a provider the installation never configured. Whether the key is
+                 *     SERVED is a deployment fact; being listed here is not a promise that it is enabled.
+                 */
+                provider: components["parameters"]["OidcProvider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Begin federated sign-in — redirect to the provider's authorization endpoint.
+         * @description Mints the per-attempt state, nonce, and PKCE verifier, binds them to the initiating
+         *     browser with a short-lived `SameSite=Lax` handle cookie (the provider returns on a
+         *     cross-site top-level navigation, which a `Strict` cookie would not survive), and
+         *     redirects to the provider's discovered authorization endpoint with
+         *     `code_challenge_method=S256`. Rate-limited per client IP. A provider that is not
+         *     configured is 404 — an unconfigured provider discloses nothing about the
+         *     installation's auth posture beyond what `/auth/capabilities` already says.
+         */
+        get: operations["startOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The federated sign-in provider key, matching `oidc_providers[].key` in
+                 *     `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+                 *     typo cannot address a provider the installation never configured. Whether the key is
+                 *     SERVED is a deployment fact; being listed here is not a promise that it is enabled.
+                 */
+                provider: components["parameters"]["OidcProvider"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Provider redirect target — completes federated sign-in and opens a session.
+         * @description Consumes the single-use state (row + handle cookie must agree), exchanges the code
+         *     server-side with the PKCE verifier, and validates the ID token in full: RS256
+         *     signature against the cached JWKS, `iss`, `aud`, `azp` where present, `exp`/`iat`,
+         *     the stored `nonce`, and `email_verified`. It then resolves the user by
+         *     `(issuer, subject)`; with no binding yet, the verified email must match exactly one
+         *     active or invited local user that has no binding for this issuer, and the binding is
+         *     written once, audited, and activates an invited user (the §11 pending-administrator
+         *     shape). An already-bound identity is never silently relinked, and no
+         *     account is ever created. On success it mints the same opaque session as password
+         *     login and sets `crm_session`.
+         *
+         *     **Always 302** — the human is in a browser, so a failure returns to the login screen
+         *     with a bounded `sso_error` code (`denied`, `expired`, `rejected`, `unverified_email`,
+         *     `domain_not_allowed`, `not_linked`, `provider_unavailable`) rather than a JSON dead
+         *     end. `not_linked` covers BOTH "no local user holds this address" and "that user is
+         *     already bound to a different provider account" — one neutral answer, because
+         *     separating them would confirm which addresses exist. The operator's `system_log`
+         *     keeps the distinction. No token, code, or claim set reaches the client or the logs.
+         */
+        get: operations["completeOidcLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/passports": {
         parameters: {
             query?: never;
@@ -11382,6 +11461,13 @@ export interface components {
          *     messaging-channels surface, not this one.
          */
         CaptureProvider: "gmail" | "gcal" | "graph" | "imap";
+        /**
+         * @description The federated sign-in provider key, matching `oidc_providers[].key` in
+         *     `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+         *     typo cannot address a provider the installation never configured. Whether the key is
+         *     SERVED is a deployment fact; being listed here is not a promise that it is enabled.
+         */
+        OidcProvider: "google";
         /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
         Id: string;
         /** @description Immutable Voice DNA artifact version number within one profile. */
@@ -11605,6 +11691,20 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationError"];
+            /**
+             * @description The installation authenticates through a federated provider only (`auth.password: false`),
+             *     so no password is accepted from anyone. Refused before the body is read, and
+             *     `GET /auth/capabilities` already reports `password: false` so the login screen offers
+             *     no form to reach this.
+             */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     logout: {
@@ -11705,6 +11805,85 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    startOidcLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The federated sign-in provider key, matching `oidc_providers[].key` in
+                 *     `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+                 *     typo cannot address a provider the installation never configured. Whether the key is
+                 *     SERVED is a deployment fact; being listed here is not a promise that it is enabled.
+                 */
+                provider: components["parameters"]["OidcProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the provider's authorization endpoint. */
+            302: {
+                headers: {
+                    Location?: string;
+                    /** @description crm_oidc=<handle>; HttpOnly; Secure; SameSite=Lax; Path=/v1/auth/oidc; Max-Age=600 */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            /** @description Rate-limited. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    completeOidcLogin: {
+        parameters: {
+            query?: {
+                /** @description Provider authorization code (absent when the human denied consent). */
+                code?: string;
+                /** @description The single-use binding minted by `start`; must match the handle cookie. */
+                state?: string;
+                /** @description Set instead of `code` when the human denied consent or the provider refused. */
+                error?: string;
+            };
+            header?: never;
+            path: {
+                /**
+                 * @description The federated sign-in provider key, matching `oidc_providers[].key` in
+                 *     `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+                 *     typo cannot address a provider the installation never configured. Whether the key is
+                 *     SERVED is a deployment fact; being listed here is not a promise that it is enabled.
+                 */
+                provider: components["parameters"]["OidcProvider"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description Redirect into the app — signed in with `crm_session` set, or back to the login
+             *     screen carrying a bounded `sso_error`.
+             */
+            302: {
+                headers: {
+                    Location?: string;
+                    /** @description crm_session=<token> on success; the crm_oidc handle is cleared either way. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listPassports: {

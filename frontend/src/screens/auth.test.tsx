@@ -42,15 +42,22 @@ const render = (ui: ReactNode) => {
 // stubApi answers GET /auth/capabilities from `capabilities` and records
 // every other call for the test to assert on.
 //
-// `oidc_providers` defaults to [] — the running installation's own answer while
-// the OIDC flow has not shipped (§19), and what keeps every case below asserting
-// a surface with no federated block. A test that wants one passes it.
+// `oidc_providers` defaults to [] — the answer an installation with no
+// `auth.oidc` block serves, and what keeps every case below asserting a surface
+// with no federated block. A test that wants one passes it.
+//
+// "unreachable" makes the probe itself fail, which is the only way to reach the
+// state where `capabilities.data` stays undefined. Passing `password: true`
+// proves the explicit-true case instead, and the screen's rule is the weaker
+// `!== false`.
 function stubApi(
-  capabilities: {
-    password: boolean;
-    password_reset: boolean;
-    oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
-  },
+  capabilities:
+    | {
+        password: boolean;
+        password_reset: boolean;
+        oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
+      }
+    | "unreachable",
   respond: (request: Request) => Response | Promise<Response>,
   profile: Response = ok(200, {
     name: "Margince",
@@ -66,6 +73,12 @@ function stubApi(
     vi.fn(async (input: Request | string | URL) => {
       const request = input instanceof Request ? input : new Request(input);
       if (new URL(request.url).pathname.endsWith("/auth/capabilities")) {
+        if (capabilities === "unreachable") {
+          return ok(503, {
+            title: "Service unavailable",
+            detail: "the capability probe is down",
+          });
+        }
         return new Response(
           JSON.stringify({ oidc_providers: [], ...capabilities }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -424,14 +437,91 @@ describe("federated sign-in", () => {
     });
     expect(microsoft.disabled).toBe(true);
     expect(microsoft.classList.contains("is-unavailable")).toBe(true);
-    // Inert, and that is the point of the switch: it draws the design, it does
-    // not invent a redirect. Clicking must neither navigate nor hit the wire.
+    // The preview draws the REAL buttons: clicking one leaves for the real
+    // start endpoint. Against an installation that configured no provider that
+    // endpoint answers 404 — an honest outcome the switch does not dress up.
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
     const calls = stubApi({ password: true, password_reset: true }, () =>
       ok(200),
     );
     await userEvent.click(google);
+    // A navigation, never an XHR: the flow's whole point is leaving this origin.
     expect(calls).toEqual([]);
-    expect(google).toBeTruthy();
+    expect(assign).toHaveBeenCalledWith("/v1/auth/oidc/google/start");
+  });
+
+  it("hands the browser to the server-owned start endpoint, encoding the served key", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const calls = stubApi(
+      {
+        password: true,
+        password_reset: true,
+        // A key with a character that must not land raw in a path. A real
+        // installation's key is `google`; the encoding is what stops the
+        // server's answer from being read as path structure.
+        oidc_providers: [{ key: "corp/sso", label: "Anmeldung über Werk-IT" }],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anmeldung über Werk-IT" }),
+    );
+    expect(assign).toHaveBeenCalledWith("/v1/auth/oidc/corp%2Fsso/start");
+    expect(calls).toEqual([]);
+  });
+
+  // The return half: the callback always redirects (crm.yaml: completeOidcLogin),
+  // so every failure arrives as one bounded code on the login screen.
+  it("renders a returned sso_error, scrubs it from the URL, and clears it on the next attempt", async () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      search: "?sso_error=not_linked",
+      hash: "",
+      origin: "http://localhost",
+    });
+    vi.stubGlobal("history", { ...window.history, replaceState });
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid email or password" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("That account can't sign in here");
+    // Scrubbed, so a reload is a fresh sign-in screen rather than the same
+    // refusal again.
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+
+    // The next attempt replaces the message rather than stacking beside it.
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "hunter2{enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "We couldn't sign you in",
+      ),
+    );
+  });
+
+  it("ignores an sso_error code outside the contract's vocabulary", async () => {
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      // The query string is attacker-supplied. An unknown code must draw
+      // nothing — echoing it would let a link put chosen text on this screen.
+      search: "?sso_error=<script>Call+this+number",
+      hash: "",
+      origin: "http://localhost",
+    });
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await screen.findByLabelText("Email");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   // The product path, asserted as a property rather than assumed. A real server
@@ -616,5 +706,149 @@ describe("AvailabilityScreen", () => {
     expect(screen.getByText("Installation not ready")).toBeTruthy();
     // No credential fields: this is not a login problem.
     expect(screen.queryByLabelText("Email")).toBeNull();
+  });
+});
+
+describe("password-disabled installation", () => {
+  // §3.3: the screen renders exactly the methods that work. A server that
+  // refuses /auth/login must not be offered a password — the form would be an
+  // invitation it will not honour.
+  it("offers only the provider when the capability says password is off", async () => {
+    stubApi(
+      {
+        password: false,
+        password_reset: false,
+        oidc_providers: [{ key: "google", label: "Continue with Google" }],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Continue with Google" }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    // The divider labels the password path below it, so with no path below
+    // there is nothing for it to separate.
+    expect(screen.queryByText("or with email")).toBeNull();
+  });
+
+  // The honest default for a probe that has not answered yet, or failed: the
+  // password form is the baseline method, and hiding it on a transient read
+  // would lock everyone out of a working installation. So the probe here FAILS
+  // — the screen never learns of a `password` capability at all, which is the
+  // state `!== false` exists for.
+  it("keeps the password form when the capability never answers", async () => {
+    stubApi("unreachable", () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    // findBy* polls, which is what carries the assertion past the query's one
+    // configured retry.
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+  });
+});
+
+describe("sso_error is bounded and survives a repeated initializer", () => {
+  // React may run a state initializer more than once. The read is pure and the
+  // scrub is an effect, so the message cannot be consumed before it lands.
+  it("keeps the message when the initializer runs twice", async () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      search: "?sso_error=denied",
+      hash: "",
+      origin: "http://localhost",
+    });
+    vi.stubGlobal("history", { ...window.history, replaceState });
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+
+    // Two renders of the screen: the second stands in for the extra
+    // initializer call, and must still find the code in the URL.
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign-in was cancelled",
+    );
+    cleanup();
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign-in was cancelled",
+    );
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+  });
+
+  // A crafted callback URL must not reach the translator through a key every
+  // object literal inherits.
+  it("ignores prototype-inherited keys", async () => {
+    for (const code of ["constructor", "__proto__", "toString"]) {
+      vi.stubGlobal("location", {
+        ...window.location,
+        pathname: "/",
+        search: `?sso_error=${code}`,
+        hash: "",
+        origin: "http://localhost",
+      });
+      stubApi({ password: true, password_reset: false }, () => ok(200));
+      render(<AuthScreen onAuthed={vi.fn()} />);
+      await screen.findByLabelText("Email");
+      expect(screen.queryByRole("alert"), code).toBeNull();
+      cleanup();
+    }
+  });
+});
+
+describe("the Core's presence across the surface's phases", () => {
+  // The Core is the product's presence, not a status light for the form. A
+  // wrong password is the person's typo, not the assistant's condition, so the
+  // orb never turns amber or red: the error summary beside the form carries the
+  // message, holds the focus, and is what a screen reader announces.
+  const alarmStates = new Set(["error", "attention"]);
+  const coreState = () =>
+    document
+      .querySelector("[data-core-state]")
+      ?.getAttribute("data-core-state");
+
+  it("keeps the brand hue when a sign-in fails", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid email or password" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(coreState()).toBe("listening");
+
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
+    await screen.findByRole("alert");
+
+    // The phase IS error — the surface knows, and the stylesheet can still
+    // react to it elsewhere. The ORB is what must not raise an alarm.
+    expect(
+      document.querySelector<HTMLElement>(".auth-surface")?.dataset.authPhase,
+    ).toBe("error");
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
+    // And it is back to waiting on the person, which is what the form is doing.
+    expect(coreState()).toBe("listening");
+  });
+
+  it("keeps the brand hue while signing in and on success", async () => {
+    stubApi({ password: true, password_reset: false }, () =>
+      ok(200, { user: {}, roles: [], teams: [] }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "right{enter}");
+
+    await waitFor(() => expect(coreState()).toBe("success"));
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
+  });
+
+  // The unreachable-server screen is the one place a desaturated Core is the
+  // message ("not breathing, cannot be reached") — still not an alarm hue.
+  it("does not raise an alarm hue on the availability screen either", () => {
+    render(<AvailabilityScreen kind="connection" onRetry={vi.fn()} />);
+    expect(coreState()).toBe("unavailable");
+    expect(alarmStates.has(coreState() ?? "")).toBe(false);
   });
 });

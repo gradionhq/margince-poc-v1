@@ -134,6 +134,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	opts = append(opts, resetOpts...)
 
+	oidcOpts, err := oidcLoginOptions(deployCfg, cfg.publicBaseURL, cfg.apiBaseURL, stdout)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, oidcOpts...)
+
 	// The signing key enables the mutating /webhook-subscriptions surface
 	// (create/rotate/replay); without it those paths answer an honest 503.
 	if cfg.webhookKey != "" {

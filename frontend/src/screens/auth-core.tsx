@@ -39,17 +39,35 @@ export type AuthPhase =
   | "quiet"
   | "unavailable";
 
+// coreState maps the surface's phase onto the Core's closed state vocabulary.
+//
+// The sign-in screen deliberately uses NONE of the amber/red states. A failed
+// attempt is not the AI's condition: the Core is the product's presence, and it
+// is working exactly as well after a wrong password as before one. Turning it
+// red would make the assistant look broken by the user's typo, and it would put
+// the alarm in the one element that cannot say what to do about it — the error
+// summary beside the form carries the message, keeps the focus, and is what a
+// screen reader announces.
+//
+// So a failure returns to `listening`: brand hue, and the quicker pulse that
+// means the surface is waiting on the person again. Which is also true — after
+// an error the form is asking for input a second time.
 function coreState(phase: AuthPhase): MarginceCoreState {
-  if (phase === "signing-in") {
-    return "working";
-  }
-  if (phase === "idle") {
+  switch (phase) {
+    case "signing-in":
+      return "working";
     // Waiting on the user, and saying so. `idle` would be honest too, but the
     // surface IS asking for something, and `listening` is the state that means
     // that in the closed vocabulary.
-    return "listening";
+    case "idle":
+    case "error":
+      return "listening";
+    default:
+      // success stays success (the brand's own green), and quiet/unavailable
+      // stay their desaturated selves: those two say "not working" and
+      // "cannot be reached", which is neither a warning nor an alarm.
+      return phase;
   }
-  return phase;
 }
 
 const providerKeys: Record<AssistantProfile["providers"][number], MessageKey> =

@@ -2133,6 +2133,20 @@ export const de = {
     "Zu viele Anmeldeversuche. Warte einen Moment und versuche es erneut.",
   "auth.errUnreachable":
     "Margince ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+  "auth.ssoDenied":
+    "Die Anmeldung wurde abgebrochen. Versuche es erneut oder nutze ein Passwort.",
+  "auth.ssoExpired":
+    "Die Anmeldung hat zu lange gedauert oder wurde in einem anderen Fenster gestartet. Versuche es erneut.",
+  "auth.ssoRejected":
+    "Dein Anbieter hat die Anmeldung nicht abgeschlossen. Versuche es erneut oder nutze ein Passwort.",
+  "auth.ssoUnverifiedEmail":
+    "Dein Anbieter hat diese E-Mail-Adresse nicht bestätigt. Bestätige sie dort und melde dich erneut an.",
+  "auth.ssoDomainNotAllowed":
+    "Dieses Konto gehört nicht zu einer Domain, die diese Organisation zulässt. Nutze dein Arbeitskonto.",
+  "auth.ssoNotLinked":
+    "Mit diesem Konto ist keine Anmeldung möglich. Bitte eine Administratorin, es hinzuzufügen, oder nutze ein Passwort.",
+  "auth.ssoProviderUnavailable":
+    "Dein Anmeldeanbieter ist nicht erreichbar. Versuche es erneut oder nutze ein Passwort.",
   "auth.retry": "Erneut versuchen",
   "auth.noticeSignedOut": "Du wurdest abgemeldet.",
   "auth.noticeSessionExpired":

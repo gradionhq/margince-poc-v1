@@ -48,6 +48,9 @@ coverage.out
 # seeded alongside. Anchored so the committed .example template is never matched.
 /config/margince.yaml
 /config/margince-admin-password
+# The OIDC client secret an operator references from auth.oidc — a live
+# credential, so it is a file reference (OPS-CFG-3) and never tracked.
+/config/margince-google-client-secret
 
 # Storybook static build + fe-uat capture artifacts
 frontend/storybook-static/

@@ -23,17 +23,19 @@ const isOn = (value: unknown) => value === "1" || value === "true";
  * `VITE_UI_PREVIEW_OIDC=1` — draw the federated sign-in buttons on the login
  * screen even though this installation serves none.
  *
- * Why it exists: `/auth/capabilities` serves `oidc_providers: []` because the
- * OIDC flow has not shipped (§19), and `ProviderButtons` correctly renders
- * nothing for an empty list. That gate is right and stays right — but it also
- * means the federated block, which IS designed and built, can only be seen in
- * Storybook. A UI/UX review of the login screen needs it on the login screen.
+ * Why it exists: the flow itself is now finished on both sides — the contract
+ * documents `/auth/oidc/{provider}/start` and its callback, and the handlers are
+ * `backend/internal/modules/identity/oidclogin*.go`. What an installation
+ * usually lacks is the operator setting: with no `auth.oidc` block the server
+ * builds no relying party, `/auth/capabilities` serves `oidc_providers: []`, and
+ * `ProviderButtons` correctly renders nothing. That gate is right and stays
+ * right — and a design review that only ever sees the local run never sees the
+ * federated block at all.
  *
- * What it does NOT do: it does not touch the wire, the query cache, or
- * `startFederatedSignIn`, which stays inert. The buttons render, take focus, and
- * do nothing when clicked — there is no OIDC endpoint in the contract to send a
- * browser to, and inventing one would be the exact lie this switch is written to
- * avoid.
+ * What it does NOT do: it does not configure a provider and it does not fake
+ * one. The buttons it draws are the real ones and they navigate to the real
+ * start endpoint; against an installation that configured no provider that
+ * endpoint answers 404, which is the honest outcome rather than a staged one.
  *
  * Read at the call rather than at module load so a test can pin BOTH positions
  * of the switch without re-evaluating the module graph. `import.meta.env` is a
@@ -151,7 +153,7 @@ export function previewedOidcProviders(served: OidcProviders): OidcProviders {
     // Loud on purpose, once: a build that draws controls the installation cannot
     // honour has to say so where anyone inspecting it will see it.
     console.warn(
-      "[ui-preview] VITE_UI_PREVIEW_OIDC is on: the federated sign-in buttons are drawn for design review. This installation serves no OIDC providers and these buttons complete no sign-in.",
+      "[ui-preview] VITE_UI_PREVIEW_OIDC is on: the federated sign-in buttons are drawn for design review. This installation configured no OIDC provider, so the start endpoint behind them answers 404.",
     );
   }
   return PREVIEW_OIDC_PROVIDERS;

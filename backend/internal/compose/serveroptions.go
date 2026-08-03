@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,6 +44,34 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
 	}
+}
+
+// WithPasswordLogin sets whether email+password sign-in is served. An
+// operator may switch it off only once a federated provider can carry the
+// installation (deployconfig refuses to disable the last method), and then
+// `/auth/login` and both recovery endpoints refuse and the capabilities probe
+// reports `password: false` — the switch is enforced at the surface, not just
+// validated at boot. Omitting the option keeps password login on.
+func WithPasswordLogin(enabled bool) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithPasswordLogin(enabled)
+	}
+}
+
+// WithOIDCLogin wires federated sign-in (A107/ADR-0061 §6) onto the
+// identity surface. The relying party is built HERE, at option-build time,
+// so an unusable provider configuration fails the boot rather than shipping
+// a login button that dead-ends the first human to click it. Without this
+// option the two OIDC endpoints answer 404 and the capabilities probe lists
+// no provider, so the login screen draws no button at all.
+func WithOIDCLogin(cfg identity.OIDCLoginConfig) (Option, error) {
+	login, err := identity.NewOIDCLogin(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("federated sign-in: %w", err)
+	}
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithOIDCLogin(login)
+	}, nil
 }
 
 // WithMCPResource injects the canonical MCP resource URL — public_base_url
