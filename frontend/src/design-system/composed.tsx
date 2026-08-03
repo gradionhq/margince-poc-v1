@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button } from "./atoms";
 import {
   AutonomyDot,
@@ -569,6 +570,25 @@ export function GroupedTimelineList({
   );
 }
 
+// groupCountLabel counts the group's members in words that read. A group of
+// one is reachable both ways — a thread whose other messages are on another
+// page, and a single message the sender attested as a bulk send — and the
+// plural forms rendered "1 messages" and "sent to 1 people" for it.
+function groupCountLabel(
+  group: TimelineGroup,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string {
+  const count = group.entries.length;
+  if (group.kind === "bulk") {
+    return count === 1
+      ? t("timeline.group.bulkOne")
+      : t("timeline.group.bulk", { count });
+  }
+  return count === 1
+    ? t("timeline.group.threadOne")
+    : t("timeline.group.thread", { count });
+}
+
 function TimelineGroupRow({
   group,
   zone,
@@ -592,26 +612,27 @@ function TimelineGroupRow({
       <div className="tl-body">
         <span className="tl-title">{newest.title}</span>
         <span className="tl-meta">
-          <span className="tl-group-count">
-            {group.kind === "bulk"
-              ? t("timeline.group.bulk", { count: group.entries.length })
-              : t("timeline.group.thread", { count: group.entries.length })}
-          </span>
+          <span className="tl-group-count">{groupCountLabel(group, t)}</span>
           <span>{formatDate(newest.atIso, locale, zone)}</span>
           <ProvenanceTag provenance={newest.provenance} />
           <Button small onClick={() => setOpen(!open)}>
             {open ? t("timeline.group.collapse") : t("timeline.group.expand")}
           </Button>
           {/* Only a real conversation can be completed: a bulk group is one
-              send with no thread to ask the server for. */}
-          {group.partial && threadKey && onOpenThread && (
-            <Button small onClick={() => onOpenThread(threadKey)}>
-              {t("timeline.group.openThread")}
-            </Button>
-          )}
-          {group.partial && !threadKey && (
-            <span className="t-caption">{t("timeline.group.mayContinue")}</span>
-          )}
+              send with no thread to ask the server for. Where it cannot be
+              completed — a bulk group, or a page that passed no handler — the
+              notice still stands. Rendering neither would present a group cut
+              off by the page edge as the whole of it. */}
+          {group.partial &&
+            (threadKey && onOpenThread ? (
+              <Button small onClick={() => onOpenThread(threadKey)}>
+                {t("timeline.group.openThread")}
+              </Button>
+            ) : (
+              <span className="t-caption">
+                {t("timeline.group.mayContinue")}
+              </span>
+            ))}
         </span>
         {open && (
           <ul className="timeline tl-group-members">

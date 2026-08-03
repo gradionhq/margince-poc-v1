@@ -49,7 +49,10 @@ type Signal = components["schemas"]["Signal"];
 // What each signal kind is, in words. The badge rendered the stored enum, so
 // a German reader met `buying_intent` and an English one met an identifier.
 // Typed against the schema union: a kind added upstream fails the build here.
-const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
+// Keyed by plain string, matching how the value arrives: the strip's signal
+// kind is an open wire string, so a producer added upstream must be able to
+// reach signalKindLabel's fallback rather than failing the index.
+const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
   stalled_deal: "signal.kind.stalled_deal",
   champion_left: "signal.kind.champion_left",
   reengagement: "signal.kind.reengagement",
@@ -90,7 +93,9 @@ const SIGNAL_TONE: Record<string, "warn" | "danger" | undefined> = {
 // other wire value: an own-property check keeps a value named `toString` from
 // finding something on Object's prototype and typing as a tone.
 function signalTone(severity: string): "warn" | "danger" | undefined {
-  return Object.hasOwn(SIGNAL_TONE, severity) ? SIGNAL_TONE[severity] : undefined;
+  return Object.hasOwn(SIGNAL_TONE, severity)
+    ? SIGNAL_TONE[severity]
+    : undefined;
 }
 
 // The deal-stakeholder roles worth a word. `role` is free text on the wire
@@ -376,6 +381,19 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
+// incompleteGraph says the connection graph this page read is not the whole
+// one: it capped its contact ring, or it withheld groups the caller may not
+// read. Either way the routes below it are a subset, and both the empty answer
+// and the found-someone answer have to say so.
+function incompleteGraph(graph: {
+  groups_omitted?: unknown[];
+  dropped_count?: number;
+}): boolean {
+  return (
+    (graph.groups_omitted?.length ?? 0) > 0 || (graph.dropped_count ?? 0) > 0
+  );
+}
+
 export function PeopleCard({
   view,
   // Whether this account takes writes at all. An archived record is read-only
@@ -749,6 +767,7 @@ function RouteInAction({
   const graph = query.data;
   const readable = Array.isArray(graph?.nodes) ? graph : undefined;
   const routes = readable ? routesTo(readable, contact.person_id) : [];
+
   return (
     <>
       <button
@@ -778,12 +797,18 @@ function RouteInAction({
           {readable && routes.length === 0 && (
             <EmptyState>
               {t(
-                (readable.groups_omitted?.length ?? 0) > 0 ||
-                  (readable.dropped_count ?? 0) > 0
+                incompleteGraph(readable)
                   ? "co.routeIn.partial"
                   : "co.routeIn.none",
               )}
             </EmptyState>
+          )}
+          {/* The same incompleteness, said over a list that DID find someone.
+              Stated only when the list is empty, a page that read 15 of 25
+              contacts presented the routes it happened to see as all of them,
+              and a rep who found one stopped looking for a better one. */}
+          {readable && routes.length > 0 && incompleteGraph(readable) && (
+            <p className="t-caption">{t("co.routeIn.mayBeMore")}</p>
           )}
           {readable && routes.length > 0 && (
             <ul className="co-list">

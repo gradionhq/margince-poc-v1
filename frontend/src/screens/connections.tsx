@@ -351,7 +351,16 @@ export function routesTo(
   personId: string,
 ): { id: string; label: string; bucket: StrengthBucket }[] {
   const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
-  const routes: { id: string; label: string; bucket: StrengthBucket }[] = [];
+  // strength rides along for the ORDER only and is dropped before the return.
+  // The bucket alone cannot rank inside itself, so two colleagues in the same
+  // band came back in payload order and a weaker one could stand above a
+  // stronger one under a heading that promises best-first.
+  const routes: {
+    id: string;
+    label: string;
+    bucket: StrengthBucket;
+    strength: number;
+  }[] = [];
   for (const edge of graph.edges) {
     if (edge.kind !== "in_contact_with" || edge.to !== personId) {
       continue;
@@ -372,10 +381,20 @@ export function routesTo(
       id: edge.from,
       label,
       bucket: edge.strength_bucket ?? "none",
+      // -1, not 0: "no signal yet" sorts below a real score of zero.
+      strength: edge.strength ?? -1,
     });
   }
-  routes.sort((a, b) => BUCKET_ORDER[b.bucket] - BUCKET_ORDER[a.bucket]);
-  return routes;
+  routes.sort(
+    (a, b) =>
+      BUCKET_ORDER[b.bucket] - BUCKET_ORDER[a.bucket] ||
+      b.strength - a.strength ||
+      // Ids last, so the order is the same on every read of the same graph.
+      a.id.localeCompare(b.id),
+  );
+  // The 0-100 number stays off this page (AC-company-3): the rows carry their
+  // band and nothing a reader could threshold on.
+  return routes.map(({ id, label, bucket }) => ({ id, label, bucket }));
 }
 
 /** The display bands, worst to best, as the contract declares them. */

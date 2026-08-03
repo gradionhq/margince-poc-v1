@@ -16,6 +16,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
@@ -89,10 +90,24 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			if in.Classification != nil {
 				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
 			}
+			// A value outside the enum is a client mistake, not a selection
+			// that happens to match nothing: answering 200 with an empty page
+			// tells the reader this account list is empty when the question
+			// was never one the contract accepts. Validated HERE, inside the
+			// store, so it lands after listPage's auth.Require rather than
+			// before it.
 			if in.Lifecycle != nil {
+				if !crmcontracts.ListOrganizationsParamsLifecycle(*in.Lifecycle).Valid() {
+					return nil, httperr.Validation("lifecycle", "not_a_known_value",
+						"filter by one of the account stages the contract defines, or leave the parameter off")
+				}
 				where = append(where, storekit.SQLf("lifecycle = $%d", arg(*in.Lifecycle)))
 			}
 			if in.RelationshipType != nil {
+				if !crmcontracts.ListOrganizationsParamsRelationshipType(*in.RelationshipType).Valid() {
+					return nil, httperr.Validation("relationship_type", "not_a_known_value",
+						"filter by one of the relationship types the contract defines, or leave the parameter off")
+				}
 				// EXISTS, not a join: an account carries several types and a
 				// join would return it once per matching row, which the keyset
 				// cursor would then page over as if they were distinct records.

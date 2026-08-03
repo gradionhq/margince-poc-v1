@@ -525,7 +525,9 @@ export const de = {
   "co.suggest.act.addTask": "Nächsten Schritt anlegen",
   // Ein Verlauf als ein Ereignis sagt zuerst, WAS er ist.
   "timeline.group.thread": "{count} Nachrichten",
+  "timeline.group.threadOne": "1 Nachricht",
   "timeline.group.bulk": "an {count} Personen gesendet",
+  "timeline.group.bulkOne": "an 1 Person gesendet",
   "timeline.group.expand": "Öffnen",
   "timeline.group.collapse": "Schließen",
   "timeline.group.openThread": "Ganzen Verlauf ansehen",
@@ -578,6 +580,8 @@ export const de = {
   "co.routeIn.none": "Bisher hat hier niemand geschrieben.",
   "co.routeIn.partial":
     "Unter den lesbaren Verbindungen kein Zugang — einige wurden zurückgehalten oder ausgelassen.",
+  "co.routeIn.mayBeMore":
+    "Einige Verbindungen wurden zurückgehalten oder ausgelassen — es kann weitere geben.",
   "co.routeIn.band.strong": "regelmäßig in Kontakt",
   "co.routeIn.band.some": "etwas Kontakt",
   "co.routeIn.band.faint": "kaum in Kontakt",

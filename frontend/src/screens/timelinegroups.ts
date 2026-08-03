@@ -92,8 +92,10 @@ export function groupChronology(
     // List-Unsubscribe attestation. One attested message does not speak for
     // every same-subject message that day.
     const bulkable =
-      key?.kind === "bulk" && (bulk.has(key.value) || Boolean(entry.bulkAttested));
-    const groupable = key && (key.kind === "thread" || bulkable) ? key : undefined;
+      key?.kind === "bulk" &&
+      (bulk.has(key.value) || Boolean(entry.bulkAttested));
+    const groupable =
+      key && (key.kind === "thread" || bulkable) ? key : undefined;
     if (!groupable) {
       groups.push({
         id: entry.id,

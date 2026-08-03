@@ -265,7 +265,14 @@ func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
 		var facts signalFacts
 		facts, a.adviceErr = a.signalFactsOnce()
 		if a.adviceErr == nil {
-			a.advice, a.adviceErr = gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now, facts)
+			// The stage comes off the organization row this assembly already
+			// read, so the page adds no query for it.
+			lifecycle := ""
+			if lc := a.out.Organization.Lifecycle; lc != nil {
+				lifecycle = string(*lc)
+			}
+			a.advice, a.adviceErr = gatherSuggestionInputs(
+				a.ctx, a.tx, a.orgID, a.now, facts, lifecycle)
 		}
 		a.adviceRead = true
 	}

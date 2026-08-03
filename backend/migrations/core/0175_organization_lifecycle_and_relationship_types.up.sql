@@ -58,6 +58,11 @@ CREATE UNIQUE INDEX uq_org_rel_type ON organization_relationship_type (organizat
   WHERE archived_at IS NULL;
 CREATE INDEX idx_org_rel_type_org ON organization_relationship_type (workspace_id, organization_id)
   WHERE archived_at IS NULL;
+-- The same columns again, unpartial, for the FK above. A cascade has to find
+-- EVERY child row, archived ones included, so the partial index cannot serve
+-- it: without this, deleting one organization scans the whole table once
+-- archived history accumulates, holding locks for the length of the scan.
+CREATE INDEX idx_org_rel_type_cascade ON organization_relationship_type (workspace_id, organization_id);
 
 CREATE TRIGGER trg_organization_relationship_type_updated BEFORE UPDATE ON organization_relationship_type
   FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();

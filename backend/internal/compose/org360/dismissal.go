@@ -113,7 +113,13 @@ func (s *Service) raisesSuggestion(
 	if err != nil {
 		return false, err
 	}
-	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts)
+	// The dismissal has no assembled page to take the stage from, so it reads
+	// it — off the hot path, and once.
+	lifecycle, err := organizationLifecycle(ctx, tx, orgID)
+	if err != nil {
+		return false, err
+	}
+	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts, lifecycle)
 	if err != nil {
 		return false, err
 	}

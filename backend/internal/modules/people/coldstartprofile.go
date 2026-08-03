@@ -63,51 +63,6 @@ var columnBackedColdStartFields = map[string]string{
 	"registered_address": "address",
 }
 
-// readColdStartColumnImages reads the columns an apply may touch, so the audit
-// row can carry what each one WAS. The column writes report only whether they
-// changed something, never what they replaced, so the before image has to be
-// read: field history projects per field from before/after, and an image-less
-// audit row gives it nothing to diff.
-func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[string]any, error) {
-	var displayName string
-	var legalName, industry, addressLine1 *string
-	if err := tx.QueryRow(ctx,
-		`SELECT display_name, legal_name, industry, address_line1 FROM organization WHERE id = $1`,
-		orgID).Scan(&displayName, &legalName, &industry, &addressLine1); err != nil {
-		return nil, fmt.Errorf("read organization column images: %w", err)
-	}
-	out := map[string]any{fieldDisplayName: displayName}
-	for column, value := range map[string]*string{
-		"legal_name": legalName, "industry": industry, "address_line1": addressLine1,
-	} {
-		if value == nil {
-			// An empty column reads as an explicit null in the image, never as
-			// an absent key: "it had nothing" and "nobody looked" are different
-			// answers, and field history renders them differently.
-			out[column] = nil
-			continue
-		}
-		out[column] = *value
-	}
-	return out, nil
-}
-
-// changedColumnsOnly narrows the two images to the columns that actually moved.
-// A field-history projection reads every key in the pair, so carrying an
-// untouched column through would publish "industry: Automotive → Automotive"
-// as a change on a run that only filled the legal name.
-func changedColumnsOnly(before, after map[string]any) (map[string]any, map[string]any) {
-	b, a := map[string]any{}, map[string]any{}
-	for column, afterValue := range after {
-		if before[column] == afterValue {
-			continue
-		}
-		b[column] = before[column]
-		a[column] = afterValue
-	}
-	return b, a
-}
-
 // ApplyColdStartProfile executes an ACCEPTED coldstart proposal. A
 // column a human (or any earlier capture) already filled is left
 // untouched — acceptance covers the staged diff, not an overwrite of
@@ -155,8 +110,15 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	// The columns as they stand before the apply, including display_name: a
 	// created organization gets its name here, and that is a column change a
 	// reader is entitled to see.
-	before, err := readColdStartColumnImages(ctx, tx, orgID)
-	if err != nil {
+	//
+	// A row this call just minted has no before-image at all. Reading one back
+	// would return the values the create itself wrote, changedColumnsOnly
+	// would then find nothing moved, and the create audit would omit the name
+	// it inserted — the one change the row is entirely made of.
+	var before map[string]any
+	if created {
+		before = emptyColdStartColumnImages()
+	} else if before, err = readColdStartColumnImages(ctx, tx, orgID); err != nil {
 		return ids.OrganizationID{}, err
 	}
 	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)

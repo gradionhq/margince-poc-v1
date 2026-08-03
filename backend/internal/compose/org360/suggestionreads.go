@@ -353,13 +353,16 @@ func granted(ctx context.Context, object string) (bool, error) {
 
 // gatherSuggestionInputs reads what the rules need, skipping whatever this
 // caller has no grant for.
-// facts is the account's open-signal reading, passed in rather than read here
-// so the page — which already holds it — does not query twice. Both callers
-// supply it, and every other input is derived HERE: the page and the dismissal
-// check must judge the same suggestions from the same values, or advice the
-// reader dismissed comes back because the dismissal path never raised it.
+// facts and lifecycle are passed in rather than read here, because the page
+// already holds both and a 360 that re-read them would pay for the same rows
+// twice. They are REQUIRED parameters for the reason the dismissal path
+// exists: it once called this function without them, so a lifecycle_conflict
+// the page raised was never raised by the check that answers it, and the
+// dismissal silently stored nothing. A caller that forgets one now fails to
+// compile.
 func gatherSuggestionInputs(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, facts signalFacts,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	facts signalFacts, lifecycle string,
 ) (suggestionInputs, error) {
 	timeline, err := granted(ctx, "activity")
 	if err != nil {
@@ -390,10 +393,6 @@ func gatherSuggestionInputs(
 		in.open = open
 	}
 	in.contractEnded = facts.ContractEnded
-	lifecycle, err := organizationLifecycle(ctx, tx, orgID)
-	if err != nil {
-		return suggestionInputs{}, err
-	}
 	in.lifecycle = lifecycle
 	return in, nil
 }

@@ -704,7 +704,11 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     stubFetch(async (url, method, request) => {
       if (method === "PATCH") {
         patchBody = JSON.parse(await request.text());
-        return jsonResponse({ ...partner, industry: "Manufacturing", version: 2 });
+        return jsonResponse({
+          ...partner,
+          industry: "Manufacturing",
+          version: 2,
+        });
       }
       if (url.includes("/activities")) {
         return jsonResponse({ data: [] });

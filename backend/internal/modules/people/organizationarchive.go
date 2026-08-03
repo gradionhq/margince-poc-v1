@@ -13,6 +13,7 @@ package people
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,11 +25,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// ArchiveOrganization retires the account and everything hanging off it in one
-// transaction: the domains it claims, the relationship types it wears, and the
-// edges it sits on. A live child row under an archived parent keeps answering
-// the list its table feeds, which is how an archived account goes on appearing
-// as a partner.
+// ArchiveOrganization retires the account and its cascade in ONE transaction,
+// then answers the archived record.
 func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
 		return crmcontracts.Organization{}, err
@@ -46,18 +44,27 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 			return err
 		}
 
+		// Everything that answers a list on the account's behalf retires with
+		// it. Every statement here covers a row somebody would otherwise still
+		// find: a live child under an archived parent keeps feeding the list
+		// its own table serves, which is how an archived account goes on
+		// appearing as a partner.
 		now := time.Now().UTC()
 		for _, stmt := range []string{
 			`UPDATE organization SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
 			`UPDATE organization_domain SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
-			// An archived account that still carried a live 'partner' type row
-			// would keep answering the partner list (ADR-0079's invariant runs
-			// over LIVE rows), so the types retire with their parent.
+			// ADR-0079's partner invariant runs over LIVE type rows, so the
+			// types retire with their parent.
 			`UPDATE organization_relationship_type SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
+			// The partner PROGRAM row goes with the type that admits it. Left
+			// live, the extension and its type row disagree: the account is no
+			// longer a partner by relationship type while partner.go's own
+			// live-row reads still answer for it.
+			`UPDATE partner SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
 			`UPDATE relationship SET archived_at = $2 WHERE (organization_id = $1 OR counterparty_org_id = $1) AND archived_at IS NULL`,
 		} {
 			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
-				return err
+				return fmt.Errorf("retire what hangs off the account: %w", err)
 			}
 		}
 		if _, err := tx.Exec(ctx,

@@ -142,7 +142,7 @@ func TestExtractPayloadFidelity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := validateExtractPayload(extractPayload{Events: tc.events}, thread)
+			msg := validateExtractPayload(extractPayload{Events: &tc.events}, thread)
 			if tc.reject == "" && msg != "" {
 				t.Fatalf("a payload this site may act on was refused: %s", msg)
 			}
@@ -153,6 +153,23 @@ func TestExtractPayloadFidelity(t *testing.T) {
 	}
 }
 
+// "The conversation held nothing" and "the model did not answer" are different
+// answers, and only the first may retire a thread. Treated alike, a reply that
+// never carried an events key advanced the watermark and the conversation was
+// never read.
+func TestAReplyWithNoEventsKeyIsRefusedRatherThanReadAsEmpty(t *testing.T) {
+	thread := settledThread{Messages: []threadMessage{{ID: ids.NewV7()}}}
+
+	if msg := validateExtractPayload(extractPayload{}, thread); msg == "" {
+		t.Fatal("a reply carrying no events key was accepted as the valid empty " +
+			"answer — the thread would be marked read without ever being read")
+	}
+	empty := []extractedEvent{}
+	if msg := validateExtractPayload(extractPayload{Events: &empty}, thread); msg != "" {
+		t.Fatalf("an explicitly empty event list is a real answer and must be accepted: %s", msg)
+	}
+}
+
 // A conversation whose sender wrote an id into their own mail must not be able
 // to file evidence against it. The check is the same one above, stated as the
 // attack it exists for.
@@ -160,10 +177,11 @@ func TestAnEventMayOnlyCiteAMessageThisCallSupplied(t *testing.T) {
 	supplied, forged := ids.NewV7(), ids.NewV7()
 	thread := settledThread{Messages: []threadMessage{{ID: supplied}}}
 
-	if msg := validateExtractPayload(extractPayload{Events: []extractedEvent{{
+	forgedEvents := []extractedEvent{{
 		Kind: "new_opportunity", MessageID: forged.String(),
 		Summary: "They asked for a quote.", Confidence: 0.95,
-	}}}, thread); msg == "" {
+	}}
+	if msg := validateExtractPayload(extractPayload{Events: &forgedEvents}, thread); msg == "" {
 		t.Fatal("an event citing a message outside the conversation was accepted — " +
 			"its evidence would point at a record the reader cannot open")
 	}

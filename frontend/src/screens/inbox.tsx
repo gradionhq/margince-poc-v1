@@ -35,6 +35,7 @@ import {
   approvalKindLabel,
   EDITABLE_FIELDS,
   type EditableField,
+  humanizeKind,
 } from "./approvalkind";
 import {
   isAlreadyDecided,
@@ -646,6 +647,7 @@ export function ApprovalRow({
                 </span>
                 {entry.as === "choice" ? (
                   <select
+                    className="input"
                     aria-labelledby={`edit-${approval.id}-${entry.field}`}
                     value={draft[entry.field] ?? ""}
                     onChange={(event) =>
@@ -655,11 +657,18 @@ export function ApprovalRow({
                       }))
                     }
                   >
-                    {entry.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
+                    {entry.options.map((option) => {
+                      // The VALUE stays the wire enum — it is what gets
+                      // submitted. Only what the reader sees is translated,
+                      // and an option the kind declared no label for degrades
+                      // to its own words rather than to an identifier.
+                      const label = entry.optionLabels?.[option];
+                      return (
+                        <option key={option} value={option}>
+                          {label ? t(label) : humanizeKind(option)}
+                        </option>
+                      );
+                    })}
                   </select>
                 ) : (
                   <TextInput

@@ -516,7 +516,9 @@ export const en = {
   // A conversation shown as one event says what it IS before what it
   // says: the reader is scanning for an event, not a sentence.
   "timeline.group.thread": "{count} messages",
+  "timeline.group.threadOne": "1 message",
   "timeline.group.bulk": "sent to {count} people",
+  "timeline.group.bulkOne": "sent to 1 person",
   "timeline.group.expand": "Open",
   "timeline.group.collapse": "Close",
   "timeline.group.openThread": "View the whole thread",
@@ -570,6 +572,8 @@ export const en = {
   "co.routeIn.none": "Nobody here has written to them yet.",
   "co.routeIn.partial":
     "No way in among the connections this page could read — some were withheld or left out.",
+  "co.routeIn.mayBeMore":
+    "Some connections were withheld or left out, so there may be more.",
   "co.routeIn.band.strong": "in regular contact",
   "co.routeIn.band.some": "some contact",
   "co.routeIn.band.faint": "barely in contact",

@@ -63,6 +63,13 @@ export type EditableField =
       readonly field: string;
       readonly as: "choice";
       readonly options: readonly string[];
+      /**
+       * What each option is CALLED. Without it the editor offers the wire
+       * enum, so a German inbox asks a reader to choose "former_customer".
+       * Optional so a choice field whose values are already words needs
+       * nothing.
+       */
+      readonly optionLabels?: Readonly<Record<string, MessageKey>>;
     };
 
 const ORG_LIFECYCLE_STAGES = [
@@ -74,6 +81,21 @@ const ORG_LIFECYCLE_STAGES = [
   "former_customer",
   "disqualified",
 ] as const;
+
+// The same catalog keys the account page's stage badge reads, so the inbox and
+// the record cannot call one stage two things. Keyed off the list above:
+// a stage added there with no entry here fails the type.
+const ORG_LIFECYCLE_LABELS: Readonly<
+  Record<(typeof ORG_LIFECYCLE_STAGES)[number], MessageKey>
+> = {
+  unknown: "org.lifecycle.unknown",
+  target: "org.lifecycle.target",
+  prospect: "org.lifecycle.prospect",
+  opportunity: "org.lifecycle.opportunity",
+  customer: "org.lifecycle.customer",
+  former_customer: "org.lifecycle.former_customer",
+  disqualified: "org.lifecycle.disqualified",
+};
 
 export const EDITABLE_FIELDS: Readonly<
   Record<string, readonly EditableField[]>
@@ -87,6 +109,7 @@ export const EDITABLE_FIELDS: Readonly<
       field: "proposed_lifecycle",
       as: "choice",
       options: ORG_LIFECYCLE_STAGES,
+      optionLabels: ORG_LIFECYCLE_LABELS,
     },
   ],
 };
