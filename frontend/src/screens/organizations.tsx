@@ -2285,7 +2285,7 @@ function CompanyPage({
         <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
       )}
       {tab === "people" && (
-        <PeopleCard view={view} writable={!org.archived_at} />
+        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
       {openTaskId && (
         <TaskDetailModal
@@ -2403,7 +2403,7 @@ function businessRail({
             the account is filed rather than anything about the account. */}
         {/* Roles are a write, so the card offers them on the same terms as
             every other verb on this page: never on an archived record. */}
-        <PeopleCard view={view} writable={!readOnly} />
+        <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
         <DealsCard
           view={view}
           // The verb sits under the list it changes: a rep who has just read

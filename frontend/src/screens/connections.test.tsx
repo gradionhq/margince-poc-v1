@@ -11,7 +11,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ConnectionsCard, layout, relationKeys } from "./connections";
+import { ConnectionsCard, layout, relationKeys, routesTo } from "./connections";
 
 // The connections card's own rules:
 //
@@ -528,5 +528,56 @@ describe("company logos on the diagram", () => {
     expect(dialog.querySelectorAll("circle.cx-node-organization")).toHaveLength(
       1,
     );
+  });
+});
+
+// Who here already talks to one particular person.
+//
+// The card asks who a COLLEAGUE is in contact with. A rep opening an account
+// has the question from the other end: not "who is Lars in contact with" but
+// "how do I reach Dana". Same edges, read backwards.
+describe("routes in to one contact", () => {
+  const graph = {
+    nodes: [
+      { id: "u-1", kind: "user", label: "Lars", root: false },
+      { id: "u-2", kind: "user", label: "Mira", root: false },
+      { id: "p-1", kind: "person", label: "Dana Buyer", root: false },
+      { id: "p-2", kind: "person", label: "Otto Other", root: false },
+    ],
+    edges: [
+      { from: "u-1", to: "p-1", kind: "in_contact_with", strength: 0.2 },
+      { from: "u-2", to: "p-1", kind: "in_contact_with", strength: 0.9 },
+      { from: "u-1", to: "p-2", kind: "in_contact_with", strength: 0.8 },
+      { from: "u-1", to: "org", kind: "owns", strength: null },
+      // An edge from someone the node caps trimmed out of the payload.
+      { from: "u-9", to: "p-1", kind: "in_contact_with", strength: 1 },
+    ],
+    groups_omitted: [],
+    dropped_count: 0,
+  } as unknown as Parameters<typeof routesTo>[0];
+
+  it("names the colleagues in contact with THAT person, best route first", () => {
+    expect(routesTo(graph, "p-1").map((route) => route.label)).toEqual([
+      "Mira",
+      "Lars",
+    ]);
+  });
+
+  it("leaves out contacts with someone else, and edges of another kind", () => {
+    expect(routesTo(graph, "p-2").map((route) => route.label)).toEqual([
+      "Lars",
+    ]);
+  });
+
+  it("drops an edge from a node the payload never sent", () => {
+    // The caps that trimmed the node list are the reason, and a route the
+    // reader cannot put a name to is not a route.
+    expect(routesTo(graph, "p-1").map((route) => route.id)).not.toContain(
+      "u-9",
+    );
+  });
+
+  it("reports nobody, rather than nothing, for a person no one has written to", () => {
+    expect(routesTo(graph, "p-3")).toEqual([]);
   });
 });

@@ -62,8 +62,9 @@ type RelationKey =
   | "in_contact_with";
 
 /** useOrganizationGraph reads the account's one-hop connections. */
-export function useOrganizationGraph(id: string) {
+export function useOrganizationGraph(id: string, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["organization-graph", id],
     queryFn: async () => {
       const { data, error } = await api.GET("/organizations/{id}/graph", {
@@ -331,6 +332,41 @@ function strongestContactEdge(
     }
   }
   return best;
+}
+
+/**
+ * routesTo answers "who here already talks to this person", best route first.
+ *
+ * It reads the same in_contact_with edges the connections card reads, from the
+ * other end: the card asks who a COLLEAGUE is in contact with, this asks who
+ * is in contact with a CONTACT. A rep opening an account wants the second, and
+ * before this the page could only answer the first — and only in a standing
+ * card that was showing a staff directory to everyone who never asked.
+ *
+ * A null strength is the "no signal yet" band. It sorts last but is still a
+ * route: someone who has written to them once is a better answer than nobody.
+ */
+export function routesTo(
+  graph: Graph,
+  personId: string,
+): { id: string; label: string; strength: number | null }[] {
+  const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
+  const routes: { id: string; label: string; strength: number | null }[] = [];
+  for (const edge of graph.edges) {
+    if (edge.kind !== "in_contact_with" || edge.to !== personId) {
+      continue;
+    }
+    const label = labels.get(edge.from);
+    // An edge naming a node the payload did not send is dropped rather than
+    // shown as an identifier: the caps that trimmed the node list are the
+    // reason, and a route the reader cannot put a name to is not a route.
+    if (label === undefined) {
+      continue;
+    }
+    routes.push({ id: edge.from, label, strength: edge.strength ?? null });
+  }
+  routes.sort((a, b) => (b.strength ?? -1) - (a.strength ?? -1));
+  return routes;
 }
 
 /**

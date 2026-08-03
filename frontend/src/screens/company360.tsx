@@ -18,6 +18,7 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
+import { routesTo, useOrganizationGraph } from "./connections";
 import {
   byReach,
   missingRoles,
@@ -366,7 +367,14 @@ export function PeopleCard({
   // Whether this account takes writes at all. An archived record is read-only
   // — the page hides every other verb on one — so the role control goes too.
   writable = false,
-}: Readonly<{ view?: Organization360; writable?: boolean }>) {
+  // The account whose connection graph a route-in asks about. Absent on the
+  // loading skeleton, where there is no account to ask about yet.
+  orgId,
+}: Readonly<{
+  view?: Organization360;
+  writable?: boolean;
+  orgId?: string;
+}>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
   const truncated = Boolean(view?.people?.page.has_more);
@@ -418,6 +426,7 @@ export function PeopleCard({
             contact={contact}
             openDeals={openDeals}
             writable={writable}
+            orgId={orgId}
           />
         ))}
       </ul>
@@ -625,8 +634,11 @@ function ContactRow({
   contact,
   openDeals,
   writable,
+  orgId,
 }: Readonly<{
   contact: Contact;
+  // The account this contact belongs to, for the route-in read.
+  orgId?: string;
   // The open deals a role can be recorded against. A role belongs to a DEAL,
   // not to a person: this contact may be the champion on the renewal and
   // nobody on the new business.
@@ -682,8 +694,87 @@ function ContactRow({
             say who is: the roles are set on the deal screen, which is a
             different page and a different task. */}
         {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
+        {orgId && <RouteInAction orgId={orgId} contact={contact} />}
       </span>
     </li>
+  );
+}
+
+/**
+ * RouteInAction answers one question about one person: who here already talks
+ * to them.
+ *
+ * It replaces the standing connections card, which asked nobody and answered
+ * everybody — a staff directory in the rail of every account, costing a graph
+ * read on every page load. This reads the same endpoint and only when someone
+ * asks, and it asks the question from the end a rep actually has: not "who is
+ * Lars in contact with" but "how do I reach Dana".
+ *
+ * "Nobody yet" is an answer worth giving, so it is given. The alternative — a
+ * button that opens onto nothing — makes the reader wonder whether the read
+ * failed.
+ */
+function RouteInAction({
+  orgId,
+  contact,
+}: Readonly<{ orgId: string; contact: Contact }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  // The read is armed by opening, so a page nobody asks costs no graph query.
+  const query = useOrganizationGraph(orgId, open);
+  const graph = query.data;
+  const readable = Array.isArray(graph?.nodes) ? graph : undefined;
+  const routes = readable ? routesTo(readable, contact.person_id) : [];
+  return (
+    <>
+      <button
+        type="button"
+        className="link-button"
+        onClick={() => setOpen(true)}
+      >
+        {t("co.routeIn.open")}
+      </button>
+      {open && (
+        <Modal open onClose={() => setOpen(false)} labelledBy={titleId}>
+          <h2 id={titleId} className="t-h2 modal-title">
+            {t("co.routeIn.title", { name: contact.full_name })}
+          </h2>
+          {query.isPending && <Skeleton width="100%" height={64} />}
+          {/* A failed read is unavailable, never "nobody knows them": the two
+              call for opposite next moves, and only a read that succeeded can
+              say the second. */}
+          {(query.isError || (!query.isPending && !readable)) && (
+            <p className="co-restricted">{t("co.section.unavailable")}</p>
+          )}
+          {readable && routes.length === 0 && (
+            <EmptyState>{t("co.routeIn.none")}</EmptyState>
+          )}
+          {readable && routes.length > 0 && (
+            <ul className="co-list">
+              {routes.map((route) => (
+                <li key={route.id} className="co-row">
+                  <span>{route.label}</span>
+                  {/* The strength band, not the number: the score itself is
+                      the black box AC-company-3 took off this page. */}
+                  <span className="co-row-meta">
+                    {t(
+                      route.strength == null
+                        ? "co.routeIn.band.unknown"
+                        : route.strength >= 0.66
+                          ? "co.routeIn.band.strong"
+                          : route.strength >= 0.33
+                            ? "co.routeIn.band.some"
+                            : "co.routeIn.band.faint",
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }
 

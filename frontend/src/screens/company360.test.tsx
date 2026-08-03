@@ -120,6 +120,19 @@ function stub(three60: unknown, status = 200, account: unknown = org) {
       if (pathname.endsWith("/brief")) {
         return jsonResponse(briefBody);
       }
+      if (pathname.endsWith("/graph")) {
+        return jsonResponse({
+          nodes: [
+            { id: "u-2", kind: "user", label: "Mira", root: false },
+            { id: "p-1", kind: "person", label: "Dana Buyer", root: false },
+          ],
+          edges: [
+            { from: "u-2", to: "p-1", kind: "in_contact_with", strength: 0.9 },
+          ],
+          groups_omitted: [],
+          dropped_count: 0,
+        });
+      }
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(account);
       }
@@ -1339,5 +1352,59 @@ describe("company view — the account's own tabs", () => {
     expect(screen.getByText("Ask Margince")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "History" }));
     expect(screen.queryByText("Ask Margince")).toBeNull();
+  });
+});
+
+// The connections card asked nobody and answered everybody: a staff directory
+// in the rail of every account, costing a graph read on every page load. The
+// route-in asks the question a rep actually has, about one person, and only
+// when they ask it.
+describe("company view — the way in to one contact", () => {
+  const withContact = () =>
+    view({
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Dana Buyer",
+            deal_roles: [],
+            consent: {
+              marketing_email: "unknown",
+              product_updates: "unknown",
+            },
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: {
+                recency: 0,
+                frequency: 0,
+                reciprocity: 0,
+                direction: 0,
+              },
+            },
+          },
+        ],
+        page: emptyPage,
+      },
+    });
+
+  it("reads no graph until someone asks for a way in", async () => {
+    const fetched = stub(withContact());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(fetched.filter((path) => path.endsWith("/graph"))).toEqual([]);
+  });
+
+  it("names who here already talks to that person", async () => {
+    const fetched = stub(withContact());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Route in" })[0],
+    );
+
+    await screen.findByText("Mira");
+    expect(screen.getByText("in regular contact")).toBeTruthy();
+    expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
   });
 });
