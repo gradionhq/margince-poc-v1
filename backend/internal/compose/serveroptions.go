@@ -213,6 +213,19 @@ func WithDataReset(pool, schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env
 	}
 }
 
+// WithNonProduction surfaces the SAME deployment posture WithDataReset
+// gates the endpoint on, onto /me's non_production field (task 7's client
+// signal for showing/hiding the "Reset data" action) — mirrors WithSorMode,
+// which surfaces the datasource dispatch's mode the same way. Absent this
+// option, /me reports production (Handlers' zero value), the fail-closed
+// default that hides the action rather than risk exposing it under an
+// unwired role.
+func WithNonProduction(env runtimeenv.Environment) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithNonProduction(env.IsNonProduction())
+	}
+}
+
 // Every send option below records onto s.send and NOTHING else. The HTTP
 // handlers' own store is reconciled from that one value once every option has
 // run (New's applySendPath), and the tool surface is rebuilt over it here, so

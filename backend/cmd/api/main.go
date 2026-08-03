@@ -111,7 +111,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// absent this deployment posture, or in production, ResetData answers its
 	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
 	// the reset still succeeds, only the cf_* column finalize is skipped.
-	opts = append(opts, compose.WithDataReset(pool, schemaPool, deployCfg.Seeds, runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))))
+	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
+	opts = append(opts, compose.WithDataReset(pool, schemaPool, deployCfg.Seeds, env))
+	// /me's non_production field (task 7) is the SAME posture: the client
+	// hides the "Reset data" action it would otherwise render for an
+	// endpoint that answers 404 in production.
+	opts = append(opts, compose.WithNonProduction(env))
 
 	resetOpts, err := passwordResetOptions(deployCfg, cfg.publicBaseURL, stdout)
 	if err != nil {

@@ -57,6 +57,14 @@ type Handlers struct {
 	// identity never imports the overlay module). Nil ⟹ always native,
 	// the correct default for any role that wired no overlay dispatch.
 	sorMode func(context.Context) (overlay bool, err error)
+
+	// nonProduction reports the deployment posture (MARGINCE_ENV), so /me
+	// can tell the client whether the destructive admin "Reset data"
+	// action is even reachable. Injected by the composition root from
+	// runtimeenv.Environment.IsNonProduction() — identity never imports
+	// deployconfig or compose. False ⟹ production, the fail-closed
+	// default for any role that wired no posture (hides the action).
+	nonProduction bool
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -85,6 +93,15 @@ func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handl
 // reports native (the correct answer for any role with no overlay wiring).
 func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handlers {
 	h.sorMode = resolve
+	return h
+}
+
+// WithNonProduction injects the deployment posture the composition root
+// resolves from runtimeenv.Environment. Without it /me reports production
+// (the fail-closed default: hide the destructive reset action rather than
+// risk exposing it under an unwired role).
+func (h Handlers) WithNonProduction(nonProduction bool) Handlers {
+	h.nonProduction = nonProduction
 	return h
 }
 
@@ -166,7 +183,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -188,7 +205,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 		httperr.Unauthorized(w, r, "no session")
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
 }
 
 // IssuePassport implements (POST /passports): the session user mints an
@@ -390,7 +407,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode) crmcontracts.MeResponse {
+func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, nonProduction bool) crmcontracts.MeResponse {
 	roles := id.Roles
 	if roles == nil {
 		roles = []string{}
@@ -412,5 +429,6 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode) 
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
+		NonProduction: nonProduction,
 	}
 }
