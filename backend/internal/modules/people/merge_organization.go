@@ -43,6 +43,14 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) error {
+		// A merge fills the survivor's legal_name from the record it retires
+		// (fillOrgSurvivorship), so it is a name writer like any other and owes
+		// the same two things: the name lock BEFORE any organization row lock,
+		// and a re-check afterwards. Taking it here rather than beside the fill
+		// is what keeps the order — LockPair is next.
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return err
+		}
 		// The pair lock keeps BOTH endpoints held to commit: without it a
 		// concurrent merge(target→elsewhere) archives the survivor
 		// mid-merge and the relinked children point at a dead record.
@@ -64,6 +72,19 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 		filled, err := fillOrgSurvivorship(ctx, tx, src, tgt, targetIsPartner, tgtLock)
 		if err != nil {
 			return err
+		}
+		// A survivor that just inherited the retired record's legal name can
+		// now be the twin of a THIRD organization, and resolving one duplicate
+		// is no reason to leave that one unfiled. Only when the name actually
+		// moved: a merge that filled nothing renames nobody.
+		if _, renamed := filled[fieldLegalName]; renamed {
+			by, err := storekit.CapturedBy(ctx)
+			if err != nil {
+				return err
+			}
+			if err := recheckOrgNameForDuplicates(ctx, tx, targetID, by); err != nil {
+				return err
+			}
 		}
 		out, err = finalizeOrgMerge(ctx, tx, sourceID, targetID, filled, active)
 		return err
