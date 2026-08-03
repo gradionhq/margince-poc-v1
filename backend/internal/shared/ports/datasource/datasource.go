@@ -27,14 +27,40 @@ const (
 	EntityLead         EntityType = "lead"
 	EntityActivity     EntityType = "activity"
 	EntityProject      EntityType = "project"
+	// EntityRelationship is an EDGE between two records — employment, a deal
+	// or project stakeholder seat, an org↔org partner tie. It belongs in THIS
+	// vocabulary and deliberately not in RecordType below: the seam's record
+	// verbs serve it, but nothing points AT an edge. You cannot tag one, add
+	// one to a list, link an activity to it, or grant access to it — so adding
+	// a RecordRelationship would widen five polymorphic columns to hold a
+	// target that has no meaning.
+	//
+	// Declaring this constant is what obliges all four EntityType-bound
+	// schema CHECKs (attachment, embedding, field_provenance, custom_field) to
+	// carry 'relationship' too: TestEveryDomainEnumMatchesItsSchemaCheck
+	// derives the Go set from every constant of this type declared in the
+	// package, so there is no way to add one and widen only some of them.
+	// migrations/core/0171 is that reconciliation, and says what each widening
+	// does and does not open.
+	EntityRelationship EntityType = "relationship"
 )
 
 // EntityTypes returns the vocabulary in a stable order, for the callers
-// that enumerate it — the custom-field target set, the embedding lanes,
-// the provenance surfaces — rather than branch on a single value. It hands
-// back a fresh slice so no caller can widen the vocabulary for the others.
+// that enumerate it — the embedding lanes, the provenance surfaces, the
+// description order the tool schemas render in — rather than branch on a
+// single value. It hands back a fresh slice so no caller can widen the
+// vocabulary for the others.
+//
+// It is NOT the custom-field target set any more. That set is now spelled
+// explicitly in customfields.FieldObjects, because a type belongs there only
+// if its store reads cf_* columns AND its contract shapes carry them — two
+// properties this vocabulary says nothing about. Deriving acceptance from it
+// is how `object=activity` came to be creatable and never served.
 func EntityTypes() []EntityType {
-	return []EntityType{EntityPerson, EntityOrganization, EntityDeal, EntityLead, EntityActivity, EntityProject}
+	return []EntityType{
+		EntityPerson, EntityOrganization, EntityDeal, EntityLead,
+		EntityActivity, EntityProject, EntityRelationship,
+	}
 }
 
 // RecordType names the entity types that are records — EntityType minus
@@ -101,9 +127,11 @@ type SystemOfRecordProvider interface {
 	Create(ctx context.Context, in CreateInput) (EntityRef, error)
 	Update(ctx context.Context, in UpdateInput) (EntityRef, error)
 	AdvanceDeal(ctx context.Context, in AdvanceDealInput) (EntityRef, error)
-	// Archive soft-deletes one person/organization/deal (🟡 on the tool
-	// surface: a visibility change is hard to undo for whoever needed the
-	// row). Leads leave through their own lifecycle verbs.
+	// Archive soft-deletes one person/organization/deal/project, or one
+	// relationship edge (🟡 on the tool surface: a visibility change is hard to
+	// undo for whoever needed the row). Leads leave through their own lifecycle
+	// verbs. Archiving an edge is how a person's employment ENDS on this seam —
+	// an edge's endpoints are what it is, so they are never patched.
 	Archive(ctx context.Context, ref EntityRef) (EntityRef, error)
 	// Merge folds source into target (person/organization only), non-lossy,
 	// and returns the survivor's ref (features/01 §1.3). 🟡 on the tool

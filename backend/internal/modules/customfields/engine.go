@@ -42,19 +42,46 @@ const (
 // the way the custom_field.type CHECK constraint spells them.
 var FieldTypes = []string{TypeText, TypeNumber, TypeDate, TypeCurrency, TypePicklist, TypeBoolean}
 
-// FieldObjects is the closed, ordered set of core objects a custom field
-// can attach to. It is derived from the canonical entity vocabulary rather
-// than restated, so the catalog CHECK, this package and the vocabulary
-// cannot drift apart (the drift is what TestEveryDomainEnumMatchesItsSchemaCheck
-// pins).
-var FieldObjects = func() []string {
-	all := datasource.EntityTypes()
-	out := make([]string, 0, len(all))
-	for _, e := range all {
-		out = append(out, string(e))
-	}
-	return out
-}()
+// FieldObjects is the closed, ordered set of core objects a custom field can
+// attach to: those whose store READS the cf_* columns through the fieldcatalog
+// seam and whose contract shapes CARRY the values on the wire.
+//
+// It used to be datasource.EntityTypes() — the whole entity vocabulary — and
+// that derivation over-promised, because neither of those two properties is
+// something the vocabulary says anything about. `object=activity` is the proof:
+// it has been accepted by this engine and served by nobody since the day it
+// shipped. The activity store has no fieldcatalog wiring and the Activity
+// contract schema has no additionalProperties, so a custom field on an activity
+// can be created and never read back. Only the SPA's picker hides it, which is
+// a screen, not a gate.
+//
+// So the set is spelled out, and the two exclusions are named rather than left
+// to be inferred from an absence:
+//
+//   - activity — no store wiring, no wire carriage. The already-shipped defect
+//     above; naming it here is what closes it.
+//   - relationship — same two gaps. Custom fields on edges is deliberately its
+//     own future change, because it opens a question no gate here can answer: a
+//     `relationship` row is EXCLUDED from piiTables today, judged against a
+//     closed set of business facts, and an open-ended cf_* column on a person's
+//     employment edge would change that premise while Art. 17 erasure and
+//     Art. 15 SAR both stay blind to it.
+//
+// The catalog CHECK stays WIDER than this list (migrations/core/0171), which is
+// safe because this engine is the only writer of that table, and is the same
+// posture the other three EntityType-bound CHECKs already have.
+//
+// TestEveryFieldObjectCarriesItsValuesOnTheWire is what stops the list from
+// quietly over-promising again: it asserts every member's contract create and
+// read shapes actually declare the additionalProperties bag a cf_* value
+// travels in.
+var FieldObjects = []string{
+	string(datasource.EntityPerson),
+	string(datasource.EntityOrganization),
+	string(datasource.EntityDeal),
+	string(datasource.EntityLead),
+	string(datasource.EntityProject),
+}
 
 var allowedObjects = func() map[string]bool {
 	m := make(map[string]bool, len(FieldObjects))

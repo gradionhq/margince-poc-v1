@@ -64,6 +64,12 @@ func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource
 			return datasource.Record{}, err
 		}
 		return datasource.NewRecord(r, v, v.Version)
+	case datasource.EntityRelationship:
+		row, err := p.store.GetRelationship(ctx, r.ID)
+		if err != nil {
+			return datasource.Record{}, err
+		}
+		return datasource.NewRecord(r, wireRelationship(row), &row.Version)
 	default:
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
@@ -167,6 +173,16 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 		}
 		v, _, err := p.store.CreateLead(ctx, mapped)
 		return ref(datasource.EntityLead, v.Id), err
+	case datasource.EntityRelationship:
+		var req crmcontracts.CreateRelationshipRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		req.Source = in.Source
+		row, err := p.store.CreateRelationship(ctx, relationshipCreateInput(req))
+		// The edge's own id, not an endpoint's: the caller asked for a
+		// relationship and the read-back has to reach the row it created.
+		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}
 	}
@@ -199,6 +215,13 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 		}
 		v, err := p.store.UpdateLead(ctx, ids.From[ids.LeadKind](in.Ref.ID), leadUpdateInput(req, in.IfVersion))
 		return ref(datasource.EntityLead, v.Id), err
+	case datasource.EntityRelationship:
+		var req crmcontracts.UpdateRelationshipRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		row, err := p.store.UpdateRelationship(ctx, in.Ref.ID, relationshipUpdateInput(req, in.IfVersion))
+		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}
@@ -212,6 +235,9 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 	case datasource.EntityOrganization:
 		v, err := p.store.ArchiveOrganization(ctx, ids.From[ids.OrganizationKind](r.ID))
 		return ref(datasource.EntityOrganization, v.Id), err
+	case datasource.EntityRelationship:
+		row, err := p.store.ArchiveRelationship(ctx, r.ID)
+		return datasource.EntityRef{Type: datasource.EntityRelationship, ID: row.ID}, err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}

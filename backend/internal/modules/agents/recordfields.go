@@ -45,9 +45,13 @@ var (
 		datasource.EntityLead:         reflect.TypeFor[crmcontracts.CreateLeadRequest](),
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.CreateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.CreateProjectRequest](),
+		datasource.EntityRelationship: reflect.TypeFor[crmcontracts.CreateRelationshipRequest](),
 	}
 	// An activity patch cannot reach its LINKS: UpdateActivityRequest declares
-	// no link field, so this list has none to describe.
+	// no link field, so this list has none to describe. A relationship patch
+	// cannot reach its ENDPOINTS for the same structural reason and a stronger
+	// domain one — an edge's ends are what it IS, so moving one is an archive
+	// plus a new edge, never an update.
 	updateShapes = map[datasource.EntityType]reflect.Type{
 		datasource.EntityPerson:       reflect.TypeFor[crmcontracts.UpdatePersonRequest](),
 		datasource.EntityOrganization: reflect.TypeFor[crmcontracts.UpdateOrganizationRequest](),
@@ -55,6 +59,7 @@ var (
 		datasource.EntityLead:         reflect.TypeFor[crmcontracts.UpdateLeadRequest](),
 		datasource.EntityActivity:     reflect.TypeFor[crmcontracts.UpdateActivityRequest](),
 		datasource.EntityProject:      reflect.TypeFor[crmcontracts.UpdateProjectRequest](),
+		datasource.EntityRelationship: reflect.TypeFor[crmcontracts.UpdateRelationshipRequest](),
 	}
 )
 
@@ -130,10 +135,29 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		b.WriteString("A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else ")
 		b.WriteString("on this surface yields them, and neither is defaultable. ")
 	}
-	// The two traps a caller cannot see from the field list alone, and the
-	// second one is why a write can look like it worked and not have.
-	b.WriteString("A person's employer is NOT a field here: employment is a relationship record, ")
-	b.WriteString("which this tool cannot create. ")
+	// The trap a caller cannot see from the field list alone. A relationship's
+	// field list shows `kind`, `person_id`, `organization_id`, `deal_id` and
+	// `project_id` all as equal optional siblings — and they are not: which PAIR
+	// is required is decided by the kind, enforced by a database CHECK, and
+	// invisible from a flat list of names. A caller working from names alone
+	// sends a plausible pair and gets a shape refusal it cannot predict.
+	//
+	// Keyed on the shape actually being described, so the create tool carries
+	// this and the patch tool does not: a patch cannot reach an endpoint at all.
+	if _, creatable := shapes[datasource.EntityRelationship]; creatable {
+		b.WriteString("A person's employer is a relationship, not a field on the person: ")
+		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
+		b.WriteString("Each kind requires its OWN endpoint pair and rejects any other — ")
+		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
+		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
+		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
+	} else {
+		// The patch tool still owes the reader the pointer, because a person's
+		// employer is the field they will look for first and not find.
+		b.WriteString("A person's employer is NOT a field here: employment is a relationship, ")
+		b.WriteString("created and archived as record_type=relationship — its endpoints are what it ")
+		b.WriteString("IS, so they cannot be patched. ")
+	}
 	// The other field a caller reasonably expects and will not find. An
 	// activity DOES carry links — log_activity takes them — so being told the
 	// field is unknown, with no pointer, reads as "this is impossible" rather

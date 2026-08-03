@@ -37,9 +37,9 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "archive_record", Title: "Archive a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
-		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject",
+		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject/archiveRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","project","relationship"]},
 			"id":{"type":"string","format":"uuid"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
@@ -272,10 +272,17 @@ func recordLabel(rec datasource.Record) string {
 		DisplayName string `json:"display_name"`
 		Name        string `json:"name"`
 		Email       string `json:"email"`
+		// Kind is last because it is the weakest label — it names a CLASS, not
+		// an instance. It is here for the one record type that has no name of
+		// any sort: a relationship is an edge, and its identity is its kind plus
+		// two endpoints. Without it a human is asked to approve
+		// "Archive relationship 0195c3…", which tells them nothing about what
+		// disappears; with it they at least read "employment".
+		Kind string `json:"kind"`
 	}
 	//craft:ignore swallowed-errors label extraction is best-effort by design — unparseable fields fall through to the id below
 	_ = json.Unmarshal(rec.Fields, &f)
-	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email} {
+	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email, f.Kind} {
 		if s != "" {
 			return fmt.Sprintf("%q", s)
 		}

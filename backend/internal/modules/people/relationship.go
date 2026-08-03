@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -29,46 +28,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// RelationshipConflictError names the uniqueness rule that refused an edge.
-//
-// It carries the constraint so a caller racing ITSELF — an idempotent attach
-// whose insert lost to a concurrent one — can tell which rule fired and
-// recover by adopting the winner. Wrapping the driver error would say the same
-// thing and cost too much: a *pgconn.PgError anywhere in the chain makes
-// httperr treat the refusal as an infrastructure fault (blanking the client's
-// detail and logging at ERROR), and the agent runner echoes err.Error() into
-// its transcript, which would put SQLSTATE text in a model prompt.
-type RelationshipConflictError struct{ Constraint string }
-
-// relationshipConflictDetails says what each rule actually refused, in the
-// caller's terms. One shared sentence cannot serve all three: the primary-
-// employer index is keyed on the PERSON alone, so its conflict is with a
-// different company entirely — telling that caller "this already exists
-// between these records" would name the wrong pair and send them looking for
-// a row that is not there.
-var relationshipConflictDetails = map[string]string{
-	"uq_rel_current_primary_employer": "this person already has a current primary employer — end that employment, or add this one without the primary flag",
-	"uq_rel_deal_person_role":         "this person already holds that role on the deal",
-	projectStakeholderUnique:          "this person is already a stakeholder on the project",
-}
-
-// Error says what the caller can act on. The constraint name stays OFF the
-// wire: httperr sends a sentinel's own text as the 409 detail, and an index
-// name is a database internal — it tells a client nothing it can use and
-// describes our schema to anyone probing it.
-func (e *RelationshipConflictError) Error() string {
-	if detail, ok := relationshipConflictDetails[e.Constraint]; ok {
-		return detail
-	}
-	// A rule added to the switch above but not described here: still a
-	// truthful refusal, just a less specific one.
-	return "a live relationship already conflicts with this one"
-}
-
-// Is reports this as the conflict sentinel, so every transport that maps
-// ErrConflict to 409 keeps doing so without knowing this type exists.
-func (e *RelationshipConflictError) Is(target error) bool { return target == apperrors.ErrConflict }
 
 // relationshipAnchor names the endpoint whose lifecycle a kind
 // annotates — the entity whose .updated event a mutation emits and
@@ -248,29 +207,6 @@ func untypedPtr[K ids.EntityKind](id *ids.ID[K]) *ids.UUID {
 		return nil
 	}
 	return &id.UUID
-}
-
-// mapRelationshipConstraint turns the insert's constraint failures into
-// typed input errors: the rel_* CHECKs are the kind→endpoint shape rules
-// (migration 0007) — bad input, not a fault — and the partial unique
-// indexes are the edge dedupe rules (a second identical edge conflicts
-// with the existing one). Anything else surfaces unchanged.
-func mapRelationshipConstraint(err error, kind string) error {
-	if constraint, ok := storekit.CheckViolation(err); ok {
-		switch constraint {
-		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape", "rel_project_stakeholder_shape":
-			return &RelationshipShapeError{Kind: kind}
-		case "rel_dates":
-			return &RelationshipDatesError{}
-		}
-	}
-	if constraint, ok := storekit.UniqueViolation(err); ok {
-		switch constraint {
-		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", projectStakeholderUnique:
-			return &RelationshipConflictError{Constraint: constraint}
-		}
-	}
-	return err
 }
 
 type UpdateRelationshipInput struct {
@@ -456,32 +392,43 @@ func aliased(columns, alias string) string {
 	return strings.Join(parts, ", ")
 }
 
-func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
-	out := crmcontracts.Relationship{
-		Id:          openapi_types.UUID(rel.ID),
-		WorkspaceId: openapi_types.UUID(rel.WorkspaceID.UUID),
-		Kind:        crmcontracts.RelationshipKind(rel.Kind),
-		Source:      rel.Source,
-		CapturedBy:  &rel.CapturedBy,
-		CreatedAt:   rel.CreatedAt,
-		UpdatedAt:   rel.UpdatedAt,
-		ArchivedAt:  rel.ArchivedAt,
-		Role:        rel.Role,
+// GetRelationship reads one edge under the endpoint-visibility rule, in its own
+// transaction — the entry point the datasource seam needs, since every other
+// caller of visibleRelationship already holds a transaction of its own.
+//
+// The seam needs it for three verbs and not only for a read tool: create_record
+// reads the edge back after writing it, and archive_record reads the target
+// BEFORE staging, to summarize for the human who will approve. Without this the
+// edge would commit and the tool would report a read-back failure — a false
+// failure with a real side effect — and the 🟡 archive could not even stage.
+//
+// The RBAC gate is the read one, not the anchor's update one that the mutating
+// verbs also demand: reading an edge discloses its endpoints, which is what
+// `relationship` read governs. Absence and out-of-scope answer identically.
+func (s *Store) GetRelationship(ctx context.Context, id ids.UUID) (relationshipRow, error) {
+	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
+		return relationshipRow{}, err
 	}
-	version := crmcontracts.RowVersion(rel.Version)
-	out.Version = &version
-	out.IsCurrentPrimary = &rel.IsCurrentPrimary
-	out.PersonId = uuidPtr(untypedPtr(rel.PersonID))
-	out.OrganizationId = uuidPtr(untypedPtr(rel.OrganizationID))
-	out.CounterpartyOrgId = uuidPtr(untypedPtr(rel.CounterpartyOrgID))
-	out.DealId = uuidPtr(untypedPtr(rel.DealID))
-	if rel.StartedAt != nil {
-		out.StartedAt = &openapi_types.Date{Time: *rel.StartedAt}
-	}
-	if rel.EndedAt != nil {
-		out.EndedAt = &openapi_types.Date{Time: *rel.EndedAt}
-	}
-	return out
+	var out relationshipRow
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		row, err := s.visibleRelationship(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		// Live only, matching every other record type's Read (which passes
+		// storekit.LiveOnly). visibleRelationship deliberately does NOT filter —
+		// Update locks live-only itself and Archive's own WHERE clause does the
+		// work — so the filter belongs here, or an archived edge would go on
+		// being served by the one verb whose whole job is to say what the record
+		// currently is. Post-filtering is safe: the row already passed this
+		// caller's endpoint scope, so nothing about it is disclosed by the check.
+		if row.ArchivedAt != nil {
+			return apperrors.ErrNotFound
+		}
+		out = row
+		return nil
+	})
+	return out, err
 }
 
 // EnsureProjectVisible probes a project id under the caller's row scope —

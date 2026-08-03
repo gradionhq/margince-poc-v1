@@ -296,9 +296,9 @@ func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
+		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
 			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),

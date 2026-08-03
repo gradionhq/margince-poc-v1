@@ -72,23 +72,7 @@ func (h Handlers) CreateRelationship(w http.ResponseWriter, r *http.Request) {
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := CreateRelationshipInput{
-		Kind:              string(req.Kind),
-		Role:              req.Role,
-		Source:            req.Source,
-		IsCurrentPrimary:  req.IsCurrentPrimary != nil && *req.IsCurrentPrimary,
-		PersonID:          idArg[ids.PersonKind](req.PersonId),
-		OrganizationID:    idArg[ids.OrganizationKind](req.OrganizationId),
-		CounterpartyOrgID: idArg[ids.OrganizationKind](req.CounterpartyOrgId),
-		DealID:            idArg[ids.DealKind](req.DealId),
-	}
-	if req.StartedAt != nil {
-		in.StartedAt = &req.StartedAt.Time
-	}
-	if req.EndedAt != nil {
-		in.EndedAt = &req.EndedAt.Time
-	}
-	rel, err := h.store.CreateRelationship(r.Context(), in)
+	rel, err := h.store.CreateRelationship(r.Context(), relationshipCreateInput(req))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -105,18 +89,7 @@ func (h Handlers) UpdateRelationship(w http.ResponseWriter, r *http.Request, id 
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := UpdateRelationshipInput{
-		Role:             req.Role,
-		IsCurrentPrimary: req.IsCurrentPrimary,
-		IfVersion:        ifVersion,
-	}
-	if req.StartedAt != nil {
-		in.StartedAt = &req.StartedAt.Time
-	}
-	if req.EndedAt != nil {
-		in.EndedAt = &req.EndedAt.Time
-	}
-	rel, err := h.store.UpdateRelationship(r.Context(), ids.UUID(id), in)
+	rel, err := h.store.UpdateRelationship(r.Context(), ids.UUID(id), relationshipUpdateInput(req, ifVersion))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

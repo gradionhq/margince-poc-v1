@@ -318,10 +318,15 @@ func TestFieldTypes_MatchesMigrationCheckSpelling(t *testing.T) {
 	}
 }
 
-func TestFieldObjects_MatchesMigrationCheckSpelling(t *testing.T) {
-	want := []string{"person", "organization", "deal", "lead", "activity", "project"}
+// The ordered set, pinned so a member cannot be added or dropped without the
+// change being stated. What each member has to be TRUE of — a store that reads
+// its cf_* columns and a contract shape that carries them — is derived in
+// fieldobjects_test.go rather than restated here.
+func TestFieldObjects_IsTheExplicitTargetSet(t *testing.T) {
+	want := []string{"person", "organization", "deal", "lead", "project"}
 	if len(FieldObjects) != len(want) {
-		t.Fatalf("FieldObjects = %v, want %v", FieldObjects, want)
+		t.Fatalf("FieldObjects = %v, want %v — activity and relationship are excluded for want of "+
+			"wire carriage and store wiring; see the engine's own comment", FieldObjects, want)
 	}
 	for i, w := range want {
 		if FieldObjects[i] != w {

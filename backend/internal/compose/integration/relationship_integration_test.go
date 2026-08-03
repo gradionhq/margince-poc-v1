@@ -116,6 +116,91 @@ func TestRelationshipLifecycle(t *testing.T) {
 	}
 }
 
+// Ending an employment is a 🟡 act for an AGENT: it changes what the record says
+// about a person's job, and it is hard to undo for whoever needed the edge. The
+// human path above deletes it outright, because the confirm-first tier governs
+// agent principals, not people in their own seat (ADR-0055 makes a passport's
+// REST call governed exactly like its MCP twin).
+//
+// The pin is the second assertion, and it is the one worth spelling out: this
+// REST path stages through the approvals engine, which resolves target_version
+// itself inside the staging transaction for every target type its versionTables
+// set knows — `relationship` is in that set, so the pin lands without the
+// caller offering one. A type absent from it stages a NULL pin, and redemption's
+// skew check short-circuits on NULL, so the approval would authorize the archive
+// against whatever the edge had drifted to inside the TTL.
+//
+// (The MCP twin reaches staging differently — archive_record's StageInfo READS
+// the target to summarize it — which is why the seam owes a relationship Read.
+// That read is exercised by create_record's read-back in
+// relationship_seam_integration_test.go.)
+func TestArchivingAnEdgeStagesForAnAgentAndPinsItsVersion(t *testing.T) {
+	e := setupRelationships(t)
+
+	var edge struct {
+		ID      string `json:"id"`
+		Version int64  `json:"version"`
+	}
+	if status := e.call(t, "POST", "/v1/relationships", anyMap{
+		"kind": "employment", "person_id": e.personID, "organization_id": e.orgID,
+		"role": "cto", "source": "ui",
+	}, nil, &edge); status != http.StatusCreated {
+		t.Fatalf("create employment → %d", status)
+	}
+
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := e.call(t, "POST", "/v1/passports", anyMap{
+		"label": "edge agent", "scopes": []string{"read", "write"},
+	}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
+
+	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}
+	status := e.call(t, "DELETE", "/v1/relationships/"+edge.ID, nil, bearer, &problem)
+	if status != http.StatusForbidden || problem.Code != "approval_required" {
+		t.Fatalf("agent archive → %d %q, want 403 approval_required", status, problem.Code)
+	}
+	approvalID := extractStagedApprovalID(t, problem.Detail)
+
+	// The pin the STAGING read produced. Without it the approval would authorize
+	// the archive against whatever the edge had drifted to inside the TTL — and a
+	// nil pin is exactly what a target type the seam cannot read produces.
+	var pin *int64
+	if err := e.owner.QueryRow(t.Context(),
+		`SELECT target_version FROM approval WHERE id = $1`, approvalID).Scan(&pin); err != nil {
+		t.Fatal(err)
+	}
+	if pin == nil {
+		t.Fatal("the staged archive carries no target_version — redemption's skew check short-circuits " +
+			"on NULL, so the approval would authorize the archive whatever the edge became")
+	}
+	if *pin != edge.Version {
+		t.Errorf("target_version = %d, want the edge's own %d", *pin, edge.Version)
+	}
+
+	// The edge is untouched while the approval is pending.
+	var listed struct {
+		Data []struct {
+			ID         string  `json:"id"`
+			ArchivedAt *string `json:"archived_at"`
+		} `json:"data"`
+	}
+	if got := e.call(t, "GET", "/v1/relationships?person_id="+e.personID+"&kind=employment", nil, nil, &listed); got != http.StatusOK {
+		t.Fatalf("list while parked → %d", got)
+	}
+	for _, rel := range listed.Data {
+		if rel.ID == edge.ID && rel.ArchivedAt != nil {
+			t.Errorf("the edge was archived while its approval was still pending")
+		}
+	}
+}
+
 func TestPartnerPromotionLifecycle(t *testing.T) {
 	e := setupRelationships(t)
 
