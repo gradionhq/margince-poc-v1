@@ -69,6 +69,12 @@ func recordWorkspaceJobOutcome(t *testing.T, into map[string]bool, ev *river.Eve
 
 // awaitWorkspaceJobOutcomes collects one outcome per tenant until want distinct
 // workspaces have reported, or the deadline fires. No polling, no sleep.
+//
+// A tenant's FIRST report is its verdict here, and the wait ends as soon as want
+// tenants have one — so a tenant that fails an attempt and then succeeds on a
+// retry reads as failed. Every suite using this plants PERMANENT faults, which
+// makes the first report the final one; a suite that plants a RETRYABLE fault
+// needs a different collector, not a longer deadline.
 func awaitWorkspaceJobOutcomes(ctx context.Context, t *testing.T, completed, failed <-chan *river.Event, kind string, want int) map[string]bool {
 	t.Helper()
 	outcomes := make(map[string]bool, want)

@@ -75,8 +75,9 @@ func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) erro
 	return nil
 }
 
-// PopulatedIdentity is the one-PK read /readyz uses (Task 17): the marker's
-// own view of what the store is populated under, the job lifecycle status,
+// PopulatedIdentity is the one-PK read /readyz uses (Task 17): the identity the
+// last run RELEASED under — never a count of what actually re-embedded, which
+// releaseReembeddingTx spells out — the job lifecycle status,
 // and when the run last made progress (updatedAt — a running pass refreshes it
 // as it embeds, so it is the age of the last PROGRESS and not of the run. That
 // is what lets a human tell a long reindex from a dead one, what the SPA shows
@@ -134,9 +135,12 @@ type ReembedClaim struct {
 	// for good, and no job anywhere to explain why. So a human keeps a way back.
 	//
 	// What makes the bound meaningful is that a WORKING run keeps its marker
-	// fresh: ReembedWorkspace refreshes it as it goes, so it never reads staler
-	// than ReembedProgressStaleness plus the one embed in flight when that
-	// interval elapses.
+	// fresh: ReembedWorkspace refreshes it around every leg of its own pass, so it
+	// reads no staler than the longer of one entity-table scan and
+	// ReembedProgressStaleness plus one embedding upsert. Neither of those two is
+	// a bound this code can enforce (ReembedProgressStaleness says why), so a
+	// window set here is a judgement about how long a leg may plausibly take, not
+	// a proof that a healthy run cannot be dispossessed.
 	//
 	// What a steal stops, exactly: the dispossessed run's MARKER WRITES. Its
 	// children carry a Run the marker no longer names, so their progress notes,
@@ -273,12 +277,19 @@ func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, wo
 
 // ReembedProgressStaleness paces how often a working run says so on its marker:
 // ReembedWorkspace calls noteReembedProgress once this much time has passed, so
-// a pass of any length costs at most one small write per interval.
+// a pass of any length costs at most one small write per interval, plus one on
+// each side of every entity-table scan.
 //
 // It is therefore ALMOST the bound on how stale a working run's marker can read,
-// but not quite: the entity being embedded when the interval elapses finishes
-// first, so the true bound is this plus one embed, which the model lane's own
-// per-call timeout caps. A steal window has to clear that sum, not this value.
+// and the shortfall is not a rounding error. A pass moves in two kinds of step,
+// and it can only report BETWEEN them: one liveEntitiesOf scan, and one
+// UpsertEmbedding. Both wait on pool acquisition and on row locks before doing
+// any work of their own, and neither of those waits is bounded by anything this
+// package controls — the model lane's per-call timeout caps only the model call
+// inside an upsert. So the honest bound is the longer of one scan and this
+// interval plus one upsert, where the second term is a wall time no code here
+// can enforce. A steal window has to clear that, and no value of it turns the
+// sum into a guarantee.
 const ReembedProgressStaleness = 5 * time.Minute
 
 // noteReembedProgress moves run's marker forward to say the run is still
@@ -310,6 +321,15 @@ func (s *Store) ReleaseReembedding(ctx context.Context, run ids.UUID) error {
 // target, never the live config — Postgres evaluates the assignment against the
 // pre-update row — because a run finishing under a binding the operator has
 // since changed must not stamp the marker as if the new config were populated.
+//
+// populated_identity therefore means "the identity the last run was RELEASED
+// under", and not "the identity every workspace was re-embedded under". A run
+// releases when its last workspace has no work left the run will come back to,
+// and running out of attempts is one of those outcomes: a fleet whose children
+// all failed still empties the set and still stamps here. The run counts no
+// successes, deliberately — the cost of getting it wrong is a re-run, not a
+// corrupt store — so every reader inherits the weaker claim, /readyz included
+// (compose/embedreadyz.go says so where it reports it).
 func releaseReembeddingTx(ctx context.Context, tx pgx.Tx, run ids.UUID) error {
 	_, err := tx.Exec(ctx, `
 		UPDATE embed_store_binding

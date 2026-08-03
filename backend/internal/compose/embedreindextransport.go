@@ -55,11 +55,15 @@ const reembeddingStatus = "reembedding"
 // anything has to, and why taking it is safe are all one explanation, and it
 // lives on search.ReembedClaim.StealAfter rather than being restated here.
 //
-// The number only has to clear the most a WORKING run's marker can lag —
-// search.ReembedProgressStaleness plus the one embed in flight when that
-// interval elapses, which the model lane's own per-call timeout caps at five
-// minutes. An hour leaves fifty minutes of margin over that sum, so no healthy
-// run is ever near it however long its corpus takes.
+// What the number has to clear is the most a WORKING run's marker can lag, and
+// that is not a quantity this deployment can enforce: the longer of one
+// entity-table scan and search.ReembedProgressStaleness plus one embedding
+// upsert, both of which wait on pool acquisition and row locks before they do
+// any work of their own. An hour is fifty-five minutes clear of the reporting
+// interval, which is ample for every leg a healthy run plausibly has; a run
+// whose legs exceed it is one blocked on a database that is not answering, and
+// dispossessing that run is the right outcome, because it is not making progress
+// either.
 const reembedStaleAfter = time.Hour
 
 // humanStaleWindow renders the steal window for the operator-facing 409.
@@ -76,6 +80,37 @@ func humanStaleWindow(d time.Duration) string {
 	default:
 		return d.String()
 	}
+}
+
+// humanProgressAge renders how long ago a run last reported, for the operator
+// reading a refusal. Rounded to the second because the marker's own resolution
+// is a database write and nothing downstream acts on the milliseconds; a lag
+// under that reads as words, since "0s ago" looks like a bug rather than a
+// run that reported a moment before the refusal.
+func humanProgressAge(d time.Duration) string {
+	if d < time.Second {
+		return "less than a second"
+	}
+	return d.Round(time.Second).String()
+}
+
+// embedReindexRunningDetail is the 409's what-to-do, and the two callers of it
+// can change different things. An unforced confirm is told about force. A FORCED
+// confirm was already refused BY force's own predicate — the run it tried to
+// take over reported progress too recently — so telling it to pass force names
+// the one thing that will not help; what it can act on is the age it was
+// measured against, and the choice to wait or let the run finish.
+//
+// Both spellings render the window from the constant that enforces it: a message
+// naming its own duration is a message that lies the day reembedStaleAfter
+// moves.
+func embedReindexRunningDetail(force bool, lastProgress time.Duration) string {
+	if !force {
+		return "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + humanStaleWindow(reembedStaleAfter)
+	}
+	return fmt.Sprintf(
+		"a fleet-wide reindex is already running and last reported progress %s ago; a forced takeover needs %s without progress, so let it finish or retry once it has stopped moving",
+		humanProgressAge(lastProgress), humanStaleWindow(reembedStaleAfter))
 }
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
@@ -220,7 +255,10 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	_, jobStatus, _, err := e.store.PopulatedIdentity(ctx)
+	// lastProgress is read here rather than after a refusal so the refusal costs
+	// no second round-trip: the claim below is the very next thing this handler
+	// does, so the age this reports is the age the CAS was evaluated against.
+	_, jobStatus, lastProgress, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -256,10 +294,7 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
 			Code:   "reindex_running",
-			// The window is rendered from the constant that enforces it: a
-			// message naming its own duration is a message that lies the day
-			// reembedStaleAfter moves.
-			Detail: "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + humanStaleWindow(reembedStaleAfter),
+			Detail: embedReindexRunningDetail(force, e.clock.Now().Sub(lastProgress)),
 		})
 		return
 	}

@@ -41,8 +41,14 @@ import (
 // attempts on River's attempt⁴ backoff spans roughly six minutes, enough to ride
 // out an embed provider's blip or a database restart, and a workspace still
 // failing after that is a defect a human should see rather than model budget the
-// run keeps spending. The marker is released either way, so the operator's
-// re-confirm is available immediately rather than an hour later.
+// run keeps spending. Both halves hand the marker back on their way out of a
+// terminal outcome, so the operator's re-confirm is normally available at once
+// rather than an hour later — normally, not always: that hand-back is a write to
+// the same database whose failure is the likeliest reason the attempt failed at
+// all, and the exhausted attempt has nothing left to retry it with. The marker
+// then stays held until a forced confirm takes it
+// (search.ReembedClaim.StealAfter), which is a recovery an hour away rather than
+// a wedge.
 const embedReindexMaxAttempts = 5
 
 // addEmbedReindexJobs registers the reindex dispatcher and its workspace worker.
@@ -95,6 +101,14 @@ func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[EmbedReind
 		// never got any queued and has no attempt left to, so it gives it back
 		// rather than leaving every later confirm refused by a run that ended.
 		// The release refuses itself if the set is not empty after all.
+		//
+		// The release can also simply fail, and most naturally for the reason the
+		// fan-out just did — enumerate and insert are all this row does, so a
+		// database that would not take them will not take the release either. Both
+		// errors are joined into one return, River discards the row because the
+		// attempts are gone, and the marker stays held with an empty pending set.
+		// That is the honest bound on the promise above: a forced confirm's steal
+		// is what recovers it (search.ReembedClaim.StealAfter).
 		return jobs.FaultContext(ctx, errors.Join(err, w.store.ReleaseReembedding(ctx, job.Args.Run)))
 	}
 	return jobs.FaultContext(ctx, err)
@@ -185,10 +199,16 @@ func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[E
 		// the exhausted attempt does this before returning its error.
 		if err := w.store.FinishWorkspaceReembedding(ctx, job.Args.Run,
 			ids.From[ids.WorkspaceKind](job.Args.Workspace)); err != nil {
-			// Retryable even on the drift path, and deliberately: the drift
-			// guard short-circuits before any model call, so an attempt spent
-			// re-trying this write costs nothing, and it is the only thing that
-			// will ever take this workspace out of the run's set.
+			// Retried on every attempt but the last, and on the drift path too,
+			// deliberately: the drift guard short-circuits before any model call, so
+			// an attempt spent re-trying this write costs nothing, and it is the
+			// only thing that will ever take this workspace out of the run's set.
+			//
+			// On the LAST attempt there is no retry — River discards a row that has
+			// run out, and it offers no post-discard hook — so a failure here, most
+			// naturally the same outage that failed the pass, leaves this workspace
+			// in the pending set and the marker held for good. A forced confirm's
+			// steal is the way back (search.ReembedClaim.StealAfter).
 			return jobs.FaultContext(ctx, errors.Join(passErr, err))
 		}
 	}

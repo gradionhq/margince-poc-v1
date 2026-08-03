@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 // claimOf is an ordinary confirm's claim: a fresh run over identity, with no
@@ -150,6 +151,17 @@ func steppingClock(step time.Duration) func() time.Time {
 	}
 }
 
+// ageMarkerPastTheStealWindow puts the marker's last movement two hours back,
+// which is what a run that stopped reporting leaves behind. Aged rather than
+// waited out: a suite that waits an hour is a suite nobody runs.
+func ageMarkerPastTheStealWindow(t *testing.T, e *searchEnv) {
+	t.Helper()
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
+		t.Fatalf("ageing the marker past the steal window: %v", err)
+	}
+}
+
 // TestAHealthyRunIsNotStealableHoweverLongItTakes is the other half of the
 // steal, and the half that is easy to lose. A workspace pass is allowed to run
 // for hours — its worker declares Timeout() == -1 precisely so a large corpus is
@@ -184,12 +196,8 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 	}
 
 	// The run has been going long enough to look abandoned, and its one
-	// workspace has not finished — the exact shape a steal must NOT take. Aged
-	// rather than waited out: a suite that waited an hour is a suite nobody runs.
-	if _, err := e.owner.Exec(ctx,
-		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
-		t.Fatalf("ageing the marker to mid-pass: %v", err)
-	}
+	// workspace has not finished — the exact shape a steal must NOT take.
+	ageMarkerPastTheStealWindow(t, e)
 
 	// A clock that jumps a reporting interval per entity: the pass then behaves
 	// exactly as one whose embeds are genuinely that slow, without the suite
@@ -206,6 +214,95 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 		func(pgx.Tx) error { return nil })
 	if !errors.Is(err, search.ErrReembeddingInFlight) {
 		t.Fatalf("a forced confirm over a run that is embedding = %v, want ErrReembeddingInFlight — a pass reporting real progress was dispossessed, and two children now re-embed the same corpus at once", err)
+	}
+}
+
+// probingEmbedder runs probe once, at the start of the FIRST embed of a pass,
+// and then delegates every call unchanged. The first embed is the earliest
+// moment a suite can stand INSIDE a pass and ask what the marker looks like from
+// there — which is the whole question when the legs that run before it are the
+// long ones.
+type probingEmbedder struct {
+	search.Embedder
+	probe  func()
+	probed bool
+}
+
+func (p *probingEmbedder) Embed(ctx context.Context, req model.EmbedRequest) (model.Embeddings, error) {
+	if !p.probed {
+		p.probed = true
+		p.probe()
+	}
+	return p.Embedder.Embed(ctx, req)
+}
+
+// TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed is the other half of
+// "a working run is never stale enough to dispossess", and the half a pass that
+// reported only after an entity completed did not have. Two legs run before the
+// first entity ever finishes and neither can report from inside itself: the
+// workspace's entity tables are scanned whole, and the first upsert waits on
+// pool acquisition and row locks before it reaches the model. A run that spent
+// both of them silent looks abandoned while it is working, and a routine forced
+// rebuild would then take its marker.
+//
+// The suite stands in for both legs. The marker is aged before the pass, which
+// is what the run's own dispatch and queue time leave behind; and it is aged
+// AGAIN the moment the pass starts, which is what a scan too big to walk quickly
+// does to it. By the time the pass reaches its first embed, a forced confirm
+// must find a marker fresh enough to refuse.
+func TestReembedReportsProgressBeforeItsScanAndItsFirstEmbed(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+	fake := ai.NewFakeClient()
+	delegate := fakeEmbedderNamed(t, fake, "model-slow-first-entity")
+	identity, _ := delegate.EmbedIdentity()
+	if err := e.store.SeedBinding(ctx, identity); err != nil {
+		t.Fatalf("SeedBinding: %v", err)
+	}
+	ws := ids.From[ids.WorkspaceKind](e.WS)
+
+	working := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming the run: %v", err)
+	}
+	if err := e.store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("seeding the run: %v", err)
+	}
+	for i := range 2 {
+		e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+			fmt.Sprintf("Slow First Entity Person %d", i))
+	}
+	ageMarkerPastTheStealWindow(t, e)
+
+	// The pass's own clock is the seam that says "the pass has begun": it is read
+	// for the first time as the pass starts reporting, so ageing the marker there
+	// makes everything the pass does next — its first scan above all — behave as
+	// if it took the whole steal window.
+	scanned := false
+	slowScan := func() time.Time {
+		if !scanned {
+			scanned = true
+			ageMarkerPastTheStealWindow(t, e)
+		}
+		return time.Now()
+	}
+
+	var stealDuringFirstEmbed error
+	embedder := &probingEmbedder{Embedder: delegate, probe: func() {
+		stealDuringFirstEmbed = e.store.ClaimAndEnqueueReembedding(ctx,
+			search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
+			func(pgx.Tx) error { return nil })
+	}}
+
+	pass := search.ReembedPass{Run: working.Run, Identity: identity, Now: slowScan}
+	if err := e.store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
+		t.Fatalf("the healthy pass: %v", err)
+	}
+	if !embedder.probed {
+		t.Fatal("the pass embedded nothing, so the assertion below was never reached — the fixture owes this workspace at least one live entity")
+	}
+	if !errors.Is(stealDuringFirstEmbed, search.ErrReembeddingInFlight) {
+		t.Fatalf("a forced confirm during the pass's FIRST embed = %v, want ErrReembeddingInFlight — a run that had scanned but not yet finished an entity was dispossessed, so two children now re-embed the same corpus at once", stealDuringFirstEmbed)
 	}
 }
 
@@ -234,12 +331,8 @@ func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
 	}
 
 	// The child was killed outright: its workspace never leaves the set, and the
-	// marker has not moved since. Aged rather than waited out — a suite that
-	// waited an hour would be a suite nobody runs.
-	if _, err := e.owner.Exec(ctx,
-		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
-		t.Fatalf("ageing the wedged marker: %v", err)
-	}
+	// marker has not moved since.
+	ageMarkerPastTheStealWindow(t, e)
 
 	if err := e.store.ClaimAndEnqueueReembedding(ctx, claimOf(identity), func(pgx.Tx) error { return nil }); !errors.Is(err, search.ErrReembeddingInFlight) {
 		t.Fatalf("an ordinary confirm over a stale marker = %v, want ErrReembeddingInFlight — stealing must be something a human asked for", err)

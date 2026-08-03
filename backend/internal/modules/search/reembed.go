@@ -56,7 +56,10 @@ type ReembedPass struct {
 // It also reports its own progress onto the run's marker as it goes, because a
 // pass this long is otherwise indistinguishable from one that died: nothing else
 // moves the marker between the fan-out and the workspace finishing, and
-// ReembedClaim.StealAfter reads exactly that gap.
+// ReembedClaim.StealAfter reads exactly that gap. Progress is reported BEFORE
+// each leg that cannot report from inside itself, never only after one has
+// completed — what that bounds, and the part of it nothing here can bound, is
+// stated on ReembedProgressStaleness.
 func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids.WorkspaceID, embedder Embedder) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
@@ -76,26 +79,50 @@ func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids
 	// workspace, not one caller's row scope — the same posture as
 	// EmbedGen (embedgen.go:51-56) and pendingStats.
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
-	noted := now()
+
+	// note says the run is still working, and restarts the pacing from the write
+	// that just landed rather than from when the caller wished it had.
+	var noted time.Time
+	note := func() error {
+		if err := s.noteReembedProgress(ctx, pass.Run); err != nil {
+			return err
+		}
+		noted = now()
+		return nil
+	}
+
 	for entityType, src := range pendingSources {
+		// The marker is refreshed on BOTH sides of the scan, and the first of
+		// those notes is also the one that covers the start of the pass: nothing
+		// runs ahead of it. A scan materializes a whole entity table for the
+		// workspace and can take longer than the reporting interval on its own, so
+		// a pass that only reported after an entity finished would spend its
+		// dominant leg looking dead. The note before the scan is what the scan's
+		// own duration is measured from; the note after it is where the embed
+		// loop's pacing restarts.
+		if err := note(); err != nil {
+			return err
+		}
 		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
 		if err != nil {
+			return err
+		}
+		if err := note(); err != nil {
 			return err
 		}
 		for _, item := range items {
 			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
 				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
 			}
-			// Paced by the clock and not by a count of entities: an entity is
-			// not a unit of time, so a count would have to be divided by the
-			// slowest an entity can be, and would then carry that model timeout
-			// into how stale a working run's marker may read. This carries it
-			// once — the entity in flight when the interval elapses.
-			if elapsed := now(); elapsed.Sub(noted) >= ReembedProgressStaleness {
-				if err := s.noteReembedProgress(ctx, pass.Run); err != nil {
+			// Paced by the clock and not by a count of entities: an entity is not a
+			// unit of time, so a count would have to be divided by the slowest an
+			// entity can be. This carries the one upsert in flight when the interval
+			// elapses, whose wall time is the residual ReembedProgressStaleness
+			// states and nothing here can cap.
+			if now().Sub(noted) >= ReembedProgressStaleness {
+				if err := note(); err != nil {
 					return err
 				}
-				noted = elapsed
 			}
 		}
 	}

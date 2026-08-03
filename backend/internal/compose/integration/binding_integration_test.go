@@ -222,8 +222,14 @@ func TestClaimAndEnqueueReembeddingRollsBackCASOnEnqueueError(t *testing.T) {
 // TestReleaseReembeddingOnlyEverActsOnItsOwnRun proves the release is fenced on
 // the run that claimed the marker: a release quoting some other run — a job row
 // left over from a run that already ended — must not hand away a marker the
-// current run is still holding, and must not stamp the store populated under a
-// model nothing re-embedded it with.
+// current run is still holding, and must not stamp populated_identity on behalf
+// of a run that never held it.
+//
+// What it does NOT pin, because the code does not give it: that the identity
+// stamped is one the fleet was actually re-embedded under. A run releases when
+// its last workspace has no outcome left to reach, exhausted attempts included,
+// so populated_identity means "last released under" (search's
+// releaseReembeddingTx).
 func TestReleaseReembeddingOnlyEverActsOnItsOwnRun(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
