@@ -141,6 +141,13 @@ func isForeignKeyViolation(err error) bool {
 // resetSummary is what the handler reports back after a reset.
 type resetSummary struct{ TablesCleared int }
 
+// resetDataResponse is the 200 body. The contract declares the shape inline
+// (no generated type), so it is spelled here.
+type resetDataResponse struct {
+	Status        string `json:"status"`
+	TablesCleared int    `json:"tables_cleared"`
+}
+
 // dataResetHandlers is the callable the non-production "reset data" HTTP
 // handler invokes. schemaPool is the owner-privileged pool the
 // cf_* column finalize runs on; nil skips that step (no schema pool
@@ -290,8 +297,8 @@ func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"status":         "reset",
-		"tables_cleared": summary.TablesCleared,
+	httperr.WriteJSON(w, http.StatusOK, resetDataResponse{
+		Status:        "reset",
+		TablesCleared: summary.TablesCleared,
 	})
 }

@@ -7,8 +7,11 @@
 // unset or anything unrecognized is Production, which disables them.
 package runtimeenv
 
+// Environment is the deployment posture derived from MARGINCE_ENV.
 type Environment string
 
+// The recognized deployment postures. Only the non-production values enable
+// dev-only trust switches; every unrecognized value parses to Production.
 const (
 	Production  Environment = "production"
 	Development Environment = "dev"
