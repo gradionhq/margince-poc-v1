@@ -84,10 +84,10 @@ type companyField struct {
 var companyFields = []companyField{
 	{name: fieldDisplayName},
 	{name: fieldOfferSummary},
-	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1`},
-	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1`},
+	{name: fieldLegalName, update: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS DISTINCT FROM $2`},
+	{name: fieldRegisteredAddress, update: `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS DISTINCT FROM $2`},
 	{name: fieldRegisterVat},
-	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1`},
+	{name: fieldIndustry, update: `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS DISTINCT FROM $2`},
 	{name: fieldICP},
 	{name: fieldValueProposition},
 	{name: fieldUSP},
@@ -207,17 +207,6 @@ func (s *Store) SaveCompany(ctx context.Context, in SaveCompanyInput) (Company, 
 		applied, err := writeCompanyFields(ctx, tx, orgID, by, fields)
 		if err != nil {
 			return err
-		}
-		// The form writes legal_name too, and a legal name is the axis on which
-		// two records of one company converge. resolveOrCreateAnchor above
-		// re-checks only when display_name moved, so without this a human
-		// typing the registered name into the company form is the one rename
-		// path that files nothing. The name lock it needs was taken there,
-		// ahead of the row lock, so the ordering already holds.
-		if _, renamed := applied[fieldLegalName]; renamed {
-			if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
-				return err
-			}
 		}
 		if in.Website != nil {
 			if err := setCompanyDomain(ctx, tx, orgID, *in.Website, by); err != nil {

@@ -8,12 +8,12 @@ package people
 // Which organization writers actually wait on the name lock, judged at the CALL
 // SITE rather than on the helper that decides it.
 //
-// The gate is one boolean, and a table test over that boolean passes whether or
-// not anything calls it — the deadlock and the missed duplicate it exists to
-// prevent are properties of the transaction, not of the predicate. So the lock
-// is held by hand in one transaction, the write runs in another, and the test
-// asks Postgres who is waiting on whom. No sleep, no clock: the same
-// pg_stat_activity busy-read the phone-lane contention test uses.
+// Which lock a writer holds, and in which order, is a property of the
+// transaction rather than of any predicate, so it is measured here rather than
+// asserted about a helper: the lock is held by hand in one transaction, the
+// write runs in another, and Postgres is asked who waits on whom. No sleep and
+// no clock — the same pg_stat_activity busy-read the phone-lane contention test
+// uses.
 
 import (
 	"context"
@@ -59,40 +59,10 @@ func (e *dedupeEnv) holdOrgNameLock(ctx context.Context, t *testing.T) (pgx.Tx, 
 	return tx, pid
 }
 
-// awaitBlockedOn returns true once some backend is provably waiting on a lock
-// the given pid holds, and false when the work finished without ever waiting.
-func awaitBlockedOn(t *testing.T, probe pgx.Tx, pid int, done <-chan error) (error, bool) {
-	t.Helper()
-	// Generous enough that a loaded machine cannot trip it, small enough that a
-	// genuine miss reports in seconds rather than minutes.
-	const maxProbes = 20_000
-	for i := 0; i < maxProbes; i++ {
-		var blocked bool
-		if err := probe.QueryRow(context.Background(), `
-			SELECT EXISTS (
-			  SELECT 1 FROM pg_stat_activity a
-			   WHERE a.datname = current_database() AND $1 = ANY (pg_blocking_pids(a.pid)))`,
-			pid).Scan(&blocked); err != nil {
-			t.Fatalf("probing for a waiting backend: %v", err)
-		}
-		if blocked {
-			return nil, true
-		}
-		select {
-		case err := <-done:
-			return err, false
-		default:
-		}
-	}
-	t.Fatal("the writer neither waited on the name lock nor finished")
-	return nil, false
-}
-
-// TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock is the regression for the
-// value-based gate. An apply that CLEARS a legal name to "" still writes the
-// row and still reaches the duplicate re-check, so it owes the name lock before
-// it touches the row — gating on the value let exactly that case take the two
-// in the order that deadlocks against a human rename.
+// An apply that carries a legal name owes the name lock BEFORE it touches the
+// organization row, whatever that name's value is: an empty one still writes the
+// row and still reaches the duplicate re-check, so it can hold the row while
+// wanting the name lock — the cycle a concurrent human rename completes.
 func TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
@@ -114,8 +84,8 @@ func TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			// The empty value is the point: the old gate read it and skipped
-			// the lock.
+			// The empty value is the case worth pinning: it writes the row
+			// like any other and is the easiest to mistake for "no name".
 			_, err = applyEvidenceFields(ctx, tx, workspaceID(ctx), orgID, "site_read", by,
 				[]ColdStartFieldInput{{
 					Field: fieldLegalName, Value: "",
@@ -126,7 +96,7 @@ func TestAnEvidenceApplyCarryingANameWaitsOnTheNameLock(t *testing.T) {
 		})
 	}()
 
-	if finished, waited := awaitBlockedOn(t, holder, pid, done); !waited {
+	if waited, finished := waitUntilBlockedBy(t, holder, pid, done); !waited {
 		t.Fatalf("the apply completed without ever waiting on the name lock (err=%v) — "+
 			"it can take this organization's row lock first and deadlock against a rename", finished)
 	}
@@ -197,7 +167,7 @@ func TestAnEvidenceApplyWithoutANameDoesNotWaitOnTheNameLock(t *testing.T) {
 		})
 	}()
 
-	finished, waited := awaitBlockedOn(t, holder, pid, done)
+	waited, finished := waitUntilBlockedBy(t, holder, pid, done)
 	if waited {
 		t.Fatal("an apply carrying no name waited on the workspace-wide name lock — " +
 			"every industry or address batch would serialize behind unrelated renames")

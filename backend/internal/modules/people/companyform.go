@@ -3,10 +3,15 @@
 
 package people
 
-// Writing the company form's fields. The form is the one surface where a human
-// states the installation's own company directly, so each value lands on its
-// column AND on its provenance row with source=human — the human IS the
-// evidence, which is why these writes carry no snippet.
+// Writing the fields a human states about the installation's own company —
+// from the company form, and from the human-edited half of a site-read
+// confirmation.
+//
+// A value lands on its provenance row always, and on an organization column
+// when the field is one of the few that is column-backed; clearing a value
+// deletes the provenance row rather than storing a blank one. The rows carry
+// source=human and no evidence snippet, because on this path the human IS the
+// evidence.
 
 import (
 	"context"
@@ -24,6 +29,7 @@ import (
 // for the audit delta.
 func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, by string, fields map[string]*string) (map[string]any, error) {
 	applied := map[string]any{}
+	renamed := false
 	for _, spec := range companyFields {
 		field := spec.name
 		value, sent := fields[field]
@@ -32,9 +38,11 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		}
 		trimmed := strings.TrimSpace(*value)
 		if spec.update != "" {
-			if err := setCompanyColumn(ctx, tx, orgID, spec, trimmed); err != nil {
+			moved, err := setCompanyColumn(ctx, tx, orgID, spec, trimmed)
+			if err != nil {
 				return nil, err
 			}
+			renamed = renamed || (moved && field == fieldLegalName)
 		}
 		if trimmed == "" {
 			if _, err := tx.Exec(ctx,
@@ -62,19 +70,35 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		}
 		applied[field] = trimmed
 	}
+	// A legal name is the axis on which two records of one company converge, and
+	// this function is the only writer of that column a human drives — through
+	// the company form AND through a site-read confirmation, which is why the
+	// re-check lives here rather than at either call site. Both callers took the
+	// name lock in resolveOrCreateAnchor, ahead of the row lock, so the ordering
+	// already holds.
+	if renamed {
+		if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+			return nil, err
+		}
+	}
 	return applied, nil
 }
 
 // setCompanyColumn writes a column-backed field, clearing it to NULL rather
 // than storing an empty string — an unfilled field reads as absent, never as
 // the empty answer.
-func setCompanyColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, spec companyField, value string) error {
+// setCompanyColumn writes one column-backed field and reports whether the
+// value actually moved. Every statement carries IS DISTINCT FROM, so a
+// resubmission of an unchanged form touches no row and answers false — which is
+// what keeps the duplicate re-check below off a save that renamed nothing.
+func setCompanyColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, spec companyField, value string) (bool, error) {
 	var stored *string
 	if value != "" {
 		stored = &value
 	}
-	if _, err := tx.Exec(ctx, spec.update, orgID, stored); err != nil {
-		return fmt.Errorf("set %s: %w", spec.name, err)
+	tag, err := tx.Exec(ctx, spec.update, orgID, stored)
+	if err != nil {
+		return false, fmt.Errorf("set %s: %w", spec.name, err)
 	}
-	return nil
+	return tag.RowsAffected() > 0, nil
 }

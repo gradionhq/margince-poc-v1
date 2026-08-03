@@ -48,10 +48,17 @@ type ApplyColdStartProfileInput struct {
 	Fields    []ColdStartFieldInput
 }
 
+// columnLegalName is the organization COLUMN, which is a different namespace
+// from the field of the same spelling: columnBackedColdStartFields maps
+// registered_address onto address_line1, so a field name and a column name
+// agreeing here is a coincidence, not a rule. The two constants stay apart so
+// renaming one cannot silently rename the other.
+const columnLegalName = "legal_name"
+
 // columnBackedColdStartFields maps read-back fields onto organization
 // columns; everything else lives only in organization_profile_field.
 var columnBackedColdStartFields = map[string]string{
-	fieldLegalName:       "legal_name",
+	fieldLegalName:       columnLegalName,
 	"industry":           "industry",
 	"registered_address": "address",
 }
@@ -220,8 +227,8 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, host, by string
 // coldStartColumns whitelists the identifier a fillEmptyOrgColumn UPDATE
 // may name — values are bind parameters, the column never is.
 var coldStartColumns = map[string]string{
-	fieldLegalName: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
-	"industry":     `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
+	columnLegalName: `UPDATE organization SET legal_name = $2 WHERE id = $1 AND legal_name IS NULL`,
+	"industry":      `UPDATE organization SET industry = $2 WHERE id = $1 AND industry IS NULL`,
 	// A scraped registered address arrives as one formatted line; it
 	// fills line1 only when no structured address exists yet.
 	"address": `UPDATE organization SET address_line1 = $2 WHERE id = $1 AND address_line1 IS NULL
@@ -323,7 +330,7 @@ func writeOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, co
 		return fillEmptyOrgColumn(ctx, tx, orgID, column, value)
 	}
 	queries := map[string]string{
-		fieldLegalName: `UPDATE organization SET legal_name = $2, updated_at = now()
+		columnLegalName: `UPDATE organization SET legal_name = $2, updated_at = now()
 			WHERE id = $1 AND legal_name IS DISTINCT FROM $2`,
 		"industry": `UPDATE organization SET industry = $2, updated_at = now()
 			WHERE id = $1 AND industry IS DISTINCT FROM $2`,
@@ -350,6 +357,12 @@ func fillEmptyOrgColumn(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 	query, ok := coldStartColumns[column]
 	if !ok {
 		return false, fmt.Errorf("people: %q is not a coldstart-fillable column", column)
+	}
+	// Nothing to fill. Writing "" here would satisfy this arm's own WHERE
+	// legal_name IS NULL once and never again: the column would read as
+	// answered while holding nothing, and no later read could correct it.
+	if value == "" {
+		return false, nil
 	}
 	tag, err := tx.Exec(ctx, query, orgID, value)
 	if err != nil {
