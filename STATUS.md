@@ -12,6 +12,23 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — the brief's omitted sections are prompt-enforced, not code-enforced
+
+`Input.SectionsOmitted` names what a reader could not see, and the writer is
+told to stay silent about those subjects
+([orgbrief/write.go](backend/internal/compose/orgbrief/write.go) briefSystem,
+last line). That instruction is the only thing enforcing it. The grounding
+filter cannot: `knownRecords` always contains the organization itself, so a
+sentence citing the organization is grounded whatever was withheld, and a model
+that ignores the instruction can put a claim about a withheld section in front
+of a restricted reader.
+
+Closing it needs a mapping from the 360's omitted section names onto the
+brief's own section kinds (`snapshot`/`fit`/`health`/`activity`/`next_step`) —
+two different vocabularies — and then dropping any section whose source was
+withheld. That is a boundary decision, not a filter tweak, which is why it is
+here rather than in PR #392.
+
 ## Open defect — a backfill of OLDER messages leaves those messages unread
 
 `threadMessages` ([signalextractread.go](backend/internal/compose/signalextractread.go))
