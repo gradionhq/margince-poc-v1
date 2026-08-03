@@ -95,23 +95,8 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// cannot claim to be another one.
 		return datasource.EntityRef{}, fmt.Errorf("capture: captured_by %q does not match the acting connector %q", rec.CapturedBy, actor.ID)
 	}
-	switch shape := counterpartyShapeOf(rec.Counterparty); shape {
-	case shapeAmbiguous:
-		return datasource.EntityRef{}, ErrCounterpartyNamedTwice
-	case shapeHalfChannel:
-		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
-	case shapeNone, shapeMail, shapeChannel:
-		// Well-formed; the channel arm is gated inside the transaction below.
-	default:
-		// A shape added to the enum without an arm here. Refusing it at THIS
-		// edge — before the transaction opens — is what keeps the refusal cheap:
-		// every downstream switch over the shape runs mid-transaction, after the
-		// activity, its audit row and its captured event are written, so a
-		// refusal there would fail the whole capture and hand the connector a
-		// deterministic error it retries forever (sinkensure.go states what that
-		// poison pill costs a mailbox). Admission is the one place a shape this
-		// module cannot classify can be turned away for nothing.
-		return datasource.EntityRef{}, fmt.Errorf("capture: unhandled counterparty shape %d", shape)
+	if err := admitCounterpartyShape(counterpartyShapeOf(rec.Counterparty)); err != nil {
+		return datasource.EntityRef{}, err
 	}
 
 	var ref datasource.EntityRef
@@ -194,6 +179,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
 func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, counterpartyDecision, error) {
+	// One clock read for the whole capture. A provider payload carrying no
+	// timestamp falls back to now(), and THREE things downstream ask for that
+	// answer — the activity row, its audit image, and the reply fact — so asking
+	// separately files one message under three different times, and the reply
+	// event then claims to describe an activity it disagrees with. fields is a
+	// value copy, so settling it here settles it for every one of them.
+	fields.OccurredAt = defaultOccurredAt(fields.OccurredAt)
 	id, created, err := s.upsertActivity(ctx, tx, rec, fields)
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
@@ -251,7 +243,7 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return ids.ActivityID{}, false, err
 	}
-	occurredAt := defaultOccurredAt(fields.OccurredAt)
+	occurredAt := fields.OccurredAt
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
 		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)

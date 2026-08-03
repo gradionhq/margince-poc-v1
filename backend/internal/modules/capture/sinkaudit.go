@@ -21,7 +21,7 @@ func capturedActivityAuditImage(rec connector.NormalizedRecord, fields ActivityF
 	return map[string]any{
 		"kind":            fields.Kind,
 		"direction":       fields.Direction,
-		"occurred_at":     defaultOccurredAt(fields.OccurredAt),
+		"occurred_at":     fields.OccurredAt,
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
 		fieldSourceID:     rec.NaturalKey.SourceID,
 	}

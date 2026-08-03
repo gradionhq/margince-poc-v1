@@ -101,6 +101,35 @@ func counterpartyShapeOf(cp connector.Counterparty) counterpartyShape {
 	}
 }
 
+// admitCounterpartyShape is the ONE gate on how a record names its human, and
+// it runs at the edge — before Upsert opens its transaction.
+//
+// Placement is the whole point. Every other switch over the shape runs
+// mid-transaction, after the activity, its audit row and its captured event are
+// written, so a refusal there fails the entire capture and hands the connector a
+// deterministic error it retries forever — the poison pill sinkensure.go's
+// savepoint exists to contain. Here a shape this module cannot classify is
+// turned away having cost nothing.
+//
+// It takes the shape rather than the Counterparty so the walk over the enum can
+// reach the arm no Counterparty can produce: a shape added to the const block
+// without an arm HERE is admitted silently and then met by an error downstream,
+// which is exactly the ordering this function exists to prevent.
+func admitCounterpartyShape(shape counterpartyShape) error {
+	switch shape {
+	case shapeNone, shapeMail, shapeChannel:
+		// Well-formed; the channel arm is gated again inside the transaction,
+		// under the account's own erasure lock.
+		return nil
+	case shapeAmbiguous:
+		return ErrCounterpartyNamedTwice
+	case shapeHalfChannel:
+		return ErrChannelIdentityIncomplete
+	default:
+		return fmt.Errorf("capture: unhandled counterparty shape %d", shape)
+	}
+}
+
 // ErrCounterpartyNamedTwice refuses a record naming its human both by an address
 // and by a channel identity. ErrChannelIdentityIncomplete refuses half a channel
 // identity. Both are sentinels rather than bare errors so the refusal can be

@@ -21,26 +21,78 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// TestEveryCounterpartyShapeHasAReplyOriginArm walks the whole enum rather than
-// the shapes a Counterparty can be built to produce: the point is what happens
-// when someone ADDS a shape. Admission (Sink.Upsert) and this resolver each
-// switch over it, and the two drifting apart is the failure — a shape admitted
-// at the edge but unhandled here fails mid-transaction, after the activity and
-// its audit row are written, which is a capture the connector retries forever.
+// TestEveryCounterpartyShapeIsAnsweredByBothSwitches walks the whole enum rather
+// than the shapes a Counterparty can be built to produce, because the failure
+// this guards is what happens when someone ADDS a shape.
+//
+// Two switches read it and they must not drift: admission
+// (admitCounterpartyShape) decides whether the record is captured at all, and
+// the reply resolver decides what medium its reply fact names. A shape admitted
+// at the edge but unhandled in the resolver fails MID-TRANSACTION — after the
+// activity, its audit row and its captured event are written — which the
+// connector retries forever. Walking both in one test is what keeps the pair
+// honest; covering only the resolver would leave the edge free to admit
+// something nothing downstream can answer for.
 //
 // The bound is the enum's own shapeCount sentinel rather than a repeated list,
-// so a shape appended to the const block joins this walk on its own and turns
-// it red until the resolver names it. It asserts only that the resolver does
-// not fall through to its unhandled arm; what each shape SHOULD answer is the
-// sibling test's business.
-func TestEveryCounterpartyShapeHasAReplyOriginArm(t *testing.T) {
+// so a shape appended to the const block joins this walk on its own.
+func TestEveryCounterpartyShapeIsAnsweredByBothSwitches(t *testing.T) {
+	const unhandled = "unhandled counterparty shape"
 	sink := &Sink{}
 	for shape := shapeNone; shape < shapeCount; shape++ {
-		_, _, err := sink.replyOriginForShape(context.Background(), nil, connector.Counterparty{}, shape)
-		if err != nil && strings.Contains(err.Error(), "unhandled counterparty shape") {
-			t.Errorf("shape %d falls through to the unhandled arm — admission lets it in, "+
-				"so the reply path must answer for it rather than failing the capture", shape)
+		if err := admitCounterpartyShape(shape); err != nil && strings.Contains(err.Error(), unhandled) {
+			t.Errorf("admission has no arm for shape %d — every shape is either captured or "+
+				"refused by name, and neither can be decided by falling through", shape)
 		}
+		_, _, err := sink.replyOriginForShape(context.Background(), nil, connector.Counterparty{}, shape)
+		if err != nil && strings.Contains(err.Error(), unhandled) {
+			t.Errorf("the reply resolver has no arm for shape %d — admission lets it in, so the "+
+				"resolver must answer for it rather than failing a capture already written", shape)
+		}
+	}
+}
+
+// TestAdmissionRefusesTheTwoMalformedShapesByName pins WHICH refusal each
+// malformed shape earns. The walk above proves only that no shape falls
+// through; a caller telling a record that names its human twice from one that
+// names it by half a channel identity needs the sentinels to stay distinct.
+func TestAdmissionRefusesTheTwoMalformedShapesByName(t *testing.T) {
+	for _, tc := range []struct {
+		shape counterpartyShape
+		want  error
+	}{
+		{shapeNone, nil},
+		{shapeMail, nil},
+		{shapeChannel, nil},
+		{shapeAmbiguous, ErrCounterpartyNamedTwice},
+		{shapeHalfChannel, ErrChannelIdentityIncomplete},
+	} {
+		if err := admitCounterpartyShape(tc.shape); !errors.Is(err, tc.want) {
+			t.Errorf("admitCounterpartyShape(%d) = %v, want %v", tc.shape, err, tc.want)
+		}
+	}
+}
+
+// TestAShapeOutsideTheEnumIsRefusedRatherThanAdmitted drives the arm the walk
+// above cannot reach: a value no current constant names. Both switches must
+// REFUSE it rather than fall through to their well-formed branch, because
+// silently admitting a shape nothing can classify is how a capture reaches the
+// middle of its transaction with no answer for what it is holding.
+func TestAShapeOutsideTheEnumIsRefusedRatherThanAdmitted(t *testing.T) {
+	const unhandled = "unhandled counterparty shape"
+	unknown := shapeCount // past every named shape, by construction
+
+	err := admitCounterpartyShape(unknown)
+	if err == nil || !strings.Contains(err.Error(), unhandled) {
+		t.Errorf("admission of an unnamed shape = %v, want it refused by name", err)
+	}
+
+	origin, ok, err := (&Sink{}).replyOriginForShape(context.Background(), nil, connector.Counterparty{}, unknown)
+	if err == nil || !strings.Contains(err.Error(), unhandled) {
+		t.Errorf("the reply resolver on an unnamed shape = %v, want it refused by name", err)
+	}
+	if ok || origin.channel != "" {
+		t.Errorf("got origin %+v ok=%v, want neither — an unnamed shape names no medium", origin, ok)
 	}
 }
 

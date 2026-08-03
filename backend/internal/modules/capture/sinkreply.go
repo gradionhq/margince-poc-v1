@@ -108,7 +108,7 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 		return nil
 	}
 	idempotencyKey := rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID
-	payload := engagementReplyPayload(matched, origin, defaultOccurredAt(fields.OccurredAt), idempotencyKey)
+	payload := engagementReplyPayload(matched, origin, fields.OccurredAt, idempotencyKey)
 	return storekit.EmitEvent(ctx, tx, auditID, id.UUID, payload)
 }
 
