@@ -51,6 +51,13 @@ type Stage struct {
 	Position       int      `json:"position"`
 }
 
+// listPipelinesAnswer is the tool's wire shape. Named rather than assembled as a
+// map[string]any: the payload is fully typed already, so the map would be an
+// untyped hop that also leaves the response shape undocumented.
+type listPipelinesAnswer struct {
+	Pipelines []Pipeline `json:"pipelines"`
+}
+
 // PipelineLister answers "what pipelines and stages does this workspace have".
 // Compose implements it over the deals module's own row-scoped config reads, so
 // the `pipeline` RBAC object gates this tool exactly as it gates the HTTP
@@ -113,5 +120,5 @@ func (t listPipelinesTool) Handle(ctx context.Context, in json.RawMessage) (json
 			pipelines[i].Stages = []Stage{}
 		}
 	}
-	return json.Marshal(map[string]any{"pipelines": pipelines})
+	return json.Marshal(listPipelinesAnswer{Pipelines: pipelines})
 }

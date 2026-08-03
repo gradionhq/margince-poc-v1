@@ -387,7 +387,13 @@ func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in Record
 		return nil, nil
 	}
 	if sub.entityType != "person" {
-		return nil, &ValidationError{Field: purposeIDField, Reason: "a double opt-in purpose needs a person subject; promote the lead before granting it"}
+		return nil, &ValidationError{
+			// The subject, not the purpose: the purpose is fine and the caller
+			// cannot fix it. What they must change is which subject they named,
+			// which is the field consentSubject's own refusals already use.
+			Field:  "subject",
+			Reason: "a double opt-in purpose needs a person subject; promote the lead before granting it",
+		}
 	}
 	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
 		return nil, &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}

@@ -379,4 +379,54 @@ func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
 		t.Errorf("update_record's description never says an edge's endpoints are unpatchable, which is "+
 			"the first thing a caller looks for and does not find: %q", patch)
 	}
+
+	// The same mistake in its sibling: an activity's links ARE settable on create
+	// and not patchable, and both shape maps carry activity — so a record-type key
+	// put the patch-only advice on the create tool too.
+	const linksAdvisory = "links are NOT patchable"
+	if !strings.Contains(patch, linksAdvisory) {
+		t.Errorf("update_record's description does not say an activity's links are unpatchable: %q", patch)
+	}
+	if strings.Contains(create, linksAdvisory) {
+		t.Error("create_record's description says an activity's links are NOT patchable — create_record " +
+			"and log_activity both ACCEPT links, so it is advice against a field the tool takes")
+	}
+}
+
+// The closing custom-field sentence must not promise carriage the surface
+// withholds.
+//
+// Every record type's description ends by telling callers that extra cf_<slug>
+// keys are read as custom-field values. That is false for activity and
+// relationship: neither contract shape carries the additionalProperties bag a cf_
+// value travels in, and customfields.FieldObjects deliberately excludes both — so
+// an agent following the description writes a key the strict decoder refuses.
+func TestTheCustomFieldSentenceNamesTheTypesThatTakeNone(t *testing.T) {
+	for name, description := range map[string]string{
+		"create": describeRecordFields(createShapes),
+		"update": describeRecordFields(updateShapes),
+	} {
+		if !strings.Contains(description, "cf_<slug>") {
+			t.Fatalf("%s: the description no longer mentions the custom-field key shape at all: %q",
+				name, description)
+		}
+		// The exclusion clause, isolated with Cut so the assertion reads the
+		// SENTENCE rather than the whole description — "activity" appears earlier
+		// in the field lists, so a substring test over the full text would pass
+		// without any exclusion being stated at all.
+		_, exclusion, found := strings.Cut(description, "No custom fields on")
+		if !found {
+			t.Errorf("%s: the description promises cf_ carriage and excludes nothing, though activity and "+
+				"relationship carry no additionalProperties bag — a cf_ key on either is refused, not "+
+				"stored: %q", name, description)
+			continue
+		}
+		// Both, and by name: an agent reads prose, so "some types are excluded"
+		// would leave it guessing which.
+		for _, excluded := range []string{"activity", "relationship"} {
+			if !strings.Contains(exclusion, excluded) {
+				t.Errorf("%s: the cf_ exclusion clause %q does not name %q", name, exclusion, excluded)
+			}
+		}
+	}
 }

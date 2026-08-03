@@ -28,6 +28,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -405,3 +406,76 @@ func TestAProjectStakeholderEdgeKeepsTheProjectItNames(t *testing.T) {
 			fields.ProjectID, projectID)
 	}
 }
+
+// ONE hidden endpoint is enough, which is the rule the conjunction exists for and
+// the case the both-hidden test above cannot reach.
+//
+// This file's premise is that an edge readable by someone who cannot read its
+// ORGANIZATION discloses that organization's existence and its link to a person
+// they can read. With both ends hidden, an edge would also be refused by a
+// provider that only ever checked the person — so the both-hidden case passes
+// against a weaker rule than the one claimed. Only this case separates a
+// CONJUNCTION from a check of whichever endpoint happens to be looked at first.
+func TestOneHiddenEndpointIsEnoughToHideTheEdge(t *testing.T) {
+	e := Setup(t)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	admin := e.As(e.Rep1, nil, AdminPerms)
+	stranger := e.As(e.Rep3, []ids.UUID{e.Team2}, relationshipReaderPerms())
+
+	// The person is the STRANGER's own, so their row scope admits it. The
+	// organization belongs to Rep2, so it does not.
+	mine, err := e.People.CreatePerson(stranger, people.CreatePersonInput{FullName: "Rep3 Visible", Source: "manual"})
+	if err != nil {
+		t.Fatalf("Rep3 creating their own person: %v", err)
+	}
+	owner := ids.From[ids.UserKind](e.Rep2)
+	hidden, err := e.People.CreateOrganization(admin, people.CreateOrganizationInput{
+		DisplayName: "Rep2 Only", OwnerID: &owner, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("seeding the hidden organization: %v", err)
+	}
+
+	// Created by the admin, so the edge's existence owes nothing to the stranger.
+	created, err := registry.Invoke(admin, "create_record", json.RawMessage(fmt.Sprintf(
+		`{"record_type":"relationship","fields":{"kind":"employment","person_id":%q,"organization_id":%q,"source":"ui"}}`,
+		mine.Id, hidden.Id)))
+	if err != nil {
+		t.Fatalf("create_record as admin over a mixed pair: %v", err)
+	}
+	edgeID, _ := wireEdge(t, created)
+
+	// The stranger can read the person. They must still not reach the edge — and
+	// the answer must be NOT FOUND, because a permission-denied would confirm it.
+	if _, err := e.People.GetPerson(stranger, ids.From[ids.PersonKind](ids.UUID(mine.Id)), storekit.LiveOnly); err != nil {
+		t.Fatalf("the stranger cannot read their OWN person, so this case proves nothing: %v", err)
+	}
+	for _, call := range []struct{ tool, args string }{
+		{"update_record", fmt.Sprintf(`{"record_type":"relationship","id":%q,"fields":{"started_at":"2026-05-01"}}`, edgeID)},
+		{"archive_record", fmt.Sprintf(`{"record_type":"relationship","id":%q}`, edgeID)},
+	} {
+		_, err := registry.Invoke(stranger, call.tool, json.RawMessage(call.args))
+		if !errors.Is(err, apperrors.ErrNotFound) {
+			t.Errorf("%s on an edge with ONE hidden endpoint = %v, want ErrNotFound — the visible person "+
+				"is not enough, or the rule is a check of one end rather than a conjunction of all of them",
+				call.tool, err)
+		}
+	}
+
+	// And the edge is absent from the person-filtered LIST, which is how a list
+	// hides: by omission, not by refusing.
+	edges, _, err := e.People.ListRelationships(stranger, people.ListRelationshipsInput{
+		PersonID: idPtr(ids.From[ids.PersonKind](ids.UUID(mine.Id))),
+	})
+	if err != nil {
+		t.Fatalf("listing the stranger's own person's edges: %v", err)
+	}
+	if len(edges) != 0 {
+		t.Errorf("the list returned %d edge(s) for a person whose only edge points at an organization the "+
+			"caller cannot read — the organization's existence and its link to this person both leak",
+			len(edges))
+	}
+}
+
+// idPtr takes the address of a typed id for the optional filter fields.
+func idPtr[K ids.EntityKind](id ids.ID[K]) *ids.ID[K] { return &id }
