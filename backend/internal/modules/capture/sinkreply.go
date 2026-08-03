@@ -62,10 +62,16 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 		return nil
 	}
 	var matched ids.UUID
-	// archived_at IS NULL per the formula's own prior-outbound scan: an archived
-	// message is one a human took off the timeline, and treating it as evidence
-	// of correspondence would score engagement from a conversation the workspace
-	// has withdrawn.
+	// archived_at IS NULL is the formula's own prior-outbound scan. An archived
+	// message is off the timeline, so naming one as the matched outbound would
+	// point the reply fact at a row its consumers cannot read back.
+	//
+	// Archiving here is not only a human act: the retention evaluator
+	// (privacy/retention.go) and the noise sweep (activities/capturenoise.go)
+	// both archive activities by machine. So an installation running a retention
+	// policy stops reply-detecting threads whose outbound legs have aged out,
+	// even for a customer replying today. That follows the formula rather than
+	// this file's choosing, and it is the behaviour the spec pins.
 	err := tx.QueryRow(ctx, `
 		SELECT id FROM activity
 		WHERE thread_key = $1 AND direction = 'outbound' AND archived_at IS NULL AND id <> $2
@@ -82,9 +88,14 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 		return err
 	}
 	if !ok {
-		// A thread-matched inbound whose record names nobody. The match is real
-		// but the reply fact would carry neither a medium to answer on nor a
-		// human it came from, so there is nothing honest to publish.
+		// A thread-matched inbound whose record names no counterparty at all.
+		// The thread match is real and the medium is arguably still derivable
+		// from the record, so this is a DEVIATION from the formula, which emits
+		// on the match alone: what it refuses to do is publish a reply fact
+		// naming a medium nothing in the record actually attests to. Deviations
+		// belong upstream, not in a comment — .tmp/reply-origin/UPSTREAM.md
+		// raises it, and no live producer reaches this arm today (every mail
+		// connector drops a From-less message before capture).
 		return nil
 	}
 	idempotencyKey := rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID
@@ -101,7 +112,16 @@ func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id id
 // means that guard has been bypassed — an invariant break the reply path must
 // state, not absorb into a silent no-event.
 func (s *Sink) replyOriginOf(ctx context.Context, tx pgx.Tx, cp connector.Counterparty) (replyOrigin, bool, error) {
-	switch shape := counterpartyShapeOf(cp); shape {
+	return s.replyOriginForShape(ctx, tx, cp, counterpartyShapeOf(cp))
+}
+
+// replyOriginForShape is replyOriginOf with the classification handed in, so the
+// arms can be walked across the whole enum rather than only the shapes a
+// Counterparty can be built to produce. Nothing but the seam above and that walk
+// calls it: a caller choosing its own shape would be re-deciding the one
+// question counterpartyShapeOf exists to answer.
+func (s *Sink) replyOriginForShape(ctx context.Context, tx pgx.Tx, cp connector.Counterparty, shape counterpartyShape) (replyOrigin, bool, error) {
+	switch shape {
 	case shapeMail:
 		contact, found, err := mailReplyContact(ctx, tx, cp.Email)
 		if err != nil {
@@ -166,6 +186,13 @@ func mailReplyContact(ctx context.Context, tx pgx.Tx, email string) (ids.PersonI
 // archived_at IS NULL), so this needs no ordering tiebreak the way the mail
 // lookup needs is_primary.
 func channelReplyContact(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity) (ids.PersonID, bool, error) {
+	if ci.Provider == "" || ci.ChannelUserID == "" {
+		// shapeChannel already guarantees both halves, exactly as shapeMail
+		// guarantees a non-empty address for the sibling lookup. Both refuse an
+		// empty key anyway rather than probing on one: a half key matches by
+		// accident or matches nothing, and neither is an answer.
+		return ids.PersonID{}, false, nil
+	}
 	var personID ids.PersonID
 	err := tx.QueryRow(ctx, `
 		SELECT person_id FROM person_channel_identity

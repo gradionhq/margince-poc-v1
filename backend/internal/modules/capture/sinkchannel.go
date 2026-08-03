@@ -70,6 +70,12 @@ const (
 	shapeChannel
 	shapeAmbiguous
 	shapeHalfChannel
+
+	// shapeCount bounds the enum so a walk over it derives rather than repeats
+	// the list. A shape appended above this line joins every such walk on its
+	// own, which is what keeps the switches that must all answer for it from
+	// drifting apart silently.
+	shapeCount
 )
 
 // A channel identity needs BOTH halves, and shapeChannel means both are present.

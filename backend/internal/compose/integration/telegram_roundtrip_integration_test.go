@@ -187,6 +187,12 @@ func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
 	c.arrive(t, sub, answer)
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 
+	// Counted before it is read: QueryRow over several rows scans the first and
+	// reports no error, so reading alone would green a path that double-fired.
+	if n := c.count(t,
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 1 {
+		t.Fatalf("%d engagement.reply events, want exactly 1 — the formula emits once per inbound message", n)
+	}
 	var channel, contactID string
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
@@ -195,7 +201,7 @@ func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
 			FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`,
 		).Scan(&channel, &contactID)
 	}); err != nil {
-		t.Fatalf("reading the reply fact: %v — want exactly one engagement.reply", err)
+		t.Fatalf("reading the reply fact: %v", err)
 	}
 	if channel != "telegram" {
 		t.Errorf("engagement.reply channel = %q, want %q — an automation answering this reply "+
@@ -204,6 +210,65 @@ func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
 	if contactID != personID {
 		t.Errorf("engagement.reply contact_id = %q, want the bound person %q — this sender resolves "+
 			"through person_channel_identity, so an address-only lookup names nobody", contactID, personID)
+	}
+}
+
+// TestAnArchivedOutboundIsNotAConversationToReplyInto holds the formula's
+// prior-outbound scan to `archived_at is null`.
+//
+// Archiving is how a human takes a message off the timeline. A scan that still
+// counted it would score engagement from a conversation the workspace has
+// withdrawn — and would do it invisibly, since the matched activity the event
+// names is one nobody can see any more. The assertion is a ZERO, so it is worth
+// saying what makes it meaningful: the same sequence WITHOUT the archive is
+// TestCustomerReplyNamesTheChannelItArrivedOn, which asserts exactly one event.
+// Only the archive differs between them.
+func TestAnArchivedOutboundIsNotAConversationToReplyInto(t *testing.T) {
+	c := setupTelegramConnected(t)
+	opening := telegramUpdate{
+		updateID: 6201, messageID: 21, senderID: 771201,
+		username: "browser", firstName: "Ida", text: "Are you at the fair next week?",
+	}
+	answer := telegramUpdate{
+		updateID: 6202, messageID: 22, senderID: 771201,
+		username: "browser", firstName: "Ida", text: "See you there.",
+	}
+
+	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{SendRegistry: c.sendRegistry()})
+	startTelegramWorker(t, runner)
+
+	c.arrive(t, sub, opening)
+	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+	activityID, personID := c.capturedMessage(t, opening)
+
+	c.grantConsent(t, personID, "transactional")
+	var sent struct {
+		ID string `json:"id"`
+	}
+	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+		"body": "We are — hall 4.", "consent_purpose": "transactional",
+	}, nil, &sent); status != http.StatusAccepted {
+		t.Fatalf("the rep's reply → %d, want 202", status)
+	}
+	awaitJobKind(t, sub, compose.SendEmailArgs{}.Kind())
+
+	// The rep takes their message back off the timeline, leaving the thread with
+	// no LIVE outbound in it.
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE activity SET archived_at = now() WHERE id = $1`, sent.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("archiving the outbound: %v", err)
+	}
+
+	c.arrive(t, sub, answer)
+	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+
+	if n := c.count(t,
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 0 {
+		t.Fatalf("%d engagement.reply events, want 0 — the only outbound in this thread was archived, "+
+			"so there is no live conversation the customer replied into", n)
 	}
 }
 

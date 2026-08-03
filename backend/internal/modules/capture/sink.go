@@ -95,13 +95,23 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// cannot claim to be another one.
 		return datasource.EntityRef{}, fmt.Errorf("capture: captured_by %q does not match the acting connector %q", rec.CapturedBy, actor.ID)
 	}
-	switch counterpartyShapeOf(rec.Counterparty) {
+	switch shape := counterpartyShapeOf(rec.Counterparty); shape {
 	case shapeAmbiguous:
 		return datasource.EntityRef{}, ErrCounterpartyNamedTwice
 	case shapeHalfChannel:
 		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
 	case shapeNone, shapeMail, shapeChannel:
 		// Well-formed; the channel arm is gated inside the transaction below.
+	default:
+		// A shape added to the enum without an arm here. Refusing it at THIS
+		// edge — before the transaction opens — is what keeps the refusal cheap:
+		// every downstream switch over the shape runs mid-transaction, after the
+		// activity, its audit row and its captured event are written, so a
+		// refusal there would fail the whole capture and hand the connector a
+		// deterministic error it retries forever (sinkensure.go states what that
+		// poison pill costs a mailbox). Admission is the one place a shape this
+		// module cannot classify can be turned away for nothing.
+		return datasource.EntityRef{}, fmt.Errorf("capture: unhandled counterparty shape %d", shape)
 	}
 
 	var ref datasource.EntityRef
