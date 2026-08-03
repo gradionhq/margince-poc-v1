@@ -108,10 +108,10 @@ func (inertRetriever) AssembleContext(context.Context, datasource.EntityRef, ret
 	return retrieval.Context{}, nil
 }
 
-// fullRegistry builds EVERY tool the product ships, through all six
+// fullRegistry builds EVERY tool the product ships, through all seven
 // registrars.
 //
-// Building only some of them is how a walk lies: three of the six families
+// Building only some of them is how a walk lies: three of the seven families
 // (network, slipping, intents) carry their own hand-written JSON schema
 // literals, and a walk that skips them certifies eight tools it never looked
 // at — which is exactly the failure TestTheWholeToolListEncodes exists to
@@ -122,6 +122,7 @@ func fullRegistry(t *testing.T) *Registry {
 	t.Helper()
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
 	RegisterCoreTools(r, nil, nil, nil, nil)
+	RegisterPipelineTool(r, func(context.Context) ([]Pipeline, error) { return nil, nil })
 	RegisterReportTool(r, nil)
 	RegisterIntentTools(r, inertRetriever{})
 	RegisterSlippingTools(r,

@@ -296,9 +296,9 @@ func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
+		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
 			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -390,7 +390,7 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 		OpenAPIOp:     "advanceDeal",
 		InputSchema: schema(`{"type":"object","required":["deal_id","to_stage_id"],"properties":{
 			"deal_id":{"type":"string","format":"uuid"},
-			"to_stage_id":{"type":"string","format":"uuid"},
+			"to_stage_id":{"type":"string","format":"uuid"` + stageIDNote + `},
 			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},

@@ -101,11 +101,12 @@ func (h Handlers) AdvanceDeal(w http.ResponseWriter, r *http.Request, id crmcont
 		return
 	}
 
-	deal, err := h.store.AdvanceDeal(r.Context(), pathID[ids.DealKind](id), AdvanceDealInput{
-		ToStageID:  pathID[ids.StageKind](req.ToStageId),
-		LostReason: req.LostReason,
-		IfVersion:  ifVersion,
-	})
+	in, err := advanceDealInput(req, ifVersion)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	deal, err := h.store.AdvanceDeal(r.Context(), pathID[ids.DealKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

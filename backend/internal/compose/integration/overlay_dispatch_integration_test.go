@@ -161,11 +161,20 @@ var overlayReaderPerms = principal.Permissions{
 }
 
 func overlayActorCtx(ws, user ids.UUID) context.Context {
+	return overlayActorCtxWith(ws, user, overlayReaderPerms)
+}
+
+// overlayActorCtxWith is overlayActorCtx for a caller that needs a WIDER grant
+// than the least-privilege reader. It exists so a mode-guard assertion can hand
+// the actor every object grant the guarded read would need — otherwise an
+// unwired guard fails the assertion with "permission denied", which passes for
+// the wrong reason and leaves object RBAC looking like the backstop it is not.
+func overlayActorCtxWith(ws, user ids.UUID, perms principal.Permissions) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
-		Permissions: overlayReaderPerms,
+		Permissions: perms,
 	})
 }
 
