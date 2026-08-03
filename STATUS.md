@@ -333,18 +333,55 @@ are disposable at this stage and a stranded job failing loudly is the wanted
 behaviour, so recreate rather than debug: `make infra-reset && make db-up &&
 make migrate`.
 
-### Pick up here — Phase 1 C (PRs 7 and 8)
+### Phase 1 is COMPLETE — C shipped both consumers
 
-Everything above is the invariant. C is its two consumers, and the whole reason
-the invariant was made exact.
+Everything above is the invariant. C was its two consumers, and the whole reason
+the invariant was made exact. Both are now built:
 
-7. **Fleet metrics** — `job_queue_depth{queue}` (OPS-MET-2, specified since V1
-   and never built) plus the sweep counters. Foundation ADR-0080 / A125 admits a
-   bounded `workspace_id` label on the job-runtime metrics — the id, never a
-   name, and **not** on OPS-MET-1's latency histogram.
-8. **The per-workspace read endpoint** over `/v1` — the consumer all of the
-   above exists to make honest, and the contract change C was separated to
-   quarantine.
+7. **Fleet metrics** — `/metrics` carries the job-runtime section:
+   `margince_job_queue_depth` (OPS-MET-2, specified since V1 and never built),
+   `_running`, `_discarded`, `_cancelled`, `_oldest_queued_age_seconds`, and the
+   `margince_sweep_workspaces_total`/`_failed` pair. All labelled with the
+   `workspace_id` ADR-0080 / A125 admits — the id, never a name — where an empty
+   value means a dispatcher, exactly and in both directions.
+8. **`GET /v1/admin/job-health`** — admin-only, human-session-only, scoped to
+   the caller's own workspace plus the untenanted dispatcher rows. A failed
+   tenant pass is finally readable by the admin it failed for, instead of only
+   by `psql`.
+
+Both surfaces are DB-derived at read time, because `cmd/worker` — where the
+dispatchers run — serves no HTTP surface at all, so an in-process counter there
+would be invisible to every scrape while the api's own copy reported zero.
+What the families mean, and the four limits worth knowing before alerting on
+them: [docs/reference/configuration.md](docs/reference/configuration.md),
+"Reading the job surfaces".
+
+**Carried forward from Phase 1 C, in priority order.** The first is the
+highest-value work left in this topic:
+
+1. **No fitness test asserts a workspace worker declares a `Timeout`** — see
+   the paragraph below; unchanged by C and still the blocker #390 shipped.
+2. **No fitness test asserts a fan-out site tags its children.** C tags all six
+   call sites, but the only registry of which sites exist is a comment — and the
+   adversarial review of C found a real missed site (`overlayReconcileWorker`)
+   whose absence would have silently emptied the overlay sweep series. Deriving
+   "this insert is a fan-out" needs a static notion the tree does not support
+   today; until it does, that comment is load-bearing code.
+3. **Not every worker routes its failure through `jobs.Fault`.** The endpoint is
+   safe regardless — it allowlists against the vocabulary and substitutes
+   otherwise — but the underlying obligation, that a raw provider error naming
+   an address must not reach a fleet-visible column, is held by no gate.
+4. **`cmd/worker` exposes no `/metrics`**, against OPS-MET-8's "every service".
+5. **A per-connection dispatcher can mask a failed connection** in the sweep
+   pair: the pair counts distinct workspaces, so a workspace whose second
+   connection succeeded later is not reported as failing. Stated in the docs;
+   whether it wants its own metric is a product decision.
+6. **`captureBackfillWorker.enqueueDigest` enqueues dispatcher args with no
+   uniqueness**, so one tenant's backfill triggers a whole-fleet digest fan-out.
+
+**Phase 2's screen stays blocked upstream on U2** (`margince-foundation#1225`,
+still open). The endpoint is the layer underneath it and is built now; the SPA
+is not, and needs no router entry without a screen.
 
 **Two things #390 left honest rather than hidden.** A reader of the job layer
 needs both. `populated_identity` on `embed_store_binding` means "last
