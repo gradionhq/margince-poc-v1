@@ -78,6 +78,14 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 			fact.Category = crmcontracts.OrganizationFactCategory(category)
 			fact.Field = crmcontracts.OrganizationFactField(field)
 			fact.Source = crmcontracts.OrganizationFactSource(source)
+			// Computed at read rather than stored: the rules are a judgment
+			// about shape and will be tuned, and a stored verdict would keep
+			// answering with the version of the rule that happened to run on
+			// the day the row landed.
+			if reason := factSuspectReason(fact.Field, fact.Value); reason != "" {
+				suspect := crmcontracts.OrganizationFactSuspectReason(reason)
+				fact.SuspectReason = &suspect
+			}
 			out = append(out, fact)
 		}
 		if err := rows.Err(); err != nil {

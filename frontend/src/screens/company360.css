@@ -282,3 +282,10 @@
 .co-prep-foot:empty {
   display: none;
 }
+
+/* A fact whose value contradicts its field. It sits beside the value rather
+   than replacing it: the reader needs to see what was extracted to judge it. */
+.co-fact-suspect {
+  display: inline-block;
+  margin-inline-start: 0.4rem;
+}

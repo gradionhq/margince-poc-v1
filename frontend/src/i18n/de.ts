@@ -498,6 +498,13 @@ export const de = {
   "org.relType.portfolio_company": "Portfoliounternehmen",
   "org.relType.competitor": "Wettbewerber",
   "org.relType.other": "Sonstige",
+  // Warum ein Fakt seinem eigenen Feld widerspricht. Der Fakt bleibt mit
+  // seinem Beleg sichtbar — ein Mensch erkennt es, Ausblenden wäre schlechter.
+  "co.factSuspect.phoneShapedLocation": "Sieht nach einer Telefonnummer aus",
+  "co.factSuspect.notAPhone": "Sieht nicht nach einer Telefonnummer aus",
+  "co.factSuspect.notAYear": "Sieht nicht nach einer Jahreszahl aus",
+  "co.factSuspect.notAnEmail": "Sieht nicht nach einer E-Mail-Adresse aus",
+  "co.factSuspect.notASize": "Sieht nicht nach einer Mitarbeiterzahl aus",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
