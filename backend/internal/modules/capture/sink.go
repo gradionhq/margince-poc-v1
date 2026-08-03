@@ -13,7 +13,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -236,63 +235,6 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 // (activities/activity.go) sets no fields but kind.
 func activityCaptureEventPayload(kind, sourceSystem string) crmcontracts.PublicEventActivityCaptured {
 	return crmcontracts.PublicEventActivityCaptured{Kind: kind, SourceSystem: &sourceSystem}
-}
-
-// emitReply is CAP-FORMULA-1: an INBOUND message in a thread we previously
-// wrote OUTBOUND in is a reply — the engagement signal scoring feeds on.
-// Emitted only when the activity row is new, so the at-least-once sync loop
-// cannot double-fire it; never a subject heuristic.
-func (s *Sink) emitReply(ctx context.Context, tx pgx.Tx, auditID ids.UUID, id ids.ActivityID, rec connector.NormalizedRecord, fields ActivityFields) error {
-	if fields.Direction != connector.DirectionInbound || rec.ThreadKey == "" {
-		return nil
-	}
-	var matched ids.UUID
-	err := tx.QueryRow(ctx, `
-		SELECT id FROM activity
-		WHERE thread_key = $1 AND direction = 'outbound' AND id <> $2
-		ORDER BY occurred_at DESC LIMIT 1`,
-		rec.ThreadKey, id).Scan(&matched)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("capture: reply detection: %w", err)
-	}
-	// contact_id resolves when the counterparty is already a person (the
-	// normal reply case — the outbound leg's ensure created them); a
-	// first-ever counterparty resolves in the follow-up ensure instead.
-	var contactID *ids.PersonID
-	if cp := strings.ToLower(strings.TrimSpace(rec.Counterparty.Email)); cp != "" {
-		var personID ids.PersonID
-		err := tx.QueryRow(ctx, `
-			SELECT person_id FROM person_email WHERE email = $1 AND archived_at IS NULL
-			ORDER BY is_primary DESC LIMIT 1`, cp).Scan(&personID)
-		if err == nil {
-			contactID = &personID
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("capture: reply contact lookup: %w", err)
-		}
-	}
-	idempotencyKey := rec.NaturalKey.SourceSystem + ":" + rec.NaturalKey.SourceID
-	payload := engagementReplyPayload(matched, defaultOccurredAt(fields.OccurredAt), idempotencyKey, contactID)
-	return storekit.EmitEvent(ctx, tx, auditID, id.UUID, payload)
-}
-
-// engagementReplyPayload builds the engagement.reply event — the reply's
-// contact_id is carried only when the counterparty already resolves to a
-// known person (absent, not null, otherwise).
-func engagementReplyPayload(matched ids.UUID, occurredAt time.Time, idempotencyKey string, contactID *ids.PersonID) crmcontracts.PublicEventEngagementReply {
-	payload := crmcontracts.PublicEventEngagementReply{
-		MatchedOutboundActivityId: openapi_types.UUID(matched),
-		Channel:                   "email",
-		OccurredAt:                occurredAt,
-		IdempotencyKey:            idempotencyKey,
-	}
-	if contactID != nil {
-		id := openapi_types.UUID(contactID.UUID)
-		payload.ContactId = &id
-	}
-	return payload
 }
 
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {

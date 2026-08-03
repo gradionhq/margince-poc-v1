@@ -135,6 +135,78 @@ func TestInboundThenReplyRoundTrip(t *testing.T) {
 	c.assertSubjectAccessDescribesTheReply(t, personID, inbound, reply)
 }
 
+// TestCustomerReplyNamesTheChannelItArrivedOn continues the round trip one
+// message further, to the leg CAP-FORMULA-1 is actually about: the customer
+// answers the rep, and the reply fact that lands on the bus has to say it came
+// over Telegram.
+//
+// The formula keys on thread_key and direction only, so it fires here exactly
+// as it does for mail — activities/channelsend.go stamps the outbound bot
+// message with the conversation's thread_key precisely so it does. What it must
+// NOT do is describe the medium wrongly: `channel` is what an automation
+// answering an inbound reply routes on, so "email" on a Telegram reply sends
+// the answer to an address this subject does not have. The subject here has no
+// address at all, which is what makes contact_id load-bearing too — resolved
+// from the channel identity, it is nil for every mail-shaped lookup.
+func TestCustomerReplyNamesTheChannelItArrivedOn(t *testing.T) {
+	c := setupTelegramConnected(t)
+	opening := telegramUpdate{
+		updateID: 6101, messageID: 11, senderID: 771101,
+		username: "buyer", firstName: "Nils", text: "Do you ship to Hamburg?",
+	}
+	answer := telegramUpdate{
+		updateID: 6102, messageID: 12, senderID: 771101,
+		username: "buyer", firstName: "Nils", text: "Perfect, I'll take two.",
+	}
+	const repReply = "We do — two days by courier."
+
+	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{SendRegistry: c.sendRegistry()})
+	startTelegramWorker(t, runner)
+
+	// The opening message has no prior outbound above it, so it is not a reply.
+	c.arrive(t, sub, opening)
+	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+	activityID, personID := c.capturedMessage(t, opening)
+	if n := c.count(t,
+		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 0 {
+		t.Fatalf("%d engagement.reply events after the opening message, want 0 — "+
+			"nothing outbound preceded it, so there is no thread to have replied into", n)
+	}
+
+	// The rep answers, which is what puts an outbound activity in this chat's
+	// thread for the customer's next message to match against.
+	c.grantConsent(t, personID, "transactional")
+	if status := c.call(t, "POST", "/v1/activities/"+activityID+"/send-message", anyMap{
+		"body": repReply, "consent_purpose": "transactional",
+	}, nil, nil); status != http.StatusAccepted {
+		t.Fatalf("the rep's reply → %d, want 202", status)
+	}
+	awaitJobKind(t, sub, compose.SendEmailArgs{}.Kind())
+
+	// And the customer writes back. THIS is the reply.
+	c.arrive(t, sub, answer)
+	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+
+	var channel, contactID string
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT envelope->'payload'->>'channel',
+			       coalesce(envelope->'payload'->>'contact_id', '')
+			FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`,
+		).Scan(&channel, &contactID)
+	}); err != nil {
+		t.Fatalf("reading the reply fact: %v — want exactly one engagement.reply", err)
+	}
+	if channel != "telegram" {
+		t.Errorf("engagement.reply channel = %q, want %q — an automation answering this reply "+
+			"routes on this value, and a Telegram customer has no address to answer at", channel, "telegram")
+	}
+	if contactID != personID {
+		t.Errorf("engagement.reply contact_id = %q, want the bound person %q — this sender resolves "+
+			"through person_channel_identity, so an address-only lookup names nobody", contactID, personID)
+	}
+}
+
 // assertSubjectAccessDescribesTheReply is Art. 15 over the message that just
 // left: the export must say WHICH account this installation messaged, not only
 // that some message existed.

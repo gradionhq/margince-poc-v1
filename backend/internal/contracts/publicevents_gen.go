@@ -426,12 +426,12 @@ type PublicEventDealUpdated struct {
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
-// PublicEventEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply).
+// PublicEventEngagementReply Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sinkreply.go's emitReply).
 type PublicEventEngagementReply struct {
-	// Channel The channel the reply arrived on (today always email).
+	// Channel The medium the reply arrived on and must be answered on: `email` for the mail connectors (gmail, imap, graph all reach one inbox), the channel provider itself for a messaging connector (e.g. `telegram`).
 	Channel string `json:"channel"`
 
-	// ContactId The already-known person behind the counterparty address (absent when the counterparty resolves only in a follow-up ensure).
+	// ContactId The already-known person behind the counterparty — resolved from the address on the mail path and from the channel identity on a messaging one (absent when the counterparty resolves only in a follow-up ensure).
 	ContactId *openapi_types.UUID `json:"contact_id,omitempty"`
 
 	// IdempotencyKey The capture natural key (source_system:source_id) this reply was detected from.
