@@ -10,6 +10,7 @@ import {
   Modal,
   SectionHeader,
   Skeleton,
+  StatCard,
 } from "../design-system/atoms";
 import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
@@ -1156,6 +1157,7 @@ export function AccountBrief({
   view,
   enabled,
   onOpenRecord,
+  onPerform,
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
@@ -1164,6 +1166,7 @@ export function AccountBrief({
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1253,6 +1256,7 @@ export function AccountBrief({
           orgId={orgId}
           view={view}
           onOpenRecord={onOpenRecord}
+          onPerform={onPerform}
         />
       )}
       <BriefFooter view={view} />
@@ -1435,14 +1439,137 @@ export function AskSection({
  * dismissal is theirs alone and is keyed on the evidence, so the same advice
  * stays gone while the situation holds and comes back when it changes.
  */
+type StateStrip = NonNullable<Organization360["state_strip"]>;
+
+const ENGAGEMENT_LABELS: Record<
+  NonNullable<StateStrip["engagement"]>["state"],
+  MessageKey
+> = {
+  never_contacted: "co.strip.engagement.never_contacted",
+  active: "co.strip.engagement.active",
+  waiting_on_them: "co.strip.engagement.waiting_on_them",
+  waiting_on_us: "co.strip.engagement.waiting_on_us",
+  dormant: "co.strip.engagement.dormant",
+};
+
+// The two states that name a problem rather than a condition. Colouring only
+// these keeps the strip from reading as a dashboard where every tile is lit.
+const ENGAGEMENT_TONE: Partial<
+  Record<NonNullable<StateStrip["engagement"]>["state"], "warn">
+> = {
+  waiting_on_them: "warn",
+  dormant: "warn",
+};
+
+/**
+ * StateStrip is the three readings the overview leads with (AC-company-13):
+ * where the account stands, whose move it is, and what commercial work is open.
+ *
+ * Each half is drawn only when the server answered it. A null engagement means
+ * the caller may not read the account's mail, and inventing "never contacted"
+ * from that would state a business conclusion the page has no basis for — the
+ * one a rep would act on.
+ */
+export function StateStrip({
+  view,
+  lifecycleLabel,
+  relationshipLabels,
+}: Readonly<{
+  view?: Organization360;
+  lifecycleLabel: (value: string) => string;
+  relationshipLabels: (values: readonly string[]) => string;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const strip = view?.state_strip;
+  if (!strip) {
+    return null;
+  }
+  const engagement = strip.engagement;
+  const commercial = strip.commercial;
+  const types = strip.account.relationship_types ?? [];
+  const when = (at?: string | null) =>
+    at ? formatDate(at, locale, RECORD_ZONE) : undefined;
+  return (
+    <section className="co-strip" aria-label={t("co.strip.title")}>
+      <StatCard
+        label={t("co.strip.account")}
+        value={lifecycleLabel(strip.account.lifecycle)}
+        detail={types.length > 0 ? relationshipLabels(types) : undefined}
+      />
+      {engagement && (
+        <StatCard
+          label={t("co.strip.engagement")}
+          value={t(ENGAGEMENT_LABELS[engagement.state])}
+          tone={ENGAGEMENT_TONE[engagement.state]}
+          detail={
+            engagement.last_inbound_at || engagement.last_outbound_at
+              ? t("co.strip.lastBoth", {
+                  inbound:
+                    when(engagement.last_inbound_at) ?? t("co.strip.never"),
+                  outbound:
+                    when(engagement.last_outbound_at) ?? t("co.strip.never"),
+                })
+              : undefined
+          }
+        />
+      )}
+      {commercial && (
+        <StatCard
+          label={t("co.strip.commercial")}
+          value={t("co.strip.openDeals", { count: commercial.open_count })}
+          tone={commercial.stalled_count > 0 ? "warn" : undefined}
+          detail={
+            commercial.stalled_count > 0
+              ? t("co.strip.stalled", { count: commercial.stalled_count })
+              : undefined
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+// What performing a suggestion means. The server names it; this maps the name
+// to the words on the button.
+export type SuggestionAction = NonNullable<Suggestion["action"]>;
+
+const SUGGESTION_ACTION_LABELS: Record<SuggestionAction["kind"], MessageKey> = {
+  draft_reply: "co.suggest.act.draftReply",
+  open_deal: "co.suggest.act.openDeal",
+  add_task: "co.suggest.act.addTask",
+};
+
+// SuggestionActionButton exists so the action is narrowed ONCE, at the call
+// site, rather than re-narrowed inside a callback where TypeScript has already
+// lost it.
+function SuggestionActionButton({
+  action,
+  onPerform,
+}: Readonly<{
+  action: SuggestionAction;
+  onPerform: (action: SuggestionAction) => void;
+}>) {
+  const t = useT();
+  return (
+    <Button small onClick={() => onPerform(action)}>
+      {t(SUGGESTION_ACTION_LABELS[action.kind])}
+    </Button>
+  );
+}
+
 export function SuggestionsSection({
   orgId,
   view,
   onOpenRecord,
+  onPerform,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // Performing the advice is the page's job, not this card's: the composer,
+  // the deal and the task form all live above it.
+  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const client = useQueryClient();
@@ -1496,7 +1623,15 @@ export function SuggestionsSection({
                 evidence={suggestion.evidence}
                 onOpenRecord={onOpenRecord}
               />
-
+              {/* What performing the advice means, named by the server. A rule
+                  that could not name one carries null and this renders nothing
+                  rather than a control that does nothing. */}
+              {suggestion.action && onPerform && (
+                <SuggestionActionButton
+                  action={suggestion.action}
+                  onPerform={onPerform}
+                />
+              )}
               <Button
                 small
                 onClick={() => dismiss.mutate(suggestion.fingerprint)}

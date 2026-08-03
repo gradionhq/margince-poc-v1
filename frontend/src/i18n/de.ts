@@ -505,6 +505,24 @@ export const de = {
   "co.factSuspect.notAYear": "Sieht nicht nach einer Jahreszahl aus",
   "co.factSuspect.notAnEmail": "Sieht nicht nach einer E-Mail-Adresse aus",
   "co.factSuspect.notASize": "Sieht nicht nach einer Mitarbeiterzahl aus",
+  // Die drei Aussagen, mit denen die Übersicht beginnt, und was das
+  // Ausführen eines Vorschlags bedeutet.
+  "co.strip.title": "Wo dieser Account steht",
+  "co.strip.account": "Phase",
+  "co.strip.engagement": "Wer am Zug ist",
+  "co.strip.commercial": "Offene Arbeit",
+  "co.strip.engagement.never_contacted": "Nie kontaktiert",
+  "co.strip.engagement.active": "Im Gespräch",
+  "co.strip.engagement.waiting_on_them": "Warten auf sie",
+  "co.strip.engagement.waiting_on_us": "Warten auf uns",
+  "co.strip.engagement.dormant": "Still geworden",
+  "co.strip.lastBoth": "Sie schrieben {inbound} · wir schrieben {outbound}",
+  "co.strip.never": "nie",
+  "co.strip.openDeals": "{count} offen",
+  "co.strip.stalled": "{count} ins Stocken geraten",
+  "co.suggest.act.draftReply": "Antwort entwerfen",
+  "co.suggest.act.openDeal": "Deal öffnen",
+  "co.suggest.act.addTask": "Nächsten Schritt anlegen",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.

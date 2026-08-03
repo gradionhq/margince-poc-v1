@@ -55,13 +55,15 @@ import {
   PeopleCard,
   RECORD_ZONE,
   SignalsCard,
+  StateStrip,
+  type SuggestionAction,
   TagsCard,
   useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
-import { TimelineActions } from "./compose";
+import { ComposeModal, TimelineActions } from "./compose";
 import {
   CreateAction,
   type CreateField,
@@ -2054,6 +2056,13 @@ function CompanyPage({
 }>) {
   const t = useT();
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // The two surfaces a suggestion's action opens. Held here because both are
+  // page-level: the composer anchors on a timeline message, and the task form
+  // is the account's own log-activity surface.
+  const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
+    null,
+  );
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   // A task written or completed from this page changes the account's timeline,
@@ -2153,7 +2162,30 @@ function CompanyPage({
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
       )}
-      {/* The brief leads: what this account looks like right now, before the
+      {/* The strip leads, before any prose: where the account stands, whose
+          move it is, and what work is open. Three readings a rep can act on
+          without reading a sentence — and the one that replaced a number
+          nobody could scale. */}
+      {tab === "overview" && view && (
+        <StateStrip
+          view={view}
+          lifecycleLabel={(value) =>
+            t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+          }
+          relationshipLabels={(values) =>
+            values
+              .map((value) =>
+                t(
+                  RELATIONSHIP_TYPE_LABELS[
+                    value as keyof typeof RELATIONSHIP_TYPE_LABELS
+                  ],
+                ),
+              )
+              .join(" · ")
+          }
+        />
+      )}
+      {/* Then the brief: what this account looks like right now, before the
           cards that report it field by field. It absorbed the standalone
           "since your last visit" block, because two cards each claiming to
           say what the state is made the reader arbitrate between them. */}
@@ -2163,6 +2195,12 @@ function CompanyPage({
           view={view}
           enabled={!overlay}
           onOpenRecord={openCitation}
+          onPerform={(action) =>
+            performSuggestion(action, {
+              compose: setReplyToActivityId,
+              logTask: () => setTaskFormOpen(true),
+            })
+          }
         />
       )}
       {tab === "overview" && view && (
@@ -2176,6 +2214,28 @@ function CompanyPage({
               update={taskUpdate}
             />
           )}
+        />
+      )}
+      {/* The composer, anchored on the message a draft_reply suggestion named.
+          It is the same modal the timeline's own Reply opens — the advice
+          shortcuts to it rather than inventing a second way to answer. */}
+      {replyToActivityId && (
+        <ComposeModal
+          activityId={replyToActivityId}
+          entityType="organization"
+          entityId={org.id}
+          kind="email"
+          open
+          onClose={() => setReplyToActivityId(null)}
+        />
+      )}
+      {taskFormOpen && (
+        <LogActivityAction
+          entityType="organization"
+          entityId={org.id}
+          initialKind="task"
+          openOnMount
+          onClose={() => setTaskFormOpen(false)}
         />
       )}
       {openTaskId && (
@@ -2216,6 +2276,33 @@ function CompanyPage({
       </Modal>
     </RecordView>
   );
+}
+
+// performSuggestion carries out the advice the server named.
+//
+// It routes rather than acts: each kind opens the governed surface a rep would
+// have reached for anyway, prefilled from the evidence the rule fired on.
+// Nothing here writes, and nothing is staged — the card advises, the surface
+// it opens is where the human decides.
+//
+// draft_reply and add_task both land on the account's own timeline surfaces,
+// which is why the page owns this handler rather than the card: the composer
+// and the log-activity form live here.
+function performSuggestion(
+  action: SuggestionAction,
+  open: { compose: (activityId: string) => void; logTask: () => void },
+) {
+  if (action.kind === "open_deal" && action.deal_id) {
+    openCitation("deal", action.deal_id);
+    return;
+  }
+  if (action.kind === "draft_reply" && action.activity_id) {
+    open.compose(action.activity_id);
+    return;
+  }
+  if (action.kind === "add_task") {
+    open.logTask();
+  }
 }
 
 // openCitation routes a cited record to its own screen. The brief, the

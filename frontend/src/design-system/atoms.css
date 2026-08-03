@@ -675,3 +675,34 @@ select.input {
   width: 100%;
   justify-content: flex-start;
 }
+
+/* One reading at the top of a record. The tile stays neutral and only the
+   VALUE takes a tone: a row of coloured boxes reads as a dashboard, and the
+   reader is meant to see three facts rather than a traffic light. */
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.stat-card-label,
+.stat-card-detail {
+  color: var(--text-muted);
+}
+
+.stat-card-value {
+  overflow-wrap: anywhere;
+}
+
+.stat-card-warn {
+  color: var(--warn-text, var(--text));
+}
+
+.stat-card-danger {
+  color: var(--danger-text, var(--text));
+}

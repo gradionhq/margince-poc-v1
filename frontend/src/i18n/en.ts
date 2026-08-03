@@ -494,6 +494,25 @@ export const en = {
   "co.factSuspect.notAYear": "Does not look like a year",
   "co.factSuspect.notAnEmail": "Does not look like an email address",
   "co.factSuspect.notASize": "Does not look like a headcount",
+  // The three readings the overview leads with, and what performing a
+  // suggestion means. "Whose move" is the question the 0-100 score was
+  // mistaken for.
+  "co.strip.title": "Where this account stands",
+  "co.strip.account": "Stage",
+  "co.strip.engagement": "Whose move",
+  "co.strip.commercial": "Open work",
+  "co.strip.engagement.never_contacted": "Never contacted",
+  "co.strip.engagement.active": "In conversation",
+  "co.strip.engagement.waiting_on_them": "Waiting on them",
+  "co.strip.engagement.waiting_on_us": "Waiting on us",
+  "co.strip.engagement.dormant": "Gone quiet",
+  "co.strip.lastBoth": "They wrote {inbound} · we wrote {outbound}",
+  "co.strip.never": "never",
+  "co.strip.openDeals": "{count} open",
+  "co.strip.stalled": "{count} stalled",
+  "co.suggest.act.draftReply": "Draft a reply",
+  "co.suggest.act.openDeal": "Open the deal",
+  "co.suggest.act.addTask": "Add the next step",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and

@@ -289,3 +289,12 @@
   display: inline-block;
   margin-inline-start: 0.4rem;
 }
+
+/* The three readings, side by side above everything else. They wrap rather
+   than shrink: a reading squeezed to two words stops being one. */
+.co-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  margin-block-end: 0.9rem;
+}

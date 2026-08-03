@@ -138,6 +138,46 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+/**
+ * StatCard is one reading at the top of a record: a label, the reading itself,
+ * and one line of detail saying what it is drawn from.
+ *
+ * The detail line is not decoration. A reading with no basis stated is a number
+ * a reader has to trust, and this surface exists because a number nobody could
+ * scale — "Relationship 2/100" — was doing exactly that.
+ *
+ * `tone` colours the value, never the whole tile: a strip of coloured boxes
+ * reads as a dashboard, and the reader is meant to see three facts, not a
+ * traffic light.
+ */
+export function StatCard({
+  label,
+  value,
+  detail,
+  tone,
+}: Readonly<{
+  label: string;
+  value: string;
+  detail?: string;
+  tone?: "warn" | "danger";
+}>) {
+  return (
+    <section className="stat-card">
+      <span className="stat-card-label t-caption">{label}</span>
+      <span
+        className={
+          tone
+            ? `stat-card-value t-h3 stat-card-${tone}`
+            : "stat-card-value t-h3"
+        }
+      >
+        {value}
+      </span>
+      {detail && <span className="stat-card-detail t-caption">{detail}</span>}
+    </section>
+  );
+}
+
 export function Card({
   inset,
   children,

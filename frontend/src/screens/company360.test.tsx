@@ -1151,3 +1151,95 @@ describe("company view — where the account stands, and what it is to us", () =
     expect(screen.queryByText("Not assessed")).toBeNull();
   });
 });
+
+describe("company view — the state strip", () => {
+  it("leads with where the account stands, whose move it is, and what is open", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: {
+            lifecycle: "former_customer",
+            relationship_types: ["partner"],
+          },
+          engagement: {
+            state: "waiting_on_them",
+            last_inbound_at: "2026-04-30T09:00:00Z",
+            last_outbound_at: "2026-07-17T09:00:00Z",
+          },
+          commercial: { open_count: 2, stalled_count: 1 },
+        },
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("region", { name: "Where this account stands" });
+    const strip = screen.getByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Former customer")).toBeTruthy();
+    expect(within(strip).getByText("Waiting on them")).toBeTruthy();
+    expect(within(strip).getByText("2 open")).toBeTruthy();
+    expect(within(strip).getByText("1 stalled")).toBeTruthy();
+  });
+
+  it("draws no engagement reading when the caller may not read the mail", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // Scoped to the strip: the header has its own last-touch line, and an
+    // unscoped query would pass on that instead of on what the strip drew.
+    //
+    // Inventing "never contacted" from data the caller was not allowed to see
+    // states a conclusion the page has no basis for — and it is the one a rep
+    // would act on.
+    expect(within(strip).queryByText("Whose move")).toBeNull();
+    expect(within(strip).queryByText("Never contacted")).toBeNull();
+    expect(within(strip).queryByText("Open work")).toBeNull();
+    expect(within(strip).getByText("Customer")).toBeTruthy();
+  });
+});
+
+describe("company view — advice you can act on", () => {
+  it("offers the action the server named, and none where it named none", async () => {
+    stub(
+      view({
+        suggestions: [
+          {
+            kind: "no_reply",
+            fingerprint: "f1",
+            reason: "You reached out 15 days ago and nobody has come back.",
+            evidence: [],
+            action: { kind: "draft_reply", activity_id: "a-1" },
+          },
+          {
+            kind: "no_next_step",
+            fingerprint: "f2",
+            reason: "2 open deal(s) here and no task saying what happens next.",
+            evidence: [],
+            action: null,
+          },
+        ],
+        suggestions_dropped: 0,
+      }),
+    );
+    renderCompany();
+    await screen.findByText(/nobody has come back/);
+
+    expect(screen.getByRole("button", { name: "Draft a reply" })).toBeTruthy();
+    // The second rule named no action, so it advises without a control. A
+    // button that does nothing teaches the reader to stop pressing them.
+    expect(
+      screen.queryByRole("button", { name: "Add the next step" }),
+    ).toBeNull();
+  });
+});
