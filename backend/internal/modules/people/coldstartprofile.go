@@ -64,17 +64,19 @@ var columnBackedColdStartFields = map[string]string{
 }
 
 // readColdStartColumnImages reads the columns an apply may touch, so the audit
-// can record what each one WAS. Without this the write recorded only what it
-// set, and field history had no diff to project — the reason it rendered
-// pseudo-fields instead of "legal_name: X → Y".
+// row can carry what each one WAS. The column writes report only whether they
+// changed something, never what they replaced, so the before image has to be
+// read: field history projects per field from before/after, and an image-less
+// audit row gives it nothing to diff.
 func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[string]any, error) {
+	var displayName string
 	var legalName, industry, addressLine1 *string
 	if err := tx.QueryRow(ctx,
-		`SELECT legal_name, industry, address_line1 FROM organization WHERE id = $1`,
-		orgID).Scan(&legalName, &industry, &addressLine1); err != nil {
+		`SELECT display_name, legal_name, industry, address_line1 FROM organization WHERE id = $1`,
+		orgID).Scan(&displayName, &legalName, &industry, &addressLine1); err != nil {
 		return nil, fmt.Errorf("read organization column images: %w", err)
 	}
-	out := map[string]any{}
+	out := map[string]any{fieldDisplayName: displayName}
 	for column, value := range map[string]*string{
 		"legal_name": legalName, "industry": industry, "address_line1": addressLine1,
 	} {
@@ -150,10 +152,9 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
-	// The columns as they stand BEFORE the apply. Read first, because the
-	// write only reports whether it changed something, not what it replaced —
-	// and an audit row with no before image gives field history nothing to
-	// diff, which is why it used to render pseudo-fields.
+	// The columns as they stand before the apply, including display_name: a
+	// created organization gets its name here, and that is a column change a
+	// reader is entitled to see.
 	before, err := readColdStartColumnImages(ctx, tx, orgID)
 	if err != nil {
 		return ids.OrganizationID{}, err
@@ -172,11 +173,10 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if created {
 		action = "create"
 	}
-	// before/after carry the RECORD's own column images and nothing else; the
-	// operation's metadata rides audit_log.evidence, which is what that column
-	// is for. Folding source/source_url/fields into the after image made field
-	// history project them as changes to fields named "source" and "facts" —
-	// changes that never happened on the record (storekit.AuditWithEvidence).
+	// before/after carry the RECORD's own column images and nothing else. The
+	// operation's metadata rides audit_log.evidence, which is the column for
+	// it: anything placed in the images is projected by field history as a
+	// change to a field of that name (storekit.AuditWithEvidence).
 	auditID, err := storekit.AuditWithEvidence(ctx, tx, action, "organization", orgID.UUID, before, after, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 	})

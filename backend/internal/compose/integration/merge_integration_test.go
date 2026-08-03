@@ -14,6 +14,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -179,14 +180,16 @@ func TestMergeOrganization_partnerExtensionMovesIntoVacancy(t *testing.T) {
 	srcID, tgtID := orgIDOf(ids.UUID(source.Id)), orgIDOf(ids.UUID(target.Id))
 	// The source carries the partner program; the target has none.
 	e.WsExec(t, `INSERT INTO partner (workspace_id, organization_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:test')`, e.WS, srcID)
-	e.WsExec(t, `UPDATE organization SET classification = 'partner' WHERE id = $1`, srcID)
+	e.WsExec(t, `INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
+		VALUES ($1, $2, 'partner', 'manual', 'human:test')`, e.WS, srcID)
 
 	if _, err := e.People.MergeOrganization(admin, srcID, tgtID); err != nil {
 		t.Fatalf("merge: %v", err)
 	}
 
-	// The 1:1 extension moved into the vacancy, and the survivor flips to
-	// classification=partner (the A41 invariant).
+	// The 1:1 extension moved into the vacancy, and the survivor carries the
+	// partner relationship type — the invariant ADR-0079 moved off
+	// classification and now enforces in both directions.
 	if n := e.WsCount(t, `SELECT count(*) FROM partner WHERE organization_id = $1`, tgtID); n != 1 {
 		t.Errorf("survivor has %d partner rows, want the moved 1", n)
 	}
@@ -197,8 +200,14 @@ func TestMergeOrganization_partnerExtensionMovesIntoVacancy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read survivor: %v", err)
 	}
-	if got.Classification == nil || string(*got.Classification) != "partner" {
-		t.Errorf("survivor classification = %v, want partner", got.Classification)
+	types := []string{}
+	if got.RelationshipTypes != nil {
+		for _, relType := range *got.RelationshipTypes {
+			types = append(types, string(relType))
+		}
+	}
+	if !slices.Contains(types, "partner") {
+		t.Errorf("survivor carries %v, want partner among them", types)
 	}
 }
 

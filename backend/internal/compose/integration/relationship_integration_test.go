@@ -12,6 +12,7 @@ package integration
 
 import (
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -227,12 +228,16 @@ func TestPartnerPromotionLifecycle(t *testing.T) {
 	}, nil, &partner); status != http.StatusOK || partner.CertStatus != "certified" {
 		t.Fatalf("upsert partner → %d %+v", status, partner)
 	}
-	// Promotion flips the org's classification.
+	// Promotion writes the partner relationship type — the half of the
+	// invariant that lives on the organization (ADR-0079 amending ADR-0032).
 	var org struct {
-		Classification string `json:"classification"`
+		RelationshipTypes []string `json:"relationship_types"`
 	}
-	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID, nil, nil, &org); status != http.StatusOK || org.Classification != "partner" {
-		t.Fatalf("org after promotion → %d classification=%q", status, org.Classification)
+	if status := e.call(t, "GET", "/v1/organizations/"+e.orgID, nil, nil, &org); status != http.StatusOK {
+		t.Fatalf("org after promotion → %d", status)
+	}
+	if !slices.Contains(org.RelationshipTypes, "partner") {
+		t.Fatalf("org after promotion carries %v, want partner among them", org.RelationshipTypes)
 	}
 	var partners struct {
 		Data []struct {
