@@ -252,9 +252,47 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `MARGINCE_ENV` | api (identity handlers) | `dev` enables dev-only trust switches. The Makefile exports `dev`; production must not set it. |
+| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev`, `staging`, or `test` yield a non-production posture; unset, `production`, or any unrecognized value ⇒ production, which disables every dev-only destructive switch (today: the admin data-reset endpoint below). The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
+
+### `POST /v1/admin/reset-data` — non-production data reset
+
+Gated on the `MARGINCE_ENV` posture above. In production the operation does
+not exist: the environment check runs **before** auth, so a misconfigured
+production deployment 404s rather than leaking that the endpoint exists (never
+a 403). In a non-production posture:
+
+1. **Human-only** (`auth.RequireHuman`) — an agent/passport principal is
+   rejected, 403.
+2. **Admin-only** (`auth.RequireAdmin`) — the literal `admin` role; `ops` and
+   every other role is rejected, 403.
+3. **Typed confirmation** — the request body `{"confirmation": "<organization
+   name>"}` must equal the workspace's organization name exactly; a mismatch
+   is `422` (never partially applied — checked before anything is touched).
+
+On success it wipes workspace domain + seeded-config data back to the
+first-boot bootstrapped state and re-runs the module seeders (pipeline/stages,
+consent purposes + retention, AI defaults, starter automations, the booking
+page) — the same seed path `identity`'s installation bootstrap uses. It
+**preserves** the identity/auth layer (`workspace`, every `app_user`, roles,
+role assignments, teams, team memberships, sessions, passports, tokens — so
+login keeps working) and the append-only ledgers `audit_log` / `system_log`.
+The reset itself is recorded as an `audit_log` row (action `reset_data`).
+
+The sweep runs as the app role — no superuser, no disabled triggers — so it
+discovers a safe delete order at runtime (a savepoint per table per pass,
+retrying whatever a still-live FK blocks) rather than relying on a hand-kept
+ordering; an unbreakable FK cycle is surfaced as an error, never silently
+skipped. Orphaned `cf_*` custom-field columns are dropped afterward through
+the owner schema pool (`--schema-dsn`); with no schema pool configured that
+step is skipped (logged, not swallowed) and the reset itself still succeeds.
+
+`GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
+show the action only where it will work: Admin settings → *data* tab → Danger
+zone → *Reset data*, which prompts the operator to type the organization name
+before calling the endpoint — the server is the sole validator of that string,
+the client-side prompt is only UX.
 
 The **deployment configuration** (`--config`, default `margince.yaml`) is
 seeded the same way for local dev. The annotated reference is

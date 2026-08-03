@@ -63,6 +63,7 @@ import {
   CompanyContextCard,
   useCompanyContextCapabilities,
 } from "./company-context";
+import { ConnectedAgentsCard } from "./connected-agents";
 import { ConnectorsCard } from "./connectors";
 import { ConsumerMailDomainsCard } from "./consumer-mail-domains";
 import { CreateAction, type CreateField, CreateRecordModal } from "./create";
@@ -142,6 +143,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <CustomFieldsLinkCard />
           <EmbedReindexCard />
+          <ResetDataCard />
         </>
       );
     case "catalog":
@@ -280,6 +282,9 @@ function AiSettingsTab() {
       {canSeeRuntime && <AiCallsCard />}
       <AutonomyCard />
       <PassportCard />
+      {/* Directly after the passports, because it is the second half of one
+          story: mint a passport, then lend it to a client that connects. */}
+      <ConnectedAgentsCard />
       <AgentToolsCard />
       <AutomationsLinkCard />
     </>
@@ -457,7 +462,20 @@ function PassportCard() {
           {mint.error instanceof Error ? mint.error.message : null}
         </p>
       )}
-      <QueryGate query={list} empty={(page) => page.data.length === 0}>
+      <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+        {t("settings.passportsLendHint")}
+      </p>
+      {/* Only what this human MINTED. A row carrying a connection was issued by
+          the token exchange to a client — it belongs to ConnectedAgentsCard,
+          and listing it here put a raw DCR client id among the names the human
+          chose. `connection` is the server's own statement of which kind a row
+          is; the `oauth:` label prefix is display text and decides nothing. */}
+      <QueryGate
+        query={list}
+        empty={(page) =>
+          page.data.every((passport) => passport.connection != null)
+        }
+      >
         {(page) => (
           <ul
             style={{
@@ -468,63 +486,69 @@ function PassportCard() {
               marginTop: 12,
             }}
           >
-            {page.data.map((passport) => {
-              const revoked = passport.revoked_at != null;
-              return (
-                <li
-                  key={passport.id}
-                  data-passport={passport.id}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                    // struck, not dimmed — dimming would drop the row
-                    // under the AA contrast floor (B-EP09.21)
-                    textDecoration: revoked ? "line-through" : undefined,
-                  }}
-                >
-                  <strong>{passport.label}</strong>
-                  {/* The credential exists but is withheld by design (shown
+            {page.data
+              .filter((passport) => passport.connection == null)
+              .map((passport) => {
+                const revoked = passport.revoked_at != null;
+                return (
+                  <li
+                    key={passport.id}
+                    data-passport={passport.id}
+                    style={{
+                      display: "flex",
+                      gap: "var(--space-2)",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      // struck, not dimmed — dimming would drop the row
+                      // under the AA contrast floor (B-EP09.21)
+                      textDecoration: revoked ? "line-through" : undefined,
+                    }}
+                  >
+                    <strong>{passport.label}</strong>
+                    {/* The credential exists but is withheld by design (shown
                       once at mint) — masked reads as "withheld", not absent. */}
-                  <span className="t-label">{t("settings.token")}</span>
-                  <FieldGuard mode="masked" />
-                  <ScopeChips scopes={passport.scopes} />
-                  <span className="t-small">
-                    {t("settings.created", {
-                      date: formatDate(
-                        passport.created_at,
-                        locale,
-                        "Europe/Berlin",
-                      ),
-                    })}
-                  </span>
-                  {passport.expires_at && (
+                    <span className="t-label">{t("settings.token")}</span>
+                    <FieldGuard mode="masked" />
+                    <ScopeChips scopes={passport.scopes} />
                     <span className="t-small">
-                      {t("settings.expires", {
+                      {t("settings.created", {
                         date: formatDate(
-                          passport.expires_at,
+                          passport.created_at,
                           locale,
                           "Europe/Berlin",
                         ),
                       })}
                     </span>
-                  )}
-                  {revoked && (
-                    <Badge tone="danger">{t("settings.revoked")}</Badge>
-                  )}
-                  {!revoked && (
-                    <Button
-                      small
-                      variant="danger"
-                      onClick={() => setConfirmId(passport.id)}
-                    >
-                      {t("settings.revoke")}
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
+                    {/* A credential's lifetime is a personal deadline, so it
+                        reads on the viewer's own calendar — the same
+                        zone-by-purpose split the consent screen makes. created_at
+                        above stays the fixed record zone. */}
+                    {passport.expires_at && (
+                      <span className="t-small">
+                        {t("settings.expires", {
+                          date: formatDate(
+                            passport.expires_at,
+                            locale,
+                            Intl.DateTimeFormat().resolvedOptions().timeZone,
+                          ),
+                        })}
+                      </span>
+                    )}
+                    {revoked && (
+                      <Badge tone="danger">{t("settings.revoked")}</Badge>
+                    )}
+                    {!revoked && (
+                      <Button
+                        small
+                        variant="danger"
+                        onClick={() => setConfirmId(passport.id)}
+                      >
+                        {t("settings.revoke")}
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
           </ul>
         )}
       </QueryGate>
@@ -573,8 +597,13 @@ function AgentToolsCard() {
       return data;
     },
   });
+  // Live, and the human's OWN to lend. A connection's credential is neither:
+  // the server refuses to lend a grant-bound passport (identity's
+  // lendablePassportPredicate), so offering one here would name a choice the
+  // consent screen cannot honour — and would put a raw DCR client id back in
+  // front of a reader the rest of this change just took it away from.
   const lendable = (passports.data?.data ?? []).filter(
-    (p) => p.revoked_at == null,
+    (p) => p.revoked_at == null && p.connection == null,
   );
   // The filter follows the selector: a passport revoked while it was the
   // chosen scope drops out of the options, and the <select> then shows "all
@@ -679,6 +708,113 @@ function CustomFieldsLinkCard() {
         sub={t("settings.customFieldsSub")}
       />
       <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
+    </section>
+  );
+}
+
+// The danger-zone reset action: wipes a non-production installation back to
+// its first-boot state. Double-gated client-side — the admin role AND the
+// server-driven `non_production` posture on /me (never VITE_UI_PREVIEW_RESET,
+// which is the unrelated password-reset link) — so the affordance is invisible
+// on a production install even to an admin; the server enforces both the
+// same way and 404s the endpoint outright in production regardless of what
+// this card renders. This is admin-ONLY, narrower than the "data" tab's own
+// isOrgAdmin (admin OR ops) gate: the server's auth.RequireAdmin on
+// /admin/reset-data admits only the literal "admin" role (mirrors
+// users-admin.tsx's isAdmin check), so an ops user must never see a button
+// that can only 403. The organization's name is not carried on MeResponse, so
+// this never fetches or compares it client-side: the input just has to be
+// non-empty to enable the confirm button, and the server is the sole judge of
+// whether the typed text actually matches (a mismatch comes back as a 422,
+// surfaced verbatim in the dialog).
+function ResetDataCard() {
+  const t = useT();
+  const me = useMe();
+  const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const workspaceName = me.data?.workspace_name ?? "";
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const queryClient = useQueryClient();
+
+  const reset = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/admin/reset-data", {
+        body: { confirmation: typed },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setTyped("");
+      // A reset wipes every domain table for the workspace — every cached
+      // list/detail query is stale, not just the ones this card knows about.
+      queryClient.invalidateQueries();
+    },
+  });
+
+  if (!isAdmin || !me.data?.non_production) {
+    return null;
+  }
+
+  return (
+    <section
+      className="card"
+      style={{ marginBottom: "var(--space-4)", borderColor: "var(--danger)" }}
+    >
+      <SectionHeader
+        title={t("settings.dangerZone")}
+        sub={t("settings.dangerZoneSub")}
+      />
+      <p className="t-caption">{t("settings.resetDataDesc")}</p>
+      <Button
+        small
+        variant="danger"
+        onClick={() => setOpen(true)}
+        style={{ marginTop: "var(--space-3)" }}
+      >
+        {t("settings.resetDataButton")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => {
+          // Don't let Escape/backdrop dismiss the dialog mid-request: closing
+          // re-enables the outer button while the first destructive POST is
+          // still in flight (reset.reset() clears mutation state but cannot
+          // abort the sent request), which would allow a second reset.
+          if (reset.isPending) {
+            return;
+          }
+          setOpen(false);
+          setTyped("");
+          reset.reset();
+        }}
+        title={t("settings.resetDataConfirmTitle")}
+        confirmLabel={t("settings.resetDataButton")}
+        confirmVariant="danger"
+        confirmDisabled={typed.trim() === "" || reset.isPending}
+        onConfirm={() => reset.mutate()}
+        pending={reset.isPending}
+        error={reset.error instanceof Error ? reset.error.message : null}
+      >
+        <p>{t("settings.resetDataConfirmBody")}</p>
+        {workspaceName ? (
+          <p className="t-caption">
+            {t("settings.resetDataConfirmName")}{" "}
+            {/* userSelect:all lets one click select the whole name to copy */}
+            <code style={{ userSelect: "all", fontWeight: 600 }}>
+              {workspaceName}
+            </code>
+          </p>
+        ) : null}
+        <TextInput
+          aria-label={t("settings.resetDataConfirmLabel")}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+      </ConfirmModal>
     </section>
   );
 }

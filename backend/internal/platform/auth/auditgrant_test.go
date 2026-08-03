@@ -59,6 +59,7 @@ var auditVerbNoGrant = map[string]string{
 	"import_undo": "admitted by the contract vocabulary; no Go writer emits it yet",
 	"disqualify":  "admitted by the contract vocabulary; no Go writer emits it yet",
 	"send_email":  "the agent tool of that name stages an approval; the send itself audits the activity as create",
+	"reset_data":  "audited on workspace, which is not an RBAC policy object; the governing check is auth.RequireAdmin (a role gate, not an object CRUD grant)",
 }
 
 func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {

@@ -1245,8 +1245,35 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "passport.select": "Passport",
   "passport.noneOption": "Kein Passport",
+  "settings.passportsLendHint":
+    "Diese kannst du verleihen. Verbindet sich ein MCP-Client, fragt er, welchen du übergibst — die Verbindung trägt danach genau die Scopes dieses Passports.",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
+  "agents.connected": "Verbundene Agenten",
+  "agents.connectedSub":
+    "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",
+  "agents.noneConnected": "Noch ist kein Agent verbunden.",
+  "agents.connectedOn": "verbunden {date}",
+  "agents.lentFrom": "verliehen aus „{label}“",
+  "agents.disconnect": "Trennen",
+  "agents.disconnectNamed": "{client} trennen",
+  "agents.disconnected": "getrennt",
+  "agents.lapsed": "Credential abgelaufen",
+  "agents.renewing": "wird erneuert",
+  "agents.renewsBy": "Credential erneuert bis {date}",
+  "agents.expiredOn": "Credential abgelaufen {date}",
+  "agents.revokeGrant": "Verbindung beenden",
+  "agents.revokeGrantNamed": "Verbindung zu {client} beenden",
+  "agents.disconnectConfirm":
+    "Das beendet die ganze Verbindung, nicht nur ein Credential: der Agent verliert den Zugriff beim nächsten Aufruf und kann nicht erneuern. Für eine neue Verbindung verleihst du wieder einen Passport.",
+  "agents.connectHow": "Agent verbinden",
+  "agents.connectSteps":
+    "Stelle oben einen Passport aus und führe dann einen dieser Befehle aus. Der Client registriert sich selbst und bringt dich hierher zurück, um zu wählen, welchen Passport du verleihst.",
+  "agents.connectAntigravityPath":
+    "Antigravity hat keinen Add-Befehl — trage den Block in ~/.gemini/config/mcp_config.json ein.",
+  "agents.connectorOff": "Der MCP-Connector ist für diese Installation aus.",
+  "agents.connectorOffDetail":
+    "Bis ein Betreiber ihn einschaltet, kann sich kein Agent verbinden. Deine Passports funktionieren weiterhin als REST-Credentials.",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
   "settings.token": "Token",
   "settings.autonomy": "Autonomie-Stufen",
@@ -1268,6 +1295,17 @@ export const de = {
   "settings.automationsSub":
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
   "settings.openAutomations": "Automatisierungs-Editor öffnen",
+  "settings.dangerZone": "Gefahrenzone",
+  "settings.dangerZoneSub":
+    "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
+  "settings.resetDataDesc":
+    "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Workspace-Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
+  "settings.resetDataButton": "Daten zurücksetzen…",
+  "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
+  "settings.resetDataConfirmBody":
+    "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
+  "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
+  "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",

@@ -1224,8 +1224,35 @@ export const en = {
     "an agent acts as you, never above you — every call re-checks your RBAC",
   "passport.select": "Passport",
   "passport.noneOption": "No passport",
+  "settings.passportsLendHint":
+    "These are yours to lend. Connect an MCP client and it asks which one to hand over — the connection then carries exactly that passport's scopes.",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
+  "agents.connected": "Connected agents",
+  "agents.connectedSub":
+    "MCP clients holding their own credential, derived from a passport you lent",
+  "agents.noneConnected": "No agent is connected yet.",
+  "agents.connectedOn": "connected {date}",
+  "agents.lentFrom": "lent from “{label}”",
+  "agents.disconnect": "Disconnect",
+  "agents.disconnectNamed": "Disconnect {client}",
+  "agents.disconnected": "disconnected",
+  "agents.lapsed": "credential expired",
+  "agents.renewing": "renewing",
+  "agents.renewsBy": "credential renews by {date}",
+  "agents.expiredOn": "credential expired {date}",
+  "agents.revokeGrant": "End connection",
+  "agents.revokeGrantNamed": "End the connection to {client}",
+  "agents.disconnectConfirm":
+    "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
+  "agents.connectHow": "Connect an agent",
+  "agents.connectSteps":
+    "Mint a passport above, then run one of these. The client registers itself and brings you back here to choose which passport to lend.",
+  "agents.connectAntigravityPath":
+    "Antigravity has no add command — put that block in ~/.gemini/config/mcp_config.json.",
+  "agents.connectorOff": "The MCP connector is off for this installation.",
+  "agents.connectorOffDetail":
+    "No agent can connect until an operator enables it. Your passports still work as REST credentials.",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",
   "settings.token": "token",
   "settings.autonomy": "Autonomy tiers",
@@ -1246,6 +1273,17 @@ export const en = {
   "settings.automationsSub":
     "the bounded starter catalog — enable, parameterize, pause",
   "settings.openAutomations": "Open the automations editor",
+  "settings.dangerZone": "Danger zone",
+  "settings.dangerZoneSub":
+    "non-production only — irreversible on this installation",
+  "settings.resetDataDesc":
+    "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
+  "settings.resetDataButton": "Reset data…",
+  "settings.resetDataConfirmTitle": "Reset all data?",
+  "settings.resetDataConfirmBody":
+    "Type your organization's name to confirm. This cannot be undone.",
+  "settings.resetDataConfirmName": "Type this organization name:",
+  "settings.resetDataConfirmLabel": "Confirm organization name",
   "settings.audit": "Audit log",
   "audit.you": "You",
   "audit.teammate": "A teammate",

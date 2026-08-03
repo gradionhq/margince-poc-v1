@@ -20,7 +20,7 @@ func TestMeResponseCarriesSystemOfRecordMode(t *testing.T) {
 	for _, mode := range []crmcontracts.MeResponseSystemOfRecordMode{
 		crmcontracts.Native, crmcontracts.Overlay,
 	} {
-		got := meResponse(Identity{}, mode)
+		got := meResponse(Identity{}, mode, false)
 		if got.SystemOfRecord == nil {
 			t.Fatalf("mode %q: system_of_record must always be present", mode)
 		}

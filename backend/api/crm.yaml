@@ -342,6 +342,61 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/reset-data:
+    post:
+      tags: [Identity]
+      operationId: resetData
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      x-agent-access: human-only
+      summary: Reset a non-production installation to its first-boot state.
+      description: >
+        Non-production only. Wipes workspace domain + seeded-config data back to the
+        bootstrapped state, preserving the organization and users so login still works,
+        then re-seeds module defaults. Requires the organization name as a typed
+        confirmation. In production this endpoint does not exist (404).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  minLength: 1
+                  description: Must equal the organization name exactly.
+      responses:
+        '200':
+          description: Installation reset to first-boot state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, tables_cleared]
+                properties:
+                  status: { type: string, example: reset }
+                  tables_cleared: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: >
+            Refused: the caller is an agent/passport principal (this endpoint is
+            human-only) or a human without the admin role. Not an object/action
+            RBAC grant denial.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: >
+            The endpoint is unavailable in this environment — production, or an
+            unset/unknown MARGINCE_ENV. It is served only under a non-production
+            posture; the body is the standard problem document.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------------------ /passports --------------------------------
   /passports:
@@ -355,6 +410,13 @@ paths:
         Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
         revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
         only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+
+        Two kinds of row arrive together and `connection` is what tells them apart: a passport the
+        human minted (`connection: null`) is a template they may lend on the consent screen, while a
+        connection's credential (`connection` present) is what an MCP client received *after* a lend.
+        A connection is listed **once**, not once per token rotation: every refresh revokes that
+        connection's passport and mints a replacement under the same grant, so only the newest
+        passport per grant is returned and its `connection.connected_at` is the grant's own age.
       responses:
         '200':
           description: The caller's passports (metadata).
@@ -12366,9 +12428,20 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams]
+      required: [user, roles, teams, workspace_name, non_production]
       properties:
         user: { $ref: '#/components/schemas/User' }
+        workspace_name:
+          type: string
+          description: >
+            The installation's organization name (workspace.name). Shown as the
+            typed-confirmation target of the non-production "Reset data" action —
+            the exact string that endpoint validates.
+        non_production:
+          type: boolean
+          description: >
+            True when the installation runs a non-production posture
+            (MARGINCE_ENV). Gates the client-side "Reset data" action.
         roles:
           type: array
           items: { type: string }
@@ -12419,7 +12492,7 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }
@@ -14615,10 +14688,59 @@ components:
         label: { type: string, description: Human-given name for the passport (e.g. "Marcus's Claude"). }
         scopes: { type: array, items: { type: string }, description: The granted MCP scopes (intersected with the minting human's role at bind time). }
         agent_id: { type: [string, 'null'], description: 'The agent this passport is bound to, if any.' }
+        connection:
+          allOf: [ { $ref: '#/components/schemas/PassportConnection' } ]
+          description: |
+            Present when this passport IS a connection's credential — issued to an MCP client by the
+            token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+            not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+            `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+            can also type.
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, 'null'], format: date-time }
         last_used_at: { type: [string, 'null'], format: date-time }
         revoked_at: { type: [string, 'null'], format: date-time }
+
+    PassportConnection:
+      type: object
+      description: |
+        The connection a grant-bound passport belongs to, so Settings can name it by the client the
+        human actually approved instead of the raw DCR client id its label carries.
+      required: [client_id, client_name, connected_at, renewable]
+      properties:
+        client_id: { type: string, description: The registered OAuth client id (the DCR identifier). }
+        renewable:
+          type: boolean
+          description: |
+            Whether this connection may mint itself a replacement credential — the grant's
+            `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+            passport's own `expires_at` mean two different things: a renewable connection is simply
+            between credentials once that moment passes, while a non-renewable one has ENDED, with
+            nothing recording that it did. A reader that treats every expiry as the end reports live
+            connections as dead.
+        client_name:
+          type: string
+          description: |
+            The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+            registration is gone, so a connection is never nameless.
+        connected_at:
+          type: string
+          format: date-time
+          description: |
+            When the connection was established — the GRANT's age, not the current passport's. Token
+            rotation replaces the passport every renewal; a date that moved with it would report a
+            connection as newer than the consent that authorized it.
+        lent_passport_id:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            The passport the human lent to create this connection. Null for a connection established
+            before that provenance was recorded, and null once the lent passport is deleted outright.
+            It is never re-checked: a lend survives the lent passport's revocation by design, so this
+            answers "where did this come from", never "may this still connect".
+        lent_passport_label:
+          type: [string, 'null']
+          description: The lent passport's label at read time, for display beside `lent_passport_id`.
 
     MorningBrief:
       type: object

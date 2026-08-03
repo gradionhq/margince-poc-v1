@@ -175,6 +175,7 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 			Scopes:         passportScopes,
 			RefreshAllowed: refreshAllowed,
 			Resource:       redeemed.Resource,
+			LentPassportID: redeemed.LentPassportID,
 		})
 		if err != nil {
 			return err
@@ -198,12 +199,18 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 // redeemedCode is what a validated, spent authorization code carried into
 // the rest of the exchange. Scopes are still as authorized — the
 // offline_access marker included.
+//
+// LentPassportID rides along as provenance and nothing else: it is forwarded to
+// the grant and never validated. A passport revoked between consent and
+// redemption still redeems (oauth_lend.go's §"WHERE THAT LOCK'S REACH ENDS"),
+// so a nil here means "no lend recorded", never "the lend went stale".
 type redeemedCode struct {
-	UserID      ids.UserID
-	WorkspaceID ids.WorkspaceID
-	Scopes      []string
-	ClientID    string
-	Resource    *string
+	UserID         ids.UserID
+	WorkspaceID    ids.WorkspaceID
+	Scopes         []string
+	ClientID       string
+	Resource       *string
+	LentPassportID *ids.PassportID
 }
 
 // consumeAuthCode validates the exchange against the stored authorization
@@ -225,13 +232,15 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	// vanish, so the answer is the same invalid_grant a spent code gets — the
 	// endpoint stays silent about which of the two it was.
 	err := tx.QueryRow(r.Context(), `
-		SELECT a.user_id, a.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource
+		SELECT a.user_id, a.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource,
+		       a.lent_passport_id
 		FROM oauth_authorization_code a
 		JOIN oauth_client c ON (c.workspace_id, c.client_id) = (a.workspace_id, a.client_id)
 		WHERE a.code_hash = $1 AND a.consumed_at IS NULL AND a.expires_at > now()
 		  AND `+liveClientPredicate,
 		hashOAuthCode(code)).
-		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI, &out.Resource)
+		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI,
+			&out.Resource, &out.LentPassportID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return redeemedCode{}, errCodeSpent
 	}
