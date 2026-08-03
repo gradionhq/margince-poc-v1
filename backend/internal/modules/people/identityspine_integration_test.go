@@ -186,6 +186,54 @@ func TestOrganizationDedupeReadsTheLegalNameAxis(t *testing.T) {
 	if m.Confidence != 1 {
 		t.Fatalf("confidence = %.4f, want 1.0 — the registered names are identical", m.Confidence)
 	}
+	// The queue renders the two values it scored, so they must be the two the
+	// score came from — showing a display-name collision here would put a
+	// comparison nobody made in front of the human deciding the merge.
+	best := m.best("Contoso Wholesale")
+	if best.MatchedField != fieldLegalName {
+		t.Fatalf("matched field = %q, want %q", best.MatchedField, fieldLegalName)
+	}
+	if best.CandidateValue != legal || best.IncumbentValue != legal {
+		t.Fatalf("evidence compares %q against %q, want both to be the registered name %q",
+			best.CandidateValue, best.IncumbentValue, legal)
+	}
+}
+
+// TestARaceOnAClaimedAddressStillAnswersTheDuplicateContract covers the narrow
+// window the chokepoint's own guard opened: the manual create probes for a
+// claimed address, then the ladder runs, and an address claimed in between
+// reaches the refusal. It is still the create contract's 409 with the
+// incumbent's id, not an opaque failure because a different guard caught it.
+func TestARaceOnAClaimedAddressStillAnswersTheDuplicateContract(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	incumbent, err := e.store.CreatePerson(ctx, CreatePersonInput{
+		FullName: "Ida Kranz", Source: "manual",
+		Emails: []PersonEmailInput{{Email: "ida@kranz.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	incumbentID := ids.From[ids.PersonKind](ids.UUID(incumbent.Id))
+
+	err = e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, cerr := createPerson(ctx, tx, PersonResolution{
+			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: incumbentID,
+		}, PersonSpec{
+			FullName:   "Ida Kranz",
+			Emails:     []PersonEmailInput{{Email: "ida@kranz.test", EmailType: "work", IsPrimary: true}},
+			Source:     "manual",
+			CapturedBy: "human:test",
+		})
+		return cerr
+	})
+	var dup *DuplicateEmailError
+	if !errors.As(err, &dup) {
+		t.Fatalf("refusal = %v, want DuplicateEmailError so the 409 contract holds", err)
+	}
+	if dup.ExistingID != incumbentID {
+		t.Fatalf("conflict names %s, want the incumbent %s", dup.ExistingID, incumbentID)
+	}
 }
 
 // TestOrganizationDedupeExcludesItself guards the re-check's own precondition:

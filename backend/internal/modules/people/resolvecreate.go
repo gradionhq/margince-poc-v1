@@ -33,6 +33,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
@@ -99,9 +100,7 @@ type PersonSpec struct {
 // pair for review (creatededupe.go states the same policy per lane).
 func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) (ids.PersonID, error) {
 	if match.Decision == DecisionExactCollision && match.MatchedLane != lanePhone {
-		return ids.PersonID{}, fmt.Errorf(
-			"people: refusing to create a person while PO-F-1 holds an exact %q collision with %s — land on the incumbent instead",
-			match.MatchedLane, match.PersonID)
+		return ids.PersonID{}, refusedPersonCreate(match, spec)
 	}
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.PersonKind]()
@@ -134,6 +133,23 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 	return id, nil
 }
 
+// refusedPersonCreate answers the refusal in the CONTRACT's language, not the
+// chokepoint's.
+//
+// The manual create probes for a claimed address before the ladder runs, so
+// reaching here means the address was claimed in between — a race, whose
+// answer is still the 409 the create contract promises with the incumbent's
+// id (data-model §3.2), never an opaque failure just because a different guard
+// caught it. Every other lane has no such contract and stays a conflict.
+func refusedPersonCreate(match PersonResolution, spec PersonSpec) error {
+	if match.MatchedLane == laneEmail && len(spec.Emails) > 0 {
+		return &DuplicateEmailError{Email: spec.Emails[0].Email, ExistingID: match.PersonID}
+	}
+	return fmt.Errorf(
+		"people: an exact %q collision already names %s: %w",
+		match.MatchedLane, match.PersonID, apperrors.ErrConflict)
+}
+
 // OrgSpec is every column an organization create writes, across all four
 // paths.
 type OrgSpec struct {
@@ -153,11 +169,8 @@ type OrgSpec struct {
 	NameSource string
 	// Visibility is "" for the column default; capture mints 'owner' rows.
 	Visibility string
-	// IsAnchor marks the workspace's own company. There is exactly one
-	// (uq_organization_anchor), and it is the one create that does not file a
-	// near-match for review: the anchor resembling a captured record of the
-	// same company is the expected state during onboarding, not a duplicate
-	// pair a human should be asked about.
+	// IsAnchor marks the workspace's own company; there is exactly one, and
+	// uq_organization_anchor is what decides a race between two first saves.
 	IsAnchor bool
 
 	Source       string
@@ -174,9 +187,17 @@ type OrgSpec struct {
 // existing company rather than minting a rival).
 func createOrganization(ctx context.Context, tx pgx.Tx, match OrganizationMatch, spec OrgSpec) (ids.OrganizationID, error) {
 	if match.Decision == DecisionExactCollision {
+		// Same reasoning as refusedPersonCreate: the manual path refuses a
+		// claimed domain before the ladder, so arriving here is a race, and it
+		// still owes the caller the domain 409 with the incumbent's id.
+		if len(spec.Domains) > 0 {
+			return ids.OrganizationID{}, &DuplicateDomainError{
+				Domain: spec.Domains[0].Domain, ExistingID: match.OrganizationID,
+			}
+		}
 		return ids.OrganizationID{}, fmt.Errorf(
-			"people: refusing to create an organization while PO-F-2 holds an exact domain collision with %s — land on the incumbent instead",
-			match.OrganizationID)
+			"people: an exact domain collision already names organization %s: %w",
+			match.OrganizationID, apperrors.ErrConflict)
 	}
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.OrganizationKind]()

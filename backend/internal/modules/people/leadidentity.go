@@ -73,22 +73,33 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 	return dup
 }
 
+// lockLeadIdentity takes the write identities a lead create is about to claim,
+// BEFORE either probe reads.
+//
+// The LinkedIn key has no unique index to fall back on — idx_lead_linkedin is
+// deliberately non-UNIQUE, because a workspace may already hold duplicates from
+// before this refusal existed and merging those is a human decision — so the
+// advisory lock is the whole race guard, not a nicety.
+//
+// It runs before BOTH probes rather than beside its own. Two creates sharing an
+// address and a profile would otherwise interleave between the email probe and
+// the LinkedIn one, and each would report whichever key it happened to lose —
+// the same pair of requests answering `duplicate_email` on one run and
+// `duplicate_linkedin_url` on the next.
+func lockLeadIdentity(ctx context.Context, tx pgx.Tx, url *string) error {
+	if url == nil {
+		return nil
+	}
+	return storekit.LockWriteIdentity(ctx, tx, "lead_linkedin", *url)
+}
+
 // ensureLeadLinkedInUnclaimed is the same refusal on the OTHER exact key a
 // lead carries. A profile URL names one human as firmly as an address does,
 // and the probe that answers it existed while nothing called it — so two
 // imports of the same person under different addresses each minted a lead.
-//
-// The claim is not backed by a unique index: idx_lead_linkedin is deliberately
-// non-UNIQUE because a workspace may already hold duplicates from before this
-// refusal existed, and merging those is a human decision. The advisory lock is
-// what closes the race in its place — two creates naming one profile serialize
-// here, so the second reads the first's row instead of both finding nothing.
 func ensureLeadLinkedInUnclaimed(ctx context.Context, tx pgx.Tx, url *string) error {
 	if url == nil {
 		return nil
-	}
-	if err := storekit.LockWriteIdentity(ctx, tx, "lead_linkedin", *url); err != nil {
-		return err
 	}
 	existing, found, err := storekit.LiveLeadByLinkedInURL(ctx, tx, *url, nil)
 	if err != nil || !found {

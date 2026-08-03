@@ -16,8 +16,18 @@ package people
 //
 // So every non-human write of display_name or legal_name re-runs the fuzzy
 // tier and files what it finds. It never merges (DEDUPE_FUZZY_AUTOMERGE is
-// pinned never) and it never blocks the rename: the rename is right, the
+// pinned never) and it never overrules the rename: the rename is right, the
 // duplicate is a separate question, and the human answers it in the queue.
+//
+// It does run in the renaming transaction, and a fault here therefore fails
+// the rename with it. That is not a preference — Postgres aborts a transaction
+// on the first failed statement, so "observe without being able to fail the
+// write" does not exist in-transaction; the only ways out are a savepoint
+// around the detection, which trades the fault for a silently swallowed one,
+// or detecting after commit, which gives up the detection-time snapshot the
+// queue renders (DH-N-8). Everything this touches is a plain read, an
+// ON CONFLICT DO NOTHING insert and an append-only log line, so a fault here
+// means the transaction was already lost.
 
 import (
 	"context"
@@ -26,6 +36,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -57,6 +68,17 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		return fmt.Errorf("people: reading the renamed organization: %w", err)
 	}
 
+	// Two organizations converging on ONE name concurrently would, at READ
+	// COMMITTED, each read before the other committed, each find nothing, and
+	// both land with no pair filed — the duplicate this whole path exists to
+	// catch, missed by a race. Taking the normalized name as a write identity
+	// serializes them, so the second sees the first.
+	if key := NormalizeOrgName(display); key != "" {
+		if err := storekit.LockWriteIdentity(ctx, tx, "organization_name", key); err != nil {
+			return err
+		}
+	}
+
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
 		DisplayName: display,
 		LegalName:   legal,
@@ -82,13 +104,9 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		if filed {
 			continue
 		}
-		var incumbent string
-		if err := tx.QueryRow(ctx,
-			`SELECT display_name FROM organization WHERE id = $1`, rival.OrganizationID).Scan(&incumbent); err != nil {
-			return fmt.Errorf("people: reading the renamed organization's near match: %w", err)
-		}
 		return recordNearMatch(ctx, tx, entityOrganization, orgID.UUID, rival.OrganizationID.UUID,
-			rival.Confidence, nearMatchEvidence(fieldDisplayName, display, incumbent, rival.Confidence),
+			rival.Confidence,
+			nearMatchEvidence(rival.MatchedField, rival.CandidateValue, rival.IncumbentValue, rival.Confidence),
 			orgRenameRecheckSource, by)
 	}
 	return nil

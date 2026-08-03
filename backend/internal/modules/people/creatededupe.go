@@ -204,16 +204,32 @@ func (m PersonResolution) recordSharedPhone(ctx context.Context, tx pgx.Tx, crea
 	return nil
 }
 
+// The evidence names the axis the score actually came from. Two records can
+// collide on their registered names while their display names differ, and
+// rendering that as a display-name collision would show a reviewer a
+// comparison nobody made.
 func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.OrganizationID, createdName, source, by string) error {
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
-	var incumbent string
-	if err := tx.QueryRow(ctx, `SELECT display_name FROM organization WHERE id = $1`, m.OrganizationID).Scan(&incumbent); err != nil {
-		return fmt.Errorf("reading organization near-match incumbent: %w", err)
-	}
+	best := m.best(createdName)
 	return recordNearMatch(ctx, tx, entityOrganization, createdID.UUID, m.OrganizationID.UUID, m.Confidence,
-		nearMatchEvidence(fieldDisplayName, createdName, incumbent, m.Confidence), source, by)
+		nearMatchEvidence(best.MatchedField, best.CandidateValue, best.IncumbentValue, m.Confidence), source, by)
+}
+
+// best is the winning pairing behind this match. It falls back to the
+// display-name axis and the caller's own name when the ranked detail is absent
+// — an exact-tier match carries no pairing — so the evidence is never empty.
+func (m OrganizationMatch) best(candidateName string) OrganizationCandidateScore {
+	if len(m.Ranked) > 0 {
+		return m.Ranked[0]
+	}
+	return OrganizationCandidateScore{
+		OrganizationID: m.OrganizationID,
+		Confidence:     m.Confidence,
+		MatchedField:   fieldDisplayName,
+		CandidateValue: candidateName,
+	}
 }
 
 // nearMatchEvidence is the detection-time snapshot the review queue

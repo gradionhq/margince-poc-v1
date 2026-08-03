@@ -52,10 +52,20 @@ type OrganizationMatch struct {
 	Ranked []OrganizationCandidateScore
 }
 
-// OrganizationCandidateScore is one scored rival from the fuzzy tier.
+// OrganizationCandidateScore is one scored rival from the fuzzy tier, with the
+// two values that actually produced the score. The review queue renders those
+// side by side, and a pair scored on the registered name must not be shown as
+// a display-name collision — a reviewer deciding a merge is reading exactly
+// that comparison.
 type OrganizationCandidateScore struct {
 	OrganizationID ids.OrganizationID
 	Confidence     float64
+	// MatchedField is the axis the winning pairing came from on the STORED
+	// side: "display_name" or "legal_name".
+	MatchedField string
+	// CandidateValue and IncumbentValue are the two names compared.
+	CandidateValue string
+	IncumbentValue string
 }
 
 // DedupeOrganization is PO-F-2 — the org half of the one dedupe
@@ -108,6 +118,12 @@ func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string, exclude 
 // Both name axes are compared on both sides: a record's registered name may
 // be stored as its display name and vice versa, so the score is the best of
 // the four pairings rather than display-against-display alone.
+//
+// The predicate names `legal_name` bare, with no coalesce. Postgres pairs an
+// expression index by syntax, and idx_org_legal_name_trgm is built on the bare
+// column — wrapping it here would silently cost a sequential scan of the whole
+// table on every create. A NULL legal name makes its arm NULL rather than
+// true, which is the same answer coalesce would have produced.
 func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
 	display, legal := NormalizeOrgName(c.DisplayName), NormalizeOrgName(c.LegalName)
 	rows, err := tx.Query(ctx, `
@@ -116,8 +132,8 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		   AND ($3::uuid IS NULL OR id <> $3)
 		   AND (f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))
 		        OR f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($2))
-		        OR f_fold_apostrophes(lower(coalesce(legal_name, ''))) % f_fold_apostrophes(lower($1))
-		        OR f_fold_apostrophes(lower(coalesce(legal_name, ''))) % f_fold_apostrophes(lower($2)))`,
+		        OR f_fold_apostrophes(lower(legal_name)) % f_fold_apostrophes(lower($1))
+		        OR f_fold_apostrophes(lower(legal_name)) % f_fold_apostrophes(lower($2)))`,
 		display, legal, c.ExcludeID)
 	if err != nil {
 		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
@@ -131,9 +147,11 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		if err := rows.Scan(&id, &name, &rowLegal); err != nil {
 			return OrganizationMatch{}, fmt.Errorf("scan org candidate: %w", err)
 		}
-		confidence := bestOrgNameSimilarity(display, legal, NormalizeOrgName(name), NormalizeOrgName(rowLegal))
-		if confidence >= dedupeReviewThreshold {
-			ranked = append(ranked, OrganizationCandidateScore{OrganizationID: id, Confidence: confidence})
+		score := bestOrgNamePairing(
+			c.DisplayName, c.LegalName, name, rowLegal)
+		if score.Confidence >= dedupeReviewThreshold {
+			score.OrganizationID = id
+			ranked = append(ranked, score)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -158,19 +176,34 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 	}, nil
 }
 
-// bestOrgNameSimilarity scores every pairing of the two name axes. An empty
-// axis scores nothing rather than matching every other empty one: two
-// companies that both lack a registered name have said nothing about being
-// the same company.
-func bestOrgNameSimilarity(candidateDisplay, candidateLegal, rowDisplay, rowLegal string) float64 {
-	best := 0.0
+// bestOrgNamePairing scores every pairing of the two name axes and reports
+// which one won, with the raw values behind it so the queue can show the
+// comparison that was actually made.
+//
+// An empty axis scores nothing rather than matching every other empty one: two
+// companies that both lack a registered name have said nothing about being the
+// same company.
+func bestOrgNamePairing(candidateDisplay, candidateLegal, rowDisplay, rowLegal string) OrganizationCandidateScore {
+	sides := []struct {
+		value string
+		field string
+	}{{rowDisplay, fieldDisplayName}, {rowLegal, fieldLegalName}}
+
+	var best OrganizationCandidateScore
 	for _, left := range []string{candidateDisplay, candidateLegal} {
-		for _, right := range []string{rowDisplay, rowLegal} {
-			if left == "" || right == "" {
+		for _, right := range sides {
+			normalizedLeft, normalizedRight := NormalizeOrgName(left), NormalizeOrgName(right.value)
+			if normalizedLeft == "" || normalizedRight == "" {
 				continue
 			}
-			if score := nameSimilarity(left, right); score > best {
-				best = score
+			score := nameSimilarity(normalizedLeft, normalizedRight)
+			if score > best.Confidence {
+				best = OrganizationCandidateScore{
+					Confidence:     score,
+					MatchedField:   right.field,
+					CandidateValue: left,
+					IncumbentValue: right.value,
+				}
 			}
 		}
 	}

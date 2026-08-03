@@ -325,11 +325,11 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 // own. Nothing serializes two FIRST saves — neither has a row to lock — so the
 // uq_organization_anchor index is what decides: the loser is told the company
 // already exists rather than quietly minting a rival one.
-// It runs PO-F-2 like every other create — an installation whose own company
-// was already captured from mail should not silently gain a second row — but
-// files no review pair: during onboarding the anchor resembling a captured
-// record of the same company is the expected state, not a question for a
-// human (OrgSpec.IsAnchor).
+// It runs PO-F-2 like every other create and files what it finds. An
+// installation whose own company was already captured from mail genuinely does
+// hold that company twice, and the anchor is the row a human will work from —
+// so the pair belongs on the review queue rather than being the one create
+// allowed to mint a twin in silence.
 func createAnchorOrganization(ctx context.Context, tx pgx.Tx, displayName, by string) (ids.OrganizationID, error) {
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: displayName})
 	if err != nil {
@@ -345,6 +345,9 @@ func createAnchorOrganization(ctx context.Context, tx pgx.Tx, displayName, by st
 		return ids.OrganizationID{}, fmt.Errorf("the company was created by someone else just now: %w", apperrors.ErrConflict)
 	}
 	if err != nil {
+		return ids.OrganizationID{}, err
+	}
+	if err := match.recordIfReview(ctx, tx, orgID, displayName, "manual", by); err != nil {
 		return ids.OrganizationID{}, err
 	}
 	return orgID, nil
