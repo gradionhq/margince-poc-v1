@@ -274,15 +274,10 @@ func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, e
 // authority.go targetVisible, C3/ADR-0036): the approval's envelope leaks
 // staged-change detail (summary, edited_change, target ids), so it may only
 // reach an owner who can see the TARGET record. It resolves the approval's
-// polymorphic target and applies the target's row scope (approvalTargetVisible)
-// A target-LESS approval (some approval.requested proposals and every
-// coldstart.* echo carry no target) cannot be scope-bounded, so it is
-// FAIL-CLOSED (not delivered) — a ratified deferral, exactly like the
-// deferredDelivery* subjects: never a workspace-wide fan-out of content the
-// owner's grants could not read. A missing approval row reads as
-// not-visible. The approval table is read with a raw probe under the
-// existing WithWorkspaceTx boundary rather than importing the approvals
-// module (a module never imports a sibling).
+// polymorphic target and hands the shape to approvalShapeVisible. A missing
+// approval row reads as not-visible. The approval table is read with a raw
+// probe under the existing WithWorkspaceTx boundary rather than importing the
+// approvals module (a module never imports a sibling).
 func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (bool, error) {
 	var (
 		targetType *string
@@ -299,11 +294,30 @@ func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (boo
 	if err != nil {
 		return false, err
 	}
-	if targetType == nil || targetID == nil {
-		// Target-less approval — no record whose scope could bound the
-		// fan-out, so it is EXPLICITLY undelivered (fail-closed), never
-		// leaked workspace-wide.
+	return s.approvalShapeVisible(ctx, targetType, targetID)
+}
+
+// approvalShapeVisible answers the fan-out question for each shape a staged
+// target can carry:
+//
+//   - NO target type — a target-LESS approval (every coldstart.* echo, and the
+//     approval.requested proposals that are about no record) or an id the
+//     envelope cannot name a table for — cannot be scope-bounded at all, so it
+//     is EXPLICITLY undelivered, exactly like the deferredDelivery* subjects:
+//     never a workspace-wide fan-out of content the owner's grants could not
+//     read.
+//   - A type with NO id is a staged CREATE: there is no record yet whose scope
+//     could bound the fan-out, so the floor is the object-read grant on the
+//     type it will write. An owner who may read that type learns a create was
+//     proposed on it; one who may not learns nothing — the same read-path floor
+//     every branch of approvalTargetVisible applies before its row scope.
+//   - BOTH halves go to the target record's own visibility rule.
+func (s *Store) approvalShapeVisible(ctx context.Context, targetType *string, targetID *ids.UUID) (bool, error) {
+	if targetType == nil {
 		return false, nil
+	}
+	if targetID == nil {
+		return objectReadable(ctx, *targetType)
 	}
 	return s.approvalTargetVisible(ctx, *targetType, *targetID)
 }

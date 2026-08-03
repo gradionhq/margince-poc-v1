@@ -156,8 +156,8 @@ const (
 var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 
 // targetProbe names HOW a target type's visibility is decided. It exists so the
-// answer "is this target type decidable at all" has ONE source: targetVisible
-// switches on it, and TargetTypeDecidable reports on it.
+// answer "is a staged row against this target decidable at all" has ONE source:
+// targetVisible switches on it, and TargetShapeDecidable reports on it.
 //
 // That mattered the moment the tool surface started minting staged rows for types
 // nobody had checked. A type with no rule is not decidable, which means its
@@ -166,7 +166,7 @@ var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 // would have told them about it is dropped for the same reason. The composition
 // layer derives the obligation over the generated policy table
 // (TestEveryConfirmFirstTargetTypeIsDecidable), so a confirm-first verb whose
-// target type has no rule here fails a gate instead of shipping a zombie.
+// staged shape has no rule here fails a gate instead of shipping a zombie.
 type targetProbe int
 
 const (
@@ -202,11 +202,55 @@ func probeFor(targetType string) targetProbe {
 	}
 }
 
-// TargetTypeDecidable reports whether a staged row against this target type can
+// targetShape is a staged target reduced to which halves it carries, which is
+// all the shape rule below needs — and naming the two at every call site is what
+// keeps a caller from transposing them.
+type targetShape struct{ hasType, hasID bool }
+
+// settledByShape answers the staged shapes whose decidability the target PAIR
+// settles on its own, before any row is probed:
+//
+//   - NO target id — whether the row names a target type (a staged CREATE,
+//     whose record does not exist yet) or nothing at all (a cold-start
+//     proposal, which is about no record yet) — is scoped by the DECISION
+//     GRANTS alone. There is no row whose scope could bound it, and its
+//     authority is the grant on the type, which requireDecisionGrants demands
+//     of the caller before any of this is reached.
+//   - An id with NO type is not decidable. It names a concrete record the
+//     probe cannot resolve, and treating it as unbounded would put that
+//     record's summary and proposed change in the inbox of everyone holding
+//     the object grant, and let any of them decide a write against a row their
+//     own scope hides.
+//
+// A pair carrying BOTH halves is not settled here: it goes to the target type's
+// own probe. ONE spelling of the rule, because targetVisible runs it for the
+// inbox and the decision while TargetShapeDecidable reports it to the
+// composition layer's gate — a second copy would let the gate read green over
+// the predicate a human's inbox actually runs.
+func settledByShape(shape targetShape) (settled, visible bool) {
+	if !shape.hasID {
+		return true, true
+	}
+	if !shape.hasType {
+		return true, false
+	}
+	return false, false
+}
+
+// TargetShapeDecidable reports whether a staged row carrying this target SHAPE
+// — the target type, plus whether the staging names a concrete target id — can
 // be seen and decided at all. Exported for the composition layer's gate: a
-// confirm-first verb whose target type answers false stages authority objects
-// that no human can ever release or reject.
-func TargetTypeDecidable(targetType string) bool {
+// confirm-first verb whose staged shape answers false mints authority objects
+// no human can ever release or reject.
+//
+// The type alone is not the question, and asking it that way reads green over
+// half the class: a staging with no target id is decidable whatever its type
+// is, and a type with a probe below is still undecidable when the id that probe
+// needs is absent.
+func TargetShapeDecidable(targetType string, hasTargetID bool) bool {
+	if settled, visible := settledByShape(targetShape{hasType: true, hasID: hasTargetID}); settled {
+		return visible
+	}
 	return probeFor(targetType) != probeNoRule
 }
 
@@ -236,28 +280,22 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // decide — a staged change against another team's deal. The probe uses
 // the same platform/auth clauses the owning store's reads use, so the
 // approval surface can never disclose more than the record itself would.
-// A staged row with NEITHER a target type nor a target id (a cold-start
-// proposal, which is about no record yet) is scoped by grants alone; a
-// target the probe errors on stays invisible.
 //
-// A row carrying one half and not the other is neither of those things and
-// is not decidable. An id with no type names a concrete record the probe
-// cannot resolve — treating it as target-less would put that record's
-// summary and proposed change in the inbox of everyone holding the object
-// grant, and let any of them decide a write against a row their own scope
-// hides. A type with no id has nothing to check the scope against.
+// A pair missing either half is answered by settledByShape, which states that
+// rule; a pair carrying both goes to the type's probe below, and a target the
+// probe errors on stays invisible.
 //
 // It takes the pair rather than a row because a target-FILTERED read asks the
 // same question about a target the client named, before any row is in hand.
-// An unrecognized type must fail closed there too: auth.VisibleTo errors on a
-// table it does not row-scope, so the switch below — not the caller — is what
-// keeps a made-up target_entity_type from reaching it.
+// That read is entered only with BOTH halves in hand (ListInput.targeted), so
+// the id-less shape can never turn a type filter into a page of rows whose own
+// targets the caller cannot see. An unrecognized type must fail closed there
+// too: auth.VisibleTo errors on a table it does not row-scope, so the switch
+// below — not the caller — is what keeps a made-up target_entity_type from
+// reaching it.
 func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
-	if targetType == nil && targetID == nil {
-		return true, nil
-	}
-	if targetType == nil || targetID == nil {
-		return false, nil
+	if settled, visible := settledByShape(targetShape{hasType: targetType != nil, hasID: targetID != nil}); settled {
+		return visible, nil
 	}
 	switch probeFor(*targetType) {
 	case probeOwnScope:

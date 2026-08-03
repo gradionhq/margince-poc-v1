@@ -184,7 +184,8 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 }
 
 // undecidableConfirmFirstTypes are the confirm-first target types the approvals
-// inbox has no visibility rule for, each with what it costs.
+// inbox has no visibility rule for when the staging names a concrete record,
+// each with what it costs.
 //
 // The cost is the same for every entry and it is severe: `decidable` backs the
 // inbox list, the single Get and the Decide, so a row it rejects is invisible AND
@@ -212,9 +213,6 @@ var undecidableConfirmFirstTypes = map[string]string{
 		"Owner-scoped, so an auth.VisibleTo arm.",
 	"offer_template": "archiveOfferTemplate; workspace-shared config with no row scope, so it wants " +
 		"the targetExists floor `product` and `custom_field` already use, not a scope probe.",
-	"overlay_connection": "disconnectIncumbent stages against the connection row, so nobody can " +
-		"approve cutting the workspace back to native mode — the one transition an operator most needs " +
-		"to confirm deliberately.",
 	"webhook_subscription": "archiveWebhookSubscription; the subscription owner cannot release the " +
 		"deletion of their own endpoint. Owner-scoped.",
 }
@@ -226,7 +224,12 @@ var undecidableConfirmFirstTypes = map[string]string{
 // one level further on: a pinned target nobody can see is still a zombie. The
 // invariant is derived from the generated policy table rather than from a list of
 // the types someone remembered, so a verb that becomes confirm-first upstream
-// fails here until its target type gains a visibility rule or a ratified reason.
+// fails here until its staged shape gains a visibility rule or a ratified reason.
+//
+// The subject is the staged SHAPE, not the record type alone. stageRefusal reads
+// the target id out of the route's {id} parameter, so a route without one stages
+// its type with a NULL id — a different decidability question from the same
+// type's, and one a type-only walk answers green over.
 func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 	for recordType, cost := range undecidableConfirmFirstTypes {
 		if strings.TrimSpace(cost) == "" {
@@ -240,8 +243,17 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
 			continue
 		}
+		if !approvals.KindHasDecisionGrants(pol.Tool) {
+			// No row is ever minted: stageRefusal refuses the call at exactly this
+			// mapping check, which is an honest 403 rather than an authority
+			// object nobody can decide. Every 🟡 tool the REGISTRY admits is held
+			// to the mapping by TestEveryConfirmationRequiredToolHasADecisionGrantMapping,
+			// so this names only the contract-only verbs whose kind was never
+			// mapped, and it cannot become a way to skip the check below.
+			continue
+		}
 		checked++
-		if approvals.TargetTypeDecidable(string(pol.RecordType)) {
+		if approvals.TargetShapeDecidable(string(pol.RecordType), strings.Contains(route, "{id}")) {
 			continue
 		}
 		if _, ratified := undecidableConfirmFirstTypes[string(pol.RecordType)]; ratified {

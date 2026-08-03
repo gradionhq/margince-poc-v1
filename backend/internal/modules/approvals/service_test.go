@@ -307,6 +307,68 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 	}
 }
 
+// The four shapes a staged target can carry, and the reason each answers as it
+// does. This is the rule the inbox, the single read and the decision all run on
+// (decidable → targetVisible), so a shape answered wrong is either an authority
+// object nobody can release or reject, or a record's proposed change disclosed
+// to everyone holding the object grant.
+//
+// No shape here reaches a row probe, so the nil tx is never dereferenced. What a
+// both-halves pair against a REAL type then shows is row-scope work and lives in
+// the compose integration lane.
+func TestTargetVisibleAnswersEachStagedShape(t *testing.T) {
+	staged := tableProject
+	unknown := "chartreuse"
+	target := ids.NewV7()
+
+	for _, c := range []struct {
+		name       string
+		targetType *string
+		targetID   *ids.UUID
+		want       bool
+		because    string
+	}{
+		{
+			name: "neither half", want: true,
+			because: "a cold-start proposal is about no record yet, so the decision grants are the whole authority",
+		},
+		{
+			name: "a type with no id", targetType: &staged, want: true,
+			because: "a staged create has no row whose scope could bound it; its authority is the create grant on the type",
+		},
+		{
+			name: "an id with no type", targetID: &target, want: false,
+			because: "a concrete record the probe cannot resolve must not reach everyone holding the object grant",
+		},
+		{
+			name: "both halves, a type with no probe", targetType: &unknown, targetID: &target, want: false,
+			because: "a target type with no visibility rule fails closed rather than answering from the nearest primitive",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := targetVisible(context.Background(), nil, c.targetType, c.targetID)
+			if err != nil {
+				t.Fatalf("targetVisible: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("targetVisible = %v, want %v — %s", got, c.want, c.because)
+			}
+			// The composition layer's gate reports on the same rule. None of
+			// these shapes reaches a row probe, so "decidable at all" and "visible
+			// to this caller" are the same answer here, and a gate that drifted
+			// from the predicate a human's inbox runs would read green over it.
+			shape := ""
+			if c.targetType != nil {
+				shape = *c.targetType
+			}
+			if reported := TargetShapeDecidable(shape, c.targetID != nil); reported != c.want {
+				t.Errorf("TargetShapeDecidable(%q, %v) = %v, want %v — the gate must report the rule targetVisible runs",
+					shape, c.targetID != nil, reported, c.want)
+			}
+		})
+	}
+}
+
 func TestASelfOnlyKindIsUndecidableByAnyoneButItsSubject(t *testing.T) {
 	// The inbox is a SHARED surface, and for almost every kind that is the
 	// point. A LinkedIn match is the exception: it names third parties out of
