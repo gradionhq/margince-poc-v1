@@ -1,0 +1,198 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package identity
+
+// What the Settings list SHOWS, which is a different question from what the
+// passport table holds. Two kinds of row live in that table — the passports a
+// human minted and the credentials connections were issued — and a connection
+// replaces its credential on every renewal. So the list is grouped, and these
+// tests pin both halves of that grouping: a connection appears once however
+// often it has rotated, and the human's own passports are never folded into
+// each other by the same grouping.
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+)
+
+// rotate renews a connection through the module's own rotation path, so the
+// rows it leaves are exactly the ones a real renewal leaves: the previous
+// passport revoked, a fresh one minted under the same grant.
+func (e *revocationEnv) rotate(t *testing.T, fixture *connectFixture) {
+	t.Helper()
+	_, refreshed, err := e.svc.rotateRefreshToken(e.wsCtx(e.admin), refreshRequest{
+		Token: fixture.refresh, ClientID: fixture.clientID,
+	})
+	if err != nil {
+		t.Fatalf("rotating the connection: %v", err)
+	}
+	fixture.refresh = refreshed
+}
+
+// A connection is ONE row in the list, however many times it has renewed.
+// Without the grouping this is the list's worst failure mode and the least
+// visible one: nothing is wrong on the day it ships, and a week later the
+// human's own passports are buried under rotation debris carrying the same
+// name and no way to tell which is live.
+func TestAConnectionIsListedOncePerConnectionNotOncePerRotation(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-list-rotation")
+	fixture := e.connectOAuth(t)
+
+	e.rotate(t, &fixture)
+	e.rotate(t, &fixture)
+
+	// The rotations really did happen, or the assertion below would pass on a
+	// list that had nothing to collapse. Two, not three: issueGrant records the
+	// consent alone, and each rotation is what mints a passport under it — the
+	// first has no predecessor to retire.
+	var passports int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM passport WHERE oauth_grant_id = $1`, fixture.grantID).Scan(&passports); err != nil {
+		t.Fatalf("counting the connection's passports: %v", err)
+	}
+	if passports != 2 {
+		t.Fatalf("the grant has %d passports, want 2: the rotations must leave a predecessor behind for this test to mean anything",
+			passports)
+	}
+
+	rows, err := e.svc.ListPassports(e.wsCtx(e.admin), e.admin)
+	if err != nil {
+		t.Fatalf("listing passports: %v", err)
+	}
+	var connections []PassportRow
+	for _, row := range rows {
+		if row.Connection != nil {
+			connections = append(connections, row)
+		}
+	}
+	if len(connections) != 1 {
+		t.Fatalf("the list shows %d connection rows for one connection, want 1", len(connections))
+	}
+	// The row shown is the LIVE credential, not whichever predecessor sorted
+	// first. A list that showed a rotated-out passport would offer Disconnect on
+	// a credential that is already dead and report the connection as revoked.
+	if connections[0].RevokedAt != nil {
+		t.Fatal("the listed connection is a revoked passport: the row shown must be the newest under the grant, which is the live one")
+	}
+	if connections[0].Connection.ClientID != fixture.clientID {
+		t.Fatalf("listed client_id = %q, want %q", connections[0].Connection.ClientID, fixture.clientID)
+	}
+	// connected_at is the GRANT's age. Reading it off the passport would make a
+	// connection look newer than the consent that authorized it every time the
+	// client renewed — and the listed passport here is two rotations younger
+	// than the grant, so the two values cannot coincide by accident.
+	var grantCreated time.Time
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT created_at FROM oauth_grant WHERE id = $1`, fixture.grantID).Scan(&grantCreated); err != nil {
+		t.Fatalf("reading the grant's age: %v", err)
+	}
+	if !connections[0].Connection.ConnectedAt.Equal(grantCreated) {
+		t.Fatalf("connected_at = %v, want the grant's own %v — a connection is as old as the consent that authorized it, not as its newest credential",
+			connections[0].Connection.ConnectedAt, grantCreated)
+	}
+	if !connections[0].CreatedAt.After(grantCreated) {
+		t.Fatalf("the listed passport (%v) is not younger than its grant (%v): the rotations this test depends on did not move the clock",
+			connections[0].CreatedAt, grantCreated)
+	}
+}
+
+// The grouping must not reach the human's OWN passports. It groups on
+// COALESCE(oauth_grant_id, id) because DISTINCT ON treats NULLs as equal, and
+// this is the test that fails if that COALESCE is ever simplified away: every
+// minted passport has a NULL grant, so the bare column would collapse all of
+// them into one row and silently hide credentials a human still holds.
+func TestMintedPassportsAreNeverFoldedIntoEachOther(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-list-unbound")
+	first := e.mintLendable(t, e.admin, []string{"read"})
+	second := e.mintLendable(t, e.admin, []string{"read", "write"})
+
+	rows, err := e.svc.ListPassports(e.wsCtx(e.admin), e.admin)
+	if err != nil {
+		t.Fatalf("listing passports: %v", err)
+	}
+	listed := map[ids.PassportID]bool{}
+	for _, row := range rows {
+		if row.Connection != nil {
+			t.Fatalf("passport %s is reported as a connection although no grant issued it", row.ID)
+		}
+		listed[row.ID] = true
+	}
+	if !listed[first] || !listed[second] {
+		t.Fatalf("the list shows %d of the 2 minted passports: both must appear", len(listed))
+	}
+}
+
+// The provenance a human actually reads: which of their passports a connection
+// came from, by name. It is resolved at read time from the grant, so a passport
+// renamed after the lend reads under its current name — the label is display
+// text, and the audit row is what holds the dated fact.
+func TestAConnectionNamesThePassportItWasLentFrom(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-list-provenance")
+	lent := e.mintLendable(t, e.admin, []string{"read"})
+	label := "the lent one"
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE passport SET label = $2 WHERE id = $1`, lent, label); err != nil {
+		t.Fatalf("labelling the lent passport: %v", err)
+	}
+	fixture := e.connectOAuthLentFrom(t, lent)
+	// The grant records the consent; the credential under it is minted by the
+	// exchange, which the rotation path stands in for here. Without one there
+	// is no row for the connection to be listed on at all.
+	e.rotate(t, &fixture)
+
+	rows, err := e.svc.ListPassports(e.wsCtx(e.admin), e.admin)
+	if err != nil {
+		t.Fatalf("listing passports: %v", err)
+	}
+	var connection *PassportConnectionRow
+	for _, row := range rows {
+		if row.Connection != nil && row.Connection.ClientID == fixture.clientID {
+			connection = row.Connection
+		}
+	}
+	if connection == nil {
+		t.Fatal("the connection is absent from the list")
+	}
+	if connection.LentPassportID == nil || *connection.LentPassportID != lent {
+		t.Fatalf("lent passport = %v, want %s", connection.LentPassportID, lent)
+	}
+	if connection.LentPassportLabel == nil || *connection.LentPassportLabel != label {
+		t.Fatalf("lent passport label = %v, want %q", connection.LentPassportLabel, label)
+	}
+}
+
+// connectOAuthLentFrom is connectOAuthFor with the provenance a real consent
+// records — the fixture next door leaves it unset, which is the pre-0171 shape
+// and exactly what must NOT be assumed here.
+func (e *revocationEnv) connectOAuthLentFrom(t *testing.T, lent ids.PassportID) connectFixture {
+	t.Helper()
+	clientID := "client-" + ids.NewV7().String()
+	if _, err := e.owner.Exec(context.Background(), `
+		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
+		VALUES ($1, $2, 'provenance', ARRAY['https://client.example/cb'])`,
+		e.admin.WorkspaceID, clientID); err != nil {
+		t.Fatalf("registering the client: %v", err)
+	}
+	out := connectFixture{clientID: clientID}
+	ctx := e.wsCtx(e.admin)
+	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
+		var err error
+		out.grantID, out.refresh, err = issueGrant(ctx, tx, issueGrantInput{
+			WorkspaceID: e.admin.WorkspaceID, UserID: e.admin.UserID, ClientID: clientID,
+			Scopes: []string{"read"}, RefreshAllowed: true, LentPassportID: &lent,
+		})
+		return err
+	}); err != nil {
+		t.Fatalf("issuing the grant: %v", err)
+	}
+	return out
+}

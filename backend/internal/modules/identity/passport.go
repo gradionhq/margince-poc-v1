@@ -180,55 +180,6 @@ func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportI
 	return out, nil
 }
 
-// PassportRow is one passport's metadata for the Settings list. The
-// token hash never leaves the store — the plaintext existed exactly
-// once, in the mint response.
-type PassportRow struct {
-	ID        ids.PassportID
-	Label     *string
-	Scopes    []string
-	CreatedAt time.Time
-	ExpiresAt time.Time
-	RevokedAt *time.Time
-}
-
-// ListPassports enumerates passports as metadata: a user sees their
-// own; the admin role sees the workspace's (the same authority split
-// RevokePassport enforces).
-func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow, error) {
-	isAdmin := id.hasRole(roleAdmin)
-	var out []PassportRow
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		query := `SELECT id, label, scopes, created_at, expires_at, revoked_at
-		          FROM passport WHERE on_behalf_of = $1
-		          ORDER BY created_at DESC, id DESC`
-		args := []any{id.UserID}
-		if isAdmin {
-			query = `SELECT id, label, scopes, created_at, expires_at, revoked_at
-			         FROM passport
-			         ORDER BY created_at DESC, id DESC`
-			args = nil
-		}
-		rows, err := tx.Query(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var p PassportRow
-			if err := rows.Scan(&p.ID, &p.Label, &p.Scopes, &p.CreatedAt, &p.ExpiresAt, &p.RevokedAt); err != nil {
-				return err
-			}
-			out = append(out, p)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // RevokePassport is the kill switch: enforced at the next token lookup
 // (every MCP/REST agent call re-authenticates the passport row), and
 // published as passport.revoked (events.md §5.6a) so long-lived

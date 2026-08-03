@@ -140,10 +140,17 @@ func lockConsentingUser(ctx context.Context, tx pgx.Tx, id Identity) error {
 }
 
 // writeAuthorizationCode is the pair of rows a lend commits, inside the caller's
-// transaction: the single-use code, and the audit row naming the passport behind
-// it. They commit TOGETHER because which passport a human handed to a client is
-// the central authority fact of this flow, and a code that existed without it
-// would be a lend nobody could trace.
+// transaction: the single-use code — carrying the lent passport's id, which the
+// redemption copies onto the grant so Settings can name it — and the audit row
+// naming the same passport. They commit TOGETHER because which passport a human
+// handed to a client is the central authority fact of this flow, and a code that
+// existed without it would be a lend nobody could trace.
+//
+// The code's lent_passport_id is PROVENANCE, and the redemption reads it for
+// exactly that. It is deliberately not a second copy of the lend's authority:
+// the scopes column already carries what the connection receives, resolved under
+// the row lock, and nothing downstream re-derives them from the passport this
+// column names (mintLentAuthorizationCode's §"WHERE THAT LOCK'S REACH ENDS").
 func writeAuthorizationCode(
 	ctx context.Context, tx pgx.Tx, code string, req authorizeRequest, id Identity, lent lentPassport,
 ) error {
@@ -154,22 +161,27 @@ func writeAuthorizationCode(
 	var codeID ids.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO oauth_authorization_code
-		  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at)
+		  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at,
+		   lent_passport_id)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval)
+		        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval,
+		        $9)
 		RETURNING id`,
 		hashOAuthCode(code), req.ClientID, id.UserID, storedScopes, req.CodeChallenge,
-		req.RedirectURI, req.Resource, authCodeTTL.String()).Scan(&codeID); err != nil {
+		req.RedirectURI, req.Resource, authCodeTTL.String(), lent.ID).Scan(&codeID); err != nil {
 		return err
 	}
 	return auditLend(ctx, tx, codeID, req, lent)
 }
 
 // auditLend records WHICH of the human's passports was lent to this client,
-// and the authority that went with it. Neither oauth_authorization_code nor
-// oauth_grant has a column for the passport, so this row is the only place the
-// question "which of my passports did I lend to this connection?" can be
-// answered afterwards.
+// and the authority that went with it.
+//
+// The code and grant rows now carry lent_passport_id for the Settings list, so
+// this is no longer the only record of the lend — and it is still not
+// redundant. Those columns are ON DELETE SET NULL and hold only the CURRENT
+// answer; this row holds the dated one, alongside the actor and the scopes as
+// they stood at consent, which is what an investigation reads.
 //
 // The after image is the authority actually handed over — the lent passport's
 // scopes, never the client's request — and refresh_allowed beside them, the

@@ -355,6 +355,13 @@ paths:
         Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
         revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
         only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+
+        Two kinds of row arrive together and `connection` is what tells them apart: a passport the
+        human minted (`connection: null`) is a template they may lend on the consent screen, while a
+        connection's credential (`connection` present) is what an MCP client received *after* a lend.
+        A connection is listed **once**, not once per token rotation: every refresh revokes that
+        connection's passport and mints a replacement under the same grant, so only the newest
+        passport per grant is returned and its `connection.connected_at` is the grant's own age.
       responses:
         '200':
           description: The caller's passports (metadata).
@@ -14613,10 +14620,49 @@ components:
         label: { type: string, description: Human-given name for the passport (e.g. "Marcus's Claude"). }
         scopes: { type: array, items: { type: string }, description: The granted MCP scopes (intersected with the minting human's role at bind time). }
         agent_id: { type: [string, 'null'], description: 'The agent this passport is bound to, if any.' }
+        connection:
+          allOf: [ { $ref: '#/components/schemas/PassportConnection' } ]
+          description: |
+            Present when this passport IS a connection's credential — issued to an MCP client by the
+            token exchange, not minted by a human. Absent (null) on a human-minted passport, which is
+            what makes this field, rather than the `oauth:` label prefix, the way to tell the two
+            apart: a label is display text a human can also type.
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, 'null'], format: date-time }
         last_used_at: { type: [string, 'null'], format: date-time }
         revoked_at: { type: [string, 'null'], format: date-time }
+
+    PassportConnection:
+      type: object
+      description: |
+        The connection a grant-bound passport belongs to, so Settings can name it by the client the
+        human actually approved instead of the raw DCR client id its label carries.
+      required: [client_id, client_name, connected_at]
+      properties:
+        client_id: { type: string, description: The registered OAuth client id (the DCR identifier). }
+        client_name:
+          type: string
+          description: |
+            The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+            registration is gone, so a connection is never nameless.
+        connected_at:
+          type: string
+          format: date-time
+          description: |
+            When the connection was established — the GRANT's age, not the current passport's. Token
+            rotation replaces the passport every renewal; a date that moved with it would report a
+            connection as newer than the consent that authorized it.
+        lent_passport_id:
+          type: [string, 'null']
+          format: uuid
+          description: |
+            The passport the human lent to create this connection. Null for a connection established
+            before that provenance was recorded, and null once the lent passport is deleted outright.
+            It is never re-checked: a lend survives the lent passport's revocation by design, so this
+            answers "where did this come from", never "may this still connect".
+        lent_passport_label:
+          type: [string, 'null']
+          description: The lent passport's label at read time, for display beside `lent_passport_id`.
 
     MorningBrief:
       type: object

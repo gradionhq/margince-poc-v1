@@ -9,7 +9,9 @@ package integration
 // read model next door in oauth_consent_integration_test.go: the human lends one
 // of their own passports and the connection receives exactly that passport's
 // scopes, or the human refuses and the client is told. Which passport was lent
-// is recorded in the audit trail, because no column anywhere holds it.
+// is recorded twice over, and the two records answer different questions: the
+// code and grant rows carry it as provenance the Settings list reads, the audit
+// row carries it dated and attributed for an investigation.
 
 import (
 	"context"
@@ -138,12 +140,12 @@ type lendAudit struct {
 	RefreshAllowed bool     `json:"refresh_allowed"`
 }
 
-// WHICH passport was lent is the central authority fact of this flow, and no
-// column anywhere holds it: oauth_authorization_code and oauth_grant each record
-// the client and the scopes, neither records the credential the human handed
-// over. The audit row is therefore the only answer to "which of my passports did
-// I lend to this connection?", so it is asserted by CONTENT — a count would pass
-// with the wrong passport id, the requested scopes, or the wrong actor in it.
+// WHICH passport was lent is the central authority fact of this flow, and the
+// audit row is what dates and attributes it: the lent_passport_id columns beside
+// it hold only the current answer and go NULL if that passport is ever deleted,
+// so they can say what a connection came from but never that this human lent it,
+// then, at these scopes. It is asserted by CONTENT — a count would pass with the
+// wrong passport id, the requested scopes, or the wrong actor in it.
 func TestApproveAuditsWhichPassportWasLent(t *testing.T) {
 	o := setupOAuth(t)
 	ctx := context.Background()
@@ -254,16 +256,19 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 // left to a comment. The consent commits the code and the lent passport's row
 // lock together, so a revocation racing the POST cannot produce a code
 // (identity's oauth_lend_lock_integration_test.go). Once the code EXISTS the
-// question is different: nothing on oauth_authorization_code names the passport,
-// so the exchange has nothing to re-check and the code redeems for its five
-// minutes.
+// question is different: the exchange re-checks the HUMAN and nothing else, so
+// the code redeems for its five minutes.
 //
 // That is deliberate, and this test is where it is deliberate: the connection's
 // credential is a NEW grant-bound passport, and revoking the lent one is not the
 // switch that ends connections derived from it — ending a connection goes through
-// its grant. What the exchange DOES re-check is the human. So the day someone
-// records the lent passport on the code row, this test is what tells them they are
-// changing the meaning of a lend, not fixing a race.
+// its grant.
+//
+// The code row DOES name the lent passport (lent_passport_id, migration 0171),
+// and this test is what keeps that column honest. It exists so Settings can say
+// where a connection came from; the moment a WHERE clause reads it, this test
+// fails and says so — that would be a decision about what a lend means, not a
+// race being fixed.
 func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
 	o := setupOAuth(t)
 	lent := o.mintPassport(t, "revoked-after-consent", []string{"read", "write"})
@@ -273,7 +278,7 @@ func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
 
 	status, body := o.exchange(t, url.Values{"code": {code}})
 	if status != http.StatusOK {
-		t.Fatalf("token → %d %v, want 200: the code carries no reference to the lent passport, so revoking it after consent cannot reach this exchange",
+		t.Fatalf("token → %d %v, want 200: the lent passport is provenance on the code, never a condition of redeeming it",
 			status, body)
 	}
 	minted, _ := body["access_token"].(string)
@@ -289,6 +294,13 @@ func TestALentPassportRevokedAfterConsentStillRedeems(t *testing.T) {
 	// resurrect it, it was issued its own.
 	assertOwnerCount(t, o, 1,
 		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NOT NULL`, lent)
+	// The provenance outlives the passport's revocation, which is the whole point
+	// of recording it: "where did this connection come from?" is asked most often
+	// about credentials somebody has already killed. Asserted on the GRANT, so it
+	// also proves the redemption carried the id across from the code rather than
+	// leaving it behind with the row it consumed.
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM oauth_grant WHERE lent_passport_id = $1`, lent)
 }
 
 // The HUMAN is the other half of that boundary, and it falls the other way.
