@@ -12,6 +12,34 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open defect — a backfill of OLDER messages is marked read without being read
+
+`threadMessages` ([signalextractread.go](backend/internal/compose/signalextractread.go))
+always reads the newest `extractThreadMessages` (6) messages of a conversation.
+`signal_thread_scan` notices a backfill because the message COUNT changes, so
+the thread becomes due again — but the window it re-reads is the same newest
+six, and `markThreadScanned` then records the new count. The inserted older
+messages are never sent to the model, and the thread now looks read.
+
+Widening the tail by the count delta only fixes it for short threads: on a long
+one the backfilled messages sit far outside any bounded window from the newest
+end. The fix is a scan cursor over the unread range — a design change to
+`signal_thread_scan`, not an edit to this read, which is why PR #392 left it
+alone after the reviewer raised it (thread resolved with this reasoning).
+
+Two things found alongside it, both bigger than one PR:
+
+- **12 `*.down.sql` migrations DELETE rows without lifting RLS.** The migration
+  role is `NOSUPERUSER NOBYPASSRLS`
+  ([scripts/deploy/db-bootstrap.sql](scripts/deploy/db-bootstrap.sql)), so FORCE
+  RLS binds it and those deletes match zero rows in a real deployment. #392
+  fixed only its own (`0176`). The others are pre-existing on `main`. A fitness
+  test would be the right guard — it cannot be added until they are fixed.
+- **`margince_owner` is SUPERUSER + BYPASSRLS in the dev container** but
+  `NOSUPERUSER NOBYPASSRLS` in `db-bootstrap.sql`. Migration-time RLS behaviour
+  is therefore untested locally and in the integration lane, which is why the
+  `0176` bug reproduced only against a hand-built non-bypass role.
+
 ## Open defect — capture_counterparty repeats the version-pin failure
 
 `capture_counterparty` stages with a pinned `activity` version, and the classify
