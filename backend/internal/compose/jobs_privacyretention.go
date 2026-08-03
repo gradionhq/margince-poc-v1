@@ -29,6 +29,8 @@ import (
 type PrivacyRetentionConfig struct {
 	// Interval is the dispatcher's cadence — the operator-facing
 	// --retention-interval, which stays the schedule source it always was.
+	// Non-positive means this role schedules no retention dispatch; see
+	// addPrivacyRetentionJobs for who is allowed to mean that.
 	Interval time.Duration
 }
 
@@ -39,6 +41,23 @@ type PrivacyRetentionConfig struct {
 // dependencies come from opposite sides of the tree: the object store is the
 // runner's own (Art. 17 reaches the attachment bytes), and the edge invalidator
 // is a search closure, which a module may not import from privacy.
+//
+// A non-positive interval registers the WORKERS but no schedule. The split is
+// the point: the workers are a capability (a queued row from an earlier boot
+// still gets worked, the posture the deep-read and embed-reindex workers take)
+// while the periodic entry is a cadence, and River has no cadence to offer for
+// a zero duration. It does not refuse one either — PeriodicInterval(0) yields
+// Next(t) == t, so the enqueuer re-derives a run time that never advances and
+// dispatches as fast as Postgres accepts an insert. Absent by omission is the
+// only honest reading of "no cadence given", and it is what
+// addEmbedDriftSweepJob does one file over.
+//
+// Absent by omission is NOT allowed to reach a deployment: --retention-interval
+// defaults to 24h and cmd/worker's validateSchedulerIntervals refuses a
+// non-positive one at boot, so the role that owes the storage-limitation
+// obligation cannot start without a schedule. The omission serves the callers
+// that wire a runner for a few named passes and never meant to run retention
+// at all.
 func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
 	// Retention removes the interactions the relationship graph is folded
 	// from, so it carries the fold with it — in the same transaction, not on
@@ -51,6 +70,9 @@ func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg Job
 		})
 	river.AddWorker(workers, &privacyRetentionWorker{pool: pool})
 	river.AddWorker(workers, &privacyRetentionWorkspaceWorker{retention: retention})
+	if cfg.PrivacyRetention.Interval <= 0 {
+		return nil
+	}
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(cfg.PrivacyRetention.Interval),
 			func() (river.JobArgs, *river.InsertOpts) { return PrivacyRetentionArgs{}, sweepInsertOpts() },

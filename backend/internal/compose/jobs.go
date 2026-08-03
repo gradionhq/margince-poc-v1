@@ -55,8 +55,9 @@ func sweepInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByState: activeSweepStates}}
 }
 
-// JobRunnerConfig is NewJobRunner's boot configuration: the three
-// always-on periodic passes' intervals, the optional Gmail poll (added
+// JobRunnerConfig is NewJobRunner's boot configuration: the interval of every
+// pass whose cadence an operator sets (close-date, follow-up reconcile,
+// automation time-scan, GDPR retention), the optional Gmail poll (added
 // only when GmailRegistry is non-nil), the optional Gmail push-watch
 // maintenance pass (added only when GmailRegistry is non-nil AND
 // GmailWatch.Topic is set), and the optional overlay reconcile poller
@@ -179,11 +180,12 @@ type JobRunnerConfig struct {
 	ModelPricingSources []pricingSource
 }
 
-// NewJobRunner wires the deals correctors and the automation time-scan
-// into River periodic jobs for the worker process role. The intervals
-// keep the operator-facing --close-date-interval / --reconcile-interval /
-// --time-scan-interval flags as the schedule source; RunOnStart preserves
-// the old ticker's boot-time first pass.
+// NewJobRunner wires the deals correctors, the automation time-scan and the
+// GDPR retention fan-out into River periodic jobs for the worker process role.
+// The intervals keep the operator-facing --close-date-interval /
+// --reconcile-interval / --time-scan-interval / --retention-interval flags as
+// the schedule source; RunOnStart preserves the old ticker's boot-time first
+// pass.
 //
 // When cfg.GmailRegistry is non-nil (the deployment configured the Gmail
 // OAuth app), the sync DISPATCHER is added on a fixed 30s scan — a cheap
