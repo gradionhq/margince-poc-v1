@@ -44,6 +44,60 @@ const (
 	maxSlotDuration        = 8 * time.Hour
 )
 
+// SchedulingArgumentError refuses a from/to/start/end/duration combination no
+// calendar can answer, naming the argument to change and the machine code for
+// why. Availability and booking share it because they refuse the same shape of
+// mistake about the same kind of argument.
+//
+// It exists because these refusals used to be RequiredFieldError with
+// prose stuffed into the Field slot ("to (must follow from)"), and Field is what
+// both surfaces publish as the machine-readable field name: REST put that
+// parenthetical in details.errors[].field and the MCP dispatcher rendered
+// `validation_error to (must follow from)=required`. Two things were wrong at
+// once — the field name was not a field name, and `required` is false for a
+// value that was supplied and merely inconsistent. A caller cannot branch on
+// either.
+type SchedulingArgumentError struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+func (e *SchedulingArgumentError) Error() string { return e.Field + ": " + e.Message }
+
+// FieldFault names the argument, the code, and what to fix — one mapping for
+// every surface.
+func (e *SchedulingArgumentError) FieldFault() (field, code, message string) {
+	return e.Field, e.Code, e.Message
+}
+
+// The scheduling argument refusals. Package-level values, not built at the call
+// site: every bound in the text is read off the constant that enforces it, so a
+// bound and its message cannot drift apart.
+var (
+	errAvailabilityToNotAfterFrom = &SchedulingArgumentError{
+		Field: "to", Code: "invalid_range",
+		Message: "`to` must be later than `from`",
+	}
+	errAvailabilityWindowTooWide = &SchedulingArgumentError{
+		Field: "to", Code: "window_too_wide",
+		Message: fmt.Sprintf("the window between `from` and `to` may span at most %d days",
+			int(maxAvailabilityWindow/(24*time.Hour))),
+	}
+	errAvailabilityDurationOutOfRange = &SchedulingArgumentError{
+		Field: "duration_minutes", Code: "out_of_range",
+		Message: fmt.Sprintf("`duration_minutes` must be between %d and %d",
+			int(minSlotDuration.Minutes()), int(maxSlotDuration.Minutes())),
+	}
+	// The booking twin of errAvailabilityToNotAfterFrom. book_meeting's
+	// StageInfo pre-empts this before an approval is minted; the store is what
+	// makes it true on every path, REST included.
+	errBookingEndNotAfterStart = &SchedulingArgumentError{
+		Field: "end", Code: "invalid_range",
+		Message: "`end` must be later than `start`",
+	}
+)
+
 type slot struct {
 	Start time.Time `json:"start"`
 	End   time.Time `json:"end"`
@@ -53,21 +107,27 @@ type slot struct {
 // business-hour candidates minus the host's existing meetings. A
 // non-positive duration means the caller named none and takes the
 // default.
-func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time.Time, duration time.Duration) ([]slot, error) {
+//
+// truncated reports that the walk stopped at maxProposedSlots with window left
+// to scan, so later free slots exist that this answer does not carry. It is
+// returned rather than left implicit because both callers put the slots on a
+// wire: a capped list presented as the whole truth is how a model comes to tell
+// someone there is no later opening.
+func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time.Time, duration time.Duration) (free []slot, truncated bool, err error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if duration <= 0 {
 		duration = defaultSlotDuration
 	}
 	if !to.After(from) {
-		return nil, &RequiredFieldError{Field: "to (must follow from)"}
+		return nil, false, errAvailabilityToNotAfterFrom
 	}
 	if to.Sub(from) > maxAvailabilityWindow {
-		return nil, &RequiredFieldError{Field: "window (at most 31 days)"}
+		return nil, false, errAvailabilityWindowTooWide
 	}
 	if duration < minSlotDuration || duration > maxSlotDuration {
-		return nil, &RequiredFieldError{Field: "duration_minutes (15 minutes to 8 hours)"}
+		return nil, false, errAvailabilityDurationOutOfRange
 	}
 
 	// The busy read is a read of the host's meetings and carries the
@@ -82,7 +142,7 @@ func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time
 	toPos := arg(to)
 	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if scope == "" {
 		scope = "TRUE"
@@ -111,22 +171,31 @@ func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time
 		return rows.Err()
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return freeSlots(from, to, duration, busy), nil
+	slots, truncated := freeSlots(from, to, duration, busy)
+	return slots, truncated, nil
 }
 
 // freeSlots walks the duration-aligned candidate grid inside the window
 // and keeps business-hour slots that miss every busy block. Candidates
 // align to the duration grid, never before the caller's window, and
 // must END inside business hours (17:00 sharp is fine, 17:01 is not).
-func freeSlots(from, to time.Time, duration time.Duration, busy []slot) []slot {
+//
+// truncated reports that the cap stopped the walk before the window ran out, so
+// the answer is a prefix of what is free rather than all of it.
+func freeSlots(from, to time.Time, duration time.Duration, busy []slot) (free []slot, truncated bool) {
+	// Empty, never nil: "the host is booked solid" is a real answer and has to
+	// arrive shaped like the array the contract declares. Normalized HERE rather
+	// than in each transport because only two of the three callers remembered —
+	// the MCP adapter marshalled the nil straight through as `null`, which a
+	// model reads as "unknown" instead of "none free".
+	free = []slot{}
 	cursor := from.UTC().Truncate(duration)
 	if cursor.Before(from.UTC()) {
 		cursor = cursor.Add(duration)
 	}
-	var free []slot
 	for ; !cursor.Add(duration).After(to.UTC()); cursor = cursor.Add(duration) {
 		end := cursor.Add(duration)
 		endsAtClose := end.Hour() == businessDayEndHour && end.Minute() == 0 && end.Second() == 0
@@ -142,10 +211,13 @@ func freeSlots(from, to time.Time, duration time.Duration, busy []slot) []slot {
 		}
 		free = append(free, candidate)
 		if len(free) == maxProposedSlots {
-			break
+			// The cap is hit with window still unwalked, so there may well be
+			// more. Saying "maybe more" rather than probing for one more slot
+			// keeps the walk bounded; the caller's remedy is a narrower window.
+			return free, true
 		}
 	}
-	return free
+	return free, false
 }
 
 func overlapsAny(candidate slot, busy []slot) bool {
@@ -189,7 +261,7 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 		return crmcontracts.Activity{}, apperrors.ErrPermissionDenied
 	}
 	if !in.End.After(in.Start) {
-		return crmcontracts.Activity{}, &RequiredFieldError{Field: "end (must follow start)"}
+		return crmcontracts.Activity{}, errBookingEndNotAfterStart
 	}
 	// The conflict probe reads only the calendar the caller may write
 	// (their own, or any as admin — gated above) and gives the polite
@@ -258,15 +330,15 @@ func (h Handlers) GetAvailability(w http.ResponseWriter, r *http.Request, params
 	if params.DurationMinutes != nil {
 		duration = time.Duration(*params.DurationMinutes) * time.Minute
 	}
-	slots, err := h.store.Availability(r.Context(), host, params.From, params.To, duration)
+	slots, truncated, err := h.store.Availability(r.Context(), host, params.From, params.To, duration)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
-	if slots == nil {
-		slots = []slot{}
-	}
-	httperr.WriteJSON(w, http.StatusOK, map[string]any{"slots": slots})
+	// truncated travels on both transports, because the cap is the store's and
+	// so is the obligation to admit it (ADR-0055: the two surfaces do not get to
+	// disagree about what an answer means).
+	httperr.WriteJSON(w, http.StatusOK, map[string]any{"slots": slots, "truncated": truncated})
 }
 
 func (h Handlers) BookMeeting(w http.ResponseWriter, r *http.Request, _ crmcontracts.BookMeetingParams) {

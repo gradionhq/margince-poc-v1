@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -116,7 +117,10 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 		var req reportRequest
 		if len(planArgs) > 0 {
 			if err := json.Unmarshal(planArgs, &req); err != nil {
-				return nil, err
+				// The same refusal RunReport spells for the same bytes. A raw
+				// decoder error is classified by nothing, and the agent that
+				// mistyped the plan would be told the tool failed internally.
+				return nil, httperr.Validation("body", "malformed_json", err.Error())
 			}
 		}
 		outcome, err := engine.Run(ctx, report, req)
@@ -124,9 +128,13 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{
-			"report":       outcome.Report,
-			"plan":         outcome.Plan,
-			"columns":      outcome.Columns,
+			"report":  outcome.Report,
+			"plan":    outcome.Plan,
+			"columns": outcome.Columns,
+			// Never null: every other list-shaped answer on this surface
+			// normalizes, because a model reads null as "unknown" where an
+			// empty array says "none matched". reportOutcome.Rows guarantees
+			// it, so this is the shape both transports already agree on.
 			"rows":         outcome.Rows,
 			"total_rows":   len(outcome.Rows),
 			"generated_at": outcome.GeneratedAt,

@@ -156,15 +156,15 @@ func (t whoKnowsTool) Spec() mcp.ToolSpec {
 
 func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		PersonID string `json:"person_id"`
+		PersonID ids.UUID `json:"person_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	personID, err := ids.Parse(args.PersonID)
-	if err != nil {
+	if err := requireID("person_id", args.PersonID); err != nil {
 		return nil, err
 	}
+	personID := args.PersonID
 	colleagues, err := t.list(ctx, personID)
 	if err != nil {
 		return nil, err
@@ -201,16 +201,15 @@ func (t accountCoverageTool) Spec() mcp.ToolSpec {
 
 func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		DealID string `json:"deal_id"`
+		DealID ids.UUID `json:"deal_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	dealID, err := ids.Parse(args.DealID)
-	if err != nil {
+	if err := requireID("deal_id", args.DealID); err != nil {
 		return nil, err
 	}
-	answer, err := t.read(ctx, dealID)
+	answer, err := t.read(ctx, args.DealID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,15 +234,15 @@ func (t introPathTool) Spec() mcp.ToolSpec {
 
 func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		OrganizationID string `json:"organization_id"`
+		OrganizationID ids.UUID `json:"organization_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	orgID, err := ids.Parse(args.OrganizationID)
-	if err != nil {
+	if err := requireID("organization_id", args.OrganizationID); err != nil {
 		return nil, err
 	}
+	orgID := args.OrganizationID
 	routes, truncated, err := t.list(ctx, orgID)
 	if err != nil {
 		return nil, err

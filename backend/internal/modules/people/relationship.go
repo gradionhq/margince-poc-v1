@@ -259,9 +259,9 @@ func mapRelationshipConstraint(err error, kind string) error {
 	if constraint, ok := storekit.CheckViolation(err); ok {
 		switch constraint {
 		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape", "rel_project_stakeholder_shape":
-			return &RequiredFieldError{Field: "kind: " + kind + " endpoint shape"}
+			return &RelationshipShapeError{Kind: kind}
 		case "rel_dates":
-			return &RequiredFieldError{Field: "ended_at: must not precede started_at"}
+			return &RelationshipDatesError{}
 		}
 	}
 	if constraint, ok := storekit.UniqueViolation(err); ok {

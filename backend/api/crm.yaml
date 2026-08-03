@@ -2403,7 +2403,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2413,6 +2413,13 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when the slot walk stopped at its cap (20) with window left to scan, so
+                      free slots exist after the last one returned. Declared because the cap is not
+                      optional and a capped list read as complete is how a caller — a model in
+                      particular — concludes there is no later opening. Narrow the window to see more.
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /bookings:
@@ -2498,7 +2505,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [slots]
+                required: [slots, truncated]
                 properties:
                   slots:
                     type: array
@@ -2508,6 +2515,13 @@ paths:
                       properties:
                         start: { type: string, format: date-time }
                         end:   { type: string, format: date-time }
+                  truncated:
+                    type: boolean
+                    description: |
+                      True when the slot walk stopped at its cap (20) with window left to scan, so
+                      free slots exist after the last one returned. Declared because the cap is not
+                      optional and a capped list read as complete is how a caller — a model in
+                      particular — concludes there is no later opening. Narrow the window to see more.
         '404': { $ref: '#/components/responses/NotFound' }
 
   /public/booking/{host_slug}:

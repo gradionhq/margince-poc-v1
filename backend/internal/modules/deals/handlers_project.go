@@ -143,6 +143,12 @@ func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInp
 	if err != nil {
 		return CreateProjectInput{}, err
 	}
+	// A project belongs to a company, and the contract makes organization_id
+	// required — but an absent key decodes to the zero UUID, which reaches
+	// EnsureLinkTarget and comes back as a bare not-found naming no argument.
+	if err := requireBodyID("organization_id", req.OrganizationId); err != nil {
+		return CreateProjectInput{}, err
+	}
 	in := CreateProjectInput{
 		Name:           name,
 		Key:            req.Key,

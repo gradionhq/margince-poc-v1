@@ -83,6 +83,24 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 	return nil
 }
 
+// requireID refuses an id argument the decoder accepted but that names no
+// record.
+//
+// `ids.UUID` refuses a malformed value inside decodeArgs, which is why every
+// id argument on this surface is declared as one rather than parsed by hand —
+// a hand-rolled ids.Parse returns an error no fault interface classifies, and
+// the agent is told the tool failed internally for what is its own typo. What
+// the type cannot refuse is an ABSENT key: it zero-values, silently, so
+// "required" in a schema is a claim only this check makes true. Left
+// unchecked, the zero UUID travels down to a store lookup that matches
+// nothing and answers a bare not-found naming no argument.
+func requireID(field string, id ids.UUID) error {
+	if id.IsZero() {
+		return &BadArgsError{Cause: fmt.Errorf("`%s` is required and must be a canonical UUID", field)}
+	}
+	return nil
+}
+
 // maxBadArgsDetail bounds what a rejected tool call may say back. The
 // decoder quotes the caller's own JSON key verbatim (DisallowUnknownFields),
 // the refusal becomes an observation, and an agent run's transcript is
@@ -95,10 +113,28 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 const maxBadArgsDetail = 200
 
 // BadArgsError maps to a tool-call validation failure.
-type BadArgsError struct{ Cause error }
+//
+// The two members have opposite provenance, and that is the whole reason they
+// are separate. Cause quotes the CALLER — the decoder echoes the JSON key it
+// refused — so it is bounded and escaped. Guidance is OURS: a fixed vocabulary
+// reflected off the contract, chosen by no caller.
+type BadArgsError struct {
+	Cause error
+	// Guidance is server-authored text appended after the echo, and it is NOT
+	// bounded. Bounding it with the echo is what made the accepted-field list
+	// truncate mid-word on a long unknown key — cutting away the list the
+	// message exists to teach, exactly when the caller most needed it. The
+	// bound guards against an unbounded write into a run's transcript by the
+	// model being prompted; our own strings were never that.
+	Guidance string
+}
 
 func (e *BadArgsError) Error() string {
-	return "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
+	msg := "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
+	if e.Guidance == "" {
+		return msg
+	}
+	return msg + "; " + e.Guidance
 }
 func (e *BadArgsError) Unwrap() error { return e.Cause }
 

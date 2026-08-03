@@ -191,13 +191,6 @@ func (s reportSpec) fromClause() string {
 	return from
 }
 
-// FieldNotAllowedError maps to 422 report_field_not_allowed.
-type FieldNotAllowedError struct{ Field string }
-
-func (e *FieldNotAllowedError) Error() string {
-	return fmt.Sprintf("report: field %q is outside this report's vocabulary", e.Field)
-}
-
 // reportOutcome is the executed result plus the validated plan echo.
 // Filters/GroupBy/Aggregates carry the EFFECTIVE plan (defaults applied)
 // so the transport can mint derivation handles for exactly what ran.
@@ -415,7 +408,12 @@ func reportSQL(spec reportSpec, selects, where, groupBy []string) string {
 // scanReportRows shapes each result row into a column→value map, rendering
 // values wire-friendly.
 func scanReportRows(pgRows pgx.Rows, columns []string) ([]map[string]any, error) {
-	var rows []map[string]any
+	// Empty, never nil. "No deals in that stage" is a real answer and has to
+	// arrive shaped like the array it is: nil marshals to `null`, which a model
+	// reads as "unknown". REST was papering over this by copying into a sized
+	// slice for the derivation handles; the MCP runner marshalled these bytes
+	// straight through and emitted null. Normalizing here makes both agree.
+	rows := []map[string]any{}
 	for pgRows.Next() {
 		values, err := pgRows.Values()
 		if err != nil {

@@ -440,12 +440,19 @@ func (s *Dispatcher) explain(tool string, err error) string {
 //
 // Only an error outside the taxonomy is a server fault, and only its
 // existence crosses the trust boundary; the cause stays in the log.
+// internalFaultAdvice is what an agent is told when nothing in the taxonomy
+// recognises the error. Named because it is the one answer on this surface that
+// is unactionable by construction — it withholds the argument the agent could
+// have fixed and offers a retry that cannot help — so a gate can assert a
+// refusal did NOT land here without keeping a second copy of the sentence.
+const internalFaultAdvice = "The tool failed for an internal reason; nothing may have changed. " +
+	"Retry, and if it keeps failing contact the workspace admin."
+
 func (s *Dispatcher) explainClassified(tool string, err error) string {
 	fault, ok := httperr.Classify(err)
 	if !ok {
 		s.log.Error("mcp: tool call failed", "tool", tool, "err", err)
-		return "The tool failed for an internal reason; nothing may have changed. " +
-			"Retry, and if it keeps failing contact the workspace admin."
+		return internalFaultAdvice
 	}
 
 	// A classified refusal is not a fault of ours, so it is not logged as
