@@ -215,3 +215,52 @@ func TestDropResetCustomFieldColumns(t *testing.T) {
 		t.Errorf("remaining cf_ columns = %d, want 0", remaining)
 	}
 }
+
+// TestSweepTargetsCarryNoDeleteBlockingTrigger is the forward safety rail the
+// preserve-set check cannot give on its own: a table the sweep TARGETS must not
+// carry a DELETE-firing trigger. Today only the append-only ledgers (audit_log,
+// system_log) have one, and both are preserved. If a future workspace_id table
+// arrives with a delete guard — an append-only or otherwise protected store —
+// and is not added to preservedResetTables, it would either abort the sweep at
+// runtime or be wiped against its guard's intent. This turns that silent
+// runtime hazard into a test failure that forces a conscious classification.
+func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.Admin()
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		targets, err := resetTargetTables(ctx, tx)
+		if err != nil {
+			return err
+		}
+		targetSet := make(map[string]bool, len(targets))
+		for _, name := range targets {
+			targetSet[name] = true
+		}
+		// tgtype bit 0x08 marks a trigger that fires on DELETE; tgisinternal
+		// excludes FK-enforcement triggers so only real guards remain.
+		rows, err := tx.Query(ctx, `
+			SELECT c.relname, t.tgname
+			FROM pg_trigger t
+			JOIN pg_class c ON c.oid = t.tgrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public'
+			  AND NOT t.tgisinternal
+			  AND (t.tgtype & 8) <> 0`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var table, trigger string
+			if err := rows.Scan(&table, &trigger); err != nil {
+				return err
+			}
+			if targetSet[table] {
+				t.Errorf("sweep target %q carries DELETE-firing trigger %q — a protected/append-only table must be listed in preservedResetTables, not swept", table, trigger)
+			}
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("trigger scan: %v", err)
+	}
+}
