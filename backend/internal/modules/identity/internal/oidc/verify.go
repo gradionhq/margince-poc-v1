@@ -120,6 +120,11 @@ func (p *Provider) VerifyIDToken(ctx context.Context, rawToken, expectedNonce st
 // verifySignature checks the RS256 signature, refreshing the key set once
 // if the token names a key the cache predates (a rotation mid-flight is
 // ordinary provider behaviour, not an attack).
+//
+// PKCS#1 v1.5 is not a choice made here: RFC 7518 §3.3 defines `RS256` AS
+// RSASSA-PKCS1-v1_5 with SHA-256, so it is the scheme the provider signed with
+// and the only one that can verify its tokens. The scheme is also pinned rather
+// than read from the token (see algRS256), which is the check that matters.
 func (p *Provider) verifySignature(ctx context.Context, kid, signingInput string, signature []byte) error {
 	key, err := p.signingKey(ctx, kid, false)
 	if errors.Is(err, errUnknownKeyID) {
