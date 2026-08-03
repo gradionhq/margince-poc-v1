@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 func TestActivityLogInputRefusesTheImporterNamespace(t *testing.T) {
@@ -19,9 +20,9 @@ func TestActivityLogInputRefusesTheImporterNamespace(t *testing.T) {
 	_, err := activityLogInput(crmcontracts.CreateActivityRequest{
 		Kind: "email", SourceSystem: &reserved, SourceId: strPtr("emails:900"),
 	})
-	var refused *ReservedSourceSystemError
+	var refused *provenance.ReservedError
 	if !errors.As(err, &refused) {
-		t.Fatalf("err = %v, want ReservedSourceSystemError — a client must not write the importer's namespace", err)
+		t.Fatalf("err = %v, want provenance.ReservedError — a client must not write the importer's namespace", err)
 	}
 }
 
@@ -39,3 +40,19 @@ func TestActivityLogInputAcceptsAnOrdinarySourceSystem(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// The `source` guard matters as much as source_system's: activity is one
+// of the classes the crash repair scans by provenance, so a client that
+// could write the namespace there could have a planted row adopted.
+func TestActivityLogInputRefusesAReservedSource(t *testing.T) {
+	_, err := activityLogInput(crmcontracts.CreateActivityRequest{
+		Kind: "note", Source: "mirror:hubspot:activity:a-1",
+	})
+	var refused *provenance.ReservedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("err = %v, want provenance.ReservedError", err)
+	}
+	if refused.Field != "source" {
+		t.Errorf("refusal names field %q, want source", refused.Field)
+	}
+}

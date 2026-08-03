@@ -12,6 +12,7 @@ package compose
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 func TestBlockingContains(t *testing.T) {
@@ -216,5 +218,38 @@ func TestExportGateProvesNothingWithoutAWatermark(t *testing.T) {
 	}
 	if exported {
 		t.Error("a zero cutoff reported an export as proven; every historical export would clear the gate")
+	}
+}
+
+func TestTheFlipStampsProvenanceInsideTheReservedNamespace(t *testing.T) {
+	// The resume repair recognizes its own records by this prefix, and
+	// only the prefix makes that safe — every client create wire refuses
+	// it, so a row carrying it cannot have been planted.
+	w := &flipWriters{incumbent: "hubspot"}
+	stamp := w.provenance(flipObjectPerson, "p-1")
+	if !provenance.ReservedSourceSystem(stamp) {
+		t.Fatalf("provenance = %q, want the reserved prefix; without it a planted row would be adopted as the importer's own", stamp)
+	}
+	if stamp != provenance.ReservedSourceSystemPrefix+"hubspot:person:p-1" {
+		t.Errorf("provenance = %q, want incumbent:object:external_id inside the namespace", stamp)
+	}
+	// The empty external id is the LIKE prefix the repair scans on, so it
+	// must be a strict prefix of a real row's stamp — otherwise the scan
+	// matches nothing and the repair silently adopts nobody.
+	if prefix := w.provenance(flipObjectPerson, ""); !strings.HasPrefix(stamp, prefix) || prefix == stamp {
+		t.Errorf("scan prefix %q is not a strict prefix of %q", prefix, stamp)
+	}
+	// Distinct classes never share a prefix, or the repair would bind an
+	// organization's external id to a person.
+	if strings.HasPrefix(w.provenance(flipObjectDeal, "x"), w.provenance(flipObjectPerson, "")) {
+		t.Error("a deal's provenance matched the person scan prefix")
+	}
+}
+
+func TestReconcileRefusesAnObjectOutsideTheAllowlist(t *testing.T) {
+	// The class is interpolated into the scan's FROM clause, so the
+	// allowlist — not the caller — is what keeps a table name out of it.
+	if _, err := (&flipWriters{incumbent: "hubspot"}).orphanedIdentities(t.Context(), "person; DROP TABLE person"); err == nil {
+		t.Fatal("an unlisted object must be refused before any query is built")
 	}
 }

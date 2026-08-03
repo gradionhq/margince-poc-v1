@@ -243,6 +243,46 @@ func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem
 	})
 }
 
+// IdentityPair is one source-record → native-record binding.
+type IdentityPair struct {
+	ExternalID string
+	NativeID   ids.UUID
+}
+
+// RecordIdentities records many bindings in one statement, for the
+// resume-time repair that adopts records a crashed attempt created but
+// never got to map. Same conflict rule as RecordIdentity: an existing
+// binding stands, so repairing twice is a no-op and a binding this run
+// already holds is never overwritten.
+func (s *RunStore) RecordIdentities(ctx context.Context, runID RunID, sourceSystem, object string, pairs []IdentityPair) error {
+	if err := auth.Require(ctx, importRunObject, principal.ActionCreate); err != nil {
+		return err
+	}
+	if len(pairs) == 0 {
+		return nil
+	}
+	externals := make([]string, len(pairs))
+	natives := make([]ids.UUID, len(pairs))
+	for i, p := range pairs {
+		externals[i], natives[i] = p.ExternalID, p.NativeID
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
+			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, e, n, $5
+			FROM unnest($3::text[], $4::uuid[]) AS t(e, n)
+			ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
+			sourceSystem, object, externals, natives, runID)
+		if storekit.IsForeignKeyViolation(err) {
+			return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("migration: recording %d %s identities: %w", len(pairs), object, err)
+		}
+		return nil
+	})
+}
+
 // FlipImportLiveness reports whether a flip import is ACTUALLY in
 // flight, for the overlay module's Disconnect probe.
 //

@@ -98,6 +98,12 @@ type AssocResult struct {
 // of the whole source must converge (IEM-FORM-1's upsert-by-key).
 type Writers interface {
 	Exists(ctx context.Context, object, externalID string) (bool, error)
+	// ReconcileIdentities repairs the record of what already landed
+	// before a RESUMED run walks its source again. The native create and
+	// the identity write are two transactions, so a process that died
+	// between them left a record nothing can now recognize — and the
+	// resume would create it a second time. Called only when resuming.
+	ReconcileIdentities(ctx context.Context) error
 	Ensure(ctx context.Context, object string, row Row) (EnsureResult, error)
 	Associate(ctx context.Context, a Assoc) (AssocResult, error)
 }
@@ -234,6 +240,18 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 	}
 	if run.Status != StatusRunning {
 		return Report{}, fmt.Errorf("migration run %s is %s, not %s: %w", runID, run.Status, StatusRunning, apperrors.ErrConflict)
+	}
+	// Unconditionally, before the loop can duplicate anything: adopt
+	// records an earlier attempt created but never got to record.
+	//
+	// Gating this on the run's checkpoint looked like a free
+	// optimization and was a hole. The checkpoint advances only AFTER a
+	// row lands, so a crash on the very first row leaves it at zero —
+	// and a re-created run (a fresh bundle upload, a re-sealed snapshot)
+	// starts at zero with a previous attempt's orphans still on disk.
+	// Both are exactly the case the repair exists for.
+	if err := e.w.ReconcileIdentities(ctx); err != nil {
+		return Report{}, e.fail(ctx, runID, Report{}, fmt.Errorf("migration run: reconciling a previous attempt's records: %w", err))
 	}
 	counts, err := src.Counts(ctx)
 	if err != nil {

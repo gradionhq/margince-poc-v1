@@ -287,9 +287,9 @@ func (f flipEstate) nativeEstateRows(t *testing.T) map[string]int {
 	t.Helper()
 	counts := map[string]int{}
 	for object, query := range map[string]string{
-		"person":       `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`,
-		"organization": `SELECT count(*) FROM organization WHERE source LIKE 'hubspot:%'`,
-		"deal":         `SELECT count(*) FROM deal WHERE source LIKE 'hubspot:%'`,
+		"person":       `SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%'`,
+		"organization": `SELECT count(*) FROM organization WHERE source LIKE 'mirror:hubspot:%'`,
+		"deal":         `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`,
 		"lead":         `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`,
 		"activity":     `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`,
 	} {
@@ -486,35 +486,35 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 	}
 	assertOne("deal→organization FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
-		WHERE d.source = 'hubspot:deal:d-open' AND o.source = 'hubspot:organization:org-1'`)
+		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`)
 	assertOne("primary employment relationship", `
 		SELECT count(*) FROM relationship r
 		JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
-		WHERE r.kind = 'employment' AND r.is_current_primary AND p.source = 'hubspot:person:p-1'`)
+		WHERE r.kind = 'employment' AND r.is_current_primary AND p.source = 'mirror:hubspot:person:p-1'`)
 	assertOne("activity link", `
 		SELECT count(*) FROM activity_link al
 		JOIN activity a ON a.id = al.activity_id AND a.workspace_id = al.workspace_id
 		JOIN person p ON p.id = al.person_id AND p.workspace_id = al.workspace_id
-		WHERE a.source_system = 'mirror:hubspot' AND p.source = 'hubspot:person:p-1'`)
+		WHERE a.source_system = 'mirror:hubspot' AND p.source = 'mirror:hubspot:person:p-1'`)
 	assertOne("closed-won deal", `
-		SELECT count(*) FROM deal WHERE source = 'hubspot:deal:d-won' AND status = 'won'`)
+		SELECT count(*) FROM deal WHERE source = 'mirror:hubspot:deal:d-won' AND status = 'won'`)
 	// The child rows the mapper nests: a contact's email and a company's
 	// domain. Both were silently dropped by a flat read once, so they
 	// are pinned per-record rather than by count.
 	assertOne("imported person's email", `
 		SELECT count(*) FROM person_email pe
 		JOIN person p ON p.id = pe.person_id AND p.workspace_id = pe.workspace_id
-		WHERE p.source = 'hubspot:person:p-1' AND pe.email = 'mor@baer-pharma.test'`)
+		WHERE p.source = 'mirror:hubspot:person:p-1' AND pe.email = 'mor@baer-pharma.test'`)
 	assertOne("imported organization's domain", `
 		SELECT count(*) FROM organization_domain od
 		JOIN organization o ON o.id = od.organization_id AND o.workspace_id = od.workspace_id
-		WHERE o.source = 'hubspot:organization:org-1' AND od.domain = 'baer-pharma.test'`)
+		WHERE o.source = 'mirror:hubspot:organization:org-1' AND od.domain = 'baer-pharma.test'`)
 	// Owners survive the flip: every estate row named incumbent owner
 	// "owner-1", which mirror_user_map binds to the admin.
 	var ownedByAdmin int
 	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
 		return tx.QueryRow(f.adminCtx,
-			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id = $1`, f.adminID).Scan(&ownedByAdmin)
+			`SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%' AND owner_id = $1`, f.adminID).Scan(&ownedByAdmin)
 	})
 	if ownedByAdmin != 3 {
 		t.Errorf("imported persons owned by the admin = %d, want 3 — two by mirror_user_map, and the unowned one inheriting the operator", ownedByAdmin)
@@ -523,7 +523,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 	var ownerless int
 	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
 		return tx.QueryRow(f.adminCtx,
-			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id IS NULL`).Scan(&ownerless)
+			`SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%' AND owner_id IS NULL`).Scan(&ownerless)
 	})
 	if ownerless != 0 {
 		t.Errorf("%d imported person(s) landed ownerless — an ownerless native row is visible to every seat, which the mirror row was not", ownerless)

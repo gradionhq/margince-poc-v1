@@ -13,6 +13,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // RequiredFieldError maps to 422 on both surfaces.
@@ -45,6 +46,9 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error) {
 	if req.Name == "" {
 		return CreateDealInput{}, &RequiredFieldError{Field: "name"}
+	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateDealInput{}, err
 	}
 	in := CreateDealInput{
 		Name:           req.Name,

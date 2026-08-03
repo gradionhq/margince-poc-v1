@@ -56,6 +56,9 @@ func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput,
 	if req.FullName == "" {
 		return CreatePersonInput{}, &RequiredFieldError{Field: "full_name"}
 	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreatePersonInput{}, err
+	}
 	in := CreatePersonInput{
 		FullName:  req.FullName,
 		FirstName: req.FirstName,
@@ -125,6 +128,9 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 	if req.DisplayName == "" {
 		return CreateOrganizationInput{}, &RequiredFieldError{Field: "display_name"}
 	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateOrganizationInput{}, err
+	}
 	in := CreateOrganizationInput{
 		DisplayName:  req.DisplayName,
 		LegalName:    req.LegalName,
@@ -178,19 +184,6 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 	return in
 }
 
-// ReservedSourceSystemError refuses a client write into the importer's
-// source-system namespace. Maps to 422.
-type ReservedSourceSystemError struct{ Value string }
-
-func (e *ReservedSourceSystemError) Error() string {
-	return "source_system " + e.Value + " is reserved for imports"
-}
-
-// FieldFault refuses a client write into the importer's namespace as caller-fixable.
-func (e *ReservedSourceSystemError) FieldFault() (field, code, message string) {
-	return "source_system", "reserved_source_system", e.Error()
-}
-
 // leadCreateInput maps the create wire onto the store input, refusing a
 // client write into the importer's source-system namespace: the lead
 // store keys its idempotent replay on (source_system, source_id), so a
@@ -199,8 +192,13 @@ func (e *ReservedSourceSystemError) FieldFault() (field, code, message string) {
 // already existing — suppressing the real record. The importer writes
 // that namespace from inside the process, never through this mapper.
 func leadCreateInput(req crmcontracts.CreateLeadRequest) (CreateLeadInput, error) {
-	if req.SourceSystem != nil && provenance.ReservedSourceSystem(*req.SourceSystem) {
-		return CreateLeadInput{}, &ReservedSourceSystemError{Value: *req.SourceSystem}
+	if req.SourceSystem != nil {
+		if err := provenance.Refuse("source_system", *req.SourceSystem); err != nil {
+			return CreateLeadInput{}, err
+		}
+	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateLeadInput{}, err
 	}
 	in := CreateLeadInput{
 		FullName:        req.FullName,
