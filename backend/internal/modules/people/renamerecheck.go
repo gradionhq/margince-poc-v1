@@ -34,7 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 
@@ -113,24 +113,30 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	return nil
 }
 
-// lockOrgNameIdentities serializes the writers whose names could score against
-// each other, sorted so the order is the same for every caller and two writers
-// naming the same pair cannot deadlock.
+// lockOrgNameIdentities serializes writers whose names are likely to score
+// against each other. Within one call the keys are sorted and deduped, so two
+// calls naming the same set take them in the same order.
 //
-// The key is the FIRST token of the normalized name, not the whole name. The
-// tier this guards matches on similarity, not equality: "Baqend" and "Baqend
-// Solutions" normalize to different strings yet score well above the threshold,
-// so keying on the whole name would serialize only the exact-equal case and let
-// every other near-match race — which is the shape the guard exists for. Jaro-
-// Winkler weights a shared prefix heavily, so a leading token is the cheap
-// approximation of "could these two score against each other".
+// It is BEST EFFORT, and the limit is structural rather than an oversight: the
+// tier it guards matches on similarity, and an advisory lock keys on equality.
+// No point key can cover a similarity neighbourhood, so some pairs that would
+// be filed are not serialized and can still race. orgNameLockKey picks the key
+// that covers the most, and renamerecheck_test.go carries the inventory of what
+// each choice does and does not reach.
 //
-// What it does NOT cover, stated rather than implied: two names that score
-// above the threshold WITHOUT sharing a leading token ("Acme Ltd" against
-// "ACME-Group Ltd" once normalization splits them differently) can still race
-// and both land unfiled. Closing that needs a range lock over a similarity
-// neighbourhood, which an advisory key cannot express — the honest remedy is
-// the nightly sweep, which re-scores everything regardless of how it arrived.
+// A pair that races through is not re-detected today — only a later rename of
+// either row looks again (recheckOrgNameForDuplicates is the sole re-scorer,
+// and it runs per renamed row, not over the workspace). A periodic re-scan is
+// what would close it; there is none yet.
+//
+// Deadlock: sorting fixes the order WITHIN one call, not across two. A
+// transaction that locks twice with different key sets — applyColdStartTx does,
+// via DedupeOrganizationForCreate and then the re-check after legal_name fills —
+// can still acquire keys in the opposite order to a mirrored transaction and
+// deadlock. Postgres detects it and kills one, so it surfaces as a retryable
+// failure rather than a lost write; closing it properly means locking the union
+// of both name sets once, before the create, which the cold-start path cannot
+// do until it knows which organization it resolved onto.
 func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) error {
 	keys := make([]string, 0, len(names))
 	for _, name := range names {
@@ -147,19 +153,31 @@ func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) erro
 	return nil
 }
 
-// orgNameLockKey is the leading normalized token of an organization name, or
-// "" when the name carries none.
+// orgNameLockKey is the first jaroWinklerMaxPrefix letters or digits of the
+// normalized name, separators dropped, or "" when the name carries none.
 //
-// Sharing a first word is not a false grouping: "Acme Logistics" and "Acme
-// Bakery" score 0.76 against each other, above the review threshold, so the
-// tier would file them as a pair anyway. The key groups exactly the records
-// that already have something to say to each other.
+// It mirrors the metric deliberately: nameSimilarity boosts a shared prefix of
+// exactly that many RUNES, and it does not care where a space or hyphen falls.
+// Keying on the first token instead splits the pairs that boost hardest —
+// "Microsoft Corp" against "Micro Soft Corp" scores 0.98, "Acme Ltd" against
+// "ACME-Group Ltd" scores 0.88, and a token key sends each half elsewhere.
+// Dropping separators puts both halves of those pairs on one key.
+//
+// The trade is real and runs the other way too: "The Boring Company" and "The
+// Home Depot" score 0.78 and a token key would have grouped them, while this
+// one splits them at the fourth rune. Neither choice covers everything; this
+// one covers the pairs the metric is most confident about.
 func orgNameLockKey(name string) string {
-	normalized := NormalizeOrgName(name)
-	if normalized == "" {
-		return ""
+	key := make([]rune, 0, jaroWinklerMaxPrefix)
+	for _, r := range NormalizeOrgName(name) {
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			continue
+		}
+		if key = append(key, r); len(key) == jaroWinklerMaxPrefix {
+			break
+		}
 	}
-	return strings.Fields(normalized)[0]
+	return string(key)
 }
 
 // orgPairAlreadyFiled reports whether the queue already holds this pair, in

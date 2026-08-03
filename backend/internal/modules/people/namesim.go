@@ -51,6 +51,22 @@ var legalConnectives = map[string]bool{"&": true, "und": true, "and": true}
 // must compare equal (ß folds to ss), and the DACH market meets that
 // pair daily. A fresh Caser per call: cases.Caser is stateful and not
 // safe for concurrent use.
+// nameScoringMaxRunes bounds what the similarity metric is ever asked to
+// compare. jaro is quadratic in the length of the longer input — measured on
+// this code, two 60 000-rune names take a full second, and the cost grows with
+// the square — while `display_name` is `text` with no length bound in the
+// contract, so a single create can hand it a megabyte. The dedupe ladder runs
+// inside the writing transaction, now holding an advisory lock, so an unbounded
+// score would pin a pool connection and every writer sharing that lock key for
+// as long as the scoring ran.
+//
+// 256 runes is far past any real company or person name and keeps the worst
+// case immeasurable. Bounding the METRIC rather than the column is deliberate:
+// it cannot reject a name a human legitimately typed, and it covers the person
+// tier and the organization tier at once because both reach jaro through here.
+// A `maxLength` in the contract is the complete answer and is raised upstream.
+const nameScoringMaxRunes = 256
+
 func normalizeName(s string) string {
 	t := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
 	unaccented, _, err := transform.String(t, s)
@@ -59,7 +75,11 @@ func normalizeName(s string) string {
 		// compare what we were given rather than dropping the candidate.
 		unaccented = s
 	}
-	return strings.TrimSpace(cases.Fold().String(unaccented))
+	folded := strings.TrimSpace(cases.Fold().String(unaccented))
+	if r := []rune(folded); len(r) > nameScoringMaxRunes {
+		folded = string(r[:nameScoringMaxRunes])
+	}
+	return folded
 }
 
 // NormalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix
