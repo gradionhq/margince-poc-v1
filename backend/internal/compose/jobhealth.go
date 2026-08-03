@@ -12,6 +12,7 @@ package compose
 // over river_job.
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -109,6 +110,11 @@ func reasonFor(stored string) string {
 	return unvettedFailureReason
 }
 
+// jobHealthReadTimeout bounds the scoped job read. river_job has no index
+// over args->>'workspace_id', so both statements scan; a read that cannot
+// finish inside this is a signal, not something to wait out.
+const jobHealthReadTimeout = 5 * time.Second
+
 // jobHealthHandlers serves the admin job-health read. The pool is the only
 // state, and newServer CONSTRUCTS it rather than leaving the embed's zero
 // value in place — an embedded-only handler set would answer every
@@ -158,6 +164,15 @@ func (h jobHealthHandlers) GetJobHealth(w http.ResponseWriter, r *http.Request) 
 		httperr.Write(w, r, apperrors.ErrPermissionDenied)
 		return
 	}
+
+	// Bounded, for the same reason the exposition endpoint bounds its own
+	// job read: this is two sequential scans of a table no index covers, and
+	// an unbounded one holds a request thread and a pool connection for as
+	// long as the scan takes. The budget is larger than the scrape's 2s
+	// because an operator waiting on a page tolerates more latency than a
+	// scrape interval does — but it is a budget, not the absence of one.
+	ctx, cancel := context.WithTimeout(ctx, jobHealthReadTimeout)
+	defer cancel()
 
 	// wsID.String(), not the uuid: ->> yields text, and a uuid-typed bind
 	// gives pgx the uuid OID and Postgres "operator does not exist: text =

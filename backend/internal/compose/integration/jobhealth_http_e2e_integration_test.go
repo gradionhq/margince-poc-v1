@@ -479,21 +479,40 @@ func TestJobHealthCapsTheFailureListAndOrdersItNewestFirst(t *testing.T) {
 		t.Errorf("recent_failures has %d entries, want the declared cap of 50 out of %d seeded",
 			len(report.RecentFailures), seeded)
 	}
+	// Compared as TIMES, never as strings. Go serializes time.Time with a
+	// variable-width fractional part and trims trailing zeros, so a value
+	// landing on a whole second carries no fraction at all — and '.' sorts
+	// before 'Z', which makes lexicographic order disagree with chronological
+	// order for exactly those pairs. The test would then fail on correct
+	// ordering, or pass on wrong ordering.
 	for i := 1; i < len(report.RecentFailures); i++ {
-		prev, cur := report.RecentFailures[i-1].FailedAt, report.RecentFailures[i].FailedAt
-		if prev < cur {
+		prev := parseFailedAt(t, report.RecentFailures[i-1].FailedAt)
+		cur := parseFailedAt(t, report.RecentFailures[i].FailedAt)
+		if prev.Before(cur) {
 			t.Fatalf("failure %d (%s) is newer than failure %d (%s): the list must be "+
-				"newest-first, or the 50 an operator sees are an arbitrary 50", i, cur, i-1, prev)
+				"newest-first, or the 50 an operator sees are an arbitrary 50",
+				i, cur, i-1, prev)
 		}
 	}
 	// The newest seeded row is one minute old; the oldest is an hour. A
 	// correct cap keeps the newest end, so the oldest ten must be absent.
-	oldest := report.RecentFailures[len(report.RecentFailures)-1].FailedAt
-	cutoff := time.Now().Add(-51 * time.Minute).UTC().Format(time.RFC3339)
-	if oldest < cutoff {
+	oldest := parseFailedAt(t, report.RecentFailures[len(report.RecentFailures)-1].FailedAt)
+	cutoff := time.Now().Add(-51 * time.Minute)
+	if oldest.Before(cutoff) {
 		t.Errorf("the retained window reaches back to %s, past %s: the cap kept the OLDEST "+
 			"rows rather than the newest", oldest, cutoff)
 	}
+}
+
+// parseFailedAt reads a wire timestamp as a time, so ordering assertions
+// compare instants rather than spellings.
+func parseFailedAt(t *testing.T, raw string) time.Time {
+	t.Helper()
+	at, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		t.Fatalf("failed_at %q is not RFC 3339: %v", raw, err)
+	}
+	return at
 }
 
 // TestJobHealthRefusesAnUnauthenticatedCallOverHTTP — the contract declares

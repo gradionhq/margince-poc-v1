@@ -285,7 +285,7 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-08-03 (job observability, Phase 0 + Phase 1 A/B, merged)
+## Session pickup — 2026-08-03/04 (job observability, Phase 0 + Phase 1 A/B/C — Phase 1 COMPLETE)
 
 **Every unit of tenant work now names one workspace, and spells it one way.**
 PR #367 bound each job to a single workspace; PR #374 made the wire agree with

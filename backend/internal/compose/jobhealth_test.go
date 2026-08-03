@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -318,4 +319,22 @@ func callJobHealth(t *testing.T, p principal.Principal) *httptest.ResponseRecord
 	rec := httptest.NewRecorder()
 	jobHealthHandlers{pool: nil}.GetJobHealth(rec, req.WithContext(ctx))
 	return rec
+}
+
+// TestTheJobHealthReadCarriesADeadline — this endpoint reads the same
+// unindexed table the exposition endpoint does, where a 2s budget exists
+// precisely to stop an unbounded scan holding a request thread and a pool
+// connection. Both readers of river_job carry a bound, and this is what
+// keeps the pair from drifting apart.
+func TestTheJobHealthReadCarriesADeadline(t *testing.T) {
+	if jobHealthReadTimeout <= 0 {
+		t.Fatalf("jobHealthReadTimeout = %v; an unbounded read is what the budget exists "+
+			"to prevent", jobHealthReadTimeout)
+	}
+	// Generous enough for an interactive page, but still a budget: a read
+	// that cannot finish inside it is a signal, not something to wait out.
+	if jobHealthReadTimeout > 30*time.Second {
+		t.Errorf("jobHealthReadTimeout = %v, which is long enough to be indistinguishable "+
+			"from no bound at all", jobHealthReadTimeout)
+	}
 }
