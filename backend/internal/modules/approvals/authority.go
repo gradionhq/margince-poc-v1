@@ -38,7 +38,7 @@ var decisionGrants = map[string][]struct {
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
 	"progress_deal":  {{tableDeal, principal.ActionUpdate}},
-	"promote_lead":   {{"lead", principal.ActionUpdate}, {"person", principal.ActionCreate}},
+	"promote_lead":   {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
 	"archive_record": {}, // resolved from the target's entity type below
 	"merge_records":  {}, // resolved from the target's entity type below
 	"share_record":   {}, // resolved from the target's entity type below
@@ -59,8 +59,8 @@ var decisionGrants = map[string][]struct {
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
-	"coldstart": {{"organization", principal.ActionUpdate}},
-	"enrich":    {{"organization", principal.ActionUpdate}},
+	"coldstart": {{tableOrganization, principal.ActionUpdate}},
+	"enrich":    {{tableOrganization, principal.ActionUpdate}},
 	// A rate refresh proposes an effective-dated row on a workspace-shared
 	// price sheet; deciding it needs the same admin/ops Create grant the
 	// editor's write path requires.
@@ -68,24 +68,24 @@ var decisionGrants = map[string][]struct {
 	"ai_model_rate_proposal": {{"ai_model_rate", principal.ActionCreate}},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
-	"deepread": {{"organization", principal.ActionUpdate}},
+	"deepread": {{tableOrganization, principal.ActionUpdate}},
 	// Accepting a site_lead proposal (a published person from a deep read's
 	// team page) captures them as a LEAD through the capture sink — the
 	// effect is a lead create, so deciding it needs that grant.
-	"site_lead": {{"lead", principal.ActionCreate}},
+	"site_lead": {{tableLead, principal.ActionCreate}},
 	// Approving a LinkedIn match links an imported connection to a contact and
 	// writes that contact's LinkedIn address — a person write, so deciding it
 	// needs the grant the write itself takes.
-	"linkedin_match": {{"person", principal.ActionUpdate}},
+	"linkedin_match": {{tablePerson, principal.ActionUpdate}},
 	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
 	// sender the verdict engine could not judge) creates the person and, unless
 	// the domain is free-mail, the organization behind them — so deciding it
 	// needs both create grants, exactly as if the approver had typed them in.
-	"capture_counterparty": {{"person", principal.ActionCreate}, {"organization", principal.ActionCreate}},
+	"capture_counterparty": {{tablePerson, principal.ActionCreate}, {tableOrganization, principal.ActionCreate}},
 	// Accepting an org_name_promotion proposal (PO-F-2a: one employee's
 	// signature naming their company, with nothing corroborating it) renames
 	// the organization — the same update authority the name editor needs.
-	"org_name_promotion": {{"organization", principal.ActionUpdate}},
+	"org_name_promotion": {{tableOrganization, principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{tableDeal, principal.ActionUpdate}},
