@@ -16,12 +16,17 @@ import (
 //
 // The accessor is WorkspaceID rather than a bare field because Go forbids a
 // method and a field of the same name, so implementations hold the value in a
-// `Workspace ids.UUID` field. The WIRE key is whatever that kind already
-// shipped with: a kind enqueued exactly once (a staged send, a backfill run, a
-// raw capture's ingest) has rows sitting in the queue across a deploy, and
-// renaming its key would decode them to a zero workspace that the binding then
-// refuses on every attempt — stranding the domain row those jobs exist to
-// advance. New kinds use `workspace_id`.
+// `Workspace ids.UUID` field, wired as `json:"workspace_id"` — one spelling on
+// every kind, held there by
+// TestEveryWorkspaceScopedArgsSpellsItsWorkspaceKeyTheSameWay. A kind that
+// spelled it differently would be invisible to `args->>'workspace_id'`, and a
+// per-workspace read of river_job would report it as no work at all rather
+// than as work the query cannot see.
+//
+// That read is not yet exact in the other direction: embed_reindex does tenant
+// work under the FleetWide marker (see below) and carries no workspace at all,
+// so a null in that column means "a dispatcher, OR embed_reindex" until it is
+// fanned out. One kind, named, not a class.
 type WorkspaceScoped interface {
 	river.JobArgs
 	WorkspaceID() ids.UUID

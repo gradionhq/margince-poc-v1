@@ -86,7 +86,7 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 // the dispatcher and the (future) push webhook can both enqueue without
 // double-running a mailbox.
 type CaptureSyncArgs struct {
-	Workspace    ids.UUID `json:"workspace"`
+	Workspace    ids.UUID `json:"workspace_id"`
 	ConnectionID string   `json:"connection_id"`
 	Provider     string   `json:"provider"`
 }

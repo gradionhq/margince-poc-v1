@@ -34,7 +34,7 @@ import (
 // ONE re-fetch rather than N. IncumbentClass is the HubSpot object class
 // (contacts/companies/deals/leads); ExternalID is the mirror external id.
 type OverlayRefetchArgs struct {
-	Workspace      ids.UUID `json:"workspace"`
+	Workspace      ids.UUID `json:"workspace_id"`
 	IncumbentClass string   `json:"incumbent_class"`
 	ExternalID     string   `json:"external_id"`
 }
