@@ -703,6 +703,7 @@ function ResetDataCard() {
   const t = useT();
   const me = useMe();
   const isAdmin = (me.data?.roles ?? []).includes("admin");
+  const workspaceName = me.data?.workspace_name ?? "";
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const queryClient = useQueryClient();
@@ -771,6 +772,15 @@ function ResetDataCard() {
         error={reset.error instanceof Error ? reset.error.message : null}
       >
         <p>{t("settings.resetDataConfirmBody")}</p>
+        {workspaceName ? (
+          <p className="t-caption">
+            {t("settings.resetDataConfirmName")}{" "}
+            {/* userSelect:all lets one click select the whole name to copy */}
+            <code style={{ userSelect: "all", fontWeight: 600 }}>
+              {workspaceName}
+            </code>
+          </p>
+        ) : null}
         <TextInput
           aria-label={t("settings.resetDataConfirmLabel")}
           value={typed}

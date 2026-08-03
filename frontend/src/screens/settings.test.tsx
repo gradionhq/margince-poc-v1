@@ -818,6 +818,7 @@ function resetDataBackend(opts: {
         user: { email: "ada@acme.test" },
         roles: opts.roles,
         teams: [],
+        workspace_name: "Acme Inc",
         non_production: opts.nonProduction,
       });
     }
@@ -909,6 +910,8 @@ describe("ResetDataCard (danger zone)", () => {
     );
 
     const dialog = await screen.findByRole("dialog");
+    // The org name is shown so the admin can copy it into the input.
+    expect(within(dialog).getByText("Acme Inc")).toBeTruthy();
     const confirmButton = within(dialog).getByRole("button", {
       name: /reset data/i,
     });

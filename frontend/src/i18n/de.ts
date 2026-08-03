@@ -1277,6 +1277,7 @@ export const de = {
   "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
   "settings.resetDataConfirmBody":
     "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
+  "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
   "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",

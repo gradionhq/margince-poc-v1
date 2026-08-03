@@ -485,8 +485,9 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, 
 			DisplayName: id.DisplayName,
 			Status:      "active",
 		},
-		Roles: roles,
-		Teams: teams,
+		Roles:         roles,
+		Teams:         teams,
+		WorkspaceName: id.WorkspaceName,
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},

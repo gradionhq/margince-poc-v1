@@ -12414,9 +12414,15 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams, non_production]
+      required: [user, roles, teams, workspace_name, non_production]
       properties:
         user: { $ref: '#/components/schemas/User' }
+        workspace_name:
+          type: string
+          description: >
+            The installation's organization name (workspace.name). Shown as the
+            typed-confirmation target of the non-production "Reset data" action —
+            the exact string that endpoint validates.
         non_production:
           type: boolean
           description: >

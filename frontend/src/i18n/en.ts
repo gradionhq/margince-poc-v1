@@ -1255,6 +1255,7 @@ export const en = {
   "settings.resetDataConfirmTitle": "Reset all data?",
   "settings.resetDataConfirmBody":
     "Type your organization's name to confirm. This cannot be undone.",
+  "settings.resetDataConfirmName": "Type this organization name:",
   "settings.resetDataConfirmLabel": "Confirm organization name",
   "settings.audit": "Audit log",
   "audit.you": "You",
