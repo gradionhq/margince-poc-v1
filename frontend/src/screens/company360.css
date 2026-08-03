@@ -298,3 +298,15 @@
   gap: 0.6rem;
   margin-block-end: 0.9rem;
 }
+
+/* The brief under the questions it answers. Sections are separated by space
+   rather than rules: a boxed heading reads as a card, and these are parts of
+   one reading. */
+.co-brief-section + .co-brief-section {
+  margin-block-start: 0.7rem;
+}
+
+.co-brief-section-label {
+  color: var(--text-muted);
+  margin-block-end: 0.2rem;
+}

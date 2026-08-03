@@ -131,19 +131,23 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
-	if found && !force && cached.Fingerprint == fingerprint {
+	// The version check is not belt-and-braces: a row written before the brief
+	// had sections unmarshals cleanly into an envelope with none, and serving
+	// it would render an account nobody could say anything about.
+	if found && !force && cached.Version == storedVersion && cached.Fingerprint == fingerprint {
 		return cached.wire(orgID), nil
 	}
 
-	sentences, by, err := Write(ctx, s.lane, orgID.String(), in)
+	sections, by, err := Write(ctx, s.lane, orgID.String(), in)
 	if err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
 	written := stored{
 		Fingerprint: fingerprint,
+		Version:     storedVersion,
 		GeneratedAt: s.now().UTC(),
 		GeneratedBy: by,
-		Sentences:   sentences,
+		Sections:    sections,
 	}
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return crmcontracts.OrganizationBrief{}, err
@@ -180,33 +184,65 @@ func (s *Service) Ask(
 	if err != nil {
 		return crmcontracts.OrganizationAnswer{}, err
 	}
-	answer := stored{GeneratedAt: s.now().UTC(), GeneratedBy: by, Sentences: sentences}.wire(orgID)
 	return crmcontracts.OrganizationAnswer{
-		OrganizationId: answer.OrganizationId,
+		OrganizationId: openapi_types.UUID(orgID.UUID),
 		Question:       question,
-		GeneratedAt:    answer.GeneratedAt,
-		GeneratedBy:    answer.GeneratedBy,
-		Sentences:      answer.Sentences,
+		GeneratedAt:    s.now().UTC(),
+		GeneratedBy:    by,
+		Sentences:      wireSentences(sentences),
 	}, nil
 }
+
+// storedVersion is the cached payload's shape version. A row written before
+// the brief had sections unmarshals into a zero envelope, which reads as a
+// cache MISS and rewrites — rather than as a brief with no sections, which
+// would render as an account nobody could say anything about.
+const storedVersion = 2
 
 // stored is the cached payload's shape.
 type stored struct {
 	Fingerprint string                 `json:"-"`
+	Version     int                    `json:"version"`
 	GeneratedAt time.Time              `json:"generated_at"`
 	GeneratedBy crmcontracts.WrittenBy `json:"generated_by"`
-	Sentences   []Sentence             `json:"sentences"`
+	Sections    []Section              `json:"sections"`
+	// Sentences is the FLAT shape, still what Ask answers in. The brief moved
+	// to sections; a question and its answer did not.
+	Sentences []Sentence `json:"sentences,omitempty"`
 }
 
 func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
-	sentences := make([]crmcontracts.OrganizationBriefSentence, 0, len(b.Sentences))
-	for _, sentence := range b.Sentences {
+	sections := make([]crmcontracts.OrganizationBriefSection, 0, len(b.Sections))
+	for _, section := range b.Sections {
+		wired := wireSentences(section.Sentences)
+		if len(wired) == 0 {
+			// A section whose every sentence lost its citations says nothing.
+			// A heading over silence reads as a finding of nothing.
+			continue
+		}
+		sections = append(sections, crmcontracts.OrganizationBriefSection{
+			Kind:      crmcontracts.OrganizationBriefSectionKind(section.Kind),
+			Sentences: wired,
+		})
+	}
+	return crmcontracts.OrganizationBrief{
+		OrganizationId: openapi_types.UUID(orgID.UUID),
+		GeneratedAt:    b.GeneratedAt,
+		GeneratedBy:    b.GeneratedBy,
+		Sections:       sections,
+	}
+}
+
+// wireSentences renders one section's sentences, dropping a citation that is
+// not an id: it cannot be opened, so it is not evidence, and rendering it
+// would be a dead link.
+func wireSentences(in []Sentence) []crmcontracts.OrganizationBriefSentence {
+	out := make([]crmcontracts.OrganizationBriefSentence, 0, len(in))
+	for _, sentence := range in {
 		evidence := make([]crmcontracts.OrganizationBriefEvidence, 0, len(sentence.Evidence))
 		for _, cited := range sentence.Evidence {
 			parsed, err := ids.Parse(cited.EntityID)
 			if err != nil {
-				// A citation that is not an id cannot be opened, so it is
-				// not evidence — dropped rather than rendered as a dead link.
 				continue
 			}
 			evidence = append(evidence, crmcontracts.OrganizationBriefEvidence{
@@ -214,16 +250,14 @@ func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
 				EntityType: crmcontracts.OrganizationBriefEvidenceEntityType(cited.EntityType),
 			})
 		}
-		sentences = append(sentences, crmcontracts.OrganizationBriefSentence{
-			Text: sentence.Text, Evidence: evidence,
-		})
+		wired := crmcontracts.OrganizationBriefSentence{Text: sentence.Text, Evidence: evidence}
+		if sentence.Nature != "" {
+			nature := crmcontracts.OrganizationBriefSentenceNature(sentence.Nature)
+			wired.Nature = &nature
+		}
+		out = append(out, wired)
 	}
-	return crmcontracts.OrganizationBrief{
-		OrganizationId: openapi_types.UUID(orgID.UUID),
-		GeneratedAt:    b.GeneratedAt,
-		GeneratedBy:    b.GeneratedBy,
-		Sentences:      sentences,
-	}
+	return out
 }
 
 // cached reads this user's brief for this account. The user_id predicate is

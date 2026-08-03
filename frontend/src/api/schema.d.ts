@@ -6777,7 +6777,24 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             generated_by: components["schemas"]["WrittenBy"];
-            /** @description The brief itself, one claim per entry. */
+            /**
+             * @description The brief, in the order a reader asks its questions: what this company is and why it
+             *     matters to us, how the relationship stands, what happened lately, and what to do next.
+             *     A section with nothing to say is ABSENT rather than empty — a heading over silence
+             *     reads as a finding of nothing, which is a different claim.
+             */
+            sections: components["schemas"]["OrganizationBriefSection"][];
+        };
+        OrganizationBriefSection: {
+            /**
+             * @description `snapshot` — what this company is.
+             *     `fit` — why it matters to US, read against our own company profile.
+             *     `health` — how the relationship stands.
+             *     `activity` — what actually happened.
+             *     `next_step` — what to do about it.
+             * @enum {string}
+             */
+            kind: "snapshot" | "fit" | "health" | "activity" | "next_step";
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         /**
@@ -6822,6 +6839,20 @@ export interface components {
         OrganizationBriefSentence: {
             text: string;
             /**
+             * @description What KIND of claim this is, so the reader can tell a record from a reading of it.
+             *     Absent means `fact` — the shape every sentence had before assessments existed.
+             *
+             *     `fact` — the summary said it; the sentence restates it and cites the record.
+             *     `assessment` — a judgment drawn by combining the account with our own company
+             *     profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+             *     records that support it.
+             *     `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+             *     that motivates it; the "why us" half cites nothing, because our own profile is not a
+             *     record the reader can open and pretending otherwise would invent a citation.
+             * @enum {string}
+             */
+            nature?: "fact" | "assessment" | "recommendation";
+            /**
              * @description The records this sentence was written from — always records the reader can
              *     already open, because the brief was assembled under their own row scope.
              */
@@ -6830,7 +6861,7 @@ export interface components {
         /** @description One record a brief sentence was written from. */
         OrganizationBriefEvidence: {
             /** @enum {string} */
-            entity_type: "deal" | "activity" | "person" | "organization";
+            entity_type: "deal" | "activity" | "person" | "organization" | "fact";
             /** Format: uuid */
             entity_id: string;
         };
@@ -9501,6 +9532,11 @@ export interface components {
             updated_at: string;
         };
         OrganizationFact: {
+            /**
+             * Format: uuid
+             * @description The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
+             */
+            readonly id: string;
             /** @enum {string} */
             category: "company" | "offering" | "market" | "signal";
             /** @enum {string} */

@@ -15,6 +15,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -55,7 +56,7 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 			return err
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT category, field, value, value_key, source, captured_by,
+			SELECT id, category, field, value, value_key, source, captured_by,
 			       evidence_snippet, source_url, confidence, updated_at
 			  FROM organization_fact
 			 WHERE workspace_id = $1 AND organization_id = $2
@@ -68,13 +69,18 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 		for rows.Next() {
 			var (
 				fact                    crmcontracts.OrganizationFact
+				factID                  ids.UUID
 				category, field, source string
 			)
-			if err := rows.Scan(&category, &field, &fact.Value, &fact.ValueKey,
+			if err := rows.Scan(&factID, &category, &field, &fact.Value, &fact.ValueKey,
 				&source, &fact.CapturedBy, &fact.EvidenceSnippet, &fact.SourceUrl,
 				&fact.Confidence, &fact.UpdatedAt); err != nil {
 				return fmt.Errorf("scan organization fact: %w", err)
 			}
+			// The row's own id, so a brief sentence written from this fact can
+			// cite something the reader can open.
+			id := openapi_types.UUID(factID)
+			fact.Id = &id
 			fact.Category = crmcontracts.OrganizationFactCategory(category)
 			fact.Field = crmcontracts.OrganizationFactField(field)
 			fact.Source = crmcontracts.OrganizationFactSource(source)

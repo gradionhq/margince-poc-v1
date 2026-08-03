@@ -975,7 +975,7 @@ export function NextSteps({
   );
 }
 
-type Cited = Brief["sentences"][number]["evidence"][number];
+type Cited = BriefSentence["evidence"][number];
 type CitedKind = Cited["entity_type"];
 
 /**
@@ -1106,9 +1106,10 @@ function SentenceList({
   sentences,
   onOpenRecord,
 }: Readonly<{
-  sentences: Brief["sentences"];
+  sentences: BriefSentence[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
 }>) {
+  const t = useT();
   return (
     <ul className="co-brief-lines">
       {sentences.map((sentence, index) => (
@@ -1116,11 +1117,73 @@ function SentenceList({
         // keying on the text collapses them into one row.
         // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
         <li key={index}>
+          {/* What KIND of claim this is, marked where it is made. A judgment
+              that looked like a stored fact would be the one thing a reader
+              could not check — and the brief is allowed to judge now. */}
+          {sentence.nature && sentence.nature !== "fact" && (
+            <Badge
+              tone={sentence.nature === "recommendation" ? "accent" : undefined}
+            >
+              {t(NATURE_LABELS[sentence.nature])}
+            </Badge>
+          )}{" "}
           {sentence.text}
           <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
         </li>
       ))}
     </ul>
+  );
+}
+
+type BriefSentence = NonNullable<
+  Brief["sections"]
+>[number]["sentences"][number];
+type BriefSectionKind = NonNullable<Brief["sections"]>[number]["kind"];
+
+const NATURE_LABELS: Record<
+  NonNullable<BriefSentence["nature"]>,
+  MessageKey
+> = {
+  fact: "co.brief.nature.fact",
+  assessment: "co.brief.nature.assessment",
+  recommendation: "co.brief.nature.recommendation",
+};
+
+const SECTION_LABELS: Record<BriefSectionKind, MessageKey> = {
+  snapshot: "co.brief.section.snapshot",
+  fit: "co.brief.section.fit",
+  health: "co.brief.section.health",
+  activity: "co.brief.section.activity",
+  next_step: "co.brief.section.next_step",
+};
+
+/**
+ * BriefSections renders the brief under the questions it answers. A section
+ * with nothing to say never arrives, so there is no empty heading to draw —
+ * a heading over silence reads as a finding of nothing.
+ */
+function BriefSections({
+  sections,
+  onOpenRecord,
+}: Readonly<{
+  sections: NonNullable<Brief["sections"]>;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {sections.map((section) => (
+        <div key={section.kind} className="co-brief-section">
+          <h3 className="co-brief-section-label t-caption">
+            {t(SECTION_LABELS[section.kind])}
+          </h3>
+          <SentenceList
+            sentences={section.sentences}
+            onOpenRecord={onOpenRecord}
+          />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -1203,7 +1266,7 @@ export function AccountBrief({
   const written: Brief | undefined = brief.data;
   // A payload without sentences is a brief this build cannot read, not an
   // account with nothing to say — the same distinction every card here keeps.
-  const readable = Array.isArray(written?.sentences) ? written : undefined;
+  const readable = Array.isArray(written?.sections) ? written : undefined;
   return (
     <section className="co-part co-brief" aria-label={t("co.brief.title")}>
       <h2 className="co-part-label">{t("co.brief.title")}</h2>
@@ -1214,12 +1277,12 @@ export function AccountBrief({
       {(brief.isError || (!brief.isPending && !readable)) && (
         <EmptyState>{t("co.brief.unavailable")}</EmptyState>
       )}
-      {readable && readable.sentences.length === 0 && (
+      {readable && readable.sections.length === 0 && (
         <EmptyState>{t("co.brief.empty")}</EmptyState>
       )}
-      {readable && readable.sentences.length > 0 && (
-        <SentenceList
-          sentences={readable.sentences}
+      {readable && readable.sections.length > 0 && (
+        <BriefSections
+          sections={readable.sections}
           onOpenRecord={onOpenRecord}
         />
       )}

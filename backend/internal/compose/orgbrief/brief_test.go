@@ -255,18 +255,18 @@ func TestWriteFallsBackRatherThanFailing(t *testing.T) {
 		"lane answering prose": nonsenseLane{},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sentences, by, err := Write(context.Background(), lane, orgID, in)
+			sections, by, err := Write(context.Background(), lane, orgID, in)
 			if err != nil {
 				t.Fatalf("write: %v", err)
 			}
 			if by != "deterministic" {
 				t.Errorf("generated_by = %q, want deterministic — the reader must know which wrote it", by)
 			}
-			if len(sentences) == 0 {
-				t.Fatal("no sentences: the floor must always produce a brief")
+			if len(sections) == 0 || len(sections[0].Sentences) == 0 {
+				t.Fatal("no sections: the floor must always produce a brief")
 			}
 			// The floor cites too, so the card behaves identically either way.
-			if len(sentences[0].Evidence) == 0 {
+			if len(sections[0].Sentences[0].Evidence) == 0 {
 				t.Error("a deterministic sentence carries no evidence")
 			}
 		})
@@ -468,10 +468,17 @@ func TestFoldProfileBoundsOneStatement(t *testing.T) {
 // buys nothing and risks a paraphrase nobody checked — so both writers close
 // with the SAME sentences, and certification stays valid because the prompt
 // never changed.
-func TestModelBriefClosesWithTheSameQuotedCompanyLines(t *testing.T) {
+func TestModelBriefKeepsWhatItGroundsAndDropsWhatItDoesNot(t *testing.T) {
 	in := inputFixture()
 	in.Profile = []ProfileIn{{Field: "offer_summary", Value: "Managed hosting"}}
-	lane := &scriptedLane{reply: `{"sentences":[{"text":"Two deals are open.","evidence":[{"entity_type":"organization","entity_id":"` + briefOrgID + `"}]}]}`}
+	lane := &scriptedLane{reply: `{"sections":[
+		{"kind":"snapshot","sentences":[
+			{"text":"They sell managed hosting.","evidence":[{"entity_type":"organization","entity_id":"` + briefOrgID + `"}]}]},
+		{"kind":"fit","sentences":[
+			{"text":"Their hosting base is who we sell to.","nature":"assessment","evidence":[{"entity_type":"organization","entity_id":"` + briefOrgID + `"}]}]},
+		{"kind":"snapshot","sentences":[
+			{"text":"This account is a poor fit.","nature":"assessment","evidence":[{"entity_type":"organization","entity_id":"` + briefOrgID + `"}]}]}
+	]}`}
 
 	written, by, err := Write(context.Background(), lane, briefOrgID, in)
 	if err != nil {
@@ -480,38 +487,60 @@ func TestModelBriefClosesWithTheSameQuotedCompanyLines(t *testing.T) {
 	if by != crmcontracts.Model {
 		t.Fatalf("generated_by = %q, want the model path", by)
 	}
-	last := written[len(written)-1]
-	if !strings.Contains(last.Text, "Managed hosting") {
-		t.Errorf("last sentence = %q, want the company statement quoted", last.Text)
+	byKind := map[string][]Sentence{}
+	for _, section := range written {
+		byKind[section.Kind] = section.Sentences
 	}
-	if len(last.Evidence) != 1 || last.Evidence[0].EntityType != citeOrganization {
-		t.Errorf("company line cites %+v, want the organization", last.Evidence)
+	if len(byKind["snapshot"]) != 1 {
+		t.Errorf("snapshot = %+v, want the one grounded FACT", byKind["snapshot"])
+	}
+	// An assessment in `snapshot` is dropped: that section says what the
+	// company IS, and a judgment there would read as a stored fact.
+	for _, sentence := range byKind["snapshot"] {
+		if sentence.Nature != "fact" {
+			t.Errorf("snapshot carries a %q sentence: %q", sentence.Nature, sentence.Text)
+		}
+	}
+	if len(byKind["fit"]) != 1 || byKind["fit"][0].Nature != "assessment" {
+		t.Errorf("fit = %+v, want the labelled assessment", byKind["fit"])
+	}
+	// Sections come back in reading order whatever order the model sent them.
+	if written[0].Kind != "snapshot" || written[1].Kind != "fit" {
+		t.Errorf("section order = %v, want snapshot then fit",
+			[]string{written[0].Kind, written[1].Kind})
 	}
 }
 
-// The company half is the reader's own approved prose. Appending it after the
-// model runs guarantees the approved wording APPEARS; it does not stop a model
-// that read the same text from putting its own wording next to it, cited to
-// the organization and so accepted by the grounding check. Withholding it from
-// the request is what makes the promise true.
-func TestBriefRequestWithholdsTheCompanyProfileFromTheModel(t *testing.T) {
+// The two prompts want opposite things from the curated company prose, and the
+// difference is what each is allowed to do.
+//
+// ASK restates facts and never judges, so the approved wording is quoted
+// verbatim after the model runs rather than sent to it — a paraphrase nobody
+// checked is worth less than the sentence a human already accepted.
+//
+// The BRIEF assesses. A fit assessment cannot be written without knowing what
+// the company sells, so it receives the profile; what keeps that honest is the
+// nature label on the sentence, not withholding the text.
+func TestTheBriefReadsTheCompanyProfileAndAskDoesNot(t *testing.T) {
 	in := inputFixture()
 	in.Profile = []ProfileIn{{Field: "offer_summary", Value: "Managed hosting for shops"}}
 
-	request := BriefRequest(in)
-	sent := request.Messages[0].Content
-	if strings.Contains(sent, "Managed hosting for shops") {
-		t.Errorf("the request carries the approved company prose:\n%s", sent)
+	brief := BriefRequest(in).Messages[0].Content
+	if !strings.Contains(brief, "Managed hosting for shops") {
+		t.Errorf("the brief cannot assess fit without the profile:\n%s", brief)
 	}
-	// The relationship half is still there — withholding the profile must not
-	// cost the model the account it is writing about.
-	if !strings.Contains(sent, in.Name) {
-		t.Errorf("the request lost the account itself:\n%s", sent)
+	if !strings.Contains(brief, in.Name) {
+		t.Errorf("the brief request lost the account itself:\n%s", brief)
 	}
-	// And the caller's own copy is untouched, because the appended company
-	// lines are read from it after the model answers.
+
+	ask := AskRequest(crmcontracts.WhatsOpen, in).Messages[0].Content
+	if strings.Contains(ask, "Managed hosting for shops") {
+		t.Errorf("Ask carries the approved company prose it should quote instead:\n%s", ask)
+	}
+
+	// And the caller's own copy is untouched either way.
 	if len(in.Profile) != 1 {
-		t.Errorf("BriefRequest mutated its caller's input: %+v", in.Profile)
+		t.Errorf("building a request mutated its caller's input: %+v", in.Profile)
 	}
 }
 

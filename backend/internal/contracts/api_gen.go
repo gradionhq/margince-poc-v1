@@ -1637,16 +1637,16 @@ func (e CompanySiteReadComparisonCurrentSource) Valid() bool {
 
 // Defines values for CompanySiteReadComparisonValueKind.
 const (
-	Fact         CompanySiteReadComparisonValueKind = "fact"
-	ProfileField CompanySiteReadComparisonValueKind = "profile_field"
+	CompanySiteReadComparisonValueKindFact         CompanySiteReadComparisonValueKind = "fact"
+	CompanySiteReadComparisonValueKindProfileField CompanySiteReadComparisonValueKind = "profile_field"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadComparisonValueKind enum.
 func (e CompanySiteReadComparisonValueKind) Valid() bool {
 	switch e {
-	case Fact:
+	case CompanySiteReadComparisonValueKindFact:
 		return true
-	case ProfileField:
+	case CompanySiteReadComparisonValueKindProfileField:
 		return true
 	default:
 		return false
@@ -4075,6 +4075,7 @@ func (e Organization360SuggestionSubjectType) Valid() bool {
 const (
 	OrganizationBriefEvidenceEntityTypeActivity     OrganizationBriefEvidenceEntityType = "activity"
 	OrganizationBriefEvidenceEntityTypeDeal         OrganizationBriefEvidenceEntityType = "deal"
+	OrganizationBriefEvidenceEntityTypeFact         OrganizationBriefEvidenceEntityType = "fact"
 	OrganizationBriefEvidenceEntityTypeOrganization OrganizationBriefEvidenceEntityType = "organization"
 	OrganizationBriefEvidenceEntityTypePerson       OrganizationBriefEvidenceEntityType = "person"
 )
@@ -4086,9 +4087,59 @@ func (e OrganizationBriefEvidenceEntityType) Valid() bool {
 		return true
 	case OrganizationBriefEvidenceEntityTypeDeal:
 		return true
+	case OrganizationBriefEvidenceEntityTypeFact:
+		return true
 	case OrganizationBriefEvidenceEntityTypeOrganization:
 		return true
 	case OrganizationBriefEvidenceEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationBriefSectionKind.
+const (
+	OrganizationBriefSectionKindActivity OrganizationBriefSectionKind = "activity"
+	OrganizationBriefSectionKindFit      OrganizationBriefSectionKind = "fit"
+	OrganizationBriefSectionKindHealth   OrganizationBriefSectionKind = "health"
+	OrganizationBriefSectionKindNextStep OrganizationBriefSectionKind = "next_step"
+	OrganizationBriefSectionKindSnapshot OrganizationBriefSectionKind = "snapshot"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefSectionKind enum.
+func (e OrganizationBriefSectionKind) Valid() bool {
+	switch e {
+	case OrganizationBriefSectionKindActivity:
+		return true
+	case OrganizationBriefSectionKindFit:
+		return true
+	case OrganizationBriefSectionKindHealth:
+		return true
+	case OrganizationBriefSectionKindNextStep:
+		return true
+	case OrganizationBriefSectionKindSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationBriefSentenceNature.
+const (
+	Assessment     OrganizationBriefSentenceNature = "assessment"
+	Fact           OrganizationBriefSentenceNature = "fact"
+	Recommendation OrganizationBriefSentenceNature = "recommendation"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefSentenceNature enum.
+func (e OrganizationBriefSentenceNature) Valid() bool {
+	switch e {
+	case Assessment:
+		return true
+	case Fact:
+		return true
+	case Recommendation:
 		return true
 	default:
 		return false
@@ -11491,8 +11542,11 @@ type OrganizationBrief struct {
 	GeneratedBy    WrittenBy          `json:"generated_by"`
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 
-	// Sentences The brief itself, one claim per entry.
-	Sentences []OrganizationBriefSentence `json:"sentences"`
+	// Sections The brief, in the order a reader asks its questions: what this company is and why it
+	// matters to us, how the relationship stands, what happened lately, and what to do next.
+	// A section with nothing to say is ABSENT rather than empty — a heading over silence
+	// reads as a finding of nothing, which is a different claim.
+	Sections []OrganizationBriefSection `json:"sections"`
 }
 
 // OrganizationBriefEvidence One record a brief sentence was written from.
@@ -11504,13 +11558,55 @@ type OrganizationBriefEvidence struct {
 // OrganizationBriefEvidenceEntityType defines model for OrganizationBriefEvidence.EntityType.
 type OrganizationBriefEvidenceEntityType string
 
+// OrganizationBriefSection defines model for OrganizationBriefSection.
+type OrganizationBriefSection struct {
+	// Kind `snapshot` — what this company is.
+	// `fit` — why it matters to US, read against our own company profile.
+	// `health` — how the relationship stands.
+	// `activity` — what actually happened.
+	// `next_step` — what to do about it.
+	Kind      OrganizationBriefSectionKind `json:"kind"`
+	Sentences []OrganizationBriefSentence  `json:"sentences"`
+}
+
+// OrganizationBriefSectionKind `snapshot` — what this company is.
+// `fit` — why it matters to US, read against our own company profile.
+// `health` — how the relationship stands.
+// `activity` — what actually happened.
+// `next_step` — what to do about it.
+type OrganizationBriefSectionKind string
+
 // OrganizationBriefSentence defines model for OrganizationBriefSentence.
 type OrganizationBriefSentence struct {
 	// Evidence The records this sentence was written from — always records the reader can
 	// already open, because the brief was assembled under their own row scope.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
-	Text     string                      `json:"text"`
+
+	// Nature What KIND of claim this is, so the reader can tell a record from a reading of it.
+	// Absent means `fact` — the shape every sentence had before assessments existed.
+	//
+	// `fact` — the summary said it; the sentence restates it and cites the record.
+	// `assessment` — a judgment drawn by combining the account with our own company
+	// profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+	// records that support it.
+	// `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+	// that motivates it; the "why us" half cites nothing, because our own profile is not a
+	// record the reader can open and pretending otherwise would invent a citation.
+	Nature *OrganizationBriefSentenceNature `json:"nature,omitempty"`
+	Text   string                           `json:"text"`
 }
+
+// OrganizationBriefSentenceNature What KIND of claim this is, so the reader can tell a record from a reading of it.
+// Absent means `fact` — the shape every sentence had before assessments existed.
+//
+// `fact` — the summary said it; the sentence restates it and cites the record.
+// `assessment` — a judgment drawn by combining the account with our own company
+// profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+// records that support it.
+// `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+// that motivates it; the "why us" half cites nothing, because our own profile is not a
+// record the reader can open and pretending otherwise would invent a citation.
+type OrganizationBriefSentenceNature string
 
 // OrganizationDomain defines model for OrganizationDomain.
 type OrganizationDomain struct {
@@ -11542,8 +11638,11 @@ type OrganizationFact struct {
 	Confidence      *float32                 `json:"confidence,omitempty"`
 	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
 	Field           OrganizationFactField    `json:"field"`
-	Source          OrganizationFactSource   `json:"source"`
-	SourceUrl       *string                  `json:"source_url,omitempty"`
+
+	// Id The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
+	Id        *openapi_types.UUID    `json:"id,omitempty"`
+	Source    OrganizationFactSource `json:"source"`
+	SourceUrl *string                `json:"source_url,omitempty"`
 
 	// SuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
 	SuspectReason *OrganizationFactSuspectReason `json:"suspect_reason,omitempty"`

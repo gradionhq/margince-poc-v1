@@ -33,7 +33,10 @@ type Completer interface {
 
 // Sentence is one claim plus the records it was written from.
 type Sentence struct {
-	Text     string     `json:"text"`
+	Text string `json:"text"`
+	// What KIND of claim this is. Empty means fact — the shape every sentence
+	// had before the brief was allowed to assess anything.
+	Nature   string     `json:"nature,omitempty"`
 	Evidence []Evidence `json:"evidence"`
 }
 
@@ -87,17 +90,27 @@ func perRecordSentences[T any](
 
 // briefSystem is the summarize site's prompt.
 //
-// Two rules do the work. The model may only rewrite the facts it is given —
-// a brief that infers is a brief nobody can check — and it must cite, by the
-// ids it was handed, so every sentence stays traceable to a record the
-// reader can open.
-const briefSystem = `You write a two-to-four sentence account brief for a salesperson, from a JSON summary of one account in their CRM.
-Return ONLY a JSON object: {"sentences":[{"text":"...","evidence":[{"entity_type":"deal|activity|person|organization","entity_id":"..."}]}]}.
-State only what the summary states. Never infer a cause, a mood, an intent or a next step it does not contain.
-Cite the ids the summary gave you; a sentence about the account itself cites the organization.
+// The brief is allowed to JUDGE now, which it was not before, and one rule
+// makes that safe: every claim is labelled with what kind of claim it is. A
+// fact restates the summary and cites its record. An assessment is a judgment
+// drawn against our own company profile, said plainly and labelled, still
+// citing what supports it. The reader can therefore tell a stored fact from a
+// reading of one, which is the whole difference between a brief they can check
+// and a brief they must trust.
+//
+// The company context describes US and is never citable — our own profile is
+// not a record the reader can open, and pretending otherwise would invent a
+// citation to make a recommendation look grounded.
+const briefSystem = `You write a pre-meeting account briefing for a salesperson, from a JSON summary of one account in their CRM.
+Return ONLY a JSON object: {"sections":[{"kind":"snapshot|fit|health|activity|next_step","sentences":[{"text":"...","nature":"fact|assessment|recommendation","evidence":[{"entity_type":"deal|activity|person|organization|fact","entity_id":"..."}]}]}]}.
+The sections answer, in order: what this company is; why it matters to US; how the relationship stands; what actually happened; what to do next. Omit a section you have nothing real to say in.
+Label every sentence. A FACT restates what the summary says and cites the record it came from. An ASSESSMENT is a judgment you draw by combining the summary with the company context — say it plainly, and cite the records that support it. A RECOMMENDATION is one concrete move; cite the account-side record that motivates it.
+Facts may appear in any section. Assessments belong only in fit and health. Recommendations belong only in next_step, and there are at most two.
+Never invent a fact. If the summary does not say it, you may still ASSESS it — but then it is an assessment and must be labelled one.
+The company context describes US, the people reading this. It is never a fact about THEM, and never a citation: our own profile is not a record the reader can open.
+Cite the ids the summary gave you. A sentence about the account itself cites the organization.
 Put ids ONLY in evidence. An id must never appear in a sentence's text — the reader sees the text, and an id there is unreadable.
-Write one claim per sentence, and cite the ONE record that sentence is about. Three records worth naming are three sentences.
-Write plainly, in the reader's second person where natural, and never open with the company name twice.
+Write one claim per sentence, plainly, in the reader's second person where natural, and never open with the company name twice.
 If the summary names sections_omitted, say nothing about those subjects at all — the reader is not allowed to see them.`
 
 // briefSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
@@ -108,8 +121,8 @@ func briefSystemFor(fence promptfence.Fence) string {
 // Write produces the brief. lane may be nil, which is not an error state:
 // it is the deployment saying this role runs no model, and the
 // deterministic floor is the answer.
-func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sentence, crmcontracts.WrittenBy, error) {
-	deterministic := Deterministic(orgID, in)
+func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Section, crmcontracts.WrittenBy, error) {
+	deterministic := DeterministicSections(orgID, in)
 	if lane == nil {
 		return deterministic, crmcontracts.Deterministic, nil
 	}
@@ -122,12 +135,7 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 		//nolint:nilerr // on_budget_exhausted: degrade — the fallback IS the answer, and generated_by reports it
 		return deterministic, crmcontracts.Deterministic, nil
 	}
-	// The company half is APPENDED, not asked for: those statements are
-	// already curated prose a human accepted, so putting them through a model
-	// buys nothing and risks a paraphrase nobody checked. The model writes the
-	// relationship — the part that needs synthesis — and both paths close with
-	// the same quoted description of the company.
-	return append(written, profileLines(in, accountEvidence(orgID))...), crmcontracts.Model, nil
+	return written, crmcontracts.Model, nil
 }
 
 // accountEvidence cites the account itself: the company description is about
@@ -153,7 +161,7 @@ func accountEvidence(orgID string) []Evidence {
 // what makes "the model never rewrites the company description" true of the
 // request rather than of the concatenation.
 func BriefRequest(in Input) model.Request {
-	return groundedRequest(briefSystemFor, in.withoutProfile())
+	return groundedRequest(briefSystemFor, in)
 }
 
 // groundedRequest is the one request shape both of this package's sites send:
@@ -202,13 +210,13 @@ func ParseBrief(text, orgID string, in Input) ([]Sentence, error) {
 	return keepGroundedSentences(reply.Sentences, orgID, in), nil
 }
 
-func writeWithModel(ctx context.Context, lane Completer, orgID string, in Input) ([]Sentence, error) {
+func writeWithModel(ctx context.Context, lane Completer, orgID string, in Input) ([]Section, error) {
 	req := BriefRequest(in)
 	resp, err := lane.Complete(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	kept, err := ParseBrief(resp.Text, orgID, in)
+	kept, err := ParseBriefSections(resp.Text, orgID, in)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +224,87 @@ func writeWithModel(ctx context.Context, lane Completer, orgID string, in Input)
 		return nil, errors.New("the brief reply cited nothing in the account")
 	}
 	return kept, nil
+}
+
+// briefSectionOrder is the order a reader asks the questions, and the order
+// the sections are rendered in whatever order the model returned them.
+var briefSectionOrder = []string{
+	sectionSnapshot, sectionFit, sectionHealth, sectionActivity, sectionNextStep,
+}
+
+// natureAllowed says which kinds of claim each section may carry.
+//
+// Facts are welcome anywhere. An ASSESSMENT is a judgment, so it belongs only
+// where the brief is meant to judge — what this account is to us, and how the
+// relationship stands. A RECOMMENDATION is a move, and a move belongs under
+// the heading that promises one; scattered through the narrative it reads as
+// the account's history rather than as advice.
+var natureAllowed = map[string]map[string]bool{
+	sectionSnapshot: {natureFact: true},
+	sectionFit:      {natureFact: true, natureAssessment: true},
+	sectionHealth:   {natureFact: true, natureAssessment: true},
+	sectionActivity: {natureFact: true},
+	sectionNextStep: {natureFact: true, natureRecommendation: true},
+}
+
+// maxRecommendations bounds the advice. Two moves are a plan; five are a list
+// the reader triages, which is the job the brief was supposed to do.
+const maxRecommendations = 2
+
+// ParseBriefSections reads a sectioned reply, keeping only what is grounded and
+// permitted. Exported for the same reason as BriefRequest: the certification
+// case must run the filter production runs.
+//
+// Everything it drops, it drops for one of three reasons — an unknown section,
+// a claim of a kind that section may not carry, or a citation the input never
+// held. Each is a sentence the reader could not have checked.
+func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
+	var parsed struct {
+		Sections []Section `json:"sections"`
+	}
+	// ai.Unfence for the same reason ParseBrief uses it: a model that wraps its
+	// JSON in a ```json fence is answering correctly.
+	if err := json.Unmarshal([]byte(ai.Unfence(reply)), &parsed); err != nil {
+		return nil, fmt.Errorf("parse brief sections: %w", err)
+	}
+	known := knownRecords(orgID, in)
+	byKind := map[string][]Sentence{}
+	for _, section := range parsed.Sections {
+		allowed, ok := natureAllowed[section.Kind]
+		if !ok {
+			continue
+		}
+		recommendations := 0
+		for _, sentence := range section.Sentences {
+			nature := sentence.Nature
+			if nature == "" {
+				// An unlabelled claim is a fact, which is the strictest
+				// reading: it must be grounded and it may not judge.
+				nature = natureFact
+			}
+			if !allowed[nature] {
+				continue
+			}
+			if nature == natureRecommendation {
+				if recommendations == maxRecommendations {
+					continue
+				}
+				recommendations++
+			}
+			sentence.Nature = nature
+			if !groundedSentence(sentence, known) {
+				continue
+			}
+			byKind[section.Kind] = append(byKind[section.Kind], sentence)
+		}
+	}
+	out := make([]Section, 0, len(briefSectionOrder))
+	for _, kind := range briefSectionOrder {
+		if sentences := byKind[kind]; len(sentences) > 0 {
+			out = append(out, Section{Kind: kind, Sentences: sentences})
+		}
+	}
+	return out, nil
 }
 
 // keepGroundedSentences drops any sentence whose citations do not point at
@@ -230,26 +319,31 @@ func writeWithModel(ctx context.Context, lane Completer, orgID string, in Input)
 // organization citation would let a reply hand back an id this reader never
 // saw — rendered as a link they could click into a record their scope may
 // hide. The one organization a brief may cite is the one it is about.
+// groundedSentence is the ONE test both parsers apply, so the flat answer and
+// the sectioned brief can never disagree about what counts as checkable.
+func groundedSentence(sentence Sentence, known map[Evidence]bool) bool {
+	if strings.TrimSpace(sentence.Text) == "" || len(sentence.Evidence) == 0 {
+		return false
+	}
+	if idInProse.MatchString(sentence.Text) {
+		// A sentence that spells an id at the reader is developer output,
+		// whatever else it says. It is DROPPED rather than stripped: the id
+		// sits mid-clause, and cutting it leaves broken grammar the reader has
+		// to decode. Every id the sentence needed is already in its evidence.
+		return false
+	}
+	// The WHOLE sentence goes, not just the bad citation. A sentence citing one
+	// real record and one invented one is a sentence whose claim may rest on the
+	// invented half — keeping it with the good citation attached would present
+	// it as checked when it is not.
+	return allGrounded(sentence.Evidence, known)
+}
+
 func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sentence {
 	known := knownRecords(orgID, in)
 	kept := make([]Sentence, 0, len(sentences))
 	for _, sentence := range sentences {
-		if strings.TrimSpace(sentence.Text) == "" || len(sentence.Evidence) == 0 {
-			continue
-		}
-		if idInProse.MatchString(sentence.Text) {
-			// A sentence that spells an id at the reader is developer output,
-			// whatever else it says. It is DROPPED rather than stripped: the id
-			// sits mid-clause, and cutting it leaves broken grammar the reader
-			// has to decode — the same reason an ungrounded sentence goes whole.
-			// Every id the sentence needed is already in its evidence.
-			continue
-		}
-		if !allGrounded(sentence.Evidence, known) {
-			// The WHOLE sentence goes, not just the bad citation. A sentence
-			// citing one real record and one invented one is a sentence whose
-			// claim may rest on the invented half — keeping it with the good
-			// citation attached would present it as checked when it is not.
+		if !groundedSentence(sentence, known) {
 			continue
 		}
 		kept = append(kept, sentence)
@@ -316,4 +410,29 @@ func allGrounded(evidence []Evidence, known map[Evidence]bool) bool {
 		}
 	}
 	return true
+}
+
+// The section kinds, DERIVED from the contract's enum rather than re-spelled,
+// so a rename upstream fails to compile here instead of laundering a
+// hand-typed string past the type.
+const (
+	sectionSnapshot = string(crmcontracts.OrganizationBriefSectionKindSnapshot)
+	sectionFit      = string(crmcontracts.OrganizationBriefSectionKindFit)
+	sectionHealth   = string(crmcontracts.OrganizationBriefSectionKindHealth)
+	sectionActivity = string(crmcontracts.OrganizationBriefSectionKindActivity)
+	sectionNextStep = string(crmcontracts.OrganizationBriefSectionKindNextStep)
+)
+
+// The natures a sentence can carry, same derivation, same reason.
+const (
+	natureFact           = string(crmcontracts.Fact)
+	natureAssessment     = string(crmcontracts.Assessment)
+	natureRecommendation = string(crmcontracts.Recommendation)
+)
+
+// Section is one part of the brief: a heading's worth of claims about one
+// question. The order they arrive in is the order a reader asks them.
+type Section struct {
+	Kind      string     `json:"kind"`
+	Sentences []Sentence `json:"sentences"`
 }

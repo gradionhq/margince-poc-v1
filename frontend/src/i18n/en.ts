@@ -523,6 +523,16 @@ export const en = {
   "timeline.group.mayContinue": "may continue earlier",
   "tab.people": "People",
   "tab.timeline": "History",
+  // The brief under the questions it answers, and what kind of claim each
+  // sentence makes — a judgment must not read as a stored fact.
+  "co.brief.section.snapshot": "What they are",
+  "co.brief.section.fit": "Why it matters to us",
+  "co.brief.section.health": "How it stands",
+  "co.brief.section.activity": "What happened",
+  "co.brief.section.next_step": "What to do",
+  "co.brief.nature.fact": "Fact",
+  "co.brief.nature.assessment": "Our read",
+  "co.brief.nature.recommendation": "Suggested",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
@@ -597,12 +607,14 @@ export const en = {
   "co.brief.cite.activity": "activity",
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "account",
+  "co.brief.cite.fact": "fact",
   // Several sources of one kind that have no screen to open collapse into one
   // counted chip, rather than a run of identical labels.
   "co.brief.cite.deal.many": "{count} deals",
   "co.brief.cite.activity.many": "{count} activities",
   "co.brief.cite.person.many": "{count} contacts",
   "co.brief.cite.organization.many": "{count} accounts",
+  "co.brief.cite.fact.many": "{count} facts",
   "approval.kind.advance_deal": "Move a deal forward",
   "approval.kind.close_date_correction": "Correct a close date",
   "approval.kind.deal_follow_up": "Add a follow-up on a deal",

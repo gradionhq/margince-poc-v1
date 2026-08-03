@@ -532,6 +532,16 @@ export const de = {
   "timeline.group.mayContinue": "kann früher weitergehen",
   "tab.people": "Personen",
   "tab.timeline": "Verlauf",
+  // Das Briefing nach den Fragen, die es beantwortet, und die Art jeder
+  // Aussage — eine Einschätzung darf nicht wie ein Fakt wirken.
+  "co.brief.section.snapshot": "Was sie sind",
+  "co.brief.section.fit": "Warum es für uns zählt",
+  "co.brief.section.health": "Wie es steht",
+  "co.brief.section.activity": "Was passiert ist",
+  "co.brief.section.next_step": "Was zu tun ist",
+  "co.brief.nature.fact": "Fakt",
+  "co.brief.nature.assessment": "Unsere Einschätzung",
+  "co.brief.nature.recommendation": "Vorschlag",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
@@ -605,10 +615,12 @@ export const de = {
   "co.brief.cite.activity": "Aktivität",
   "co.brief.cite.person": "Kontakt",
   "co.brief.cite.organization": "Account",
+  "co.brief.cite.fact": "Fakt",
   "co.brief.cite.deal.many": "{count} Deals",
   "co.brief.cite.activity.many": "{count} Aktivitäten",
   "co.brief.cite.person.many": "{count} Kontakte",
   "co.brief.cite.organization.many": "{count} Accounts",
+  "co.brief.cite.fact.many": "{count} Fakten",
   "approval.kind.advance_deal": "Deal weiterbringen",
   "approval.kind.promote_lead": "Lead überführen",
   "approval.kind.close_date_correction": "Abschlussdatum korrigieren",
