@@ -167,5 +167,5 @@ func faultCodes(fault httperr.Fault) string {
 	for _, f := range fault.Fields {
 		parts = append(parts, echoSafe(f.Field, maxBadArgsDetail)+"="+echoSafe(f.Code, maxBadArgsDetail))
 	}
-	return fault.Code + " " + strings.Join(parts, ", ")
+	return echoSafe(fault.Code, maxBadArgsDetail) + " " + strings.Join(parts, ", ")
 }
