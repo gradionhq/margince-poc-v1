@@ -207,35 +207,19 @@ together, and warm paths and the matrix fall out of it as queries. That is a
 schema addition, a capture change, a backfill, and a spec raise against
 ADR-0021 and NEVER-10. Contract-first: the spec decides first.
 
-## Open defect — the graph cannot answer "who do I know here"
+## Resolved — the graph can answer "who do I know here" (PR #355)
 
-The `in_contact_with` edge exists in the contract and is implemented
-(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+The `in_contact_with` edge used to join on who TYPED the activity
+(`a.captured_by = 'human:' || u.id::text`). Connector-captured mail is stamped
+`connector:gmail`, so the join matched nothing and the edge was never drawn —
+on precisely the accounts with the most correspondence. PR #355 replaced it
+with the interaction projection folded from the participant rows capture
+stamps, and `compose/org360/graphourside.go:113` now says so in its own
+comment.
 
-```sql
-JOIN app_user u ON a.captured_by = 'human:' || u.id::text
-```
-
-Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
-never matches and no edge is drawn. In a product whose premise is that capture
-means nobody types anything, the condition excludes essentially all real data:
-on a live account with three contacts and a year of correspondence, the graph
-returns only `owns` and `employment`, and "who on our side has a way in" is
-unanswerable.
-
-The authorship the edge wants is on the row already: `direction`
-(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
-`counterparty_email` (`migrations/core/0123`) says who the other end was. The
-edge should be derived from the mailbox the activity came through and its
-participants, not from who entered it.
-
-Related contract gap: `counterparty_email` is stored and used by the capture
-sweeps but is not on the `Activity` schema, so no client can see who a
-captured mail was actually with. `direction` IS on the wire and unused by the
-UI today.
-
-Both block the coverage matrix (their buying committee × our team, cells by
-relationship strength) agreed as the company page's centrepiece.
+Still open from that entry: `counterparty_email` is stored and used by the
+capture sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with.
 
 ## Open items left by the consent screen (PR #345)
 
@@ -285,6 +269,65 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-03 (the company page overhaul, branch `feat/company-page-p1`)
+
+**The page answers what an account is, where it stands, and what to do about
+it.** 26 commits on `feat/company-page-p1`, based on P0's PR #371 (still open).
+`make check`, `make check-fe` and the touched integration lanes are green. Not
+yet pushed: a Codex review of the full diff is the gate, then a rebase onto
+`origin/main` (which has since taken #378, #379 and #381).
+
+What the failure was: the ScaleCommerce record held an email ending the
+contract on 31 July while the page read "Prospect", and nothing anywhere put
+those two facts next to each other. `organization.classification` was
+`NOT NULL DEFAULT 'prospect'` and **never had a writer** — ADR-0032 promised
+enrichment would set it and that was never built — so "Prospect" was the
+column's default rendered as a finding.
+
+Built, in the order it ships:
+
+- **P0** — `classification` splits into an `organization.lifecycle` column and
+  an `organization_relationship_type` child table (ADR-0079, migration 0171);
+  the partner invariant is enforced in both directions. The 30-day activity
+  count now uses the same three-arm link walk the timeline uses. The header
+  shows last-inbound and last-outbound instead of a 0–100 score. Enrichment
+  audit rows carry per-column before/after images.
+- **P1** — the state strip, the sectioned brief (fact | assessment |
+  recommendation, parsed and enforced per section), ranked suggestions that
+  carry their action, client-side thread grouping, and the People/Timeline
+  tabs.
+- **P2** — two signal producers where there were none: the deterministic
+  `ghosted_thread` rule and the `signal_extract` model site that reads
+  `contract_ended`, `new_opportunity` and `commitment_made` out of a settled
+  conversation (migration 0172, four corpus scenarios including a
+  prompt-injection one). The `lifecycle_conflict` card states the disagreement
+  the record has with its own mail. The `lifecycle_change` reconciler offers
+  the fix to a human — nothing structural is written before their yes, a
+  refusal is remembered against the account and the stage, and a stale accept
+  is refused rather than overwriting an edit someone made by hand.
+
+Two things a reader should know:
+
+1. `Signal.kind` on the wire declared only the six kinds a human files by hand
+   while the producers had been writing four more since 0172 — the API was
+   serving values outside its own enum. Fixed in the same branch.
+2. `contract_ended` proposes `former_customer` from every live stage,
+   including `prospect`. That was open question 7 in the plan; the founder's
+   own example is a record reading Prospect whose mail ends a contract, so the
+   mail is the fact whether or not the record ever said customer. Worth
+   confirming.
+
+Deliberately not built: `deal_from_thread` and `task_from_commitment` staged
+proposals. They add cards to the approvals panel and change nothing the page
+shows today; deal creation also has no source-key replay, so its executor needs
+a new idempotent deals-store method rather than a copy of the task effect.
+
+Two things owed to `main` at merge time: the `margince` database records
+`org_legal_name_trgm` as version 0169 while `origin/main` has it at 0170
+(`UPDATE schema_migrations_core SET version='0170' WHERE version='0169' AND
+name='org_legal_name_trgm';`), and a stray seed of "Demo GmbH" plus three
+people landed in the founder's own `margince` database from a `scripts/seed-dev.sh`
+run that ignores `DEV_SLUG` and hard-defaults to `localhost:8080`.
 ## Session pickup — 2026-08-03 (job observability, Phase 0 and Phase 1 PR 1, merged)
 
 **Every unit of tenant work now names one workspace, and spells it one way.**
