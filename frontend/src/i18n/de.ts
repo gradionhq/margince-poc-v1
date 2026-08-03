@@ -542,6 +542,12 @@ export const de = {
   "co.brief.nature.fact": "Fakt",
   "co.brief.nature.assessment": "Unsere Einschätzung",
   "co.brief.nature.recommendation": "Vorschlag",
+  "co.health.title": "Wie es steht",
+  "co.health.sinceInbound": "Sie schrieben zuletzt vor {days} Tagen",
+  "co.health.replyBalance": "{percent}% des Austauschs kam von ihnen",
+  "co.health.activeContacts": "{count} Personen hier hatten je Kontakt",
+  "co.health.openCommitments": "{count} offene Zusage(n)",
+  "co.health.singleThreaded": "Ein Kontakt trägt diesen Account",
   "org.partnerSetUp": "Partnerprogramm einrichten",
   // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
   // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
@@ -851,9 +857,6 @@ export const de = {
   "co.lists.pick": "Listenname",
   "co.tags.title": "Listen & Tags",
   "co.tags.empty": "Auf keiner Liste, keine Tags vergeben.",
-  "co.health.title": "Datenqualität",
-  "co.health.lastRead": "Zuletzt gelesen {when}",
-  "co.health.neverRead": "Noch nie aus dem Web gelesen",
   "co.timeline.filterKind": "Nach Typ filtern",
   "co.timeline.filterAll": "Alle Typen",
   "co.timeline.filterPerson": "Nach Person filtern",

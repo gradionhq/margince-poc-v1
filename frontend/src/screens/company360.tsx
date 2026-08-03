@@ -1502,6 +1502,78 @@ export function AskSection({
  * dismissal is theirs alone and is keyed on the evidence, so the same advice
  * stays gone while the situation holds and comes back when it changes.
  */
+type Health = NonNullable<Organization360["health"]>;
+
+/**
+ * HealthCard is how the relationship stands, in the parts a reader can act on
+ * (AC-company-3).
+ *
+ * It replaced a single 0–100 score. That number was the MAX over the account's
+ * contacts of a decayed message count, so one talkative contact spoke for the
+ * whole account and a long, low-volume relationship read as near-dead. Each
+ * line here names a fact instead: "no inbound for 90 days" says what to do,
+ * where "2/100" said only a mood.
+ *
+ * A part the server could not compute is ABSENT, never zero. Zero is a claim
+ * about the account; absence is a fact about the reading.
+ */
+export function HealthCard({ health }: Readonly<{ health?: Health }>) {
+  const t = useT();
+  if (!health) {
+    return null;
+  }
+  const lines: string[] = [];
+  if (health.days_since_last_inbound != null) {
+    lines.push(
+      t("co.health.sinceInbound", { days: health.days_since_last_inbound }),
+    );
+  }
+  if (health.reply_balance != null) {
+    lines.push(
+      t("co.health.replyBalance", {
+        percent: Math.round(health.reply_balance * 100),
+      }),
+    );
+  }
+  if (health.active_contacts != null) {
+    lines.push(
+      t("co.health.activeContacts", { count: health.active_contacts }),
+    );
+  }
+  if (health.open_commitments != null && health.open_commitments > 0) {
+    lines.push(
+      t("co.health.openCommitments", { count: health.open_commitments }),
+    );
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+  return (
+    <SectionCard
+      title={t("co.health.title")}
+      state="ready"
+      // Never reached: the card returns null when it has no line to draw,
+      // because "how it stands: nothing" is not a reading of an account.
+      emptyLabel={t("co.health.title")}
+    >
+      <ul className="co-list">
+        {lines.map((line) => (
+          <li key={line} className="co-row">
+            {line}
+          </li>
+        ))}
+      </ul>
+      {/* The one shape a rep can fix before it costs them the account, so it
+          is said rather than scored. */}
+      {health.single_threaded && (
+        <p className="co-row-meta">
+          <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
 type StateStrip = NonNullable<Organization360["state_strip"]>;
 
 const ENGAGEMENT_LABELS: Record<

@@ -6875,6 +6875,31 @@ export interface components {
             last_viewed_at: string;
         };
         /**
+         * @description How the relationship stands, in the parts a reader can act on (AC-company-3).
+         *
+         *     It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+         *     contacts, so one talkative contact spoke for the whole account and a long, low-volume
+         *     relationship read as near-dead. Each part below names a fact instead: "no inbound for
+         *     90 days" tells a rep what to do, where "2/100" told them only a mood.
+         *
+         *     Every part is nullable and absent when it cannot be computed — never zero, which would
+         *     be a claim about the account rather than about what was readable.
+         */
+        Organization360Health: {
+            /** @description Null when they have never written, which is different from writing long ago. */
+            days_since_last_inbound?: number | null;
+            /** @description Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured. */
+            reply_balance?: number | null;
+            /** Format: date-time */
+            last_meeting_at?: string | null;
+            /** @description How many people here have interacted at all — the account's real surface. */
+            active_contacts?: number | null;
+            /** @description The whole relationship rests on one contact. Named as a fact rather than scored, because it is the one shape a rep can fix before it costs them the account. */
+            single_threaded?: boolean | null;
+            /** @description Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals. */
+            open_commitments?: number | null;
+        };
+        /**
          * @description The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
          *     independently gated: a caller who may read the account but not its mail gets the account
          *     half and a null engagement, because a state inferred from data they were not allowed to see
@@ -7078,8 +7103,9 @@ export interface components {
              */
             last_outbound_at?: string | null;
             state_strip?: components["schemas"]["Organization360StateStrip"];
+            health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];

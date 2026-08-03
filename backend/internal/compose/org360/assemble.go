@@ -34,6 +34,7 @@ const (
 	sectionActivities      = crmcontracts.Organization360SectionsOmitted("activities")
 	sectionLastTouch       = crmcontracts.Organization360SectionsOmitted("last_touch")
 	sectionStateStrip      = crmcontracts.Organization360SectionsOmitted("state_strip")
+	sectionHealth          = crmcontracts.Organization360SectionsOmitted("health")
 	sectionTags            = crmcontracts.Organization360SectionsOmitted("tags")
 	sectionListMemberships = crmcontracts.Organization360SectionsOmitted("list_memberships")
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
@@ -97,6 +98,7 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionActivities, a.readTimeline},
 		{sectionLastTouch, a.readLastTouch},
 		{sectionStateStrip, a.readStateStrip},
+		{sectionHealth, a.readHealth},
 		{sectionNextSteps, a.readNextSteps},
 		{sectionTags, a.readTags},
 		{sectionListMemberships, a.readListMemberships},
@@ -246,67 +248,6 @@ func (a *assembly) readTimeline() error {
 	return nil
 }
 
-// readLastTouch answers which direction went last, and when — the pair that
-// replaced the header's 0-100 score (AC-company-2, ADR-0079 arc).
-//
-// Two timestamps rather than one "last touch", because which side wrote last
-// IS the question: an account we mailed a fortnight ago with no reply and one
-// that wrote to us this morning have the same last-touch date and opposite
-// meanings.
-//
-// It walks the same three links the timeline does (activities.OrgLinkedActivityExists),
-// so the header can never disagree with the list under it, and
-// it carries the caller's activity row scope, so a rep sees the last message
-// THEY may read rather than the account's true last message.
-func (a *assembly) readLastTouch() error {
-	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
-		return err
-	}
-	args := []any{a.orgID.UUID}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	scope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
-	if err != nil {
-		return err
-	}
-	where := "a.archived_at IS NULL AND " + activities.OrgLinkedActivityExists(1)
-	if scope != "" {
-		where += " AND " + scope
-	}
-	// Two ordered LIMIT-1 arms in ONE round trip, rather than two FILTERed
-	// max() aggregates. An aggregate has to see every qualifying row before it
-	// can answer; each arm here stops at the first, so the cost is bounded by
-	// how far back the newest message of that direction is rather than by the
-	// account's whole history.
-	rows, err := a.tx.Query(a.ctx, `
-		(SELECT 'inbound' AS direction, a.occurred_at FROM activity a
-		  WHERE `+where+` AND a.direction = 'inbound'
-		  ORDER BY a.occurred_at DESC LIMIT 1)
-		UNION ALL
-		(SELECT 'outbound', a.occurred_at FROM activity a
-		  WHERE `+where+` AND a.direction = 'outbound'
-		  ORDER BY a.occurred_at DESC LIMIT 1)`, args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var direction string
-		var at time.Time
-		if err := rows.Scan(&direction, &at); err != nil {
-			return err
-		}
-		// A direction with no message returns no row at all, which is how the
-		// null reaches the wire: nothing of that direction was ever captured.
-		when := at
-		if direction == "inbound" {
-			a.out.LastInboundAt = &when
-			continue
-		}
-		a.out.LastOutboundAt = &when
-	}
-	return rows.Err()
-}
-
 // suggestionInputsOnce reads the newest message, the open pipeline and the
 // scheduled-task flag ONCE. The state strip and the suggestions are two
 // readings of the same three facts, and reading them twice would let the strip
@@ -318,50 +259,6 @@ func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
 		a.adviceRead = true
 	}
 	return a.advice, a.adviceErr
-}
-
-// readStateStrip is the three readings the overview leads with (AC-company-13).
-//
-// The account half needs no grant beyond the organization the caller already
-// read. The other two are gated independently and answer NULL rather than a
-// zero when refused: "no open deals" and "you may not see the deals" are
-// different facts, and only one of them is about the account.
-func (a *assembly) readStateStrip() error {
-	in, err := a.suggestionInputsOnce()
-	if err != nil {
-		return err
-	}
-	strip := crmcontracts.Organization360StateStrip{}
-	if lc := a.out.Organization.Lifecycle; lc != nil {
-		strip.Account.Lifecycle = crmcontracts.Organization360StateStripAccountLifecycle(*lc)
-	}
-	if types := a.out.Organization.RelationshipTypes; types != nil {
-		for _, relType := range *types {
-			strip.Account.RelationshipTypes = append(strip.Account.RelationshipTypes,
-				crmcontracts.Organization360StateStripAccountRelationshipTypes(relType))
-		}
-	}
-
-	if in.timeline {
-		strip.Engagement = new(struct {
-			LastInboundAt  *time.Time                                            `json:"last_inbound_at,omitempty"`
-			LastOutboundAt *time.Time                                            `json:"last_outbound_at,omitempty"`
-			State          crmcontracts.Organization360StateStripEngagementState `json:"state"`
-		})
-		strip.Engagement.LastInboundAt = a.out.LastInboundAt
-		strip.Engagement.LastOutboundAt = a.out.LastOutboundAt
-		strip.Engagement.State = engagementState(in, a.now)
-	}
-	if in.pipeline {
-		strip.Commercial = new(struct {
-			OpenCount    int `json:"open_count"`
-			StalledCount int `json:"stalled_count"`
-		})
-		strip.Commercial.OpenCount = in.open.OpenCount
-		strip.Commercial.StalledCount = len(in.open.Stalled)
-	}
-	a.out.StateStrip = &strip
-	return nil
 }
 
 func (a *assembly) readNextSteps() error {

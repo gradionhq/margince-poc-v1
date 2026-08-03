@@ -411,3 +411,27 @@ func engagementState(in suggestionInputs, now time.Time) crmcontracts.Organizati
 // saying "waiting on them" after a quarter would be advising a reply to a
 // conversation nobody remembers.
 const engagementDormantDays = 90
+
+// openCommitments counts the things one side said they would do and nobody has
+// closed — open `commitment_made` signals on this account.
+//
+// It reports counted=false rather than zero when the caller cannot read
+// signals, following pendingApprovals' shape in this package: zero would say
+// the account owes nothing, which is a claim about the account rather than
+// about what this reader was allowed to see.
+func openCommitments(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (count int, counted bool, err error) {
+	allowed, err := granted(ctx, "signal")
+	if err != nil {
+		return 0, false, err
+	}
+	if !allowed {
+		return 0, false, nil
+	}
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM signal
+		 WHERE resolved_org_id = $1 AND kind = 'commitment_made'
+		   AND status = 'open' AND archived_at IS NULL`, orgID).Scan(&count); err != nil {
+		return 0, false, fmt.Errorf("count open commitments: %w", err)
+	}
+	return count, true, nil
+}

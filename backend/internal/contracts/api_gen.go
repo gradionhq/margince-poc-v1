@@ -3826,6 +3826,7 @@ func (e OrganizationSizeBand) Valid() bool {
 const (
 	Organization360SectionsOmittedActivities       Organization360SectionsOmitted = "activities"
 	Organization360SectionsOmittedDeals            Organization360SectionsOmitted = "deals"
+	Organization360SectionsOmittedHealth           Organization360SectionsOmitted = "health"
 	Organization360SectionsOmittedLastTouch        Organization360SectionsOmitted = "last_touch"
 	Organization360SectionsOmittedListMemberships  Organization360SectionsOmitted = "list_memberships"
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
@@ -3844,6 +3845,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedActivities:
 		return true
 	case Organization360SectionsOmittedDeals:
+		return true
+	case Organization360SectionsOmittedHealth:
 		return true
 	case Organization360SectionsOmittedLastTouch:
 		return true
@@ -11244,6 +11247,17 @@ type Organization360 struct {
 	// Deals The account's open deals plus the two lifetime figures the header needs.
 	Deals *Organization360Deals `json:"deals,omitempty"`
 
+	// Health How the relationship stands, in the parts a reader can act on (AC-company-3).
+	//
+	// It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+	// contacts, so one talkative contact spoke for the whole account and a long, low-volume
+	// relationship read as near-dead. Each part below names a fact instead: "no inbound for
+	// 90 days" tells a rep what to do, where "2/100" told them only a mood.
+	//
+	// Every part is nullable and absent when it cannot be computed — never zero, which would
+	// be a claim about the account rather than about what was readable.
+	Health *Organization360Health `json:"health,omitempty"`
+
 	// LastInboundAt When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
 	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
 
@@ -11373,6 +11387,33 @@ type Organization360Deals struct {
 
 	// WonLifetime Every won deal on this account, converted at each deal's frozen close-time rate. Never a live re-conversion.
 	WonLifetime Money `json:"won_lifetime"`
+}
+
+// Organization360Health How the relationship stands, in the parts a reader can act on (AC-company-3).
+//
+// It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+// contacts, so one talkative contact spoke for the whole account and a long, low-volume
+// relationship read as near-dead. Each part below names a fact instead: "no inbound for
+// 90 days" tells a rep what to do, where "2/100" told them only a mood.
+//
+// Every part is nullable and absent when it cannot be computed — never zero, which would
+// be a claim about the account rather than about what was readable.
+type Organization360Health struct {
+	// ActiveContacts How many people here have interacted at all — the account's real surface.
+	ActiveContacts *int `json:"active_contacts,omitempty"`
+
+	// DaysSinceLastInbound Null when they have never written, which is different from writing long ago.
+	DaysSinceLastInbound *int       `json:"days_since_last_inbound,omitempty"`
+	LastMeetingAt        *time.Time `json:"last_meeting_at,omitempty"`
+
+	// OpenCommitments Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals.
+	OpenCommitments *int `json:"open_commitments,omitempty"`
+
+	// ReplyBalance Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured.
+	ReplyBalance *float32 `json:"reply_balance,omitempty"`
+
+	// SingleThreaded The whole relationship rests on one contact. Named as a fact rather than scored, because it is the one shape a rep can fix before it costs them the account.
+	SingleThreaded *bool `json:"single_threaded,omitempty"`
 }
 
 // Organization360NextStep One open task on the account, ordered overdue → due → undated.

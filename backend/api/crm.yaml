@@ -10709,6 +10709,46 @@ components:
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
+    Organization360Health:
+      type: object
+      description: |
+        How the relationship stands, in the parts a reader can act on (AC-company-3).
+
+        It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+        contacts, so one talkative contact spoke for the whole account and a long, low-volume
+        relationship read as near-dead. Each part below names a fact instead: "no inbound for
+        90 days" tells a rep what to do, where "2/100" told them only a mood.
+
+        Every part is nullable and absent when it cannot be computed — never zero, which would
+        be a claim about the account rather than about what was readable.
+      properties:
+        days_since_last_inbound:
+          type: [integer, 'null']
+          description: Null when they have never written, which is different from writing long ago.
+        reply_balance:
+          type: [number, 'null']
+          minimum: 0
+          maximum: 1
+          description: >-
+            Of the interactions in the strength window, the share that came from them. 0.5 is an
+            even exchange; near 0 is us talking to ourselves. Null when nothing was captured.
+        last_meeting_at:
+          type: [string, 'null']
+          format: date-time
+        active_contacts:
+          type: [integer, 'null']
+          description: How many people here have interacted at all — the account's real surface.
+        single_threaded:
+          type: [boolean, 'null']
+          description: >-
+            The whole relationship rests on one contact. Named as a fact rather than scored,
+            because it is the one shape a rep can fix before it costs them the account.
+        open_commitments:
+          type: [integer, 'null']
+          description: >-
+            Open `commitment_made` signals — things one side said they would do. Null when the
+            caller cannot read signals.
+
     Organization360StateStrip:
       type: object
       description: |
@@ -10942,12 +10982,14 @@ components:
             mailed a fortnight ago with no reply is not the same as one that just wrote to us.
         state_strip:
           $ref: '#/components/schemas/Organization360StateStrip'
+        health:
+          $ref: '#/components/schemas/Organization360Health'
         sections_omitted:
           type: array
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions, last_touch, state_strip, health]
         people:
           type: object
           required: [data, page]

@@ -533,6 +533,12 @@ export const en = {
   "co.brief.nature.fact": "Fact",
   "co.brief.nature.assessment": "Our read",
   "co.brief.nature.recommendation": "Suggested",
+  "co.health.title": "How it stands",
+  "co.health.sinceInbound": "They last wrote {days} days ago",
+  "co.health.replyBalance": "{percent}% of the exchange came from them",
+  "co.health.activeContacts": "{count} people here have ever interacted",
+  "co.health.openCommitments": "{count} open commitment(s)",
+  "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
@@ -841,9 +847,6 @@ export const en = {
   "co.lists.pick": "List name",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
-  "co.health.title": "Data health",
-  "co.health.lastRead": "Last read {when}",
-  "co.health.neverRead": "Never read from the web",
   "co.timeline.filterKind": "Filter by type",
   "co.timeline.filterAll": "All types",
   "co.timeline.filterPerson": "Filter by person",

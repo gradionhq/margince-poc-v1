@@ -53,6 +53,7 @@ import {
 import {
   AccountBrief,
   DealsCard,
+  HealthCard,
   NextSteps,
   type Org360Result,
   OverlayFallback,
@@ -2414,6 +2415,9 @@ function businessRail({
             )
           }
         />
+        {/* How the relationship stands, in parts — the decomposition that
+            replaced the header's 0-100 score. */}
+        <HealthCard health={view?.health} />
         <SignalsCard orgId={org.id} />
         {/* Connections is deliberately not here. It listed the account owner
             and the same employees the People card already names, against two
