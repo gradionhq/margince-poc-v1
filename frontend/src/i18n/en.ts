@@ -1072,6 +1072,16 @@ export const en = {
   "settings.automationsSub":
     "the bounded starter catalog — enable, parameterize, pause",
   "settings.openAutomations": "Open the automations editor",
+  "settings.dangerZone": "Danger zone",
+  "settings.dangerZoneSub":
+    "non-production only — irreversible on this installation",
+  "settings.resetDataDesc":
+    "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
+  "settings.resetDataButton": "Reset data…",
+  "settings.resetDataConfirmTitle": "Reset all data?",
+  "settings.resetDataConfirmBody":
+    "Type your organization's name to confirm. This cannot be undone.",
+  "settings.resetDataConfirmLabel": "Confirm organization name",
   "settings.audit": "Audit log",
   "audit.you": "You",
   "audit.teammate": "A teammate",

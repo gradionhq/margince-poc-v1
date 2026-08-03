@@ -133,6 +133,7 @@ function tabContent(id: SettingsTabId): ReactNode {
         <>
           <CustomFieldsLinkCard />
           <EmbedReindexCard />
+          <ResetDataCard />
         </>
       );
     case "catalog":
@@ -668,6 +669,92 @@ function CustomFieldsLinkCard() {
         sub={t("settings.customFieldsSub")}
       />
       <a href="#/custom-fields">{t("settings.openCustomFields")}</a>
+    </section>
+  );
+}
+
+// The danger-zone reset action: wipes a non-production installation back to
+// its first-boot state. Double-gated client-side — org-admin role AND the
+// server-driven `non_production` posture on /me (never VITE_UI_PREVIEW_RESET,
+// which is the unrelated password-reset link) — so the affordance is invisible
+// on a production install even to an admin; the server enforces both the
+// same way and 404s the endpoint outright in production regardless of what
+// this card renders. The organization's name is not carried on MeResponse, so
+// this never fetches or compares it client-side: the input just has to be
+// non-empty to enable the confirm button, and the server is the sole judge of
+// whether the typed text actually matches (a mismatch comes back as a 422,
+// surfaced verbatim in the dialog).
+function ResetDataCard() {
+  const t = useT();
+  const me = useMe();
+  const isOrgAdmin = canConfigureAutomations(me.data?.roles);
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const queryClient = useQueryClient();
+
+  const reset = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/admin/reset-data", {
+        body: { confirmation: typed },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      setOpen(false);
+      setTyped("");
+      // A reset wipes every domain table for the workspace — every cached
+      // list/detail query is stale, not just the ones this card knows about.
+      queryClient.invalidateQueries();
+    },
+  });
+
+  if (!isOrgAdmin || !me.data?.non_production) {
+    return null;
+  }
+
+  return (
+    <section
+      className="card"
+      style={{ marginBottom: "var(--space-4)", borderColor: "var(--danger)" }}
+    >
+      <SectionHeader
+        title={t("settings.dangerZone")}
+        sub={t("settings.dangerZoneSub")}
+      />
+      <p className="t-caption">{t("settings.resetDataDesc")}</p>
+      <Button
+        small
+        variant="danger"
+        onClick={() => setOpen(true)}
+        style={{ marginTop: "var(--space-3)" }}
+      >
+        {t("settings.resetDataButton")}
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          setTyped("");
+          reset.reset();
+        }}
+        title={t("settings.resetDataConfirmTitle")}
+        confirmLabel={t("settings.resetDataButton")}
+        confirmVariant="danger"
+        confirmDisabled={typed.trim() === "" || reset.isPending}
+        onConfirm={() => reset.mutate()}
+        pending={reset.isPending}
+        error={reset.error instanceof Error ? reset.error.message : null}
+      >
+        <p>{t("settings.resetDataConfirmBody")}</p>
+        <TextInput
+          aria-label={t("settings.resetDataConfirmLabel")}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+      </ConfirmModal>
     </section>
   );
 }

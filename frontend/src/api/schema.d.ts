@@ -157,6 +157,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/reset-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a non-production installation to its first-boot state.
+         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         */
+        post: operations["resetData"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/passports": {
         parameters: {
             query?: never;
@@ -8310,6 +8330,8 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
+            /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
+            non_production: boolean;
             /** @description Effective role keys for this principal. */
             roles: string[];
             teams: string[];
@@ -11246,6 +11268,54 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+        };
+    };
+    resetData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Must equal the organization name exactly. */
+                    confirmation: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installation reset to first-boot state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example reset */
+                        status: string;
+                        tables_cleared: number;
+                    };
+                };
+            };
+            /** @description Not an admin human. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Endpoint unavailable in this environment. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
         };
     };
     listPassports: {
