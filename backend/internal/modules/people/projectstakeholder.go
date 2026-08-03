@@ -17,6 +17,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -46,6 +47,12 @@ type SetProjectStakeholderInput struct {
 // raw uniqueness error instead would make an idempotent PUT fail purely on
 // timing.
 func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakeholderInput) (relationshipRow, error) {
+	// A stakeholder seat names a PERSON; without one there is no seat. Required
+	// by the contract, and true only here: the zero UUID would reach the edge
+	// lookup and answer not-found for a person the caller never named.
+	if err := httperr.RequireBodyID("person_id", in.PersonID.UUID); err != nil {
+		return relationshipRow{}, err
+	}
 	if err := auth.Require(ctx, "relationship", principal.ActionCreate); err != nil {
 		return relationshipRow{}, err
 	}

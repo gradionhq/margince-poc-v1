@@ -21,6 +21,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -141,6 +142,13 @@ type RelinkActivityInput struct {
 }
 
 func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in RelinkActivityInput) (crmcontracts.Activity, error) {
+	// Relinking moves an activity ONTO a record; without an entity_id there is
+	// nowhere to move it. Required by the contract, and true only here: the zero
+	// UUID reaches the link-target gate and answers not-found for a record the
+	// caller never named.
+	if err := httperr.RequireBodyID("entity_id", in.EntityID); err != nil {
+		return crmcontracts.Activity{}, err
+	}
 	if err := auth.Require(ctx, "activity", principal.ActionUpdate); err != nil {
 		return crmcontracts.Activity{}, err
 	}

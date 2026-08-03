@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -243,15 +244,51 @@ func consentSubject(in RecordInput) (subject, error) {
 // in the same transaction as every other mutation. The subject is a
 // person or, before promotion, a lead (E12.20). Re-asserting the
 // current state is idempotent: no second proof row, no second event.
-func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
+// admitRecord settles everything decidable before the transaction opens: which
+// subject the request is about, that it names a purpose at all, that the caller
+// may write consent for that subject, and that the state is one a caller may
+// record. Extracted so Record itself is about the write.
+//
+// The ORDER is the interesting part, and it is deliberate in two places.
+//
+// The subject comes first because a body naming both a person and a lead is not a
+// well-formed consent request at all, so "which subject" outranks "which
+// purpose" — and the authority check cannot even run before it, since which
+// object grant applies depends on the answer.
+//
+// The purpose guard comes before that authority check, which puts every
+// input-shape refusal together at the front, the order CreateRelationship
+// already uses for an unknown kind. A required field's NAME is published
+// contract, so answering it ahead of authority discloses nothing.
+func admitRecord(ctx context.Context, in RecordInput) (subject, error) {
 	sub, err := consentSubject(in)
 	if err != nil {
-		return State{}, err
+		return subject{}, err
+	}
+	// purpose_id is required by the contract, which is a claim only a check makes
+	// true: an absent key decodes to the zero UUID with no error, and the purpose
+	// read inside the transaction would answer not-found for a purpose the caller
+	// never named.
+	if err := httperr.RequireBodyID(purposeIDField, in.PurposeID.UUID); err != nil {
+		return subject{}, err
 	}
 	if err := auth.Require(ctx, sub.entityType, principal.ActionUpdate); err != nil {
-		return State{}, err
+		return subject{}, err
 	}
 	if _, err := ParseRecordableState(in.NewState); err != nil {
+		return subject{}, err
+	}
+	return sub, nil
+}
+
+// Record sets one subject×purpose state and appends the proof row —
+// audited (consent_grant/consent_withdraw) and emitted (consent.changed)
+// in the same transaction as every other mutation. The subject is a
+// person or, before promotion, a lead (E12.20). Re-asserting the
+// current state is idempotent: no second proof row, no second event.
+func (s *Store) Record(ctx context.Context, in RecordInput) (State, error) {
+	sub, err := admitRecord(ctx, in)
+	if err != nil {
 		return State{}, err
 	}
 	actor, _ := principal.Actor(ctx)
@@ -355,7 +392,7 @@ func (s *Store) resolveDOIConfirmation(ctx context.Context, tx pgx.Tx, in Record
 		return nil, nil
 	}
 	if sub.entityType != "person" {
-		return nil, &ValidationError{Field: "purpose_id", Reason: "a double opt-in purpose needs a person subject; promote the lead before granting it"}
+		return nil, &ValidationError{Field: purposeIDField, Reason: "a double opt-in purpose needs a person subject; promote the lead before granting it"}
 	}
 	if in.DoubleOptInToken == nil || *in.DoubleOptInToken == "" {
 		return nil, &ValidationError{Field: "double_opt_in_token", Reason: "purpose requires a confirmed double opt-in"}

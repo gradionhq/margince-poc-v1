@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
@@ -45,17 +46,57 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 
 // requireBodyID refuses a required non-pointer id the body simply omitted.
 //
-// A required id is generated as a NON-POINTER openapi_types.UUID, so an absent
-// key decodes to the zero UUID with no error — "required" in the contract is a
-// claim only this check makes true. What made that worth a named helper is
-// where the zero value lands: it reaches a lookup that matches nothing and
-// comes back as a bare not-found, which names no argument on either surface. A
-// caller is then told the record it never mentioned does not exist.
+// The rule, the message and the wire shape live in ONE place for the whole tree
+// (httperr.RequireBodyID) — eight modules need it, and eleven copies of the same
+// three lines is eleven places for one refusal to be spelled differently. This
+// stays as the module's local name for it because it is what converts the
+// generated contract type: httperr deliberately does not import the contracts.
+//
+// RequiredFieldError is still the module's own error for a required non-id FIELD
+// (a deal without a name, a line item without a description) — a different claim
+// with a different reader.
 func requireBodyID(field string, id openapi_types.UUID) error {
-	if ids.UUID(id).IsZero() {
-		return &RequiredFieldError{Field: field}
+	return httperr.RequireBodyID(field, ids.UUID(id))
+}
+
+// advanceDealInput maps the advance body onto the store input.
+//
+// It exists so the guard sits in a mapping both transports could share rather
+// than inside the HTTP handler: the MCP twin (advance_deal) is guarded at
+// Registry.Invoke, so REST answered a bare 404 for the identical mistake — the
+// "one rule, two answers" shape PR #370 removed from UpdateRelationship and then
+// created here.
+func advanceDealInput(req crmcontracts.AdvanceDealRequest, ifVersion *int64) (AdvanceDealInput, error) {
+	// Unchecked, the zero UUID travels to the stage lookup, whose composite
+	// WHERE matches nothing and answers a bare not-found — for a deal that is in
+	// the URL and exists, sending the caller hunting for a stage it never named.
+	if err := requireBodyID("to_stage_id", req.ToStageId); err != nil {
+		return AdvanceDealInput{}, err
 	}
-	return nil
+	return AdvanceDealInput{
+		ToStageID:  pathID[ids.StageKind](req.ToStageId),
+		LostReason: req.LostReason,
+		IfVersion:  ifVersion,
+	}, nil
+}
+
+// stageCreateInput maps the create-stage body onto the store input. A stage
+// without a pipeline has nowhere to be: unguarded, the zero UUID reaches the
+// pipeline probe and answers not-found for a pipeline the caller never named.
+func stageCreateInput(req crmcontracts.CreateStageRequest) (CreateStageInput, error) {
+	if err := requireBodyID("pipeline_id", req.PipelineId); err != nil {
+		return CreateStageInput{}, err
+	}
+	in := CreateStageInput{
+		PipelineID:     pathID[ids.PipelineKind](req.PipelineId),
+		Name:           req.Name,
+		Position:       req.Position,
+		WinProbability: req.WinProbability,
+	}
+	if req.Semantic != nil {
+		in.Semantic = string(*req.Semantic)
+	}
+	return in, nil
 }
 
 func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error) {

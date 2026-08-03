@@ -31,7 +31,7 @@ package deals
 
 import (
 	"encoding/json"
-	"errors"
+	"net/http"
 	"reflect"
 	"strings"
 	"testing"
@@ -39,6 +39,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -81,6 +82,8 @@ func completeBody(t *testing.T, shape reflect.Type, omit string) map[string]any 
 			body[name] = ids.NewV7().String()
 		case reflect.TypeFor[string]():
 			body[name] = "probe"
+		case reflect.TypeFor[int]():
+			body[name] = 1
 		default:
 			t.Fatalf("%s.%s is a required %s this probe cannot populate — extend completeBody",
 				shape.Name(), field.Name, field.Type)
@@ -124,6 +127,35 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 				return err
 			},
 		},
+		{
+			// The asymmetry PR #370 created: advance_deal is guarded on the MCP
+			// side at Registry.Invoke, so REST answered a bare 404 for the
+			// identical mistake — one rule, two answers.
+			name:  "AdvanceDealRequest",
+			shape: reflect.TypeFor[crmcontracts.AdvanceDealRequest](),
+			call: func(t *testing.T, body []byte) error {
+				t.Helper()
+				var req crmcontracts.AdvanceDealRequest
+				if err := json.Unmarshal(body, &req); err != nil {
+					t.Fatalf("probe body does not decode: %v", err)
+				}
+				_, err := advanceDealInput(req, nil)
+				return err
+			},
+		},
+		{
+			name:  "CreateStageRequest",
+			shape: reflect.TypeFor[crmcontracts.CreateStageRequest](),
+			call: func(t *testing.T, body []byte) error {
+				t.Helper()
+				var req crmcontracts.CreateStageRequest
+				if err := json.Unmarshal(body, &req); err != nil {
+					t.Fatalf("probe body does not decode: %v", err)
+				}
+				_, err := stageCreateInput(req)
+				return err
+			},
+		},
 	} {
 		fields := requiredIDFields(tc.shape)
 		if len(fields) == 0 {
@@ -136,18 +168,38 @@ func TestEveryRequiredBodyIDIsNamedWhenAbsent(t *testing.T) {
 				if err != nil {
 					t.Fatalf("marshal probe body: %v", err)
 				}
-				var missing *RequiredFieldError
-				err = tc.call(t, body)
-				if !errors.As(err, &missing) {
-					t.Fatalf("an absent %s was answered with %T (%v); want *RequiredFieldError, or the "+
-						"caller is sent looking for a record it never named. Validate it in the mapping, "+
-						"which both transports share.", field, err, err)
-				}
-				if missing.Field != field {
-					t.Errorf("the refusal names %q, want the wire field %q — the name is what a caller "+
-						"branches on and what a model reads back", missing.Field, field)
-				}
+				assertNamesTheOmittedID(t, tc.call(t, body), field)
 			})
 		}
 	}
+}
+
+// assertNamesTheOmittedID is the one assertion every probe makes: the refusal
+// classifies as the caller's mistake and names the wire field they omitted.
+//
+// It asserts the OBSERVABLE property rather than a concrete error type, because
+// there are two legitimate carriers — this module's RequiredFieldError for a
+// required non-id field, and httperr.RequireBodyID for the ids — and a caller
+// cannot tell them apart, which is the point.
+func assertNamesTheOmittedID(t *testing.T, err error, field string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("an absent %s was accepted, so the caller is sent looking for a record it never "+
+			"named", field)
+	}
+	fault, ok := httperr.Classify(err)
+	if !ok {
+		t.Fatalf("an absent %s was answered with %v, which is outside the taxonomy — a surface would "+
+			"report the caller's own omission as an internal server fault", field, err)
+	}
+	if fault.Status != http.StatusUnprocessableEntity {
+		t.Errorf("an absent %s answered status %d, want 422 (404 is the defect this closes)", field, fault.Status)
+	}
+	for _, refusal := range fault.Fields {
+		if refusal.Field == field {
+			return
+		}
+	}
+	t.Errorf("the refusal for an absent %s names %+v, want the wire field %q — the name is what a "+
+		"caller branches on and what a model reads back", field, fault.Fields, field)
 }
