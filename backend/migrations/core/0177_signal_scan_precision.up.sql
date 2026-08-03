@@ -1,5 +1,5 @@
--- 0173: two ways the signal producers could lose or duplicate work, both
--- found reviewing the 0172 arc.
+-- 0177: two ways the signal producers could lose or duplicate work, both
+-- found reviewing the 0176 arc.
 
 -- 1. The thread watermark stored only the newest message's timestamp, and a
 -- thread was due when that timestamp had MOVED. Two ways that misses work:

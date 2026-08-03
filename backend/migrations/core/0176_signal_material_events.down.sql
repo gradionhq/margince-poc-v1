@@ -1,4 +1,4 @@
--- Reverse of 0172. The kinds go back to the original six, so any row a
+-- Reverse of 0176. The kinds go back to the original six, so any row a
 -- producer wrote under a new kind must go first: leaving it would fail the
 -- restored CHECK and strand the migration half-applied.
 

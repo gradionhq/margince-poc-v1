@@ -287,7 +287,7 @@ column's default rendered as a finding.
 Built, in the order it ships:
 
 - **P0** — `classification` splits into an `organization.lifecycle` column and
-  an `organization_relationship_type` child table (ADR-0079, migration 0171);
+  an `organization_relationship_type` child table (ADR-0079, migration 0175);
   the partner invariant is enforced in both directions. The 30-day activity
   count now uses the same three-arm link walk the timeline uses. The header
   shows last-inbound and last-outbound instead of a 0–100 score. Enrichment
@@ -299,7 +299,7 @@ Built, in the order it ships:
 - **P2** — two signal producers where there were none: the deterministic
   `ghosted_thread` rule and the `signal_extract` model site that reads
   `contract_ended`, `new_opportunity` and `commitment_made` out of a settled
-  conversation (migration 0172, four corpus scenarios including a
+  conversation (migration 0176, four corpus scenarios including a
   prompt-injection one). The `lifecycle_conflict` card states the disagreement
   the record has with its own mail. The `lifecycle_change` reconciler offers
   the fix to a human — nothing structural is written before their yes, a
@@ -309,7 +309,7 @@ Built, in the order it ships:
 Two things a reader should know:
 
 1. `Signal.kind` on the wire declared only the six kinds a human files by hand
-   while the producers had been writing four more since 0172 — the API was
+   while the producers had been writing four more since 0176 — the API was
    serving values outside its own enum. Fixed in the same branch.
 2. `contract_ended` proposes `former_customer` from every live stage,
    including `prospect`. That was open question 7 in the plan; the founder's

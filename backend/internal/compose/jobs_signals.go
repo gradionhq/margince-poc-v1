@@ -131,3 +131,32 @@ func newSignalExtractorIfConfigured(pool *pgxpool.Pool, brain completer, log *sl
 	}
 	return NewSignalExtractor(pool, brain, time.Now, log)
 }
+
+// addSignalJobs registers both producers and their hourly tick, so this
+// wiring stays one line in jobs.go as the surface grows — the same shape
+// addGraphJobs and addPrivacyRetentionJobs already keep.
+//
+// It registers unconditionally. The deterministic ghosted-thread rule needs no
+// model, so an installation that bought none still gets the signals a
+// comparison can produce; only the extractor half is absent by omission.
+// Run-on-start, so an installation upgrading into this surface does not wait
+// an hour for its first signal.
+func addSignalJobs(
+	workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger,
+) []*river.PeriodicJob {
+	river.AddWorker(workers, &signalScanWorker{pool: pool})
+	river.AddWorker(workers, &signalScanWorkspaceWorker{
+		pool:      pool,
+		extractor: newSignalExtractorIfConfigured(pool, cfg.SignalExtractBrain, log),
+		// The SAME approvals service the HTTP surface decides on, so a released
+		// effect can redeem the offer this reconciler staged.
+		proposer: NewSignalProposer(pool, approvalsServiceWithEffects(pool), log),
+		now:      time.Now,
+		log:      log,
+	})
+	return []*river.PeriodicJob{river.NewPeriodicJob(
+		river.PeriodicInterval(time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) { return SignalScanArgs{}, sweepInsertOpts() },
+		&river.PeriodicJobOpts{RunOnStart: true},
+	)}
+}

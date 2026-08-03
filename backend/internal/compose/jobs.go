@@ -321,24 +321,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
 	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
 	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
-
-	// The signal producers (SIG-F-3), hourly. The deterministic ghosted-thread
-	// rule runs whether or not a model lane is configured; the extractor is
-	// added to the same pass when one is. Run-on-start so an installation
-	// upgrading into this surface does not wait an hour for its first signal.
-	river.AddWorker(workers, &signalScanWorker{pool: pool})
-	river.AddWorker(workers, &signalScanWorkspaceWorker{
-		pool: pool, extractor: newSignalExtractorIfConfigured(pool, cfg.SignalExtractBrain, log),
-		// The SAME approvals service the HTTP surface decides on, so a released
-		// effect can redeem the offer this reconciler staged.
-		proposer: NewSignalProposer(pool, approvalsServiceWithEffects(pool), log),
-		now:      time.Now, log: log,
-	})
-	periodic = append(periodic, river.NewPeriodicJob(
-		river.PeriodicInterval(time.Hour),
-		func() (river.JobArgs, *river.InsertOpts) { return SignalScanArgs{}, sweepInsertOpts() },
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
+	periodic = append(periodic, addSignalJobs(workers, pool, cfg, log)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})

@@ -28,6 +28,10 @@ import (
 // and a typo in any of them would silently ask for a grant nobody holds.
 const objectActivity = "activity"
 
+// objectSignal is the RBAC object the warm-room surface is governed by, spelled
+// once for the same reason objectActivity is.
+const objectSignal = "signal"
+
 // decisionGrants maps each stageable kind onto the RBAC the underlying
 // effect needs; approving requires every one of them.
 var decisionGrants = map[string][]struct {
@@ -95,7 +99,7 @@ var decisionGrants = map[string][]struct {
 	// organization editor could read model-derived correspondence and close a
 	// signal they have no standing to see — the ordinary triage path takes
 	// signal:update and EnsureSignalVisible for exactly that reason.
-	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}, {"signal", principal.ActionUpdate}},
+	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}, {objectSignal, principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{tableDeal, principal.ActionUpdate}},

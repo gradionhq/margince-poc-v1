@@ -1,4 +1,4 @@
--- 0172: the signal table gains the material events, and a key that makes a
+-- 0176: the signal table gains the material events, and a key that makes a
 -- dismissal stick (SIG-DDL-1, SIG-F-3, ADR-0079 arc).
 --
 -- The table has existed since 0047 with a render-ready card above it, and
