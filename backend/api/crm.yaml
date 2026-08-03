@@ -380,8 +380,22 @@ paths:
                   status: { type: string, example: reset }
                   tables_cleared: { type: integer }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/PermissionDenied' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '403':
+          description: >
+            Refused: the caller is an agent/passport principal (this endpoint is
+            human-only) or a human without the admin role. Not an object/action
+            RBAC grant denial.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: >
+            The endpoint is unavailable in this environment — production, or an
+            unset/unknown MARGINCE_ENV. It is served only under a non-production
+            posture; the body is the standard problem document.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------------------ /passports --------------------------------

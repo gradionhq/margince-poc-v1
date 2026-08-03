@@ -11759,8 +11759,24 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["PermissionDenied"];
-            404: components["responses"]["NotFound"];
+            /** @description Refused: the caller is an agent/passport principal (this endpoint is human-only) or a human without the admin role. Not an object/action RBAC grant denial. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The endpoint is unavailable in this environment — production, or an unset/unknown MARGINCE_ENV. It is served only under a non-production posture; the body is the standard problem document. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             422: components["responses"]["ValidationError"];
         };
     };
