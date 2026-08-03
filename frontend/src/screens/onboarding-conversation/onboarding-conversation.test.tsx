@@ -426,6 +426,48 @@ describe("the conversational company act", () => {
     expect(await screen.findByText(/I still need:/)).toBeTruthy();
   });
 
+  it("lets a human fill a missing required field right in the thread, enabling Accept all", async () => {
+    const thinRead = {
+      ...readyRead,
+      profile_fields: [
+        grounded("legal_name", "Gradion GmbH", "© 2026 Gradion GmbH"),
+      ],
+    } satisfies CompanySiteRead;
+    stubApi({
+      read: thinRead,
+      proposal: {
+        ...proposalFor(thinRead),
+        remaining_required_fields: ["display_name", "offer_summary", "icp"],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+
+    const accept = (await screen.findByRole("button", {
+      name: /Accept all/,
+    })) as HTMLButtonElement;
+    expect(accept.disabled).toBe(true);
+
+    const card = confirmCardElement();
+    await userEvent.type(
+      within(card).getByLabelText(/Company name/),
+      "Gradion",
+    );
+    await userEvent.type(
+      within(card).getByLabelText(/What do you sell\?/),
+      "Revenue software for manufacturers",
+    );
+    await userEvent.type(
+      within(card).getByLabelText(/Ideal customer/),
+      "Mid-market manufacturers",
+    );
+
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+  });
+
   it("confirms with the proposal's draft_version and proposal_hash", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);

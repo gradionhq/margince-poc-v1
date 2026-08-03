@@ -321,6 +321,43 @@
   font: 500 0.875rem / 1.4 var(--f-body);
 }
 
+.ob-conv-confirm-missing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ob-conv-confirm-missing-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.ob-conv-confirm-missing-row input,
+.ob-conv-confirm-missing-row textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  color: var(--textPrimary);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  outline: 0;
+  background: var(--bgHover);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.ob-conv-confirm-missing-row textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.ob-conv-confirm-missing-row input:focus,
+.ob-conv-confirm-missing-row textarea:focus {
+  border-color: var(--aiText);
+  box-shadow: 0 0 0 3px var(--aiMed);
+}
+
 .ob-conv-confirm-actions {
   display: flex;
   /* Long translations must wrap below, never overflow the card. */

@@ -78,6 +78,29 @@ export function isRequired(field: CompanyFieldName): boolean {
   return (REQUIRED_FIELDS as readonly CompanyFieldName[]).includes(field);
 }
 
+// Positioning and identity-block prose reads as a paragraph; the registry
+// and short-name fields fit a single line. The manual interview's per-
+// question list and the in-thread review's editable rows both need this
+// same split, so it lives once here rather than twice.
+export const MULTILINE_FIELDS = [
+  "registered_address",
+  "offer_summary",
+  "icp",
+  "history",
+  "value_proposition",
+  "usp",
+  "buying_center",
+  "customer_pains",
+  "desired_outcomes",
+  "buying_intents",
+  "common_objections",
+  "sales_motion",
+] as const satisfies readonly CompanyFieldName[];
+
+export function isMultilineField(field: CompanyFieldName): boolean {
+  return (MULTILINE_FIELDS as readonly CompanyFieldName[]).includes(field);
+}
+
 // The read-back can only ground the contract's ColdStartField names —
 // website is always the human's to give.
 type Grounded = Partial<Record<ColdField["field"], ColdField>>;

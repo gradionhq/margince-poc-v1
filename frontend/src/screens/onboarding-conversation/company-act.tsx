@@ -557,6 +557,9 @@ export function CompanyAct({
               selectedFactKeys={selectedFactKeys}
               setSelectedFactKeys={setSelectedFactKeys}
               missingRequired={missing}
+              setField={(field, value) =>
+                setDraft((current) => changeDraftField(current, field, value))
+              }
               onAnswerClarify={clarify.answerClarify}
               onDismissClarify={clarify.dismissClarify}
               onAcceptAll={() => confirm.mutate()}

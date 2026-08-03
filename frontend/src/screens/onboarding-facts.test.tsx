@@ -679,6 +679,7 @@ describe("the other fact-picking surfaces", () => {
           selectedFactKeys={keys}
           setSelectedFactKeys={setKeys}
           missingRequired={[]}
+          setField={vi.fn()}
           onAnswerClarify={vi.fn()}
           onDismissClarify={vi.fn()}
           onAcceptAll={vi.fn()}

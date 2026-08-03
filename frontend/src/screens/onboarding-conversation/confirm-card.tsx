@@ -1,11 +1,13 @@
 import { Check, Circle, Sparkles } from "lucide-react";
+import type { ChangeEvent } from "react";
+import { useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { EvidenceChip, ProvenanceTag } from "../../design-system/trust";
 import { useLocale, useT } from "../../i18n";
 import { coldFieldLabel } from "../common";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { groundingOf } from "../onboarding";
+import { groundingOf, isMultilineField } from "../onboarding";
 import { CapNotice, saveDisabled, useFactSelection } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
 import {
@@ -38,6 +40,7 @@ type CompanyConfirmCardProps = Readonly<{
   selectedFactKeys: readonly string[];
   setSelectedFactKeys: (keys: string[]) => void;
   missingRequired: readonly CompanyFieldName[];
+  setField: (field: CompanyFieldName, value: string) => void;
   onAnswerClarify: (clarifyId: string, value: string) => void;
   onDismissClarify: (clarifyId: string) => void;
   onAcceptAll: () => void;
@@ -173,14 +176,21 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         </details>
       )}
       {props.missingRequired.length > 0 && (
-        <NarrationBubble
-          entry={{
-            kind: "narration",
-            id: "review:missing",
-            i18nKey: "ob.conv.review.missing",
-            params: { fields: missingLabels },
-          }}
-        />
+        <>
+          <NarrationBubble
+            entry={{
+              kind: "narration",
+              id: "review:missing",
+              i18nKey: "ob.conv.review.missing",
+              params: { fields: missingLabels },
+            }}
+          />
+          <MissingRequiredFields
+            fields={props.missingRequired}
+            draft={props.draft}
+            setField={props.setField}
+          />
+        </>
       )}
       {props.error && (
         // A failed save speaks as Margince, not as a bare server string
@@ -227,6 +237,75 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         </Button>
       </div>
     </section>
+  );
+}
+
+// The narration names what is still missing; these rows let the human fill
+// it right where they read that, instead of leaving the thread for the whole
+// form. Writing through props.setField lands the value in the same draft the
+// evidenced rows above read from, so a filled row drops out of
+// missingRequired on the next render with no separate save step.
+function MissingRequiredFields({
+  fields,
+  draft,
+  setField,
+}: Readonly<{
+  fields: readonly CompanyFieldName[];
+  draft: CompanyDraft;
+  setField: (field: CompanyFieldName, value: string) => void;
+}>) {
+  const t = useT();
+  const block = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const control = block.current?.querySelector<
+      HTMLInputElement | HTMLTextAreaElement
+    >("input, textarea");
+    if (control == null) {
+      return;
+    }
+    // Never steal focus from someone typing: any focused text field wins,
+    // and a composer still holding a draft keeps its claim even unfocused.
+    const active = control.ownerDocument.activeElement;
+    if (
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLInputElement
+    ) {
+      return;
+    }
+    const composer = control
+      .closest(".ob-workbench-panel")
+      ?.querySelector<HTMLTextAreaElement>(".mw-composer textarea");
+    if (composer != null && composer.value !== "") {
+      return;
+    }
+    control.focus();
+    // Focus lands once when the block first appears; it must not jump the
+    // human back to the first row every time filling one shrinks the list.
+  }, []);
+
+  return (
+    <div className="ob-conv-confirm-missing" ref={block}>
+      {fields.map((field) => {
+        const id = `confirm-missing-${field}`;
+        const value = draft.values[field];
+        const onChange = (
+          event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+        ) => setField(field, event.target.value);
+        return (
+          <div key={field} className="ob-conv-confirm-missing-row">
+            <label className="t-label" htmlFor={id}>
+              {coldFieldLabel(field, t)}
+            </label>
+            {isMultilineField(field) ? (
+              <textarea id={id} value={value} onChange={onChange} />
+            ) : (
+              <input id={id} value={value} onChange={onChange} />
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
