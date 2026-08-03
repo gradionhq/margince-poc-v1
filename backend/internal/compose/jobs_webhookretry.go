@@ -57,51 +57,33 @@ type WebhookRetryConfig struct {
 	// dispatchScanInterval and is not derived from it — the two are separate
 	// passes with separate costs, and moving one does not move the other.
 	//
-	// Non-positive means this role schedules no retry dispatch; see
-	// addWebhookRetryJobs for who is allowed to mean that.
+	// Non-positive schedules no retry dispatch (periodicWhenPositive).
 	Interval time.Duration
 	// Deliverer is the delivery engine one workspace's pass re-attempts
 	// through — the SAME instance the role's cg:webhooks consumer fans out
 	// with, so a deployment holds one signing cipher and one outbound
 	// transport rather than two that could drift apart.
 	//
-	// Nil is a role with no signing key. There is then no way to sign a
-	// re-attempt, so neither worker registers and the sweep is absent by
-	// omission — the posture GmailRegistry and OverlayVault already take.
+	// Nil is a role with no signing key, and there is then no way to sign a
+	// re-attempt: absent by omission, the posture JobRunnerConfig states.
 	Deliverer *webhooks.Deliverer
 }
 
 // addWebhookRetryJobs registers the retry workers and returns the dispatcher's
-// periodic schedule for the caller to append.
-//
-// A non-positive interval registers the WORKERS but no schedule, the split
-// addPrivacyRetentionJobs settles one file over: the workers are a capability
-// (a row an earlier boot queued still gets worked) while the periodic entry is
-// a cadence, and River has no cadence to offer for a zero duration. It does not
-// refuse one either — PeriodicInterval(0) yields Next(t) == t, so the enqueuer
-// re-derives a run time that never advances and fans the whole fleet out as
-// fast as Postgres accepts an insert.
-//
-// Absent by omission is NOT allowed to reach a deployment that meant to sweep:
-// --webhook-retry-interval carries a positive default and cmd/worker's
-// validateSchedulerIntervals refuses a non-positive one at boot.
+// periodic schedule for the caller to append. A non-positive interval registers
+// the workers but no schedule, for periodicWhenPositive's reasons.
 func addWebhookRetryJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
 	river.AddWorker(workers, &webhookRetryWorker{pool: pool})
 	river.AddWorker(workers, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
-	if cfg.WebhookRetry.Interval <= 0 {
-		return nil
-	}
-	return []*river.PeriodicJob{
-		river.NewPeriodicJob(river.PeriodicInterval(cfg.WebhookRetry.Interval),
-			func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
-			// Run-on-start because a restart must not add a whole interval to
-			// a backoff that already elapsed: the deliveries parked when the
-			// process went down are due the moment it is back.
-			&river.PeriodicJobOpts{RunOnStart: true}),
-	}
+	return periodicWhenPositive(cfg.WebhookRetry.Interval,
+		func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
+		// Run-on-start because a restart must not add a whole interval to a
+		// backoff that already elapsed: the deliveries parked when the process
+		// went down are due the moment it is back.
+		&river.PeriodicJobOpts{RunOnStart: true})
 }
 
 // WebhookRetryArgs schedules one fleet-wide pass over due retries.

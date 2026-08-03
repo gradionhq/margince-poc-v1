@@ -57,17 +57,15 @@ type AgentSchedulerConfig struct {
 	// promptly a due occurrence is noticed and how often a claimable backlog is
 	// drained.
 	//
-	// Non-positive means this role schedules no agent dispatch; see
-	// addAgentSchedulerJobs for who is allowed to mean that.
+	// Non-positive schedules no agent dispatch (periodicWhenPositive).
 	Interval time.Duration
 	// Service is the assembled Surface-B runner one workspace's pass ticks —
 	// the SAME instance the role's cg:overnight-agent consumer resumes parked
 	// runs through, so a deployment holds one governed registry and one brain
 	// rather than two that could drift apart.
 	//
-	// Nil is a role with no declared model. There is then no brain to run a
-	// brief with, so neither worker registers and the scheduler is absent by
-	// omission — the posture GmailRegistry and OverlayVault already take.
+	// Nil is a role with no declared model, and there is then no brain to run a
+	// brief with: absent by omission, the posture JobRunnerConfig states.
 	Service *RunnerService
 	// Now is the clock a workspace pass reads due-ness from. Nil takes the wall
 	// clock, which is what every process role passes; the acceptance suites pin
@@ -78,19 +76,9 @@ type AgentSchedulerConfig struct {
 }
 
 // addAgentSchedulerJobs registers the scheduler workers and returns the
-// dispatcher's periodic schedule for the caller to append.
-//
-// A non-positive interval registers the WORKERS but no schedule, the split
-// addPrivacyRetentionJobs settles two files over: the workers are a capability
-// (a row an earlier boot queued still gets worked) while the periodic entry is
-// a cadence, and River has no cadence to offer for a zero duration. It does not
-// refuse one either — PeriodicInterval(0) yields Next(t) == t, so the enqueuer
-// re-derives a run time that never advances and fans the whole fleet out as
-// fast as Postgres accepts an insert.
-//
-// Absent by omission is NOT allowed to reach a deployment that meant to
-// schedule: --runner-interval carries a positive default and cmd/worker's
-// validateSchedulerIntervals refuses a non-positive one at boot.
+// dispatcher's periodic schedule for the caller to append. A non-positive
+// interval registers the workers but no schedule, for periodicWhenPositive's
+// reasons.
 func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.AgentScheduler.Service == nil {
 		return nil
@@ -101,17 +89,12 @@ func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRu
 	}
 	river.AddWorker(workers, &agentSchedulerWorker{pool: pool})
 	river.AddWorker(workers, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
-	if cfg.AgentScheduler.Interval <= 0 {
-		return nil
-	}
-	return []*river.PeriodicJob{
-		river.NewPeriodicJob(river.PeriodicInterval(cfg.AgentScheduler.Interval),
-			func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
-			// Run-on-start because a restart must not add a whole interval to a
-			// due hour that already passed: the occurrences that fell due while
-			// the process was down are runnable the moment it is back.
-			&river.PeriodicJobOpts{RunOnStart: true}),
-	}
+	return periodicWhenPositive(cfg.AgentScheduler.Interval,
+		func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
+		// Run-on-start because a restart must not add a whole interval to a due
+		// hour that already passed: the occurrences that fell due while the
+		// process was down are runnable the moment it is back.
+		&river.PeriodicJobOpts{RunOnStart: true})
 }
 
 // AgentSchedulerArgs schedules one fleet-wide agent-scheduling pass.

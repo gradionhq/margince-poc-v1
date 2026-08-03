@@ -59,6 +59,30 @@ const erasedActivitySubject = "Erased"
 // instead of one giant transaction.
 const retentionBatch = 200
 
+// MaxRecordDuration is the allowance one record's action gets. It is a stated
+// bound, not an enforced deadline — nothing in this engine cancels a record
+// mid-transaction — so it exists for the scheduler that must cap the pass and
+// has to know what a slow-but-healthy record costs. The heaviest action sets
+// it: person/erase is a ~30-statement transaction that also deletes the
+// subject's attachment objects from the object store over the network.
+const MaxRecordDuration = 10 * time.Second
+
+// MaxPassDuration is the ceiling on ONE workspace's retention pass: every
+// batched stage it can run, times the batch bound, times the per-record
+// allowance, because a pass applies its records sequentially, one audited
+// transaction each. A scheduler that must cap the pass reads it from here
+// rather than re-deriving it from constants it cannot see, so raising any bound
+// moves the cap with it.
+//
+// The stage count is derived, not hand-counted. retention_policy is UNIQUE on
+// (workspace_id, object_type, category), so a workspace configures at most one
+// policy per scope the engine has a selector for, and a policy whose scope has
+// no selector is skipped without ever claiming a batch — len(retentionSelectors)
+// is therefore the whole policy ladder. aiRetentionStages adds the engine-owned
+// AI stores, which batch the same way.
+var MaxPassDuration = time.Duration(len(retentionSelectors)+aiRetentionStages) *
+	(retentionBatch * MaxRecordDuration)
+
 // embedCallRetention bounds how long an embedding-kind ai_call trace row
 // survives (spec §4), in days. Unlike the retention_policy rows above,
 // this is a fixed operational cap, not an admin-editable per-workspace

@@ -62,6 +62,13 @@ func sweepInsertOpts() *river.InsertOpts {
 // maintenance pass (added only when GmailRegistry is non-nil AND
 // GmailWatch.Topic is set), and the optional overlay reconcile poller
 // (added only when OverlayVault is non-nil).
+//
+// A nil dependency below takes one of exactly two postures, and each field says
+// which: ABSENT BY OMISSION registers nothing, so a row nothing here could work
+// is never queued at all (GmailRegistry, ChannelVault, OverlayVault,
+// WebhookRetry.Deliverer, AgentScheduler.Service); REGISTERED ANYWAY keeps the
+// worker so a picked-up row fails with an actionable message instead of rotting
+// queued (DeepReadBrain, Embedder, VoiceBrain).
 type JobRunnerConfig struct {
 	// SendPacing bounds how fast one mailbox transmits and how long a
 	// delivery may be deferred before it parks; the zero value takes the
@@ -79,11 +86,11 @@ type JobRunnerConfig struct {
 	// PrivacyRetention carries the GDPR retention dispatcher's cadence
 	// (jobs_privacyretention.go).
 	PrivacyRetention PrivacyRetentionConfig
-	// WebhookRetry: the retry dispatcher's cadence and its delivery engine
-	// (jobs_webhookretry.go).
+	// WebhookRetry carries the retry dispatcher's cadence and the delivery
+	// engine one workspace's pass re-attempts through (jobs_webhookretry.go).
 	WebhookRetry WebhookRetryConfig
-	// AgentScheduler: the Surface-B dispatcher's cadence and the runner one
-	// workspace's pass ticks (jobs_agentscheduler.go).
+	// AgentScheduler carries the Surface-B dispatcher's cadence and the runner
+	// one workspace's pass ticks (jobs_agentscheduler.go).
 	AgentScheduler AgentSchedulerConfig
 	GmailRegistry  *capture.Registry
 	GmailWatch     GmailWatchConfig
@@ -476,6 +483,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// A batch of agent runs, each entitled to the full RunWallClock —
 			// the longest pass in the tree (agentSchedulerQueue).
 			agentSchedulerQueue: {MaxWorkers: agentSchedulerMaxWorkers},
+			// A full batch per policy, each record its own multi-statement
+			// audited transaction — minutes of database-bound work per tenant
+			// (privacyRetentionQueue).
+			privacyRetentionQueue: {MaxWorkers: privacyRetentionMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

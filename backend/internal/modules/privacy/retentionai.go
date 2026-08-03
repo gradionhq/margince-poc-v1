@@ -20,6 +20,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// aiRetentionStages is how many batched stages this file adds to a workspace
+// pass — the embedding-kind ai_call sweep and the voice-signal sweep — each
+// claiming its own retentionBatch. MaxPassDuration counts them alongside the
+// policy ladder, so a third sweep here has to move this number with it.
+const aiRetentionStages = 2
+
 // evaluateVoiceSignalRetention erases the draft plaintext of over-age voice
 // learning signals: the counters row survives (the learning statistics stay
 // honest), the generated and final texts do not outlive their window.
