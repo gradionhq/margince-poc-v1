@@ -81,8 +81,9 @@ func aggregate(rows []jobs.StateRow) jobSeries {
 		unrecognised: map[stateKey]int64{},
 	}
 	for _, r := range rows {
-		qk := queueKey{queue: r.Queue, workspace: r.WorkspaceID}
-		kk := kindKey{kind: r.Kind, workspace: r.WorkspaceID}
+		ws := workspaceLabelFor(r)
+		qk := queueKey{queue: r.Queue, workspace: ws}
+		kk := kindKey{kind: r.Kind, workspace: ws}
 		switch {
 		case queueDepthStates[r.State]:
 			a.depth[qk] += r.Count
@@ -97,7 +98,7 @@ func aggregate(rows []jobs.StateRow) jobSeries {
 			// false for half the rows under it.
 			a.cancelled[kk] += r.Count
 		default:
-			a.unrecognised[stateKey{state: r.State, queue: r.Queue, workspace: r.WorkspaceID}] += r.Count
+			a.unrecognised[stateKey{state: r.State, queue: r.Queue, workspace: ws}] += r.Count
 		}
 		a.ageFrom(qk, r)
 	}
@@ -121,12 +122,34 @@ func aggregate(rows []jobs.StateRow) jobSeries {
 // A zero from a queue that DOES hold waiting work is a measured value: the
 // work is there and none of it is late yet.
 func (a jobSeries) ageFrom(qk queueKey, r jobs.StateRow) {
-	if !queueDepthStates[r.State] {
+	if !queueDepthStates[r.State] || r.OldestRunnableAgeSeconds == nil {
 		return
 	}
-	if _, seen := a.oldest[qk]; !seen || r.OldestRunnableAgeSeconds > a.oldest[qk] {
-		a.oldest[qk] = r.OldestRunnableAgeSeconds
+	if _, seen := a.oldest[qk]; !seen || *r.OldestRunnableAgeSeconds > a.oldest[qk] {
+		a.oldest[qk] = *r.OldestRunnableAgeSeconds
 	}
+}
+
+// malformedWorkspaceLabel stands in for a row whose workspace key is
+// PRESENT but empty. Such a row is malformed — a job either does tenant
+// work and names its workspace, or does none and carries no key — and
+// rendering it under the empty label would count it as a dispatcher,
+// breaking the one invariant every reader of these gauges stands on. It
+// gets a value of its own so it is visible as the anomaly it is, and the
+// cardinality it can add is exactly one.
+const malformedWorkspaceLabel = "<malformed>"
+
+// workspaceLabelFor answers the workspace label for one group: empty for a
+// dispatcher, the id for tenant work, and a marker for a row that is
+// neither.
+func workspaceLabelFor(r jobs.StateRow) string {
+	if r.Untenanted {
+		return ""
+	}
+	if r.WorkspaceID == "" {
+		return malformedWorkspaceLabel
+	}
+	return r.WorkspaceID
 }
 
 // writeJobMetrics renders the job-runtime section. Pure over snap so the
@@ -297,9 +320,13 @@ func writeFamilyHeader(w io.Writer, name, help string) error {
 // here because workspace_id is args->>'workspace_id' verbatim from a table
 // with no constraint on it and direct app-role CRUD, so a single
 // raw-inserted row could otherwise poison every scrape for every metric.
-// Anything outside the three escapes is dropped rather than encoded: a
-// control character in a label value is already a broken row, and a
-// readable scrape that omits it beats a rejected one that carries it.
+// A control character outside those three is rewritten as a PRINTABLE
+// <0xNN>, never dropped. Dropping is lossy, and lossy is not safe here: two
+// distinct malformed workspace ids differing only in a control byte would
+// collapse to the same label set, and duplicate series are exactly the
+// thing that makes a scrape unparseable — the failure this escaping exists
+// to prevent. The substitution is reversible by eye and appears only on a
+// row that is already broken.
 func label(value string) string {
 	var b strings.Builder
 	b.Grow(len(value) + 2)
@@ -313,7 +340,7 @@ func label(value string) string {
 		case r == '\n':
 			b.WriteString(`\n`)
 		case r < ' ' || r == 0x7f:
-			// Dropped: see above.
+			fmt.Fprintf(&b, "<0x%02x>", r)
 		default:
 			b.WriteRune(r)
 		}

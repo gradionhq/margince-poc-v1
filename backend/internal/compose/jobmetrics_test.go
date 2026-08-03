@@ -21,7 +21,7 @@ func TestJobMetricsNameTheWorkspaceThatOwnsTheWorkAndLeaveItEmptyForADispatcher(
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
 		{Queue: "default", Kind: "tenant_pass", WorkspaceID: ws, State: "available", Count: 2},
-		{Queue: "default", Kind: "the_dispatcher", WorkspaceID: "", State: "available", Count: 1},
+		{Queue: "default", Kind: "the_dispatcher", Untenanted: true, State: "available", Count: 1},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -45,11 +45,11 @@ func TestJobMetricsNameTheWorkspaceThatOwnsTheWorkAndLeaveItEmptyForADispatcher(
 func TestQueueDepthSumsEveryStateAJobCanBeWaitingIn(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "default", Kind: "k", State: "available", Count: 1},
-		{Queue: "default", Kind: "k", State: "scheduled", Count: 2},
-		{Queue: "default", Kind: "k", State: "retryable", Count: 4},
-		{Queue: "default", Kind: "k", State: "pending", Count: 16},
-		{Queue: "default", Kind: "k", State: "running", Count: 8},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "available", Count: 1},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "scheduled", Count: 2},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "retryable", Count: 4},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "pending", Count: 16},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "running", Count: 8},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -68,8 +68,8 @@ func TestQueueDepthSumsEveryStateAJobCanBeWaitingIn(t *testing.T) {
 func TestDiscardedAndCancelledAreReportedApartAndKeyedByKind(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "default", Kind: "retention", State: "discarded", Count: 3},
-		{Queue: "default", Kind: "retention", State: "cancelled", Count: 5},
+		{Queue: "default", Kind: "retention", Untenanted: true, State: "discarded", Count: 3},
+		{Queue: "default", Kind: "retention", Untenanted: true, State: "cancelled", Count: 5},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestDiscardedAndCancelledAreReportedApartAndKeyedByKind(t *testing.T) {
 func TestAStateTheRendererHasNeverHeardOfIsReportedRatherThanDropped(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "default", Kind: "k", State: "hibernating", Count: 7},
+		{Queue: "default", Kind: "k", Untenanted: true, State: "hibernating", Count: 7},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -107,8 +107,8 @@ func TestAStateTheRendererHasNeverHeardOfIsReportedRatherThanDropped(t *testing.
 func TestTheOldestQueuedAgeIsTheWorstCaseAcrossTheQueuesKinds(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "default", Kind: "slow", State: "available", Count: 1, OldestRunnableAgeSeconds: 900},
-		{Queue: "default", Kind: "fast", State: "available", Count: 1, OldestRunnableAgeSeconds: 5},
+		{Queue: "default", Kind: "slow", Untenanted: true, State: "available", Count: 1, OldestRunnableAgeSeconds: ptrTo(900.0)},
+		{Queue: "default", Kind: "fast", Untenanted: true, State: "available", Count: 1, OldestRunnableAgeSeconds: ptrTo(5.0)},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestTheOldestQueuedAgeIsTheWorstCaseAcrossTheQueuesKinds(t *testing.T) {
 func TestAQueueWhoseWorkIsAllFutureScheduledStillReportsAZeroAge(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "nightly", Kind: "k", State: "scheduled", Count: 4, OldestRunnableAgeSeconds: 0},
+		{Queue: "nightly", Kind: "k", Untenanted: true, State: "scheduled", Count: 4, OldestRunnableAgeSeconds: ptrTo(0.0)},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -159,9 +159,9 @@ func TestTheSweepPairIsRenderedPerFanOutKind(t *testing.T) {
 func TestEverySeriesIsWrittenInAStableOrder(t *testing.T) {
 	snap := jobs.Snapshot{
 		Rows: []jobs.StateRow{
-			{Queue: "zeta", Kind: "k", State: "available", Count: 1},
-			{Queue: "alpha", Kind: "k", State: "available", Count: 1},
-			{Queue: "mid", Kind: "k", State: "available", Count: 1},
+			{Queue: "zeta", Kind: "k", Untenanted: true, State: "available", Count: 1},
+			{Queue: "alpha", Kind: "k", Untenanted: true, State: "available", Count: 1},
+			{Queue: "mid", Kind: "k", Untenanted: true, State: "available", Count: 1},
 		},
 		Sweeps: []jobs.SweepPass{
 			{Kind: "zeta_sweep", Workspaces: 1},
@@ -226,7 +226,7 @@ func TestAnEmptySnapshotWritesEveryFamilyHeaderAndNoSeries(t *testing.T) {
 func TestARefusedWriteSurfacesRatherThanBeingRenderedPast(t *testing.T) {
 	refused := errors.New("connection reset")
 	snap := jobs.Snapshot{
-		Rows:   []jobs.StateRow{{Queue: "default", Kind: "k", State: "available", Count: 1}},
+		Rows:   []jobs.StateRow{{Queue: "default", Kind: "k", Untenanted: true, State: "available", Count: 1}},
 		Sweeps: []jobs.SweepPass{{Kind: "s", Workspaces: 1}},
 	}
 
@@ -274,8 +274,8 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 func TestAQueueHoldingOnlyDeadWorkReportsNoAgeAtAll(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "graveyard", Kind: "k", State: "discarded", Count: 50},
-		{Queue: "graveyard", Kind: "k", State: "cancelled", Count: 2},
+		{Queue: "graveyard", Kind: "k", Untenanted: true, State: "discarded", Count: 50},
+		{Queue: "graveyard", Kind: "k", Untenanted: true, State: "cancelled", Count: 2},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -309,8 +309,8 @@ func TestALabelValueCannotBreakTheWholeExposition(t *testing.T) {
 				"\ngot:\n%s", forbidden, got)
 		}
 	}
-	if !strings.Contains(got, `workspace_id="abc"`) {
-		t.Errorf("control characters were not dropped from the label\ngot:\n%s", got)
+	if !strings.Contains(got, `workspace_id="a<0x09>b<0x00>c"`) {
+		t.Errorf("control characters were not rewritten to a printable form\ngot:\n%s", got)
 	}
 	for _, want := range []string{`queue="qu\"ote"`, `kind="back\\slash"`, `workspace_id="x\ny"`} {
 		if !strings.Contains(got, want) {
@@ -349,7 +349,7 @@ func TestTheJobSectionWritesNothingWhenTheReadFails(t *testing.T) {
 func TestAQueueHoldingOnlyRunningWorkReportsNoAgeEither(t *testing.T) {
 	var buf bytes.Buffer
 	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
-		{Queue: "busy", Kind: "k", State: "running", Count: 4},
+		{Queue: "busy", Kind: "k", Untenanted: true, State: "running", Count: 4},
 	}}); err != nil {
 		t.Fatalf("writeJobMetrics: %v", err)
 	}
@@ -358,5 +358,82 @@ func TestAQueueHoldingOnlyRunningWorkReportsNoAgeEither(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), `margince_job_running{queue="busy",workspace_id=""} 4`) {
 		t.Errorf("the running work itself went missing\ngot:\n%s", buf.String())
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }
+
+// TestAQueueOfFutureScheduledWorkReportsNoAgeSeries — the group holds
+// waiting work, but none of it is RUNNABLE yet, so the read answers null
+// and the gauge must stay silent. A zero would claim the oldest runnable
+// job has waited no time, about a job that does not exist — and the
+// endpoint reports null for exactly this row, so a zero here would also put
+// the two surfaces at odds.
+func TestAQueueOfFutureScheduledWorkReportsNoAgeSeries(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{
+			Queue: "nightly", Kind: "k", Untenanted: true, State: "scheduled", Count: 4,
+			OldestRunnableAgeSeconds: nil,
+		},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	if strings.Contains(buf.String(), `margince_job_oldest_queued_age_seconds{queue="nightly"`) {
+		t.Errorf("a queue whose work is all future-scheduled reported an age\ngot:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), `margince_job_queue_depth{queue="nightly",workspace_id=""} 4`) {
+		t.Errorf("the queued work itself went missing\ngot:\n%s", buf.String())
+	}
+}
+
+// TestAPresentButEmptyWorkspaceIsNotCountedAsADispatcher — the empty label
+// means "dispatcher", exactly and in both directions, and that invariant is
+// what every reader of these gauges stands on. river_job has no constraint
+// forcing the key to be absent rather than empty, so a malformed row must
+// be visible AS malformed instead of silently joining the dispatcher series.
+func TestAPresentButEmptyWorkspaceIsNotCountedAsADispatcher(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "default", Kind: "k", Untenanted: true, State: "available", Count: 1},
+		// Present but empty: NOT untenanted, and not a real workspace either.
+		{Queue: "default", Kind: "k", WorkspaceID: "", Untenanted: false, State: "available", Count: 9},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	if !strings.Contains(buf.String(), `margince_job_queue_depth{queue="default",workspace_id=""} 1`) {
+		t.Errorf("the real dispatcher row was disturbed\ngot:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), `margince_job_queue_depth{queue="default",workspace_id=""} 10`) {
+		t.Error("a malformed row was folded into the dispatcher series, which is the one " +
+			"invariant these gauges promise")
+	}
+	if !strings.Contains(buf.String(), `margince_job_queue_depth{queue="default",workspace_id="<malformed>"} 9`) {
+		t.Errorf("the malformed row is invisible rather than flagged\ngot:\n%s", buf.String())
+	}
+}
+
+// TestTwoLabelsDifferingOnlyByAControlCharacterStayDistinct — dropping a
+// control character is lossy, and lossy collapses two distinct malformed
+// ids into one label set. Duplicate series make a scrape unparseable, which
+// is the exact failure the escaping exists to prevent.
+func TestTwoLabelsDifferingOnlyByAControlCharacterStayDistinct(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Rows: []jobs.StateRow{
+		{Queue: "q", Kind: "k", WorkspaceID: "ab", State: "available", Count: 1},
+		{Queue: "q", Kind: "k", WorkspaceID: "a\tb", State: "available", Count: 2},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	got := buf.String()
+	if strings.Contains(got, `\t`) {
+		t.Errorf("an escape the text format does not define reached the wire\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, `workspace_id="ab"} 1`) {
+		t.Errorf("the clean label was rewritten\ngot:\n%s", got)
+	}
+	if !strings.Contains(got, `workspace_id="a<0x09>b"} 2`) {
+		t.Errorf("the control character was dropped, collapsing two distinct ids into one "+
+			"series\ngot:\n%s", got)
 	}
 }

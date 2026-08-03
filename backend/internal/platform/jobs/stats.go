@@ -52,16 +52,28 @@ const terminalBadStates = `('discarded','cancelled')`
 // declares its workspace and a null in that column means a dispatcher and
 // nothing else (see role.go).
 type StateRow struct {
-	Queue       string
-	Kind        string
+	Queue string
+	Kind  string
+	// WorkspaceID is the value of the args key VERBATIM. It is the empty
+	// string only when the key is absent or JSON null — which is what
+	// Untenanted reports, and the two must not be conflated: a row carrying
+	// a present-but-EMPTY workspace_id is malformed, not a dispatcher, and
+	// a reader that could not tell them apart would count it as one.
 	WorkspaceID string
-	State       string
-	Count       int64
+	// Untenanted is true when the workspace key is absent or null — the
+	// exact test the scoped read's dispatcher arm uses, so the two surfaces
+	// cannot disagree about which rows are fleet-wide.
+	Untenanted bool
+	State      string
+	Count      int64
 	// OldestRunnableAgeSeconds is how long the oldest job in this group has
-	// been ELIGIBLE and unclaimed. A scheduled job whose time has not come
-	// is not stuck, so it contributes nothing; counting it would report a
-	// nightly sweep as 23 hours overdue every day of its life.
-	OldestRunnableAgeSeconds float64
+	// been ELIGIBLE and unclaimed, and is NIL when the group holds no such
+	// job. Nil and zero are different claims — nothing is runnable versus
+	// something became runnable a moment ago — and flattening them would
+	// report a queue of future-scheduled work as "the oldest runnable job
+	// has waited 0 seconds", which is a statement about a job that does not
+	// exist. The endpoint carries the same distinction.
+	OldestRunnableAgeSeconds *float64
 }
 
 // SweepPass is one fan-out kind read per workspace: how many workspaces it
@@ -106,20 +118,25 @@ func statsByState(ctx context.Context, pool *pgxpool.Pool) ([]StateRow, error) {
 	// The age is EXTRACTed from the database's own now(), never subtracted
 	// from the app clock: the two clocks differ by enough to move an exact
 	// assertion, which is a live intermittent flake elsewhere in this tree.
+	// The age has NO coalesce: a group with nothing runnable answers NULL,
+	// which the reader carries as "no such job" rather than as a measured
+	// zero. The workspace key is reported alongside a separate IS NULL
+	// test, because `->>` yields the empty string for a present-but-empty
+	// value as readily as coalesce does for an absent one — and those are a
+	// malformed row and a dispatcher respectively.
 	const q = `
 		SELECT queue,
 		       kind,
 		       coalesce(args->>'workspace_id', '') AS workspace_id,
+		       (args->>'workspace_id' IS NULL) AS untenanted,
 		       state::text,
 		       count(*)::bigint,
-		       coalesce(
-		           max(EXTRACT(EPOCH FROM (now() - scheduled_at)))
-		               FILTER (WHERE state::text IN ` + runnableStates + `
-		                         AND scheduled_at <= now()),
-		           0)::double precision
+		       max(EXTRACT(EPOCH FROM (now() - scheduled_at)))
+		           FILTER (WHERE state::text IN ` + runnableStates + `
+		                     AND scheduled_at <= now())::double precision
 		FROM river_job
 		WHERE state <> 'completed'
-		GROUP BY 1, 2, 3, 4`
+		GROUP BY 1, 2, 3, 4, 5`
 
 	cursor, err := pool.Query(ctx, q)
 	if err != nil {
@@ -130,8 +147,8 @@ func statsByState(ctx context.Context, pool *pgxpool.Pool) ([]StateRow, error) {
 	var out []StateRow
 	for cursor.Next() {
 		var r StateRow
-		if err := cursor.Scan(&r.Queue, &r.Kind, &r.WorkspaceID, &r.State,
-			&r.Count, &r.OldestRunnableAgeSeconds); err != nil {
+		if err := cursor.Scan(&r.Queue, &r.Kind, &r.WorkspaceID, &r.Untenanted,
+			&r.State, &r.Count, &r.OldestRunnableAgeSeconds); err != nil {
 			return nil, fmt.Errorf("jobs: scanning job state counts: %w", err)
 		}
 		out = append(out, r)

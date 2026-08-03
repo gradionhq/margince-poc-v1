@@ -176,9 +176,13 @@ func healthByKind(ctx context.Context, pool *pgxpool.Pool, workspaceID string, d
 // persists an AttemptError like any other failure, while a cancellation
 // with no cause appends nothing, and the row is terminal either way.
 //
-// The order is finalized_at when the row is finalized and created_at when
-// it is not, with id breaking ties — a total order over columns that always
-// exist. The attempt error's own timestamp is deliberately NOT cast in SQL:
+// The order is finalized_at when the row is finalized, attempted_at when it
+// is not, and created_at when it has never run — with id breaking ties, a
+// total order over columns that always exist. attempted_at is the rung that
+// matters for a RETRYABLE row: it is when the last attempt started, so a
+// job created weeks ago and failing now sorts as the recent event it is,
+// rather than by the creation date it happens to carry. The attempt error's
+// own timestamp is deliberately NOT cast in SQL:
 // that column is app-written, and one malformed value would turn the whole
 // endpoint into a 500 rather than one row into an approximation.
 func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string, dispatcherKinds []string) ([]Failure, error) {
@@ -188,13 +192,13 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		       state::text,
 		       attempt::int,
 		       max_attempts::int,
-		       coalesce(finalized_at, created_at),
+		       coalesce(finalized_at, attempted_at, created_at),
 		       errors[cardinality(errors)]->>'at',
 		       errors[cardinality(errors)]->>'error'
 		FROM river_job
 		WHERE state::text IN ('retryable','discarded','cancelled')
 		  AND ` + healthScope + `
-		ORDER BY coalesce(finalized_at, created_at) DESC, id DESC
+		ORDER BY coalesce(finalized_at, attempted_at, created_at) DESC, id DESC
 		LIMIT ` + fmt.Sprint(recentFailureLimit)
 
 	rows, err := pool.Query(ctx, q, workspaceID, dispatcherKinds)
@@ -234,7 +238,7 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		return nil, fmt.Errorf("jobs: reading recent job failures: %w", err)
 	}
 
-	// SELECTED by coalesce(finalized_at, created_at) — a total order over
+	// SELECTED by coalesce(finalized_at, attempted_at, created_at) — a total order over
 	// columns that always exist, which is what makes the LIMIT pick the
 	// genuinely most recent rows — but PRESENTED in the order of the
 	// failed_at actually shown. Those two can disagree, because the

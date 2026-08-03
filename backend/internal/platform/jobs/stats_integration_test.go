@@ -193,7 +193,7 @@ func TestStatsMeasuresTheAgeOfRunnableWorkOnlyAndInTheDatabasesOwnClock(t *testi
 		t.Fatalf("Stats: %v", err)
 	}
 
-	var overdue, notYet float64
+	var overdue, notYet *float64
 	var sawNotYet bool
 	for _, r := range snap.Rows {
 		switch r.Kind {
@@ -203,16 +203,61 @@ func TestStatsMeasuresTheAgeOfRunnableWorkOnlyAndInTheDatabasesOwnClock(t *testi
 			notYet, sawNotYet = r.OldestRunnableAgeSeconds, true
 		}
 	}
-	if overdue < 3000 {
+	if overdue == nil {
+		t.Fatal("an hour-overdue scheduled job reported no age at all")
+	}
+	if *overdue < 3000 {
 		t.Errorf("an hour-overdue scheduled job reported age %.0fs: a scheduler that "+
-			"stopped must not read as a healthy queue on the gauge meant to catch it", overdue)
+			"stopped must not read as a healthy queue on the gauge meant to catch it", *overdue)
 	}
 	if !sawNotYet {
 		t.Fatal("the future-scheduled row is missing from the snapshot entirely; it is " +
 			"queued work and must still be counted, only not aged")
 	}
-	if notYet != 0 {
-		t.Errorf("a job scheduled for the future reported age %.0fs, want 0: it is not late", notYet)
+	if notYet != nil {
+		t.Errorf("a job scheduled for the future reported age %.0fs; it is not runnable, so "+
+			"there is no oldest-runnable job to report and NULL is the honest answer", *notYet)
+	}
+}
+
+// TestAPresentButEmptyWorkspaceIsNotReportedAsADispatcher — river_job has
+// no constraint forcing the workspace key to be absent rather than empty,
+// and the reader's whole invariant is that an empty label means dispatcher.
+// The two must be distinguishable in the snapshot or the renderer cannot
+// tell them apart either.
+func TestAPresentButEmptyWorkspaceIsNotReportedAsADispatcher(t *testing.T) {
+	_, pool := migratedAppPool(t)
+	ctx := t.Context()
+
+	seedJob(ctx, t, pool, seed{Kind: "real_dispatcher", State: "available"})
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO river_job (state, kind, queue, args, tags, errors, max_attempts,
+		                       attempt, created_at, scheduled_at)
+		VALUES ('available', 'malformed_row', 'default', '{"workspace_id": ""}'::jsonb,
+		        '{}'::varchar(255)[], '{}'::jsonb[], 3, 0, now(), now())`); err != nil {
+		t.Fatalf("seeding a present-but-empty workspace row: %v", err)
+	}
+
+	snap, err := jobs.Stats(ctx, pool)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+
+	for _, r := range snap.Rows {
+		switch r.Kind {
+		case "real_dispatcher":
+			if !r.Untenanted {
+				t.Error("a row with no workspace key at all was not reported as untenanted")
+			}
+		case "malformed_row":
+			if r.Untenanted {
+				t.Error("a row whose workspace key is PRESENT but empty was reported as a " +
+					"dispatcher; the empty label would then mean two different things")
+			}
+			if r.WorkspaceID != "" {
+				t.Errorf("WorkspaceID = %q, want the stored empty string verbatim", r.WorkspaceID)
+			}
+		}
 	}
 }
 

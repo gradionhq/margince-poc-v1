@@ -211,11 +211,13 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 // user-initiated build path besides. Appending in place would grow one tag
 // per workspace and hand the caller back a mutated struct.
 //
-// A nil opts yields a tag-ONLY value on purpose. River merges the explicit
-// opts with the args' own InsertOpts field by field, falling back to the
-// args for any field the explicit value leaves at its zero — so a caller
-// that passes nil to let its args declare the uniqueness window (the
-// telegram poll's per-bot rule) keeps that fallback intact.
+// A nil opts yields a tag-ONLY value on purpose. For the fields that matter
+// here — queue, max attempts, priority, tags and the uniqueness window —
+// River falls back to the args' own InsertOpts whenever the explicit value
+// leaves that field at its zero, so a caller that passes nil to let its
+// args declare the uniqueness window (the telegram poll's per-bot rule)
+// keeps that fallback intact. It is NOT a blanket rule over every field:
+// metadata, for one, is defaulted rather than inherited.
 func markedAsFleetPass(opts *river.InsertOpts) *river.InsertOpts {
 	marked := river.InsertOpts{}
 	if opts != nil {
