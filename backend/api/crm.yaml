@@ -342,6 +342,46 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/reset-data:
+    post:
+      tags: [Identity]
+      operationId: resetData
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      x-agent-access: human-only
+      summary: Reset a non-production installation to its first-boot state.
+      description: >
+        Non-production only. Wipes workspace domain + seeded-config data back to the
+        bootstrapped state, preserving the organization and users so login still works,
+        then re-seeds module defaults. Requires the organization name as a typed
+        confirmation. In production this endpoint does not exist (404).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  minLength: 1
+                  description: Must equal the organization name exactly.
+      responses:
+        '200':
+          description: Installation reset to first-boot state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, tables_cleared]
+                properties:
+                  status: { type: string, example: reset }
+                  tables_cleared: { type: integer }
+        '403': { description: Not an admin human., content: { application/json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+        '404': { description: Endpoint unavailable in this environment. }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------------------ /passports --------------------------------
   /passports:
@@ -11849,9 +11889,14 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams]
+      required: [user, roles, teams, non_production]
       properties:
         user: { $ref: '#/components/schemas/User' }
+        non_production:
+          type: boolean
+          description: >
+            True when the installation runs a non-production posture
+            (MARGINCE_ENV). Gates the client-side "Reset data" action.
         roles:
           type: array
           items: { type: string }
