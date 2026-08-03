@@ -73,8 +73,8 @@ CREATE INDEX idx_runner_job_due ON runner_job (workspace_id, status, due_at);
 
 -- Tenant tables ⇒ RLS, same deny-on-unset policy as every other
 -- (the coverage fitness test refuses a workspace_id table without it).
--- The worker crosses tenants by iterating workspaces and binding the
--- GUC per workspace — never by an RLS bypass.
+-- Every read and write of these tables happens with the GUC bound to the
+-- one workspace it belongs to — never by an RLS bypass.
 ALTER TABLE agent_run ENABLE ROW LEVEL SECURITY;
 ALTER TABLE agent_run FORCE ROW LEVEL SECURITY;
 CREATE POLICY agent_run_tenant_isolation ON agent_run
