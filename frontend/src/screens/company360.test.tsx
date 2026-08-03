@@ -1130,3 +1130,32 @@ describe("company view — the visit baseline", () => {
     }
   });
 });
+
+describe("company view — where the account stands, and what it is to us", () => {
+  it("shows the lifecycle and every relationship type as separate badges", async () => {
+    stub(view(), 200, {
+      ...org,
+      lifecycle: "former_customer",
+      relationship_types: ["partner", "supplier"],
+    });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The retired classification held ONE value, which is how an account whose
+    // contract had ended still read as "Prospect" while it was also a partner.
+    expect(screen.getByText("Former customer")).toBeTruthy();
+    expect(screen.getByText("Partner")).toBeTruthy();
+    expect(screen.getByText("Supplier")).toBeTruthy();
+  });
+
+  it("draws no badge for an account nobody has assessed", async () => {
+    stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // 'unknown' is the honest default, and a badge announcing it on every new
+    // record is noise — the old column defaulted to 'prospect' and rendered
+    // that default as though someone had judged it.
+    expect(screen.queryByText("Not assessed")).toBeNull();
+  });
+});
