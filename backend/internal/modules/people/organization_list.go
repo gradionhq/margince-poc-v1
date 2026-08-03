@@ -30,12 +30,16 @@ const orgNameColumn = "display_name"
 // ListOrganizationsInput carries the organization list's contract
 // parameters.
 type ListOrganizationsInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	OwnerID         *ids.UserID
-	Classification  *string
-	IncludeArchived bool
+	Cursor  *string
+	Limit   *int
+	Query   *string
+	OwnerID *ids.UserID
+	// Classification is RETIRED with the column (ADR-0079/A124) and reaches no
+	// wire parameter; Lifecycle and RelationshipType replace it.
+	Classification   *string
+	Lifecycle        *string
+	RelationshipType *string
+	IncludeArchived  bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
 	// AiWritten filters on whether an AI wrote into the record (§3a).
@@ -85,10 +89,28 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			if in.Classification != nil {
 				where = append(where, storekit.SQLf("classification = $%d", arg(*in.Classification)))
 			}
+			if in.Lifecycle != nil {
+				where = append(where, storekit.SQLf("lifecycle = $%d", arg(*in.Lifecycle)))
+			}
+			if in.RelationshipType != nil {
+				// EXISTS, not a join: an account carries several types and a
+				// join would return it once per matching row, which the keyset
+				// cursor would then page over as if they were distinct records.
+				where = append(where, storekit.SQLf(`EXISTS (
+					SELECT 1 FROM organization_relationship_type rt
+					WHERE rt.organization_id = organization.id
+					  AND rt.relationship_type = $%d AND rt.archived_at IS NULL)`,
+					arg(*in.RelationshipType)))
+			}
 			return where, nil
 		},
-		scan:   scanOrganizationPage,
-		attach: attachOrgDomains,
+		scan: scanOrganizationPage,
+		attach: func(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organization) error {
+			if err := attachOrgDomains(ctx, tx, orgs); err != nil {
+				return err
+			}
+			return attachOrgRelationshipTypes(ctx, tx, orgs)
+		},
 		cursorKey: func(last crmcontracts.Organization) (time.Time, ids.UUID) {
 			return last.CreatedAt, ids.UUID(last.Id)
 		},
