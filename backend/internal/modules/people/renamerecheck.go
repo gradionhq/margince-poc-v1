@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -71,12 +72,16 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	// Two organizations converging on ONE name concurrently would, at READ
 	// COMMITTED, each read before the other committed, each find nothing, and
 	// both land with no pair filed — the duplicate this whole path exists to
-	// catch, missed by a race. Taking the normalized name as a write identity
+	// catch, missed by a race. Taking the normalized names as write identities
 	// serializes them, so the second sees the first.
-	if key := NormalizeOrgName(display); key != "" {
-		if err := storekit.LockWriteIdentity(ctx, tx, "organization_name", key); err != nil {
-			return err
-		}
+	//
+	// BOTH axes are locked, because either can be the one that collides: two
+	// records converging on a shared registered name while their display names
+	// stay different is the same race, and locking only the display name would
+	// leave it open. The keys are taken in a fixed order so two renames naming
+	// the same pair in opposite orders cannot deadlock.
+	if err := lockOrgNameIdentities(ctx, tx, display, legal); err != nil {
+		return err
 	}
 
 	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
@@ -108,6 +113,24 @@ func recheckOrgNameForDuplicates(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 			rival.Confidence,
 			nearMatchEvidence(rival.MatchedField, rival.CandidateValue, rival.IncumbentValue, rival.Confidence),
 			orgRenameRecheckSource, by)
+	}
+	return nil
+}
+
+// lockOrgNameIdentities takes each distinct normalized name as a write
+// identity, sorted so the order is the same for every caller.
+func lockOrgNameIdentities(ctx context.Context, tx pgx.Tx, names ...string) error {
+	keys := make([]string, 0, len(names))
+	for _, name := range names {
+		if key := NormalizeOrgName(name); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	slices.Sort(keys)
+	for _, key := range slices.Compact(keys) {
+		if err := storekit.LockWriteIdentity(ctx, tx, "organization_name", key); err != nil {
+			return err
+		}
 	}
 	return nil
 }

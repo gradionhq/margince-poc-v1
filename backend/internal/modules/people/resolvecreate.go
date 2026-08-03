@@ -32,6 +32,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -100,7 +101,7 @@ type PersonSpec struct {
 // pair for review (creatededupe.go states the same policy per lane).
 func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) (ids.PersonID, error) {
 	if match.Decision == DecisionExactCollision && match.MatchedLane != lanePhone {
-		return ids.PersonID{}, refusedPersonCreate(match, spec)
+		return ids.PersonID{}, refusedPersonCreate(ctx, tx, match, spec)
 	}
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.PersonKind]()
@@ -141,13 +142,30 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 // answer is still the 409 the create contract promises with the incumbent's
 // id (data-model §3.2), never an opaque failure just because a different guard
 // caught it. Every other lane has no such contract and stays a conflict.
-func refusedPersonCreate(match PersonResolution, spec PersonSpec) error {
+//
+// The id is echoed ONLY when the caller could have read that record. The
+// resolver deliberately matches across the whole workspace — a duplicate the
+// caller cannot see is still a duplicate — so the answer would otherwise
+// confirm the existence of a record outside their row scope, and confirm it
+// by a chosen address at that. The refusal still stands either way; only the
+// pointer is withheld.
+func refusedPersonCreate(ctx context.Context, tx pgx.Tx, match PersonResolution, spec PersonSpec) error {
 	if match.MatchedLane == laneEmail && len(spec.Emails) > 0 {
-		return &DuplicateEmailError{Email: spec.Emails[0].Email, ExistingID: match.PersonID}
+		dup := &DuplicateEmailError{Email: spec.Emails[0].Email}
+		visible, err := auth.VisibleTo(ctx, tx, entityPerson, match.PersonID.UUID)
+		if err != nil {
+			return err
+		}
+		if visible {
+			dup.ExistingID = match.PersonID
+		}
+		return dup
 	}
+	// Other lanes name no record: the message says which key collided, never
+	// whose row it was.
 	return fmt.Errorf(
-		"people: an exact %q collision already names %s: %w",
-		match.MatchedLane, match.PersonID, apperrors.ErrConflict)
+		"people: an exact %q collision already claims this identity: %w",
+		match.MatchedLane, apperrors.ErrConflict)
 }
 
 // OrgSpec is every column an organization create writes, across all four
@@ -179,6 +197,27 @@ type OrgSpec struct {
 	Active       []fieldcatalog.Column
 }
 
+// refusedOrgCreate is refusedPersonCreate's twin, with the same disclosure
+// rule: the manual path refuses a claimed domain before the ladder, so
+// arriving here is a race that still owes the caller the domain 409 — but the
+// incumbent's id only when they could have read that record.
+func refusedOrgCreate(ctx context.Context, tx pgx.Tx, match OrganizationMatch, spec OrgSpec) error {
+	if len(spec.Domains) == 0 {
+		return fmt.Errorf(
+			"people: an exact domain collision already claims this identity: %w",
+			apperrors.ErrConflict)
+	}
+	dup := &DuplicateDomainError{Domain: spec.Domains[0].Domain}
+	visible, err := auth.VisibleTo(ctx, tx, entityOrganization, match.OrganizationID.UUID)
+	if err != nil {
+		return err
+	}
+	if visible {
+		dup.ExistingID = match.OrganizationID
+	}
+	return dup
+}
+
 // createOrganization is the one INSERT INTO organization.
 //
 // It refuses an exact collision outright: PO-F-2's exact tier is the domain,
@@ -187,17 +226,7 @@ type OrgSpec struct {
 // existing company rather than minting a rival).
 func createOrganization(ctx context.Context, tx pgx.Tx, match OrganizationMatch, spec OrgSpec) (ids.OrganizationID, error) {
 	if match.Decision == DecisionExactCollision {
-		// Same reasoning as refusedPersonCreate: the manual path refuses a
-		// claimed domain before the ladder, so arriving here is a race, and it
-		// still owes the caller the domain 409 with the incumbent's id.
-		if len(spec.Domains) > 0 {
-			return ids.OrganizationID{}, &DuplicateDomainError{
-				Domain: spec.Domains[0].Domain, ExistingID: match.OrganizationID,
-			}
-		}
-		return ids.OrganizationID{}, fmt.Errorf(
-			"people: an exact domain collision already names organization %s: %w",
-			match.OrganizationID, apperrors.ErrConflict)
+		return ids.OrganizationID{}, refusedOrgCreate(ctx, tx, match, spec)
 	}
 	wsID := workspaceID(ctx)
 	id := ids.New[ids.OrganizationKind]()

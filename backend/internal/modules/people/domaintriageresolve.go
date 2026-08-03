@@ -205,7 +205,7 @@ func (s *Store) adoptOrCreateTriagedOrg(ctx context.Context, tx pgx.Tx, in Resol
 	// PO-F-2 reads. Asking about the domain alone leaves the fuzzy tier nothing
 	// to score, and two domains of one company ("acme.de", "acme.eu") derive
 	// the same label — the shape that put one company in a workspace twice.
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
 		DisplayName: displayName,
 		Domains:     []string{in.Domain},
 	})

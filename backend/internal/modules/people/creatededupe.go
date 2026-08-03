@@ -129,7 +129,7 @@ func manualDedupeOrganization(ctx context.Context, tx pgx.Tx, in CreateOrganizat
 	for _, d := range in.Domains {
 		domains = append(domains, d.Domain)
 	}
-	return DedupeOrganization(ctx, tx, OrganizationCandidate{
+	return DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
 		DisplayName: in.DisplayName,
 		LegalName:   deref(in.LegalName),
 		Domains:     domains,
@@ -212,24 +212,11 @@ func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, create
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
-	best := m.best(createdName)
+	// fuzzyOrganization only returns this decision with a non-empty Ranked, so
+	// the winner is always there to read.
+	best := m.Ranked[0]
 	return recordNearMatch(ctx, tx, entityOrganization, createdID.UUID, m.OrganizationID.UUID, m.Confidence,
 		nearMatchEvidence(best.MatchedField, best.CandidateValue, best.IncumbentValue, m.Confidence), source, by)
-}
-
-// best is the winning pairing behind this match. It falls back to the
-// display-name axis and the caller's own name when the ranked detail is absent
-// — an exact-tier match carries no pairing — so the evidence is never empty.
-func (m OrganizationMatch) best(candidateName string) OrganizationCandidateScore {
-	if len(m.Ranked) > 0 {
-		return m.Ranked[0]
-	}
-	return OrganizationCandidateScore{
-		OrganizationID: m.OrganizationID,
-		Confidence:     m.Confidence,
-		MatchedField:   fieldDisplayName,
-		CandidateValue: candidateName,
-	}
 }
 
 // nearMatchEvidence is the detection-time snapshot the review queue

@@ -331,7 +331,7 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 // so the pair belongs on the review queue rather than being the one create
 // allowed to mint a twin in silence.
 func createAnchorOrganization(ctx context.Context, tx pgx.Tx, displayName, by string) (ids.OrganizationID, error) {
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: displayName})
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{DisplayName: displayName})
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}

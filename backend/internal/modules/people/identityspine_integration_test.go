@@ -34,6 +34,18 @@ func (e *dedupeEnv) asLeadOwner() context.Context {
 	return principal.WithActor(ctx, actor)
 }
 
+// asRowScope is the shared dedupe context narrowed to one row scope, for the
+// cases that turn on what a caller is allowed to see rather than on what they
+// may do.
+func (e *dedupeEnv) asRowScope(scope principal.RowScope) context.Context {
+	ctx := e.as()
+	actor, _ := principal.Actor(ctx)
+	actor.UserID = ids.NewV7()
+	actor.ID = "human:" + actor.UserID.String()
+	actor.Permissions.RowScope = scope
+	return principal.WithActor(ctx, actor)
+}
+
 // orgCandidatesFor counts the review-queue pairs filed for an organization,
 // in any disposition.
 func (e *dedupeEnv) orgCandidatesFor(ctx context.Context, t *testing.T, org ids.OrganizationID) int {
@@ -189,7 +201,10 @@ func TestOrganizationDedupeReadsTheLegalNameAxis(t *testing.T) {
 	// The queue renders the two values it scored, so they must be the two the
 	// score came from — showing a display-name collision here would put a
 	// comparison nobody made in front of the human deciding the merge.
-	best := m.best("Contoso Wholesale")
+	if len(m.Ranked) == 0 {
+		t.Fatal("fuzzy review carried no ranked rival — the queue would have nothing to render")
+	}
+	best := m.Ranked[0]
 	if best.MatchedField != fieldLegalName {
 		t.Fatalf("matched field = %q, want %q", best.MatchedField, fieldLegalName)
 	}
@@ -233,6 +248,51 @@ func TestARaceOnAClaimedAddressStillAnswersTheDuplicateContract(t *testing.T) {
 	}
 	if dup.ExistingID != incumbentID {
 		t.Fatalf("conflict names %s, want the incumbent %s", dup.ExistingID, incumbentID)
+	}
+}
+
+// TestTheChokepointRefusalHidesARecordTheCallerCannotRead is the disclosure
+// half of that refusal. PO-F-1 matches across the whole workspace on purpose —
+// a duplicate you cannot see is still a duplicate — so the refusal must not
+// hand back a pointer to a record outside the caller's row scope. Otherwise
+// anyone could confirm, address by chosen address, who exists in someone
+// else's book.
+func TestTheChokepointRefusalHidesARecordTheCallerCannotRead(t *testing.T) {
+	e := setupDedupe(t)
+	owner := e.as()
+	// Owned explicitly: an ownerless row reads as workspace-shared at every row
+	// scope, so it could not demonstrate anything about hiding.
+	ownerID := ids.From[ids.UserKind](e.rep)
+	hidden, err := e.store.CreatePerson(owner, CreatePersonInput{
+		FullName: "Mara Steiner", Source: "manual", OwnerID: &ownerID,
+		Emails: []PersonEmailInput{{Email: "mara@steiner.test", EmailType: "work", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hiddenID := ids.From[ids.PersonKind](ids.UUID(hidden.Id))
+
+	// A second rep who may create people but sees only their own rows.
+	stranger := e.asRowScope(principal.RowScopeOwn)
+	err = e.store.tx(stranger, func(tx pgx.Tx) error {
+		_, cerr := createPerson(stranger, tx, PersonResolution{
+			Decision: DecisionExactCollision, MatchedLane: laneEmail, PersonID: hiddenID,
+		}, PersonSpec{
+			FullName:   "Mara Steiner",
+			Emails:     []PersonEmailInput{{Email: "mara@steiner.test", EmailType: "work", IsPrimary: true}},
+			Source:     "manual",
+			CapturedBy: "human:stranger",
+		})
+		return cerr
+	})
+	var dup *DuplicateEmailError
+	if !errors.As(err, &dup) {
+		t.Fatalf("refusal = %v, want DuplicateEmailError", err)
+	}
+	// Still refused — the duplicate is real — but with no pointer to a record
+	// this caller was never allowed to read.
+	if !dup.ExistingID.IsZero() {
+		t.Fatalf("refusal disclosed %s to a caller who cannot read it", dup.ExistingID)
 	}
 }
 

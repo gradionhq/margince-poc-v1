@@ -19,6 +19,7 @@ package backendarch
 // whose whole subject is why the list is short.
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,7 +63,7 @@ var sanctionedMintSites = map[string]string{
 
 func TestEveryIdentityInsertGoesThroughTheChokepoint(t *testing.T) {
 	found := map[string]bool{}
-	for _, path := range goSourceFiles(t, "internal") {
+	for _, path := range goSourceFiles(t, ".") {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
@@ -114,7 +115,7 @@ var leadClaimCheckSQL = regexp.MustCompile(`(?is)SELECT\s+id\s+FROM\s+lead\s+WHE
 // landed.
 func TestLeadIdentityProbesAreSingleSourced(t *testing.T) {
 	const home = "internal/platform/database/storekit/leadidentity.go"
-	for _, path := range goSourceFiles(t, "internal") {
+	for _, path := range goSourceFiles(t, ".") {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
@@ -143,9 +144,9 @@ var mergedIntoWrite = regexp.MustCompile(`(?is)(UPDATE\s+(person|organization)\s
 
 // sanctionedMergeWriters own the redirect pointer that retires one record into
 // another.
-var sanctionedMergeWriters = map[string]bool{
-	"internal/modules/people/merge.go":              true,
-	"internal/modules/people/merge_organization.go": true,
+var sanctionedMergeWriters = map[string]string{
+	"internal/modules/people/merge.go":              "the person merge path",
+	"internal/modules/people/merge_organization.go": "the organization merge path",
 }
 
 // TestOnlyTheMergePathRetiresARecord is the structural half of the
@@ -154,19 +155,21 @@ var sanctionedMergeWriters = map[string]bool{
 // else; only a human's disposition, executed by the merge path, may point one
 // record at another.
 func TestOnlyTheMergePathRetiresARecord(t *testing.T) {
-	for _, path := range goSourceFiles(t, "internal") {
+	found := map[string]bool{}
+	for _, path := range goSourceFiles(t, ".") {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
 		}
 		rel := filepath.ToSlash(path)
-		if sanctionedMergeWriters[rel] {
-			continue
-		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		if isGenerated(path, string(body)) {
+			continue
+		}
+		if _, ok := sanctionedMergeWriters[rel]; ok {
+			found[rel] = mergedIntoWrite.MatchString(string(body))
 			continue
 		}
 		if mergedIntoWrite.MatchString(string(body)) {
@@ -176,6 +179,13 @@ func TestOnlyTheMergePathRetiresARecord(t *testing.T) {
 				"human's disposition on the dedupe queue — DEDUPE_FUZZY_AUTOMERGE is pinned never.", rel)
 		}
 	}
+	// Same staleness rule as the mint-site list: an entry whose file no longer
+	// writes the pointer is a guard that has quietly stopped guarding anything.
+	for rel, reason := range sanctionedMergeWriters {
+		if !found[rel] {
+			t.Errorf("sanctionedMergeWriters still lists %s (%s) but it no longer writes merged_into_id — drop the entry", rel, reason)
+		}
+	}
 }
 
 // goSourceFiles lists every .go file under root, sorted so failures report in
@@ -183,12 +193,12 @@ func TestOnlyTheMergePathRetiresARecord(t *testing.T) {
 func goSourceFiles(t *testing.T, root string) []string {
 	t.Helper()
 	var out []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(path, ".go") {
-			out = append(out, path)
+		if !d.IsDir() && strings.HasSuffix(path, ".go") {
+			out = append(out, filepath.Clean(path))
 		}
 		return nil
 	})

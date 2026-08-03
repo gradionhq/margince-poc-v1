@@ -73,20 +73,22 @@ func ensureLeadEmailUnclaimed(ctx context.Context, tx pgx.Tx, email *string) err
 	return dup
 }
 
-// lockLeadIdentity takes the write identities a lead create is about to claim,
-// BEFORE either probe reads.
+// lockLeadLinkedInIdentity takes the LinkedIn write identity BEFORE either
+// probe reads.
 //
 // The LinkedIn key has no unique index to fall back on — idx_lead_linkedin is
 // deliberately non-UNIQUE, because a workspace may already hold duplicates from
 // before this refusal existed and merging those is a human decision — so the
 // advisory lock is the whole race guard, not a nicety.
 //
-// It runs before BOTH probes rather than beside its own. Two creates sharing an
-// address and a profile would otherwise interleave between the email probe and
-// the LinkedIn one, and each would report whichever key it happened to lose —
-// the same pair of requests answering `duplicate_email` on one run and
-// `duplicate_linkedin_url` on the next.
-func lockLeadIdentity(ctx context.Context, tx pgx.Tx, url *string) error {
+// Only this key is locked; the email key needs no lock because
+// uq_lead_email_dedupe decides its race and leadUniqueViolation maps the
+// violation back to the same 409. The lock is still taken before BOTH probes:
+// two creates sharing an address AND a profile would otherwise interleave
+// between the two probes and each report whichever key it happened to lose,
+// answering `duplicate_email` on one run and `duplicate_linkedin_url` on the
+// next.
+func lockLeadLinkedInIdentity(ctx context.Context, tx pgx.Tx, url *string) error {
 	if url == nil {
 		return nil
 	}

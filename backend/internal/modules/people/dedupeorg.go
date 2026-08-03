@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -81,6 +82,24 @@ func DedupeOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate)
 	return fuzzyOrganization(ctx, tx, c)
 }
 
+// DedupeOrganizationForCreate is PO-F-2 for a path that is about to MINT a
+// row, which needs one thing the read alone cannot give: serialization.
+//
+// The name axis has no unique index — two organizations may legitimately share
+// a name — so nothing structural stops two creates converging on one. Without
+// the lock, "Baqend" and "Baqend GmbH" landing concurrently each read before
+// the other committed, each scored no_match, and both committed with NO pair on
+// the queue: a duplicate nothing would ever re-detect, because the re-check
+// only runs on a later rename. It is the same reason lockPhoneLane exists on
+// the person side, and the lock is taken BEFORE the ladder reads so the loser
+// sees the winner's committed row.
+func DedupeOrganizationForCreate(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
+	if err := lockOrgNameIdentities(ctx, tx, c.DisplayName, c.LegalName); err != nil {
+		return OrganizationMatch{}, err
+	}
+	return DedupeOrganization(ctx, tx, c)
+}
+
 // exactOrgByDomain is PO-F-2 tier 1: any candidate domain already mapped
 // to a live org. This is also the capture employer-inference path — a
 // domain hit lands the person on the existing company.
@@ -125,16 +144,16 @@ func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string, exclude 
 // table on every create. A NULL legal name makes its arm NULL rather than
 // true, which is the same answer coalesce would have produced.
 func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) (OrganizationMatch, error) {
-	display, legal := NormalizeOrgName(c.DisplayName), NormalizeOrgName(c.LegalName)
+	args := []any{c.ExcludeID}
+	arms := orgTrigramArms(&args, NormalizeOrgName(c.DisplayName), NormalizeOrgName(c.LegalName))
+	if len(arms) == 0 {
+		return OrganizationMatch{Decision: DecisionNoMatch}, nil
+	}
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name, coalesce(legal_name, '') FROM organization
 		 WHERE archived_at IS NULL
-		   AND ($3::uuid IS NULL OR id <> $3)
-		   AND (f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))
-		        OR f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($2))
-		        OR f_fold_apostrophes(lower(legal_name)) % f_fold_apostrophes(lower($1))
-		        OR f_fold_apostrophes(lower(legal_name)) % f_fold_apostrophes(lower($2)))`,
-		display, legal, c.ExcludeID)
+		   AND ($1::uuid IS NULL OR id <> $1)
+		   AND (`+strings.Join(arms, " OR ")+`)`, args...)
 	if err != nil {
 		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
 	}
@@ -174,6 +193,32 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		Confidence:     ranked[0].Confidence,
 		Ranked:         ranked,
 	}, nil
+}
+
+// orgTrigramArms builds one `%` arm per (non-empty candidate axis × stored
+// column), appending each value to args once.
+//
+// An EMPTY axis is dropped rather than passed as "". A `%` arm whose right
+// side is empty matches nothing, but Postgres cannot satisfy it from the GIN
+// index, so its presence makes the planner abandon the index for the whole OR
+// group and sequentially scan the table — on the common case, since most
+// organizations carry no registered name. Measured: two arms with a real value
+// give a BitmapOr across both trigram indexes; adding the empty arms turns the
+// same query into a Seq Scan.
+func orgTrigramArms(args *[]any, axes ...string) []string {
+	var arms []string
+	for _, axis := range axes {
+		if axis == "" {
+			continue
+		}
+		*args = append(*args, axis)
+		n := len(*args)
+		for _, column := range []string{fieldDisplayName, fieldLegalName} {
+			arms = append(arms, fmt.Sprintf(
+				"f_fold_apostrophes(lower(%s)) %% f_fold_apostrophes(lower($%d))", column, n))
+		}
+	}
+	return arms
 }
 
 // bestOrgNamePairing scores every pairing of the two name axes and reports

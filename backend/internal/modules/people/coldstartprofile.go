@@ -189,7 +189,7 @@ func resolveOrCreateColdStartOrg(ctx context.Context, tx pgx.Tx, host, by string
 	// PO-F-2 rather than a bare domain lookup: the site's own legal name is the
 	// strongest signal this path has, and a company already captured from a
 	// different domain collides on exactly that name and on nothing else.
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{
+	match, err := DedupeOrganizationForCreate(ctx, tx, OrganizationCandidate{
 		DisplayName: displayName,
 		LegalName:   legal,
 		Domains:     []string{host},

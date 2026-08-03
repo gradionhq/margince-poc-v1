@@ -76,10 +76,10 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			created, out = false, *replay
 			return nil
 		}
-		// Both identity claims are locked before either is probed, so two
+		// The LinkedIn claim is locked before either probe reads, so two
 		// creates racing on the same person answer with the same key rather
 		// than whichever one they happened to lose.
-		if err := lockLeadIdentity(ctx, tx, in.LinkedInURL); err != nil {
+		if err := lockLeadLinkedInIdentity(ctx, tx, in.LinkedInURL); err != nil {
 			return err
 		}
 		if err := ensureLeadEmailUnclaimed(ctx, tx, in.Email); err != nil {
