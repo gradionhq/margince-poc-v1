@@ -250,10 +250,18 @@ func linkExternalIdentity(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, 
 func requireSignInReady(ctx context.Context, tx pgx.Tx, userID ids.UserID) error {
 	// The lock is judged in SQL, against the database's clock — the same place
 	// and the same way the session and passport expiries are.
+	//
+	// FOR UPDATE because this read decides a write: the session is inserted
+	// later in this same transaction, so an admin's lockout committing between
+	// the SELECT and that INSERT would be overtaken by a session this check
+	// already blessed. Holding the row serializes the two, and the lock is the
+	// same one the linking path takes on the same row, so the order cannot
+	// invert.
 	var locked bool
 	err := tx.QueryRow(ctx,
 		`SELECT locked_until IS NOT NULL AND now() < locked_until FROM app_user
-		 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`,
+		 WHERE id = $1 AND status = 'active' AND archived_at IS NULL
+		 FOR UPDATE`,
 		userID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errNoLinkableUser

@@ -92,6 +92,22 @@ func sameCookieHost(callbackBase, publicBaseURL string) error {
 	if err != nil {
 		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", publicBaseURL, err)
 	}
+	// A host is checked for BEFORE the two are compared, because `url.Parse`
+	// reads a scheme-less `crm.example.test:8080` as a path with an opaque
+	// scheme and reports no host at all. Two such values compare equal on ""
+	// and would walk straight through this gate into a redirect_uri no provider
+	// can resolve.
+	for _, base := range []struct {
+		flag string
+		url  *url.URL
+	}{{"--public-base-url", app}, {"--api-base-url", callback}} {
+		if base.url.Hostname() == "" {
+			return fmt.Errorf(
+				"api: auth.oidc needs an absolute %s — %q names no host, so no redirect_uri can be derived from it. "+
+					"Give it a scheme and host, as in https://crm.example.test",
+				base.flag, base.url.String())
+		}
+	}
 	if callback.Hostname() == app.Hostname() {
 		return nil
 	}

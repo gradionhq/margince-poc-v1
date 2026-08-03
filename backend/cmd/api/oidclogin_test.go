@@ -47,6 +47,33 @@ func TestFederatedSignInRefusesToBootAcrossHosts(t *testing.T) {
 	}
 }
 
+// A scheme-less value parses without error and reports NO host, so two of them
+// compare equal on "" and would slip through the same-host gate into a
+// redirect_uri no provider can resolve. The gate refuses the shape itself.
+func TestFederatedSignInRefusesABaseURLWithNoHost(t *testing.T) {
+	deployCfg := oidcTestConfig(t)
+
+	for _, tc := range []struct {
+		name      string
+		public    string
+		api       string
+		wantInErr string
+	}{
+		{"both bases scheme-less", "crm.example.test:8080", "crm.example.test:18080", "--public-base-url"},
+		{"only the api base scheme-less", "https://crm.example.test", "crm.example.test:18080", "--api-base-url"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := oidcLoginOptions(deployCfg, tc.public, tc.api, io.Discard)
+			if err == nil {
+				t.Fatal("a host-less base URL booted; the redirect_uri would name no host")
+			}
+			if !strings.Contains(err.Error(), tc.wantInErr) {
+				t.Errorf("error %q does not name the offending flag %q", err, tc.wantInErr)
+			}
+		})
+	}
+}
+
 func TestFederatedSignInNeedsAPublicBaseURL(t *testing.T) {
 	// The redirect target is derived from configuration, never from a request
 	// Host, so without a base there is nothing to register at the provider.

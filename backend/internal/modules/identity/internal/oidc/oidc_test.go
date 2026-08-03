@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -341,8 +342,29 @@ func TestVerifyIDTokenRefusesEveryUnprovenToken(t *testing.T) {
 			wantErr: ErrTokenInvalid,
 		},
 		{
+			// Decoded into []string a JSON null becomes "" with no error, so
+			// this token would otherwise clear every audience rule on the
+			// strength of its sibling member: `aud` names this client and `azp`
+			// authorizes it. The claim set is still malformed.
+			name:    "audience array holding a null beside this client",
+			claims:  map[string]any{"aud": []any{nil, testClientID}, "azp": testClientID},
+			wantErr: ErrTokenInvalid,
+		},
+		{
 			name:    "expired",
 			claims:  map[string]any{"exp": fixedNow.Add(-2 * time.Minute).Unix()},
+			wantErr: ErrTokenInvalid,
+		},
+		{
+			name:    "expiry no instant can hold",
+			claims:  map[string]any{"exp": -1e19},
+			wantErr: ErrTokenInvalid,
+		},
+		{
+			// Refused for being out of range, not for being stale: the
+			// conversion never runs. numericDate's own test pins that edge.
+			name:    "issued-at no instant can hold",
+			claims:  map[string]any{"iat": 1e19},
 			wantErr: ErrTokenInvalid,
 		},
 		{
@@ -814,6 +836,48 @@ func TestVerifyIDTokenAcceptsFractionalNumericDates(t *testing.T) {
 
 	if _, err := p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", testNonce); err != nil {
 		t.Fatalf("a token with fractional exp/iat was refused: %v", err)
+	}
+}
+
+// numericDate is total: every input either yields an instant that means what it
+// says, or is refused. The refusal matters because past the int64 range the
+// float conversion is unspecified and the time.Time it produces disagrees with
+// itself — time.Unix(math.MinInt64, 0) sorts before now yet prints as the year
+// 292277026596. No claim check should be reading a value like that.
+func TestNumericDateRefusesWhatNoInstantCanHold(t *testing.T) {
+	for _, seconds := range []float64{
+		math.MinInt64,                // the int64 edge, either side
+		math.MaxInt64,                //
+		-1e19,                        // past it
+		1e19,                         //
+		maxNumericDate * 1.000000001, // just outside the accepted band
+		math.NaN(),                   // no ordering at all
+		math.Inf(1),                  // no instant either
+		math.Inf(-1),                 //
+	} {
+		if _, ok := numericDate(seconds); ok {
+			t.Errorf("numericDate(%g) was accepted", seconds)
+		}
+	}
+
+	// And the ordinary range still converts, fraction included.
+	for _, tc := range []struct {
+		seconds float64
+		want    time.Time
+	}{
+		{0, time.Unix(0, 0)},
+		{1767225600, time.Unix(1767225600, 0)},
+		{1767225600.25, time.Unix(1767225600, 250_000_000)},
+		{-1767225600, time.Unix(-1767225600, 0)},
+	} {
+		got, ok := numericDate(tc.seconds)
+		if !ok {
+			t.Errorf("numericDate(%g) was refused", tc.seconds)
+			continue
+		}
+		if !got.Equal(tc.want) {
+			t.Errorf("numericDate(%g) = %v, want %v", tc.seconds, got, tc.want)
+		}
 	}
 }
 

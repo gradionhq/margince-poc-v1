@@ -181,13 +181,17 @@ func (p *Provider) validateProvenance(claims idTokenClaims) error {
 // recent enough to be THIS sign-in rather than a replayed old one.
 func (p *Provider) validateFreshness(claims idTokenClaims) error {
 	now := p.now()
-	if claims.ExpiresAt == 0 || !now.Add(-clockSkew).Before(numericDate(claims.ExpiresAt)) {
+	expiresAt, ok := numericDate(claims.ExpiresAt)
+	if claims.ExpiresAt == 0 || !ok || !now.Add(-clockSkew).Before(expiresAt) {
 		return fmt.Errorf("%w: token has expired", ErrTokenInvalid)
 	}
 	if claims.IssuedAt == 0 {
 		return fmt.Errorf("%w: token carries no issued-at", ErrTokenInvalid)
 	}
-	issuedAt := numericDate(claims.IssuedAt)
+	issuedAt, ok := numericDate(claims.IssuedAt)
+	if !ok {
+		return fmt.Errorf("%w: issued-at is not a usable timestamp", ErrTokenInvalid)
+	}
 	if issuedAt.After(now.Add(clockSkew)) {
 		return fmt.Errorf("%w: token is issued in the future", ErrTokenInvalid)
 	}
@@ -219,11 +223,24 @@ func validateSubjectBinding(claims idTokenClaims, expectedNonce string) error {
 	return nil
 }
 
+// maxNumericDate is the widest NumericDate this relying party will convert.
+// Past it the float→int64 conversion is implementation-defined (Go's spec says
+// the result is unspecified when the value does not fit), and the time.Time it
+// lands on is self-inconsistent — time.Unix(math.MinInt64, 0) sorts before now
+// but PRINTS as the year 292277026596. Nothing that decides an authentication
+// should rest on where an unspecified conversion happens to land, so the range
+// is a refusal instead. Roughly 1.4e11 years either side of the epoch: no
+// honest provider is within reach of it.
+const maxNumericDate = 1 << 62
+
 // numericDate converts a JWT NumericDate (seconds since the epoch, possibly
-// fractional) to an instant.
-func numericDate(seconds float64) time.Time {
+// fractional) to an instant, reporting false for a value no instant can hold.
+func numericDate(seconds float64) (time.Time, bool) {
+	if math.IsNaN(seconds) || math.Abs(seconds) > maxNumericDate {
+		return time.Time{}, false
+	}
 	whole, frac := math.Modf(seconds)
-	return time.Unix(int64(whole), int64(frac*float64(time.Second)))
+	return time.Unix(int64(whole), int64(frac*float64(time.Second))), true
 }
 
 // jwsPayload carries the two decoded halves the caller needs after the
@@ -269,9 +286,22 @@ func audienceList(raw json.RawMessage) ([]string, error) {
 	if err := json.Unmarshal(raw, &single); err == nil {
 		return []string{single}, nil
 	}
-	var many []string
-	if err := json.Unmarshal(raw, &many); err != nil || len(many) == 0 {
+	var members []json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil || len(members) == 0 {
 		return nil, fmt.Errorf("%w: audience is neither a string nor a non-empty array", ErrTokenInvalid)
 	}
-	return many, nil
+	// Each member is decoded through a POINTER, which is what separates a
+	// string from a JSON null: decoded straight into []string a null becomes ""
+	// with no error at all, so a malformed audience would pass unnoticed
+	// whenever the array also happened to name this client. The audience check
+	// must read exactly what the provider signed.
+	audiences := make([]string, 0, len(members))
+	for _, member := range members {
+		var value *string
+		if err := json.Unmarshal(member, &value); err != nil || value == nil {
+			return nil, fmt.Errorf("%w: audience array holds a member that is not a string", ErrTokenInvalid)
+		}
+		audiences = append(audiences, *value)
+	}
+	return audiences, nil
 }

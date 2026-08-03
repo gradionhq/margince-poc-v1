@@ -391,7 +391,12 @@ up)
     --public-base-url "http://localhost:${fe_port}"
     --api-base-url "http://localhost:${api_port}"
   )
-  if grep -Eq '^[[:space:]]*enabled:[[:space:]]*true' <(sed -n '/^auth:/,/^[a-z]/p' config/margince.yaml 2>/dev/null); then
+  # The probe is scoped to the auth.oidc block, not to auth: — `password.enabled:
+  # true` is the ordinary setting, and matching it would send a developer off to
+  # register a redirect URI for a provider the api never mounts.
+  oidc_block=$(sed -n '/^auth:/,/^[^[:space:]#]/p' config/margince.yaml 2>/dev/null |
+    sed -n '/^[[:space:]]\{2\}oidc:[[:space:]]*$/,/^[[:space:]]\{2\}[a-z_]*:/p')
+  if grep -Eq '^[[:space:]]+enabled:[[:space:]]*true([[:space:]]|$)' <<<"$oidc_block"; then
     echo "dev: federated sign-in configured — register this redirect URI at the provider: http://localhost:${api_port}/v1/auth/oidc/google/callback"
   fi
 

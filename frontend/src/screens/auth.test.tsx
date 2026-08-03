@@ -42,15 +42,22 @@ const render = (ui: ReactNode) => {
 // stubApi answers GET /auth/capabilities from `capabilities` and records
 // every other call for the test to assert on.
 //
-// `oidc_providers` defaults to [] — the running installation's own answer while
-// the OIDC flow has not shipped (§19), and what keeps every case below asserting
-// a surface with no federated block. A test that wants one passes it.
+// `oidc_providers` defaults to [] — the answer an installation with no
+// `auth.oidc` block serves, and what keeps every case below asserting a surface
+// with no federated block. A test that wants one passes it.
+//
+// "unreachable" makes the probe itself fail, which is the only way to reach the
+// state where `capabilities.data` stays undefined. Passing `password: true`
+// proves the explicit-true case instead, and the screen's rule is the weaker
+// `!== false`.
 function stubApi(
-  capabilities: {
-    password: boolean;
-    password_reset: boolean;
-    oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
-  },
+  capabilities:
+    | {
+        password: boolean;
+        password_reset: boolean;
+        oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
+      }
+    | "unreachable",
   respond: (request: Request) => Response | Promise<Response>,
   profile: Response = ok(200, {
     name: "Margince",
@@ -66,6 +73,12 @@ function stubApi(
     vi.fn(async (input: Request | string | URL) => {
       const request = input instanceof Request ? input : new Request(input);
       if (new URL(request.url).pathname.endsWith("/auth/capabilities")) {
+        if (capabilities === "unreachable") {
+          return ok(503, {
+            title: "Service unavailable",
+            detail: "the capability probe is down",
+          });
+        }
         return new Response(
           JSON.stringify({ oidc_providers: [], ...capabilities }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -724,12 +737,17 @@ describe("password-disabled installation", () => {
 
   // The honest default for a probe that has not answered yet, or failed: the
   // password form is the baseline method, and hiding it on a transient read
-  // would lock everyone out of a working installation.
-  it("keeps the password form when the capability is absent", async () => {
-    stubApi({ password: true, password_reset: false }, () => ok(200));
+  // would lock everyone out of a working installation. So the probe here FAILS
+  // — the screen never learns of a `password` capability at all, which is the
+  // state `!== false` exists for.
+  it("keeps the password form when the capability never answers", async () => {
+    stubApi("unreachable", () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
+    // findBy* polls, which is what carries the assertion past the query's one
+    // configured retry.
     expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
   });
 });
 
