@@ -99,7 +99,38 @@ func nameSimilarity(a, b string) float64 {
 // jaroWinkler applies the Winkler prefix boost unconditionally — the
 // pinned variant has no boost threshold, so a low-Jaro pair with a
 // shared prefix still gains (PO-PARAM-JW-1).
+// nameScoringMaxRunes bounds what the similarity metric compares.
+//
+// jaro is quadratic in the longer input — measured on this code, two 60 000-rune
+// names take a full second and the cost grows with the square — while
+// `display_name` is `text` with no maxLength in the contract, so one create can
+// hand it a megabyte. That scoring runs inside the writing transaction holding
+// the organization-name lock, so an unbounded score pins a pool connection and
+// every organization-name writer in the workspace behind it.
+//
+// The cap lives HERE and not in normalizeName, which looked like the tidier
+// place and is not: normalizeName also produces exact-match and grouping keys
+// (orgMatchKeys in linkedinimport.go, the promotion sweep's name buckets), and
+// truncating there would make two distinct names compare EQUAL as keys past the
+// bound — a match, not a capped score. Capping the metric changes only how
+// similar two things are said to be, which is all this bound is entitled to do.
+//
+// 256 runes is far past any real company or person name. A maxLength in the
+// contract is the complete answer and is raised upstream.
+const nameScoringMaxRunes = 256
+
+// boundedForScoring caps one side of a comparison. Two names that differ only
+// past the bound score as identical, which for names this long is the same
+// answer any metric would give.
+func boundedForScoring(s string) string {
+	if r := []rune(s); len(r) > nameScoringMaxRunes {
+		return string(r[:nameScoringMaxRunes])
+	}
+	return s
+}
+
 func jaroWinkler(a, b string) float64 {
+	a, b = boundedForScoring(a), boundedForScoring(b)
 	j := jaro(a, b)
 	if j == 0 {
 		return 0
