@@ -767,15 +767,32 @@ describe("ResetDataCard (danger zone)", () => {
     expect(screen.queryByText(/reset data/i)).toBeNull();
   });
 
-  it("hides Reset data from a non-admin even in a non-production posture", async () => {
+  it("hides Reset data from a rep even in a non-production posture", async () => {
     vi.stubGlobal(
       "fetch",
       resetDataBackend({ roles: ["rep"], nonProduction: true }),
     );
     render(<SettingsScreen tab="data" />);
-    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeFalsy);
-    // Data tab is org-only, so a rep falls back to Account — Reset data is
-    // never reachable regardless of posture.
+    // Data tab is org-only, so a rep falls back to Account — proven here by
+    // the identity card rendering instead of anything data-tab-shaped.
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    expect(screen.queryByText(/reset data/i)).toBeNull();
+  });
+
+  // The card is admin-ONLY (narrower than the "data" tab's own admin-OR-ops
+  // gate): the server's auth.RequireAdmin on /admin/reset-data admits only
+  // the literal "admin" role, so an ops user — who legitimately reaches the
+  // data tab and its other cards — must never see a Reset-data button that
+  // could only 403 on confirm.
+  it("reaches the data tab as ops but never sees Reset data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({ roles: ["ops"], nonProduction: true }),
+    );
+    render(<SettingsScreen tab="data" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy(),
+    );
     expect(screen.queryByText(/reset data/i)).toBeNull();
   });
 

@@ -674,12 +674,16 @@ function CustomFieldsLinkCard() {
 }
 
 // The danger-zone reset action: wipes a non-production installation back to
-// its first-boot state. Double-gated client-side — org-admin role AND the
+// its first-boot state. Double-gated client-side — the admin role AND the
 // server-driven `non_production` posture on /me (never VITE_UI_PREVIEW_RESET,
 // which is the unrelated password-reset link) — so the affordance is invisible
 // on a production install even to an admin; the server enforces both the
 // same way and 404s the endpoint outright in production regardless of what
-// this card renders. The organization's name is not carried on MeResponse, so
+// this card renders. This is admin-ONLY, narrower than the "data" tab's own
+// isOrgAdmin (admin OR ops) gate: the server's auth.RequireAdmin on
+// /admin/reset-data admits only the literal "admin" role (mirrors
+// users-admin.tsx's isAdmin check), so an ops user must never see a button
+// that can only 403. The organization's name is not carried on MeResponse, so
 // this never fetches or compares it client-side: the input just has to be
 // non-empty to enable the confirm button, and the server is the sole judge of
 // whether the typed text actually matches (a mismatch comes back as a 422,
@@ -687,7 +691,7 @@ function CustomFieldsLinkCard() {
 function ResetDataCard() {
   const t = useT();
   const me = useMe();
-  const isOrgAdmin = canConfigureAutomations(me.data?.roles);
+  const isAdmin = (me.data?.roles ?? []).includes("admin");
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState("");
   const queryClient = useQueryClient();
@@ -711,7 +715,7 @@ function ResetDataCard() {
     },
   });
 
-  if (!isOrgAdmin || !me.data?.non_production) {
+  if (!isAdmin || !me.data?.non_production) {
     return null;
   }
 
