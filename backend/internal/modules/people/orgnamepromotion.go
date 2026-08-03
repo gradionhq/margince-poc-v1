@@ -384,13 +384,11 @@ func (s *Store) PromoteOrgName(ctx context.Context, orgID ids.OrganizationID, na
 // inbox is the stronger source winning, which is the rule working, not a
 // failure to report.
 func (s *Store) PromoteOrgNameTx(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, name, corroboration string) (bool, error) {
-	// The name key comes before the row lock, the one order every path that
-	// takes both uses (UpdateOrganization says why): otherwise this sweep and
-	// a human's rename of the same company can each hold what the other wants.
-	// The proposed name is enough — the row's current name is a domain-derived
-	// provisional one this call is replacing, and locking it would only widen
-	// the key set for no extra protection.
-	if err := lockOrgNameIdentities(ctx, tx, name); err != nil {
+	// The name lock comes before the row lock, the one order every path that
+	// takes both uses (UpdateOrganization says why): otherwise
+	// this sweep and a human's rename of the same company can each hold what
+	// the other wants.
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
 		return false, err
 	}
 	var current, source string

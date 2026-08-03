@@ -291,6 +291,11 @@ func anchorOrganization(ctx context.Context, tx pgx.Tx, lock bool) (ids.Organiza
 // action and the event the caller emits. Creating and updating carry different
 // authority, so each arm gates on its own.
 func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by string) (ids.OrganizationID, bool, error) {
+	// The name lock precedes the row lock below, the one order every path
+	// holding both must use (UpdateOrganization says why).
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
+		return ids.OrganizationID{}, false, err
+	}
 	// The company is a single standing record, not an optimistically
 	// concurrent one: the form carries no version, so the row is LOCKED for
 	// the rest of the transaction instead. Two admins saving at once serialize
@@ -312,11 +317,21 @@ func resolveOrCreateAnchor(ctx context.Context, tx pgx.Tx, displayName, by strin
 	if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 		return ids.OrganizationID{}, false, err
 	}
-	if _, err := tx.Exec(ctx,
+	tag, err := tx.Exec(ctx,
 		`UPDATE organization SET display_name = $2, version = version + 1
 		 WHERE id = $1 AND display_name IS DISTINCT FROM $2`,
-		orgID, displayName); err != nil {
+		orgID, displayName)
+	if err != nil {
 		return ids.OrganizationID{}, false, fmt.Errorf("update company name: %w", err)
+	}
+	// Renaming the workspace's own company can walk it onto a record captured
+	// from its own mail, which is the same duplicate every other rename path
+	// files. The IS DISTINCT FROM above means a row was touched only when the
+	// name actually moved, so that is the signal to look.
+	if tag.RowsAffected() > 0 {
+		if err := recheckOrgNameForDuplicates(ctx, tx, orgID, by); err != nil {
+			return ids.OrganizationID{}, false, err
+		}
 	}
 	return orgID, false, nil
 }

@@ -205,8 +205,15 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err != nil {
 			return fmt.Errorf("read organization before update: %w", err)
 		}
-		if err := lockOrganizationNamesBeforeTheRow(ctx, tx, current, in); err != nil {
-			return err
+		// Only a rename needs the name lock, and only a rename should pay for
+		// it: the key is workspace-wide, so taking it for an owner change would
+		// serialize every organization write behind an edit that cannot create
+		// a duplicate. Taken here, ahead of the patch's row lock, per the
+		// ordering rule on lockOrgNameWrites.
+		if in.DisplayName != nil || in.LegalName != nil {
+			if err := lockOrgNameWrites(ctx, tx); err != nil {
+				return err
+			}
 		}
 		p, err := buildOrganizationPatch(ctx, tx, current, in)
 		if err != nil {
@@ -278,25 +285,6 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		return nil
 	})
 	return out, err
-}
-
-// lockOrganizationNamesBeforeTheRow takes the advisory name keys ahead of the
-// patch's row lock, which is the one order every path taking both must use.
-//
-// The cold-start path already takes them that way: its create-side dedupe locks
-// the name, then filling legal_name locks the row. A human renaming a company
-// while a dossier fills that company's legal name is two transactions wanting
-// the same two locks, and taking them in opposite orders deadlocks — Postgres
-// kills one, and the one it kills may be the human's edit.
-//
-// Both the current and the incoming names are locked: the edit moves the row
-// from one name neighbourhood to another, and a rival converging on either of
-// them is the race worth serializing.
-func lockOrganizationNamesBeforeTheRow(ctx context.Context, tx pgx.Tx,
-	current crmcontracts.Organization, in UpdateOrganizationInput,
-) error {
-	return lockOrgNameIdentities(ctx, tx,
-		current.DisplayName, deref(current.LegalName), deref(in.DisplayName), deref(in.LegalName))
 }
 
 // recheckRenamedOrganization asks whether an edited organization now resembles

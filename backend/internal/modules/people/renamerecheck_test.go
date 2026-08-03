@@ -6,122 +6,88 @@ package people
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
-// The lock key guards a tier that matches on SIMILARITY while an advisory lock
-// keys on EQUALITY, so it can only ever be an approximation. This table is the
-// inventory of that approximation: for every pair it states the score the fuzzy
-// tier gives and whether the two take one lock key, so a change to either the
-// key or the metric has to come here and say which pairs it moved.
-//
-// The `covered` column is the honest part. A pair that collides but is NOT
-// covered can race: both writers score no_match against each other and both
-// land with no candidate on the queue.
-func TestOrganizationNameLockKeyInventory(t *testing.T) {
-	cases := []struct {
+// The name shapes that put one company in a workspace twice, each pinned above
+// the review threshold. They are the premise the organization-name lock rests
+// on: if one stopped colliding, the lock would be serializing writers over a
+// pair the matcher no longer files.
+func TestNearDuplicateOrgNamesScoreAboveTheReviewThreshold(t *testing.T) {
+	pairs := []struct {
 		name        string
 		left, right string
-		sameKey     bool
-		collides    bool
 	}{
-		// Covered: the shapes that put one company in a workspace twice.
-		{"legal suffix stripped", "Baqend", "Baqend GmbH", true, true},
-		{"trailing qualifier", "Baqend", "Baqend Solutions", true, true},
-		{"word split inside the prefix", "Microsoft Corp", "Micro Soft Corp", true, true},
-		{"hyphenated qualifier", "Acme Ltd", "ACME-Group Ltd", true, true},
-		{"shared brand, different lines", "Deutsche Bahn", "Deutsche Post", true, true},
-
-		// Not covered, and each one is a pair that CAN race. Keying on the
-		// first token instead would reach the article case and lose the two
-		// prefix cases above, which score higher; the transposed case no point
-		// key reaches at all.
-		{"article splits at the fourth rune", "The Boring Company", "The Home Depot", false, true},
-		{"transposed words share no prefix", "IBM Deutschland", "Deutschland IBM", false, true},
-
-		// Correctly apart: unrelated names neither collide nor serialize.
-		{"unrelated names", "Baqend", "Zorbatron Heavy Industry", false, false},
+		{"legal suffix stripped", "Baqend", "Baqend GmbH"},
+		{"trailing qualifier", "Baqend", "Baqend Solutions"},
+		{"word split inside the prefix", "Microsoft Corp", "Micro Soft Corp"},
+		{"hyphenated qualifier", "Acme Ltd", "ACME-Group Ltd"},
+		{"shared brand, different lines", "Deutsche Bahn", "Deutsche Post"},
+		{"leading article", "The Boring Company", "The Home Depot"},
+		{"transposed words", "IBM Deutschland", "Deutschland IBM"},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			leftKey, rightKey := orgNameLockKey(tc.left), orgNameLockKey(tc.right)
-			if got := leftKey == rightKey; got != tc.sameKey {
-				t.Errorf("same lock key = %v (%q vs %q), want %v", got, leftKey, rightKey, tc.sameKey)
-			}
-			score := nameSimilarity(NormalizeOrgName(tc.left), NormalizeOrgName(tc.right))
-			if got := score >= dedupeReviewThreshold; got != tc.collides {
-				t.Errorf("score %.4f collides = %v, want %v", score, got, tc.collides)
+	for _, p := range pairs {
+		t.Run(p.name, func(t *testing.T) {
+			score := nameSimilarity(NormalizeOrgName(p.left), NormalizeOrgName(p.right))
+			if score < dedupeReviewThreshold {
+				t.Errorf("%q vs %q scores %.4f, below the %.2f threshold — this pair no longer needs serializing",
+					p.left, p.right, score, dedupeReviewThreshold)
 			}
 		})
 	}
-}
 
-// The key mirrors the metric's own prefix window. If one moves without the
-// other, every pair whose similarity rests on that window silently stops being
-// serialized — the failure this whole file exists to prevent, arriving through
-// a constant rather than through the key function.
-func TestOrganizationNameLockKeyTracksTheSimilarityPrefix(t *testing.T) {
-	key := orgNameLockKey("Internationale Handelsgesellschaft")
-	if len([]rune(key)) != jaroWinklerMaxPrefix {
-		t.Fatalf("key %q is %d runes, want jaroWinklerMaxPrefix (%d)", key, len([]rune(key)), jaroWinklerMaxPrefix)
+	// And the control: an unrelated pair must stay below, or the threshold is
+	// matching everything and the guard's cost buys nothing.
+	if score := nameSimilarity(NormalizeOrgName("Baqend"), NormalizeOrgName("Zorbatron Heavy Industry")); score >= dedupeReviewThreshold {
+		t.Errorf("unrelated names score %.4f, at or above the threshold", score)
 	}
 }
 
-// Separators are dropped rather than terminating the key, which is what puts
-// both halves of a split or hyphenated first word on one key.
-func TestOrganizationNameLockKeyIgnoresSeparators(t *testing.T) {
-	for _, name := range []string{"Micro Soft", "Micro-Soft", "M.I.C.R.O Soft", "  micro soft  "} {
-		if key := orgNameLockKey(name); key != "micr" {
-			t.Errorf("orgNameLockKey(%q) = %q, want %q", name, key, "micr")
-		}
-	}
-}
-
-// A name that normalizes to nothing takes NO lock: an empty key would serialize
-// every such writer against every other. A name that is only a legal form is
-// not that case — NormalizeOrgName strips a trailing suffix only when something
-// else remains, so "GmbH" is a name like any other and keeps its key.
-func TestOrganizationNameLockKeyOnDegenerateNames(t *testing.T) {
-	for _, name := range []string{"", "   ", "!!!", "- . -"} {
-		if key := orgNameLockKey(name); key != "" {
-			t.Errorf("orgNameLockKey(%q) = %q, want empty so it takes no lock", name, key)
-		}
-	}
-	if key := orgNameLockKey("GmbH"); key != "gmbh" {
-		t.Errorf("orgNameLockKey(%q) = %q, want %q", "GmbH", key, "gmbh")
-	}
-	// The wart this key inherits: a retained single token keeps its trailing
-	// punctuation in NormalizeOrgName, but stripping non-alphanumerics here
-	// means "Co" and "Co." still land on one key.
-	if a, b := orgNameLockKey("Co"), orgNameLockKey("Co."); a != b {
-		t.Errorf("orgNameLockKey(%q)=%q and orgNameLockKey(%q)=%q disagree", "Co", a, "Co.", b)
-	}
-}
-
-// lockOrgNameIdentities must not ask for an empty key, whatever it is handed.
-func TestLockOrgNameIdentitiesSkipsNamelessAxes(t *testing.T) {
-	var keys []string
-	for _, name := range []string{"", "   ", "Baqend GmbH"} {
-		if key := orgNameLockKey(name); key != "" {
-			keys = append(keys, key)
-		}
-	}
-	if got := strings.Join(keys, ","); got != "baqe" {
-		t.Errorf("keys = %q, want only the named axis", got)
-	}
-}
-
-// The similarity metric is quadratic in the length of the longer name and runs
-// inside the writing transaction while an advisory lock is held, so an
-// unbounded name would pin a pool connection and every writer sharing its lock
-// key. `display_name` is `text` with no length bound in the contract, so the
-// bound has to live in the metric.
+// The similarity metric is quadratic in the longer name and runs inside the
+// writing transaction while the organization-name lock is held, so an unbounded
+// name would pin a pool connection and every organization-name writer in the
+// workspace behind it. `display_name` is `text` with no maxLength in the
+// contract, so the bound lives in the metric.
 func TestNameScoringIsBoundedAgainstAnAbsurdName(t *testing.T) {
-	huge := "Acme " + strings.Repeat("x", 400_000)
-	if got := len([]rune(normalizeName(huge))); got > nameScoringMaxRunes {
-		t.Fatalf("normalized length = %d runes, want <= %d — scoring cost is quadratic in this", got, nameScoringMaxRunes)
+	left := "Acme " + strings.Repeat("x", 400_000)
+	right := "Acme " + strings.Repeat("y", 400_000)
+
+	start := time.Now()
+	score := nameSimilarity(normalizeName(left), normalizeName(right))
+	// Unbounded this pair is minutes of CPU; bounded it is microseconds. A
+	// second is a ceiling generous enough that a loaded machine cannot trip it
+	// and tight enough that losing the bound cannot pass.
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("scoring two 400k-rune names took %v — the quadratic bound is gone", elapsed)
 	}
-	// The bound must not reach a name anyone could really have: a long German
-	// company name still normalizes whole, ending in the token it ends with.
+	// The bound caps the work, not the contract: the answer is still a score.
+	if score < 0 || score > 1 {
+		t.Errorf("score = %v, want a value in [0,1]", score)
+	}
+}
+
+// The bound belongs to the metric alone. normalizeName also produces
+// exact-match and grouping keys, and truncating there would make two distinct
+// long names compare EQUAL as keys — a match rather than a capped score, which
+// is not a bound's business.
+func TestNormalizingANameDoesNotTruncateIt(t *testing.T) {
+	long := "Acme " + strings.Repeat("x", 400_000)
+	if got := len([]rune(normalizeName(long))); got < 400_000 {
+		t.Fatalf("normalizeName truncated to %d runes — keys derived from it would collide", got)
+	}
+	// Two names that differ only past the bound: one score, still two keys.
+	a := strings.Repeat("a", nameScoringMaxRunes) + "left"
+	b := strings.Repeat("a", nameScoringMaxRunes) + "right"
+	if score := nameSimilarity(a, b); score != 1 {
+		t.Errorf("score = %.4f, want 1.0 — past the bound the metric sees one name", score)
+	}
+	if normalizeName(a) == normalizeName(b) {
+		t.Error("the two names produced one key — the bound leaked out of the metric")
+	}
+}
+
+// A realistic name must never reach the bound at all.
+func TestAPlausibleNameIsFarInsideTheScoringBound(t *testing.T) {
 	plausible := "Internationale Handelsgesellschaft für Bauwesen und Anlagenbau GmbH & Co. KG"
 	normalized := normalizeName(plausible)
 	if len([]rune(normalized)) >= nameScoringMaxRunes {
@@ -129,6 +95,6 @@ func TestNameScoringIsBoundedAgainstAnAbsurdName(t *testing.T) {
 			len([]rune(normalized)), nameScoringMaxRunes)
 	}
 	if !strings.HasSuffix(normalized, "kg") {
-		t.Errorf("normalized %q lost its tail — the bound truncated a name it should not reach", normalized)
+		t.Errorf("normalized %q lost its tail", normalized)
 	}
 }
