@@ -6,10 +6,10 @@ package people
 // Retiring an account, and everything hanging off it.
 //
 // Archiving an organization is not one row: the domains it claims, the
-// relationship types it wears and the edges it sits on all have to retire with
-// it, or a dead account keeps answering the lists those tables feed. That is a
-// concept of its own, which is why it lives beside the CRUD rather than inside
-// it.
+// relationship types it wears, the partner program it is enrolled in and the
+// edges it sits on all have to retire with it, or a dead account keeps
+// answering the lists those tables feed. That is a concept of its own, which
+// is why it lives beside the CRUD rather than inside it.
 
 import (
 	"context"
@@ -69,11 +69,11 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM list_member WHERE entity_type = 'organization' AND entity_id = $1`, id); err != nil {
-			return err
+			return fmt.Errorf("drop the account's list memberships: %w", err)
 		}
 		if _, err := tx.Exec(ctx,
 			`DELETE FROM taggable WHERE entity_type = 'organization' AND entity_id = $1`, id); err != nil {
-			return err
+			return fmt.Errorf("drop the account's tags: %w", err)
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "archive", "organization", id.UUID, nil, nil)

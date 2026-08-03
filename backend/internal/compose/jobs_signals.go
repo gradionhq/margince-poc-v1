@@ -110,11 +110,11 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	// this pass raised: a crash between a signal and its offer self-heals here,
 	// and a signal raised before this surface existed still gets its offer.
 	//
-	// It runs even when the extractor failed, and for exactly that reason.
-	// Returning early on a model error left every open contract_ended signal
-	// in the workspace without its approval offer for as long as one
-	// conversation kept failing — the self-healing pass skipped by the failure
-	// it exists to recover from. Both errors are reported.
+	// It runs even when a producer above it failed, and for exactly that
+	// reason: it is the pass that reconciles offers for every open signal, so
+	// skipping it on a producer's error withholds approval offers from signals
+	// that are already standing. Every error is reported, none of them stop
+	// the reconcile.
 	standing, proposeErr := w.proposer.RunWorkspace(wsCtx)
 	if err := errors.Join(extractErr, proposeErr); err != nil {
 		return jobs.FaultContext(ctx, err)

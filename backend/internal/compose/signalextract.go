@@ -98,10 +98,10 @@ type extractedEvent struct {
 	Confidence schema.Confidence `json:"confidence"`
 }
 
-// Events is a POINTER so an absent key is distinguishable from an empty list.
-// "The conversation held nothing" is a real answer and advances the watermark;
-// a reply that never carried an `events` key at all did not answer, and
-// treating the two alike let a schema-invalid reply retire a thread unread.
+// Events is a POINTER so an absent key stays distinguishable from an empty
+// list. "The conversation held nothing" is a real answer and advances the
+// watermark; a reply carrying no `events` key did not answer at all, and only
+// the first of those may retire a thread.
 type extractPayload struct {
 	Events *[]extractedEvent `json:"events"`
 }
@@ -132,16 +132,27 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 	}
 
 	raised := 0
+	// One thread's failure is not the pass's. Returning on the first error left
+	// every conversation behind it unread, and dueThreads orders newest-first,
+	// so a thread that keeps failing keeps arriving at the head of the list and
+	// nothing after it is ever reached. Each thread is read on its own terms
+	// and the failures are reported together.
+	var failed []error
 	for _, thread := range due {
 		n, err := x.readThread(ctx, wsID, thread, now)
 		raised += n
 		if errors.Is(err, ai.ErrBudgetDeferred) {
+			// The budget is the WORKSPACE's, so this one does stop the pass:
+			// every thread behind it would buy the same refusal.
 			x.log.InfoContext(ctx, "signal extract: budget exhausted, stopping the pass", "raised", raised)
-			return raised, nil
+			return raised, errors.Join(failed...)
 		}
 		if err != nil {
-			return raised, fmt.Errorf("signal extract: reading a conversation: %w", err)
+			failed = append(failed, fmt.Errorf("reading conversation %q: %w", thread.Key, err))
 		}
+	}
+	if len(failed) > 0 {
+		return raised, fmt.Errorf("signal extract: %w", errors.Join(failed...))
 	}
 	return raised, nil
 }
@@ -164,8 +175,12 @@ func (x *SignalExtractor) readThread(
 		// moves this thread sits at the head of the due list and starves the
 		// ones behind it. So the reading is recorded as done, with nothing
 		// raised, and the operator is told which conversation it was.
+		// clampToken for the same reason validateExtractPayload uses it on every
+		// echoed token: this error can carry model output, the model read
+		// untrusted mail, and an operator log is not the place for either a
+		// correspondent's chosen volume or their private text.
 		x.log.WarnContext(ctx, "signal extract: refusing the model's reading, marking the thread read",
-			"thread_key", thread.Key, "error", err)
+			"thread_key", thread.Key, "error", clampToken(err.Error()))
 		if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
 			return markThreadScanned(ctx, tx, wsID, thread, now)
 		}); markErr != nil {
@@ -220,10 +235,14 @@ func (x *SignalExtractor) readThread(
 	return raised, nil
 }
 
-// errRefusedReading marks a reply this site will not act on: unparseable, or
-// failing the fidelity rules. It is TERMINAL for the thread — the same text
-// re-read next pass fails the same way — as opposed to a provider or budget
-// error, where the thread is owed a retry.
+// errRefusedReading marks a reply this site will not act on. It is TERMINAL
+// for the thread — the same text re-read next pass fails the same way — as
+// opposed to a provider or budget error, where the thread is owed a retry.
+//
+// It arrives two ways, and both are real: a brain that validates for us
+// (production) exhausts its retry policy and returns ai.ErrOutputRejected,
+// and a brain that does not leaves the parse and the fidelity rules below to
+// ask itself.
 var errRefusedReading = errors.New("signal extract: the model's reading was refused")
 
 // ask makes the one structured call that reads a conversation.
@@ -238,6 +257,13 @@ func (x *SignalExtractor) ask(ctx context.Context, thread settledThread) ([]extr
 		resp, err = x.brain.Complete(ctx, req)
 	}
 	if err != nil {
+		// The validator ran inside CompleteStructured and its policy is spent:
+		// three attempts, the last escalated, still refused. Re-reading the
+		// same conversation buys the same refusal, so it is this thread's
+		// answer rather than a provider's bad minute.
+		if errors.Is(err, ai.ErrOutputRejected) {
+			return nil, fmt.Errorf("%w: %w", errRefusedReading, err)
+		}
 		return nil, err
 	}
 	var payload extractPayload

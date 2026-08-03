@@ -355,11 +355,12 @@ func granted(ctx context.Context, object string) (bool, error) {
 // caller has no grant for.
 // facts and lifecycle are passed in rather than read here, because the page
 // already holds both and a 360 that re-read them would pay for the same rows
-// twice. They are REQUIRED parameters for the reason the dismissal path
-// exists: it once called this function without them, so a lifecycle_conflict
-// the page raised was never raised by the check that answers it, and the
-// dismissal silently stored nothing. A caller that forgets one now fails to
-// compile.
+// twice.
+//
+// They are REQUIRED parameters, not optional fill-in: every input the
+// contradiction rule reads must be supplied by every caller, or the page and
+// the dismissal that answers it judge different suggestions and a dismissal
+// stores nothing. Required, a caller that omits one does not compile.
 func gatherSuggestionInputs(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
 	facts signalFacts, lifecycle string,

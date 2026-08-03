@@ -48,7 +48,11 @@ func (c *Confidence) UnmarshalJSON(data []byte) error {
 	case string:
 		parsed, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		if err != nil {
-			return fmt.Errorf("confidence: %q is not a number", v)
+			// Bounded, because this value is MODEL output and a model that
+			// read untrusted text can be talked into echoing any amount of it.
+			// The error travels into operator logs and job rows; a score is
+			// short, so nothing legitimate is lost by saying so.
+			return fmt.Errorf("confidence: %q is not a number", clampScore(v))
 		}
 		f = parsed
 	default:
@@ -60,4 +64,16 @@ func (c *Confidence) UnmarshalJSON(data []byte) error {
 	}
 	*c = Confidence(f)
 	return nil
+}
+
+// scoreEcho is how much of a rejected value the error may quote. A confidence
+// is a handful of characters; anything longer is not a truncated score, it is
+// something else wearing the field's name.
+const scoreEcho = 32
+
+func clampScore(v string) string {
+	if len(v) <= scoreEcho {
+		return v
+	}
+	return v[:scoreEcho] + "…"
 }

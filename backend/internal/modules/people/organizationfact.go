@@ -227,6 +227,14 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 		return err
 	}
+	// BEFORE the row lock the image read takes, and before applyEvidenceFields
+	// would take it on its own: lockOrgNameWrites' ordering rule is that the
+	// workspace-wide name lock comes first, or a human rename holding it and
+	// waiting on this row deadlocks against this apply holding the row and
+	// waiting on the name. Reentrant, so the later take costs nothing.
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
+		return err
+	}
 	// The columns as they stand before the apply — see applyColdStartTx: the
 	// write reports only that it changed something, so the before image has to
 	// be read, or field history has no diff to project.

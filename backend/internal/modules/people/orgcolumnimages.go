@@ -30,9 +30,12 @@ func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 	// FOR UPDATE, and it is the audit that needs it: the before image and the
 	// apply that follows must describe ONE transaction's work. Read unlocked,
 	// a concurrent update landing between them lands inside this diff, and
-	// field history attributes somebody else's edit to this acceptance. The
-	// lock is taken on the organization row before any of its sidecar tables,
-	// the same parent-then-child order every other writer here uses.
+	// field history attributes somebody else's edit to this acceptance.
+	//
+	// CALLER OBLIGATION: hold lockOrgNameWrites before calling this. Every
+	// writer of an organization name takes that workspace-wide lock first and
+	// the row lock second (see its own doc); a caller that reaches this row
+	// lock without it inverts the pair and deadlocks against a human rename.
 	if err := tx.QueryRow(ctx,
 		`SELECT display_name, legal_name, industry, address_line1
 		   FROM organization WHERE id = $1 FOR UPDATE`,

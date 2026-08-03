@@ -47,9 +47,6 @@ var (
 		`^(?i:(ca|approx|approx\.|about|etwa|rund|über|ueber|mehr als|more than|~|>|<|>=|<=)\.?\s*)?` +
 			`\d[\d.,\s]*(\s*[-–—]\s*\d[\d.,\s]*)?\s*\+?` +
 			`(\s+\p{L}[\p{L}.]*)*$`)
-	// The German commercial-register shapes, named so a register number filed
-	// as a headcount is called what it is rather than passing on digits alone.
-	registerShaped = regexp.MustCompile(`^(?i:HR[AB]|VR|GnR|PR|St\.?-?Nr)\b`)
 )
 
 // phoneShaped is a value made only of phone punctuation AND carrying enough
@@ -99,16 +96,15 @@ func factSuspectReason(field crmcontracts.OrganizationFactField, value string) s
 	case crmcontracts.OrganizationFactFieldContactEmail:
 		// Shape only, not deliverability: one @, something either side of it,
 		// and a dot INSIDE the domain. Anything stricter starts rejecting real
-		// addresses; anything looser accepts "@." — which passed a plain
-		// contains-@-and-contains-. check and left the warning off.
+		// addresses; anything looser accepts "@." as one.
 		if !emailShaped(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonNotAnEmail)
 		}
 	case crmcontracts.OrganizationFactFieldEmployeeRange:
 		// A register number IS digits, so digits alone cannot separate them.
 		// What separates them is what the value LEADS with: a headcount leads
-		// with its number, a register number with its register.
-		if registerShaped.MatchString(v) || !sizeShaped.MatchString(v) {
+		// with its number or a qualifier, and "HRB 123456 B" leads with neither.
+		if !sizeShaped.MatchString(v) {
 			return string(crmcontracts.OrganizationFactSuspectReasonNotASize)
 		}
 	}

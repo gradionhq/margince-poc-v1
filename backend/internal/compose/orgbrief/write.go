@@ -288,7 +288,7 @@ func ParseBriefSections(reply, orgID string, in Input) ([]Section, error) {
 			if !allowed[nature] {
 				continue
 			}
-			if nature == natureRecommendation && recommendations == maxRecommendations {
+			if nature == natureRecommendation && recommendations >= maxRecommendations {
 				continue
 			}
 			sentence.Nature = nature
@@ -445,11 +445,18 @@ const (
 	natureRecommendation = string(crmcontracts.Recommendation)
 )
 
-// knownNature is the same three natures as a set, for the flat lane, which has
-// no section whose natureAllowed map would otherwise answer the question.
-var knownNature = map[string]bool{
-	natureFact: true, natureAssessment: true, natureRecommendation: true,
-}
+// knownNature is every nature ANY section may carry, derived from natureAllowed
+// so the two cannot drift. The flat lane needs it because it has no section
+// whose own allow-set would answer the question.
+var knownNature = func() map[string]bool {
+	all := map[string]bool{}
+	for _, allowed := range natureAllowed {
+		for nature := range allowed {
+			all[nature] = true
+		}
+	}
+	return all
+}()
 
 // Section is one part of the brief: a heading's worth of claims about one
 // question. The order they arrive in is the order a reader asks them.

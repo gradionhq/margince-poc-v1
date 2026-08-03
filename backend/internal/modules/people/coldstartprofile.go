@@ -103,6 +103,13 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 // just minted — all inside the caller's transaction.
 func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.OrganizationID, error) {
 	wsID := workspaceID(ctx)
+	// Taken here rather than left to the resolve step to take on the way past:
+	// this transaction goes on to lock the organization ROW (the image read),
+	// and lockOrgNameWrites' ordering rule puts the name lock first. Stated at
+	// the top, that safety does not depend on which branch the resolve takes.
+	if err := lockOrgNameWrites(ctx, tx); err != nil {
+		return ids.OrganizationID{}, err
+	}
 	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, host, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
