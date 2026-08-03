@@ -43,9 +43,15 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     "organization",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"owner_id":       {Expr: colOwnerID, Type: storekit.FieldID},
-			"industry":       {Expr: "t.industry", Type: storekit.FieldText},
-			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist},
+			"owner_id":  {Expr: colOwnerID, Type: storekit.FieldID},
+			"industry":  {Expr: "t.industry", Type: storekit.FieldText},
+			"size_band": {Expr: "t.size_band", Type: storekit.FieldPicklist},
+			"lifecycle": {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
+			// RETIRED with the column (ADR-0079/A124), and kept here for the one
+			// release it survives: a saved segment written against it must keep
+			// evaluating until its author has moved it to lifecycle. Dropping the
+			// field would turn every such list into an error at read time, which
+			// is a worse answer than a stale one.
 			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
 		},
 	},

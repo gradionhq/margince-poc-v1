@@ -1299,7 +1299,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
 });
 
 describe("CompanyScreen — the account pulse line (P-4)", () => {
-  it("leads with the score, who carries it, and how many contacts it beat", async () => {
+  it("names the way in and both directions, and shows no composite score", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -1326,21 +1326,22 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
             },
             last_interaction: "2026-06-20T12:00:00Z",
           },
+          last_inbound_at: "2026-06-20T12:00:00Z",
+          last_outbound_at: "2026-06-28T09:00:00Z",
         },
       },
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The contact, the count and the score all read off the one composite
-    // response — no second round trip for the header. The line leads with the
-    // person because that is what a rep acts on; the score follows, labelled,
-    // because a bare number scales to nothing.
-    await waitFor(() =>
-      expect(screen.getByText(/Strongest contact/)).toBeTruthy(),
-    );
-    expect(screen.getByText(/of 3 people here/)).toBeTruthy();
-    expect(screen.getByText(/relationship 41\/100/)).toBeTruthy();
-    expect(screen.getByText(/Last touch/)).toBeTruthy();
+    // The way in first, because that is what a rep acts on, then who wrote
+    // last in each direction.
+    await waitFor(() => expect(screen.getByText(/Way in/)).toBeTruthy());
+    expect(screen.getByText(/of 3 contacts here/)).toBeTruthy();
+    expect(screen.getByText(/They wrote/)).toBeTruthy();
+    expect(screen.getByText(/We wrote/)).toBeTruthy();
+    // The composite is gone: it was PO-F-3's MAX over contacts, so one
+    // talkative contact spoke for the account and "41/100" read as a verdict.
+    expect(screen.queryByText(/41\/100/)).toBeNull();
   });
 
   it("says there is no relationship rather than showing a zero", async () => {

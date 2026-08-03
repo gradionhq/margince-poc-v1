@@ -492,15 +492,17 @@ export const en = {
   "signal.kind.other": "Other",
   "record.profile": "Profile",
   "record.business": "Business",
-  "co.pulse.strongestLead": "Strongest contact",
-  "co.pulse.strengthTail.one":
-    "\u2014 the only one here (relationship {score}/100)",
-  "co.pulse.strengthTail.other":
-    "\u2014 of {count} people here (relationship {score}/100)",
-  "co.pulse.strengthExplain":
-    "Relationship strength, 0\u2013100: how much back-and-forth there has been with this account, taken from the contact with the most.",
+  "co.pulse.strongestLead": "Way in",
+  "co.pulse.strengthTail.one": "\u2014 the only contact here",
+  "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
   "co.pulse.noStrength": "No interactions logged yet",
-  "co.pulse.lastTouch": "Last touch {when}",
+  // Two timestamps, never folded into one "last touch": which side wrote
+  // last is the question. Mailed a fortnight ago with no reply, and wrote
+  // to us this morning, are the same date and opposite situations.
+  "co.pulse.lastInbound": "They wrote {when}",
+  "co.pulse.lastOutbound": "We wrote {when}",
+  "co.pulse.noInbound": "They have never written",
+  "co.pulse.noOutbound": "We have never written",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
   "co.owner.notInRoster": "Current owner (no longer in the user list)",
