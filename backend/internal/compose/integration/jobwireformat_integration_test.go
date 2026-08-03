@@ -8,12 +8,14 @@ package integration
 // What River's encoder actually writes into river_job.args, read back off a
 // real Postgres.
 //
-// The struct-tag gate over the args types reads tag TEXT and stops there. It
-// cannot see a marshaled row, and the per-workspace reads of the job table are
-// built later in this phase and will select `args->>'workspace_id'` rather than
-// the Go field — so a tag the gate approves and an encoder that ships some
-// other key would both read green while that query returned null for work a
-// tenant really did.
+// A per-workspace read of river_job selects `args->>'workspace_id'` — the
+// encoded row, not the decoded Go struct, which would agree with itself
+// whatever key the encoder chose. The struct-tag gate over the args types
+// reads tag TEXT and stops there, so a tag that gate approves and an encoder
+// that shipped some other key would BOTH read green while that query returned
+// null for work a tenant really did. No such read exists in the tree to catch
+// it, which is why the wire is asserted here directly rather than through a
+// consumer.
 //
 // The claim is a biconditional: a non-null workspace_id means tenant work, a
 // null means a dispatcher. A dispatcher therefore rides in the same batch. A
@@ -65,7 +67,7 @@ func workspaceKeysOnTheWire(ctx context.Context, t *testing.T, e *Env, highWater
 	return onWire
 }
 
-func TestRiverShipsTheWorkspaceUnderTheKeyThePerWorkspaceReadsSelect(t *testing.T) {
+func TestRiverEncodesTheWorkspaceArgAsWorkspaceIDAndOmitsItOnADispatcher(t *testing.T) {
 	e := Setup(t)
 	ApplyRiverSchema(t)
 	inserter, err := jobs.NewInserter(e.Pool, slog.New(slog.NewTextHandler(io.Discard, nil)))

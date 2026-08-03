@@ -105,32 +105,58 @@ func TestEveryWorkspaceScopedArgsSpellsItsWorkspaceKeyTheSameWay(t *testing.T) {
 }
 
 // assertWorkspaceArg checks one args struct carries its workspace under the
-// sanctioned name, type, and wire key.
+// sanctioned name, type, and wire key — and carries it exactly ONCE. Stopping
+// at the first field that looks right would miss the second field claiming the
+// same key, which is the one way a type can satisfy every per-field rule here
+// and still ship no workspace at all.
 func assertWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, structType *ast.StructType) {
 	t.Helper()
+	carriers, declared := 0, false
 	for _, field := range structType.Fields.List {
-		for _, name := range field.Names {
-			if name.Name != workspaceArgField {
-				continue
-			}
-			pos := fset.Position(field.Pos())
-			if got := types.ExprString(field.Type); got != workspaceArgType {
-				t.Errorf("%s:%d: %s.%s is %s, want %s — workspaceJobCtx binds one type.",
-					pos.Filename, pos.Line, typeName, workspaceArgField, got, workspaceArgType)
-			}
-			if field.Tag == nil {
-				t.Errorf("%s:%d: %s.%s carries no struct tag, want `json:%q` — an untagged field ships as %q and args->>'workspace_id' misses it.",
-					pos.Filename, pos.Line, typeName, workspaceArgField, workspaceArgKey, workspaceArgField)
-				return
-			}
-			if got := jsonKey(t, fset, typeName, field); got != workspaceArgKey {
-				t.Errorf("%s:%d: %s.%s ships as json:%q, want json:%q — a divergent key is invisible to args->>'workspace_id', and a null there reads as a dispatcher rather than as tenant work the query cannot see.",
-					pos.Filename, pos.Line, typeName, workspaceArgField, got, workspaceArgKey)
-			}
-			return
+		if jsonKey(t, fset, typeName, field) == workspaceArgKey {
+			carriers++
+		}
+		if !declaresName(field, workspaceArgField) {
+			continue
+		}
+		declared = true
+		pos := fset.Position(field.Pos())
+		if got := types.ExprString(field.Type); got != workspaceArgType {
+			t.Errorf("%s:%d: %s.%s is %s, want %s — workspaceJobCtx binds one type.",
+				pos.Filename, pos.Line, typeName, workspaceArgField, got, workspaceArgType)
+		}
+		if field.Tag == nil {
+			t.Errorf("%s:%d: %s.%s carries no struct tag, want `json:%q` — an untagged field ships as %q and args->>'workspace_id' misses it.",
+				pos.Filename, pos.Line, typeName, workspaceArgField, workspaceArgKey, workspaceArgField)
+			continue
+		}
+		if got := jsonKey(t, fset, typeName, field); got != workspaceArgKey {
+			t.Errorf("%s:%d: %s.%s ships as json:%q, want json:%q — a divergent key is invisible to args->>'workspace_id', and a null there reads as a dispatcher rather than as tenant work the query cannot see.",
+				pos.Filename, pos.Line, typeName, workspaceArgField, got, workspaceArgKey)
 		}
 	}
-	t.Errorf("%s declares WorkspaceID() but has no %s field — the accessor has to return something the wire carries.", typeName, workspaceArgField)
+
+	pos := fset.Position(structType.Pos())
+	if !declared {
+		t.Errorf("%s:%d: %s declares WorkspaceID() but declares no %s field — an embedded type does not count, because this gate reads declared fields; want `%s %s` tagged json:%q, since the accessor has to return something the wire carries.",
+			pos.Filename, pos.Line, typeName, workspaceArgField, workspaceArgField, workspaceArgType, workspaceArgKey)
+	}
+	if carriers > 1 {
+		t.Errorf("%s:%d: %s declares %d fields under json:%q, want exactly one — encoding/json drops ALL of a set of conflicting fields at the same depth, so this type would carry no workspace on the wire at all and args->>'workspace_id' would read null for work a tenant really did.",
+			pos.Filename, pos.Line, typeName, carriers, workspaceArgKey)
+	}
+}
+
+// declaresName reports whether a struct field is declared under the given name.
+// An embedded field has no names and so is never one — deliberately: this gate
+// reads the fields declared here and cannot see into another package's type.
+func declaresName(field *ast.Field, want string) bool {
+	for _, name := range field.Names {
+		if name.Name == want {
+			return true
+		}
+	}
+	return false
 }
 
 // assertNoWorkspaceArg holds the other half: a dispatcher does no tenant work,
@@ -153,8 +179,8 @@ func assertNoWorkspaceArg(t *testing.T, fset *token.FileSet, typeName string, st
 			continue
 		}
 		pos := fset.Position(field.Pos())
-		t.Errorf("%s:%d: %s is a dispatcher (it declares FleetWide()) but ships a json:%q key — a non-null workspace_id has to mean tenant work, or a per-workspace read of river_job counts a fan-out as a tenant's pass.",
-			pos.Filename, pos.Line, typeName, workspaceArgKey)
+		t.Errorf("%s:%d: %s is a dispatcher (it declares FleetWide()) but ships a json:%q key — a non-null workspace_id has to mean tenant work, or a per-workspace read of river_job counts a fan-out as a tenant's pass. If this job does one workspace's work, declare WorkspaceID() %s instead of FleetWide(); if it dispatches, the workspace belongs on the child jobs it enqueues, not on its own args.",
+			pos.Filename, pos.Line, typeName, workspaceArgKey, workspaceArgType)
 	}
 }
 
