@@ -161,9 +161,6 @@ func (t whoKnowsTool) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if err := requireID("person_id", args.PersonID); err != nil {
-		return nil, err
-	}
 	colleagues, err := t.list(ctx, args.PersonID)
 	if err != nil {
 		return nil, err
@@ -205,9 +202,6 @@ func (t accountCoverageTool) Handle(ctx context.Context, in json.RawMessage) (js
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if err := requireID("deal_id", args.DealID); err != nil {
-		return nil, err
-	}
 	answer, err := t.read(ctx, args.DealID)
 	if err != nil {
 		return nil, err
@@ -236,9 +230,6 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 		OrganizationID ids.UUID `json:"organization_id"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	if err := requireID("organization_id", args.OrganizationID); err != nil {
 		return nil, err
 	}
 	routes, truncated, err := t.list(ctx, args.OrganizationID)

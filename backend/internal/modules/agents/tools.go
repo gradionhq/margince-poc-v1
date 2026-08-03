@@ -74,29 +74,16 @@ type FieldOwnership interface {
 
 // decodeArgs is the surface's input validation: strict JSON (unknown
 // argument names are errors, not silent drops).
+//
+// It does NOT settle whether a required uuid argument was supplied: `ids.UUID`
+// zero-values an absent key without erroring, so that claim is made once for the
+// whole surface at Registry.Invoke (requireDeclaredIDs) rather than in each
+// handler — which is how thirteen handlers came to miss it.
 func decodeArgs[T any](in json.RawMessage, into *T) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {
 		return &BadArgsError{Cause: err}
-	}
-	return nil
-}
-
-// requireID refuses an id argument the decoder accepted but that names no
-// record.
-//
-// `ids.UUID` refuses a malformed value inside decodeArgs, which is why every
-// id argument on this surface is declared as one rather than parsed by hand —
-// a hand-rolled ids.Parse returns an error no fault interface classifies, and
-// the agent is told the tool failed internally for what is its own typo. What
-// the type cannot refuse is an ABSENT key: it zero-values, silently, so
-// "required" in a schema is a claim only this check makes true. Left
-// unchecked, the zero UUID travels down to a store lookup that matches
-// nothing and answers a bare not-found naming no argument.
-func requireID(field string, id ids.UUID) error {
-	if id.IsZero() {
-		return &BadArgsError{Cause: fmt.Errorf("`%s` is required and must be a canonical UUID", field)}
 	}
 	return nil
 }

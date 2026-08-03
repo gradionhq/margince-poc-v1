@@ -298,9 +298,9 @@ func TestARequiredIDMustBePresentNotZero(t *testing.T) {
 	// argument — which is how create_record's deal and project cases became
 	// unusable, and the same shape on every other tool that takes an id.
 	//
-	// Derived from each tool's own `required` array, not a list kept here: the
-	// first version of this walk hardcoded the three tools under review and so
-	// certified a dozen it had never looked at — thirteen of which were defective.
+	// Derived from each tool's own `required` array, not a list kept here. A walk
+	// that derives its field names but hand-lists its subjects certifies every
+	// subject it never looked at.
 	//
 	// Probed through Registry.Invoke, which is where the enforcement lives and
 	// the only path to a Handle in this package. Not through the handler: a

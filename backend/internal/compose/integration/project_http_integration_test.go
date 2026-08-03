@@ -267,12 +267,10 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 	// that was NAMED and cannot be seen is a 404 because existence is hidden,
 	// not reported.
 	//
-	// The two organization cases are the distinction that matters. Omitting
-	// organization_id used to answer 404: the zero UUID travelled to
-	// EnsureLinkTarget and came back as "no such company" for a company the
-	// caller never named — unactionable, and it is what made create_record
-	// unusable for a project over MCP. Existence-hiding exists to protect a row
-	// the caller pointed at; there is no row to protect when no id was supplied.
+	// The two organization cases are the distinction that matters, and it is not
+	// cosmetic: existence-hiding protects a row the caller POINTED AT, and there is
+	// no row to protect when no id was supplied. Answering 404 to an omitted id
+	// sends the caller looking for a company it never named.
 	for name, tc := range map[string]struct {
 		body anyMap
 		want int

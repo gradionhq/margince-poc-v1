@@ -102,10 +102,17 @@ func (r *Registry) Register(t mcp.Tool) {
 }
 
 // idArgSpec is what a tool's schema says about its uuid arguments: every one it
-// declares, and which of them it declares required.
+// declares, which of them it declares required, and the same for the uuids
+// declared inside an array property's items.
 type idArgSpec struct {
 	all      []string
 	required map[string]bool
+	// itemRequired[property] is the uuid members an ITEM of that array must carry.
+	// An absent array is a legal call, so these bind only to items that are
+	// present — but a present item owes its own `required`, and an unenforced one
+	// sends a zero uuid to a link-target check that answers a bare not-found for a
+	// record the caller never named.
+	itemRequired map[string][]string
 }
 
 // declaredIDArgs reads a schema's uuid arguments once, at registration.
@@ -118,17 +125,37 @@ func declaredIDArgs(inputSchema json.RawMessage) idArgSpec {
 		Required   []string `json:"required"`
 		Properties map[string]struct {
 			Format string `json:"format"`
+			Items  struct {
+				Required   []string `json:"required"`
+				Properties map[string]struct {
+					Format string `json:"format"`
+				} `json:"properties"`
+			} `json:"items"`
 		} `json:"properties"`
 	}
-	// Unmarshal cannot fail: Register ran assertObjectSchemas first.
+	// assertObjectSchemas has already confirmed this is valid JSON declaring an
+	// object, but it decodes only `type` — a schema whose `required` is not an
+	// array, or whose `properties` is not a map, gets here and fails. That is a
+	// schema defect in whatever registered it (an extension tool, most likely), so
+	// it is named as one: this runs while cmd wiring boots, never on a request.
 	if err := json.Unmarshal(inputSchema, &schema); err != nil {
-		//craft:ignore panic-in-domain composition-time assertion — assertObjectSchemas already parsed this schema
-		panic("crmagents: schema parsed at registration no longer parses: " + err.Error())
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: input schema declares an unreadable `required`/`properties`: " + err.Error())
 	}
-	spec := idArgSpec{required: map[string]bool{}}
+	spec := idArgSpec{required: map[string]bool{}, itemRequired: map[string][]string{}}
 	for name, prop := range schema.Properties {
 		if prop.Format == "uuid" {
 			spec.all = append(spec.all, name)
+		}
+		var itemIDs []string
+		for _, member := range prop.Items.Required {
+			if prop.Items.Properties[member].Format == "uuid" {
+				itemIDs = append(itemIDs, member)
+			}
+		}
+		if len(itemIDs) > 0 {
+			sort.Strings(itemIDs)
+			spec.itemRequired[name] = itemIDs
 		}
 	}
 	sort.Strings(spec.all)
@@ -148,8 +175,8 @@ func declaredIDArgs(inputSchema json.RawMessage) idArgSpec {
 // value inside decodeArgs but zero-values an ABSENT key without any error, so the
 // handler receives a well-formed id that names nothing, reaches a store lookup,
 // matches no row — and the caller is told a record it never mentioned does not
-// exist. Thirteen tools carried that defect at once, which is what a chokepoint
-// is for.
+// exist. One spelling for the whole surface, because a per-handler habit is a
+// habit every new handler can skip.
 //
 // It also names WHICH id is malformed, which the handler cannot: encoding/json
 // discards the field path when a value's own UnmarshalText fails, so decodeArgs
@@ -160,11 +187,15 @@ func declaredIDArgs(inputSchema json.RawMessage) idArgSpec {
 // Every missing required id is collected before answering. Reporting them one per
 // round trip is accurate and still wasteful — an agent spends a call per field to
 // learn what one refusal could have told it.
+// The lookup key is the REGISTRY key the caller resolved the tool by, not
+// spec.Name. They are equal today; keying on the spec would make a tool whose
+// Spec() returned a different name silently unguarded, which is the wrong way for
+// a surface-wide check to fail.
 func (r *Registry) requireDeclaredIDs(name string, args json.RawMessage) error {
 	r.mu.RLock()
 	spec := r.idArgs[name]
 	r.mu.RUnlock()
-	if len(spec.all) == 0 {
+	if len(spec.all) == 0 && len(spec.itemRequired) == 0 {
 		return nil
 	}
 	var present map[string]json.RawMessage
@@ -194,6 +225,38 @@ func (r *Registry) requireDeclaredIDs(name string, args json.RawMessage) error {
 	if len(missing) > 0 {
 		return &BadArgsError{Cause: fmt.Errorf("%s %s required",
 			strings.Join(missing, ", "), plural(len(missing), "is", "are"))}
+	}
+	return requireItemIDs(spec, present)
+}
+
+// requireItemIDs holds each present array item to its own `required` uuids.
+// `log_activity` with links:[{"entity_type":"deal"}] used to send the zero uuid
+// to the link-target check, which answers a bare not-found — the D1 symptom one
+// level down from the top-level arguments.
+func requireItemIDs(spec idArgSpec, present map[string]json.RawMessage) error {
+	for property, members := range spec.itemRequired {
+		raw, supplied := present[property]
+		if !supplied {
+			continue
+		}
+		var items []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &items); err != nil {
+			// Not an array of objects; decodeArgs refuses the shape in the
+			// handler's own terms.
+			continue
+		}
+		for i, item := range items {
+			for _, member := range members {
+				var id ids.UUID
+				value, has := item[member]
+				if has && json.Unmarshal(value, &id) != nil {
+					return &BadArgsError{Cause: fmt.Errorf("`%s[%d].%s` is not a canonical UUID", property, i, member)}
+				}
+				if id.IsZero() {
+					return &BadArgsError{Cause: fmt.Errorf("`%s[%d].%s` is required", property, i, member)}
+				}
+			}
+		}
 	}
 	return nil
 }
@@ -225,21 +288,19 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return nil, err
 	}
 
-	// A TierDynamic tool decides its own tier by READING the record an argument
-	// names, so for those the arguments have to be sound before authority can be
-	// decided at all — a zero deal_id would otherwise reach the stage lookup and
-	// come back as a bare not-found from inside the gate, where no argument check
-	// downstream can reach it. Admit calls resolve after scope and seat, so this
-	// still runs behind the authority checks that do not depend on arguments.
 	resolve := func() (mcp.TierResolverInput, error) {
-		if err := r.requireDeclaredIDs(spec.Name, args); err != nil {
-			return mcp.TierResolverInput{}, err
-		}
 		return mcp.TierResolverInput{Args: args}, nil
 	}
 	if dyn, ok := t.(dynamicTool); ok {
+		// The id check runs HERE, and only for a dynamic tool, because a dynamic
+		// tool decides its own tier by READING the record an argument names: a zero
+		// deal_id would reach the stage lookup and come back as a bare not-found
+		// from inside the gate, where no downstream check can reach it. Admit calls
+		// resolve after scope and seat, so this still sits behind the authority
+		// checks that do not depend on arguments. Static-tier tools are covered by
+		// the call after Admit — Admit never invokes resolve for them.
 		resolve = func() (mcp.TierResolverInput, error) {
-			if err := r.requireDeclaredIDs(spec.Name, args); err != nil {
+			if err := r.requireDeclaredIDs(name, args); err != nil {
 				return mcp.TierResolverInput{}, err
 			}
 			return dyn.ResolverInput(ctx, args)
@@ -247,14 +308,13 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	}
 
 	admitted, err := r.gate.Admit(ctx, spec, resolve)
-	// The same check again for every tool whose tier is STATIC, because Admit
-	// never calls the resolver for those. Placed after authority and before
-	// staging, and both halves matter: a caller the gate turns away learns
+	// Static-tier tools, whose resolver Admit never runs. After authority and
+	// before staging, and both halves matter: a caller the gate turns away learns
 	// nothing about arguments, while a caller it would send to the approval queue
-	// is told about its own missing id first — staging an unrunnable call spends
-	// a human's yes on something that was never going to happen.
+	// is told about its own missing id first — staging an unrunnable call spends a
+	// human's yes on something that was never going to happen.
 	if err == nil || errors.Is(err, apperrors.ErrRequiresApproval) {
-		if idErr := r.requireDeclaredIDs(spec.Name, args); idErr != nil {
+		if idErr := r.requireDeclaredIDs(name, args); idErr != nil {
 			return nil, idErr
 		}
 	}

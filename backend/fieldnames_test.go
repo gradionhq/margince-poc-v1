@@ -140,6 +140,13 @@ func TestAPublishedFieldNameIsAFieldNameNotProse(t *testing.T) {
 			for _, elt := range lit.Elts {
 				kv, ok := elt.(*ast.KeyValueExpr)
 				if !ok {
+					// A POSITIONAL literal (`&RequiredFieldError{"prose"}`) carries no
+					// key to match, so a keyed-only walk skips it entirely and reads
+					// green. Judge its first string operand instead.
+					if text, isLiteral := stringLiteralPrefix(elt); isLiteral {
+						checked++
+						reportIfProse(t, pf.path, name.Name, text)
+					}
 					continue
 				}
 				if key, ok := kv.Key.(*ast.Ident); !ok || key.Name != "Field" {
@@ -153,21 +160,60 @@ func TestAPublishedFieldNameIsAFieldNameNotProse(t *testing.T) {
 					continue
 				}
 				checked++
-				if !wireFieldName.MatchString(text) {
-					t.Errorf("%s: %s{Field: %q} — that is prose in the field slot, and both surfaces "+
-						"publish it as the machine-readable field name (REST details.errors[].field, and "+
-						"the MCP dispatcher's `<field>=<code>`). Put the explanation in the message and "+
-						"leave a contract field path here — or, if no single argument is the wrong one, "+
-						"implement MessageFault instead, which publishes no field.",
-						pf.path, name.Name, text)
-				}
+				reportIfProse(t, pf.path, name.Name, text)
 			}
 			return true
 		})
 	}
-	if checked == 0 {
-		t.Fatal("no Field literal found on any FieldFault type — the walk proved nothing")
+	// The field name does not have to live in a struct member at all: a type may
+	// return it as a literal straight out of its FieldFault method, which is the
+	// shape this diff itself adopted for RelationshipDatesError. A walk that read
+	// only composite literals could not see those.
+	for _, pf := range files {
+		for _, decl := range pf.file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || !fieldFaultMethods[fn.Name.Name] || fn.Body == nil {
+				continue
+			}
+			for _, name := range returnedFieldNames(fn.Body) {
+				checked++
+				reportIfProse(t, pf.path, receiverTypeName(fn)+"."+fn.Name.Name, name)
+			}
+		}
 	}
+	if checked == 0 {
+		t.Fatal("no field name found on any FieldFault type — the walk proved nothing")
+	}
+}
+
+// reportIfProse fails when text is not a contract field path.
+func reportIfProse(t *testing.T, path, where, text string) {
+	t.Helper()
+	if wireFieldName.MatchString(text) {
+		return
+	}
+	t.Errorf("%s: %s publishes field %q — that is prose in the field slot, and both surfaces "+
+		"publish it as the machine-readable field name (REST details.errors[].field, and the MCP "+
+		"dispatcher's `<field>=<code>`). Put the explanation in the message and leave a contract "+
+		"field path here — or, if no single argument is the wrong one, implement MessageFault "+
+		"instead, which publishes no field.", path, where, text)
+}
+
+// returnedFieldNames collects the literal first return value of every `return`
+// in a FieldFault body — the field position of `(field, code, message)`.
+func returnedFieldNames(body *ast.BlockStmt) []string {
+	var out []string
+	ast.Inspect(body, func(n ast.Node) bool {
+		ret, ok := n.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) == 0 {
+			return true
+		}
+		if text, isLiteral := stringLiteralPrefix(ret.Results[0]); isLiteral {
+			out = append(out, text)
+		}
+		return true
+	})
+	return out
 }
 
 // stringLiteralPrefix returns the literal text of a string expression, or the

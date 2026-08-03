@@ -32,7 +32,7 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 
 	outcome, err := h.engine.Run(r.Context(), report, req)
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 
@@ -65,12 +65,12 @@ func (h reportHandlers) RunReport(w http.ResponseWriter, r *http.Request, report
 func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, report string, _ crmcontracts.ExplainReportParams) {
 	q, err := parseDerivationQuery(r.URL.Query())
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 	outcome, err := h.engine.Derive(r.Context(), report, q)
 	if err != nil {
-		writeReportError(w, r, err)
+		httperr.Write(w, r, err)
 		return
 	}
 	rows := make([]map[string]interface{}, len(outcome.Rows))
@@ -85,21 +85,4 @@ func (h reportHandlers) ExplainReport(w http.ResponseWriter, r *http.Request, re
 		TotalRows:   &outcome.TotalRows,
 		GeneratedAt: &outcome.GeneratedAt,
 	})
-}
-
-// writeReportError hands the engine's errors to the ONE taxonomy.
-//
-// It used to carry its own errors.As branch for FieldNotAllowedError, rendering
-// the contract's top-level 422 (report_field_not_allowed) inline. That branch is
-// gone now that the error carries the verdict itself: two spellings of one
-// refusal is how the surfaces came to disagree in the first place — the MCP path
-// never runs this helper, so it answered an unclassified internal fault while
-// REST answered a clean 422. Classify produces the same status and the same code
-// for both, and the type's own message adds what to do about it.
-//
-// The dropped `details.field` was never contract-declared: crm.yaml pins only
-// `422 code: report_field_not_allowed`, and the rejected token is quoted in the
-// detail, which is what locates it.
-func writeReportError(w http.ResponseWriter, r *http.Request, err error) {
-	httperr.Write(w, r, err)
 }

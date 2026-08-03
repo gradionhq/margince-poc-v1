@@ -168,7 +168,11 @@ type FXRateUnavailableError struct {
 	AsOf     time.Time
 }
 
-func (e FXRateUnavailableError) Error() string {
+// Pointer receiver, matching MessageFault below. With a value receiver on one and
+// a pointer on the other, a `return FXRateUnavailableError{…}` without the & would
+// compile, satisfy error, and be missed by every errors.As in the tree — turning a
+// governed 422 into an opaque 500.
+func (e *FXRateUnavailableError) Error() string {
 	return fmt.Sprintf("no stored FX rate for %s as of %s; record today's rate for %s before retrying the rollup",
 		e.Currency, e.AsOf.Format(time.DateOnly), e.Currency)
 }

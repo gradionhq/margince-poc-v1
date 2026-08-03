@@ -18,10 +18,16 @@ package deals
 // SoR provider (the MCP door) both decode the same crm.yaml shapes through these
 // functions, so one check here answers both surfaces.
 //
-// The obligation is DERIVED from the contract type — every non-pointer
-// openapi_types.UUID field it declares — so a required id added to either body
-// upstream fails here until the mapping validates it, instead of shipping as
-// another unusable verb.
+// Scope, stated exactly, because the first version of this file claimed more than
+// it delivered: the FIELDS are derived from each contract type, but the two types
+// are named here by hand. So a required id added to either body upstream fails
+// here until the mapping validates it — and a required id on any OTHER contract
+// body is not covered.
+//
+// That gap is real and it is enumerated rather than hidden:
+// backend/requiredbodyids_test.go walks internal/contracts for every request body
+// carrying a required non-pointer UUID and requires each to be either probed here
+// or named as a known gap with a reason. A new one fails, so the list only shrinks.
 
 import (
 	"encoding/json"

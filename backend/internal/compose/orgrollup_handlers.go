@@ -46,11 +46,10 @@ func (h orgRollupHandlers) GetOrganizationHierarchyRollup(w http.ResponseWriter,
 
 	result, err := OrgHierarchyRollup(r.Context(), h.pool, ids.UUID(id), scope, h.now)
 	if err != nil {
-		// This branch survives its MessageFault twin only because it adds
-		// machine-readable details the fault cannot carry. The Detail is the
-		// error's OWN text, not a re-worded copy: the hand-written version here
-		// dropped the "record today's rate" clause, so REST told a caller less
-		// about the same condition than MCP did.
+		// This branch survives its MessageFault twin only because it adds the
+		// machine-readable details a fault cannot carry. Detail is the error's OWN
+		// text, never a re-worded copy — that is what keeps both surfaces saying
+		// the same thing about the same condition.
 		var fxErr *FXRateUnavailableError
 		if errors.As(err, &fxErr) {
 			asOf := fxErr.AsOf.Format(time.DateOnly)

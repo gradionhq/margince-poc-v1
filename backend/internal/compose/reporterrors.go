@@ -39,7 +39,14 @@ func (e *EmptyReportPlanError) Error() string {
 	return "report: this plan selects nothing"
 }
 
+// MessageFault reuses report_field_not_allowed rather than minting a code.
+//
+// crm.yaml declares exactly one 422 code for this response, and inventing a
+// second in the build would put an undocumented code in front of a client that
+// branches on the documented one (P3: the contract wins). The MESSAGE is what
+// distinguishes the two conditions, and it is the half a caller acts on. A
+// dedicated `report_empty_plan` belongs in an upstream contract change.
 func (e *EmptyReportPlanError) MessageFault() (code, message string) {
-	return "report_empty_plan",
+	return "report_field_not_allowed",
 		e.Error() + " — name at least one `group_by` dimension or one entry in `aggregates`"
 }

@@ -445,11 +445,9 @@ func writeExtractionAcceptErr(w http.ResponseWriter, r *http.Request, err error)
 		httperr.Write(w, r, detail)
 		return
 	}
-	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own
-	// verdicts (MessageFault / FieldFault), so httperr.Classify renders both at
-	// the fallthrough below with the same status, code and detail these branches
-	// used to spell by hand. Two spellings of one refusal is how the surfaces came
-	// to disagree in the first place.
+	// UnsupportedEntityTypeError and ExtractionAcceptError carry their own verdicts
+	// (MessageFault / FieldFault), so the fallthrough below renders them. Do not
+	// re-spell either here: two spellings of one refusal is how the surfaces drift.
 	var amountPair *deals.AmountCurrencyPairError
 	if errors.As(err, &amountPair) {
 		httperr.Write(w, r, httperr.Validation(acceptFieldCurrency, "amount_currency_pair", amountPair.Error()))
