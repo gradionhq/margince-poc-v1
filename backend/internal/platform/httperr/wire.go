@@ -42,7 +42,12 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 				Code: "body_too_large", Detail: "request body exceeds the 1 MiB cap"})
 			return false
 		}
-		Write(w, r, Validation("body", "malformed_json", err.Error()))
+		// A read that failed mid-body is a transport fact — timed-out sockets
+		// carry host and port — so the caller is told what to do about it and
+		// the operator's half stays in the log.
+		slog.WarnContext(r.Context(), "reading request body", "method", r.Method, "path", r.URL.Path, "err", err)
+		Write(w, r, Validation("body", "malformed_json",
+			"the request body could not be read to the end; resend the request with a complete body"))
 		return false
 	}
 	// A field key that only case-folds onto a contract field (or is
@@ -55,7 +60,7 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if err := dec.Decode(into); err != nil {
-		Write(w, r, Validation("body", "malformed_json", err.Error()))
+		Write(w, r, bodyDecodeRefusal(r, err))
 		return false
 	}
 	if dec.More() {
@@ -63,6 +68,21 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	return true
+}
+
+// bodyDecodeRefusal is the 422 for a body the decoder rejected. Everything
+// reaching it came from encoding/json filling a contract struct — unknown keys
+// were already refused above — so a shape RestateDecodeError cannot name is
+// decoder internals: the caller gets a sentence that says what to check, and
+// the decoder's own words go to the log rather than nowhere.
+func bodyDecodeRefusal(r *http.Request, err error) error {
+	restated := RestateDecodeError(err)
+	if restated == nil {
+		slog.WarnContext(r.Context(), "unnamed request-body decode failure",
+			"method", r.Method, "path", r.URL.Path, "err", err)
+		return Validation("body", "malformed_json", genericDecodeDetail)
+	}
+	return Validation("body", "malformed_json", restated.Error())
 }
 
 // WriteJSON writes a JSON response with the given status.

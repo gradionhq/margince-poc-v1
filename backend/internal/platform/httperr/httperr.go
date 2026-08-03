@@ -113,14 +113,13 @@ func clientInputValidation(err error) (error, bool) {
 	// that true for HTTP rather than letting it fall through to the 500 a
 	// pure client mistake must never answer with.
 	//
-	// The cause names which field and why, matching what httperr.Decode
-	// already puts on the wire for the same class from the native path; the
-	// sentence after it is what the caller should DO, which a decoder message
-	// on its own never says.
+	// The detail names which field and why through the SAME restatement the
+	// native body decode uses, so both paths say one thing about one mistake,
+	// and it ends with what the caller should DO — which a decoder message on
+	// its own never says.
 	var badFields *datasource.FieldDecodeError
 	if errors.As(err, &badFields) {
-		return Validation("fields", "invalid_field",
-			badFields.Cause.Error()+" — check the field names and value types against this operation's request schema"), true
+		return Validation("fields", "invalid_field", fieldDecodeDetail(badFields.Cause)), true
 	}
 
 	// An entity_type no provider on this installation serves. Same obligation

@@ -14,8 +14,10 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -94,6 +96,43 @@ func TestALongUnknownKeyDoesNotEatTheAcceptedFieldList(t *testing.T) {
 	last := accepted[len(accepted)-1]
 	if !strings.Contains(message, last) {
 		t.Errorf("the accepted-field list is cut short — %q is missing from %q", last, message)
+	}
+}
+
+// A refused call is read by a model, which can act on the argument name and the
+// shape it wanted and on nothing else. The Go struct decodeArgs was filling is
+// both unactionable and none of an agent's business — while the decoder's
+// unknown-field refusal quotes the caller's OWN key, which is the most
+// actionable thing this surface ever says, so it travels unchanged.
+func TestDecodeArgsRefusalNamesTheArgumentAndNeverTheProgram(t *testing.T) {
+	goInternals := []string{"Go struct", "Go value", "uuid.UUID", "ids.UUID", "2006", "github.com/"}
+	for _, tc := range []struct{ name, in, want string }{
+		{"a mistyped scalar", `{"limit":"ten"}`, "`limit` must be an integer, not a string"},
+		{"arguments that are not an object", `[1]`, "must be a JSON object, not an array"},
+		{"a timestamp", `{"since":"tomorrow"}`, `"tomorrow" is not an RFC 3339 timestamp`},
+		{"our own uuid refusal", `{"id":"nope"}`, `"nope" is not a canonical UUID`},
+		{"the unknown-key echo", `{"limitt":1}`, `unknown field "limitt"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var args struct {
+				Limit int       `json:"limit"`
+				ID    ids.UUID  `json:"id"`
+				Since time.Time `json:"since"`
+			}
+			err := decodeArgs(json.RawMessage(tc.in), &args)
+			var bad *BadArgsError
+			if !errors.As(err, &bad) {
+				t.Fatalf("arguments %s → %v, want BadArgsError", tc.in, err)
+			}
+			if !strings.Contains(bad.Error(), tc.want) {
+				t.Errorf("refusal = %q, want it to say %q", bad.Error(), tc.want)
+			}
+			for _, leak := range goInternals {
+				if strings.Contains(bad.Error(), leak) {
+					t.Errorf("the refusal carries %q, which describes this program: %q", leak, bad.Error())
+				}
+			}
+		})
 	}
 }
 

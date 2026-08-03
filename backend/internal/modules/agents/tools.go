@@ -19,6 +19,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -83,6 +84,14 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 	dec := json.NewDecoder(bytes.NewReader(in))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {
+		// The decoder's own words describe this program — the Go struct it was
+		// filling, the Go type of the field — which an agent can neither act on
+		// nor is entitled to read. A restatement names the argument and the
+		// shape instead; a shape it cannot name keeps the decoder's words, which
+		// on this path are its unknown-field refusal quoting the caller's key.
+		if restated := httperr.RestateDecodeError(err); restated != nil {
+			return &BadArgsError{Cause: restated}
+		}
 		return &BadArgsError{Cause: err}
 	}
 	return nil
