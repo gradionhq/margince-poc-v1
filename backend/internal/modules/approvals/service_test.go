@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -411,5 +413,48 @@ func TestASelfOnlyKindIsUndecidableByAnyoneButItsSubject(t *testing.T) {
 	// A proposal with no recorded subject is nobody's to read, not everybody's.
 	if selfOnly(owner, row{Kind: "linkedin_match"}) {
 		t.Error("a self-only proposal with no subject was treated as decidable")
+	}
+}
+
+// DecisionGrantObjects is what the composition layer's satisfiability gate reads,
+// and it is load-bearing only if it names the SAME objects requireDecisionGrants
+// enforces. A gate certifying an object the decision does not demand — or blind to
+// one it does — proves nothing about the row a human is asked to decide.
+//
+// Derived over both grant tables so a kind added to either is covered, and each
+// named object is shown NECESSARY: a principal holding every other object outright
+// is still refused.
+func TestDecisionGrantObjectsNamesWhatTheDecisionEnforces(t *testing.T) {
+	kinds := slices.Sorted(maps.Keys(decisionGrants))
+	kinds = append(kinds, slices.Sorted(maps.Keys(targetResolvedGrants))...)
+	if len(kinds) == 0 {
+		t.Fatal("no stageable kinds — the walk covers nothing")
+	}
+	// A row-scoped record type every target-resolved kind can legitimately name.
+	target := tableDeal
+
+	for _, kind := range kinds {
+		objects, err := DecisionGrantObjects(kind, target)
+		if err != nil {
+			t.Errorf("kind %q derives no decision grants: %v", kind, err)
+			continue
+		}
+		if len(objects) == 0 {
+			t.Errorf("kind %q demands no object at all — anyone could release its stagings", kind)
+			continue
+		}
+		for _, withheld := range objects {
+			perms := principal.Permissions{Objects: map[string]principal.ObjectGrant{}}
+			for _, object := range objects {
+				if object != withheld {
+					perms.Objects[object] = principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
+				}
+			}
+			err := requireDecisionGrants(principal.Principal{Permissions: perms}, row{Kind: kind, TargetType: &target})
+			if !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Errorf("kind %q was decidable with no grant on %q, which DecisionGrantObjects names → %v",
+					kind, withheld, err)
+			}
+		}
 	}
 }

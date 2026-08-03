@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -29,22 +30,26 @@ import (
 // and a typo in any of them would silently ask for a grant nobody holds.
 const objectActivity = "activity"
 
-// decisionGrants maps each stageable kind onto the RBAC the underlying
-// effect needs; approving requires every one of them.
-var decisionGrants = map[string][]struct {
+// grantRequirement is one RBAC pair approving a staged kind requires. Named
+// rather than anonymous because the derivation below appends to the set and the
+// composition layer's satisfiability gate reads the objects back out of it.
+type grantRequirement struct {
 	Object string
 	Action principal.Action
-}{
+}
+
+// decisionGrants maps each stageable kind onto the RBAC its effect needs given
+// the KIND ALONE; approving requires every one of them. A kind whose grant also
+// depends on what the staging points at carries that half in
+// targetResolvedGrants, and approving then requires the UNION — no kind needs
+// both today, and decisionGrantsFor combines them so one that grows a second half
+// gains authority rather than silently losing the first.
+var decisionGrants = map[string][]grantRequirement{
 	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
-	"progress_deal":  {{tableDeal, principal.ActionUpdate}},
-	"promote_lead":   {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
-	"archive_record": {}, // resolved from the target's entity type below
-	"merge_records":  {}, // resolved from the target's entity type below
-	"share_record":   {}, // resolved from the target's entity type below
-	"update_record":  {}, // resolved from the target's entity type below (human-edit-precedence stagings)
-	"create_record":  {}, // resolved from the target's entity type below (🟡 creates staged at the transport gate, e.g. createCustomField)
+	"progress_deal": {{tableDeal, principal.ActionUpdate}},
+	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -97,6 +102,32 @@ var decisionGrants = map[string][]struct {
 	"deal_follow_up": {{objectActivity, principal.ActionCreate}},
 }
 
+// targetResolvedGrants are the kinds whose decision grant is not fixed by the
+// kind but read off the staged target's own entity type, mapped to the action
+// the release performs on it:
+//
+//   - archive_record deletes the target.
+//   - share_record widens who sees the target, which the direct share path takes
+//     the target type's update grant for.
+//   - merge_records rewrites where records point, and the store maps the merge
+//     verb to update.
+//   - update_record releases a field patch (human-edit precedence,
+//     interfaces.md §2.1) — the grant the patch itself would need.
+//   - create_record releases a new record of the type (a 🟡 create staged at the
+//     transport gate, e.g. createCustomField).
+//
+// ONE table, because two readers derive from it: requireDecisionGrants enforces
+// the pair against a principal, and DecisionGrantObjects reports the objects to
+// the composition layer's satisfiability gate. A second copy would let that gate
+// certify a route whose real decision demands a different object.
+var targetResolvedGrants = map[string]principal.Action{
+	"archive_record": principal.ActionDelete,
+	"share_record":   principal.ActionUpdate,
+	"merge_records":  principal.ActionUpdate,
+	"update_record":  principal.ActionUpdate,
+	"create_record":  principal.ActionCreate,
+}
+
 // decidedEcho builds the approved/rejected payload a kind's decision
 // echoes, given the decided approval's own id and the deciding human's
 // user id — the fixed shape every decided-echo carries today.
@@ -130,6 +161,10 @@ const (
 	targetSavedView    = "saved_view"
 	targetSignal       = "signal"
 	targetTag          = "tag"
+	// The workspace-shared config rows an object grant governs, each named by
+	// both the existence probe and the version-table whitelist.
+	targetOfferTemplate       = "offer_template"
+	targetWebhookSubscription = "webhook_subscription"
 	// The effective-dated rate sheets. Both are named twice — the probe
 	// classification and the decision-grant map — and both are workspace-scoped
 	// config with no row of their own until a proposal is accepted.
@@ -187,64 +222,9 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {
-	grants, known := decisionGrants[a.Kind]
-	if !known {
-		return fmt.Errorf("crmapprovals: kind %q has no decision-grant mapping", a.Kind)
-	}
-	if a.Kind == "archive_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: archive_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionDelete})
-	}
-	// Sharing widens who sees the target — approving needs the target
-	// type's update grant, exactly like a direct share would.
-	if a.Kind == "share_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: share_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A merge rewrites where records point — the store maps the merge verb to
-	// update, so approving needs update on the target's entity type.
-	if a.Kind == "merge_records" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: merge_records staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A human-edit-precedence staging (interfaces.md §2.1) releases a
-	// field patch — approving needs the update grant the patch itself
-	// would need on the target's entity type.
-	if a.Kind == "update_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: update_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A staged 🟡 create (a schema change like createCustomField) releases
-	// a new record of the target type — approving needs the create grant
-	// the write itself would need.
-	if a.Kind == "create_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: create_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionCreate})
+	grants, err := decisionGrantsFor(a.Kind, a.TargetType)
+	if err != nil {
+		return err
 	}
 	for _, g := range grants {
 		if !p.Permissions.Allows(g.Object, g.Action) {
@@ -252,6 +232,51 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 		}
 	}
 	return nil
+}
+
+// decisionGrantsFor derives every grant approving this staging requires: the
+// kind's own, plus — for the kinds whose authority is the target's entity type —
+// that type's. An unmapped kind, and a target-resolved kind staged with no
+// target type, both error: neither can be decided by anyone, and answering an
+// empty grant set for either would make them decidable by everyone.
+func decisionGrantsFor(kind string, targetType *string) ([]grantRequirement, error) {
+	fixed, hasFixed := decisionGrants[kind]
+	action, resolvedFromTarget := targetResolvedGrants[kind]
+	if !hasFixed && !resolvedFromTarget {
+		return nil, fmt.Errorf("crmapprovals: kind %q has no decision-grant mapping", kind)
+	}
+	if !resolvedFromTarget {
+		return fixed, nil
+	}
+	if targetType == nil {
+		return nil, fmt.Errorf("crmapprovals: %s staged without a target type", kind)
+	}
+	// Cloned, not appended in place: fixed is the map's own slice, and appending
+	// into its spare capacity would rewrite what the next caller reads.
+	return append(slices.Clone(fixed), grantRequirement{*targetType, action}), nil
+}
+
+// DecisionGrantObjects reports the RBAC objects approving a staging of this kind
+// against this target type requires.
+//
+// Exported for the composition layer's decidability gate, which has to prove
+// more than that the staged target has a visibility rule: the derived grants must
+// also be SATISFIABLE. An object outside the vocabulary a role document may name
+// is allowed by no principal that can exist, so a staged row demanding it is
+// permanently undecidable — the same dead row as a missing visibility rule,
+// reached from the authority side. This package cannot ask identity for that
+// vocabulary itself (a module never imports a sibling), so it answers what it
+// demands and the composition layer, which imports both, checks it.
+func DecisionGrantObjects(kind, targetType string) ([]string, error) {
+	grants, err := decisionGrantsFor(kind, &targetType)
+	if err != nil {
+		return nil, err
+	}
+	objects := make([]string, 0, len(grants))
+	for _, g := range grants {
+		objects = append(objects, g.Object)
+	}
+	return objects, nil
 }
 
 // humanOnly guards the inbox and the decision: an agent approving its own
@@ -268,11 +293,15 @@ func humanOnly(ctx context.Context) error {
 }
 
 // KindHasDecisionGrants reports whether a stageable kind carries a
-// decision-grant mapping. The composition layer's fitness test calls it
-// for every 🟡/dynamic tool in the registry: a tool that can stage an
-// approval nobody is mapped to decide would strand its stagings in a
-// queue no inbox shows (decidable fails closed on unknown kinds).
+// decision-grant mapping — its own, or one resolved from the staged target's
+// entity type. The composition layer's fitness test calls it for every
+// 🟡/dynamic tool in the registry: a tool that can stage an approval nobody is
+// mapped to decide would strand its stagings in a queue no inbox shows
+// (decidable fails closed on unknown kinds).
 func KindHasDecisionGrants(kind string) bool {
-	_, ok := decisionGrants[kind]
-	return ok
+	if _, ok := decisionGrants[kind]; ok {
+		return true
+	}
+	_, resolvedFromTarget := targetResolvedGrants[kind]
+	return resolvedFromTarget
 }

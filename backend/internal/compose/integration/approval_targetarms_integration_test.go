@@ -5,18 +5,16 @@
 
 package integration
 
-// The confirm-first verbs whose staged target the inbox had no visibility rule
-// for: a curator's list, a tag, a saved view, an offer template and a webhook
-// subscription. Each one's staged row was invisible in the inbox AND undecidable
-// at the decision, so the refusal told the agent to go and get an approval that
-// no human could ever give, and the row sat pending until the TTL cleared it.
+// One confirm-first verb per target-visibility arm — a curator's list, a tag, a
+// saved view, an offer template and a webhook subscription — each walking the
+// whole loop over the passport surface a real agent uses: the agent's call stages
+// instead of writing, the human's inbox LISTS the row and answers for it, the
+// decision releases it, and the identical call then lands.
 //
-// Each case walks the whole loop over the passport surface a real agent uses:
-// the agent's call stages instead of writing, the human's inbox LISTS the row and
-// answers for it, the decision releases it, and the identical call then lands.
-// Listing without deciding is the half that used to look green — `decidable`
-// backs the list, the single read and the decision alike, so all three are
-// asserted.
+// All three reads are asserted, not just the decision. `decidable` backs the
+// inbox list, the single Get and the Decide alike, and a staged row it rejects is
+// invisible AND undecidable: the refusal tells the agent to go and get an approval
+// no human can ever give, and the row sits pending until the TTL clears it.
 
 import (
 	"bytes"
@@ -76,6 +74,81 @@ func TestConfirmFirstArchivesAreDecidableForEveryTargetArm(t *testing.T) {
 		releaseStagedCall(t, e, bearer, "PATCH", "/v1/webhook-subscriptions/"+created.Subscription.ID,
 			anyMap{"state": "paused"}, "webhook_subscription")
 	})
+}
+
+// A decision is a judgment about the row as the human was shown it, so a row
+// that moved underneath the approval revokes it. The staging reads the target's
+// version itself (approvals.versionTables), redemption re-checks it, and the
+// released call carries it as its own If-Match — three steps that all
+// short-circuit on a NULL pin, which is what a target type absent from that set
+// stages. Asserted on the subscription patch because it is the confirm-first
+// route whose staged change is a field patch rather than an archive: an admin
+// re-pointing the endpoint between the staging and the approval is exactly the
+// drift the human never agreed to.
+func TestAStagedPatchIsRefusedWhenItsTargetMovedBeforeTheApproval(t *testing.T) {
+	cipher, err := webhooks.NewCipher(bytes.Repeat([]byte{0x5a}, webhooks.WebhookKeyBytes))
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	e := setupWithOptions(t, compose.WithWebhookSigningKey(cipher))
+	e.bootstrapWorkspace(t)
+	bearer := agentBearer(t, e, "skew agent")
+
+	var created struct {
+		Subscription struct {
+			ID      string `json:"id"`
+			Version int64  `json:"version"`
+		} `json:"subscription"`
+	}
+	if status := e.call(t, "POST", "/v1/webhook-subscriptions", anyMap{
+		"target_url": "https://ok.example/hook", "event_types": []string{"deal.created"},
+	}, nil, &created); status != http.StatusCreated {
+		t.Fatalf("create subscription → %d", status)
+	}
+	path := "/v1/webhook-subscriptions/" + created.Subscription.ID
+	staged := anyMap{"state": "paused"}
+
+	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}
+	if status := e.call(t, "PATCH", path, staged, bearer, &problem); status != http.StatusForbidden ||
+		problem.Code != "approval_required" {
+		t.Fatalf("agent patch → %d %q, want 403 approval_required", status, problem.Code)
+	}
+	approvalID := extractStagedApprovalID(t, problem.Detail)
+
+	// The admin's own edit, on a different field so the guarded patch really
+	// bumps the version rather than finding nothing to change.
+	var edited struct {
+		Subscription struct {
+			Version int64 `json:"version"`
+		} `json:"subscription"`
+	}
+	if status := e.call(t, "PATCH", path, anyMap{"event_types": []string{"deal.updated"}}, nil, &edited); status != http.StatusOK {
+		t.Fatalf("admin re-point → %d", status)
+	}
+	if edited.Subscription.Version == created.Subscription.Version {
+		t.Fatalf("the admin's edit left version at %d — the fixture proves nothing about a pin it never moved",
+			edited.Subscription.Version)
+	}
+
+	if status := e.call(t, "POST", "/v1/approvals/"+approvalID+"/approve", anyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("human approve → %d", status)
+	}
+	withToken := map[string]string{"X-Approval-Token": approvalID}
+	for k, v := range bearer {
+		withToken[k] = v
+	}
+	problem = struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
+	}{}
+	if status := e.call(t, "PATCH", path, staged, withToken, &problem); status != http.StatusConflict ||
+		problem.Code != "version_skew" {
+		t.Fatalf("release over a moved row → %d %q, want 409 version_skew — the approval authorized the row "+
+			"the human saw, not whatever it became", status, problem.Code)
+	}
 }
 
 // agentBearer mints a passport and returns the Authorization header a governed

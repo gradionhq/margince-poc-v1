@@ -191,9 +191,9 @@ func TestDecode_refusalNamesTheInputAndNeverTheProgram(t *testing.T) {
 	}
 }
 
-// The exact sentences the surface used to answer with. Pinned verbatim because
-// each one was reachable from a real request, and a substring sweep over the
-// vocabulary alone would pass on a paraphrase that still leaked one of them.
+// Sentences no caller may ever read. Pinned verbatim, not by vocabulary sweep:
+// each is reachable from a real request, and a sweep over the words alone passes
+// on a paraphrase that still leaks one of them whole.
 func TestDecode_neverAnswersWithADecoderSentence(t *testing.T) {
 	for _, was := range []string{
 		"json: cannot unmarshal number into Go struct field AdvanceDealRequest.to_stage_id of type uuid.UUID",
@@ -237,7 +237,9 @@ func TestDecode_theUnnamedShapeStillReachesTheLog(t *testing.T) {
 // The provider seam reaches the SAME contract structs from the tool surface, so
 // the decoder text has a second route to a client. That seam wraps its own
 // unknown-key refusal and the decoder's failure in one type: the first is ours
-// and must survive, the second must be restated.
+// and must survive, the second must be restated — and a third-party value
+// unmarshaler, which no branch can name, must be masked exactly as the REST body
+// path masks it rather than shipped as the library wrote it.
 func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 	for _, tc := range []struct {
 		name, fields, wantDetail string
@@ -251,6 +253,16 @@ func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 			name:       "the seam's own key refusal quotes the caller's key",
 			fields:     `{"subjekt":"x"}`,
 			wantDetail: `unknown field "subjekt"`,
+		},
+		{
+			name:       "every unknown key is named, in a stable order",
+			fields:     `{"subjekt":"x","assignee":"y"}`,
+			wantDetail: `unknown fields "assignee", "subjekt"`,
+		},
+		{
+			name:       "a value the uuid library refuses falls back to the generic sentence",
+			fields:     `{"assignee_id":"abcdef"}`,
+			wantDetail: genericDecodeDetail,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,4 +282,63 @@ func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 			assertNoInternals(t, detail)
 		})
 	}
+}
+
+// The seam's masked shapes owe the operator the same log line the native body
+// decode leaves: a client that reads the generic sentence has been told nothing
+// about which value we could not name, so if nobody logged the library's own
+// words, the failure exists in no record at all.
+func TestClassify_theSeamsMaskedCauseStillReachesTheLog(t *testing.T) {
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	var req crmcontracts.CreateActivityRequest
+	err := datasource.StrictDecode(json.RawMessage(`{"assignee_id":"abcdef"}`), &req)
+	if err == nil {
+		t.Fatal("a malformed uuid was accepted")
+	}
+	_, body := writeAndDecode(t, err)
+	if detail, _ := body["detail"].(string); detail != genericDecodeDetail {
+		t.Fatalf("detail = %q, want the generic sentence — this case is the masked one", detail)
+	}
+	if !strings.Contains(logged.String(), "invalid UUID length") {
+		t.Errorf("the withheld cause is in no log line: %q", logged.String())
+	}
+}
+
+// The seam's own refusal is NOT logged as unnamed: it is the sentence the caller
+// already reads, so a log line for it would claim a translation gap that is not
+// there — and the operator who chases those lines would be reading noise.
+func TestClassify_theSeamsOwnRefusalIsNotLoggedAsUnnamed(t *testing.T) {
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	var req crmcontracts.CreateActivityRequest
+	err := datasource.StrictDecode(json.RawMessage(`{"subjekt":"x"}`), &req)
+	if err == nil {
+		t.Fatal("an unknown key was accepted")
+	}
+	writeAndDecode(t, err)
+	if strings.Contains(logged.String(), "unnamed field-decode failure") {
+		t.Errorf("a refusal we wrote was logged as unnamed: %q", logged.String())
+	}
+}
+
+// A type-less unmarshal error names no shape, and the refusal answers a sentence
+// rather than panicking on the type it does not have. It arrives from any package
+// that builds json.UnmarshalTypeError itself — encoding/json always sets Type,
+// and a boundary that only holds for one producer of a type is not a boundary.
+func TestUnmarshalTypeDetail_survivesAnErrorCarryingNoType(t *testing.T) {
+	detail := unmarshalTypeDetail(&json.UnmarshalTypeError{Value: "number"})
+	if detail == "" {
+		t.Fatal("a type-less unmarshal error produced no detail")
+	}
+	if !strings.Contains(detail, "number") {
+		t.Errorf("detail = %q, want it to say what the caller sent", detail)
+	}
+	assertNoInternals(t, detail)
 }

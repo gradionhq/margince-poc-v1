@@ -156,7 +156,7 @@ const (
 	// effect writes to the acting workspace's sheet and not to the claimed one.
 	// And the object-read grant must admit, which the shared-config arm above
 	// does NOT require: those config objects are readable by every seat that
-	// reads records at all, so existence was already their whole boundary,
+	// reads records at all, so existence is their whole boundary,
 	// whereas the rate sheets are granted to admin/ops alone. Without the read
 	// half a rep who happens to own a subscription would receive proposed FX and
 	// model pricing that no surface will show them.

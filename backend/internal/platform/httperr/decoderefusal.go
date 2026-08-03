@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // genericDecodeDetail answers a decode failure no branch below recognises. It
@@ -32,15 +33,14 @@ const genericDecodeDetail = "the payload could not be decoded; check each value'
 
 // RestateDecodeError restates a JSON decode failure in the caller's own
 // vocabulary, keeping the original in the chain so whoever logs it still reads
-// the decoder's own words. Nil for a shape it cannot name, and what that means
-// depends on where err came from:
+// the decoder's own words.
 //
-//   - at a site where the error can only have come from a decoder (a Decode
-//     call and nothing else), nil means the text is Go internals: the caller
-//     gets genericDecodeDetail and the original goes to the log.
-//   - at a site whose error may be a refusal we wrote ourselves (the provider
-//     seam's field decode, a tool's argument decode), nil means the error
-//     already speaks the caller's language and travels unchanged.
+// Nil means only one thing: no branch below could name the shape. It never means
+// the error is already safe to show. A third-party value unmarshaler answers here
+// too — google/uuid's `invalid UUID length: 6` names no field and describes our
+// program — so a caller that treats nil as "travels unchanged" ships a library's
+// sentence. A site whose error may instead be a refusal WE wrote must recognise
+// that refusal by its own TYPE before asking this, and mask whatever is left.
 //
 // One restatement for every surface, because the decoder text reaches a client
 // by three routes — the REST body decode, the provider seam's field decode, and
@@ -115,7 +115,12 @@ func unmarshalTypeDetail(e *json.UnmarshalTypeError) string {
 	// An empty Field is TWO different failures. One is the whole body arriving
 	// as the wrong shape, where naming the Go struct we tried to fill would be
 	// exactly the leak this file exists to stop.
-	if kind := deref(e.Type).Kind(); kind == reflect.Struct || kind == reflect.Map {
+	//
+	// Type is only ever nil for an error some other package constructed, which is
+	// why friendlyJSONType below guards it too: an unmarshal error carrying no
+	// type names no shape, and the fallback sentence is the honest answer for it.
+	if target := deref(e.Type); target != nil &&
+		(target.Kind() == reflect.Struct || target.Kind() == reflect.Map) {
 		return "the payload must be a JSON object, not " + jsonKindPhrase(e.Value)
 	}
 	// The other is a value whose own UnmarshalJSON decoded it in a nested step,
@@ -193,13 +198,46 @@ func deref(t reflect.Type) reflect.Type {
 	return t
 }
 
-// fieldDecodeDetail renders the provider seam's field-decode refusal. That seam
-// wraps BOTH its own unknown-key refusal and the decoder's failure in one type,
-// so a restatement is attempted and the seam's own words stand when it declines.
-func fieldDecodeDetail(cause error) string {
-	detail := cause.Error()
-	if restated := RestateDecodeError(cause); restated != nil {
-		detail = restated.Error()
+// fieldDecodeRefusal renders the provider seam's field-decode refusal, and
+// reports whether it WITHHELD the cause's own words to do so.
+//
+// That seam wraps two provenances in one type — its own key refusal, which quotes
+// the caller's keys, and whatever encoding/json and the value unmarshalers
+// underneath it produced, which describes this program — so the split is by TYPE.
+// A library's prose is not a contract, so matching on it is not a boundary: it is
+// how `invalid UUID length: 6` reached a client on the one route the restatement
+// was supposed to close.
+//
+// Both answers come from one function so the sentence shown and the words kept
+// cannot disagree about which was which.
+func fieldDecodeRefusal(cause error) (detail string, causeWithheld bool) {
+	var ourKeyRefusal *datasource.UnknownFieldError
+	if errors.As(cause, &ourKeyRefusal) {
+		return boundFaultText(ourKeyRefusal.Error()) + fieldDecodeAdvice, false
 	}
-	return detail + " — check the field names and value types against this operation's request schema"
+	if restated := RestateDecodeError(cause); restated != nil {
+		return restated.Error() + fieldDecodeAdvice, false
+	}
+	return genericDecodeDetail, true
+}
+
+// fieldDecodeAdvice closes a field-decode refusal with what to DO about it, which
+// a decoder message never says on its own. genericDecodeDetail carries its own
+// advice, so it does not take this.
+const fieldDecodeAdvice = " — check the field names and value types against this operation's request schema"
+
+// withheldFieldDecodeCause answers the words a field-decode refusal kept back
+// from the caller, for the surface to log. Withholding a message is not the same
+// as losing it, and the shape nothing could name is the one an operator most
+// needs to see: it is the one saying a decode failure exists that this file does
+// not yet translate.
+func withheldFieldDecodeCause(err error) error {
+	var badFields *datasource.FieldDecodeError
+	if !errors.As(err, &badFields) {
+		return nil
+	}
+	if _, causeWithheld := fieldDecodeRefusal(badFields.Cause); causeWithheld {
+		return badFields.Cause
+	}
+	return nil
 }

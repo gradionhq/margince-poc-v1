@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/policy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -24,6 +25,23 @@ import (
 )
 
 var _ authz.Resolver = (*Service)(nil)
+
+// RBACObjectGrantable reports whether an object name is one a role document may
+// grant at all. Identity owns that vocabulary (internal/policy's coreObjects,
+// which Parse rejects a document for stepping outside), so it is the only module
+// that can answer.
+//
+// It is exported for the gates that derive an authority requirement somewhere
+// else and must prove the requirement is SATISFIABLE before certifying whatever
+// depends on it. An object outside this set is allowed by no principal that can
+// exist, so a requirement naming one is not a strict rule — it is a permanent
+// refusal, and a gate reading only the requirement's presence cannot tell the two
+// apart. The confirm-first decidability gate is the caller today: an approval
+// whose decision demands an ungrantable object can never be released or rejected
+// by anyone.
+func RBACObjectGrantable(object string) bool {
+	return policy.IsCoreObject(object)
+}
 
 // EffectiveRBAC reads the human's CURRENT role grants + teams. A user who
 // is archived, suspended, or outside the context workspace resolves to

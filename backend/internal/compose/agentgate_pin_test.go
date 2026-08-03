@@ -14,6 +14,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -68,19 +69,35 @@ func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 	}
 }
 
-// unpinnableConfirmFirstTypes are the confirm-first target types with no
-// version column to pin, each with the rationale that ratified it. They fall
-// back to the diff_hash identical-call binding, which still refuses a
-// DIFFERENT call but not a drifted row, so every entry here is a known,
-// bounded residue rather than an oversight — and a NEW confirm-first record
-// type joins this list deliberately or fails the gate below.
+// unpinnableConfirmFirstTypes are the confirm-first target types no version pin
+// can bind, each with the rationale that ratified it. They fall back to the
+// diff_hash identical-call binding, which still refuses a DIFFERENT call but not
+// a drifted row, so every entry here is a known, bounded residue rather than an
+// oversight — and a NEW confirm-first record type joins this list deliberately or
+// fails the gate below.
+//
+// Unpinnable is not the same as "no version column", and each rationale must say
+// WHICH it is. A dead column is the trap: the pin reads and re-checks a number
+// nothing ever changes, so the binding passes always and reads as protection
+// nobody has. The gate can only see membership in approvals.versionTables, so
+// whether a column is live is a claim these rationales make and a reader must be
+// able to check.
 var unpinnableConfirmFirstTypes = map[string]string{
-	"custom_field":         "the field catalog is workspace-shared admin config with no version column; its DDL engine serializes on the catalog row itself",
-	"webhook_subscription": "subscription rows carry no version column; the staged change is the whole subscription body, which diff_hash binds verbatim",
-	"offer_template":       "template rows carry no version column; the staged change is the whole template body, which diff_hash binds verbatim",
-	"saved_view":           "saved views carry no version column and hold no money or consent state; diff_hash binds the whole definition",
-	"record_grant":         "a grant is created or revoked whole, never patched, so there is no prior version for a pin to bind",
-	"overlay_connection":   "connection rows carry no version column; connect/disconnect are whole-row transitions the diff_hash binds",
+	"custom_field": "custom_field HAS a version column (migrations/core/0063) but nothing maintains it: " +
+		"the catalog's own writers (customfields' rename, options and retire paths) issue bare UPDATEs " +
+		"rather than storekit's guarded patch, so the column never leaves 1 and never takes an If-Match. " +
+		"A pin over it would re-check a constant and pass always. The serialization that does hold is the " +
+		"DDL engine's lock on the catalog row itself. Pinning becomes correct when those three writers " +
+		"move onto the guarded patch — not before.",
+	"record_grant": "record_grant HAS a version column (migrations/core/0011) and no writer that could " +
+		"ever bump it: a grant is created or revoked whole, with no update path at all, so a pin would " +
+		"bind a value that cannot change for a live row. Deletion is what redemption must catch here, and " +
+		"the target probe already answers not-found for a revoked row. This type is undecidable for a " +
+		"separate and prior reason (undecidableConfirmFirstTypes) — nothing is ever redeemed against it.",
+	"overlay_connection": "there is no `overlay_connection` table to pin: the connection row lives in " +
+		"`incumbent_connection` (migrations/custom/20260716120000_overlay), under a different name and " +
+		"with no version column, so approvals.targetVersion cannot even resolve a table for this target " +
+		"type. connect/disconnect are whole-row transitions the diff_hash binds.",
 }
 
 // Every confirm-first operation that names a concrete record type must have
@@ -184,9 +201,8 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 	}
 }
 
-// undecidableConfirmFirstTypes are the confirm-first target types the approvals
-// inbox has no visibility rule for when the staging names a concrete record,
-// each with what it costs.
+// undecidableConfirmFirstTypes are the confirm-first target types whose staged
+// row no human can act on, each with what it costs.
 //
 // The cost is the same for every entry and it is severe: `decidable` backs the
 // inbox list, the single Get and the Decide, so a row it rejects is invisible AND
@@ -201,12 +217,47 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 // class is enumerated rather than invisible, and so it can only shrink — a NEW
 // confirm-first record type joins it deliberately or fails the gate below.
 var undecidableConfirmFirstTypes = map[string]string{
-	"record_grant": "createRecordGrant/revokeRecordGrant. Left waived rather than fixed because " +
-		"visibility is not the only gap: share_record ALSO dead-ends at redemption (deadEndVerbs in " +
-		"agentpolicysynthesis_test.go — the grant verbs reject any non-human principal, so an " +
-		"agent-staged, human-approved grant is refused as the redeeming agent every time). An arm here " +
-		"would make the row decidable and the operation would still never land, which is worse than an " +
-		"honest dead end. Answer the redemption question first.",
+	"record_grant": "createRecordGrant/revokeRecordGrant, undecidable on BOTH halves of the " +
+		"claim, and neither is fixable here. AUTHORITY: share_record resolves its decision grant " +
+		"from the target's entity type, so deciding one demands `record_grant.update` — and " +
+		"`record_grant` is no entry in identity's RBAC object vocabulary, so that grant is held by " +
+		"no principal that can exist and the row is refused for everyone forever. Sharing is gated " +
+		"by the manage-sharing permission instead, which is not an object grant at all. REDEMPTION: " +
+		"even granted, share_record dead-ends (deadEndVerbs in agentpolicysynthesis_test.go — the " +
+		"grant verbs reject any non-human principal, so an agent-staged, human-approved grant is " +
+		"refused as the redeeming agent every time). Mapping share_record onto some other object, or " +
+		"minting `record_grant` as one, is a product decision about whether an agent may propose " +
+		"sharing at all; making the row merely decidable would leave an operation that still never " +
+		"lands, which is worse than an honest dead end.",
+}
+
+// stagedRowDecidable answers the gate's WHOLE claim about one route's staged
+// row: that a human can see it, and that the grants deciding it derives are ones
+// a role document may actually hold. It returns the reason it failed, so the
+// route names its own defect.
+//
+// Both halves, because either one alone certifies a row nobody can release. A
+// shape with no visibility rule is invisible in the inbox; a decision grant on an
+// object outside identity's RBAC vocabulary is refused for every principal that
+// can exist. Same dead row, reached from the two sides of `decidable` — and a
+// gate that proves one dimension reads green over the other.
+func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
+	recordType := string(pol.RecordType)
+	if !approvals.TargetShapeDecidable(recordType, hasTargetID) {
+		return false, "approvals.targetVisible has no rule for the shape it stages, so the row is " +
+			"invisible in the inbox and undecidable at the decision"
+	}
+	objects, err := approvals.DecisionGrantObjects(pol.Tool, recordType)
+	if err != nil {
+		return false, "derives no decision grants (" + err.Error() + ")"
+	}
+	for _, object := range objects {
+		if !identity.RBACObjectGrantable(object) {
+			return false, "requires the decision grant " + object + ", which is outside the RBAC object " +
+				"vocabulary a role document may name, so no principal that can exist may decide it"
+		}
+	}
+	return true, ""
 }
 
 // Every confirm-first operation that names a concrete record type must stage a
@@ -216,7 +267,7 @@ var undecidableConfirmFirstTypes = map[string]string{
 // one level further on: a pinned target nobody can see is still a zombie. The
 // invariant is derived from the generated policy table rather than from a list of
 // the types someone remembered, so a verb that becomes confirm-first upstream
-// fails here until its staged shape gains a visibility rule or a ratified reason.
+// fails here until its staged shape is decidable or it carries a ratified reason.
 //
 // The subject is the staged SHAPE, not the record type alone. stageRefusal reads
 // the target id out of the route's {id} parameter, so a route without one stages
@@ -245,17 +296,17 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 			continue
 		}
 		checked++
-		if approvals.TargetShapeDecidable(string(pol.RecordType), strings.Contains(route, "{id}")) {
+		decidable, why := stagedRowDecidable(pol, strings.Contains(route, "{id}"))
+		if decidable {
 			continue
 		}
 		if _, ratified := undecidableConfirmFirstTypes[string(pol.RecordType)]; ratified {
 			used[string(pol.RecordType)] = true
 			continue
 		}
-		t.Errorf("%s (%s) stages against %q, which approvals.targetVisible has no rule for — the staged "+
-			"row would be invisible in the inbox and undecidable at the decision, so no human could ever "+
-			"release or reject it. Give the type a visibility arm, or ratify the residue in "+
-			"undecidableConfirmFirstTypes with what it costs.", route, pol.Op, pol.RecordType)
+		t.Errorf("%s (%s) stages against %q, which %s. No human could ever release or reject that row. "+
+			"Give the type a visibility arm, map the decision onto a grantable object, or ratify the "+
+			"residue in undecidableConfirmFirstTypes with what it costs.", route, pol.Op, pol.RecordType, why)
 	}
 	if checked == 0 {
 		t.Fatal("no confirm-first record-typed routes in the generated policy — the gate no longer covers anything")
@@ -276,10 +327,9 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 // nothing then clears.
 //
 // Two hand-written classifications in two modules that must agree is the shape
-// that drifts, and it did twice: `project` gained an inbox rule and the fan-out
-// never noticed, and the rate sheets gained one the fan-out never noticed either.
-// The assertion belongs in the composition layer because a module never imports a
-// sibling and this layer imports both.
+// that drifts: each is complete on its own terms, so neither module's own tests
+// can see the disagreement. The assertion belongs in the composition layer
+// because a module never imports a sibling and this layer imports both.
 //
 // THE SUBJECT SET IS THE UNION OF THREE SOURCES, and each is there because the
 // others cannot see part of the invariant:
@@ -287,10 +337,10 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 //   - every record type in the generated policy table — so a type the CONTRACT
 //     adds is covered without anybody remembering to extend a list, and so the
 //     gate cannot pass vacuously if both enumerators below went empty;
-//   - every type the approvals inbox classifies — because a target staged by a
+//   - every type the approvals inbox classifies — a target staged by a
 //     server-side proposal flow rather than by an agent's call (an effective-dated
-//     rate sheet) appears in NO agent policy, which is precisely how the second
-//     drift hid from a gate that walked the policy table alone;
+//     rate sheet) appears in NO agent policy, so the policy table alone reads
+//     green over it;
 //   - every type the fan-out classifies — the mirror direction, a type the
 //     fan-out delivers on and the inbox strands.
 //

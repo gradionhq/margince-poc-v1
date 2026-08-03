@@ -116,10 +116,11 @@ func clientInputValidation(err error) (error, bool) {
 	// The detail names which field and why through the SAME restatement the
 	// native body decode uses, so both paths say one thing about one mistake,
 	// and it ends with what the caller should DO — which a decoder message on
-	// its own never says.
+	// its own never says. Whatever it had to withhold is logged by Write.
 	var badFields *datasource.FieldDecodeError
 	if errors.As(err, &badFields) {
-		return Validation("fields", "invalid_field", fieldDecodeDetail(badFields.Cause)), true
+		detail, _ := fieldDecodeRefusal(badFields.Cause)
+		return Validation("fields", "invalid_field", detail), true
 	}
 
 	// An entity_type no provider on this installation serves. Same obligation
@@ -314,6 +315,12 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 	if fault.InfraCause != nil {
 		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
 			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
+	}
+	// A refusal that masked a library's own sentence still owes the operator
+	// that sentence, exactly as the native body decode logs its unnamed shapes.
+	if withheld := withheldFieldDecodeCause(err); withheld != nil {
+		slog.WarnContext(r.Context(), "unnamed field-decode failure",
+			"method", r.Method, "path", r.URL.Path, "err", withheld)
 	}
 	// Fields renders INTO details rather than over it: both are public on
 	// DetailedError, so a handler may legitimately carry extra structured

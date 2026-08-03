@@ -276,11 +276,11 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 // live row. custom_field is the single exception — retire is a status flip that
 // keeps the row live, so a staged edit against a retired field stays decidable.
 var existenceProbes = map[string]string{
-	targetProduct:          `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`,
-	targetTag:              `SELECT EXISTS (SELECT 1 FROM tag WHERE id = $1 AND archived_at IS NULL)`,
-	"offer_template":       `SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
-	"webhook_subscription": `SELECT EXISTS (SELECT 1 FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL)`,
-	"custom_field":         `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
+	targetProduct:             `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`,
+	targetTag:                 `SELECT EXISTS (SELECT 1 FROM tag WHERE id = $1 AND archived_at IS NULL)`,
+	targetOfferTemplate:       `SELECT EXISTS (SELECT 1 FROM offer_template WHERE id = $1 AND archived_at IS NULL)`,
+	targetWebhookSubscription: `SELECT EXISTS (SELECT 1 FROM webhook_subscription WHERE id = $1 AND archived_at IS NULL)`,
+	"custom_field":            `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
 }
 
 func targetExists(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
