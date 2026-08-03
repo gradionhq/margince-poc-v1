@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -246,7 +247,7 @@ func TestSweepCountsEachWorkspacesLatestOutcomeAndSurvivesADeduplicatedRetry(t *
 	_, pool := migratedAppPool(t)
 	ctx := t.Context()
 	older, newer := time.Now().Add(-2*time.Hour), time.Now().Add(-1*time.Hour)
-	wsA, wsB, wsC := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	wsA, wsB, wsC, wsD := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
 
 	// A: still retryable from the EARLIER fan-out — deduplicated out of the
 	// newer one, so its only row carries the old timestamp.
@@ -268,6 +269,12 @@ func TestSweepCountsEachWorkspacesLatestOutcomeAndSurvivesADeduplicatedRetry(t *
 		Kind: "sweep_child", State: "completed",
 		Workspace: wsC, Tags: []string{jobs.SweepTag}, CreatedAt: newer,
 	})
+	// D: cancelled, which counts as failed for the same reason discarded
+	// does — a cancelled pass did not run, whatever the reason.
+	seedJob(ctx, t, pool, seed{
+		Kind: "sweep_child", State: "cancelled",
+		Workspace: wsD, Tags: []string{jobs.SweepTag}, CreatedAt: newer,
+	})
 	// A hand-triggered job of the same kind, carrying no sweep tag.
 	seedJob(ctx, t, pool, seed{
 		Kind: "sweep_child", State: "available",
@@ -282,16 +289,77 @@ func TestSweepCountsEachWorkspacesLatestOutcomeAndSurvivesADeduplicatedRetry(t *
 	if !ok {
 		t.Fatal("no sweep reported for a tagged kind")
 	}
-	if pass.Workspaces != 3 {
-		t.Errorf("Workspaces = %d, want 3: a workspace deduplicated out of the newest "+
+	if pass.Workspaces != 4 {
+		t.Errorf("Workspaces = %d, want 4: a workspace deduplicated out of the newest "+
 			"fan-out is still covered, and an untagged row is not a fleet pass at all",
 			pass.Workspaces)
 	}
-	if pass.Failed != 1 {
-		t.Errorf("Failed = %d, want 1: only B's LATEST outcome counts, and B succeeded "+
-			"before it died", pass.Failed)
+	if pass.Failed != 2 {
+		t.Errorf("Failed = %d, want 2: only B's LATEST outcome counts, and B succeeded "+
+			"before it died; D was cancelled, which is also work that did not happen",
+			pass.Failed)
 	}
 }
+
+// TestARealRiverInsertCarriesTheSweepTagIntoTheColumnTheReadFilterson closes
+// the gap every other test in this file leaves open: they seed the tag by
+// hand, so they prove the query and not the pipeline. This one goes through
+// River's own insert path with the tag on InsertOpts, and asserts the sweep
+// read finds it — so a River release that stopped persisting tags, or an
+// InsertOpts merge that dropped them, fails here rather than silently
+// emptying the sweep gauges in production.
+func TestARealRiverInsertCarriesTheSweepTagIntoTheColumnTheReadFiltersOn(t *testing.T) {
+	_, pool := migratedAppPool(t)
+	ctx := t.Context()
+
+	// A runner of this test's own, because River refuses to insert a kind
+	// its Workers bundle does not register and the shared helper registers
+	// only its no-op.
+	workers := river.NewWorkers()
+	river.AddWorker(workers, &taggedWorker{})
+	runner, err := jobs.New(pool, jobs.Config{
+		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 1}},
+		Workers: workers,
+	}, quietLogger())
+	if err != nil {
+		t.Fatalf("jobs.New: %v", err)
+	}
+
+	if err := runner.Enqueue(ctx, taggedArgs{Workspace: ids.NewV7()},
+		&river.InsertOpts{Tags: []string{jobs.SweepTag}}); err != nil {
+		t.Fatalf("enqueueing a tagged job: %v", err)
+	}
+
+	snap, err := jobs.Stats(ctx, pool)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	pass, ok := sweepFor(snap, taggedArgs{}.Kind())
+	if !ok {
+		t.Fatal("a job River inserted with the sweep tag is absent from the sweep read; " +
+			"the tag did not survive the insert path the dispatchers use")
+	}
+	if pass.Workspaces != 1 {
+		t.Errorf("Workspaces = %d, want 1", pass.Workspaces)
+	}
+}
+
+// taggedArgs is a workspace-scoped kind for the round-trip above. It spells
+// its workspace key the way every WorkspaceScoped kind does, because that
+// spelling is what args->>'workspace_id' reads.
+type taggedArgs struct {
+	Workspace ids.UUID `json:"workspace_id"`
+}
+
+func (taggedArgs) Kind() string { return "tagged_round_trip" }
+
+// taggedWorker exists only so River accepts the insert; the round-trip
+// asserts what the INSERT wrote, and never runs the job.
+type taggedWorker struct {
+	river.WorkerDefaults[taggedArgs]
+}
+
+func (taggedWorker) Work(context.Context, *river.Job[taggedArgs]) error { return nil }
 
 // TestSweepIgnoresAWorkspacesSupersededFailure — the mirror of the above. A
 // workspace that failed and then succeeded is not a tenant being missed.

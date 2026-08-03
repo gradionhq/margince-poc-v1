@@ -26,8 +26,9 @@ import (
 // today.
 const SweepTag = "sweep"
 
-// sweepTagPredicate is the tag test, spelled once. River stores tags as a
-// text array, so membership is the array operator rather than a join.
+// sweepTagPredicate is the tag test, spelled once. River stores tags in a
+// varchar(255)[] column, so membership is the array operator rather than a
+// join.
 const sweepTagPredicate = `'` + SweepTag + `' = ANY(tags)`
 
 // runnableStates are the states a row can be worked FROM right now. The
