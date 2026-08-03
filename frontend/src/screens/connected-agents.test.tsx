@@ -38,10 +38,10 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 // A DCR client id is opaque, high-entropy and machine-issued — which is the
-// whole reason it must not be what a human sees. Spelled once and obviously
-// synthetic: a plausible-looking one reads as a credential to every secret
-// scanner that meets it, and a real one would be someone's actual identifier
-// sitting in a fixture.
+// whole reason it must not be what a human sees. Spelled once, obviously
+// synthetic, and NOT copied from a real installation: a plausible-looking one
+// reads as a credential to every secret scanner that meets it, and it would be
+// someone's actual identifier sitting in a fixture.
 const DCR_CLIENT_ID = "dcr-client-id-0000000000000000000000000000";
 
 const MINTED = {
@@ -70,6 +70,15 @@ const CONNECTED = {
     lent_passport_id: "pp-minted",
     lent_passport_label: "full test",
   },
+};
+
+// The same connection after its credential simply ran out. A grant without
+// offline_access cannot renew, so this is how a connection ends WITHOUT
+// anything writing revoked_at — the state that used to render as live.
+const LAPSED = {
+  ...CONNECTED,
+  id: "pp-lapsed",
+  expires_at: "2026-07-30T08:00:00Z",
 };
 
 // One backend for both cards, since they share the ["passports"] read.
@@ -197,13 +206,59 @@ describe("ConnectedAgentsCard", () => {
     expect(screen.queryByText(/claude mcp add/)).toBeNull();
   });
 
+  // A credential that ran out ends the connection just as surely as a revoke,
+  // and only one of the two writes a column. Reading revoked_at alone left an
+  // expired connection reading as live, with a Disconnect button aimed at a
+  // credential that had already stopped working.
+  it("reports a connection whose credential expired as ended, not as live", async () => {
+    // The clock is pinned rather than read: "expired" is a comparison against
+    // now, and a test that let the real clock decide it would pass today and
+    // fail on the fixture's own expiry date.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-03T09:00:00Z"));
+    try {
+      vi.stubGlobal("fetch", backend({ passports: [LAPSED] }));
+      render(<ConnectedAgentsCard />);
+      // Scoped to the row: "Claude Code" also labels the connect guide's own
+      // command, and a bare text query would match either.
+      await vi.waitFor(() =>
+        expect(
+          document.querySelector('[data-connection="pp-lapsed"]'),
+        ).toBeTruthy(),
+      );
+      expect(screen.getByText("credential expired")).toBeTruthy();
+      expect(screen.getByText(/credential expired 30\/07\/2026/)).toBeTruthy();
+      // No Disconnect: it would aim at a credential that is already gone. The
+      // grant beneath it is still live, so the way to end that for good stays.
+      expect(screen.queryByRole("button", { name: /^Disconnect/ })).toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: "End the connection to Claude Code",
+        }),
+      ).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("names the client in each row's accessible action, so two connections are told apart", async () => {
+    vi.stubGlobal("fetch", backend({}));
+    render(<ConnectedAgentsCard />);
+    await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
+    expect(
+      screen.getByRole("button", { name: "Disconnect Claude Code" }),
+    ).toBeTruthy();
+  });
+
   it("disconnects through the connection's own credential, and warns that the whole connection ends", async () => {
     const deleted: string[] = [];
     vi.stubGlobal("fetch", backend({ onDelete: (id) => deleted.push(id) }));
     render(<ConnectedAgentsCard />);
     await waitFor(() => expect(screen.getByText("Claude Code")).toBeTruthy());
 
-    await userEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Disconnect Claude Code" }),
+    );
     expect(screen.getByText(/ends the whole connection/)).toBeTruthy();
     const dialog = screen.getByRole("dialog");
     await userEvent.click(

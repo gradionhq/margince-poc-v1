@@ -160,6 +160,116 @@ function ConnectGuide() {
   );
 }
 
+// One connection, and whether it is still one.
+//
+// A connection ends TWO ways and only one of them writes a column. Revocation
+// stamps revoked_at (oauth_grant.go's cascade retires every passport under the
+// grant), but a credential can also simply RUN OUT: a grant without
+// offline_access cannot renew, so its passport expiring ends the connection
+// with nothing recording that it did. Reading revoked_at alone left those rows
+// reading as live, offering Disconnect on a credential that had already stopped
+// working.
+//
+// The two ends are not the same to act on, which is why they do not share a
+// control. A revoked connection is finished. An EXPIRED one still has a live
+// grant beneath it — the credential is dead, the consent is not — so it keeps a
+// way to end that for good, and `onEnd` reaches the same cascade either way
+// (revokePassportTx kills the grant even when the passport it names is gone).
+function ConnectionRow({
+  passport,
+  onEnd,
+}: Readonly<{ passport: Connection; onEnd: () => void }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const revoked = passport.revoked_at != null;
+  const expired =
+    !revoked &&
+    passport.expires_at != null &&
+    Date.parse(passport.expires_at) <= Date.now();
+  const ended = revoked || expired;
+  const day = (iso: string) => formatDate(iso, locale, "Europe/Berlin");
+  return (
+    <li data-connection={passport.id}>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-2)",
+          alignItems: "center",
+          flexWrap: "wrap",
+          // struck, not dimmed — the same AA contrast floor the passport list
+          // keeps (B-EP09.21).
+          textDecoration: ended ? "line-through" : undefined,
+        }}
+      >
+        <strong>{passport.connection.client_name}</strong>
+        <span className="t-small">
+          {t("agents.connectedOn", {
+            date: day(passport.connection.connected_at),
+          })}
+        </span>
+        {/* Omitted, never guessed: a connection made before the provenance was
+            recorded has no answer to give. */}
+        {passport.connection.lent_passport_label && (
+          <span className="t-small">
+            {t("agents.lentFrom", {
+              label: passport.connection.lent_passport_label,
+            })}
+          </span>
+        )}
+        {/* This date moves with each renewal, which is the honest thing to
+            show: it is when the agent must next hold a live credential, not
+            when the consent lapses. A revoked row omits it — its credential
+            did not reach its expiry. */}
+        {passport.expires_at && !revoked && (
+          <span className="t-small">
+            {t(expired ? "agents.expiredOn" : "agents.renewsBy", {
+              date: day(passport.expires_at),
+            })}
+          </span>
+        )}
+        {ended && (
+          <Badge tone="danger">
+            {t(revoked ? "agents.disconnected" : "agents.lapsed")}
+          </Badge>
+        )}
+        {!ended && (
+          <Button
+            small
+            variant="danger"
+            aria-label={t("agents.disconnectNamed", {
+              client: passport.connection.client_name,
+            })}
+            onClick={onEnd}
+          >
+            {t("agents.disconnect")}
+          </Button>
+        )}
+        {expired && (
+          <Button
+            small
+            aria-label={t("agents.revokeGrantNamed", {
+              client: passport.connection.client_name,
+            })}
+            onClick={onEnd}
+          >
+            {t("agents.revokeGrant")}
+          </Button>
+        )}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: "var(--space-1)",
+          flexWrap: "wrap",
+          marginTop: "var(--space-1)",
+        }}
+      >
+        <ScopeChips scopes={passport.scopes} />
+      </div>
+    </li>
+  );
+}
+
 // The MCP clients holding a credential of their own. Disconnect is a harder
 // action than revoking a passport and says so: it goes through the connection's
 // grant, so the client's ability to RENEW dies with the credential — a revoke
@@ -167,7 +277,6 @@ function ConnectGuide() {
 // later.
 export function ConnectedAgentsCard() {
   const t = useT();
-  const { locale } = useLocale();
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const list = useQuery({
@@ -223,66 +332,13 @@ export function ConnectedAgentsCard() {
                 gap: "var(--space-3)",
               }}
             >
-              {connections.map((passport) => {
-                const revoked = passport.revoked_at != null;
-                return (
-                  <li key={passport.id} data-connection={passport.id}>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "var(--space-2)",
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                        // struck, not dimmed — the same AA contrast floor the
-                        // passport list keeps (B-EP09.21).
-                        textDecoration: revoked ? "line-through" : undefined,
-                      }}
-                    >
-                      <strong>{passport.connection.client_name}</strong>
-                      <span className="t-small">
-                        {t("agents.connectedOn", {
-                          date: formatDate(
-                            passport.connection.connected_at,
-                            locale,
-                            "Europe/Berlin",
-                          ),
-                        })}
-                      </span>
-                      {/* Omitted, never guessed: a connection made before the
-                          provenance was recorded has no answer to give. */}
-                      {passport.connection.lent_passport_label && (
-                        <span className="t-small">
-                          {t("agents.lentFrom", {
-                            label: passport.connection.lent_passport_label,
-                          })}
-                        </span>
-                      )}
-                      {revoked && (
-                        <Badge tone="danger">{t("agents.disconnected")}</Badge>
-                      )}
-                      {!revoked && (
-                        <Button
-                          small
-                          variant="danger"
-                          onClick={() => setConfirmId(passport.id)}
-                        >
-                          {t("agents.disconnect")}
-                        </Button>
-                      )}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "var(--space-1)",
-                        flexWrap: "wrap",
-                        marginTop: "var(--space-1)",
-                      }}
-                    >
-                      <ScopeChips scopes={passport.scopes} />
-                    </div>
-                  </li>
-                );
-              })}
+              {connections.map((passport) => (
+                <ConnectionRow
+                  key={passport.id}
+                  passport={passport}
+                  onEnd={() => setConfirmId(passport.id)}
+                />
+              ))}
             </ul>
           );
         }}

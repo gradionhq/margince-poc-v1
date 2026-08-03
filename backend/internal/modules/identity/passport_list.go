@@ -63,10 +63,15 @@ type PassportConnectionRow struct {
 // within a day. The newest passport per grant IS the connection, and the
 // predecessors are rotation debris the audit log already keeps.
 //
-// COALESCE(oauth_grant_id, id), never oauth_grant_id alone: DISTINCT ON treats
-// NULLs as EQUAL, so grouping on the bare column would fold every human-minted
-// passport in the workspace into a single row. Coalescing to the passport's own
-// id gives each unbound passport a group of its own.
+// The grouping key is a PAIR, and both halves earn their place. Grouping on
+// oauth_grant_id alone is wrong because DISTINCT ON treats NULLs as EQUAL — it
+// would fold every human-minted passport in the workspace into one row — so the
+// coalesce gives each unbound passport a group of its own. That alone would
+// leave two independent uuidv7 namespaces sharing one key, where a passport id
+// equal to some grant's id hides one of the two rows. The leading
+// `oauth_grant_id IS NULL` separates them: false for every connection, true for
+// every minted passport. The two kinds cannot collide at all, rather than
+// colliding improbably.
 //
 // The distinct select is wrapped because its ORDER BY is forced to lead with
 // the grouping expression, which is not the order the list is read in. The
@@ -80,7 +85,7 @@ const listPassportsSQL = `
 	SELECT id, label, scopes, created_at, expires_at, revoked_at,
 	       client_id, client_name, connected_at, lent_passport_id, lent_passport_label
 	FROM (
-		SELECT DISTINCT ON (COALESCE(p.oauth_grant_id, p.id))
+		SELECT DISTINCT ON (p.oauth_grant_id IS NULL, COALESCE(p.oauth_grant_id, p.id))
 		       p.id, p.label, p.scopes, p.created_at, p.expires_at, p.revoked_at,
 		       g.client_id, COALESCE(c.client_name, g.client_id) AS client_name,
 		       g.created_at AS connected_at,
@@ -90,7 +95,7 @@ const listPassportsSQL = `
 		LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)
 		LEFT JOIN passport lent ON (lent.workspace_id, lent.id) = (g.workspace_id, g.lent_passport_id)
 		WHERE %s
-		ORDER BY COALESCE(p.oauth_grant_id, p.id), p.created_at DESC, p.id DESC
+		ORDER BY p.oauth_grant_id IS NULL, COALESCE(p.oauth_grant_id, p.id), p.created_at DESC, p.id DESC
 	) newest_per_connection
 	ORDER BY created_at DESC, id DESC` // #nosec G101 -- a SELECT over passport metadata; it reads no token column
 

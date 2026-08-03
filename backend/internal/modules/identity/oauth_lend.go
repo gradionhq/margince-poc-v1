@@ -49,19 +49,23 @@ import (
 //
 // WHERE THAT LOCK'S REACH ENDS is the code's own five minutes (authCodeTTL). A
 // passport revoked after this transaction commits does not stop the code from
-// being redeemed: oauth_authorization_code records the client, the human and the
-// scopes, and no column on it names the passport — the audit row is the only
-// record of which one was lent — so the exchange has nothing to revalidate. What
-// the redemption DOES re-check is the human (requireLiveConsentingUser), and that
-// asymmetry is the design: the human's authority is what a connection borrows,
-// while the lent passport contributes its scopes and then stops being party to
-// the connection. The client ends up holding a NEW grant-bound passport
-// (oauth_token.go), so revoking a lent passport leaves connections already
-// derived from it working, and ending one goes through its grant instead
-// (proven: TestALentPassportRevokedAfterConsentStillRedeems). Moving the
-// boundary earlier than the code's TTL means recording the lent passport ON the
-// code row — a migration, and a decision about what a lend means, rather than a
-// lock.
+// being redeemed, and the redemption re-checks the human
+// (requireLiveConsentingUser) and nothing else. That asymmetry is the design:
+// the human's authority is what a connection borrows, while the lent passport
+// contributes its scopes and then stops being party to the connection. The
+// client ends up holding a NEW grant-bound passport (oauth_token.go), so
+// revoking a lent passport leaves connections already derived from it working,
+// and ending one goes through its grant instead (proven:
+// TestALentPassportRevokedAfterConsentStillRedeems).
+//
+// oauth_authorization_code.lent_passport_id NAMES the lent passport (migration
+// 0171), and that does not move this boundary — writing the id down is not the
+// same act as consulting it. What WOULD move it is a redemption that reads the
+// column to decide anything: that is a decision about what a lend means, taken
+// in a WHERE clause, and the test above is what fails when someone takes it.
+// The column exists so Settings can answer "which of my passports is this
+// connection derived from?" without reading the audit log, and the exchange
+// forwards it to the grant untouched.
 func (s *Service) mintLentAuthorizationCode(
 	ctx context.Context, id Identity, rawPassportID string, req authorizeRequest,
 ) (code string, lendable bool, err error) {

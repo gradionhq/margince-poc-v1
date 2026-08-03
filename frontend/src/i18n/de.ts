@@ -1256,7 +1256,13 @@ export const de = {
   "agents.connectedOn": "verbunden {date}",
   "agents.lentFrom": "verliehen aus „{label}“",
   "agents.disconnect": "Trennen",
+  "agents.disconnectNamed": "{client} trennen",
   "agents.disconnected": "getrennt",
+  "agents.lapsed": "Credential abgelaufen",
+  "agents.renewsBy": "Credential erneuert bis {date}",
+  "agents.expiredOn": "Credential abgelaufen {date}",
+  "agents.revokeGrant": "Verbindung beenden",
+  "agents.revokeGrantNamed": "Verbindung zu {client} beenden",
   "agents.disconnectConfirm":
     "Das beendet die ganze Verbindung, nicht nur ein Credential: der Agent verliert den Zugriff beim nächsten Aufruf und kann nicht erneuern. Für eine neue Verbindung verleihst du wieder einen Passport.",
   "agents.connectHow": "Agent verbinden",

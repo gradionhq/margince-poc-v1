@@ -105,11 +105,11 @@ func TestAConnectionIsListedOncePerConnectionNotOncePerRotation(t *testing.T) {
 	}
 }
 
-// The grouping must not reach the human's OWN passports. It groups on
-// COALESCE(oauth_grant_id, id) because DISTINCT ON treats NULLs as equal, and
-// this is the test that fails if that COALESCE is ever simplified away: every
-// minted passport has a NULL grant, so the bare column would collapse all of
-// them into one row and silently hide credentials a human still holds.
+// The grouping must not reach the human's OWN passports. It coalesces to the
+// passport's own id because DISTINCT ON treats NULLs as equal, and this is the
+// test that fails if that coalesce is ever simplified away: every minted
+// passport has a NULL grant, so the bare column would collapse all of them into
+// one row and silently hide credentials a human still holds.
 func TestMintedPassportsAreNeverFoldedIntoEachOther(t *testing.T) {
 	e := setupRevocationEnv(t, "passport-list-unbound")
 	first := e.mintLendable(t, e.admin, []string{"read"})
@@ -128,6 +128,58 @@ func TestMintedPassportsAreNeverFoldedIntoEachOther(t *testing.T) {
 	}
 	if !listed[first] || !listed[second] {
 		t.Fatalf("the list shows %d of the 2 minted passports: both must appear", len(listed))
+	}
+}
+
+// A minted passport and a connection whose grant id EQUALS that passport's id
+// are two rows, not one. The pair is astronomically unlikely to arise on its
+// own — two independent uuidv7 defaults — so it is constructed here, which is
+// the only way to prove the grouping key discriminates the two namespaces
+// rather than merely making a collision improbable. Drop the leading
+// `oauth_grant_id IS NULL` from the DISTINCT ON and one of these rows vanishes.
+func TestAPassportAndAGrantSharingAnIDAreStillTwoRows(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-list-collision")
+	minted := e.mintLendable(t, e.admin, []string{"read"})
+	ctx := context.Background()
+
+	clientID := "client-" + ids.NewV7().String()
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
+		VALUES ($1, $2, 'collision', ARRAY['https://client.example/cb'])`,
+		e.admin.WorkspaceID, clientID); err != nil {
+		t.Fatalf("registering the client: %v", err)
+	}
+	// The grant takes the minted passport's id as its OWN id: the collision the
+	// grouping key has to survive.
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO oauth_grant (id, workspace_id, client_id, user_id, scopes, refresh_allowed)
+		VALUES ($1, $2, $3, $4, ARRAY['read']::text[], false)`,
+		minted, e.admin.WorkspaceID, clientID, e.admin.UserID); err != nil {
+		t.Fatalf("issuing the colliding grant: %v", err)
+	}
+	if _, err := e.owner.Exec(ctx, `
+		INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		VALUES ($1, $2, $2, 'oauth:collision', ARRAY['read']::text[], $3, now() + interval '30 days', $4)`,
+		e.admin.WorkspaceID, e.admin.UserID, "collision-hash-"+minted.String(), minted); err != nil {
+		t.Fatalf("minting the connection's credential: %v", err)
+	}
+
+	rows, err := e.svc.ListPassports(e.wsCtx(e.admin), e.admin)
+	if err != nil {
+		t.Fatalf("listing passports: %v", err)
+	}
+	var mintedSeen, connectionSeen bool
+	for _, row := range rows {
+		if row.ID == minted {
+			mintedSeen = true
+		}
+		if row.Connection != nil && row.Connection.ClientID == clientID {
+			connectionSeen = true
+		}
+	}
+	if !mintedSeen || !connectionSeen {
+		t.Fatalf("minted listed=%v connection listed=%v: a grant id equal to a passport id must not fold the two into one row",
+			mintedSeen, connectionSeen)
 	}
 }
 

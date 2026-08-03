@@ -1235,7 +1235,13 @@ export const en = {
   "agents.connectedOn": "connected {date}",
   "agents.lentFrom": "lent from “{label}”",
   "agents.disconnect": "Disconnect",
+  "agents.disconnectNamed": "Disconnect {client}",
   "agents.disconnected": "disconnected",
+  "agents.lapsed": "credential expired",
+  "agents.renewsBy": "credential renews by {date}",
+  "agents.expiredOn": "credential expired {date}",
+  "agents.revokeGrant": "End connection",
+  "agents.revokeGrantNamed": "End the connection to {client}",
   "agents.disconnectConfirm":
     "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
   "agents.connectHow": "Connect an agent",
