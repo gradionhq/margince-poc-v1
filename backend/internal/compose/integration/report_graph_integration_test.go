@@ -74,8 +74,19 @@ func TestSchemaIntrospectionServesDescriptors(t *testing.T) {
 	e := setupSearch(t)
 	provider := compose.NewProvider(e.Pool)
 	objects, err := provider.ListObjects(context.Background())
-	if err != nil || len(objects) != 5 {
-		t.Fatalf("ListObjects → %d objects, err %v", len(objects), err)
+	if err != nil {
+		t.Fatalf("ListObjects: %v", err)
+	}
+	// Derived from the vocabulary, not counted: a record type the seam admits
+	// and cannot describe is the failure this guards.
+	served := map[datasource.EntityType]bool{}
+	for _, obj := range objects {
+		served[obj.Type] = true
+	}
+	for _, record := range datasource.RecordTypes() {
+		if !served[datasource.EntityType(record)] {
+			t.Errorf("ListObjects omits the %q descriptor: %+v", record, objects)
+		}
 	}
 	fields, err := provider.ListFields(context.Background(), datasource.EntityDeal)
 	if err != nil {
