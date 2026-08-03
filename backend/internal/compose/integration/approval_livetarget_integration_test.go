@@ -92,17 +92,29 @@ func TestNoStagedApprovalIsDecidableAgainstATargetThatIsNotThere(t *testing.T) {
 // once it is not. Without that first assertion the second could pass on a seat
 // that was never admitted at all.
 //
-// Both probe classes the change touches are covered — a row-scoped target whose
-// all-scope clause is empty (deal), and an inherited-scope target whose clause
-// never filtered archived rows (a subject-less signal, workspace-shared like an
-// unlinked note).
+// Both probe classes the change touches are covered, and the inherited-scope one
+// twice because that class answers by two different mechanisms: a link-less
+// activity, whose owning store's clause never filtered archived rows and whose
+// live probe adds it, and an offer, whose arm resolves the deal it hangs off and
+// so has TWO rows to require live.
+//
+// Every kind/target pair here is one a confirm-first route actually stages —
+// `archive_record` against `deal`, `activity` and `offer` are the staged shapes
+// of DELETE /v1/deals/{id}, /v1/activities/{id} and /v1/offers/{id}. A pair no
+// caller can produce would exercise the probe while claiming to cover the
+// workflow.
 func TestAStagedApprovalStopsBeingDecidableOnceItsTargetIsArchived(t *testing.T) {
 	e := Setup(t)
 	svc := approvals.NewService(e.Pool)
 	pipeline, open, _ := DealFixture(t, e)
 
 	deal := e.SeedDeal(t, "Renewal", pipeline, open, &e.Rep1)
-	signal := seedSubjectlessSignal(t, e, "Renewal has gone quiet")
+	activity := seedUnlinkedActivity(t, e, "Renewal has gone quiet")
+	// The offer's deal stays LIVE and owned by the same rep: the offer's own
+	// archive is then the only thing that can change the answer, which is what
+	// separates the offer's half of the arm from its parent hop.
+	offerDeal := e.SeedDeal(t, "Offer anchor", pipeline, open, &e.Rep1)
+	offer := seedLiveOffer(t, e, offerDeal)
 
 	for _, c := range []struct {
 		targetType string
@@ -110,7 +122,8 @@ func TestAStagedApprovalStopsBeingDecidableOnceItsTargetIsArchived(t *testing.T)
 		archive    string
 	}{
 		{"deal", deal, `UPDATE deal SET archived_at = now() WHERE id = $1`},
-		{"signal", signal, `UPDATE signal SET archived_at = now() WHERE id = $1`},
+		{"activity", activity, `UPDATE activity SET archived_at = now() WHERE id = $1`},
+		{"offer", offer, `UPDATE offer SET archived_at = now() WHERE id = $1`},
 	} {
 		t.Run(c.targetType, func(t *testing.T) {
 			approvalID := stageFor(t, svc, e, "archive_record", c.targetType, c.target)
@@ -129,15 +142,24 @@ func TestAStagedApprovalStopsBeingDecidableOnceItsTargetIsArchived(t *testing.T)
 	}
 }
 
-// seedSubjectlessSignal inserts a signal with no subject entity — the
-// workspace-shared shape, visible to every row-scope tier, so the archive below
-// is the only thing that can change the answer. It is inserted directly because
-// a signal's own store mints them from resolution runs; the fixture needs one
-// row, not a pipeline.
-func seedSubjectlessSignal(t *testing.T, e *Env, summary string) ids.UUID {
+// seedUnlinkedActivity inserts an activity with no links — the workspace-shared
+// shape, visible to every row-scope tier, so the archive is the only thing that
+// can change the answer.
+func seedUnlinkedActivity(t *testing.T, e *Env, subject string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	e.WsExec(t, `INSERT INTO signal (id, workspace_id, kind, resolution_state, summary, source, captured_by)
-		VALUES ($1, $2, 'risk', 'unresolved', $3, 'manual', 'human:fixture')`, id, e.WS, summary)
+	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, source, captured_by)
+		VALUES ($1, $2, 'note', $3, 'manual', 'human:fixture')`, id, e.WS, subject)
+	return id
+}
+
+// seedLiveOffer inserts a draft offer against a deal. Inserted directly because
+// the offer store's create path takes the whole pipeline/product/line-item
+// fixture, and this case needs one live row hanging off one live deal.
+func seedLiveOffer(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	e.WsExec(t, `INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, source, captured_by)
+		VALUES ($1, $2, $3, $4, 'EUR', 'manual', 'human:fixture')`, id, e.WS, deal, "AN-"+id.String())
 	return id
 }

@@ -311,17 +311,21 @@ func objectReadable(ctx context.Context, object string) (bool, error) {
 func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
 	if targetType == targetOffer {
 		var dealID ids.UUID
-		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, targetID).Scan(&dealID)
+		// BOTH rows have to be live, and the lookup carries the offer's half:
+		// archive is the delete on this table — every offer write the store gates
+		// takes the row LiveOnly — so the effect staged against an archived offer
+		// could never land, whatever its deal still says. The row it hangs off
+		// takes the same rule below, for the reason the own-scope arm does: an
+		// unbounded actor must not skip the deal's existence, and a staged send
+		// against an erased deal's offer is not a decision anyone still owes.
+		err := tx.QueryRow(ctx,
+			`SELECT deal_id FROM offer WHERE id = $1 AND archived_at IS NULL`, targetID).Scan(&dealID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		if err != nil {
 			return false, err
 		}
-		// The offer's own existence is settled by the lookup above; the parent hop
-		// takes the LIVE probe for the reason the own-scope arm does — an
-		// unbounded actor must not skip the deal's existence, and a staged send
-		// against an erased deal's offer is not a decision anyone still owes.
 		return probeAnswer(auth.EnsureVisibleLive(ctx, tx, tableDeal, dealID))
 	}
 	var ensure func(context.Context, pgx.Tx, ids.UUID) error

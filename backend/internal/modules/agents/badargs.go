@@ -15,6 +15,7 @@ package agents
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,8 +25,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// decodeArgs is the surface's input validation: strict JSON (unknown
-// argument names are errors, not silent drops).
+// decodeArgs is the surface's input validation: strict JSON — unknown argument
+// names are errors rather than silent drops, and the arguments are exactly ONE
+// JSON value rather than the first of several.
 //
 // The unknown-key half is datasource.RejectNonCanonicalKeys, the same gate the
 // REST body decode and the provider seam apply, for two reasons. It refuses a
@@ -61,6 +63,18 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 			slog.Warn("unnamed tool-argument decode failure", "err", err)
 		}
 		return &BadArgsError{Cause: safe}
+	}
+	if dec.More() {
+		// One value, the same boundary the REST body decode draws
+		// (httperr.Decode): decoding the first and discarding the rest would
+		// take a caller's second value — a correction, a merged retry — without
+		// saying that anything was dropped, and a silent truncation is the one
+		// refusal shape an agent cannot re-plan around. OURS, so it travels
+		// verbatim.
+		return &BadArgsError{
+			Cause:    errors.New("trailing content after the first JSON value"),
+			Guidance: "send exactly one JSON object carrying this tool's arguments",
+		}
 	}
 	return nil
 }

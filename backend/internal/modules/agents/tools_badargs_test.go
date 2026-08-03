@@ -196,6 +196,32 @@ func TestAnUnnameableDecodeFailureIsMaskedAndKeptForTheLog(t *testing.T) {
 	}
 }
 
+// Arguments are ONE JSON value. A second value is a refusal, not a truncation:
+// encoding/json's decoder happily reads the first and leaves the rest in the
+// buffer, so without the boundary a caller's second object — the corrected one,
+// in the shape a retry takes — vanishes and the call proceeds on the first as if
+// nothing else had been sent. The REST body decode draws the same line, which is
+// the point: the surfaces have to agree on what a payload IS.
+func TestToolArgumentsAreExactlyOneJSONValue(t *testing.T) {
+	var args struct {
+		Limit int `json:"limit"`
+	}
+	err := decodeArgs(json.RawMessage(`{"limit":1} {"limit":99}`), &args)
+
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("a second JSON value → %v (limit decoded as %d), want BadArgsError — the discarded value is "+
+			"the caller's, and dropping it silently is how a corrected retry runs as its own first draft",
+			err, args.Limit)
+	}
+	if !strings.Contains(bad.Error(), "trailing content") {
+		t.Errorf("the refusal does not say what was wrong with the payload: %q", bad.Error())
+	}
+	if !strings.Contains(bad.Error(), "exactly one JSON object") {
+		t.Errorf("the refusal does not say what to send instead: %q", bad.Error())
+	}
+}
+
 func TestBoundDetailCutsOnARuneBoundary(t *testing.T) {
 	// Three-byte runes over a bound that lands mid-sequence: the cut walks
 	// back to the rune start rather than emitting half of one.
