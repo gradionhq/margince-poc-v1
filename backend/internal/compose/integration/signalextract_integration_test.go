@@ -239,3 +239,43 @@ func TestTheTwoProducersBothReachTheSameAccount(t *testing.T) {
 		t.Fatalf("the account carries %v, want the ghosted_thread the comparison found", kinds)
 	}
 }
+
+// A watermark made of a timestamp alone misses two real things: a message
+// inserted carrying the same instant as the newest one, and a connector
+// backfill filling in older messages. Neither moves the maximum, so without a
+// tie-breaker the conversation is never read again — and the event in the
+// message nobody looked at is lost for good.
+func TestAThreadIsReReadWhenAMessageArrivesWithoutMovingTheClock(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	newest := extractClock.Add(-48 * time.Hour)
+	seedThread(t, e, org, "thread-renewal", "Renewal for 2027",
+		"Sending our thoughts shortly.", "outbound", newest)
+
+	brain := &scriptedBrain{reply: `{"events": []}`}
+	if raised := extractPass(t, e, brain); raised != 0 {
+		t.Fatalf("the first pass raised %d signals on a thread stating none", raised)
+	}
+	if brain.calls != 1 {
+		t.Fatalf("the model was called %d times, want the one read", brain.calls)
+	}
+
+	// Same instant as the message already scanned: max(occurred_at) does not
+	// move, and only the count can tell that the conversation grew.
+	seedThread(t, e, org, "thread-renewal", "Re: Renewal for 2027",
+		"We have decided not to renew.", "inbound", newest)
+	extractPass(t, e, brain)
+	if brain.calls != 2 {
+		t.Errorf("the model was called %d times after a message arrived at the same "+
+			"instant — the thread was never re-read, and what it says is lost", brain.calls)
+	}
+
+	// A backfill: older than everything already seen, so the maximum moves
+	// backwards if anything.
+	seedThread(t, e, org, "thread-renewal", "Original enquiry",
+		"Can you send the renewal terms?", "inbound", newest.Add(-72*time.Hour))
+	extractPass(t, e, brain)
+	if brain.calls != 3 {
+		t.Errorf("the model was called %d times after a backfill added older messages", brain.calls)
+	}
+}

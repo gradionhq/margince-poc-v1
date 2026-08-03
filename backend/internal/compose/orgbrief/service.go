@@ -278,7 +278,12 @@ func (s *Service) cached(ctx context.Context, userID ids.UserID, orgID ids.Organ
 	if err != nil {
 		return stored{}, false, err
 	}
-	if err := json.Unmarshal(payload, &out.Sentences); err != nil {
+	// The WHOLE envelope, version and sections included. Unmarshalling the
+	// payload into the sentence list alone left Version at zero on every read,
+	// so the version check below could never pass and the cache never once
+	// answered — a model call on every page load, invisible to a build gate
+	// because nothing about the served brief looked wrong.
+	if err := json.Unmarshal(payload, &out); err != nil {
 		// A payload this build cannot read is a cache MISS, not a failure:
 		// the brief is derived content, regenerating it costs one call, and
 		// the new row replaces the unreadable one.
@@ -289,7 +294,10 @@ func (s *Service) cached(ctx context.Context, userID ids.UserID, orgID ids.Organ
 }
 
 func (s *Service) save(ctx context.Context, userID ids.UserID, orgID ids.OrganizationID, brief stored) error {
-	payload, err := json.Marshal(brief.Sentences)
+	// The whole envelope, so a later read can tell which shape it is holding.
+	// Storing the sentence list alone dropped both the version and the
+	// sections it was meant to guard.
+	payload, err := json.Marshal(brief)
 	if err != nil {
 		return fmt.Errorf("encode the brief payload: %w", err)
 	}

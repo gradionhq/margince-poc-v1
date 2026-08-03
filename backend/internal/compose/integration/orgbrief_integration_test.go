@@ -98,7 +98,7 @@ func TestOrganizationBriefCachesUntilTheAccountChanges(t *testing.T) {
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org.UUID)
 
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"One open deal.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"One open deal.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	first, err := svc.Get(reader, org, false)
@@ -146,7 +146,7 @@ func TestOrganizationBriefRefreshIgnoresAMatchingCache(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"Nothing open.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"Nothing open.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	if _, err := svc.Get(reader, org, false); err != nil {
@@ -166,7 +166,7 @@ func TestOrganizationBriefRefreshIgnoresAMatchingCache(t *testing.T) {
 func TestOrganizationBriefIsCachedPerReader(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	lane := &countingLane{reply: `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	if _, err := svc.Get(e.As(e.Rep1, nil, briefReaderPerms), org, false); err != nil {
@@ -273,7 +273,7 @@ func TestOrganizationBriefRewritesWhenTheLaneIsRepointed(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	reply := `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`
+	reply := `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`
 
 	before := &countingLane{reply: reply}
 	if _, err := briefService(e, before, "routing-1").Get(reader, org, false); err != nil {
@@ -363,7 +363,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	handlers := orgbrief.NewHandlers(briefService(e, lane, "routing-1"), nativeMode)
 	path := "/v1/organizations/" + org.String() + "/brief"
 
@@ -439,7 +439,7 @@ func TestOrganizationBriefTransportRefusesOutOfScope(t *testing.T) {
 func TestOrganizationBriefTransportRefusesAnOverlayWorkspace(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	lane := &countingLane{reply: `{"sentences":[]}`}
+	lane := &countingLane{reply: `{"sections":[]}`}
 	handlers := orgbrief.NewHandlers(briefService(e, lane, "routing-1"),
 		func(context.Context) (bool, error) { return true, nil })
 

@@ -965,7 +965,7 @@ func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
 	seedContractEnded(t, e, org.UUID)
@@ -997,7 +997,7 @@ func TestAnEndedContractDoesNotContradictAnEndedRelationship(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'former_customer' WHERE id = $1`, org.UUID)
 	seedContractEnded(t, e, org.UUID)
@@ -1034,15 +1034,8 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
 	seedContractEnded(t, e, org.UUID)
 
-	blind := org360RepPerms
-	blind.Objects = make(map[string]principal.ObjectGrant, len(org360RepPerms.Objects))
-	for object, grant := range org360RepPerms.Objects {
-		if object == "signal" {
-			continue
-		}
-		blind.Objects[object] = grant
-	}
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, blind), org)
+	// org360RepPerms carries no signal grant, which is the point.
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
@@ -1071,7 +1064,7 @@ func TestTheStripStatesTheWorstOpenSignal(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	seedSignal(t, e, org.UUID, "commitment_made", "info",
 		"They promised volumes by Friday.", "2026-05-20T09:00:00Z")
@@ -1108,15 +1101,8 @@ func TestTheStripStatesNoSignalWithoutTheGrant(t *testing.T) {
 	seedSignal(t, e, org.UUID, "contract_ended", "warn",
 		"They wrote that the contract ends on 31 July.", "2026-05-21T09:00:00Z")
 
-	blind := org360RepPerms
-	blind.Objects = make(map[string]principal.ObjectGrant, len(org360RepPerms.Objects))
-	for object, grant := range org360RepPerms.Objects {
-		if object == "signal" {
-			continue
-		}
-		blind.Objects[object] = grant
-	}
-	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, blind), org)
+	// org360RepPerms carries no signal grant, which is the point.
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}

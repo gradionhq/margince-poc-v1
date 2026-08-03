@@ -48,6 +48,8 @@ func seedOpenContractEnded(t *testing.T, e *integration.Env, org ids.UUID) ids.U
 	t.Helper()
 	signal := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		// No fingerprint: these stand for signals a human filed, and the point
+		// of several is that they are several rows rather than one deduped one.
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO signal (id, workspace_id, kind, source_channel, entity_type, entity_id,
 			                    resolved_org_id, resolution_state, severity, summary, status,
@@ -131,7 +133,7 @@ func TestAcceptingTheOfferMovesTheAccountAndSettlesTheSignal(t *testing.T) {
 	}
 
 	if _, err := approvalsServiceWithEffects(e.Pool).Decide(
-		e.As(e.Rep1, nil, integration.AdminPerms),
+		e.As(e.Rep1, nil, integration.AdminWithSignals),
 		ids.From[ids.ApprovalKind](stagedOffer(t, e, org)), true, nil); err != nil {
 		t.Fatalf("accepting the offer: %v", err)
 	}
@@ -156,7 +158,7 @@ func TestARefusedOfferIsNotAskedAgain(t *testing.T) {
 
 	proposePass(t, e)
 	if _, err := approvalsServiceWithEffects(e.Pool).Decide(
-		e.As(e.Rep1, nil, integration.AdminPerms),
+		e.As(e.Rep1, nil, integration.AdminWithSignals),
 		ids.From[ids.ApprovalKind](stagedOffer(t, e, org)), false, nil); err != nil {
 		t.Fatalf("declining the offer: %v", err)
 	}
@@ -223,7 +225,7 @@ func TestAnAcceptOverACorrectedRecordIsRefused(t *testing.T) {
 	}
 
 	_, err := approvalsServiceWithEffects(e.Pool).Decide(
-		e.As(e.Rep1, nil, integration.AdminPerms),
+		e.As(e.Rep1, nil, integration.AdminWithSignals),
 		ids.From[ids.ApprovalKind](approvalID), true, nil)
 	if !errors.Is(err, apperrors.ErrVersionSkew) {
 		t.Fatalf("accepting a stale offer returned %v, want a version conflict — a decider "+
@@ -244,5 +246,35 @@ func TestNoOfferIsMadeOnAnAccountAlreadyFiledAsOver(t *testing.T) {
 
 	if staged := proposePass(t, e); staged != 0 {
 		t.Fatalf("the pass staged %d offers on an account already filed as former_customer", staged)
+	}
+}
+
+// An account can carry several signals saying the same thing — three
+// conversations that each mention the contract ending are three rows. The
+// human answering the proposal has answered the question all of them ask.
+//
+// Settling only the quoted row leaves the rest open forever: the record has
+// left the stage the reconciler looks for, so no later pass considers them and
+// nothing else will ever close them.
+func TestAcceptingSettlesEveryOpenContradictionOnTheAccount(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedAccountAtStage(t, e, "customer")
+	first := seedOpenContractEnded(t, e, org)
+	second := seedOpenContractEnded(t, e, org)
+	third := seedOpenContractEnded(t, e, org)
+
+	proposePass(t, e)
+	if _, err := approvalsServiceWithEffects(e.Pool).Decide(
+		e.As(e.Rep1, nil, integration.AdminWithSignals),
+		ids.From[ids.ApprovalKind](stagedOffer(t, e, org)), true, nil); err != nil {
+		t.Fatalf("accepting the offer: %v", err)
+	}
+
+	for _, signal := range []ids.UUID{first, second, third} {
+		if status := signalStatus(t, e, signal); status != "acknowledged" {
+			t.Errorf("signal %s reads %q after the accept, want acknowledged — the "+
+				"account has left the stage this rule looks for, so nothing else "+
+				"would ever close it", signal, status)
+		}
 	}
 }

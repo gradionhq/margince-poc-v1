@@ -58,7 +58,11 @@ type settledThread struct {
 	// Newest is the instant the watermark advances to, read at the same time
 	// as the messages so a message arriving mid-pass is not skipped: it is
 	// newer than what this pass records, so the next pass picks the thread up.
-	Newest   time.Time
+	Newest time.Time
+	// Count is how many messages the conversation held when this pass read it.
+	// The timestamp alone cannot see a message inserted at the same instant, or
+	// a backfill filling in older ones; the count changes for both.
+	Count    int
 	Messages []threadMessage
 }
 
@@ -75,6 +79,7 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		WITH conversation AS (
 			SELECT a.thread_key,
 			       max(a.occurred_at) AS newest,
+			       count(DISTINCT a.id) AS message_count,
 			       min(l.organization_id::text) AS one_org,
 			       count(DISTINCT l.organization_id) AS org_count
 			  FROM activity a
@@ -83,12 +88,17 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			   AND a.archived_at IS NULL AND a.captured_by LIKE 'connector:%'
 			 GROUP BY a.thread_key
 		)
-		SELECT c.thread_key, c.one_org::uuid, c.newest
+		SELECT c.thread_key, c.one_org::uuid, c.newest, c.message_count
 		  FROM conversation c
 		  LEFT JOIN signal_thread_scan s ON s.thread_key = c.thread_key
 		 WHERE c.org_count = 1
 		   AND c.newest <= $1
-		   AND (s.last_activity_at IS NULL OR s.last_activity_at < c.newest)
+		   -- Due when the conversation has MOVED in either way it can. The
+		   -- timestamp misses a message inserted at the same instant and a
+		   -- backfill that adds older ones; the count sees both.
+		   AND (s.thread_key IS NULL
+		        OR s.last_activity_at < c.newest
+		        OR s.message_count <> c.message_count)
 		 ORDER BY c.newest DESC
 		 LIMIT $2`, settled, limit)
 	if err != nil {
@@ -98,7 +108,8 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 	var due []settledThread
 	for rows.Next() {
 		var thread settledThread
-		if err := rows.Scan(&thread.Key, &thread.OrganizationID, &thread.Newest); err != nil {
+		if err := rows.Scan(&thread.Key, &thread.OrganizationID,
+			&thread.Newest, &thread.Count); err != nil {
 			return nil, err
 		}
 		due = append(due, thread)
@@ -144,18 +155,26 @@ func threadMessages(ctx context.Context, tx pgx.Tx, key string) ([]threadMessage
 	return out, rows.Err()
 }
 
-// markThreadScanned advances the watermark to what THIS pass read, never to
-// now(). A thread that grew while the model was answering is left looking
-// unread, so the next pass reads it again — a repeat read writes nothing new
-// (the fingerprint holds), while a skipped one loses the event for good.
+// markThreadScanned records what THIS pass read — the newest instant and the
+// message count it saw — never now() and never a fresh count. A thread that
+// grew while the model was answering is left looking unread, so the next pass
+// reads it again: a repeat read writes nothing new (the fingerprint holds),
+// while a skipped one loses the event for good.
+//
+// last_activity_at takes greatest() because it must never go backwards; the
+// count is overwritten, because a backfill that adds older messages legitimately
+// lowers nothing and raises the count, and clamping it would hide exactly the
+// change it exists to notice.
 func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO signal_thread_scan (workspace_id, thread_key, last_activity_at, scanned_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO signal_thread_scan
+		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (workspace_id, thread_key) DO UPDATE
 		   SET last_activity_at = greatest(signal_thread_scan.last_activity_at, excluded.last_activity_at),
+		       message_count = excluded.message_count,
 		       scanned_at = excluded.scanned_at`,
-		wsID, thread.Key, thread.Newest, now); err != nil {
+		wsID, thread.Key, thread.Newest, thread.Count, now); err != nil {
 		return fmt.Errorf("record where the read got to: %w", err)
 	}
 	return nil

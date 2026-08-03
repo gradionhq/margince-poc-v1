@@ -48,6 +48,10 @@ const (
 	// stage came from the account's own correspondence, not from someone
 	// typing it, and a later human edit must still win over it.
 	lifecycleProposalActor = "agent:" + lifecycleProposalKind
+	// signalKindContractEnded is the observation this reconciler acts on,
+	// spelled once: the read that finds contradictions and the effect that
+	// settles them must agree, and two literals would drift.
+	signalKindContractEnded = "contract_ended"
 	// lifecycleEnded is what a contract_ended signal proposes from every live
 	// stage. The founder's own example is a record reading "Prospect" whose
 	// mail ends a contract: the mail is the fact, and former_customer is what
@@ -152,13 +156,19 @@ func (p *SignalProposer) RunWorkspace(ctx context.Context) (int, error) {
 // they ever disagree the card is what a reader sees, so the card is the one
 // with the test that pins the rule.
 func readContradictions(ctx context.Context, tx pgx.Tx) ([]contradiction, error) {
+	// ONE row per account, newest signal first. The question this offers is
+	// about the account's stage, and an account whose mail says the contract
+	// ended in three conversations is not three questions — staging once per
+	// signal made each pass supersede the last, leaving whichever row happened
+	// to be first standing and the rest never asked about at all.
 	rows, err := tx.Query(ctx, `
-		SELECT o.id, o.lifecycle, s.id, s.summary
+		SELECT DISTINCT ON (o.id) o.id, o.lifecycle, s.id, s.summary
 		  FROM signal s
 		  JOIN organization o ON o.id = s.resolved_org_id AND o.archived_at IS NULL
-		 WHERE s.kind = 'contract_ended' AND s.status = 'open' AND s.archived_at IS NULL
+		 WHERE s.kind = '`+signalKindContractEnded+`' AND s.status = 'open'
+		   AND s.archived_at IS NULL
 		   AND o.lifecycle IN ('prospect','opportunity','customer')
-		 ORDER BY s.detected_at DESC`)
+		 ORDER BY o.id, s.detected_at DESC, s.id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -254,9 +264,13 @@ func lifecycleAcceptEffect(svc *approvals.Service, store *people.Store) approval
 			if err != nil || !moved {
 				return err
 			}
-			// The false is a signal a human already triaged; their judgement
-			// stands and the stage change is still correct.
-			_, err = signals.AcknowledgeTx(execCtx, tx, proposal.SignalID)
+			// EVERY open contradiction on this account, not just the one the
+			// card quoted. Three conversations can each say the contract is
+			// ending, and the reader answering one has answered all three —
+			// while the record has now left the stage this reconciler looks
+			// for, so no later pass would ever close the others.
+			_, err = signals.AcknowledgeOpenForOrgTx(execCtx, tx,
+				proposal.OrganizationID.UUID, signalKindContractEnded)
 			return err
 		})
 	}

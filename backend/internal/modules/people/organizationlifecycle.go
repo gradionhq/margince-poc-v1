@@ -6,12 +6,17 @@ package people
 // Moving an account's stage from a decision a human already made.
 //
 // The ordinary path is UpdateOrganization, which takes a caller's sparse edit
-// and an If-Match version. A released approval has neither: it carries the
-// stage the proposal named and the stage the record was in WHEN the proposal
-// was made, and it must write only if the record has not moved since. So the
-// pin is the stage itself rather than a row version — an unrelated write that
-// bumps the row is not a reason to refuse, and a stage that someone else has
-// already corrected is.
+// and an If-Match version. A released approval carries neither: it carries the
+// stage the proposal named and the stage the record was in when it was staged,
+// and it must write only if the record still says the second.
+//
+// That is the SECOND of two checks, not the only one. The approval itself is
+// pinned to the organization's version, so Redeem refuses a decision made
+// against a row that changed at all — including by an edit that never touched
+// the stage. This CAS is what remains after that: the narrower question of
+// whether the stage in particular is still what the proposal was built on. It
+// exists because the two can disagree, and because a writer reached from an
+// effect must not assume the caller above it checked anything.
 
 import (
 	"context"

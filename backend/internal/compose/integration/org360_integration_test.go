@@ -60,13 +60,19 @@ var org360RepPerms = principal.Permissions{
 		"person":       {Create: true, Read: true, Update: true},
 		"deal":         {Create: true, Read: true, Update: true},
 		"activity":     {Create: true, Read: true, Update: true},
-		"signal":       {Read: true},
 		"pipeline":     {Read: true},
 		"tag":          {Read: true},
 		"list":         {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
+
+// org360SignalPerms is the same rep plus the signal read grant (the helper
+// the graph suite already keeps, org360_graph_integration_test.go). Separate
+// from org360RepPerms rather than folded into it because several tests read
+// that fixture as "a rep who cannot see signals" to prove a section is
+// withheld — granting it there made those pass without testing anything.
+var org360SignalPerms = withSignalRead(org360RepPerms)
 
 // org360NoDealPerms is the same rep with the deal grant taken away — the
 // fixture that proves omission is distinguishable from emptiness.

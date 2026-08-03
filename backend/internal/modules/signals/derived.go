@@ -182,3 +182,51 @@ func AcknowledgeTx(ctx context.Context, tx pgx.Tx, signalID ids.UUID) (bool, err
 	}
 	return true, nil
 }
+
+// AcknowledgeOpenForOrgTx marks every open signal of one kind on one account
+// acknowledged, and reports how many moved.
+//
+// An account can carry several signals saying the same thing — three
+// conversations that each mention the contract ending are three rows. A human
+// answering the proposal that came out of one of them has answered the
+// question all of them ask, and settling only the cited row leaves the rest
+// open forever: the record has left the stage the reconciler looks for, so no
+// later pass considers them again and nothing else will ever close them.
+//
+// It takes the KIND rather than a list of ids because the decision was about
+// the account's situation, not about which row happened to be quoted on the
+// card the reader saw.
+func AcknowledgeOpenForOrgTx(
+	ctx context.Context, tx pgx.Tx, orgID ids.UUID, kind string,
+) (int, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id FROM signal
+		 WHERE resolved_org_id = $1 AND kind = $2
+		   AND status = 'open' AND archived_at IS NULL
+		 ORDER BY detected_at`, orgID, kind)
+	if err != nil {
+		return 0, fmt.Errorf("list the account's open signals: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[idsUUID])
+	if err != nil {
+		return 0, fmt.Errorf("read the account's open signals: %w", err)
+	}
+	settled := 0
+	for _, signalID := range ids {
+		// Each through the same CAS the single-signal path takes, so a row a
+		// human triaged between the read and this write keeps their outcome.
+		moved, err := AcknowledgeTx(ctx, tx, signalID)
+		if err != nil {
+			return settled, err
+		}
+		if moved {
+			settled++
+		}
+	}
+	return settled, nil
+}
+
+// idsUUID names the scan target for the id list above. pgx.RowTo needs a
+// concrete type and ids.UUID is already one; the alias exists only so the
+// generic call reads as what it collects.
+type idsUUID = ids.UUID
