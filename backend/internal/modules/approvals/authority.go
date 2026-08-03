@@ -86,6 +86,11 @@ var decisionGrants = map[string][]struct {
 	// signature naming their company, with nothing corroborating it) renames
 	// the organization — the same update authority the name editor needs.
 	"org_name_promotion": {{tableOrganization, principal.ActionUpdate}},
+	// Accepting a lifecycle_change proposal (the account-intelligence arc: the
+	// correspondence says the contract ended while the record still reads as
+	// live) moves the account's stage — the same update authority the header's
+	// own stage picker needs.
+	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{tableDeal, principal.ActionUpdate}},

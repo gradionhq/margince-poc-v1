@@ -126,3 +126,59 @@ func derivedEvidenceRows(in []DerivedEvidence) []map[string]any {
 	}
 	return out
 }
+
+// columnStatus and statusOpen are the one spelling of the triage column and
+// the state this transition leaves: the CAS predicate and the audit's
+// before-image must agree, and two literals would drift.
+const (
+	columnStatus = "status"
+	statusOpen   = "open"
+)
+
+// AcknowledgeTx marks one open signal acknowledged inside the caller's
+// transaction, and reports whether it moved.
+//
+// It exists for the approval effects: a human accepting the consequence of a
+// signal has, by that act, seen it, and a page that moved the account while
+// still shouting the signal that moved it contradicts itself. The move rides
+// the SAME transaction as the structural write, so neither can land alone.
+//
+// Unlike UpdateSignal this takes no version pin. The caller is a released
+// approval, not an editor with a stale copy in a browser tab: the only thing
+// it needs to be true is that the signal is still open, and the WHERE clause
+// is that check. A signal a human already triaged is left exactly as they
+// left it, and the false says so.
+func AcknowledgeTx(ctx context.Context, tx pgx.Tx, signalID ids.UUID) (bool, error) {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return false, err
+	}
+	// The status predicate IS the CAS: a signal a human already triaged has
+	// left 'open' behind, the update matches nothing, and the false below says
+	// their judgement stands.
+	tag, err := tx.Exec(ctx, `
+		UPDATE signal SET status = 'acknowledged', version = version + 1, updated_at = now()
+		 WHERE id = $1 AND status = 'open' AND archived_at IS NULL`, signalID)
+	if err != nil {
+		return false, fmt.Errorf("acknowledge the signal: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return false, nil
+	}
+	// The append-only human-outcome row (data-model §12.5), the same one the
+	// triage endpoint writes — the outcome is a human's, whoever's hands the
+	// write passed through.
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO signal_resolution (id, workspace_id, signal_id, outcome, resolved_by, source, captured_by)
+		 VALUES ($1, $2, $3, 'acknowledged', $4, 'approval', $5)`,
+		ids.NewV7(), storekit.MustWorkspace(ctx), signalID,
+		storekit.UUIDOrNil(actor.UserID), actor.ID); err != nil {
+		return false, fmt.Errorf("append the signal outcome: %w", err)
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "signal", signalID,
+		map[string]any{columnStatus: statusOpen},
+		map[string]any{columnStatus: "acknowledged"}); err != nil {
+		return false, fmt.Errorf("audit the acknowledgement: %w", err)
+	}
+	return true, nil
+}

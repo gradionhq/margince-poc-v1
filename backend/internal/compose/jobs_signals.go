@@ -72,6 +72,7 @@ type signalScanWorkspaceWorker struct {
 	river.WorkerDefaults[SignalScanWorkspaceArgs]
 	pool      *pgxpool.Pool
 	extractor *SignalExtractor
+	proposer  *SignalProposer
 	now       func() time.Time
 	log       *slog.Logger
 }
@@ -106,8 +107,16 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 			return jobs.FaultContext(ctx, err)
 		}
 	}
-	if ghosted+read > 0 {
-		w.log.InfoContext(wsCtx, "signal scan: raised signals", "ghosted", ghosted, "extracted", read)
+	// The offers come last, over every open signal rather than only the ones
+	// this pass raised: a crash between a signal and its offer self-heals here,
+	// and a signal raised before this surface existed still gets its offer.
+	standing, err := w.proposer.RunWorkspace(wsCtx)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	if ghosted+read+standing > 0 {
+		w.log.InfoContext(wsCtx, "signal scan: raised signals, offers standing",
+			"ghosted", ghosted, "extracted", read, "offers_standing", standing)
 	}
 	return nil
 }

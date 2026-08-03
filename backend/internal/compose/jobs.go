@@ -329,7 +329,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &signalScanWorker{pool: pool})
 	river.AddWorker(workers, &signalScanWorkspaceWorker{
 		pool: pool, extractor: newSignalExtractorIfConfigured(pool, cfg.SignalExtractBrain, log),
-		now: time.Now, log: log,
+		// The SAME approvals service the HTTP surface decides on, so a released
+		// effect can redeem the offer this reconciler staged.
+		proposer: NewSignalProposer(pool, approvalsServiceWithEffects(pool), log),
+		now:      time.Now, log: log,
 	})
 	periodic = append(periodic, river.NewPeriodicJob(
 		river.PeriodicInterval(time.Hour),
