@@ -52,6 +52,49 @@ var columnBackedColdStartFields = map[string]string{
 	"registered_address": "address",
 }
 
+// readColdStartColumnImages reads the columns an apply may touch, so the audit
+// can record what each one WAS. Without this the write recorded only what it
+// set, and field history had no diff to project — the reason it rendered
+// pseudo-fields instead of "legal_name: X → Y".
+func readColdStartColumnImages(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[string]any, error) {
+	var legalName, industry, addressLine1 *string
+	if err := tx.QueryRow(ctx,
+		`SELECT legal_name, industry, address_line1 FROM organization WHERE id = $1`,
+		orgID).Scan(&legalName, &industry, &addressLine1); err != nil {
+		return nil, fmt.Errorf("read organization column images: %w", err)
+	}
+	out := map[string]any{}
+	for column, value := range map[string]*string{
+		"legal_name": legalName, "industry": industry, "address_line1": addressLine1,
+	} {
+		if value == nil {
+			// An empty column reads as an explicit null in the image, never as
+			// an absent key: "it had nothing" and "nobody looked" are different
+			// answers, and field history renders them differently.
+			out[column] = nil
+			continue
+		}
+		out[column] = *value
+	}
+	return out, nil
+}
+
+// changedColumnsOnly narrows the two images to the columns that actually moved.
+// A field-history projection reads every key in the pair, so carrying an
+// untouched column through would publish "industry: Automotive → Automotive"
+// as a change on a run that only filled the legal name.
+func changedColumnsOnly(before, after map[string]any) (map[string]any, map[string]any) {
+	b, a := map[string]any{}, map[string]any{}
+	for column, afterValue := range after {
+		if before[column] == afterValue {
+			continue
+		}
+		b[column] = before[column]
+		a[column] = afterValue
+	}
+	return b, a
+}
+
 // ApplyColdStartProfile executes an ACCEPTED coldstart proposal. A
 // column a human (or any earlier capture) already filled is left
 // untouched — acceptance covers the staged diff, not an overwrite of
@@ -96,16 +139,34 @@ func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileIn
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
+	// The columns as they stand BEFORE the apply. Read first, because the
+	// write only reports whether it changed something, not what it replaced —
+	// and an audit row with no before image gives field history nothing to
+	// diff, which is why it used to render pseudo-fields.
+	before, err := readColdStartColumnImages(ctx, tx, orgID)
+	if err != nil {
+		return ids.OrganizationID{}, err
+	}
 	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
+	after, err := readColdStartColumnImages(ctx, tx, orgID)
+	if err != nil {
+		return ids.OrganizationID{}, err
+	}
+	before, after = changedColumnsOnly(before, after)
 
 	action := "update"
 	if created {
 		action = "create"
 	}
-	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
+	// before/after carry the RECORD's own column images and nothing else; the
+	// operation's metadata rides audit_log.evidence, which is what that column
+	// is for. Folding source/source_url/fields into the after image made field
+	// history project them as changes to fields named "source" and "facts" —
+	// changes that never happened on the record (storekit.AuditWithEvidence).
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, action, "organization", orgID.UUID, before, after, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 	})
 	if err != nil {

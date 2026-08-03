@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -497,5 +498,59 @@ func TestFieldHistoryHonestEmptyForVisibleRecordWithNoMatches(t *testing.T) {
 	}
 	if page.Entries == nil || len(page.Entries) != 0 || page.HasMore {
 		t.Fatalf("want honest empty page (non-nil, zero entries): %+v", page)
+	}
+}
+
+// TestEnrichmentWritesProjectAsRealColumnDiffs is the honesty check on what
+// the company page's Changes filter shows a reader.
+//
+// A cold-start apply used to audit with before=nil and after={source,
+// source_url, fields:[…]} — a bag whose keys are not columns. Field history
+// projects per FIELD from before/after images, so it rendered pseudo-fields
+// called "source" and "fields": changes that never happened on the record,
+// while the actual legal_name it had just written appeared nowhere. The
+// operation's metadata now rides audit_log.evidence, which is the column for
+// it, and before/after carry the record's own images.
+func TestEnrichmentWritesProjectAsRealColumnDiffs(t *testing.T) {
+	e := Setup(t)
+
+	// The apply resolves its target by the source URL's host, so it names the
+	// organization it touched rather than one seeded beside it.
+	org, err := e.People.ApplyColdStartProfile(e.Admin(), people.ApplyColdStartProfileInput{
+		SourceURL: "https://scale.example/impressum",
+		Fields: []people.ColdStartFieldInput{
+			{Field: "legal_name", Value: "Scale Commerce GmbH", EvidenceSnippet: "Scale Commerce GmbH, Berlin", SourceURL: "https://scale.example/impressum", Confidence: 0.9},
+			// Not column-backed: it lands as evidence only, so it must NOT
+			// appear as a field change on the organization row.
+			{Field: "offer_summary", Value: "Managed hosting", EvidenceSnippet: "Managed hosting for e-commerce", SourceURL: "https://scale.example", Confidence: 0.8},
+		},
+	})
+	if err != nil {
+		t.Fatalf("apply cold-start profile: %v", err)
+	}
+
+	page, err := privacy.ListFieldHistory(e.Admin(), e.Pool, privacy.FieldHistoryFilter{
+		EntityType: "organization", EntityID: org.UUID,
+	})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, entry := range page.Entries {
+		seen[entry.Field] = true
+	}
+	for _, pseudo := range []string{"source", "source_url", "fields", "facts"} {
+		if seen[pseudo] {
+			t.Errorf("field history shows %q as a changed field — that is operation metadata, not a column on the record", pseudo)
+		}
+	}
+	if seen["offer_summary"] {
+		t.Error("a profile-field-only value appeared as an organization column change")
+	}
+	// And the positive half: the column the apply actually filled is the one a
+	// reader now sees. Asserting only the absence of the pseudo-fields would
+	// pass just as well if the write had stopped auditing altogether.
+	if !seen["legal_name"] {
+		t.Errorf("legal_name is missing from field history: %v — the apply wrote it, so the record's own change must be what shows", seen)
 	}
 }
