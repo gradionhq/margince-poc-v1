@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -15,18 +16,34 @@ import (
 )
 
 // ErrIdentityDrift marks a ReembedWorkspace call whose target identity
-// (argsIdentity, minted when the job was enqueued) no longer matches what
-// the embedder compose actually injects — an operator changed the live
+// (ReembedPass.Identity, captured when the run was claimed) no longer matches
+// what the embedder compose actually injects — an operator changed the live
 // embed binding config after enqueue. The caller maps this to
 // river.JobCancel rather than a retry: retrying would burn attempts
 // against an identity nothing serves anymore, when what the fleet
 // actually needs is a NEW job enqueued under the CURRENT config.
 var ErrIdentityDrift = errors.New("search: embedder identity drifted from the job's target identity")
 
+// ReembedPass is one workspace's slice of a run: the run it reports its progress
+// to, the identity it must still be re-embedding under, and the clock that
+// progress reporting is paced by.
+type ReembedPass struct {
+	// Run is the claim this pass belongs to. Every marker write fences on it, so
+	// a pass that outlived its own run reports into nothing.
+	Run ids.UUID
+	// Identity is the embed binding captured when the run was claimed. It is
+	// compared against what the embedder reports NOW, and a mismatch is drift.
+	Identity string
+	// Now is the clock the progress pacing reads. Nil takes the wall clock,
+	// which is what the worker passes; a suite pins it, because the alternative
+	// is a test that waits out a real interval.
+	Now func() time.Time
+}
+
 // ReembedWorkspace rebuilds one workspace's embedding corpus under
-// argsIdentity. It is resumable BY CONSTRUCTION, not by tracking its own
+// pass.Identity. It is resumable BY CONSTRUCTION, not by tracking its own
 // progress: UpsertEmbedding's content-hash + identity skip-compare
-// (embedding.go) makes a row already current under argsIdentity free to
+// (embedding.go) makes a row already current under that identity free to
 // revisit, so a crash, a retry, or a deliberate second run all cost
 // nothing for entities already done — this routine simply calls
 // UpsertEmbedding for every live entity every time and lets that
@@ -36,26 +53,30 @@ var ErrIdentityDrift = errors.New("search: embedder identity drifted from the jo
 // carrying this workspace fails and is retried, rather than this routine
 // silently leaving a partially re-embedded corpus behind a green pass.
 //
-// It also reports its own progress onto run's marker as it goes, because a pass
-// this long is otherwise indistinguishable from one that died: nothing else
+// It also reports its own progress onto the run's marker as it goes, because a
+// pass this long is otherwise indistinguishable from one that died: nothing else
 // moves the marker between the fan-out and the workspace finishing, and
 // ReembedClaim.StealAfter reads exactly that gap.
-func (s *Store) ReembedWorkspace(ctx context.Context, run ids.UUID, wsID ids.WorkspaceID, embedder Embedder, argsIdentity string) error {
+func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids.WorkspaceID, embedder Embedder) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
 	// embedder compose hands this call is always the CURRENT one, so a
-	// mismatch here means argsIdentity is stale. Re-embedding anyway would
-	// index this workspace under a model the run does not target, and the
+	// mismatch here means the pass's identity is stale. Re-embedding anyway
+	// would index this workspace under a model the run does not target, and the
 	// run would go on to stamp populated_identity over it.
-	if identity, _ := embedder.EmbedIdentity(); identity != argsIdentity {
+	if identity, _ := embedder.EmbedIdentity(); identity != pass.Identity {
 		return ErrIdentityDrift
+	}
+	now := pass.Now
+	if now == nil {
+		now = time.Now
 	}
 
 	// system principal: re-embedding rebuilds an index over the WHOLE
 	// workspace, not one caller's row scope — the same posture as
 	// EmbedGen (embedgen.go:51-56) and pendingStats.
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
-	embedded := 0
+	noted := now()
 	for entityType, src := range pendingSources {
 		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
 		if err != nil {
@@ -65,26 +86,21 @@ func (s *Store) ReembedWorkspace(ctx context.Context, run ids.UUID, wsID ids.Wor
 			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
 				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
 			}
-			embedded++
-			if embedded%reembedProgressEvery == 0 {
-				if err := s.noteReembedProgress(ctx, run); err != nil {
+			// Paced by the clock and not by a count of entities: an entity is
+			// not a unit of time, so a count would have to be divided by the
+			// slowest an entity can be, and would then carry that model timeout
+			// into how stale a working run's marker may read. This carries it
+			// once — the entity in flight when the interval elapses.
+			if elapsed := now(); elapsed.Sub(noted) >= ReembedProgressStaleness {
+				if err := s.noteReembedProgress(ctx, pass.Run); err != nil {
 					return err
 				}
+				noted = elapsed
 			}
 		}
 	}
 	return nil
 }
-
-// reembedProgressEvery is how many entities a pass may cover before it says so
-// on the marker. Ten, because ai.requestTimeout caps a single embed at 300s: ten
-// of them is fifty minutes even at that ceiling, so a run doing real work always
-// reports inside any steal window set above it, and a marker that has gone an
-// hour unmoved has genuinely covered fewer than ten entities in that hour.
-//
-// The count only paces the CHECK — noteReembedProgress writes nothing unless the
-// marker has actually gone stale — so a small number here is cheap.
-const reembedProgressEvery = 10
 
 // liveEntity is one row selected for re-embedding: an id plus the exact
 // source text pendingSources declares for its entity type.

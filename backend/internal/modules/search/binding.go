@@ -77,9 +77,10 @@ func (s *Store) SeedBinding(ctx context.Context, configuredIdentity string) erro
 
 // PopulatedIdentity is the one-PK read /readyz uses (Task 17): the marker's
 // own view of what the store is populated under, the job lifecycle status,
-// and when the run last moved (updatedAt — what a human is shown as
-// "reindexing since", and the age ReembedClaim.StealAfter measures to let a
-// forced confirm take a marker back off a run that stopped moving).
+// and when the run last made progress (updatedAt — a running pass refreshes it
+// as it embeds, so it is the age of the last PROGRESS and not of the run. That
+// is what lets a human tell a long reindex from a dead one, what the SPA shows
+// as "last progress N ago", and what ReembedClaim.StealAfter measures).
 // It never joins the live entity scan — that cost belongs to the ops
 // status endpoint, not the readiness probe.
 func (s *Store) PopulatedIdentity(ctx context.Context) (identity string, status string, updatedAt time.Time, err error) {
@@ -257,26 +258,23 @@ func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, wo
 	})
 }
 
-// ReembedProgressStaleness is the most a working run's marker is ever allowed
-// to lag behind its actual progress. A run refreshes updated_at as it embeds
-// (noteReembedProgress), but only when the marker has gone this long unmoved, so
-// a long pass costs a handful of one-row writes rather than one per entity.
+// ReembedProgressStaleness paces how often a working run says so on its marker:
+// ReembedWorkspace calls noteReembedProgress once this much time has passed, so
+// a pass of any length costs at most one small write per interval.
 //
-// It is the floor every steal window has to clear: a window at or below this
-// would dispossess runs that are working normally.
+// It is therefore ALMOST the bound on how stale a working run's marker can read,
+// but not quite: the entity being embedded when the interval elapses finishes
+// first, so the true bound is this plus one embed, which the model lane's own
+// per-call timeout caps. A steal window has to clear that sum, not this value.
 const ReembedProgressStaleness = 5 * time.Minute
 
 // noteReembedProgress moves run's marker forward to say the run is still
-// working, and does nothing at all when the marker has moved recently enough —
-// so the write rate is bounded by ReembedProgressStaleness rather than by corpus
-// size. Fenced on the run, like every other write here: a straggler must not
+// working. Fenced on the run, like every other write here: a straggler must not
 // keep the marker of the run that replaced it looking alive.
 func (s *Store) noteReembedProgress(ctx context.Context, run ids.UUID) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	_, err := s.pool.Exec(ctx, `
-		UPDATE embed_store_binding SET updated_at = now()
-		WHERE reembedding_run = $1 AND updated_at < now() - make_interval(secs => $2)`,
-		run, ReembedProgressStaleness.Seconds())
+		UPDATE embed_store_binding SET updated_at = now() WHERE reembedding_run = $1`, run)
 	if err != nil {
 		return fmt.Errorf("search: recording reembed progress: %w", err)
 	}

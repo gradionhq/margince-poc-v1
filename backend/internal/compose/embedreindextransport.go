@@ -49,31 +49,17 @@ import (
 // carries while a fleet-wide re-embed is in flight (binding.go's own CAS).
 const reembeddingStatus = "reembedding"
 
-// reembedStaleAfter is how long a run may leave its marker unmoved before a
-// FORCED confirm is allowed to take it back.
+// reembedStaleAfter is how long this deployment lets a run leave its marker
+// unmoved before a FORCED confirm may take it back. What that measures, why
+// anything has to, and why taking it is safe are all one explanation, and it
+// lives on search.ReembedClaim.StealAfter rather than being restated here.
 //
-// A run that is working says so: search.ReembedWorkspace refreshes the marker as
-// it embeds, and never lets it read staler than search.ReembedProgressStaleness.
-// So an hour of no movement is not "this run is slow" — a workspace pass is
-// allowed to take hours and must not be interrupted — it is "this run has
-// covered fewer than ten entities in an hour", which is a run nothing is
-// working. The margin over the refresh floor is what leaves a healthy run's
-// timing irrelevant, so the number is chosen against that floor and nothing else.
-//
-// Something has to answer this, because River will not: a workspace job declares
-// Timeout() == -1, and the rescuer ignores a stuck job with a negative timeout at
-// any age, so a child whose process died leaves a running row that is never
-// retried or discarded and a workspace that never leaves the run's pending set.
-//
-// Stealing is safe by construction rather than by timing: the dispossessed run's
-// children carry a run id the marker no longer names, so whatever they go on to
-// do, they cannot touch the new run's set (search/binding.go's own fence).
+// The number only has to clear the most a WORKING run's marker can lag —
+// search.ReembedProgressStaleness plus the one embed in flight when that
+// interval elapses, which the model lane's own per-call timeout caps at five
+// minutes. An hour leaves fifty minutes of margin over that sum, so no healthy
+// run is ever near it however long its corpus takes.
 const reembedStaleAfter = time.Hour
-
-// The window has to clear the refresh floor, or a run refreshing its marker
-// exactly on time would still read stale and be dispossessed while working. A
-// negative difference does not convert to uint, so this fails to compile.
-const _ = uint(reembedStaleAfter - search.ReembedProgressStaleness)
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
 // needs: the insert rides the claim's own transaction, so a claim that

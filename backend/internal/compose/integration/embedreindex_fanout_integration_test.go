@@ -133,9 +133,10 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 // TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun wires the store's escape
 // hatch to the surface a human actually has. Nothing else clears the marker: a
 // restart does not (SeedBinding is ON CONFLICT DO NOTHING), and the release
-// cannot be made airtight — River discards a job rescued past its attempts
-// WITHOUT running it, so a child killed outright never takes its workspace out of
-// the run's set. Without this, that installation answers 409 to every reindex
+// cannot be made airtight — a workspace job declares Timeout() == -1, which puts
+// it outside River's rescuer at any age, so a child whose process died leaves a
+// running row nothing retries or discards and a workspace that never leaves the
+// run's set. Without this, that installation answers 409 to every reindex
 // forever. `force` on its own must NOT steal, or the escape hatch becomes the
 // normal path and two runs fan out over each other.
 func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {

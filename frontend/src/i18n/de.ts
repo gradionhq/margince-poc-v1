@@ -2884,7 +2884,7 @@ export const de = {
   "embedreindex.statusIdle": "Aktuell",
   "embedreindex.statusNeeded": "Neuindizierung erforderlich",
   "embedreindex.statusReembedding": "Neuindizierung läuft…",
-  "embedreindex.reembeddingSince": "Neuindizierung läuft seit {duration}",
+  "embedreindex.reembeddingSince": "Letzter Fortschritt vor {duration}",
   "embedreindex.entitiesPending": "{count} Einträge ausstehend",
   "embedreindex.workspacePending": "{count} ausstehend",
   "embedreindex.reviewCta": "Prüfen & neu indizieren",

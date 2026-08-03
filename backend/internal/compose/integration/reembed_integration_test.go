@@ -62,7 +62,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 
 	wsID := ids.From[ids.WorkspaceKind](e.WS)
 	run := ids.NewV7()
-	if err := e.store.ReembedWorkspace(ctx, run, wsID, newEmbedder, newIdentity); err != nil {
+	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
 		t.Fatalf("ReembedWorkspace: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	// Resumability: nothing changed since the first pass, so every row is
 	// already current under newIdentity — the skip-compare inside
 	// UpsertEmbedding must short-circuit before ever calling the embedder.
-	if err := e.store.ReembedWorkspace(ctx, run, wsID, newEmbedder, newIdentity); err != nil {
+	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
 		t.Fatalf("second ReembedWorkspace: %v", err)
 	}
 	secondPassCalls := len(fake.Calls()) - baselineCalls - firstPassCalls
@@ -163,12 +163,12 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 	}
 	failEmbeddingWritesFor(t, e.owner, e.WS)
 
-	if err := e.store.ReembedWorkspace(ctx, ids.NewV7(), ids.From[ids.WorkspaceKind](e.WS), embedder, identity); err == nil {
+	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](e.WS), embedder); err == nil {
 		t.Fatal("a workspace whose embedding writes could not land reported success — nothing records that its corpus was never rebuilt")
 	}
 
 	// The fault is one tenant's, and the pass now takes the tenant it is given.
-	if err := e.store.ReembedWorkspace(ctx, ids.NewV7(), ids.From[ids.WorkspaceKind](healthy), embedder, identity); err != nil {
+	if err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](healthy), embedder); err != nil {
 		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
 	}
 	// Read outside e.WS: searchEnv.storedEmbeddingModel is pinned to the
@@ -213,7 +213,7 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 
 	// The job's own args identity does NOT match what embedder actually
 	// reports — the drift the guard exists to catch.
-	err := e.store.ReembedWorkspace(ctx, ids.NewV7(), ids.From[ids.WorkspaceKind](e.WS), embedder, "some-other-target-identity")
+	err := e.store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: "some-other-target-identity"}, ids.From[ids.WorkspaceKind](e.WS), embedder)
 	if !errors.Is(err, search.ErrIdentityDrift) {
 		t.Fatalf("ReembedWorkspace with a mismatched argsIdentity = %v, want ErrIdentityDrift", err)
 	}

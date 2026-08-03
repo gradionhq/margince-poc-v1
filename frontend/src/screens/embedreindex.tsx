@@ -108,12 +108,18 @@ function StatusHeader({
         </span>
       )}
       {isRunning && (
-        // F2 recovery: a drift-cancelled/retry-discarded job can leave the
-        // marker stuck at reembedding with no live worker behind it — this
-        // is the affordance that lets an operator judge "stuck" from "still
-        // going" without curl, and Rebuild (below) stays enabled so they
-        // can act on that judgment (deals.tsx's own age-since-instant idiom:
-        // Date.now() minus the stored UTC instant, formatDuration'd).
+        // F2 recovery: a run whose last worker died leaves the marker stuck at
+        // reembedding with nothing behind it — this is the affordance that lets
+        // an operator judge "stuck" from "still going" without curl, and Rebuild
+        // (below) stays enabled so they can act on that judgment (deals.tsx's
+        // own age-since-instant idiom: Date.now() minus the stored UTC instant,
+        // formatDuration'd).
+        //
+        // It reads the age of the last PROGRESS, not of the run: a running pass
+        // refreshes updated_at as it embeds, so a long healthy reindex shows a
+        // small number here and a stalled one grows without bound. That is what
+        // makes the judgment possible, and it is why the label says "last
+        // progress" rather than "reindexing since".
         <span className="t-small">
           {t("embedreindex.reembeddingSince", {
             duration: formatDuration(

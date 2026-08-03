@@ -252,8 +252,11 @@ it("F2: a stuck reembedding marker shows 'reindexing since' and keeps Rebuild en
 
     expect(screen.getByText("Reindexing…")).toBeTruthy();
     // updated_at is 2026-07-20T00:00:00Z, system time is 2026-07-22T00:00:00Z
-    // — a 2-day-old marker, formatDuration's absolute-day rendering.
-    expect(screen.getByText("Reindexing since 2d")).toBeTruthy();
+    // — the run last reported progress 2 days ago, formatDuration's
+    // absolute-day rendering. A running pass refreshes that stamp as it
+    // embeds, so two days of it is a run nothing is working, which is exactly
+    // the judgment the Rebuild action below is for.
+    expect(screen.getByText("Last progress 2d ago")).toBeTruthy();
 
     // The Rebuild action stays enabled (not disabled) while reembedding —
     // that's the re-kick affordance (force:true), not blocked by isRunning.

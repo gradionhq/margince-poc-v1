@@ -34,11 +34,11 @@ func claimOf(identity string) search.ReembedClaim {
 // TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt is why the fence
 // is the run and not the target identity. A forced rebuild re-runs deliberately
 // under the SAME identity, so an identity fence does not fence at all between
-// consecutive runs: a child that outlived its own run — River's rescuer returns
-// a long-running row to retryable while the original goroutine is still
-// embedding, and both then finish — would remove its workspace from the NEXT
-// run's set and, if that emptied it, release a marker whose own children are
-// still working. That is the fleet reporting itself re-embedded while it is not.
+// consecutive runs: a child that outlived its own run — one whose confirm was
+// forced over it, or one whose process was still finishing an embed the run had
+// given up on — would remove its workspace from the NEXT run's set and, if that
+// emptied it, release a marker whose own children are still working. That is the
+// fleet reporting itself re-embedded while it is not.
 func TestAStragglerOfAFinishedRunCannotActOnTheRunThatReplacedIt(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
@@ -138,6 +138,18 @@ func TestASecondFanOutOfTheSameRunIsRefused(t *testing.T) {
 	}
 }
 
+// steppingClock advances by step on every read, so a pass that consults it once
+// per entity behaves as one whose embeds take that long — the suite pins the
+// clock rather than waiting out a reporting interval it would otherwise have to
+// sleep through (T11).
+func steppingClock(step time.Duration) func() time.Time {
+	at := time.Now()
+	return func() time.Time {
+		at = at.Add(step)
+		return at
+	}
+}
+
 // TestAHealthyRunIsNotStealableHoweverLongItTakes is the other half of the
 // steal, and the half that is easy to lose. A workspace pass is allowed to run
 // for hours — its worker declares Timeout() == -1 precisely so a large corpus is
@@ -166,10 +178,7 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 		t.Fatalf("seeding the run: %v", err)
 	}
 
-	// Enough entities that the pass reports at least once part-way through. A
-	// workspace smaller than that reporting interval finishes and reports by
-	// finishing, which is the case the wedged-run scenario below covers.
-	for i := range 25 {
+	for i := range 4 {
 		e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
 			fmt.Sprintf("Slow Corpus Person %d", i))
 	}
@@ -182,7 +191,13 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 		t.Fatalf("ageing the marker to mid-pass: %v", err)
 	}
 
-	if err := e.store.ReembedWorkspace(ctx, working.Run, ws, embedder, identity); err != nil {
+	// A clock that jumps a reporting interval per entity: the pass then behaves
+	// exactly as one whose embeds are genuinely that slow, without the suite
+	// waiting for any of it. The pass is what has to keep the marker fresh —
+	// nothing here finishes the workspace.
+	slow := steppingClock(search.ReembedProgressStaleness + time.Minute)
+	pass := search.ReembedPass{Run: working.Run, Identity: identity, Now: slow}
+	if err := e.store.ReembedWorkspace(ctx, pass, ws, embedder); err != nil {
 		t.Fatalf("the healthy pass: %v", err)
 	}
 
@@ -195,12 +210,13 @@ func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
 }
 
 // TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving is the recovery
-// affordance. The release is not airtight and cannot be — River discards a job
-// rescued past its attempts WITHOUT running it, so a child killed outright never
-// reaches the code that would take its workspace out of the set — and the marker
-// would then be held forever, every confirm answering 409 with no job anywhere
-// left to explain why. An ordinary confirm must still be refused, so the escape
-// hatch cannot be mistaken for the normal path.
+// affordance. The release is not airtight and cannot be — a workspace job
+// declares Timeout() == -1, which puts it outside River's rescuer at any age, so
+// a child whose process died leaves a running row nothing ever retries or
+// discards and a workspace that never leaves the set — and the marker would then
+// be held forever, every confirm answering 409 with no job anywhere left to
+// explain why. An ordinary confirm must still be refused, so the escape hatch
+// cannot be mistaken for the normal path.
 func TestAForcedClaimTakesTheMarkerOffARunThatStoppedMoving(t *testing.T) {
 	e := setupSearch(t)
 	ctx := context.Background()
