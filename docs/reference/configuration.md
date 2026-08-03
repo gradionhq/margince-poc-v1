@@ -246,7 +246,7 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
 
-### `POST /admin/reset-data` — non-production data reset
+### `POST /v1/admin/reset-data` — non-production data reset
 
 Gated on the `MARGINCE_ENV` posture above. In production the operation does
 not exist: the environment check runs **before** auth, so a misconfigured

@@ -237,7 +237,7 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 }
 
 // WithDataReset wires the non-production admin data-reset endpoint
-// (POST /admin/reset-data): the sweep runs through the composed app-role
+// (POST /v1/admin/reset-data): the sweep runs through the composed app-role
 // pool (the one every option receives, as WithSchemaPool takes it), while
 // schemaPool (may be nil) is the owner-privileged pool that finalizes cf_*
 // column drops — nil skips that finalize step, the reset itself still

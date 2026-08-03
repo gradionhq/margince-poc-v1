@@ -737,6 +737,7 @@ const (
 	AuditLogEntryActionRecordShare     AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare   AuditLogEntryAction = "record_unshare"
 	AuditLogEntryActionReject          AuditLogEntryAction = "reject"
+	AuditLogEntryActionResetData       AuditLogEntryAction = "reset_data"
 	AuditLogEntryActionRestore         AuditLogEntryAction = "restore"
 	AuditLogEntryActionSendEmail       AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate          AuditLogEntryAction = "update"
@@ -786,6 +787,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionRecordUnshare:
 		return true
 	case AuditLogEntryActionReject:
+		return true
+	case AuditLogEntryActionResetData:
 		return true
 	case AuditLogEntryActionRestore:
 		return true

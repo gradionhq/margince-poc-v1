@@ -200,6 +200,16 @@ func TestDropResetCustomFieldColumns(t *testing.T) {
 	if _, err := sp.Exec(ctx, `ALTER TABLE person ADD COLUMN cf_zzz text`); err != nil {
 		t.Fatalf("seeding fake cf_ column: %v", err)
 	}
+	// cf_zzz is real schema on a database sibling tests in this package share;
+	// drop it on every exit path so a failure here never leaks a column into
+	// TestPreserveSetIntegrity / TestSweepTargetsCarryNoDeleteBlockingTrigger,
+	// which both introspect the live schema. IF NOT EXISTS: the assertion below
+	// proves the reset drop already removed it on the success path.
+	t.Cleanup(func() {
+		if _, err := sp.Exec(context.Background(), `ALTER TABLE person DROP COLUMN IF EXISTS cf_zzz`); err != nil {
+			t.Errorf("cleaning up cf_zzz: %v", err)
+		}
+	})
 
 	if err := dropResetCustomFieldColumns(ctx, sp); err != nil {
 		t.Fatalf("dropResetCustomFieldColumns: %v", err)

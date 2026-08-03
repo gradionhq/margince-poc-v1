@@ -5,10 +5,10 @@
 -- this the INSERT is rejected at write time, which is the one place a
 -- missing verb actually surfaces.
 --
--- reset_data is an internal admin-tooling action rather than a CRM domain
--- mutation, so it is a DB-only verb (see auditcoherence_test.go's
--- auditActionDBOnly waiver) rather than an addition to crm.yaml's
--- AuditLogEntry.action enum.
+-- reset_data audit rows are returned by GET /audit-log like any other, so the
+-- verb is also declared on crm.yaml's AuditLogEntry.action enum — a strict
+-- client decoding that response must be able to represent it. The DDL CHECK
+-- and the contract enum therefore agree (no auditActionDBOnly asymmetry).
 --
 -- Effective set = this migration (the highest-numbered re-statement):
 -- 0133's vocabulary plus reset_data.

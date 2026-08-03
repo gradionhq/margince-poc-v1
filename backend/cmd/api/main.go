@@ -121,7 +121,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer closeSchemaPool()
 
-	// The non-production admin data-reset endpoint (POST /admin/reset-data):
+	// The non-production admin data-reset endpoint (POST /v1/admin/reset-data):
 	// absent this deployment posture, or in production, ResetData answers its
 	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
 	// the reset still succeeds, only the cf_* column finalize is skipped.

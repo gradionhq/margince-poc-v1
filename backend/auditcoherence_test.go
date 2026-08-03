@@ -38,10 +38,6 @@ var auditActionDBOnly = map[string]string{
 	// live in signal_resolution writes (migration 0047); flagged upstream
 	// for spec adoption (see migration 0053's note).
 	"resolve": "signal_resolution writes (0047); flagged upstream for spec adoption",
-	// the non-production admin "reset data" endpoint's own audit row
-	// (migration 0171) — internal admin tooling, not a CRM domain mutation,
-	// so it is not part of the AuditLogEntry.action contract.
-	"reset_data": "non-production admin reset-data endpoint (0171); internal admin tooling, not a domain action",
 }
 
 func TestAuditLogEnumCoherence(t *testing.T) {
