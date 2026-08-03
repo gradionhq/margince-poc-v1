@@ -43,6 +43,15 @@ func siteLeadAcceptEffect(svc *approvals.Service, sink connector.Sink) approvals
 		if err := json.Unmarshal(proposedChange, &proposal); err != nil {
 			return fmt.Errorf("compose: decoding the site_lead proposal: %w", err)
 		}
+		// A proposal staged before the payload carried its natural key still
+		// has to land on the right lead — and an empty key would collide every
+		// such person onto ONE row. It is derivable from what those payloads do
+		// carry, so derive it rather than refusing a decision a human already
+		// made.
+		if proposal.NaturalKey == "" {
+			proposal.NaturalKey = siteLeadSourceID(
+				proposal.OrganizationID, proposal.Name, proposal.PublishedEmail)
+		}
 		// The capture executes as the siteread executor on behalf of the
 		// human whose approval released it. The Sink admits connector
 		// principals only, so the executor is one — carrying the decider's
@@ -71,7 +80,11 @@ func siteLeadAcceptEffect(svc *approvals.Service, sink connector.Sink) approvals
 			EntityType: datasource.EntityLead,
 			NaturalKey: connector.NaturalKey{
 				SourceSystem: "siteread",
-				SourceID:     siteLeadSourceID(proposal.OrganizationID, proposal.Name, proposal.PublishedEmail),
+				// The key the proposal was STAGED under, so the row a human
+				// accepts is the row the inbox deduplicated on. Recomputing it
+				// here would agree only by both sides calling the same
+				// function, and would drift the moment one of them changed.
+				SourceID: proposal.NaturalKey,
 			},
 			Fields: capture.LeadFields{
 				FullName: proposal.Name,

@@ -7,7 +7,13 @@ import { EmbedReindexBanner } from "./embedreindexbanner";
 
 function mount(
   roles: string[],
-  status: { reindex_needed: boolean; entities_pending: number },
+  status: {
+    configured_identity: string;
+    populated_identity: string;
+    reindex_needed: boolean;
+    entities_pending: number;
+    status?: string;
+  },
 ) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const path = new URL(
@@ -25,8 +31,6 @@ function mount(
     }
     return new Response(
       JSON.stringify({
-        configured_identity: "anthropic/voyage-3@1024",
-        populated_identity: "anthropic/voyage-2@1024",
         status: "idle",
         per_workspace: [],
         ...status,
@@ -53,20 +57,32 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('shows "Reindex needed" for an admin when the status read reports reindex_needed: true', async () => {
-  mount(["admin"], { reindex_needed: true, entities_pending: 42 });
+it('shows "Reindex needed" for an admin when the embed binding changed', async () => {
+  mount(["admin"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-2@1024",
+    reindex_needed: true,
+    entities_pending: 42,
+  });
   expect(await screen.findByText("Reindex needed")).toBeTruthy();
 });
 
 it('shows "Reindex needed" for ops too', async () => {
-  mount(["ops"], { reindex_needed: true, entities_pending: 42 });
+  mount(["ops"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-2@1024",
+    reindex_needed: true,
+    entities_pending: 42,
+  });
   expect(await screen.findByText("Reindex needed")).toBeTruthy();
 });
 
-it("renders nothing for a non-ops role even when reindex_needed is true", async () => {
+it("renders nothing for a non-ops role even when the binding changed", async () => {
   // Gated the same as EconomyBanner: a rep has nothing actionable to do
   // with this surface, so the status read is never even probed.
   const { fetchMock } = mount(["rep"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
     entities_pending: 42,
   });
@@ -80,13 +96,42 @@ it("renders nothing for a non-ops role even when reindex_needed is true", async 
   expect(screen.queryByRole("status")).toBeNull();
 });
 
-it("renders nothing when reindex_needed is false, even with entities_pending stale-nonzero", async () => {
-  // The brief's own key requirement: keyed off reindex_needed, never
-  // entities_pending alone — a naive entities_pending > 0 check would wrongly
-  // fire here.
+it("renders nothing for identity-matched drift, even with reindex_needed true and entities pending", async () => {
+  // ADR-0069 §3a: matched identities + pending entities means the bus lost
+  // embed events and the worker drift sweep is healing them — nothing here
+  // asks a human to act, so keying off reindex_needed would wrongly fire.
   const { fetchMock } = mount(["admin"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-3@1024",
+    reindex_needed: true,
+    entities_pending: 42,
+  });
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText("Reindex needed")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+it("keeps showing during status=reembedding — a stuck marker must stay visible", async () => {
+  // Deliberately NOT suppressed while a rebuild runs: a drift-cancelled
+  // job leaves the marker at "reembedding" with no live worker, and
+  // hiding the banner there would bury the one state that needs the
+  // settings card's recovery affordance (SEARCH-AC-13: mismatch alone).
+  mount(["admin"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-2@1024",
+    reindex_needed: true,
+    entities_pending: 42,
+    status: "reembedding",
+  });
+  expect(await screen.findByText("Reindex needed")).toBeTruthy();
+});
+
+it("renders nothing when the store is current", async () => {
+  const { fetchMock } = mount(["admin"], {
+    configured_identity: "anthropic/voyage-3@1024",
+    populated_identity: "anthropic/voyage-3@1024",
     reindex_needed: false,
-    entities_pending: 7,
+    entities_pending: 0,
   });
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   expect(screen.queryByText("Reindex needed")).toBeNull();

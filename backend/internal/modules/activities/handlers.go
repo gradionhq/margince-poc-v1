@@ -10,7 +10,6 @@ package activities
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,6 +33,9 @@ type Handlers struct {
 	// (WithDelivery wires it), because a 202 for a message nothing will
 	// carry is a promise this surface cannot keep.
 	delivery DeliveryStager
+	// channelDelivery is the same seam for a messaging channel; nil fails
+	// closed for the same reason (WithChannelDelivery wires it).
+	channelDelivery ChannelDeliveryStager
 	// The public-booking capture seams; nil fails closed
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer
@@ -65,36 +67,6 @@ func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 // writeStoreErr maps this module's typed store errors onto the wire
 // codes the contract names, then falls through to the sentinel registry.
 func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
-	var missing *RequiredFieldError
-	if errors.As(err, &missing) {
-		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
-		return
-	}
-	var reserved *ReservedSourceSystemError
-	if errors.As(err, &reserved) {
-		httperr.Write(w, r, httperr.Validation("source_system", "reserved_source_system", reserved.Error()))
-		return
-	}
-	var badLink *InvalidLinkTypeError
-	if errors.As(err, &badLink) {
-		httperr.Write(w, r, httperr.Validation("links", "invalid_entity_type", badLink.Error()))
-		return
-	}
-	// A send this installation already knows cannot leave is a refusal the
-	// user can act on, not a server fault: 422, naming the fix.
-	var mailbox *MailboxNotSendCapableError
-	if errors.As(err, &mailbox) {
-		httperr.Write(w, r, httperr.Validation("from", "mailbox_not_send_capable", mailbox.Error()))
-		return
-	}
-	// One rendered message carries one recipient's preference token, so a
-	// second addressee would receive a bearer credential over the first
-	// recipient's consent record. 422 naming the fix: one send per recipient.
-	var shared *SharedUnsubscribeTokenError
-	if errors.As(err, &shared) {
-		httperr.Write(w, r, httperr.Validation("recipients", "shared_unsubscribe_token", shared.Error()))
-		return
-	}
 	// An activity carries at most one project link (PROJ-AC-15), enforced by
 	// a PARTIAL unique index on activity_id alone — which relink's ON CONFLICT
 	// target cannot see, so a second project raises 23505 instead of being

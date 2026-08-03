@@ -67,6 +67,9 @@ components:
         - activity.updated
         - engagement.reply
         - consent.changed
+        - linkedin_account.changed
+        - linkedin_network.imported
+        - linkedin_match.decided
         - retention.applied
         - signal.detected
         - signal.resolved
@@ -1179,6 +1182,91 @@ components:
         new_state:
           type: string
           description: The state now on record (granted | withdrawn).
+      additionalProperties: false
+
+    PublicEventLinkedinAccountChanged:
+      type: object
+      x-event-type: linkedin_account.changed
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for linkedin_account.changed — a member recorded or corrected
+        their OWN LinkedIn authorization (people/linkedinaccount.go's
+        SaveMyLinkedInAccount). Consent to read a professional network is the
+        same class of fact as consent.changed, so it is auditable and published
+        rather than written quietly. The profile URL itself is NOT in the
+        payload: it is the member's own identifier and a subscriber needs to
+        know that the authorization moved, not what their LinkedIn address is.
+      required:
+        - connected
+        - has_profile_url
+      properties:
+        connected:
+          type: boolean
+          description: Whether an authorization is on record after this change.
+        has_profile_url:
+          type: boolean
+          description: >-
+            Whether a profile URL is now stored. False after a member clears
+            the field, which is a deliberate "do not record this".
+      additionalProperties: false
+
+    PublicEventLinkedinMatchDecided:
+      type: object
+      x-event-type: linkedin_match.decided
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for linkedin_match.decided — a connection was linked to a contact
+        on file, either by an exact-name match or by a member approving the
+        proposal. It carries NO verdict: a refusal is an approval row that stays
+        rejected and never becomes a link, so there is no "no" to publish. The
+        connection is NOT named:
+        it is a third party who never consented to being in this CRM, and the
+        whole point of keeping the imported rows invisible is defeated if their
+        names travel through the outbox. The verdict and whether a profile URL
+        reached the contact are the auditable facts; the records themselves are
+        reachable through the audit row this event is linked to.
+      required:
+        - profile_url_written
+      properties:
+        profile_url_written:
+          type: boolean
+          description: >-
+            Whether the decision put a LinkedIn handle on the contact. False on
+            every rejection, and false on a confirmation whose contact already
+            carried one — a value on a record is somebody's statement and is
+            never overwritten.
+      additionalProperties: false
+
+    PublicEventLinkedinNetworkImported:
+      type: object
+      x-event-type: linkedin_network.imported
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for linkedin_network.imported — a member uploaded their own
+        LinkedIn connections export. ONE event for the import act, never one
+        per row: an export is thousands of rows, a per-row event would bury
+        every other event in the stream, and the auditable fact is that a
+        member imported their network at all. No connection is named in the
+        payload: the imported rows are third parties who never consented to
+        being in this CRM, and publishing their names would defeat the point
+        of keeping them invisible everywhere else.
+      required:
+        - rows
+        - imported
+        - skipped
+      properties:
+        rows:
+          type: integer
+          description: Rows read from the file.
+        imported:
+          type: integer
+          description: Connections stored or refreshed.
+        skipped:
+          type: integer
+          description: Rows with no usable name, counted rather than hidden.
       additionalProperties: false
 
     PublicEventRetentionApplied:

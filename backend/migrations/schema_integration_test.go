@@ -15,6 +15,7 @@ package migrations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -391,5 +392,79 @@ func TestAuditLogIsAppendOnly(t *testing.T) {
 		} else if !errors.As(err, &pgErr) {
 			t.Errorf("%q failed with %v, want a loud database error", stmt, err)
 		}
+	}
+}
+
+// requireForceRLS asserts a table carries the full RLS shape — ENABLE,
+// FORCE, and a tenant-isolation policy — the same three checks
+// TestEveryWorkspaceScopedTableForcesRowLevelSecurity derives generically
+// for every workspace_id table. This table-scoped form exists so a single
+// new module's migration test can assert its own tables' RLS shape without
+// waiting on the cross-module coverage sweep in compose/integration.
+func requireForceRLS(t *testing.T, pool *pgx.Conn, table string) {
+	t.Helper()
+	var enabled, forced, hasPolicy bool
+	err := pool.QueryRow(context.Background(), `
+		SELECT cl.relrowsecurity, cl.relforcerowsecurity,
+		       EXISTS (SELECT 1 FROM pg_policies p
+		               WHERE p.schemaname = 'public' AND p.tablename = $1)
+		FROM pg_class cl
+		WHERE cl.relname = $1 AND cl.relnamespace = 'public'::regnamespace`, table).
+		Scan(&enabled, &forced, &hasPolicy)
+	if err != nil {
+		t.Fatalf("%s: querying RLS flags: %v", table, err)
+	}
+	if !enabled {
+		t.Errorf("%s: row level security is not ENABLEd", table)
+	}
+	if !forced {
+		t.Errorf("%s: row level security is not FORCEd — the table owner bypasses every policy", table)
+	}
+	if !hasPolicy {
+		t.Errorf("%s: no tenant-isolation policy exists — RLS without a policy denies nothing to the owner and everything to no one", table)
+	}
+}
+
+// requireDenyWhenGUCUnset asserts a connection with no app.workspace_id GUC
+// reads zero rows from table, mirroring the person-table check inlined in
+// TestRLS_tenantIsolationGates. table is always a fixed literal supplied by
+// the calling test, never request input, so the identifier is interpolated
+// directly — pgx has no placeholder for a table name.
+func requireDenyWhenGUCUnset(t *testing.T, pool *pgx.Conn, table string) {
+	t.Helper()
+	if err := withGUC(t, pool, "", func(tx pgx.Tx) error {
+		var n int
+		if err := tx.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s`, table)).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			t.Errorf("%s: unset GUC sees %d rows, want 0 (deny-on-unset, never wildcard)", table, n)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("%s: unset-GUC read tx: %v", table, err)
+	}
+}
+
+// TestChannelTablesEnforceRowLevelSecurity is the RLS gate for the two
+// telegram-oa tables (design §4.1, §4.2): channel_connection carries the
+// bot's credential and webhook secret references, and
+// person_channel_identity carries the Telegram-to-Person resolution key —
+// both must deny by default exactly like every other tenant table.
+func TestChannelTablesEnforceRowLevelSecurity(t *testing.T) {
+	ownerDSN, appDSN := dsns(t)
+	if appDSN == "" {
+		t.Fatal("MARGINCE_TEST_APP_DSN is not set — the RLS gates must run as the non-owner runtime role")
+	}
+	owner := connect(t, ownerDSN)
+	resetSchema(t, owner)
+	migrateAll(t, owner)
+	pool := connect(t, appDSN)
+
+	for _, table := range []string{"channel_connection", "person_channel_identity"} {
+		t.Run(table, func(t *testing.T) {
+			requireForceRLS(t, pool, table)
+			requireDenyWhenGUCUnset(t, pool, table)
+		})
 	}
 }

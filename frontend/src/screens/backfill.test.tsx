@@ -173,7 +173,9 @@ describe("the connect-time backfill payoff", () => {
     expect(screen.getByText("12")).toBeTruthy();
     expect(screen.getByText("Emails captured")).toBeTruthy();
     expect(screen.getByText("People")).toBeTruthy();
-    expect(screen.getByText("Companies")).toBeTruthy();
+    // "to check", not created: the count is domains this run raised a company
+    // question for, and a domain becomes a company only if its site says so.
+    expect(screen.getByText("Companies to check")).toBeTruthy();
   });
 
   it("shows the celebratory done state when the run completes", async () => {

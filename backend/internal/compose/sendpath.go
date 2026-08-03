@@ -42,12 +42,20 @@ type SendPath struct {
 	// means a marketing send refuses (the store's fail-loud branch) rather
 	// than emitting a forgeable link.
 	PublicBaseURL string
-	// Delivery records an accepted message for transmission. Nil means the
-	// send path refuses rather than log an activity nothing will carry.
-	Delivery activities.DeliveryStager
-	// Mailbox pre-flights the sender's send grant. Nil skips the advisory
-	// check; transmission still refuses on a missing grant.
-	Mailbox activities.MailboxAuthority
+	// Delivery records an accepted message for transmission, in either shape a
+	// message takes. Nil means the send path refuses rather than log an
+	// activity nothing will carry.
+	Delivery DeliveryMachinery
+	// SendAuthority pre-flights the credential the transport is about to use —
+	// the sender's own mail grant, or the workspace's bot binding. Nil skips
+	// the advisory check; transmission still refuses on a missing credential.
+	SendAuthority activities.SendAuthority
+	// ChannelRecipients resolves who a channel conversation is with. Like
+	// DraftOutcome below, nil is NOT "off": withPoolDefaults substitutes the
+	// pool-backed resolver, because the question is answerable from the
+	// database alone and a role that could omit it would refuse every reply
+	// with a wiring fault.
+	ChannelRecipients activities.ChannelReachability
 	// DraftOutcome closes the voice learning loop for a send that carries a
 	// served draft's reference. Unlike its neighbours, nil is NOT "off": both
 	// projections below substitute the pool-backed recorder, because the
@@ -71,6 +79,9 @@ func (p SendPath) withPoolDefaults(pool *pgxpool.Pool) SendPath {
 	if p.DraftOutcome == nil {
 		p.DraftOutcome = ai.NewVoiceStore(pool)
 	}
+	if p.ChannelRecipients == nil {
+		p.ChannelRecipients = channelReachability{}
+	}
 	return p
 }
 
@@ -90,7 +101,12 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 	s.activitiesHandlers = s.activitiesHandlers.
 		WithPublicBaseURL(send.PublicBaseURL).
 		WithDelivery(send.Delivery).
-		WithMailbox(send.Mailbox).
+		// One machinery, both staging shapes: a nil Delivery converts to a nil
+		// channel stager too, so the reply surface fails closed exactly as the
+		// mail surface does.
+		WithChannelDelivery(send.Delivery).
+		WithChannelReachability(send.ChannelRecipients).
+		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
 }
 
@@ -105,7 +121,8 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 	return activities.NewStore(pool).
 		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}).
 		WithPublicBaseURL(send.PublicBaseURL).
-		WithMailbox(send.Mailbox).
+		WithSendAuthority(send.SendAuthority).
+		WithChannelReachability(send.ChannelRecipients).
 		WithDraftOutcome(send.DraftOutcome)
 }
 
@@ -119,9 +136,10 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 // that surface has no send to configure.
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
-		store:  sendStore(pool, send),
-		gate:   consent.NewGate(consent.NewStore(pool)),
-		draft:  drafter,
-		stager: send.Delivery,
+		store:         sendStore(pool, send),
+		gate:          consent.NewGate(consent.NewStore(pool)),
+		draft:         drafter,
+		stager:        send.Delivery,
+		channelStager: send.Delivery,
 	}
 }

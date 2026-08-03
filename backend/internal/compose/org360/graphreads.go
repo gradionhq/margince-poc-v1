@@ -180,16 +180,12 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	return err
 }
 
-// readRouteIn reads the account's most recent open signal and the contact
-// edges the warm room would rank as ways in. It asks the signals module for
-// the candidates rather than gathering them here: the warm/cold join owns
-// what "anchors this account" means, and a second spelling would let the
-// card and the warm room propose different people to ask for an intro.
+// readRouteIn reads the warm-intro path: the contact an active signal routes
+// through, ranked by the warm room's own ranking so this card can never name a
+// different person than the intro-path endpoint does.
 //
-// The intro path names a person, so it needs the person grant as well as the
-// signal one. Both are asked here, not inferred from whether the contacts
-// group happened to run first — a group list reordered for any reason must not
-// be able to name a contact to a caller who may not read people.
+// It asks for both of its own objects: the group exists only while there is a
+// live signal to route, and the thing it places is a person.
 func (g *graphAssembly) readRouteIn() error {
 	if err := auth.Require(g.ctx, "signal", principal.ActionRead); err != nil {
 		return err

@@ -279,13 +279,23 @@ var rowScopedFKDecisions = map[string]string{
 	"comms_outbound.activity_id":          "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
 	"consent_event.person_id":             "child row: written through the person's own gated paths",
 	"organization_domain.organization_id": "child row: written through the organization's own gated paths",
-	"person_email.person_id":              "child row: written through the person's own gated paths",
-	"person_phone.person_id":              "child row: written through the person's own gated paths",
-	"person_consent.person_id":            "child row: written through the person's own gated paths",
-	"person_consent.lead_id":              "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20)",
-	"consent_event.lead_id":               "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20); proof rows append only inside that path",
-	"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
-	"preference_token.person_id":          "gated: auth.EnsureVisible on the recipient in PreferenceTokenForEmail — the id is server-derived from the send path's RLS-scoped email→person resolve, and the minted token is a bearer credential over that person, so the mint carries the same row-scope probe the sibling read does; the public surface reads the row as the token→tenant resolver before any principal exists",
+	// The disposition NAMES the organization its own verdict created, in the
+	// same transaction that created it. There is no client-supplied reference
+	// to gate: nothing outside the triage resolve ever writes this column, and
+	// no human surface reads the row.
+	"organization_domain_disposition.organization_id": "server-derived: set only by ResolveDomainTriage, to the organization that same transaction created or adopted through the gated dedupe chokepoint",
+	"person_email.person_id":                          "child row: written through the person's own gated paths",
+	"person_phone.person_id":                          "child row: written through the person's own gated paths",
+	// telegram-oa design §6.4: the channel-aware ensure contract creates the
+	// Person (owner_id NULL) and this identity satellite in the same
+	// transaction, from the inbound message's own channel principal —
+	// never from a client-supplied person_id.
+	"person_channel_identity.person_id": "child row: written through the channel-aware ensure path alongside the person it resolves or creates",
+	"person_consent.person_id":          "child row: written through the person's own gated paths",
+	"person_consent.lead_id":            "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20)",
+	"consent_event.lead_id":             "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20); proof rows append only inside that path",
+	"consent_doi_token.person_id":       "child row: minted and consumed only inside RecordConsent's gated path",
+	"preference_token.person_id":        "gated: auth.EnsureVisible on the recipient in PreferenceTokenForEmail — the id is server-derived from the send path's RLS-scoped email→person resolve, and the minted token is a bearer credential over that person, so the mint carries the same row-scope probe the sibling read does; the public surface reads the row as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
 	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",
@@ -330,6 +340,26 @@ var rowScopedFKDecisions = map[string]string{
 	// the activity whose body it just read — never from a request body.
 	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own row-scoped candidate query",
 	"person_signature_enrich_state.activity_id": "server-derived: stamped by the enrich pass from the activity that candidate query returned",
+	// The interaction participants (ACT-DDL-3): neither id is ever carried on
+	// a request body. Capture mints the activity in the same transaction and
+	// resolves the counterparty through the ensure chokepoint's own row-scoped
+	// lookup; a manual activity takes its person from a link the activities
+	// store already put through auth.EnsureLinkTarget. Reads inherit the
+	// activity's own visibility (the link walk), so a participant row never
+	// discloses an activity its reader could not already open.
+	"activity_participant.activity_id": "child row: written only beside the activity itself, inside the transaction that mints it",
+	"activity_participant.person_id":   "server-derived: the counterparty the ensure chokepoint resolved, or a link the activities store already gated",
+	// The interaction projection (CG-DDL-1) holds no fact of its own: every
+	// row is folded from activity_participant rows by the consumer, and no
+	// request body ever names a person here. Reads of it carry the person
+	// predicate, so an edge never discloses a contact the caller cannot open.
+	"graph_interaction_edge.person_id": "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	// The LinkedIn ghost's match arms (CG-DDL-2). A ghost is not a record and
+	// carries no client-supplied reference: the matcher resolves both ids from
+	// its own row-scoped lookups, and a human confirming a suggestion
+	// addresses the ghost row rather than naming a person.
+	"linkedin_connection.matched_person_id": "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
+	"linkedin_connection.matched_org_id":    "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

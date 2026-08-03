@@ -36,10 +36,15 @@ type Store struct {
 	// link resolves to — configured at boot, never taken from the request
 	// (WithPublicBaseURL wires it).
 	publicBaseURL string
-	// mailbox pre-flights the sender's send grant; nil skips the pre-flight
-	// (WithMailbox wires it) and the delivery path still refuses at
-	// transmission.
-	mailbox MailboxAuthority
+	// sendAuthority pre-flights the credential behind the transport a send is
+	// about to use; nil skips the pre-flight (WithSendAuthority wires it) and
+	// the delivery path still refuses at transmission.
+	sendAuthority SendAuthority
+	// reachability answers which channel account the person behind a
+	// conversation can be reached at; nil fails the channel send path CLOSED
+	// (WithChannelReachability wires it), because a surface that cannot ask
+	// must not send to a recipient it never resolved.
+	reachability ChannelReachability
 	// draftOutcome resolves the voice learning signal a served AI draft
 	// opened; nil records nothing (WithDraftOutcome wires it). On the STORE
 	// for the same reason unsubscribe is: the MCP send tool calls the store

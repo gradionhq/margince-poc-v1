@@ -138,7 +138,7 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 	}
 	slog.SetDefault(slog.New(handler))
 
-	profileBrain, factBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
+	profileBrain, factBrain, triageBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
 	if err != nil {
 		return err
 	}
@@ -153,6 +153,7 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 			Caps:            caps,
 			Brain:           profileBrain,
 			FactBrain:       factBrain,
+			TriageBrain:     triageBrain,
 			IncludePageText: cfg.dumpDir != "",
 			Progress: func(phase string, done, total int) {
 				_, _ = fmt.Fprintf(stdout, "  %s %d/%d\n", phase, done, total)
@@ -241,9 +242,34 @@ func writeJSONReport(path string, stdout io.Writer, reports []compose.SiteReadDe
 // decided conflicts, and what every model call cost.
 func renderSiteReadReport(w io.Writer, r compose.SiteReadDebugReport) {
 	renderCrawl(w, r)
+	renderTriage(w, r)
 	renderLogo(w, r)
 	renderExtraction(w, r)
 	renderModelCalls(w, r)
+}
+
+// renderTriage prints what the domain-triage classifier made of the landing
+// page: whether this domain would get a company at all, and whether the answer
+// was decisive enough to stop the crawl. Pointing the tool at a personal
+// domain, a mailbox vendor and a real company in one run is how that prompt
+// gets tuned.
+func renderTriage(w io.Writer, r compose.SiteReadDebugReport) {
+	p := func(format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
+
+	p("\nTRIAGE\n")
+	if r.Triage.Error != "" {
+		p("  classification failed: %s\n", r.Triage.Error)
+		p("  (production reads the whole site when this happens)\n")
+		return
+	}
+	stops := "reads on"
+	if r.Triage.Aborts {
+		stops = "STOPS after the landing page"
+	}
+	p("  %-10s %.2f  %s\n", r.Triage.Kind, r.Triage.Confidence, stops)
+	if r.Triage.Reason != "" {
+		p("  reason: %s\n", r.Triage.Reason)
+	}
 }
 
 // renderLogo prints the visual-identity lane: the mark that won, then every

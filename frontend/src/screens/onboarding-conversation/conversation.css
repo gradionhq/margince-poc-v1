@@ -523,3 +523,29 @@
     outline: 1px solid var(--aiMed);
   }
 }
+
+/* The LinkedIn act's one input: the profile the imported network is
+   attributed to. Matches the scope list beside it rather than the form
+   modules, because it sits in the artifact panel and not in a form. */
+.ob-conv-field {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-3) var(--space-4) 0;
+  color: var(--textMuted);
+  font: 500 0.8125rem / 1.4 var(--f-body);
+}
+
+.ob-conv-field input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--radius-2);
+  background: var(--surfaceRaised);
+  color: var(--textContent);
+  font: 400 0.875rem / 1.5 var(--f-body);
+}
+
+.ob-conv-field input:focus-visible {
+  outline: 2px solid var(--focusRing);
+  outline-offset: 1px;
+}

@@ -50,17 +50,18 @@ func mustPanic(t *testing.T, why string, fn func()) {
 
 func TestRegisterRefusesAuthorityDefects(t *testing.T) {
 	r := NewRegistry(nil, nil)
-	r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierAutoExecute}})
+	r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Title: "read_record", InputSchema: json.RawMessage(`{"type":"object"}`), Tier: mcp.TierAutoExecute}})
 
 	mustPanic(t, "duplicate name puts two handlers behind one admission decision", func() {
-		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Tier: mcp.TierAutoExecute}})
+		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "read_record", Title: "read_record", InputSchema: json.RawMessage(`{"type":"object"}`), Tier: mcp.TierAutoExecute}})
 	})
 	mustPanic(t, "TierDynamic without a resolver has no computable tier", func() {
-		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "advance", Tier: mcp.TierDynamic}})
+		r.Register(&fakeTool{spec: mcp.ToolSpec{Name: "advance", Title: "advance", InputSchema: json.RawMessage(`{"type":"object"}`), Tier: mcp.TierDynamic}})
 	})
 	mustPanic(t, "a resolver on a static tier would silently never run", func() {
 		r.Register(&fakeTool{spec: mcp.ToolSpec{
-			Name: "static", Tier: mcp.TierAutoExecute,
+			Name: "static", Title: "static", Tier: mcp.TierAutoExecute,
+			InputSchema:  json.RawMessage(`{"type":"object"}`),
 			TierResolver: func(mcp.TierResolverInput) mcp.RiskTier { return mcp.TierAutoExecute },
 		}})
 	})
@@ -68,7 +69,7 @@ func TestRegisterRefusesAuthorityDefects(t *testing.T) {
 
 func TestInvokeGatesBeforeHandle(t *testing.T) {
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
-	confirmationRequired := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired}}
+	confirmationRequired := &fakeTool{spec: mcp.ToolSpec{Name: "archive_record", Title: "archive_record", InputSchema: json.RawMessage(`{"type":"object"}`), RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired}}
 	r.Register(confirmationRequired)
 
 	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())

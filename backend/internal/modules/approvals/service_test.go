@@ -295,7 +295,7 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 		}
 		for _, c := range cases {
 			t.Run(targetType+"/"+c.name, func(t *testing.T) {
-				got, err := targetVisible(c.ctx, nil, a)
+				got, err := targetVisible(c.ctx, nil, a.TargetType, a.TargetID)
 				if err != nil {
 					t.Fatalf("targetVisible: %v", err)
 				}
@@ -304,5 +304,50 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestASelfOnlyKindIsUndecidableByAnyoneButItsSubject(t *testing.T) {
+	// The inbox is a SHARED surface, and for almost every kind that is the
+	// point. A LinkedIn match is the exception: it names third parties out of
+	// one member's imported address book, people who never agreed to be in
+	// this CRM. Routing it through the shared queue without this predicate
+	// handed every admin a readable copy of a colleague's contact list.
+	mine := ids.NewV7()
+	theirs := ids.NewV7()
+	subject := ids.From[ids.UserKind](mine)
+	admin := principal.Principal{
+		UserID:      theirs,
+		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
+	}
+	owner := principal.Principal{
+		UserID:      mine,
+		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
+	}
+
+	staged := row{Kind: "linkedin_match", OnBehalfOf: &subject}
+	if requireDecisionGrants(admin, staged) == nil && !selfOnlyKinds[staged.Kind] {
+		t.Fatal("the fixture is vacuous: linkedin_match is not registered as self-only")
+	}
+	if !selfOnlyKinds["linkedin_match"] {
+		t.Fatal("linkedin_match is not self-only — a colleague's imported network is readable from the inbox")
+	}
+
+	// The predicate itself, exercised the way decidable applies it.
+	selfOnly := func(p principal.Principal, a row) bool {
+		if !selfOnlyKinds[a.Kind] {
+			return true
+		}
+		return a.OnBehalfOf != nil && p.UserID != ids.Nil && a.OnBehalfOf.UUID == p.UserID
+	}
+	if selfOnly(admin, staged) {
+		t.Error("an all-scope admin can decide a LinkedIn match staged for somebody else")
+	}
+	if !selfOnly(owner, staged) {
+		t.Error("the member whose network produced the match cannot decide it")
+	}
+	// A proposal with no recorded subject is nobody's to read, not everybody's.
+	if selfOnly(owner, row{Kind: "linkedin_match"}) {
+		t.Error("a self-only proposal with no subject was treated as decidable")
 	}
 }

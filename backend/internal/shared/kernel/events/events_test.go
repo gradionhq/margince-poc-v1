@@ -65,6 +65,9 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"reply":    true,
 		"conflict": true, "budget_degraded": true, "write_rejected": true, "deleted": true,
 		"connected": true, "disconnected": true,
+		// A member imported their own LinkedIn network. Past tense like the
+		// rest; the list simply had not met it before.
+		"imported": true,
 	}
 
 	for _, typ := range Types() {
@@ -116,7 +119,15 @@ func TestStreamForRoutesFamiliesWithoutOwnStream(t *testing.T) {
 func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 	all := Streams()
 	want := map[string][]string{
-		"cg:context-graph":   {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:lead", "gw:events:crm:organization", "gw:events:crm:person"},
+		"cg:context-graph": {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:lead", "gw:events:crm:organization", "gw:events:crm:person"},
+		// The interaction-edge projection (ADR-0078): activity events move an
+		// edge, person events (merge, archive, restore) move every edge to
+		// that contact.
+		"cg:graph-edge": {"gw:events:crm:activity", "gw:events:crm:person"},
+		// The LinkedIn ghost matcher (ADR-0078 §8b): a contact appearing is a
+		// chance to attach a ghost, and so is an account appearing — employer
+		// resolution is what most unmatched ghosts are waiting on.
+		"cg:linkedin-match":  {"gw:events:crm:organization", "gw:events:crm:person"},
 		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
 		"cg:workflows":       all,
 		"cg:capture":         {"gw:events:crm:capture"},
@@ -128,7 +139,7 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 
 	groups := Groups()
 	if len(groups) != len(want) {
-		t.Fatalf("Groups() returned %d groups, want the events.md §4.3 groups plus the E10 outbound-webhook fan-out", len(groups))
+		t.Fatalf("Groups() returned %d groups, want %d — the events.md §4.3 groups, the E10 outbound-webhook fan-out, and the two ADR-0078 consumers (graph-edge projection, LinkedIn matcher)", len(groups), len(want))
 	}
 	for _, g := range groups {
 		if !reflect.DeepEqual(g.Streams, want[g.Name]) {

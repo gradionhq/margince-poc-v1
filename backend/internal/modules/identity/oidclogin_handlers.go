@@ -25,6 +25,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/oidc"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -149,7 +150,7 @@ func (h Handlers) StartOidcLogin(w http.ResponseWriter, r *http.Request, provide
 	}
 	// Each attempt costs a provider round-trip and a database row, so the
 	// endpoint carries the same per-IP ceiling as the other pre-auth calls.
-	if !h.oidcPerIP.Allow(clientIP(r)) {
+	if !h.oidcPerIP.Allow(httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
@@ -193,7 +194,7 @@ func (h Handlers) CompleteOidcLogin(w http.ResponseWriter, r *http.Request, prov
 	// it, a provider round-trip — and the throttle is what keeps a loop against
 	// it from being an amplifier. Refused as a redirect like everything else
 	// here, so a human caught behind a noisy network sees the login screen.
-	if !h.oidcPerIP.Allow(clientIP(r)) {
+	if !h.oidcPerIP.Allow(httpserver.ClientIP(r)) {
 		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}

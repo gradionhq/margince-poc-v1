@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -72,14 +73,28 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
+	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
+	// refused before either read runs; the risk decorator sits inside it and
+	// adds the coverage findings a deal anchor would otherwise assemble
+	// without.
 	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
-		mode:  sorMode,
-		inner: search.NewRetriever(search.NewStore(pool), nil),
+		mode: sorMode,
+		inner: riskAwareRetriever{
+			pool:  pool,
+			inner: search.NewRetriever(search.NewStore(pool), nil),
+		},
 	})
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
-	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
+	// The relationship-graph reads (ADR-0078): who here knows this contact,
+	// how a deal is covered, who can get us into an account, and which of the
+	// caller's deals the coverage rules flag. All 🟢 — they name people, they
+	// change nothing.
+	agents.RegisterNetworkTools(registry, whoKnowsLister(pool), coverageReader(pool),
+		nativeOnlyIntroPath(sorMode, introPathLister(pool)),
+		nativeOnlyAtRisk(sorMode, atRiskLister(pool)))
+	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send), provider)
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that
 	// collides with a core verb fails loudly (RegisterExtensions stashed
@@ -102,7 +117,19 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 		var req reportRequest
 		if len(planArgs) > 0 {
 			if err := json.Unmarshal(planArgs, &req); err != nil {
-				return nil, err
+				// Server-authored. The REST twin forwards the decoder's own text
+				// under the field `body`, which is wrong here twice over: this tool
+				// has no `body` argument, and the Go decoder names internal types
+				// (`compose.reportRequest`) an agent can neither read nor act on.
+				//
+				// The field is `arguments` — what the MCP surface actually calls the
+				// object the caller supplied — because the decoder cannot say WHICH
+				// of the three plan arguments is misshapen, and naming one would
+				// point at an argument that may well be correct. The message carries
+				// all three shapes, which is the part a caller acts on.
+				return nil, httperr.Validation("arguments", "malformed_json",
+					"a plan argument is not the shape this tool takes: `filters` is an object, "+
+						"`group_by` an array of strings, `aggregates` an array of {fn, field, as} objects")
 			}
 		}
 		outcome, err := engine.Run(ctx, report, req)
@@ -110,9 +137,13 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{
-			"report":       outcome.Report,
-			"plan":         outcome.Plan,
-			"columns":      outcome.Columns,
+			"report":  outcome.Report,
+			"plan":    outcome.Plan,
+			"columns": outcome.Columns,
+			// Never null: every other list-shaped answer on this surface
+			// normalizes, because a model reads null as "unknown" where an
+			// empty array says "none matched". reportOutcome.Rows guarantees
+			// it, so this is the shape both transports already agree on.
 			"rows":         outcome.Rows,
 			"total_rows":   len(outcome.Rows),
 			"generated_at": outcome.GeneratedAt,

@@ -33,7 +33,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -51,54 +50,27 @@ func NewIdempotencyRetentionSweeper(pool *pgxpool.Pool, log *slog.Logger) *Idemp
 	return &IdempotencyRetentionSweeper{pool: pool, log: log}
 }
 
-// Sweep deletes every claim older than the replay window, in every workspace.
-// It reports how many rows went, because a retention pass that says nothing
-// reads exactly like one that had nothing to do.
-func (s *IdempotencyRetentionSweeper) Sweep(ctx context.Context) error {
-	workspaces, err := allWorkspaceIDs(ctx, s.pool)
+// SweepWorkspace deletes every claim older than the replay window in the
+// workspace already bound in ctx. It reports how many rows went, because a
+// retention pass that says nothing reads exactly like one that had nothing to
+// do.
+//
+// The fleet fan-out lives in the job layer, and it enumerates ARCHIVED
+// workspaces too — see the dispatcher for why.
+func (s *IdempotencyRetentionSweeper) SweepWorkspace(ctx context.Context) error {
+	wsCtx := principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem,
+		ID:   idempotencyRetentionActor,
+	})
+	purged, err := s.sweepWorkspace(wsCtx)
 	if err != nil {
 		return err
 	}
-	var purged int64
-	for _, ws := range workspaces {
-		wsCtx := principal.WithActor(principal.WithWorkspaceID(ctx, ws), principal.Principal{
-			Type: principal.PrincipalSystem,
-			ID:   idempotencyRetentionActor,
-		})
-		n, err := s.sweepWorkspace(wsCtx)
-		if err != nil {
-			return err
-		}
-		purged += n
-	}
 	if purged > 0 {
-		s.log.InfoContext(ctx, "idempotency retention: expired claims purged",
+		s.log.InfoContext(wsCtx, "idempotency retention: expired claims purged",
 			"rows", purged, "window", replayWindow.String())
 	}
 	return nil
-}
-
-// allWorkspaceIDs lists EVERY workspace, archived ones included — unlike the
-// sweeps that do work on behalf of a live tenant. Archiving a workspace does
-// not un-store the snapshots inside it: skipping those rows would keep subject
-// data forever in exactly the workspaces nobody looks at any more, and
-// idempotency_key.workspace_id is ON DELETE RESTRICT, so the leftovers would
-// also refuse the eventual hard delete.
-func allWorkspaceIDs(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
-	rows, err := pool.Query(ctx, `SELECT id FROM workspace ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("compose: listing workspaces for idempotency retention: %w", err)
-	}
-	defer rows.Close()
-	var out []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }
 
 func (s *IdempotencyRetentionSweeper) sweepWorkspace(ctx context.Context) (int64, error) {

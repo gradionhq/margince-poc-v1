@@ -27,6 +27,9 @@ export const de = {
   "trust.dismiss": "Verwerfen",
   "trust.save": "Speichern",
   "trust.typedByYou": "von dir eingetragen",
+  "trust.typedByHuman": "von einer Person eingetragen",
+  "trust.typedByPrefix": "eingetragen von",
+  "trust.sourceUnknown": "Herkunft nicht erfasst",
   "trust.agentTag": "Agent: {agent}",
   "trust.connectorTag": "über {connector}",
   "trust.dismissed": "Vorschlag verworfen.",
@@ -35,6 +38,8 @@ export const de = {
   "trust.editValue": "{description} bearbeiten",
 
   "history.created": "— angelegt —",
+  "history.oldValue": "Vorheriger Wert",
+  "history.newValue": "Neuer Wert",
   "history.cleared": "— geleert —",
   "history.passport": "Agent-Passport",
   "history.empty": "Keine Änderungen erfasst",
@@ -161,6 +166,8 @@ export const de = {
     "Bist du sicher? Das disqualifiziert und archiviert den Lead — es gibt keine Rückgängig-Funktion.",
   "record.archived": "Archiviert",
   "record.share": "Teilen",
+  "record.moreActions": "Weitere Aktionen",
+  "record.fullHistory": "Vollständiger Verlauf",
 
   "share.title": "Diesen Datensatz teilen",
   "share.ceiling.pre": "Eine Freigabe ändert, wer ",
@@ -471,21 +478,41 @@ export const de = {
   "org.industry": "Branche",
   "org.size": "Größe",
   "org.classification": "Typ",
+  // Die Einstufung, wie ein Leser sie sieht. Die Spalte speichert das Enum;
+  // das Enum selbst anzuzeigen ("prospect") sagte einem deutschen Leser nichts.
+  "org.class.prospect": "Interessent",
+  "org.class.customer": "Kunde",
+  "org.class.agency": "Agentur",
+  "org.class.reseller": "Wiederverkäufer",
+  "org.class.tech_vendor": "Technologieanbieter",
+  "org.class.platform": "Plattform",
+  "org.class.partner": "Partner",
+  "org.class.competitor": "Wettbewerber",
+  "org.class.other": "Sonstige",
+  "org.class.explain":
+    "Wie diese Firma zu euch steht — keine Phase in einem Deal.",
+  "signal.kind.stalled_deal": "Deal steht",
+  "signal.kind.champion_left": "Champion ist weg",
+  "signal.kind.reengagement": "Wieder ansprechen",
+  "signal.kind.buying_intent": "Kaufinteresse",
+  "signal.kind.risk": "Risiko",
+  "signal.kind.other": "Sonstiges",
   "record.profile": "Profil",
   "record.business": "Geschäft",
-  "co.pulse.strengthLead": "{score} · über",
-  "co.pulse.strengthTail": "von {count} Kontakten",
+  "co.pulse.strongestLead": "St\u00e4rkster Kontakt",
+  "co.pulse.strengthTail.one":
+    "\u2014 der einzige hier (Beziehung {score}/100)",
+  "co.pulse.strengthTail.other":
+    "\u2014 von {count} Personen hier (Beziehung {score}/100)",
+  "co.pulse.strengthExplain":
+    "Beziehungsst\u00e4rke, 0\u2013100: wie viel Austausch es mit diesem Account gab \u2014 gemessen an dem Kontakt, mit dem es den meisten gab.",
   "co.pulse.noStrength": "Noch keine Interaktionen erfasst",
   "co.pulse.lastTouch": "Letzter Kontakt {when}",
   "co.pulse.neverTouched": "Noch nie kontaktiert",
   "co.pulse.owner": "Betreut von",
+  "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
   "co.pulse.unowned": "Nicht zugewiesen",
-  "co.since.title": "Seit deinem letzten Besuch",
   "co.since.first": "Du öffnest diesen Account zum ersten Mal.",
-  "co.since.activities": "{count} neue Aktivitäten",
-  "co.since.moves": "{count} Phasenwechsel",
-  "co.since.proposals": "{count} Entscheidungen offen",
-  "co.since.nothing": "Seit deinem letzten Besuch nichts Neues.",
   "co.partial":
     "Teile dieser Seite konnten nicht geladen werden; sie zeigt möglicherweise nicht alles zu diesem Account.",
   "evidence.explain": 'Herkunft von "{value}"',
@@ -503,23 +530,56 @@ export const de = {
   "co.next.assignee": "Zuständig",
   "co.people.title": "Personen",
   "co.people.empty": "Noch kein Kontakt mit diesem Account verknüpft.",
-  "co.people.championGap": "Kein Fürsprecher in den offenen Deals benannt",
   "co.people.singleThread":
     "Nur ein Kontakt \u2014 der Account hängt an einer Person",
   "co.people.consentGranted": "Kontakt erlaubt",
   "co.people.consentWithdrawn": "Widerrufen",
   "co.people.consentUnknown": "Keine Einwilligung hinterlegt",
-  "co.brief.title": "Account-Überblick",
+  "co.brief.title": "Bevor du mit ihnen sprichst",
+  "co.brief.unavailable":
+    "Die Einschätzung zu diesem Account konnte nicht geladen werden — das hier ist nicht das ganze Bild.",
+  "co.brief.empty":
+    "Zu diesem Account gibt es noch zu wenig, um etwas daraus zu lesen.",
+  "co.brief.rewrite": "Neu schreiben",
+  "co.brief.rewriting": "Wird geschrieben…",
   "co.brief.by.model": "Von Margince geschrieben",
   "co.brief.by.deterministic": "Aus deinen Daten zusammengestellt",
   "co.brief.generatedAt": "Stand {when}",
-  "co.brief.refreshFailed":
-    "Aktualisieren fehlgeschlagen — unten steht der vorherige Überblick",
-  "co.brief.refresh": "Aktualisieren",
   "co.brief.cite.deal": "Deal",
   "co.brief.cite.activity": "Aktivität",
   "co.brief.cite.person": "Kontakt",
   "co.brief.cite.organization": "Account",
+  "co.brief.cite.deal.many": "{count} Deals",
+  "co.brief.cite.activity.many": "{count} Aktivitäten",
+  "co.brief.cite.person.many": "{count} Kontakte",
+  "co.brief.cite.organization.many": "{count} Accounts",
+  "approval.kind.advance_deal": "Deal weiterbringen",
+  "approval.kind.promote_lead": "Lead überführen",
+  "approval.kind.close_date_correction": "Abschlussdatum korrigieren",
+  "approval.kind.deal_follow_up": "Wiedervorlage zum Deal anlegen",
+  "approval.kind.archive_record": "Datensatz archivieren",
+  "approval.kind.merge_records": "Datensätze zusammenführen",
+  "approval.kind.share_record": "Datensatz freigeben",
+  "approval.kind.update_record": "Datensatz ändern",
+  "approval.kind.create_record": "Datensatz anlegen",
+  "approval.kind.send_email": "E-Mail senden",
+  "approval.kind.book_meeting": "Termin buchen",
+  "approval.kind.send_offer": "Angebot senden",
+  "approval.kind.coldstart": "Neuen Account befüllen",
+  "approval.kind.enrich": "Aus dem Web anreichern",
+  "approval.kind.deepread": "Unternehmensseite lesen",
+  "approval.kind.linkedin_match": "LinkedIn-Zuordnung",
+  "approval.kind.site_lead": "Person von der Website aufnehmen",
+  "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
+  "approval.kind.org_name_promotion": "Account umbenennen",
+  "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
+  "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",
+  "co.assistant.title": "Diesen Account befragen",
+  "co.assistant.aiTag": "KI-gestützt",
+  "co.decisions.open": "{count} offene prüfen",
+  "co.decisions.title": "Offene Entscheidungen",
+  "co.decisions.group": "{count} × {kind}",
+  "co.decisions.empty": "Hier wartet nichts auf eine Entscheidung.",
   "co.ask.title": "Margince fragen",
   "co.ask.q.whats_open": "Was ist hier offen?",
   "co.ask.q.meeting_prep": "Auf ein Gespräch vorbereiten",
@@ -542,6 +602,8 @@ export const de = {
   "co.deals.noStage": "Keine Phase",
   "co.connections.title": "Verbindungen",
   "co.connections.empty": "Noch nichts mit diesem Account verkn\u00fcpft.",
+  "co.connections.ourSide": "Auf unserer Seite",
+  "co.connections.theirSide": "Bei diesem Account",
   "co.connections.expand": "Gr\u00f6\u00dfer ansehen",
   "co.connections.collapse": "Schlie\u00dfen",
   "co.connections.introPath": "Weg hinein",
@@ -556,17 +618,169 @@ export const de = {
   "co.connections.rel.partner_of.owner": "dieser Account ist ihr Partner",
   "co.connections.rel.referred_by.counterparty": "hat diesen Account empfohlen",
   "co.connections.rel.referred_by.owner": "von diesem Account empfohlen",
+  "co.connections.rel.owns": "betreut diesen Account",
+  "co.connections.rel.in_contact_with": "im Austausch",
+  "co.connections.noSignal": "noch kein Signal",
+  "linkedinImport.title": "LinkedIn-Kontakte",
+  "linkedinImport.sub":
+    "Eigenen Export importieren und sehen, wen das Team bereits kennt",
+  "linkedinImport.explainer":
+    "LinkedIn stellt Ihnen unter Einstellungen → Datenschutz → Kopie Ihrer Daten eine Connections.csv bereit. Hochgeladen zeigt sie, wer im Team bereits jemanden im Unternehmen kennt. Die Kontakte werden NICHT zu Personen: Sie erscheinen weder in Suche noch in Listen oder Kontaktseiten, und niemand kann ihnen schreiben.",
+  "linkedinImport.profileLabel": "Ihre LinkedIn-Profil-URL",
+  "linkedinImport.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "linkedinImport.saveProfile": "Profil speichern",
+  "linkedinImport.connectedNote":
+    "Verbunden. Importierte Kontakte werden diesem Profil zugeordnet, damit das CRM sagen kann, welche Kollegin jemanden kennt \u2014 und nicht nur, dass \u201edas Unternehmen\u201c ihn kennt.",
+  "linkedinImport.notConnectedNote":
+    "Noch nicht verbunden. Mit Ihrer Profil-URL werden importierte Kontakte Ihnen namentlich zugeordnet.",
+  "linkedinImport.whichFile":
+    "Gesucht ist die Datei Connections.csv \u2014 das Export-Archiv enth\u00e4lt ein Dutzend weitere.",
+  "linkedinImport.choose": "Connections.csv ausw\u00e4hlen",
+  "linkedinImport.noMatchesYet":
+    "Noch keine Treffer, und das ist in einem neuen Workspace normal: Ihre Kontakte werden mit den Personen abgeglichen, die das CRM kennt, und die entstehen erst beim Lesen Ihrer E-Mails. Der Abgleich l\u00e4uft st\u00fcndlich erneut, Treffer erscheinen also nach und nach.",
+  "linkedinImport.working": "Export wird gelesen…",
+  "linkedinImport.imported": "Kontakte importiert",
+  "linkedinImport.confirmed": "Einer Person zugeordnet",
+  "linkedinImport.suggested": "Wartet auf Ihre Bestätigung",
+
+  // Die Prüfliste und die Reichweiten-Tabelle (ADR-0078 §2.1b).
+  "linkedinReach.title": "Wohin Ihr Netzwerk reicht",
+  "linkedinReach.sub":
+    "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",
+  "linkedinReach.empty":
+    "Noch keine Ihrer Verbindungen arbeitet bei einer erfassten Firma.",
+  "linkedinReach.allUnresolved":
+    "Alle {unresolved} Ihrer Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
+  "linkedinReach.account": "Firma",
+  "linkedinReach.connections": "Sie kennen",
+  "linkedinReach.onFile": "Bereits Personen",
+  "linkedinReach.onFileOf": "{onFile} von {total}",
+  "linkedinReach.footnote":
+    "{shown} von {total} Firmen angezeigt. {unresolved} Verbindungen arbeiten bei einer Firma, die noch nicht erfasst ist.",
+  "linkedinImport.skipped": "Übersprungen (kein verwertbarer Name)",
   "co.connections.rel.co_sell_with": "gemeinsamer Vertrieb",
   "co.connections.group.contacts": "Kontakte",
   "co.connections.group.deals": "Deals",
+  "co.connections.group.our_side": "wer hier verbunden ist",
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
+  "co.chronology.label": "Was im Verlauf angezeigt wird",
+  "co.chronology.activities": "Aktivitäten",
+  "co.chronology.changes": "Änderungen",
+  "co.chronology.all": "Alles",
+  "co.chronology.changesEmpty":
+    "Seit dem Anlegen wurde kein Feld dieses Datensatzes geändert.",
+  "co.chronology.allEmpty": "Zu diesem Account ist noch nichts passiert.",
+  "co.chronology.truncated":
+    "Ältere Einträge fehlen hier — es gibt mehr von beidem, als diese Ansicht in eine Reihenfolge bringen kann. Wähle Aktivitäten oder Änderungen, um weiter zurückzulesen.",
+  "co.chronology.truncatedActivities":
+    "Dieser Account hat mehr Aktivitäten, als hier hineinpassen. Gezeigt werden nur die neuesten.",
+  "timeline.sent": "Gesendet",
+  "timeline.received": "Erhalten",
+  "timeline.textMore": "Lesen",
+  "timeline.textLess": "Weniger",
+  "co.profileField.display_name": "Firmenname",
+  "co.profileField.offer_summary": "Was sie verkaufen",
+  "co.profileField.icp": "An wen sie verkaufen",
+  "co.profileField.buying_center": "Wer dort entscheidet",
+  "co.profileField.value_proposition": "Was sie versprechen",
+  "co.profileField.usp": "Wodurch sie sich abheben",
+  "co.profileField.customer_pains": "Welches Problem sie lösen",
+  "co.profileField.desired_outcomes": "Welches Ergebnis sie versprechen",
+  "co.profileField.buying_intents": "Was einen Kauf auslöst",
+  "co.profileField.common_objections": "Einwände, die sie hören",
+  "co.profileField.sales_motion": "Wie sie verkaufen",
+  "co.profileField.legal_name": "Eingetragener Name",
+  "co.profileField.registered_address": "Eingetragene Anschrift",
+  "co.profileField.register_vat": "Register / USt-IdNr.",
+  "co.profileField.industry": "Branche",
+  "co.profileField.history": "Historie",
+  "co.profile.title": "Firmenprofil",
+  "co.reach.window": "Kontaktstatus der letzten 90 Tage",
+  "co.reach.answered": "Antwortet",
+  "co.reach.silent": "Keine Antwort",
+  "co.reach.untried": "Nie angesprochen",
+  "co.role.set": "Rolle festlegen",
+  "co.role.setOn": "Was ist {name} in diesem Deal?",
+  "co.role.explain":
+    "Der Champion setzt sich für euch ein, wenn ihr nicht im Raum seid. Der wirtschaftliche Entscheider unterschreibt. Beide zu benennen macht aus einer Kontaktliste ein Bild der Entscheidung.",
+  "co.role.onDeal": "In welchem Deal",
+  "co.role.role": "Rolle",
+  "co.role.champion": "Champion",
+  "co.role.economic_buyer": "wirtschaftlicher Entscheider",
+  "co.role.blocker": "Bremser",
+  "co.role.influencer": "Einflussnehmer",
+  "co.role.user": "Anwender",
+  "co.people.missing":
+    "Für den offenen Deal ist noch kein {roles} benannt — leg die Rolle bei der Person fest, die es ist.",
+  "co.people.untriedHint": "{count} Personen hier wurden nie angesprochen.",
+  "co.people.untriedHintOne": "Eine Person hier wurde nie angesprochen.",
+  "co.evidence.title": "Woher das stammt",
+  "co.relationships.title": "Verknüpfte Personen und Firmen",
+  "co.tools.title": "Daten & Werkzeuge",
+  "co.prep.title": "Bevor du mit ihnen sprichst",
+  "co.prep.sparse":
+    "Zu diesem Account gibt es kaum Historie. Es lässt sich daraus nichts vorbereiten.",
+  "co.prep.withheld":
+    "Teile dieses Accounts sind für dich nicht sichtbar. Diese Einschätzung ist deshalb unvollständig.",
+  "co.read.lastTouch": "Der letzte Kontakt war vor {days} Tagen.",
+  "co.read.lastTouchOne": "Der letzte Kontakt war gestern.",
+  "co.read.neverTouched": "Mit diesem Account hatte bisher niemand Kontakt.",
+  "co.read.newActivityOne": "Ein neuer Vorgang seit deinem letzten Besuch.",
+  "co.read.newActivityMany":
+    "{count} neue Vorgänge seit deinem letzten Besuch.",
+  "co.read.dealMovedOne":
+    "Ein Deal hat seit deinem letzten Besuch die Phase gewechselt.",
+  "co.read.dealMovedMany":
+    "{count} Deals haben seit deinem letzten Besuch die Phase gewechselt.",
+  "co.read.unansweredOne":
+    "Du hast in den letzten {days} Tagen einen Kontakt hier angeschrieben, ohne Antwort.",
+  "co.read.unansweredMany":
+    "Du hast in den letzten {days} Tagen {count} Kontakte hier angeschrieben, keiner hat geantwortet.",
+  "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
+  "co.read.singleThread":
+    "Nur bei {name} sind in den letzten {days} Tagen E-Mails, Anrufe oder Termine erfasst.",
+  "co.read.oneContact": "{name} ist dein einziger Zugang zu diesem Account.",
+  "co.read.noChampion.one": "Am offenen Deal ist kein Champion benannt.",
+  "co.read.noChampion.other":
+    "An keinem der offenen Deals ist ein Champion benannt.",
+  "co.read.stalled": "{name} kommt nicht voran.",
+  "co.read.noOpenDeal": "Kein offener Deal, und bisher nichts gewonnen.",
+  "co.read.noOpenDealCustomer":
+    "Aktuell kein offener Deal. Der Account hat aber schon gekauft.",
+  "co.read.overdueOne": "Überfällig: {subject}",
+  "co.read.overdueMany": "{count} Zusagen sind hier überfällig.",
+  "co.read.noNextStep": "Für diesen Account ist nichts Nächstes geplant.",
+  "co.factField.founded_year": "Gegründet",
+  "co.factField.employee_range": "Mitarbeitende",
+  "co.factField.phone": "Telefon",
+  "co.factField.contact_email": "Kontakt-E-Mail",
+  "co.factField.location": "Standort",
+  "co.factField.service": "Leistung",
+  "co.factField.product": "Produkt",
+  "co.factField.capability": "Fähigkeit",
+  "co.factField.served_industry": "Bedient",
+  "co.factField.company_size": "Größe",
+  "co.factField.geography": "Region",
+  "co.factField.language": "Sprache",
+  "co.factField.certification": "Zertifizierung",
+  "co.factField.partner": "Partner",
+  "co.factField.named_customer": "Kunde",
+  "co.factField.technology": "Technologie",
+  "co.factField.quantified_outcome": "Ergebnis",
+  "co.facts.showAll": "Alle {count} anzeigen",
+  "co.facts.showLess": "Weniger anzeigen",
   "co.facts.title": "Kurzfakten",
   "co.tags.lists": "Listen",
   "co.tags.tags": "Tags",
   "co.tags.noLists": "Auf keiner Liste.",
   "co.tags.noTags": "Keine Tags vergeben.",
+  "co.deal.new": "Neuer Deal",
+  "co.tags.apply": "Tag hinzufügen",
+  "co.tags.pick": "Tag-Name",
+  "co.lists.add": "Zu Liste hinzufügen",
+  "co.lists.pick": "Listenname",
   "co.tags.title": "Listen & Tags",
   "co.tags.empty": "Auf keiner Liste, keine Tags vergeben.",
   "co.health.title": "Datenqualität",
@@ -581,9 +795,7 @@ export const de = {
   "co.overlayFallback":
     "Dieser Account wird aus dem verbundenen führenden System bedient; die Firmenansicht wird hier nicht zusammengestellt. \u00d6ffne ihn dort für das vollständige Bild.",
   "org.firmographics": "Firmendaten",
-  "org.evidenceOrOmit": "nur belegte Felder — fehlend heißt unbekannt",
   "org.domains": "Domains",
-  "org.firmographicsLegal": "Firmendaten & Impressum",
   "org.firmographicsEmpty":
     "Noch nichts gelesen — belegte Profilfelder erscheinen hier, sobald eine Website-Auswertung sie bestätigt.",
   "org.facts": "Von der Website gelesene Fakten",
@@ -943,6 +1155,9 @@ export const de = {
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
     "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.sendMessageConfirmTitle": "Diese Nachricht senden?",
+  "compose.sendMessageBody":
+    "Sie senden diese Nachricht jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
   "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
   "compose.consentBlocked":
     "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",
@@ -975,6 +1190,9 @@ export const de = {
   "tasks.undated": "Ohne Termin",
   "tasks.complete": "Erledigt",
   "tasks.snooze": "1 Tag später",
+  "tasks.detail": "Aufgabe",
+  "tasks.isDone": "Abgeschlossen",
+  "tasks.logged": "Erfasst",
   "tasks.new": "Neue Aufgabe",
   "tasks.subject": "Betreff",
   "tasks.dueDate": "Fällig am",
@@ -1025,6 +1243,8 @@ export const de = {
   "settings.passports": "Agenten-Passports",
   "settings.passportsSub":
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
+  "passport.select": "Passport",
+  "passport.noneOption": "Kein Passport",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
@@ -1469,7 +1689,7 @@ export const de = {
   "backfill.countCaptured": "Erfasst",
   "backfill.statEmails": "E-Mails erfasst",
   "backfill.statPeople": "Personen",
-  "backfill.statCompanies": "Firmen",
+  "backfill.statCompanies": "Firmen zu prüfen",
   "backfill.errorNote":
     "Er versucht es selbstständig erneut; alles bisher Erfasste bleibt erhalten.",
   "backfill.cancel": "Import stoppen",
@@ -1494,6 +1714,7 @@ export const de = {
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP-Postfach",
   "connectors.statusConnected": "Aktiv",
+  "connectors.statusPending": "Ausstehend — noch nicht bestätigt aktiv",
   "connectors.statusReauth": "Neu verbinden nötig",
   "connectors.statusError": "Sync-Fehler",
   "connectors.statusDisconnected": "Getrennt",
@@ -1571,24 +1792,47 @@ export const de = {
     "Das Postfach hat diese Zugangsdaten abgelehnt. Prüfe Server, E-Mail und App-Passwort.",
   "connectors.imapUnreachable": "Der Mailserver konnte nicht erreicht werden.",
 
-  // Persönliche Mail-Ausschlüsse (RC-2, Task 8).
-  "exclusions.title": "Ausschlüsse für persönliche Mails",
-  "exclusions.sub":
-    "Bestimmte Mails vollständig aus deinem CRM heraushalten. Eine passende Nachricht erzeugt null CRM-Datensätze — nichts wird erfasst und dann versteckt, es wird schlicht nie erfasst.",
-  "exclusions.kind.senderDomain": "Mail von dieser Domain",
-  "exclusions.kind.recipientDomain": "Mail an diese Domain",
-  "exclusions.kind.label": "Mail mit diesem Label",
-  "exclusions.new": "Neue Regel",
-  "exclusions.none": "Noch keine Ausschlussregeln.",
-  "exclusions.modalTitle": "Ausschlussregel hinzufügen",
-  "exclusions.fieldKind": "Regeltyp",
-  "exclusions.value": "Wert",
-  "exclusions.add": "Hinzufügen",
-  "exclusions.alreadyPresent": "Diese Regel ist bereits in deiner Liste.",
-  "exclusions.remove": "Entfernen",
-  "exclusions.removeTitle": "Diese Regel entfernen?",
-  "exclusions.removeConfirm":
-    "Mails, die auf diese Regel passen, werden nicht mehr ausgeschlossen — neue Nachrichten werden wieder normal erfasst.",
+  // Das Telegram-Connector-Panel (Task 17, Design §9.1-§9.2): ein Bot
+  // verbindet sich für den gesamten Workspace — kein OAuth-Handshake,
+  // sondern ein BotFather-Token im selben eingebetteten Formular wie beim
+  // IMAP-Connector. Anders als bei den Mail-Anbietern bleibt die Verbindung
+  // vor Ort bearbeitbar: das Ersetzen des Tokens läuft über PATCH, nie über
+  // ein Trennen.
+  "connectors.provTelegram": "Telegram",
+  "connectors.telegramTitle": "Telegram-Bot",
+  "connectors.telegramSub":
+    "Ein Bot empfängt und sendet Nachrichten für den gesamten Workspace.",
+  "connectors.telegramNotConfigured":
+    "Messaging-Kanäle sind in dieser Installation nicht konfiguriert.",
+  "connectors.telegramConnectCta": "Telegram-Bot verbinden",
+  "connectors.telegramEditToken": "Token ersetzen",
+  "connectors.telegramDisconnectTitle": "Diesen Bot trennen?",
+  "connectors.telegramDisconnectBody":
+    "Dies löscht das gespeicherte Token und beendet das Abrufen neuer Nachrichten. Erfassung und Versand stoppen sofort; alles bereits Erfasste bleibt in deinem CRM.",
+  "connectors.telegramModalTitle": "Telegram-Bot verbinden",
+  "connectors.telegramEditTitle": "Bot-Token ersetzen",
+  "connectors.telegramBotToken": "Bot-Token",
+  "connectors.telegramBotTokenHint":
+    "Füge das Token ein, das BotFather beim Anlegen des Bots ausgegeben hat. Wir versiegeln es im Credential-Vault und zeigen es nie wieder an.",
+  "connectors.telegramSubmitCta": "Verbinden",
+  "connectors.telegramReplaceCta": "Token ersetzen",
+  "connectors.telegramConnectedAs": "Verbunden als @{username}.",
+
+  // Die Consumer-Mail-Liste des Workspace (CAP-PARAM-5).
+  "consumerMail.title": "Consumer-Mail-Domains",
+  "consumerMail.sub":
+    "Mail von einem privaten Postfach legt weiterhin die Person an — nur eben keine Firma. Margince liefert eine Liste dieser Anbieter mit; ergänze, was fehlt, oder nimm eine Domain wieder heraus, die zu Unrecht darauf steht.",
+  "consumerMail.domainLabel": "Domain",
+  "consumerMail.domainPlaceholder": "anbieter.example",
+  "consumerMail.kindLabel": "Was diese Domain ist",
+  "consumerMail.kind.extra": "Consumer-Mail — niemals eine Firma",
+  "consumerMail.kind.never":
+    "Eine echte Firma — mitgelieferte Liste ignorieren",
+  "consumerMail.add": "Hinzufügen",
+  "consumerMail.remove": "Entfernen",
+  "consumerMail.none":
+    "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
+  "consumerMail.adminOnly": "Diese Liste kann nur eine Administratorin ändern.",
 
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
@@ -1796,6 +2040,39 @@ export const de = {
     "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
+  "ob.conv.linkedin.why":
+    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nntest \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
+  "ob.conv.linkedin.ask":
+    "Das Verbinden kostet eine Autorisierung. Ich lese deine Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",
+  "ob.conv.linkedin.artifactSub":
+    "Damit das CRM dir sagen kann, wer aus deinem Team bereits jemanden beim Kunden kennt.",
+  "ob.conv.linkedin.scope1Lead": "Deine Kontaktliste \u2014",
+  "ob.conv.linkedin.scope1Rest":
+    "Name, Position, Unternehmen und das Datum der Vernetzung.",
+  "ob.conv.linkedin.scope2Lead": "Sonst nichts.",
+  "ob.conv.linkedin.scope2Rest":
+    "Keine Nachrichten, keine Beitr\u00e4ge, keine Profilbesuche, keine Aktivit\u00e4ten.",
+  "ob.conv.linkedin.scope3Lead": "Dein Netzwerk bleibt deins.",
+  "ob.conv.linkedin.scope3Rest":
+    "Es wird dir zugeordnet, nie dem Unternehmen, und beim Trennen wird es entfernt.",
+  "ob.conv.linkedin.scope4Lead": "Niemand wird kontaktiert.",
+  "ob.conv.linkedin.scope4Rest":
+    "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
+  "ob.conv.linkedin.neverContacts":
+    "Deine Kontakte werden NICHT zu Kontakten im CRM. Sie erscheinen nie in Suche, Listen oder Kontaktseiten, nichts kann ihnen geschrieben werden, und niemand kann sie anmailen. Sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+  "ob.conv.linkedin.profileLabel": "Deine LinkedIn-Profil-URL",
+  "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
+  "ob.conv.linkedin.profileWhy":
+    "N\u00f6tig, damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+  "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
+  "ob.conv.linkedin.appPending":
+    "Hinweis: Unsere LinkedIn-Entwickler-App wartet noch auf Freigabe. Deine Zustimmung und dein Profil werden erfasst, es werden aber noch keine Kontakte synchronisiert. Bis dahin kannst du in den Einstellungen deine eigene Connections.csv hochladen \u2014 das funktioniert heute schon.",
+  "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
+  "ob.conv.linkedin.connected":
+    "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",
+  "ob.conv.linkedin.skipped":
+    "LinkedIn \u00fcbersprungen. Sie k\u00f6nnen es jederzeit in den Einstellungen verbinden.",
   "ob.conv.connect.skip": "Verbinden vorerst überspringen",
   "ob.conv.connect.artifactTitle": "Postfach-Verbindung",
   "ob.conv.connect.artifactEmpty":
@@ -2031,6 +2308,29 @@ export const de = {
   "strength.none": "Noch keine Interaktionen",
   "strength.inout": "{in} eingehend · {out} ausgehend (90 Tage)",
   "strength.computedFrom": "Berechnet aus {count} Aktivitäten",
+
+  // Die Beziehungsgraph-Karten (ADR-0078). Die Kollegen-Stufen sind die von
+  // PO-F-3b und unterscheiden sich bewusst von denen der arbeitsbereichsweiten
+  // Karte: beide messen Verschiedenes und dürfen nicht vergleichbar wirken.
+  "network.title": "Wer kennt diese Person bei uns",
+  "network.empty":
+    "Niemand hier hat bisher erfassten Kontakt zu dieser Person.",
+  "network.interactions": "{count} Interaktionen (90 Tage)",
+  "network.neverSpoken": "Kein erfasster Kontakt",
+  "network.bucket.none": "Kein Kontakt",
+  "network.bucket.weak": "Schwach",
+  "network.bucket.moderate": "Mittel",
+  "network.bucket.strong": "Stark",
+  "coverage.title": "Abdeckung",
+  "coverage.clear":
+    "Nichts markiert — dieser Deal besteht alle Abdeckungsprüfungen.",
+  "coverage.daysSinceTouch": "{days} Tage",
+  "coverage.risk.single_threaded_theirs": "Nur ein Kontakt",
+  "coverage.risk.single_threaded_ours": "Von einer Person getragen",
+  "coverage.risk.coverage_gap": "Kein engagierter Fürsprecher",
+  "coverage.risk.champion_left": "Fürsprecher hat gekündigt",
+  "coverage.risk.stakeholder_left": "Stakeholder hat gekündigt",
+  "coverage.risk.going_cold": "Wird kalt",
 
   "cf.title": "Benutzerdefinierte Felder",
   "cf.formSection": "Benutzerdefinierte Felder",
@@ -2618,4 +2918,37 @@ export const de = {
   "embedreindex.impact.normal": "normal",
   "embedreindex.impact.degraded": "würde in den Sparmodus wechseln",
   "embedreindex.impact.queued": "würde in die Warteschlange gestellt",
+
+  "consent.title": "Zugriff autorisieren",
+  "consent.asks": "{client} möchte in Margince als du handeln.",
+  "consent.lend": "Leih ihm einen deiner Agent-Passports",
+  "consent.grantedNote":
+    "Diese Verbindung erhält genau die gezeigten Berechtigungen — die dieses Passports.",
+  "consent.offline":
+    "Sie bleibt verbunden, ohne erneut zu fragen, und erneuert den Zugriff, bis du ihn widerrufst.",
+  "consent.approve": "Autorisieren",
+  "consent.deny": "Zugriff verweigern",
+  "consent.emptyTitle": "Du brauchst zuerst einen Agent-Passport",
+  "consent.emptyBody":
+    "Ein Passport ist die Vollmacht, die du einem Agenten leihst — er überschreitet nie deine eigenen Berechtigungen, und du kannst ihn jederzeit widerrufen. Stell einen aus, und wir bringen dich hierher zurück, um die Verbindung mit {client} abzuschließen.",
+  "consent.emptyCta": "Passport ausstellen",
+  "consent.expires": "läuft ab am {date}",
+  "consent.resumeTitle": "Verbindung mit {client} abschließen",
+  "consent.resumeBody":
+    "Du bist hierher gekommen, um einen Passport für {client} auszustellen. Sobald du einen hast, machst du dort weiter, wo du aufgehört hast.",
+  "consent.resume": "Verbindung fortsetzen",
+  "consent.resumeDismiss": "Diese Verbindung abbrechen",
+  "consent.reentering": "Verbinde erneut…",
+  "consent.backToApp": "Zurück zu Margince",
+  "consent.staleTitle": "Diese Anfrage ist abgelaufen",
+  "consent.staleBody":
+    "Die Verbindungsanfrage ist nicht mehr gültig. Geh zurück zur App, die du verbinden wolltest, und starte erneut — ein Neuladen dieser Seite hilft nicht.",
+  "consent.unlendableTitle": "Dieser Passport kann nicht mehr verliehen werden",
+  "consent.unlendableBody":
+    "Der für {client} gewählte Passport wurde widerrufen, ist abgelaufen oder bereits an eine andere Verbindung gebunden. Wähle unten einen anderen aus.",
+  "consent.invalidTitle":
+    "Diese Verbindungsanfrage konnte nicht abgeschlossen werden",
+  "consent.invalidBody":
+    "Diese Installation autorisiert die Anfrage in dieser Form nicht — die App ist hier möglicherweise nicht mehr registriert. Geh zurück zur App, die du verbinden wolltest, und starte erneut.",
+  "consent.unnamedPassport": "Unbenannter Passport ({id})",
 } as const satisfies Record<MessageKey, string>;

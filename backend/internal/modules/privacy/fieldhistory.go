@@ -4,11 +4,11 @@
 package privacy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -110,123 +110,6 @@ var fieldHistoryProjectedActionList = func() []string {
 // certifies gone — the projection enforces the scrub instead, by never
 // reading the tombstone row or anything older.
 var fieldHistoryScrubActions = []string{actionErase, "anonymize"}
-
-// entityFieldMask names fields whose history is withheld for an entity
-// type, exactly as the live value would be withheld — hiding history and
-// value is one motion, never two mechanisms. Empty until field-level
-// masking ships; the transform applies it to both sides before diffing
-// so a masked field can never leak through an old_value.
-type entityFieldMask map[string]struct{}
-
-var defaultFieldMasks = map[string]entityFieldMask{}
-
-// auditDiffRow carries the columns of one audit_log row the diff needs.
-type auditDiffRow struct {
-	id         ids.UUID
-	action     string
-	entityType string
-	entityID   ids.UUID
-	actorType  string
-	actorID    string
-	passportID *ids.UUID
-	evidence   map[string]any
-	occurredAt time.Time
-	before     map[string]any
-	after      map[string]any
-}
-
-// diffAuditRowFields projects one audit row into per-field entries:
-// changed or added keys emit old->new, removed keys emit old->nil, and
-// keys equal on both sides emit nothing — an empty history is honest,
-// never fabricated. Keys emit alphabetically so a row's entries are
-// deterministic. passport/evidence surface only for agent actors.
-func diffAuditRowFields(row auditDiffRow, mask entityFieldMask, fieldFilter *string) []FieldHistoryEntry {
-	// A meta verb's payload is evidence, not a field image (see
-	// fieldHistoryProjectedActions). The SQL scan already excludes such
-	// rows; this guard keeps the invariant with the diff itself, so no
-	// caller can ever project an erase tombstone's tallies or a merge's
-	// relink counts as field changes.
-	if !fieldHistoryProjectedActions[row.action] {
-		return nil
-	}
-	before := applyFieldMask(row.before, mask)
-	after := applyFieldMask(row.after, mask)
-
-	keyset := make(map[string]struct{}, len(before)+len(after))
-	for k := range before {
-		keyset[k] = struct{}{}
-	}
-	for k := range after {
-		keyset[k] = struct{}{}
-	}
-	keys := make([]string, 0, len(keyset))
-	for k := range keyset {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	var entries []FieldHistoryEntry
-	for _, key := range keys {
-		if fieldFilter != nil && key != *fieldFilter {
-			continue
-		}
-		beforeVal, inBefore := before[key]
-		afterVal, inAfter := after[key]
-		switch {
-		case inAfter && (!inBefore || !reflect.DeepEqual(beforeVal, afterVal)):
-			entries = append(entries, makeFieldHistoryEntry(row, key, stringifyFieldValue(beforeVal), stringifyFieldValue(afterVal)))
-		case inBefore && !inAfter:
-			entries = append(entries, makeFieldHistoryEntry(row, key, stringifyFieldValue(beforeVal), nil))
-		}
-	}
-	return entries
-}
-
-func makeFieldHistoryEntry(row auditDiffRow, field string, oldValue, newValue *string) FieldHistoryEntry {
-	var passportID *ids.UUID
-	var evidence map[string]any
-	if row.actorType == "agent" {
-		passportID = row.passportID
-		evidence = row.evidence
-	}
-	return FieldHistoryEntry{
-		ID:         row.id,
-		EntityType: row.entityType,
-		EntityID:   row.entityID,
-		Field:      field,
-		OldValue:   oldValue,
-		NewValue:   newValue,
-		ChangedAt:  row.occurredAt,
-		ActorType:  row.actorType,
-		ActorID:    row.actorID,
-		PassportID: passportID,
-		Evidence:   evidence,
-	}
-}
-
-// stringifyFieldValue renders a diff side for display. A nil (JSON null
-// or absent) value stays a nil pointer — the client renders the
-// empty/created origin label, never a literal "nil".
-func stringifyFieldValue(v any) *string {
-	if v == nil {
-		return nil
-	}
-	s := fmt.Sprintf("%v", v)
-	return &s
-}
-
-func applyFieldMask(data map[string]any, mask entityFieldMask) map[string]any {
-	if data == nil || len(mask) == 0 {
-		return data
-	}
-	out := make(map[string]any, len(data))
-	for k, v := range data {
-		if _, hidden := mask[k]; !hidden {
-			out[k] = v
-		}
-	}
-	return out
-}
 
 const (
 	fieldHistoryScanBatch   = 100
@@ -472,11 +355,19 @@ func queryFieldHistoryBatch(ctx context.Context, tx pgx.Tx, f FieldHistoryFilter
 	return out, len(out), rows.Err()
 }
 
+// unmarshalJSONBMap decodes one audit image.
+//
+// UseNumber, because the default decode turns every JSON number into a
+// float64: an id or an amount past 2^53 comes back rounded, and the reader is
+// then shown a number the record never held. json.Number keeps the lexeme the
+// writer stored, and the renderer prints it back verbatim.
 func unmarshalJSONBMap(raw []byte, dst *map[string]any) error {
 	if len(raw) == 0 {
 		return nil
 	}
-	return json.Unmarshal(raw, dst)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(dst)
 }
 
 // hasFollowingAuditRow answers whether any projectable audit row for the

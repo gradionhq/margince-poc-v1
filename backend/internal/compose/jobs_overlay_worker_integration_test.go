@@ -84,16 +84,10 @@ func overlayReaderCtx(ws, user ids.UUID) context.Context {
 func TestOverlayReconcileWorkerWorkNoOpsOverAnEmptyFleet(t *testing.T) {
 	e := integration.Setup(t)
 
-	w := &overlayReconcileWorker{
-		pool:  e.Pool,
-		vault: keyvault.NewMemory(),
-		ms:    overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{}),
-		meter: workerBudgetMeter(t),
-		log:   slog.New(slog.DiscardHandler),
-	}
+	w := &overlayReconcileWorker{pool: e.Pool, log: slog.New(slog.DiscardHandler)}
 
 	if err := w.Work(e.Admin(), nil); err != nil {
-		t.Fatalf("Work over an empty fleet: %v", err)
+		t.Fatalf("the dispatcher over an empty fleet: %v", err)
 	}
 }
 
@@ -161,14 +155,19 @@ func TestWorkerBacksOffAConnectionLevelFailure(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 
-	w := &overlayReconcileWorker{
+	w := &overlayReconcileWorkspaceWorker{
 		pool: e.Pool, vault: vault, ms: ms,
 		meter:        workerBudgetMeter(t),
 		log:          slog.New(slog.DiscardHandler),
 		newIncumbent: func(_, _ string) overlay.Incumbent { return authFailingIncumbent{Adapter: fake.New()} },
 	}
-	if err := w.Work(e.Admin(), nil); err != nil {
-		t.Fatalf("Work must not error on a single connection's failure: %v", err)
+	// The connection's failure IS this job's failure now: one workspace's
+	// reconcile is one job row, so River records it as failed and retries it
+	// rather than completing over a workspace that did not sync.
+	if err := w.Work(e.Admin(), &river.Job[OverlayReconcileWorkspaceArgs]{
+		Args: OverlayReconcileWorkspaceArgs{Workspace: e.WS},
+	}); err == nil {
+		t.Fatal("a connection-level failure must fail this workspace's job row")
 	}
 
 	// The workspace is now backed off — no longer due.
@@ -632,7 +631,7 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 	fakeInc := fake.New()
 	fakeInc.SeedOwner("owner-1", "a@authz.test") // matches Rep1, so SeedUserMap reaches a fenced UpsertUserMap
 
-	w := &overlayReconcileWorker{
+	w := &overlayReconcileWorkspaceWorker{
 		pool: e.Pool, vault: vault, ms: ms,
 		meter: workerBudgetMeter(t),
 		log:   slog.New(slog.DiscardHandler),
@@ -640,8 +639,12 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 			return &revokeOnOwnersIncumbent{Incumbent: fakeInc, pool: e.Pool}
 		},
 	}
-	if err := w.Work(e.Admin(), nil); err != nil {
-		t.Fatalf("Work must not error on a mid-sweep disconnect: %v", err)
+	// A mid-sweep disconnect is a clean stop, not a failure: every fenced
+	// write aborted, so there is nothing to retry and nothing to back off.
+	if err := w.Work(e.Admin(), &river.Job[OverlayReconcileWorkspaceArgs]{
+		Args: OverlayReconcileWorkspaceArgs{Workspace: e.WS},
+	}); err != nil {
+		t.Fatalf("a mid-sweep disconnect must not fail the job: %v", err)
 	}
 
 	// No sweep outcome was recorded: the clean-stop path skipped both
@@ -900,7 +903,7 @@ func TestOverlayRefetchWorkerFreshensTheMirrorRecord(t *testing.T) {
 			newIncumbent: func(_, _ string) overlay.Incumbent { return inc },
 		}
 		if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
-			Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+			Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 		}); err != nil {
 			t.Fatalf("refetch Work: %v", err)
 		}
@@ -978,7 +981,7 @@ func TestOverlayRefetchWorkerShedsWhenBudgetExhausted(t *testing.T) {
 		newIncumbent: func(_, _ string) overlay.Incumbent { return spy },
 	}
 	if err := w.Work(context.Background(), &river.Job[OverlayRefetchArgs]{
-		Args: OverlayRefetchArgs{Workspace: e.WS.String(), IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
+		Args: OverlayRefetchArgs{Workspace: e.WS, IncumbentClass: overlay.IncumbentClassContacts, ExternalID: "c-1"},
 	}); err != nil {
 		t.Fatalf("refetch Work (shed): %v", err)
 	}

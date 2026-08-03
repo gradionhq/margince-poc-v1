@@ -206,4 +206,22 @@ describe("EntityRef", () => {
     );
     expect(window.location.hash).toBe("#/leads/l-1");
   });
+
+  it("uses a caller-supplied user name without reading the roster at all", async () => {
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        fetched.push(new URL(request.url).pathname);
+        return jsonResponse({ data: [] });
+      }),
+    );
+    render(<EntityRef kind="user" id="u-1" name="Lars Jankowfsky" />);
+
+    // A read that returns its own labels (the connection graph) must not have
+    // its reader shown a raw uuid while /users is in flight — or forever, if
+    // the caller cannot list the roster.
+    expect(await screen.findByText("Lars Jankowfsky")).toBeTruthy();
+    expect(fetched).toHaveLength(0);
+  });
 });

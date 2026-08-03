@@ -19,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -90,6 +91,19 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The connector's OAuth audience and its advertised MCP resource are
+	// both derived from --public-base-url, never from the Host header an
+	// attacker controls — so the gate that turns the connector on cannot
+	// be satisfied without it.
+	if deployCfg.MCP.ConnectorEnabled {
+		if cfg.publicBaseURL == "" {
+			return errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
+				"audience and the advertised MCP resource must not be derived from the Host header")
+		}
+		if err := validatePublicBaseURL(cfg.publicBaseURL); err != nil {
+			return err
+		}
+	}
 	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
 		return err
 	}
@@ -105,6 +119,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer closeSchemaPool()
+
+	// Gate 1: the connector's whole route group — /mcp, the authorization
+	// server and both discovery documents — exists only when the deployment
+	// declared it. The boot check above already proved the canonical base URL
+	// those routes advertise.
+	if deployCfg.MCP.ConnectorEnabled {
+		opts = append(opts, compose.WithMCPConnector())
+	}
 
 	resetOpts, err := passwordResetOptions(deployCfg, cfg.publicBaseURL, stdout)
 	if err != nil {
@@ -259,6 +281,51 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // returned close func releases whatever this stage opened (currently
 // only the schema pool) and is always safe to call, even when nothing
 // was opened.
+// validatePublicBaseURL refuses a base URL the connector cannot be reached at.
+// Presence alone is not enough: every value here is copied verbatim into the
+// OAuth audience, the RFC 9728 protected-resource document and the advertised
+// MCP URL, and a client dereferences all three exactly as given. A malformed
+// or path-bearing value therefore does not fail at boot — it boots a connector
+// that advertises somewhere nobody can connect to, which looks like a client
+// bug from every side.
+//
+// A trailing slash is accepted and trimmed downstream; anything else that
+// would change what the URL MEANS — a scheme other than http(s), a missing
+// host, or a path, query or fragment — is refused rather than silently
+// normalized, because guessing what an operator meant is how the wrong origin
+// ends up published.
+func validatePublicBaseURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", raw, err)
+	}
+	// Userinfo is refused BEFORE any error that quotes the value, because that
+	// is where a password would be: an origin carrying credentials would put
+	// them in this boot error and every log line that copies it.
+	if parsed.User != nil {
+		return errors.New("api: --public-base-url carries userinfo; it must be a bare origin " +
+			"(value withheld: it may contain a credential)")
+	}
+	switch {
+	case parsed.Scheme != "http" && parsed.Scheme != "https":
+		return fmt.Errorf("api: --public-base-url %q needs an http or https scheme, got %q", raw, parsed.Scheme)
+	// Hostname(), not Host: Host keeps the port, so ":8080" is a non-empty
+	// authority that names no host at all.
+	case parsed.Hostname() == "":
+		return fmt.Errorf("api: --public-base-url %q names no host", raw)
+	// Exactly "" or "/" — NOT a trimmed comparison. url.Parse decodes as it
+	// goes, so "//" and "/%2F" both arrive as a path that trims to empty while
+	// the RAW value is what gets published: appending "/mcp" to either yields a
+	// URL with a doubled or encoded separator that no client resolves.
+	case parsed.Path != "" && parsed.Path != "/":
+		return fmt.Errorf("api: --public-base-url %q must be a bare origin: the MCP resource is "+
+			"derived by appending /mcp, so a path here publishes an unreachable URL", raw)
+	case parsed.RawQuery != "" || parsed.Fragment != "":
+		return fmt.Errorf("api: --public-base-url %q must be a bare origin, with no query or fragment", raw)
+	}
+	return nil
+}
+
 func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
 	var opts []compose.Option
 	// Record the deployment's capture suppression-list config first, so the
@@ -267,7 +334,21 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	opts = append(opts, compose.WithCaptureConfig(capCfg))
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
+		// The canonical MCP resource (RFC 9728) is the same configured
+		// base, never a request-derived origin — see the boot check in
+		// run() that requires this flag once the connector gate is on.
+		opts = append(opts, compose.WithMCPResource(strings.TrimSuffix(cfg.publicBaseURL, "/")+"/mcp"))
 	}
+	// An operator-shortened access token, applied to both mints of a
+	// connection's life. Zero is "not configured", which keeps the passport
+	// default — declared by omission, never a silent guess.
+	if cfg.oauthAccessTokenTTL != 0 {
+		opts = append(opts, compose.WithOAuthAccessTokenTTL(cfg.oauthAccessTokenTTL))
+	}
+	// The channel-connection surface needs no public origin of its own: Telegram
+	// ingress polls, so nothing is ever told where to reach this installation.
+	// It must precede kvOpts below, which hands it the vault it seals with.
+	opts = append(opts, compose.WithChannelSurface())
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {

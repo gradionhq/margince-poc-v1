@@ -12,6 +12,71 @@ package apperrors
 
 import "errors"
 
+// FieldFault is implemented by a typed error that refuses a SPECIFIC input:
+// it names the contract field the caller must change, the contract's stable
+// machine code for the refusal, and what to fix.
+//
+// It exists because the verdict belongs to the error, not to the transport
+// that happens to be carrying it. Every module used to spell its own typed
+// refusals out again in an HTTP-side mapper (`writeStoreErr` and friends), so
+// a refusal was a 422 naming the field on REST and — on the MCP tool surface,
+// which reaches the same stores through the datasource seam and never runs
+// those mappers — an unclassified error reported as an internal server fault
+// with advice to retry. Implementing this instead makes the refusal legible
+// wherever it travels, including to a surface that did not exist when the
+// error type was written.
+//
+// A module opts in by adding the method; httperr's choke point does the rest.
+// The narrower typed errors in shared (values.ParseError, storekit's list
+// vocabularies, datasource's seam refusals) keep their own dedicated branches,
+// which take precedence over this one.
+type FieldFault interface {
+	error
+	// FieldFault returns the offending field's contract path, the contract's
+	// machine code for this refusal, and a message saying what to fix. All
+	// three reach the caller, so none of them may carry internal detail.
+	FieldFault() (field, code, message string)
+}
+
+// FieldRefusal is one entry in a multi-field refusal.
+type FieldRefusal struct {
+	Field   string
+	Code    string
+	Message string
+}
+
+// FieldFaults is FieldFault's plural: a refusal that names SEVERAL bad inputs
+// at once, which a schema validator naturally produces. Collapsing such an
+// error into one field would hide the rest, so it reports them all and the
+// choke point renders every entry.
+//
+// A type implements one or the other, never both. The plural is checked first,
+// because a type carrying a list has nothing useful to say as a single field.
+type FieldFaults interface {
+	error
+	FieldFaults() []FieldRefusal
+}
+
+// MessageFault is for a refusal that is legitimately the caller's business to
+// know about but names NO input the caller can change: an authority or
+// configuration state (no send-capable mailbox), or server-side data the
+// workspace has not loaded (no FX rate for a currency pair).
+//
+// It exists because FieldFault was applied to those cases first, and pointing
+// at a field is worse than pointing at nothing when the field is not an
+// argument of the operation: an agent told to fix `from` on a send that has no
+// `from` argument has been handed a task it cannot perform, and will either
+// retry unchanged or invent a value. Naming the condition and saying a human
+// must act on it is the honest answer.
+//
+// A type implements exactly one of the three fault forms.
+type MessageFault interface {
+	error
+	// MessageFault returns the contract's machine code for the condition and a
+	// message saying who has to do what. Neither may carry internal detail.
+	MessageFault() (code, message string)
+}
+
 // Core sentinels — every store and handler in the system speaks these.
 var (
 	// ErrNotFound: no such resource in this workspace, or outside the

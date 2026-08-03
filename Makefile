@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot mcp-inspector frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -172,13 +172,6 @@ seed-dev:
 verify-boot:
 	./scripts/verify-boot.sh
 
-## mcp-inspector — launch the MCP Inspector against cmd/mcp over stdio, wired to
-## the running dev stack (make dev). The passport token comes from .env.local
-## (MARGINCE_PASSPORT_TOKEN=mgp_…) or the command line; the DSN is read from the
-## running stack so DEV_SLUG just works:
-##   make mcp-inspector TOKEN=mgp_… [DEV_SLUG=<slug>] [WORKSPACE=<slug>]
-mcp-inspector:
-	@TOKEN="$(TOKEN)" DEV_SLUG="$(DEV_SLUG)" WORKSPACE="$(WORKSPACE)" bash scripts/mcp-inspector.sh
 
 ## frontend-check — the frontend merge lane. The three token-purity gates
 ## run first: cheap fail-closed greps
@@ -320,10 +313,14 @@ COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738
 DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
 SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
 GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
-# cosign's image runs as uid 65532, which cannot create files in the invoking
-# user's sboms/ dir through the bind mount — run it as root (syft's image does).
+# cosign's image defaults to uid 65532, which owns neither the bind-mounted
+# sboms/ dir nor a writable HOME — run it as the invoking user so the *.cosign.bundle
+# files it writes (mode 0600) are owned by that user and stay readable to whatever
+# consumes them next (CI's upload-artifact runs as the same non-root runner). HOME
+# points at the gitignored .tmp so cosign's sigstore/TUF cache has somewhere to land.
 # The OIDC env vars are ambient in CI (id-token: write).
-COSIGN       ?= $(DOCKER_SBOM) -u 0 -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
+COSIGN_HOME  := .tmp/cosign-home
+COSIGN       ?= $(DOCKER_SBOM) -u $(shell id -u):$(shell id -g) -e HOME=/src/$(COSIGN_HOME) -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
 # Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
 # files) never leaks into the SBOM and .gitignore stays the single authority.
 SBOM_SRC     := .tmp/sbom-src
@@ -350,6 +347,7 @@ sbom:
 
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
 sbom-sign:
+	@mkdir -p $(COSIGN_HOME)
 	@for f in $(SBOM_FILES); do \
 	  echo "signing $$f"; \
 	  $(COSIGN) sign-blob --yes --bundle "$$f.cosign.bundle" "$$f" || exit 1; \

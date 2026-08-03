@@ -41,7 +41,7 @@ func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
 		t.Fatalf("MarkQueued: %v", err)
 	}
 	args := SiteDeepReadArgs{
-		WorkspaceID: e.WS, OrganizationID: org, SiteReadID: read.ID,
+		Workspace: e.WS, OrganizationID: org, SiteReadID: read.ID,
 		SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 	}
 

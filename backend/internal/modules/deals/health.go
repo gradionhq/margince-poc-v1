@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // §10.5 tunables (spec parameter-registry names in comments).
@@ -243,8 +244,11 @@ func daysBetween(from, to time.Time) float64 {
 }
 
 // healthActivityKinds are the qualifying two-way-engagement interaction
-// kinds (§4 inputs; tasks and notes are not contact).
-const healthActivityKinds = `('email','call','meeting')`
+// kinds (§4 inputs; tasks and notes are not contact). It reads the shared
+// definition rather than restating it: relationship scoring, deal health and
+// person strength all ask the same question, and a set that drifts between
+// them makes the network and coverage signals disagree about one activity.
+var healthActivityKinds = relstrength.InteractionKindSQLGroup()
 
 // DealHealth computes the §10.5 score for one deal. The read is
 // row-scoped exactly like GetDeal — a deal the caller cannot see has no

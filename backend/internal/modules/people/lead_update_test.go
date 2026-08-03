@@ -128,11 +128,17 @@ func TestScoreOverrideAmendsReasonOnlyWhenOneIsInForce(t *testing.T) {
 		t.Fatalf("note not amended: %v", p.After())
 	}
 
+	// A reason with no score to attach it to: the MISSING input is the score,
+	// so the refusal must name the score. Telling the caller to supply a
+	// score_override_reason it already sent is guidance it cannot act on.
 	p = storekit.NewPatch()
 	_, err := applyScoreOverride(p, crmcontracts.Lead{Score: 23}, UpdateLeadInput{ScoreOverrideReason: strp("a reason for nothing")})
-	var want *ScoreOverrideReasonRequiredError
+	var want *ScoreOverrideWithoutScoreError
 	if !errors.As(err, &want) {
-		t.Fatalf("reason without a score or override: got %v, want ScoreOverrideReasonRequiredError", err)
+		t.Fatalf("reason without a score or override: got %v, want ScoreOverrideWithoutScoreError", err)
+	}
+	if field, _, _ := want.FieldFault(); field != leadScoreField {
+		t.Errorf("FieldFault names %q, want the score the caller must supply", field)
 	}
 }
 

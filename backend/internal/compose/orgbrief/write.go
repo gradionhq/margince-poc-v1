@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -55,6 +56,35 @@ type Evidence struct {
 	EntityID   string `json:"entity_id"`
 }
 
+// One sentence, one record — the shape rule both writers follow.
+//
+// A sentence that joined three task names and hung all three citations off
+// itself rendered as three chips with nothing between them, and read as
+// developer output rather than an answer. So a list of records becomes one
+// sentence per record, each citing only the record it is about, and a
+// sentence that counts a list cites the one record it names. listedRecords
+// bounds the list: past it the reader is scanning, not reading, and the
+// count sentence still states the true total.
+const listedRecords = 5
+
+// perRecordSentences renders a record list the house way: one sentence per
+// record, each carrying its own single citation, stopping at listedRecords.
+func perRecordSentences[T any](
+	records []T, entityType string, id func(T) string, line func(T) string,
+) []Sentence {
+	out := make([]Sentence, 0, min(len(records), listedRecords))
+	for _, record := range records {
+		if len(out) == listedRecords {
+			break
+		}
+		out = append(out, Sentence{
+			Text:     line(record),
+			Evidence: []Evidence{{EntityType: entityType, EntityID: id(record)}},
+		})
+	}
+	return out
+}
+
 // briefSystem is the summarize site's prompt.
 //
 // Two rules do the work. The model may only rewrite the facts it is given —
@@ -65,6 +95,8 @@ const briefSystem = `You write a two-to-four sentence account brief for a salesp
 Return ONLY a JSON object: {"sentences":[{"text":"...","evidence":[{"entity_type":"deal|activity|person|organization","entity_id":"..."}]}]}.
 State only what the summary states. Never infer a cause, a mood, an intent or a next step it does not contain.
 Cite the ids the summary gave you; a sentence about the account itself cites the organization.
+Put ids ONLY in evidence. An id must never appear in a sentence's text — the reader sees the text, and an id there is unreadable.
+Write one claim per sentence, and cite the ONE record that sentence is about. Three records worth naming are three sentences.
 Write plainly, in the reader's second person where natural, and never open with the company name twice.
 If the summary names sections_omitted, say nothing about those subjects at all — the reader is not allowed to see them.`
 
@@ -90,7 +122,18 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 		//nolint:nilerr // on_budget_exhausted: degrade — the fallback IS the answer, and generated_by reports it
 		return deterministic, crmcontracts.Deterministic, nil
 	}
-	return written, crmcontracts.Model, nil
+	// The company half is APPENDED, not asked for: those statements are
+	// already curated prose a human accepted, so putting them through a model
+	// buys nothing and risks a paraphrase nobody checked. The model writes the
+	// relationship — the part that needs synthesis — and both paths close with
+	// the same quoted description of the company.
+	return append(written, profileLines(in, accountEvidence(orgID))...), crmcontracts.Model, nil
+}
+
+// accountEvidence cites the account itself: the company description is about
+// the company, not about any one deal or message.
+func accountEvidence(orgID string) []Evidence {
+	return []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
 }
 
 // BriefRequest builds the one request this site sends. Exported because the
@@ -102,8 +145,15 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 // written by people outside this workspace. It is fenced with a nonce that
 // writer has never seen, so no subject line can close the span and be read
 // as instruction.
+//
+// The company profile is withheld from the request. Appending those lines
+// afterwards only guarantees the approved wording APPEARS; a model that had
+// read them could still put its own wording next to it, cited to the
+// organization and so accepted by the grounding check. Withholding them is
+// what makes "the model never rewrites the company description" true of the
+// request rather than of the concatenation.
 func BriefRequest(in Input) model.Request {
-	return groundedRequest(briefSystemFor, in)
+	return groundedRequest(briefSystemFor, in.withoutProfile())
 }
 
 // groundedRequest is the one request shape both of this package's sites send:
@@ -142,7 +192,11 @@ func ParseBrief(text, orgID string, in Input) ([]Sentence, error) {
 	var reply struct {
 		Sentences []Sentence `json:"sentences"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &reply); err != nil {
+	// ai.Unfence, not a bare TrimSpace: a model that wraps its JSON in a
+	// ```json fence is answering correctly, and every other model-reply parser
+	// in the tree reduces through the same helper. Trimming whitespace alone
+	// drops the whole model lane to the deterministic floor on those providers.
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &reply); err != nil {
 		return nil, fmt.Errorf("parse the brief reply: %w", err)
 	}
 	return keepGroundedSentences(reply.Sentences, orgID, in), nil
@@ -183,6 +237,14 @@ func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sente
 		if strings.TrimSpace(sentence.Text) == "" || len(sentence.Evidence) == 0 {
 			continue
 		}
+		if idInProse.MatchString(sentence.Text) {
+			// A sentence that spells an id at the reader is developer output,
+			// whatever else it says. It is DROPPED rather than stripped: the id
+			// sits mid-clause, and cutting it leaves broken grammar the reader
+			// has to decode — the same reason an ungrounded sentence goes whole.
+			// Every id the sentence needed is already in its evidence.
+			continue
+		}
 		if !allGrounded(sentence.Evidence, known) {
 			// The WHOLE sentence goes, not just the bad citation. A sentence
 			// citing one real record and one invented one is a sentence whose
@@ -192,7 +254,36 @@ func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sente
 		}
 		kept = append(kept, sentence)
 	}
-	return kept
+	return dedupedSentences(kept)
+}
+
+// idInProse matches a record id written into a sentence, spelled ONCE for
+// both the filter and the tests that gate it. It is the UUID shape every
+// citable record here carries, so a reply that pastes one anywhere in its
+// prose is caught wherever in the clause it landed.
+var idInProse = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+// dedupedSentences collapses repeated citations within each sentence, keeping
+// first-seen order.
+//
+// The same record cited twice renders as two identical chips the reader cannot
+// tell apart, and clicking either goes to the same place. Both writers exit
+// through this, so the wire shape does not depend on which one wrote the
+// answer.
+func dedupedSentences(sentences []Sentence) []Sentence {
+	for i, sentence := range sentences {
+		seen := make(map[Evidence]bool, len(sentence.Evidence))
+		unique := make([]Evidence, 0, len(sentence.Evidence))
+		for _, cited := range sentence.Evidence {
+			if seen[cited] {
+				continue
+			}
+			seen[cited] = true
+			unique = append(unique, cited)
+		}
+		sentences[i].Evidence = unique
+	}
+	return sentences
 }
 
 // knownRecords is what this brief was written from, keyed by TYPE AND ID.

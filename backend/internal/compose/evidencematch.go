@@ -75,6 +75,7 @@ const (
 	lanePageFacts = "page_facts"
 	laneProfile   = "profile"
 	laneLegal     = "legal"
+	laneTriage    = "triage"
 )
 
 // Drop reasons: why a model-claimed finding did not survive its gate.
@@ -88,9 +89,14 @@ const (
 	dropEvidenceNotOnPage = "evidence_not_on_page"
 	dropConfidenceRange   = "confidence_out_of_range"
 	dropNameRoleUnlinked  = "name_role_not_in_snippet"
-	dropEmptyValueKey     = "empty_value_key"
-	dropZeroedStat        = "zeroed_stat"
-	dropUnparseableReply  = "unparseable_reply"
+	dropNoPublishedEmail  = "no_published_email"
+	// dropAlreadyOnFile marks a published person the workspace already
+	// holds — a contact who has been emailing us for months does not
+	// become a decision because a crawler found their name.
+	dropAlreadyOnFile    = "already_on_file"
+	dropEmptyValueKey    = "empty_value_key"
+	dropZeroedStat       = "zeroed_stat"
+	dropUnparseableReply = "unparseable_reply"
 	// dropLegalConflict marks a legal-trio claim refused because the
 	// site's legal pages disagree on the entity: with no trustworthy
 	// override, no lane may smuggle one back in.

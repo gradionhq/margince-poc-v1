@@ -32,6 +32,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // closeDateEnv wraps integration.Env with a two-open-stage pipeline whose
@@ -70,6 +71,17 @@ func setupCloseDate(t *testing.T) *closeDateEnv {
 	e.svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(e.svc, deals.NewStore(e.Pool)))
 	e.corrector = deals.NewCloseDateCorrector(e.Pool, closeDateStager{svc: e.svc}, quiet)
 	return e
+}
+
+// sweep runs the corrector over this env's workspace under exactly the scope
+// the close_date_workspace worker binds — the pass is per workspace now, and a
+// suite that bound its own scope would be proving a path the product does not
+// run.
+func (e *closeDateEnv) sweep() error {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:close-date"})
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return e.corrector.SweepWorkspace(ctx)
 }
 
 // seedSweepDeal plants one deal through the owner connection — exactly
@@ -224,7 +236,7 @@ func TestCloseDateSweepAutoRollsClearOverdueActiveDeal(t *testing.T) {
 	// from position 0, velocity falls back to 14 → today + 28.
 	id := e.seedSweepDeal(t, "Slipped but alive", e.early, nil, intp(-12), 3)
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +270,7 @@ func TestCloseDateSweepStagesProvisionalForForecastBearingDeal(t *testing.T) {
 	// Explicit commit + late stage: overdue, active — never auto-final.
 	id := e.seedSweepDeal(t, "Commit slipped", e.late, stringp("commit"), intp(-10), 3)
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -285,7 +297,7 @@ func TestCloseDateSweepStagesProvisionalForForecastBearingDeal(t *testing.T) {
 	}
 
 	// A second nightly run must not stack a duplicate proposal.
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.pendingCorrections(t, id); got != 1 {
@@ -296,7 +308,7 @@ func TestCloseDateSweepStagesProvisionalForForecastBearingDeal(t *testing.T) {
 func TestCloseDateConfirmAppliesTheDateAndClearsProvisional(t *testing.T) {
 	e := setupCloseDate(t)
 	id := e.seedSweepDeal(t, "Confirm me", e.late, stringp("commit"), intp(-10), 3)
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 	var approvalID ids.ApprovalID
@@ -334,7 +346,7 @@ func TestCloseDateSweepDowngradesQuietDealWithoutRedatingForward(t *testing.T) {
 	id := e.seedSweepDeal(t, "Gone quiet", e.late, stringp("commit"), intp(30), 90)
 	originalDate := today().AddDate(0, 0, 30)
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -359,7 +371,7 @@ func TestCloseDateSweepDowngradesQuietOverdueDealWithProvisionalDate(t *testing.
 	// lands provisional and the category still notches down.
 	id := e.seedSweepDeal(t, "Quiet and overdue", e.late, stringp("best_case"), intp(-20), 90)
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -393,7 +405,7 @@ func TestCloseDateSweepLeavesNoOpenDealWithPastCloseDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -431,7 +443,7 @@ func TestCloseDateSweepWaitUntilSuppressesDowngradeButNotOverdue(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := e.corrector.Sweep(context.Background()); err != nil {
+	if err := e.sweep(); err != nil {
 		t.Fatal(err)
 	}
 

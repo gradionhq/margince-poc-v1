@@ -32,7 +32,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // closeDateBatch bounds how many deals one workspace pass corrects — a
@@ -97,28 +96,12 @@ func NewCloseDateCorrector(pool *pgxpool.Pool, stager CorrectionStager, log *slo
 	return &CloseDateCorrector{pool: pool, stager: stager, log: log, now: time.Now}
 }
 
-// Sweep is one pass over every live workspace. Like retention, the
-// workspace list is bounded by fleet size, and one tenant's failure must
-// not starve the rest.
-func (c *CloseDateCorrector) Sweep(ctx context.Context) error {
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering a per-workspace tx.
-	rows, err := c.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return err
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-	if err != nil {
-		return err
-	}
-	for _, wsID := range workspaces {
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		wsCtx = principal.WithActor(wsCtx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:close-date"})
-		wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
-		if err := c.sweepWorkspace(wsCtx); err != nil {
-			c.log.Error("close-date sweep: workspace pass failed", "workspace", wsID, "err", err)
-		}
-	}
-	return nil
+// SweepWorkspace is one close-date hygiene pass over the workspace already
+// bound in ctx. The fleet fan-out lives in the job layer: each workspace gets
+// its own job row, so a failed pass is a failed row rather than a log line
+// inside a run River recorded as completed.
+func (c *CloseDateCorrector) SweepWorkspace(ctx context.Context) error {
+	return c.sweepWorkspace(ctx)
 }
 
 // closeDateCandidate is one open deal the SQL pre-filter surfaced; the

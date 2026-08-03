@@ -26,22 +26,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/freemail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // The repeated storage vocabulary of this engine, named once.
 const (
-	evidenceFieldKey   = "field"
-	evidenceLeftKey    = "left_value"
-	evidenceRightKey   = "right_value"
-	evidenceScoreKey   = "score"
-	evidenceSignalKey  = "signal"
+	evidenceFieldKey  = "field"
+	evidenceLeftKey   = "left_value"
+	evidenceRightKey  = "right_value"
+	evidenceScoreKey  = "score"
+	evidenceSignalKey = "signal"
+	// The fuzzy tier's evidence signals. "collide" is observable downstream:
+	// the review queue renders the value as a row data attribute its
+	// stylesheet selects on, so the string reaches the UI even though the
+	// contract types the field as a bare string and nothing gates a rename.
+	evidenceSignalCollide  = "collide"
+	evidenceSignalOneSided = "one_sided"
+
 	entityPerson       = "person"
 	entityOrganization = "organization"
 	fieldFullName      = "full_name"
 	fieldDisplayName   = "display_name"
 	fieldEmail         = "email"
+	fieldPhone         = "phone"
 	emailTypeWork      = "work"
 )
 
@@ -70,11 +79,26 @@ type EnsureCounterpartyInput struct {
 // EnsureCounterpartyResult reports what the ensure did — every flag maps to
 // rows the caller can count honestly.
 type EnsureCounterpartyResult struct {
-	PersonID       ids.PersonID
-	PersonCreated  bool
+	PersonID      ids.PersonID
+	PersonCreated bool
+	// OrganizationID is the company this counterparty was ATTACHED to, never
+	// one this ensure made: capture no longer creates organizations at all, so
+	// there is no created-flag to report. A domain with no company yet reports
+	// TriagePending instead.
 	OrganizationID *ids.OrganizationID
-	OrgCreated     bool
 	DedupeRecorded bool
+
+	// TriagePending reports that this ensure OPENED a domain's organization
+	// question, and TriageDomain names the domain to ask about. A later message
+	// that merely finds the question still open reports nothing: it is the same
+	// question, it needs no second crawl, and counting it again would report a
+	// hundred companies for the one domain a backfill actually met. The ensure only
+	// RECORDS the question — enqueueing the crawl that answers it belongs to
+	// compose, after this transaction commits, so a queue outage can never cost
+	// the message that raised it. The sweep re-finds anything a missed trigger
+	// dropped, so a lost signal costs latency and nothing else.
+	TriagePending bool
+	TriageDomain  string
 }
 
 // EnsureCounterparty resolves-or-creates the person (and company) behind one
@@ -128,7 +152,7 @@ func (s *Store) EnsureCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureCo
 			return EnsureCounterpartyResult{}, err
 		}
 	}
-	if err := s.linkActivityToPerson(ctx, tx, in, res.PersonID); err != nil {
+	if err := s.linkActivityToPerson(ctx, tx, in.ActivityID, res.PersonID); err != nil {
 		return EnsureCounterpartyResult{}, err
 	}
 	return res, nil
@@ -141,7 +165,16 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		return err
 	}
 	name := counterpartyName(in.DisplayName, in.Email)
-	match, err := DedupePerson(ctx, tx, PersonCandidate{FullName: name, Emails: []string{in.Email}})
+	// The workspace's own consumer-mail list travels with the candidate: the
+	// employer-agreement term must judge a shared domain the same way capture
+	// does, or an admin's carve-out would hold on one side and not the other.
+	consumerMail, err := s.consumerMailMatcher(ctx, tx)
+	if err != nil {
+		return err
+	}
+	match, err := DedupePerson(ctx, tx, PersonCandidate{
+		FullName: name, Emails: []string{in.Email}, ConsumerMail: consumerMail,
+	})
 	if err != nil {
 		return err
 	}
@@ -150,17 +183,16 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		return nil
 	}
 
-	wsID := workspaceID(ctx)
-	id := ids.New[ids.PersonKind]()
-	quarantined := quarantineSuspect(in.DisplayName, in.Domain)
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by, visibility, quarantined_at)
-		VALUES ($1, $2, $3, $4, $5, $6, 'owner', CASE WHEN $7 THEN now() ELSE NULL END)`,
-		id, wsID, name, in.OwnerID, in.Source, in.CapturedBy, quarantined); err != nil {
-		return fmt.Errorf("people: insert captured person: %w", err)
-	}
-	if err := insertPersonEmails(ctx, tx, wsID, id, in.Source, in.CapturedBy,
-		[]PersonEmailInput{{Email: in.Email, EmailType: emailTypeWork, IsPrimary: true}}); err != nil {
+	id, err := createPerson(ctx, tx, match, PersonSpec{
+		FullName:    name,
+		OwnerID:     ownerFromUUID(&in.OwnerID),
+		Visibility:  visibilityOwner,
+		Quarantined: quarantineSuspect(in.DisplayName, in.Domain),
+		Emails:      []PersonEmailInput{{Email: in.Email, EmailType: emailTypeWork, IsPrimary: true}},
+		Source:      in.Source,
+		CapturedBy:  in.CapturedBy,
+	})
+	if err != nil {
 		return err
 	}
 	auditID, err := storekit.Audit(ctx, tx, "create", entityPerson, id.UUID, nil, map[string]any{fieldFullName: name})
@@ -182,8 +214,8 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 			return fmt.Errorf("people: reading dedupe incumbent: %w", err)
 		}
 		evidence := []map[string]any{
-			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: "collide", evidenceScoreKey: match.Confidence},
-			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: "one_sided"},
+			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: evidenceSignalCollide, evidenceScoreKey: match.Confidence},
+			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: evidenceSignalOneSided},
 		}
 		recorded, err := recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
 			evidence, in.Source, in.CapturedBy)
@@ -195,83 +227,87 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 	return nil
 }
 
-// ensureOrgAndEmployment runs PO-F-2 on the mail domain, creating the
-// company when unknown, and plants the employment edge unless the person
-// already has a current primary employer.
+// ensureOrgAndEmployment decides what this mail domain may create, and creates
+// only that. It runs PO-F-2 on the domain, and where the domain is not yet
+// understood it creates NOTHING and opens the question instead — the person
+// already exists, and an organization invented from a domain label is the
+// defect this ladder exists to stop.
+//
+// The order is load-bearing at every step:
+//
+//	an organization already on this domain  → attach; a human's row always wins
+//	consumer mail                           → no company, and no question to ask
+//	a settled verdict                       → obey it
+//	anything else                           → open the question, create nothing
 func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, res *EnsureCounterpartyResult) error {
 	if err := auth.Require(ctx, entityOrganization, principal.ActionCreate); err != nil {
 		return err
 	}
-	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain}})
+	// A From: header is forgeable and net/mail parses far more loosely than DNS
+	// allows, so a counterparty "domain" may be any atext string — `jane@%`
+	// parses. Nothing that is not a hostname may become a company, a crawl seed,
+	// or a key in a query: the person still lands, with no employer.
+	base, ok := freemail.Hostname(in.Domain)
+	if !ok {
+		return nil
+	}
+	match, err := DedupeOrganization(ctx, tx, OrganizationCandidate{Domains: []string{in.Domain, base}})
 	if err != nil {
 		return err
 	}
-	orgID := match.OrganizationID
 	if match.Decision != DecisionExactCollision {
-		wsID := workspaceID(ctx)
-		orgID = ids.New[ids.OrganizationKind]()
-		// A readable name derived from the domain's registrable label
-		// ("gitex.com" → "Gitex"), marked name_source='domain' so a richer
-		// source (dossier, corroborated signature) may overwrite it later
-		// without ever clobbering a human (ADR-0072/A118, PO-F-2a). The domain
-		// is retained as the honest fallback when no label can be derived.
-		displayName := DisplayNameFromDomain(in.Domain)
-		if displayName == "" {
-			displayName = in.Domain
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
-			orgID, wsID, displayName, nameSourceDomain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
-			return fmt.Errorf("people: insert captured organization: %w", err)
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, lower($3), true, $4, $5)`,
-			wsID, orgID, in.Domain, in.Source, in.CapturedBy); err != nil {
-			return fmt.Errorf("people: insert captured organization domain: %w", err)
-		}
-		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: displayName})
-		if err != nil {
-			return err
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}); err != nil {
-			return err
-		}
-		res.OrgCreated = true
+		// No organization yet. Whether one may be created is not this path's
+		// call any more.
+		return s.deferOrgToTriage(ctx, tx, in, base, res)
 	}
+	orgID := match.OrganizationID
 	res.OrganizationID = &orgID
-
-	// The employment edge: only when the person has no current primary
-	// employer — capture suggests, it never reassigns someone's company
-	// (the current-primary partial unique is the structural guard; the
-	// NOT EXISTS keeps a concurrent race from surfacing as a 500).
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
-		SELECT $1, 'employment', $2, $3, true, $4, $5
-		WHERE NOT EXISTS (
-			SELECT 1 FROM relationship
-			WHERE kind = 'employment' AND person_id = $2 AND is_current_primary AND archived_at IS NULL)
-		ON CONFLICT DO NOTHING`,
-		workspaceID(ctx), res.PersonID, orgID, in.Source, in.CapturedBy); err != nil {
-		return fmt.Errorf("people: insert employment edge: %w", err)
+	// A human put a company on this domain. That overrides whatever a crawl
+	// concluded — including a refusal — and the ledger records it as theirs, so
+	// the next message stops re-asking and the trail says who overruled what.
+	if err := adoptDispositionForOrg(ctx, tx, base, orgID); err != nil {
+		return err
 	}
-	return nil
+
+	return plantEmploymentEdge(ctx, tx, in, res.PersonID, orgID)
 }
 
 // linkActivityToPerson attaches the captured activity to the person —
 // person-only by decision (the org rolls up through employment, a direct
-// org link would double-count the same mail).
-func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID) error {
+// org link would double-count the same mail). Shared with the channel ensure,
+// which links the same way: it takes the activity id rather than either
+// path's input so neither has to know the other's shape.
+//
+// Being the ONE point both paths reach, it is also where the person is settled
+// against a merge. Every step above it — the dedupe ladder, the identity bind,
+// the handle refresh — named its person from a read that a merge can invalidate
+// before this insert runs, and no reader of activity_link walks merged_into_id,
+// so a link written to the retired id leaves the message on a record nobody
+// opens. Resolving it here covers both callers at once, and it is the last read
+// before the write, so nothing can overtake it.
+func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, personID ids.PersonID) error {
+	// FOR UPDATE serializes this behind the merge's own LockPair, so the
+	// redirect this reads is the committed one; one hop is enough because a
+	// merge repoints its source's redirect rather than chaining (merge.go).
+	// An archived survivor is still the right subject: the message happened,
+	// and this call's caller logs faults rather than failing the capture, so
+	// refusing here would drop the link silently rather than loudly.
+	var canonical ids.PersonID
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce(merged_into_id, id) FROM person WHERE id = $1 FOR UPDATE`,
+		personID).Scan(&canonical); err != nil {
+		return fmt.Errorf("people: resolving the person this activity belongs to: %w", err)
+	}
+	personID = canonical
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		SELECT $1, $2, 'person', $3
 		WHERE NOT EXISTS (
 			SELECT 1 FROM activity_link WHERE activity_id = $2 AND entity_type = 'person' AND person_id = $3)`,
-		workspaceID(ctx), in.ActivityID, personID); err != nil {
+		workspaceID(ctx), activityID, personID); err != nil {
 		return fmt.Errorf("people: linking activity to person: %w", err)
 	}
-	return nil
+	return namePersonAmongParticipants(ctx, tx, activityID, personID)
 }
 
 // recordDedupeCandidate stores the pair canonically (lower id left,
@@ -320,7 +356,16 @@ func counterpartyName(displayName, email string) string {
 // address on a DIFFERENT domain ("ceo@acme.com <attacker@evil.example>").
 // Flagged rows carry quarantined_at for the review surface; capture still
 // records them — hiding suspicious mail would be worse than labeling it.
+//
+// Both tells are statements ABOUT the sender's mail domain, so with no domain
+// there is nothing for either to contradict and the answer is no. Without that
+// floor the second tell compares an embedded address against "" and matches
+// every display name that merely contains an "@" — quarantining a record for a
+// reason that cannot apply to it.
 func quarantineSuspect(displayName, domain string) bool {
+	if domain == "" {
+		return false
+	}
 	if strings.HasPrefix(domain, "xn--") || strings.Contains(domain, ".xn--") {
 		return true
 	}

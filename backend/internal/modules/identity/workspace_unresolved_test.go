@@ -53,7 +53,7 @@ func TestLoginAgainstUnresolvedWorkspaceReadsLikeBadCredentials(t *testing.T) {
 func TestLogoutAgainstUnresolvedWorkspaceStaysIdempotent(t *testing.T) {
 	h := workspacelessHandlers()
 	req := httptest.NewRequest(http.MethodPost, "/v1/auth/logout", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: "stale-token"}) // #nosec G124 -- request-side cookie: AddCookie sends name=value only; Secure/HttpOnly are response attributes
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "stale-token"}) // #nosec G124 -- request-side cookie: AddCookie sends name=value only; Secure/HttpOnly are response attributes
 	rec := httptest.NewRecorder()
 
 	h.Logout(rec, req)
@@ -63,7 +63,7 @@ func TestLogoutAgainstUnresolvedWorkspaceStaysIdempotent(t *testing.T) {
 	}
 	cleared := false
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == sessionCookie && c.MaxAge < 0 {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
 			cleared = true
 		}
 	}

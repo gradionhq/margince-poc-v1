@@ -25,6 +25,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -113,12 +114,16 @@ func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	if activityScope == "" {
 		activityScope = scopeAll
 	}
+	// ONE statement, and it counts what the timeline shows: reachability is
+	// activities.OrgLinkedActivityExists, so a mail filed against a contact at
+	// the account is new here exactly when the page lists it as new. EXISTS
+	// gives one row per activity, so the plain count needs no DISTINCT.
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT count(DISTINCT a.id)
+		SELECT count(*)
 		FROM activity a
-		JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization' AND l.organization_id = $%d
-		WHERE a.archived_at IS NULL AND a.created_at > $%d AND (%s)`,
-		orgPos, sincePos, activityScope), args...).Scan(&out.NewActivities); err != nil {
+		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s AND (%s)`,
+		sincePos, activities.OrgLinkedActivityExists(orgPos), activityScope),
+		args...).Scan(&out.NewActivities); err != nil {
 		return out, fmt.Errorf("count new activities: %w", err)
 	}
 

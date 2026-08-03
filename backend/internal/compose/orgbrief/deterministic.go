@@ -14,13 +14,14 @@ package orgbrief
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Deterministic writes the brief without a model. Every sentence cites the
 // record it came from, exactly as the model path's do, so the card renders
 // and behaves identically whichever wrote it.
 func Deterministic(orgID string, in Input) []Sentence {
-	account := []Evidence{{EntityType: citeOrganization, EntityID: orgID}}
+	account := accountEvidence(orgID)
 	sentences := make([]Sentence, 0, 4)
 
 	sentences = append(sentences, Sentence{Text: identityLine(in), Evidence: account})
@@ -28,15 +29,13 @@ func Deterministic(orgID string, in Input) []Sentence {
 	if len(in.OpenDeals) > 0 {
 		sentences = append(sentences, Sentence{
 			Text:     pipelineLine(in),
-			Evidence: dealEvidence(in),
+			Evidence: leadDealEvidence(in),
 		})
 	}
-	if stalled := stalledNames(in); len(stalled) > 0 {
-		sentences = append(sentences, Sentence{
-			Text:     fmt.Sprintf("Stalled with no recent activity: %s.", strings.Join(stalled, ", ")),
-			Evidence: stalledEvidence(in),
-		})
-	}
+	// One sentence per stalled deal, so the reader opens the one they mean
+	// instead of picking between chips hanging off a joined list.
+	sentences = append(sentences,
+		perRecordSentences(stalledDeals(in), citeDeal, dealID, stalledLine)...)
 	if len(in.Recent) > 0 {
 		last := in.Recent[0]
 		sentences = append(sentences, Sentence{
@@ -46,13 +45,87 @@ func Deterministic(orgID string, in Input) []Sentence {
 	}
 	if len(in.OpenTasks) > 0 {
 		sentences = append(sentences, Sentence{
-			Text: fmt.Sprintf("%d open task(s), starting with %q.",
-				len(in.OpenTasks), in.OpenTasks[0].Name),
+			Text: fmt.Sprintf("%s, starting with %q.",
+				plural(len(in.OpenTasks), "open task"), in.OpenTasks[0].Name),
 			// Cites the task itself, so the reader can open the one named.
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.OpenTasks[0].ID}},
 		})
 	}
-	return sentences
+	// Then what the company IS. Same two-part shape the model lane is asked
+	// for, so the card reads the same whichever wrote it.
+	sentences = append(sentences, profileLines(in, account)...)
+	return dedupedSentences(sentences)
+}
+
+// profileLabels turn a stored field name into the question it answers.
+//
+// Label and value are joined with a colon, never grammatically. These values
+// are whatever a human accepted off a site read: some are noun phrases and
+// some are whole sentences in the company's own language, and a lead-in that
+// reads as a sentence stem produced "They sell Als unabhängige Beratung helfen
+// wir…" on a real account. A colon is true of both shapes.
+//
+// The floor states the statement verbatim behind that label — it paraphrases
+// nothing, because a paraphrase nobody can check is worth less than the
+// sentence a human already accepted.
+var profileLabels = map[string]string{
+	"offer_summary":     "What they sell",
+	"icp":               "Who they sell to",
+	"value_proposition": "What they promise",
+	"usp":               "How they differentiate",
+	"customer_pains":    "What they solve",
+	"desired_outcomes":  "What their customers want",
+	"buying_center":     "Who decides there",
+	"sales_motion":      "How they sell",
+}
+
+// deterministicProfileLines bounds the company half of the floor. Two
+// statements say what a company does; eight is the profile card, which the
+// reader can open underneath.
+const deterministicProfileLines = 2
+
+func profileLines(in Input, account []Evidence) []Sentence {
+	out := make([]Sentence, 0, deterministicProfileLines)
+	for _, entry := range in.Profile {
+		if len(out) == deterministicProfileLines {
+			break
+		}
+		label, ok := profileLabels[entry.Field]
+		if !ok {
+			continue
+		}
+		// A stored value of nothing but punctuation reduces to nothing, and a
+		// line reading "What they sell: ." is worse than no line.
+		statement := trimSentence(entry.Value)
+		if statement == "" {
+			continue
+		}
+		out = append(out, Sentence{
+			Text:     fmt.Sprintf("%s: %s", label, statement),
+			Evidence: account,
+		})
+	}
+	return out
+}
+
+// trimSentence renders a stored statement as one sentence: a closing full
+// stop when the value ends without one, and the author's own terminator kept
+// when it has one. Rewriting a "?" into a "." would be an edit to approved
+// text, which is the one thing this half of the brief promises not to do —
+// so only a dangling list separator is stripped.
+func trimSentence(value string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(value), ";:, ")
+	if trimmed == "" {
+		return trimmed
+	}
+	// "…" included: a statement that trails off already ends, and appending a
+	// full stop to it renders "….".
+	for _, terminator := range []string{".", "!", "?", "…"} {
+		if strings.HasSuffix(trimmed, terminator) {
+			return trimmed
+		}
+	}
+	return trimmed + "."
 }
 
 func identityLine(in Input) string {
@@ -75,7 +148,7 @@ func identityLine(in Input) string {
 }
 
 func pipelineLine(in Input) string {
-	line := fmt.Sprintf("%d open deal(s)", len(in.OpenDeals))
+	line := plural(len(in.OpenDeals), "open deal")
 	total, currency, ok := oneCurrencyTotal(in.OpenDeals)
 	if ok && total > 0 {
 		// Minor units are rendered as a plain major-unit figure; the card
@@ -125,39 +198,84 @@ func oneCurrencyTotal(deals []DealIn) (total int64, currency string, ok bool) {
 	return total, currency, currency != ""
 }
 
-func stalledNames(in Input) []string {
-	var names []string
+func stalledDeals(in Input) []DealIn {
+	stalled := make([]DealIn, 0, len(in.OpenDeals))
 	for _, deal := range in.OpenDeals {
 		if deal.Stalled {
-			names = append(names, deal.Name)
+			stalled = append(stalled, deal)
 		}
 	}
-	return names
+	return stalled
 }
 
-func dealEvidence(in Input) []Evidence {
-	out := make([]Evidence, 0, len(in.OpenDeals))
-	for _, deal := range in.OpenDeals {
-		out = append(out, Evidence{EntityType: citeDeal, EntityID: deal.ID})
-	}
-	return out
+func dealID(deal DealIn) string { return deal.ID }
+
+// leadDealEvidence cites the one deal a pipeline COUNT is anchored on: the
+// first the account listed. The sentence names no deal, so it needs somewhere
+// for the reader to start, and citing all of them was what produced a row of
+// chips nobody could tell apart.
+func leadDealEvidence(in Input) []Evidence {
+	return []Evidence{{EntityType: citeDeal, EntityID: in.OpenDeals[0].ID}}
 }
 
-func stalledEvidence(in Input) []Evidence {
-	out := make([]Evidence, 0)
-	for _, deal := range in.OpenDeals {
-		if deal.Stalled {
-			out = append(out, Evidence{EntityType: citeDeal, EntityID: deal.ID})
-		}
+func stalledLine(deal DealIn) string {
+	return fmt.Sprintf("%s is stalled with no recent activity.", deal.Name)
+}
+
+// article is "an" before a vowel sound and "a" otherwise. The activity kinds
+// this reaches are a closed, ASCII, lower-case set (email, call, meeting,
+// note, task…), so first-letter agreement is exact for all of them rather
+// than approximately right — and "a email" in a sentence written for a
+// salesperson is the register this whole surface is leaving behind.
+func article(noun string) string {
+	if noun == "" {
+		return "a"
 	}
-	return out
+	if strings.ContainsRune("aeiou", rune(noun[0])) {
+		return "an"
+	}
+	return "a"
 }
 
 func lastTouchLine(last ActIn) string {
+	line := "Last contact was " + article(last.Kind) + " " + last.Kind
+	if when := shortDate(last.At); when != "" {
+		line += " on " + when
+	}
 	if last.Subject == "" {
-		return fmt.Sprintf("Last contact was a %s on %s.", last.Kind, last.At)
+		return line + "."
 	}
 	// The subject is quoted rather than woven into the sentence: it is text
 	// from outside the workspace, and it must read as theirs, not ours.
-	return fmt.Sprintf("Last contact was a %s on %s: %q.", last.Kind, last.At, last.Subject)
+	return fmt.Sprintf("%s: %q.", line, last.Subject)
+}
+
+// plural renders a count with the noun it counts. "3 open task(s)" is a
+// developer's shorthand printed at a salesperson, which is the register this
+// whole surface is trying to leave behind.
+func plural(count int, noun string) string {
+	if count == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", count, noun)
+}
+
+// shortDate renders an RFC3339 instant the way a reader writes a date, and
+// returns empty for one it cannot read.
+//
+// Empty means "say nothing about when": the caller drops the clause instead of
+// printing a machine timestamp at the reader. The instants are formatted by
+// this package's own folds, so an unreadable one is a defect upstream of here
+// rather than a fact about the account — and the sentence around it is still
+// true without the date. The year is always named because these writers hold
+// no clock, and "21 Jul" on a task from last year reads as this year.
+func shortDate(at string) string {
+	if at == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return ""
+	}
+	return parsed.UTC().Format("2 Jan 2006")
 }

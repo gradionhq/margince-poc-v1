@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
@@ -26,6 +31,7 @@ import {
 import { formatDateTime } from "../format/format";
 import { formatCountdown, useNow } from "../format/now";
 import { useLocale, useT } from "../i18n";
+import { approvalKindLabel } from "./approvalkind";
 import {
   isAlreadyDecided,
   isVersionSkew,
@@ -34,6 +40,7 @@ import {
   provenanceOf,
   QueryGate,
   throwProblem,
+  useViewerId,
 } from "./common";
 import {
   type Approval,
@@ -425,6 +432,7 @@ export function ApprovalRow({
   decided,
   onApproved,
   onAlreadyDecided,
+  extraInvalidateKeys,
 }: Readonly<{
   approval: Approval;
   decided?: boolean;
@@ -433,8 +441,13 @@ export function ApprovalRow({
   // so HomeScreen can reuse the row without a screen-level surface.
   onApproved?: (approvalId: string, token: string) => void;
   onAlreadyDecided?: () => void;
+  // Reads outside the approvals list that a decision also changes. A record
+  // page carrying its own count of what is waiting has to re-read it, and only
+  // the caller knows which record that is.
+  extraInvalidateKeys?: readonly QueryKey[];
 }>) {
   const t = useT();
+  const viewerId = useViewerId();
   const queryClient = useQueryClient();
   const tierMap = useAgentTierMap();
   const [editing, setEditing] = useState(false);
@@ -480,6 +493,9 @@ export function ApprovalRow({
         onApproved?.(approval.id, data.approval_token);
       }
       queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      for (const queryKey of extraInvalidateKeys ?? []) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
     onError: (error) => {
       const problem = error instanceof ProblemError ? error.problem : null;
@@ -551,9 +567,11 @@ export function ApprovalRow({
           <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
         )}
         {/* kind is meta, not the headline — the human reads the summary first */}
-        <span className="t-small">{approval.kind}</span>
+        <span className="t-small">{approvalKindLabel(approval.kind, t)}</span>
         <OriginatingToolChip kind={approval.kind} />
-        <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
+        <ProvenanceTag
+          provenance={provenanceOf(approval.proposed_by, viewerId)}
+        />
         {level && <ConfidenceMeter level={level} />}
         <RowStatusChip
           decided={!!decided}

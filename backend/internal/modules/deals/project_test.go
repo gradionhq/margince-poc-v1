@@ -110,7 +110,7 @@ func TestProjectCheckErrorNamesEachRule(t *testing.T) {
 		{"project_closed_reason", &ClosedReasonRequiredError{}},
 		{"project_dates", &ProjectDateRangeError{}},
 	} {
-		got := projectCheckError(tc.constraint)
+		got := projectCheckError(tc.constraint, "")
 		if got == nil {
 			t.Fatalf("%s produced no error", tc.constraint)
 		}
@@ -121,7 +121,7 @@ func TestProjectCheckErrorNamesEachRule(t *testing.T) {
 
 	// An unmapped CHECK is still a business-rule breach, so it stays a
 	// typed error naming the rule — never an opaque server fault.
-	fallback := projectCheckError("project_some_future_rule")
+	fallback := projectCheckError("project_some_future_rule", "")
 	var unnamed *ProjectConstraintError
 	if !asError(fallback, &unnamed) {
 		t.Fatalf("an unmapped constraint produced %T, want *ProjectConstraintError", fallback)

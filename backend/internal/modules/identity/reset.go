@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/password"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -59,7 +60,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if !h.resetPerIP.Allow(clientIP(r)) {
+	if !h.resetPerIP.Allow(httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
@@ -71,7 +72,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, httperr.Validation("email", "invalid_email", "a valid email address is required"))
 		return
 	}
-	if !h.resetPerEmail.Allow(strings.ToLower(email.String()) + "|" + clientIP(r)) {
+	if !h.resetPerEmail.Allow(strings.ToLower(email.String()) + "|" + httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
@@ -117,7 +118,7 @@ func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		httperr.NotImplemented(w, r, "ResetPassword")
 		return
 	}
-	if !h.resetPerIP.Allow(clientIP(r)) {
+	if !h.resetPerIP.Allow(httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}

@@ -52,7 +52,7 @@ func onboardingDraft(t *testing.T, e *integration.Env) people.SiteRead {
 func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRead) people.SiteRead {
 	t.Helper()
 	if _, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
-		WorkspaceID: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+		Workspace: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
 	}), read.ID, 10*time.Minute); err != nil {
 		t.Fatalf("begin onboarding read: %v", err)
 	}
@@ -75,7 +75,7 @@ func finishOnboardingDraft(t *testing.T, e *integration.Env, read people.SiteRea
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{WorkspaceID: e.WS, SiteReadID: read.ID})
+	workerCtx := deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID})
 	stopped := "page_cap"
 	if err := e.People.FinishSiteRead(workerCtx, read.ID, people.FinishSiteReadInput{
 		Status: "partial", FactCount: len(fields) + len(facts), ProfileFields: fields,
@@ -505,5 +505,83 @@ func TestOnboardingSiteReadStartRollsBackWhenQueueInsertFails(t *testing.T) {
 	}
 	if e.WsCount(t, `SELECT count(*) FROM site_read`) != 0 {
 		t.Fatal("a failed queue insert left a queued dossier behind")
+	}
+}
+
+// Most company websites name nobody you can contact. That read stages no
+// people, hands back an empty proposal list, and confirming it must still
+// work — it is the ordinary case, not an edge one.
+//
+// It did not. A nil proposal slice encodes as SQL NULL, `site_read.proposal_ids`
+// is NOT NULL, and the confirmation failed with a bare 500 at the last step of
+// onboarding. Every existing confirm test staged somebody, so the whole suite
+// stayed green while the common path was broken.
+func TestConfirmingAReadThatNamedNobodySucceeds(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+
+	read, _, err := e.People.StartOnboardingSiteRead(ctx, seedURL, "human:"+e.Rep1.String(), nil)
+	if err != nil {
+		t.Fatalf("start onboarding read: %v", err)
+	}
+	if _, err := e.People.BeginSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
+		Workspace: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+	}), read.ID, 10*time.Minute); err != nil {
+		t.Fatalf("begin onboarding read: %v", err)
+	}
+
+	fields := []people.DeepReadField{
+		{Field: "display_name", Value: "Acme", EvidenceSnippet: "Acme builds onboarding software.", SourceURL: seedURL, Confidence: 0.96},
+		{Field: "offer_summary", Value: "Employee onboarding software", EvidenceSnippet: "Employee onboarding software for growing teams.", SourceURL: seedURL, Confidence: 0.91},
+	}
+	// No People at all: the site has no team page, or names only staff whose
+	// address it does not publish.
+	hash, err := siteReadProposalHash(fields, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.People.FinishSiteRead(deepReadWorkerCtx(context.Background(), SiteDeepReadArgs{
+		Workspace: e.WS, SiteReadID: read.ID,
+	}), read.ID, people.FinishSiteReadInput{
+		Status: "done", FactCount: len(fields), ProfileFields: fields,
+		Pages:        []people.SiteReadPage{{URL: seedURL, Kind: "home"}},
+		ProposalHash: hash,
+	}); err != nil {
+		t.Fatalf("finish onboarding read: %v", err)
+	}
+	ready, err := e.People.GetOnboardingSiteRead(ctx, read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	engine := &deepReadEngine{people: e.People, approvals: approvals.NewService(e.Pool)}
+	website := seedURL
+	company, err := e.People.ConfirmCompanySiteRead(ctx, people.ConfirmCompanySiteReadInput{
+		ReadID: ready.ID, DraftVersion: ready.DraftVersion, ProposalHash: ready.ProposalHash,
+		DisplayName: "Acme", Website: &website,
+	}, engine.stageOnboardingPeople)
+	if err != nil {
+		t.Fatalf("confirming a read that named nobody: %v\n"+
+			"this is the ordinary company website, and onboarding cannot finish without it", err)
+	}
+	if company.OrganizationID.UUID == ids.Nil {
+		t.Fatal("the confirmation returned no organization")
+	}
+
+	// The row records an empty list, not a null one.
+	var proposals []ids.UUID
+	var confirmedAt *time.Time
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT proposal_ids, confirmed_at FROM site_read WHERE id = $1`, read.ID).
+			Scan(&proposals, &confirmedAt)
+	}); err != nil {
+		t.Fatalf("reading the confirmed row: %v", err)
+	}
+	if confirmedAt == nil {
+		t.Error("the read was not stamped confirmed")
+	}
+	if len(proposals) != 0 {
+		t.Errorf("proposal_ids = %v, want empty — nobody was staged", proposals)
 	}
 }

@@ -11,7 +11,6 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
+	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -34,7 +34,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
@@ -46,7 +45,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -68,6 +66,9 @@ type Server struct {
 	voiceHandlers
 	reportHandlers
 	briefs.Handlers
+	// The relationship-graph reads (ADR-0078): who knows this contact, and
+	// how a deal is covered.
+	network.Reads
 	coldstartHandlers
 	companyHandlers
 	onboardingStateHandlers
@@ -75,8 +76,9 @@ type Server struct {
 	scrapeHandlers
 	connectorHandlers
 	backfillHandlers
-	captureExclusionHandlers
 	captureSettingsHandlers
+	consumerMailDomainHandlers
+	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
 	orgRollupHandlers
@@ -91,16 +93,27 @@ type Server struct {
 	org360Handlers
 	orgBriefHandlers
 
-	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
-	// when a subscription token is configured — the route is absent
-	// otherwise, never open.
-	gmailPush *gmailPushHandler
+	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
+	// webhook.go), injected by WithGmailPush only when a subscription token
+	// is configured — the route is absent otherwise, never open.
+	gmailPush http.Handler
 
 	// overlayWebhook is the HubSpot webhook-as-signal receiver (OVA-WIRE-10),
 	// injected by WithOverlayWebhook only when the overlay app secret is
 	// configured — the route is absent otherwise, never an open unverified
 	// endpoint.
 	overlayWebhook http.Handler
+
+	// mcpConnectorEnabled is the remote-connector deployment gate, set by
+	// WithMCPConnector from the deployment file. It governs the connector as
+	// ONE group — transport, authorization server, both discovery documents —
+	// and routes.go, where the group is mounted, carries why.
+	mcpConnectorEnabled bool
+
+	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
+	// admits — derived by WithMCPResource from the configured
+	// --public-base-url, never from a request header a caller controls.
+	mcpAllowedOrigin string
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
@@ -124,6 +137,21 @@ type Server struct {
 	// only the Gmail one WithGmailCapture threads it into. Zero value = the
 	// pinned baselines.
 	captureConfig CaptureConfig
+
+	// gmailAppConfigured records whether this DEPLOYMENT configured a Google app
+	// that could transmit under a user's mailbox grant — the one fact the send
+	// pre-flight cannot read off a capture_connection row, since the grant
+	// survives the app being removed and a mailbox connected on one deployment
+	// reads the same on another.
+	//
+	// It is a deployment fact, not a role fact: WithGmailCapture records it
+	// before its own transport gate and off canSync, so an installation holding
+	// client credentials but no state key — which mounts no api-side connect
+	// transport yet sends perfectly well from the worker — still counts as
+	// configured. False is the honest default for a composition never told about
+	// a Google app at all. Gmail is the only provider with a field here because
+	// it is the only one comms.SendScopeFor gives a send scope.
+	gmailAppConfigured bool
 
 	// schemaPoolReady is the /readyz schema-pool probe, injected only by
 	// WithSchemaPool — a role that never mounted --schema-dsn declares
@@ -201,6 +229,9 @@ type Server struct {
 	// WithAccountBrief can rebuild the brief service over the SAME gated
 	// read rather than a second one that might drift from it.
 	org360Svc *org360.Service
+	// peopleStore is shared by the 360 and the account brief: the brief reads
+	// the company's curated profile through it, under the caller's own gates.
+	peopleStore *people.Store
 
 	// sorDispatch is the per-workspace native/overlay provider dispatch:
 	// the ONE instance both the ADR-0055 admission layer (contractAPI's
@@ -239,7 +270,10 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	srv.applySendPath(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
-	mux := operationalMux(srv, pool, log, authH, api)
+	// ONE identity.Service for the whole process: contractAPI's admission
+	// gate and the connector's authenticate closure share this instance, so
+	// they share its singleton cache and its clock.
+	mux := operationalMux(srv, pool, log, identitySvc, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }
@@ -253,8 +287,13 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// workspace's active cf_* columns ride person/organization
 		// payloads (values only — the schema-change engine stays behind
 		// WithSchemaPool; ActiveColumns needs none of it).
-		peopleHandlers: people.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		dealsHandlers:  dealsH,
+		// The match stager is injected here because approvals is a sibling of
+		// people and a module never imports one: compose is where that edge is
+		// made, as it is for every other cross-module dependency.
+		peopleHandlers: people.NewHandlers(pool).
+			WithFieldCatalog(customfields.NewService(pool, nil)).
+			WithMatchStager(linkedInMatchStager(pool)),
+		dealsHandlers: dealsH,
 		activitiesHandlers: activities.NewHandlers(pool).
 			WithConsent(consent.NewGate(consent.NewStore(pool))).
 			// The public booking capture seams (feedback/14): people is the
@@ -281,13 +320,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
 		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
-		// The RC-2 personal-mail exclusion CRUD over the caller's own rules
-		// (capture.md CAP-WIRE-2); the same store backs the ONE Sink's
-		// pre-ingestion gate (wired in NewCaptureRegistry).
-		captureExclusionHandlers: captureExclusionHandlers{store: capture.NewExclusions(pool)},
+		Reads:    network.NewReads(pool),
 		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
 		// read the auto-enrich posture (all roles), toggle it (admin/ops).
 		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
+		// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
+		// domain control, and the only way an operator corrects a shipped
+		// baseline that is wrong about one of their customers.
+		consumerMailDomainHandlers: consumerMailDomainHandlers{store: capture.NewFreemailDomains(pool)},
 		// First-class filtered export (B-E15.13): the writer reuses the ONE
 		// predicate engine + the bundle writer's open-format rendering; the
 		// collections store resolves a saved view / dynamic list source
@@ -355,10 +395,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// The model lane is nil here: WithAccountBrief binds the api role's
 	// summarize lane, and without it the brief serves its deterministic
 	// floor.
-	srv.org360Svc = org360.NewService(pool,
-		people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-		approvals.NewService(pool), time.Now)
-	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, nil, "", time.Now)
+	srv.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
+	srv.org360Svc = org360.NewService(pool, srv.peopleStore, approvals.NewService(pool), time.Now)
+	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, srv.peopleStore, nil, "", time.Now)
 	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
 		srv.org360Svc,
@@ -388,60 +427,6 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// rebuilding before WithKeyvault installs the vault is fine.
 	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
-}
-
-// resolveOverlayIncumbent builds the per-request live-incumbent resolver
-// FreshnessReader's force-fresh lane reads through: for the request's
-// workspace it reads the active incumbent_connection and unseals its
-// private-app token, returning a live HubSpot adapter. It reads s.vault
-// LAZILY (at request time), not at construction, because WithKeyvault
-// installs the vault AFTER newServer builds the dispatch — so before a
-// vault is wired, or on a role that never wires one, it returns a nil
-// adapter and force-fresh degrades to the mirror honestly. A workspace
-// with no active connection (ErrNotFound) or a non-HubSpot incumbent is
-// the same honest nil degrade, not an error; only a genuine connection-read
-// or vault failure surfaces as an error (which FreshnessReader logs and
-// then degrades on, never faking authority).
-func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Context) (overlay.Incumbent, error) {
-	// s.vault is read LAZILY (per call) because WithKeyvault installs it after
-	// newServer builds the dispatch — so delegate to OverlayIncumbentResolver
-	// at request time with whatever vault is then wired.
-	return func(ctx context.Context) (overlay.Incumbent, error) {
-		return OverlayIncumbentResolver(pool, s.vault)(ctx)
-	}
-}
-
-// OverlayIncumbentResolver builds the per-request live-incumbent resolver from
-// a KNOWN vault: for the request's workspace it reads the active
-// incumbent_connection and unseals its private-app token, returning a live
-// HubSpot adapter. A nil vault, no active connection (ErrNotFound), or a
-// non-HubSpot incumbent all degrade honestly to a nil adapter (force-fresh
-// falls back to the mirror; write-back answers errNoWriteIncumbent) — never a
-// faked authority. Only a genuine connection-read or vault failure surfaces as
-// an error. The api server passes its (lazily-wired) vault via
-// resolveOverlayIncumbent; the standalone MCP server and the worker's Surface-B
-// runner pass their own FromEnv vault so those agent surfaces reach write-back too.
-func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(context.Context) (overlay.Incumbent, error) {
-	return func(ctx context.Context) (overlay.Incumbent, error) {
-		if vault == nil {
-			return nil, nil
-		}
-		conn, err := overlay.ActiveConnection(ctx, pool)
-		if err != nil {
-			if errors.Is(err, apperrors.ErrNotFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		if conn.Incumbent != incumbentHubSpot {
-			return nil, nil
-		}
-		token, err := vault.Get(ctx, conn.Workspace, conn.CredentialRef)
-		if err != nil {
-			return nil, err
-		}
-		return hubspotIncumbentFactory(conn.Region, string(token)), nil
-	}
 }
 
 // contractAPI mounts the generated contract router with the ADR-0055

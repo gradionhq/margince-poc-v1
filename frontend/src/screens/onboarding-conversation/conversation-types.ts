@@ -9,6 +9,7 @@ export type ConversationAct =
   | "company"
   | "voice"
   | "results"
+  | "linkedin"
   | "connect"
   | "done";
 
@@ -30,6 +31,13 @@ export type ConversationPhase =
   | "vo.result"
   | "vo.skipped"
   | "re.recap"
+  // LinkedIn is its own act and it comes BEFORE the inbox, because it is the
+  // only source that says who your team ALREADY knows. Mail tells you who you
+  // have spoken to; a network tells you who you could reach.
+  | "ln.why"
+  | "ln.authorizing"
+  | "ln.connected"
+  | "ln.skipped"
   | "cn.consent"
   | "cn.done";
 
@@ -128,10 +136,20 @@ export type BuildTerminalStatus = "succeeded" | "failed" | "deferred";
  */
 export type ResumePoint = Extract<
   ConversationPhase,
-  "vo.invite" | "vo.collecting" | "vo.skipped" | "re.recap" | "cn.consent"
+  | "vo.invite"
+  | "vo.collecting"
+  | "vo.skipped"
+  | "re.recap"
+  | "ln.why"
+  | "cn.consent"
 >;
 
 export type ConversationEvent =
+  // The LinkedIn act's two exits. Skipping is a first-class outcome, not a
+  // failure: a member who does not want their network read says so once and
+  // is never asked again in this journey.
+  | { type: "LINKEDIN_CONNECTED"; profile: string }
+  | { type: "LINKEDIN_SKIPPED" }
   | {
       type: "START";
       memberPath: boolean;

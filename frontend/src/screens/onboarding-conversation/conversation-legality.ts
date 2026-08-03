@@ -62,6 +62,10 @@ const legalPhases: Record<
   BUILD_STAGE: new Set(["vo.building", "vo.result"]),
   BUILD_TERMINAL: new Set(["vo.building", "vo.result"]),
   RESULTS_CONTINUE: new Set(["vo.result", "vo.skipped", "re.recap"]),
+  // Both exits are legal only from the act's one waiting phase, so a stray
+  // dispatch cannot skip the inbox step or re-run the authorization.
+  LINKEDIN_CONNECTED: new Set(["ln.why"]),
+  LINKEDIN_SKIPPED: new Set(["ln.why"]),
   CONNECT_DONE: new Set(["cn.consent"]),
 };
 

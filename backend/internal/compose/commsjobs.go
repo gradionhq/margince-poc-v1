@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -37,12 +36,15 @@ import (
 // because comms_outbound is RLS-scoped and a job carries no session: the
 // worker binds this workspace before the dispatcher reads anything.
 type SendEmailArgs struct {
-	Workspace  string `json:"workspace"`
-	DeliveryID string `json:"delivery_id"`
+	Workspace  ids.UUID `json:"workspace_id"`
+	DeliveryID string   `json:"delivery_id"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (SendEmailArgs) Kind() string { return "comms_send_email" }
+
+// WorkspaceID binds this delivery to its tenant (jobs.WorkspaceScoped).
+func (a SendEmailArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // sendMaxAttempts is the retry ladder for one delivery, and it is ONE number
 // on purpose: it is both the MaxAttempts River enqueues the job with and the
@@ -129,7 +131,14 @@ func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { ret
 // the product does not ship — which is exactly how a binding this path depends
 // on goes missing without any test noticing.
 func SendWorkerContext(ctx context.Context, workspaceID ids.UUID) context.Context {
-	wsCtx := principal.WithWorkspaceID(ctx, workspaceID)
+	return sendWorkerScope(principal.WithWorkspaceID(ctx, workspaceID))
+}
+
+// sendWorkerScope is SendWorkerContext's provenance half, over a context whose
+// workspace is already bound. The worker takes this path because its binding
+// comes from the job args' own role declaration, which refuses a zero id — a
+// guarantee re-binding here would quietly discard.
+func sendWorkerScope(wsCtx context.Context) context.Context {
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:comms-send",
 	})
@@ -137,16 +146,17 @@ func SendWorkerContext(ctx context.Context, workspaceID ids.UUID) context.Contex
 }
 
 func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("comms_send_email: workspace id: %w", err)
-	}
 	deliveryID, err := ids.Parse(job.Args.DeliveryID)
 	if err != nil {
-		return fmt.Errorf("comms_send_email: delivery id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery id: %w", err))
 	}
 
-	outcome, wait, err := w.dispatcher.DispatchWithWait(SendWorkerContext(ctx, ws), deliveryID)
+	wsCtx, err := workspaceJobCtx(ctx, job.Args)
+	if err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+
+	outcome, wait, err := w.dispatcher.DispatchWithWait(sendWorkerScope(wsCtx), deliveryID)
 	switch outcome {
 	case comms.OutcomePostponed:
 		// A SNOOZE, never a returned error. River restores the attempt on a
@@ -164,22 +174,22 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// buried under a delay nobody reads as a failure is the one shape this
 		// translation may never take.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err))
 		}
 		return river.JobSnooze(max(wait, minSendSnooze))
 	case comms.OutcomeRetry:
 		if err == nil {
-			return fmt.Errorf("comms_send_email: delivery %s asked to be retried with no cause; River's ladder has nothing to back off on", job.Args.DeliveryID)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s asked to be retried with no cause; River's ladder has nothing to back off on", job.Args.DeliveryID))
 		}
-		return err
+		return jobs.FaultContext(ctx, err)
 	case comms.OutcomeSent, comms.OutcomeParked, comms.OutcomeSkipped:
 		// Finished, each in its own way: the row records which, and there is
 		// nothing left for the ladder to do. A terminal outcome carrying an
 		// error is a broken contract, not a retryable fault — surface it
 		// rather than let it disappear because this branch returns nil.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s reported terminal outcome %q with an error: %w",
-				job.Args.DeliveryID, outcome, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported terminal outcome %q with an error: %w",
+				job.Args.DeliveryID, outcome, err))
 		}
 		return nil
 	default:
@@ -188,10 +198,10 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// reporting only "unknown outcome" would replace the one thing that
 		// says what actually went wrong with a description of the symptom.
 		if err != nil {
-			return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q: %w",
-				job.Args.DeliveryID, outcome, err)
+			return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q: %w",
+				job.Args.DeliveryID, outcome, err))
 		}
-		return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome)
+		return jobs.FaultContext(ctx, fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome))
 	}
 }
 
@@ -201,13 +211,15 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 // whose mis-reading permanently destroys mail, so it must be provable without
 // a database. *capture.Registry is the only implementation the product ships.
 type mailboxSenders interface {
-	SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error)
+	SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
 }
 
 var _ mailboxSenders = (*capture.Registry)(nil)
 
-// commsResolver resolves the transmitting mailbox over the capture registry —
-// the cross-module edge comms must not hold itself.
+// commsResolver resolves the transmitting connection over the capture registry —
+// the cross-module edge comms must not hold itself. Both halves land on the same
+// *capture.Registry; they are two fields because they are two different lookups
+// (see channelSenders in commschannel.go, which holds the channel half).
 //
 // The translation is the whole point of this type, and it is deliberately
 // narrow. Only three capture answers are FACTS about the deployment — no
@@ -215,12 +227,15 @@ var _ mailboxSenders = (*capture.Registry)(nil)
 // integration for; everything else is a failure to get an answer, and turning
 // one of those into a parking sentinel would permanently destroy legitimate
 // mail that nothing is wrong with.
-type commsResolver struct{ registry mailboxSenders }
+type commsResolver struct {
+	registry mailboxSenders
+	channels channelSenders
+}
 
 var _ comms.ConnectionResolver = commsResolver{}
 
-//nolint:ireturn // implements comms.ConnectionResolver, whose contract returns the optional connector.Sender seam
-func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error) {
+//nolint:ireturn // implements comms.ConnectionResolver, whose contract returns the optional connector.EmailSender seam
+func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error) {
 	sender, auth, granted, err := r.registry.SenderFor(ctx, userID, provider)
 	switch {
 	case errors.Is(err, capture.ErrNoConnection):
@@ -295,57 +310,6 @@ func (s commsSeats) ActiveSeat(ctx context.Context, userID ids.UserID) (bool, st
 	return true, "", nil
 }
 
-// mailboxGrants is the scopes-only half of the same capture lookup. The
-// pre-flight deliberately does NOT take mailboxSenders: resolving the
-// credential would unseal a secret to answer a question about scopes, spending
-// a vault round trip on every send request and turning a keyvault blip into a
-// user-facing refusal — where the delivery path classifies the identical fault
-// as transient and retries it.
-type mailboxGrants interface {
-	GrantedScopesFor(ctx context.Context, userID ids.UserID, provider string) ([]string, error)
-}
-
-var _ mailboxGrants = (*capture.Registry)(nil)
-
-// mailboxAuthority answers the request-time pre-flight over the SAME registry
-// the connect flow writes to, so what the user just connected is what the
-// check reads.
-//
-// It asks about the GRANT, not the connection. Every mailbox connected before
-// the send scope existed holds read-only access until its owner reconnects, so
-// a check that only asked "is something connected?" would pass all of them and
-// then park every send.
-type mailboxAuthority struct {
-	grants   mailboxGrants
-	provider string
-}
-
-var _ activities.MailboxAuthority = mailboxAuthority{}
-
-func (m mailboxAuthority) SendCapable(ctx context.Context) (bool, error) {
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.UserID.IsZero() {
-		// Sending is a human act (comms.Store.StageTx enforces the same
-		// rule), so a principal with no app_user identity has no mailbox to
-		// pre-flight and is told so here rather than at transmission.
-		return false, nil
-	}
-	scope, sends := comms.SendScopeFor(m.provider)
-	if !sends {
-		return false, nil
-	}
-	granted, err := m.grants.GrantedScopesFor(ctx, ids.From[ids.UserKind](actor.UserID), m.provider)
-	switch {
-	case errors.Is(err, capture.ErrNoConnection):
-		return false, nil
-	case err != nil:
-		// A pre-flight that cannot ask must not answer. Reporting the fault
-		// refuses the send loudly instead of asserting a grant nobody read.
-		return false, err
-	}
-	return slices.Contains(granted, scope), nil
-}
-
 // commsStager records an accepted send for transmission: the delivery row and
 // the job that will carry it, both on the caller's transaction. One commit, one
 // fact — a crash between them would either promise a send nothing queued or
@@ -355,14 +319,27 @@ type commsStager struct {
 	runner *jobs.Runner
 }
 
-var _ activities.DeliveryStager = commsStager{}
+var (
+	_ activities.DeliveryStager        = commsStager{}
+	_ activities.ChannelDeliveryStager = commsStager{}
+)
+
+// DeliveryMachinery is the ONE delivery path in both the shapes a message can be
+// staged in. It is a single seam rather than two because there is a single
+// machinery behind it — one delivery table, one status machine, one retry ladder,
+// one dispatcher — and a role able to wire mail staging without channel staging
+// could serve a reply surface that accepts a message nothing will ever carry.
+type DeliveryMachinery interface {
+	activities.DeliveryStager
+	activities.ChannelDeliveryStager
+}
 
 // NewDeliveryStager builds the delivery machinery every send transport is
 // composed with (compose.WithDelivery). The runner is insert-only in the api
 // role; the worker role works what it inserts.
 //
-//nolint:ireturn // returns the activities.DeliveryStager seam by design: the concrete type is unexported and every caller holds the interface
-func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) activities.DeliveryStager {
+//nolint:ireturn // returns the DeliveryMachinery seam by design: the concrete type is unexported and every caller holds the interface
+func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) DeliveryMachinery {
 	return commsStager{store: comms.NewStore(pool, time.Now, activities.NewStore(pool)), runner: runner}
 }
 
@@ -389,7 +366,34 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		return err
 	}
 	return s.runner.EnqueueTx(ctx, tx, SendEmailArgs{
-		Workspace: ws.String(), DeliveryID: id.String(),
+		Workspace: ws, DeliveryID: id.String(),
+	}, sendInsertOpts())
+}
+
+// StageChannelTx is the same staging for a channel reply: the channel-shaped row
+// and the SAME transmit job, on the caller's transaction.
+//
+// One job kind carries both shapes deliberately. The worker loads the delivery
+// and dispatches it, and the dispatcher branches on the ROW's shape exactly once
+// (comms/sendseam.go) — a second job kind would be a second path to keep in step
+// with the first, and the channel is the one that would fall behind.
+func (s commsStager) StageChannelTx(ctx context.Context, tx pgx.Tx, in activities.ChannelDeliveryRequest) error {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("comms: staging a channel delivery outside workspace context")
+	}
+	id, err := s.store.StageChannelTx(ctx, tx, comms.StageChannelInput{
+		ActivityID:     in.ActivityID,
+		Provider:       in.Provider,
+		Recipient:      in.Recipient,
+		Body:           in.Body,
+		ConsentPurpose: in.ConsentPurpose,
+	})
+	if err != nil {
+		return err
+	}
+	return s.runner.EnqueueTx(ctx, tx, SendEmailArgs{
+		Workspace: ws, DeliveryID: id.String(),
 	}, sendInsertOpts())
 }
 
@@ -441,7 +445,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		// itself: activities owns the timeline row, comms owns the delivery,
 		// and the two meet here.
 		comms.NewStore(pool, time.Now, activities.NewStore(pool)),
-		commsResolver{registry: registry},
+		commsResolver{registry: registry, channels: registry},
 		NewSendSeatAuthority(pool),
 		consent.NewGate(consent.NewStore(pool)),
 		[]comms.SendPolicy{comms.NewMailboxRatePolicy(p.Limit, p.Window, time.Now)},

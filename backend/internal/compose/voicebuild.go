@@ -32,14 +32,17 @@ import (
 // incomplete: the api enqueue and the deferred-retry sweep converge on one
 // job per build row.
 type VoiceBuildArgs struct {
-	Workspace   string `json:"workspace"`
-	ProfileID   string `json:"profile_id"`
-	BuildID     string `json:"build_id"`
-	RequestedBy string `json:"requested_by"`
+	Workspace   ids.UUID `json:"workspace_id"`
+	ProfileID   string   `json:"profile_id"`
+	BuildID     string   `json:"build_id"`
+	RequestedBy string   `json:"requested_by"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
 func (VoiceBuildArgs) Kind() string { return "voice_build" }
+
+// WorkspaceID binds this build to its tenant (jobs.WorkspaceScoped).
+func (a VoiceBuildArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // VoiceBuildRetryArgs schedules one deferred-build sweep: re-enqueue every
 // budget-deferred build whose next attempt is due.
@@ -47,6 +50,10 @@ type VoiceBuildRetryArgs struct{}
 
 // Kind is the stable job identifier River persists in river_job.
 func (VoiceBuildRetryArgs) Kind() string { return "voice_build_retry" }
+
+// FleetWide marks this a dispatcher: it enumerates and enqueues,
+// and does no tenant work of its own (jobs.FleetWide).
+func (VoiceBuildRetryArgs) FleetWide() {}
 
 // voiceBuildRetryInterval paces the deferred sweep; deferrals are hours
 // long, so a 15-minute scan is prompt without being busywork.
@@ -83,7 +90,7 @@ func WithVoiceBuildEnqueue(inserter *jobs.Runner) Option {
 				return fmt.Errorf("compose: voice build enqueue without an acting principal")
 			}
 			return inserter.EnqueueTx(ctx, tx, VoiceBuildArgs{
-				Workspace:   storekit.MustWorkspace(ctx).String(),
+				Workspace:   storekit.MustWorkspace(ctx),
 				ProfileID:   build.ProfileID.String(),
 				BuildID:     build.ID.String(),
 				RequestedBy: actor.UserID.String(),
@@ -118,15 +125,14 @@ func (w *voiceBuildWorker) reclaimAfter() time.Duration { return voiceBuildTimeo
 // system principal: visibleProfile admits only the profile owner, so the
 // runner acts as the requesting human's system delegate.
 func voiceBuildWorkerCtx(ctx context.Context, args VoiceBuildArgs) (context.Context, error) {
-	ws, err := ids.Parse(args.Workspace)
-	if err != nil {
-		return nil, fmt.Errorf("voice_build: workspace id: %w", err)
-	}
 	requester, err := ids.Parse(args.RequestedBy)
 	if err != nil {
 		return nil, fmt.Errorf("voice_build: requester id: %w", err)
 	}
-	ctx = principal.WithWorkspaceID(ctx, ws)
+	ctx, err = workspaceJobCtx(ctx, args)
+	if err != nil {
+		return nil, err
+	}
 	ctx = principal.WithActor(ctx, principal.Principal{
 		Type:       principal.PrincipalSystem,
 		ID:         "agent:voice-builder",
@@ -137,21 +143,24 @@ func voiceBuildWorkerCtx(ctx context.Context, args VoiceBuildArgs) (context.Cont
 }
 
 func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildArgs]) error {
-	ctx, err := voiceBuildWorkerCtx(ctx, job.Args)
+	// Into its own variable: voiceBuildWorkerCtx returns (nil, err) on a
+	// refusal, and assigning over ctx would hand that nil to the fault below.
+	buildCtx, err := voiceBuildWorkerCtx(ctx, job.Args)
 	if err != nil {
-		return err
+		return jobs.FaultContext(ctx, err)
 	}
+	ctx = buildCtx
 	profileID, err := ids.Parse(job.Args.ProfileID)
 	if err != nil {
-		return fmt.Errorf("voice_build: profile id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build: profile id: %w", err))
 	}
 	buildID, err := ids.Parse(job.Args.BuildID)
 	if err != nil {
-		return fmt.Errorf("voice_build: build id: %w", err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build: build id: %w", err))
 	}
 	input, claimed, err := w.store.ClaimBuild(ctx, profileID, buildID, w.reclaimAfter())
 	if err != nil {
-		return fmt.Errorf("voice_build %s: claim: %w", job.Args.BuildID, err)
+		return jobs.FaultContext(ctx, fmt.Errorf("voice_build %s: claim: %w", job.Args.BuildID, err))
 	}
 	if !claimed {
 		switch input.Build.Status {
@@ -168,8 +177,8 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 	}
 	claimedAt := claimTime(input)
 	if w.brain == nil {
-		return w.fail(ctx, buildID, claimedAt, "model_unavailable",
-			"Voice building is unavailable until an AI provider is configured on the worker role.")
+		return jobs.FaultContext(ctx, w.fail(ctx, buildID, claimedAt, "model_unavailable",
+			"Voice building is unavailable until an AI provider is configured on the worker role."))
 	}
 	if err := w.run(ctx, buildID, input); err != nil {
 		if errors.Is(err, ai.ErrBudgetDeferred) {
@@ -178,14 +187,14 @@ func (w *voiceBuildWorker) Work(ctx context.Context, job *river.Job[VoiceBuildAr
 			if deferErr := w.store.DeferBuild(terminal, buildID, claimedAt,
 				"The monthly AI budget is exhausted; the build resumes in the next window.",
 				w.deferralDeadline(err)); deferErr != nil {
-				return fmt.Errorf("voice_build %s: defer: %w", job.Args.BuildID, deferErr)
+				return jobs.FaultContext(ctx, fmt.Errorf("voice_build %s: defer: %w", job.Args.BuildID, deferErr))
 			}
 			return nil
 		}
 		// The row carries only the safe detail; the OPERATOR needs the real
 		// cause or a repeated invalid_output is undiagnosable from any log.
 		w.log.WarnContext(ctx, "voice build error", "build", buildID.String(), "err", err)
-		return w.fail(ctx, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err))
+		return jobs.FaultContext(ctx, w.fail(ctx, buildID, claimedAt, failureStatusCode(err), ai.SafeVoiceBuildFailure(err)))
 	}
 	return nil
 }
@@ -348,7 +357,7 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			continue
 		}
 		if _, err := client.Insert(ctx, VoiceBuildArgs{
-			Workspace:   ref.Workspace.String(),
+			Workspace:   ref.Workspace,
 			ProfileID:   ref.ProfileID.String(),
 			BuildID:     ref.BuildID.String(),
 			RequestedBy: ref.RequestedBy.String(),
@@ -356,5 +365,5 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			w.log.WarnContext(ctx, "voice build retry enqueue failed", "build", ref.BuildID.String(), "err", err)
 		}
 	}
-	return enumErr
+	return jobs.FaultContext(ctx, enumErr)
 }

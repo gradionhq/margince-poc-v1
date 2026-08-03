@@ -7,9 +7,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
+import { PeopleCard } from "./company360";
 import { CompanyScreen } from "./organizations";
 
 // The company view's honesty rules, which are the whole point of the
@@ -81,18 +83,26 @@ const emptyRollup = {
   computed_at: "2026-06-01T09:00:00Z",
 };
 
-let briefBody: unknown = {
+const EMPTY_BRIEF = {
   organization_id: "o-1",
   generated_at: "2026-06-01T09:00:00Z",
   generated_by: "deterministic",
   sentences: [],
 };
 
+// Reset after every test (see afterEach): a brief one case set for itself is
+// otherwise still being served to the next one.
+let briefBody: unknown = EMPTY_BRIEF;
+
 function stub(three60: unknown, status = 200) {
+  // The paths actually requested. A test proves the page did NOT refetch by
+  // counting these rather than by trusting that it did not.
+  const fetched: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
+      fetched.push(pathname);
       if (pathname.endsWith("/360")) {
         return jsonResponse(three60, status);
       }
@@ -105,14 +115,41 @@ function stub(three60: unknown, status = 200) {
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
       }
+      if (pathname.endsWith("/pipelines")) {
+        // One default pipeline with one OPEN stage — enough for a deal
+        // created from this page to have somewhere to land.
+        return jsonResponse({
+          data: [
+            {
+              id: "pl-1",
+              workspace_id: "w-1",
+              name: "Sales",
+              is_default: true,
+              stages: [
+                {
+                  id: "st-1",
+                  pipeline_id: "pl-1",
+                  name: "Qualify",
+                  position: 1,
+                  semantic: "open",
+                  probability: 10,
+                },
+              ],
+            },
+          ],
+          page: emptyPage,
+        });
+      }
       return jsonResponse({ data: [], page: emptyPage });
     }),
   );
+  return fetched;
 }
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  briefBody = EMPTY_BRIEF;
 });
 
 function render(ui: ReactNode) {
@@ -162,6 +199,101 @@ describe("company view — withheld sections", () => {
       within(card).queryByText("Hidden — your role cannot read this"),
     ).toBeNull();
   });
+
+  it("reports no committee gap when the people section was withheld", async () => {
+    // The gap is computed from the contact list, and a withheld section
+    // arrives as the same empty array an account with no contacts does.
+    // Reading "nobody here is your champion" off contacts the caller was
+    // never allowed to see states a fact about data the page does not have.
+    stub(
+      view({
+        people: undefined,
+        sections_omitted: ["people"],
+        deals: {
+          data: [
+            {
+              deal_id: "d-1",
+              name: "Pilot",
+              status: "open",
+              stalled: false,
+            },
+          ],
+          page: emptyPage,
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+      }),
+    );
+    renderCompany();
+
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(screen.queryByText(/Nobody here is your/)).toBeNull();
+  });
+});
+
+describe("company view — the verbs that change a section", () => {
+  it("offers New deal on an account with no open deal", async () => {
+    // The empty state is exactly where a create verb belongs: a rep who has
+    // just read "no open deal on this account" is one click from opening one.
+    stub(view());
+    renderCompany();
+
+    const card = await screen.findByRole("complementary", { name: "Business" });
+    expect(
+      within(card).getByText("No open deal on this account."),
+    ).toBeTruthy();
+    // Awaited: the verb appears once the pipeline read resolves, because a
+    // deal needs somewhere to land before the page offers to open one.
+    expect(
+      await within(card).findByRole("button", { name: "New deal" }),
+    ).toBeTruthy();
+  });
+
+  it("offers no New deal on a section the caller may not read", async () => {
+    // A caller who cannot read the deals has no business being offered a
+    // button to add one, and the refusal must not be the first they hear of it.
+    const fetched = stub(
+      view({ deals: undefined, sections_omitted: ["deals"] }),
+    );
+    renderCompany();
+
+    const card = await screen.findByRole("complementary", { name: "Business" });
+    expect(
+      within(card).getByText("Hidden — your role cannot read this"),
+    ).toBeTruthy();
+    // The absent button alone would prove nothing: the verb also renders null
+    // while its pipeline read is in flight, so the assertion could pass on
+    // that transient state with the guard deleted. What pins the guard is
+    // that the verb never MOUNTED — it is the only thing on this page that
+    // reads /pipelines, so an unfetched /pipelines means the withheld section
+    // never rendered it.
+    await waitFor(() =>
+      expect(fetched.some((path) => path.endsWith("/360"))).toBe(true),
+    );
+    expect(fetched.some((path) => path.endsWith("/pipelines"))).toBe(false);
+    expect(within(card).queryByRole("button", { name: "New deal" })).toBeNull();
+  });
+});
+
+it("offers the tag verb but not the list verb when only lists are withheld", async () => {
+  // The two halves of the card are governed separately, so one withheld
+  // grant must not take the other's verb with it — and must not offer a
+  // write whose refusal would be the first the reader hears of the limit.
+  stub(
+    view({
+      list_memberships: undefined,
+      sections_omitted: ["list_memberships"],
+    }),
+  );
+  renderCompany();
+
+  const card = await screen.findByRole("complementary", { name: "Business" });
+  expect(
+    await within(card).findByRole("button", { name: "Add tag" }),
+  ).toBeTruthy();
+  expect(
+    within(card).queryByRole("button", { name: "Add to list" }),
+  ).toBeNull();
 });
 
 describe("company view — consent is per purpose", () => {
@@ -236,6 +368,48 @@ describe("company view — consent is per purpose", () => {
   });
 });
 
+describe("company view — the rails belong to the account, not to a tab", () => {
+  it("keeps both side columns mounted when the reader switches tab", async () => {
+    stub(view());
+    renderCompany();
+
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+
+    // Partner and History used to render in a header-only frame, so both
+    // rails unmounted, the grid re-columned under the reader, and every query
+    // behind them refetched on the way back.
+    expect(
+      screen.getByRole("complementary", { name: "Business" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+  });
+
+  it("does not refetch the account when the reader switches tab and back", async () => {
+    const fetched = stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    const before = fetched.filter((path) => path.endsWith("/360")).length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
+
+    expect(fetched.filter((path) => path.endsWith("/360")).length).toBe(before);
+  });
+
+  it("leaves the timeline to the overview rather than repeating it under a form", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("region", { name: "Timeline" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+
+    expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
+  });
+});
+
 describe("company view — overlay mode", () => {
   it("refuses once instead of rendering a page missing most of itself", async () => {
     stub(
@@ -280,10 +454,16 @@ describe("company view — what changed since the last visit", () => {
     renderCompany();
 
     await waitFor(() =>
-      expect(screen.getByText("3 new activities")).toBeTruthy(),
+      expect(
+        screen.getByText("3 new items since your last visit."),
+      ).toBeTruthy(),
     );
-    expect(screen.getByText("2 decisions waiting")).toBeTruthy();
-    expect(screen.queryByText(/deal stage moves/)).toBeNull();
+    // The decision count has ONE display, the header chip, which counts the
+    // approvals section. This block used to render its own count off
+    // since_last_visit.pending_proposals, and the two disagreed on screen.
+    // deal_stage_moves came back null: not counted, so the brief says nothing
+    // about it rather than reporting that no deal moved.
+    expect(screen.queryByText(/moved stage/)).toBeNull();
   });
 
   it("greets a first visit as a first visit, not as nothing having happened", async () => {
@@ -452,70 +632,408 @@ describe("company view — figures that outlive the list they sit under", () => 
   });
 });
 
-describe("company view — the account brief", () => {
-  it("says which of the two wrote it, and never leaves that implied", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "deterministic",
-      sentences: [
-        {
-          text: "Fleet retrofit has stalled.",
-          evidence: [{ entity_type: "deal", entity_id: "d-1" }],
-        },
-      ],
-    };
-    stub(view());
-    renderCompany();
+// The company page's own affordances: what it says is waiting, and what a
+// reader can do about it without leaving the account.
 
-    await waitFor(() =>
-      expect(screen.getByText("Fleet retrofit has stalled.")).toBeTruthy(),
-    );
-    // The deterministic floor and a model-written brief are not
-    // interchangeable, and a reader weighing a sentence needs to know which.
-    expect(screen.getByText("Assembled from your records")).toBeTruthy();
-    expect(screen.queryByText("Written by Margince")).toBeNull();
-    // Each sentence carries the record it was written from.
-    expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
+describe("company view — the citations under a finding", () => {
+  // The chips are shared by every grounded surface on this page. They are
+  // exercised through the advice the brief carries, which is where a reader
+  // meets them now that the standing summary card is gone.
+  const suggestion = (evidence: unknown[]) => ({
+    kind: "no_reply" as const,
+    fingerprint: "f-1",
+    reason: "You reached out 13 days ago and nobody has come back.",
+    evidence,
   });
 
-  it("names a model-written brief as model-written", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "model",
-      sentences: [
-        {
-          text: "Two open deals.",
-          evidence: [{ entity_type: "organization", entity_id: "o-1" }],
-        },
-      ],
-    };
-    stub(view());
-    renderCompany();
-
-    await waitFor(() =>
-      expect(screen.getByText("Written by Margince")).toBeTruthy(),
+  it("collapses several sources of one unopenable kind into one counted chip", async () => {
+    stub(
+      view({
+        suggestions: [
+          suggestion([
+            { entity_type: "activity", entity_id: "a-1" },
+            { entity_type: "activity", entity_id: "a-2" },
+            { entity_type: "activity", entity_id: "a-3" },
+          ]),
+        ],
+      }),
     );
-    expect(screen.getByText("Two open deals.")).toBeTruthy();
-    expect(screen.queryByText("Assembled from your records")).toBeNull();
+    renderCompany();
+    // Not "activityactivityactivity": one chip that says how many.
+    await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
+    expect(screen.queryAllByText("activity")).toHaveLength(0);
   });
 
-  it("reports a payload it cannot read as unreadable, not as an empty brief", async () => {
-    briefBody = { data: [], page: emptyPage };
-    stub(view());
+  it("counts one record cited twice as one source", async () => {
+    stub(
+      view({
+        suggestions: [
+          suggestion([
+            { entity_type: "activity", entity_id: "a-1" },
+            { entity_type: "activity", entity_id: "a-1" },
+          ]),
+        ],
+      }),
+    );
     renderCompany();
+    await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
+    expect(screen.queryByText("2 activities")).toBeNull();
+  });
+});
 
-    const card = await waitFor(() => {
-      const section = screen.getByText("Account brief").closest("section");
-      if (!section) {
-        throw new Error("the brief card has no section wrapper");
-      }
-      // Waits for the read to finish, so "unreadable" is asserted about a
-      // settled query rather than about one still in flight.
-      within(section).getByText(/Could not be loaded/);
-      return section;
+describe("company view — what is waiting on a decision", () => {
+  const staged = {
+    id: "ap-1",
+    workspace_id: "w",
+    kind: "site_lead",
+    status: "pending",
+    summary: "Add Markus Bueckle as a contact",
+    proposed_change: { full_name: "Markus Bueckle" },
+    proposed_by: "agent:capture",
+    target_entity_type: "organization",
+    target_entity_id: "o-1",
+    diff_hash: "h1",
+    created_at: "2026-06-01T08:00:00Z",
+    evidence: [],
+  };
+
+  it("offers a way into the queue it counts, grouped by what is proposed", async () => {
+    stub(
+      view({
+        pending_approvals: {
+          data: [staged, { ...staged, id: "ap-2" }],
+          page: emptyPage,
+        },
+        since_last_visit: {
+          baseline_at: "2026-05-30T09:00:00Z",
+          new_activities: 0,
+          deal_stage_moves: 0,
+          pending_proposals: 2,
+        },
+      }),
+    );
+    renderCompany();
+    const open = await screen.findByRole("button", {
+      name: "Review 2 waiting",
     });
-    expect(within(card).getByText(/Could not be loaded/)).toBeTruthy();
+    open.click();
+    await waitFor(() =>
+      expect(
+        screen.getByText("2 × Add a person found on the site"),
+      ).toBeTruthy(),
+    );
   });
+
+  it("says nothing is waiting rather than offering an empty queue", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByText("Brandt Automotive GmbH");
+    expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
+  });
+});
+
+describe("company view — an open task can be acted on", () => {
+  const step = {
+    activity_id: "t-1",
+    subject: "Send the retrofit proposal",
+    due_at: "2026-06-10T09:00:00Z",
+    overdue: false,
+    linked_deal_id: null,
+    linked_person_id: null,
+    assignee_id: null,
+  };
+
+  it("renders the subject as a way to open the task, with the two verbs beside it", async () => {
+    stub(view({ next_steps: { data: [step], page: emptyPage } }));
+    renderCompany();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send the retrofit proposal" }),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Snooze 1d" })).toBeTruthy();
+  });
+
+  it("offers no snooze for a task with no date to move", async () => {
+    stub(
+      view({
+        next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
+      }),
+    );
+    renderCompany();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
+  });
+});
+
+// The page said "nobody here is your champion" and gave the reader nowhere to
+// say who is: the roles live on relationship rows written from the deal
+// screen. The warning was true, unactionable and permanent.
+describe("company view — naming the buying committee", () => {
+  it("offers to record a role on the contact, against an open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [
+            { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+          ],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+
+    const set = await screen.findByRole("button", { name: "Set role" });
+    await userEvent.click(set);
+
+    // The two words are defined where they are being chosen, once.
+    expect(
+      screen.getByText(/argues for you when you are not in the room/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: /What is Christian Hagemeyer/ }),
+    ).toBeTruthy();
+  });
+
+  // A role belongs to a DEAL. With nothing open there is nothing to be a
+  // champion of, and offering the verb would invite a write that has no
+  // subject.
+  it("offers nothing when the account has no open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [],
+          page: { has_more: false, next_cursor: null },
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              deal_roles: [],
+              consent: {},
+              strength: {
+                score: 0,
+                bucket: "dormant",
+                factors: {
+                  recency: 0,
+                  frequency: 0,
+                  reciprocity: 0,
+                  direction: 0,
+                },
+              },
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      }),
+    );
+    renderCompany();
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+});
+
+// A role belongs to a deal, so the same person can be champion on one and
+// nobody on another. Rendering the role alone made two badges that read
+// identically — and React saw one key twice.
+describe("company view — a buying role names the deal it is on", () => {
+  const contactOnTwoDeals = {
+    person_id: "p-1",
+    full_name: "Dana Buyer",
+    deal_roles: [
+      { deal_id: "d-1", role: "champion" },
+      { deal_id: "d-2", role: "champion" },
+    ],
+    consent: { marketing_email: "granted" },
+    strength: {
+      score: 62,
+      bucket: "strong",
+      factors: { recency: 1, frequency: 1, reciprocity: 1, direction: 1 },
+    },
+  };
+  const twoOpenDeals = {
+    data: [
+      { deal_id: "d-1", name: "Renewal", status: "open", stalled: false },
+      { deal_id: "d-2", name: "New business", status: "open", stalled: false },
+    ],
+    page: emptyPage,
+    won_lifetime: { amount_minor: 0, currency: "EUR" },
+    lost_count: 0,
+  };
+
+  it("names each deal when the person holds the same role on two of them", async () => {
+    stub(
+      view({
+        people: { data: [contactOnTwoDeals], page: emptyPage },
+        deals: twoOpenDeals,
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion · Renewal")).toBeTruthy();
+    expect(screen.getByText("champion · New business")).toBeTruthy();
+  });
+
+  it("leaves the deal name off when there is only one deal to be on", async () => {
+    stub(
+      view({
+        people: {
+          data: [
+            {
+              ...contactOnTwoDeals,
+              deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            },
+          ],
+          page: emptyPage,
+        },
+        deals: {
+          ...twoOpenDeals,
+          data: [twoOpenDeals.data[0]],
+        },
+      }),
+    );
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("champion")).toBeTruthy();
+  });
+});
+
+describe("company view — a recorded role reaches the screen", () => {
+  const contact = {
+    person_id: "p-1",
+    full_name: "Christian Hagemeyer",
+    deal_roles: [],
+    consent: {},
+    strength: {
+      score: 0,
+      bucket: "dormant",
+      factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
+    },
+  };
+  const withOneOpenDeal = view({
+    deals: {
+      data: [{ deal_id: "d-1", name: "Pilot", status: "open", stalled: false }],
+      page: emptyPage,
+      won_lifetime: { amount_minor: 0, currency: "EUR" },
+      lost_count: 0,
+    },
+    people: { data: [contact], page: emptyPage },
+  });
+
+  it("re-reads the account after the role is saved", async () => {
+    // The committee reading, the missing-role warning and the row's own chips
+    // all come off the 360, so a save that does not re-read it leaves the page
+    // showing the state the rep just changed.
+    const fetched = stub(withOneOpenDeal);
+    renderCompany();
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Set role" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(
+        fetched.filter((path) => path.endsWith("/360")).length,
+      ).toBeGreaterThan(1),
+    );
+  });
+
+  it("offers no role control on an account that takes no writes", async () => {
+    // Archived is read-only: the company page hides edit, merge and archive on
+    // one, so a write dressed as a chip has no business staying. The page
+    // passes its own read-only state down; the card is asserted directly
+    // because that state comes from the record, not from the 360.
+    render(<PeopleCard view={withOneOpenDeal} writable={false} />);
+
+    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+
+  it("offers it on an account that does", async () => {
+    render(<PeopleCard view={withOneOpenDeal} writable />);
+
+    expect(
+      await screen.findByRole("button", { name: "Set role" }),
+    ).toBeTruthy();
+  });
+});
+
+it("does not offer a role the contact already holds on that deal", async () => {
+  // The write creates an edge, so picking a held role asks the server for a
+  // second copy of a fact it already has.
+  stub(
+    view({
+      deals: {
+        data: [
+          { deal_id: "d-1", name: "Pilot", status: "open", stalled: false },
+        ],
+        page: emptyPage,
+        won_lifetime: { amount_minor: 0, currency: "EUR" },
+        lost_count: 0,
+      },
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Christian Hagemeyer",
+            deal_roles: [{ deal_id: "d-1", role: "champion" }],
+            consent: {},
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: {
+                recency: 0,
+                frequency: 0,
+                reciprocity: 0,
+                direction: 0,
+              },
+            },
+          },
+        ],
+        page: emptyPage,
+      },
+    }),
+  );
+  renderCompany();
+
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Set role" }),
+  );
+  const roles = screen.getByLabelText("Role") as HTMLSelectElement;
+  expect([...roles.options].map((option) => option.value)).not.toContain(
+    "champion",
+  );
 });

@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
@@ -457,17 +457,136 @@ function sharedUnsubscribeAhead(
   return addressees.size > 1;
 }
 
-// The 🟡 confirm-first composer (draftEmail + sendEmail). Draft with AI fills
-// the fields; the human edits and confirms; the human's own click IS the
-// approval (ADR-0055), so the human REST path sends no X-Approval-Token and no
-// Idempotency-Key — that plumbing is the agent/passport path. The 409
-// consent gate is the whole reason this surface exists: the default-deny
-// suppression (A22/ADR-0011) has never been visible to a user before.
+// Send preconditions differ by wire shape: mail needs an addressee and a
+// subject on top of a body; a channel reply carries neither (design §9.3 —
+// the recipient is resolved server-side, and a channel has no subject line),
+// so only the words and the consent purpose gate it.
+function canSendCompose(
+  isTelegram: boolean,
+  fields: { to: string[]; subject: string; body: string; purpose: string },
+): boolean {
+  if (isTelegram) {
+    return fields.body.trim() !== "" && fields.purpose !== "";
+  }
+  return (
+    fields.to.length > 0 &&
+    fields.subject.trim() !== "" &&
+    fields.body.trim() !== "" &&
+    fields.purpose !== ""
+  );
+}
+
+// The mail-only half of the composer: AI drafting (there is no draft-message
+// endpoint for a channel) plus the recipient/subject inputs a channel reply's
+// request shape has no room for. Kept as its own component so a channel
+// reply — which renders none of this — doesn't inherit its branching.
+function MailOnlyFields({
+  intent,
+  onIntentChange,
+  draft,
+  discard,
+  draftUnavailable,
+  provenance,
+  voiceMaturity,
+  to,
+  onToChange,
+  cc,
+  onCcChange,
+  subject,
+  onSubjectChange,
+  rejectionInFlight,
+}: Readonly<{
+  intent: string;
+  onIntentChange: (next: string) => void;
+  draft: PendingAction;
+  discard: PendingAction | null;
+  draftUnavailable: boolean;
+  provenance: DraftProvenance | null;
+  voiceMaturity: VoiceProfile["maturity"] | undefined;
+  to: string[];
+  onToChange: (next: string[]) => void;
+  cc: string[];
+  onCcChange: (next: string[]) => void;
+  subject: string;
+  onSubjectChange: (next: string) => void;
+  rejectionInFlight: boolean;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <DraftBar
+        intent={intent}
+        onIntentChange={onIntentChange}
+        draft={draft}
+        discard={discard}
+        unavailable={draftUnavailable}
+      />
+      {provenance && (
+        <DraftDisclosure provenance={provenance} maturity={voiceMaturity} />
+      )}
+      <RecipientField
+        label={t("compose.to")}
+        values={to}
+        onChange={onToChange}
+      />
+      <RecipientField
+        label={t("compose.cc")}
+        values={cc}
+        onChange={onCcChange}
+      />
+      <TextInput
+        placeholder={t("compose.subject")}
+        value={subject}
+        disabled={rejectionInFlight}
+        onChange={(event) => onSubjectChange(event.target.value)}
+      />
+    </>
+  );
+}
+
+// The two mail-only send-time notices: a shared-unsubscribe-token risk and an
+// empty recipient list. Neither concept exists on a channel reply — there is
+// no addressee list to warn about — so this renders nothing there.
+function MailSendNotices({
+  to,
+  cc,
+  purpose,
+}: Readonly<{ to: string[]; cc: string[]; purpose: string }>) {
+  const t = useT();
+  return (
+    <>
+      {sharedUnsubscribeAhead(to, cc, purpose) && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {t("compose.multiRecipientWarning")}
+        </p>
+      )}
+      {to.length === 0 && (
+        <p className="t-caption">{t("compose.emptyRecipients")}</p>
+      )}
+    </>
+  );
+}
+
+// The 🟡 confirm-first composer (draftEmail + sendEmail), extended for a
+// captured messaging channel (sendMessage): on a `kind === "telegram"`
+// activity the reply posts /activities/{id}/send-message instead, dropping
+// subject and Cc — a channel has no concept of either, and the recipient is
+// never named by the caller (design §9.3): the server resolves it from the
+// conversation's own channel identity. Everything else — the confirm-first
+// interaction, AI drafting (mail-only; there is no draft-message endpoint),
+// the 409 consent rendering, and the post-send timeline refresh — is shared.
+// Draft with AI fills the fields; the human edits and confirms; the human's
+// own click IS the approval (ADR-0055), so the human REST path sends no
+// X-Approval-Token and no Idempotency-Key — that plumbing is the
+// agent/passport path. The 409 consent gate is the whole reason this surface
+// exists: the default-deny suppression (A22/ADR-0011) has never been visible
+// to a user before.
 export function ComposeModal({
   activityId,
   entityType,
   entityId,
   personId,
+  kind,
   open,
   onClose,
 }: Readonly<{
@@ -475,6 +594,10 @@ export function ComposeModal({
   entityType: RelinkKind;
   entityId: string;
   personId?: string;
+  // Undefined (or any non-channel kind) keeps the mail behaviour this modal
+  // already had before a channel existed — every mail test renders this
+  // component without ever naming a kind.
+  kind?: Activity["kind"];
   open: boolean;
   onClose: () => void;
 }>) {
@@ -482,6 +605,7 @@ export function ComposeModal({
   const queryClient = useQueryClient();
   const purposes = useConsentPurposes();
   const voiceProfile = useVoiceProfile();
+  const isTelegram = kind === "telegram";
   const [to, setTo] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
@@ -601,22 +725,24 @@ export function ComposeModal({
   const send = useMutation({
     mutationFn: async () => {
       setSendUnavailable(false);
-      const { data, error, response } = await api.POST(
-        "/activities/{id}/send-email",
-        {
-          params: { path: { id: activityId } },
-          // No X-Approval-Token, no Idempotency-Key: the human's own click IS
-          // the approval on the REST path (ADR-0055).
-          body: {
-            subject,
-            body,
-            to,
-            cc: cc.length ? cc : undefined,
-            draft_ref: draftRef ?? undefined,
-            consent_purpose: purpose,
-          },
-        },
-      );
+      // No X-Approval-Token, no Idempotency-Key on either path: the human's
+      // own click IS the approval on the REST path (ADR-0055).
+      const { data, error, response } = isTelegram
+        ? await api.POST("/activities/{id}/send-message", {
+            params: { path: { id: activityId } },
+            body: { body, consent_purpose: purpose },
+          })
+        : await api.POST("/activities/{id}/send-email", {
+            params: { path: { id: activityId } },
+            body: {
+              subject,
+              body,
+              to,
+              cc: cc.length ? cc : undefined,
+              draft_ref: draftRef ?? undefined,
+              consent_purpose: purpose,
+            },
+          });
       if (response.status === 501) return { sent: false as const };
       // Only a real 202 is a send. openapi-fetch returns a falsy `error` for a
       // bodiless non-2xx (a gateway 502/503/504); inferring success from
@@ -645,11 +771,7 @@ export function ComposeModal({
   const refusal = refusalOf(send.error);
   const sendError =
     send.isError && refusal === null ? send.error.message : null;
-  const canSend =
-    to.length > 0 &&
-    subject.trim() !== "" &&
-    body.trim() !== "" &&
-    purpose !== "";
+  const canSend = canSendCompose(isTelegram, { to, subject, body, purpose });
   // While a rejection is in flight the draft it names is being disposed of, so
   // nothing else on this surface may act on that draft: sending would race the
   // rejection for the signal, and re-drafting would hand the rep words the
@@ -663,9 +785,13 @@ export function ComposeModal({
     <ConfirmModal
       open={open}
       onClose={onClose}
-      title={t("compose.sendConfirmTitle")}
+      title={t(
+        isTelegram
+          ? "compose.sendMessageConfirmTitle"
+          : "compose.sendConfirmTitle",
+      )}
       tier="confirm"
-      // The rep is about to send real mail irreversibly, so the body they are
+      // The rep is about to send irreversibly, so the body they are
       // confirming has to be readable at a glance rather than through a
       // five-line porthole — and the Send button has to sit above the fold,
       // not below a scroll.
@@ -677,46 +803,46 @@ export function ComposeModal({
       error={sendError}
     >
       <div className="compose-fields">
-        <DraftBar
-          intent={intent}
-          onIntentChange={setIntent}
-          draft={{
-            run: () => draft.mutate(),
-            pending: draft.isPending,
-            disabled: draft.isPending || rejectionInFlight,
-            error: draft.isError ? draft.error.message : null,
-          }}
-          discard={
-            rejectable
-              ? {
-                  run: () => discard.mutate(rejectable),
-                  pending: discard.isPending,
-                  // The mirror of the send gate: a rejection may not be
-                  // started against a draft already on its way out.
-                  disabled: send.isPending,
-                  error: discard.isError ? discard.error.message : null,
-                }
-              : null
-          }
-          unavailable={draftUnavailable}
-        />
-        {provenance && (
-          <DraftDisclosure
+        {/* AI drafting is mail-only — there is no draft-message endpoint, and
+            a channel reply's recipient is resolved server-side, so neither
+            the draft controls nor the To/Cc/Subject fields apply to it. */}
+        {!isTelegram && (
+          <MailOnlyFields
+            intent={intent}
+            onIntentChange={setIntent}
+            draft={{
+              run: () => draft.mutate(),
+              pending: draft.isPending,
+              disabled: draft.isPending || rejectionInFlight,
+              error: draft.isError ? draft.error.message : null,
+            }}
+            discard={
+              rejectable
+                ? {
+                    run: () => discard.mutate(rejectable),
+                    pending: discard.isPending,
+                    // The mirror of the send gate: a rejection may not be
+                    // started against a draft already on its way out.
+                    disabled: send.isPending,
+                    error: discard.isError ? discard.error.message : null,
+                  }
+                : null
+            }
+            draftUnavailable={draftUnavailable}
             provenance={provenance}
-            maturity={voiceProfile.data?.maturity}
+            voiceMaturity={voiceProfile.data?.maturity}
+            to={to}
+            onToChange={setTo}
+            cc={cc}
+            onCcChange={setCc}
+            subject={subject}
+            onSubjectChange={setSubject}
+            rejectionInFlight={rejectionInFlight}
           />
         )}
-
-        <RecipientField label={t("compose.to")} values={to} onChange={setTo} />
-        <RecipientField label={t("compose.cc")} values={cc} onChange={setCc} />
-        <TextInput
-          placeholder={t("compose.subject")}
-          value={subject}
-          disabled={rejectionInFlight}
-          onChange={(event) => setSubject(event.target.value)}
-        />
         <textarea
           className="textarea compose-body"
+          aria-label={t("compose.body")}
           placeholder={t("compose.body")}
           value={body}
           disabled={rejectionInFlight}
@@ -753,37 +879,64 @@ export function ComposeModal({
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 
-        {sharedUnsubscribeAhead(to, cc, purpose) && (
-          <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {t("compose.multiRecipientWarning")}
-          </p>
-        )}
-        {to.length === 0 && (
-          <p className="t-caption">{t("compose.emptyRecipients")}</p>
-        )}
+        {!isTelegram && <MailSendNotices to={to} cc={cc} purpose={purpose} />}
         {sendUnavailable && (
           <p className="t-caption">{t("compose.sendUnavailable")}</p>
         )}
         <SendRefusal refusal={refusal} personId={personId} />
-        <p className="t-caption">{t("compose.sendBody")}</p>
+        <p className="t-caption">
+          {t(isTelegram ? "compose.sendMessageBody" : "compose.sendBody")}
+        </p>
       </div>
     </ConfirmModal>
   );
 }
 
+// A channel reply can only land on a live, unblocked identity, and the
+// failure otherwise arrives after the rep has already written the message —
+// worse than never offering the box (design §9.3). Reachability is read off
+// the person the row's own timeline names: `["person", personId]` is the same
+// query key the 360 screen already fetches under, so this rides its cache
+// instead of opening a second request. A caller that never learned a personId
+// (e.g. a deal timeline, which has no single person to check) gets the
+// pre-existing behaviour of always offering the reply — this only ever turns
+// the action OFF, never on, for a row it cannot verify.
+function useTelegramReachable(
+  isChannel: boolean,
+  personId: string | undefined,
+) {
+  const person = useQuery({
+    queryKey: ["person", personId],
+    queryFn: async () => {
+      const { data, error } = await api.GET("/people/{id}", {
+        params: { path: { id: personId as string } },
+      });
+      if (error) throw new Error(problemMessage(error));
+      return data;
+    },
+    enabled: isChannel && personId != null,
+  });
+  if (!isChannel || personId == null) return true;
+  return (person.data?.reachability ?? []).some(
+    (channel) => channel.provider === "telegram" && channel.reachable,
+  );
+}
+
 // The per-row action cluster the 360 timelines mount in each entry's action
-// slot. Both actions are offered on every row.
+// slot.
 //
 // Reply, because a send anchored to something that was never mail carries no
 // RFC822 identity to thread against and simply starts a conversation — which is
 // how the backend already reads it. Gating the composer on an email row instead
 // makes a fresh workspace, whose only rows are logged notes, unable to send at
-// all.
+// all. A `telegram` row carries the opposite gate: it is withheld, not always
+// offered, when the person behind it cannot be reached (see
+// useTelegramReachable above).
 //
 // Relink, because an activity shown on a 360 timeline is by construction already
 // linked to the entity whose timeline renders it, so re-associating it to the
 // right record is always meaningful — and the Activity list payload carries no
-// `links` to gate on regardless.
+// `links` to gate on regardless. It is offered unconditionally.
 //
 // It owns the two open states so the timeline mapper stays presentational.
 export function TimelineActions({
@@ -800,11 +953,17 @@ export function TimelineActions({
   const t = useT();
   const [reply, setReply] = useState(false);
   const [relink, setRelink] = useState(false);
+  const reachable = useTelegramReachable(
+    activity.kind === "telegram",
+    personId,
+  );
   return (
     <>
-      <Button small onClick={() => setReply(true)}>
-        {t("compose.reply")}
-      </Button>
+      {reachable && (
+        <Button small onClick={() => setReply(true)}>
+          {t("compose.reply")}
+        </Button>
+      )}
       <Button small onClick={() => setRelink(true)}>
         {t("compose.relink")}
       </Button>
@@ -814,6 +973,7 @@ export function TimelineActions({
           entityType={entityType}
           entityId={entityId}
           personId={personId}
+          kind={activity.kind}
           open={reply}
           onClose={() => setReply(false)}
         />

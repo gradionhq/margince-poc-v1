@@ -66,8 +66,7 @@ type meeting struct {
 	occurredAt   time.Time
 	cancelled    bool
 	organizerDom string
-	attendeeDoms []string // lowercased, de-duped attendee domains — for the RC-2 gate
-	hasExternal  bool     // any party (organizer or attendee) outside the owner's domain
+	hasExternal  bool // any party (organizer or attendee) outside the owner's domain
 }
 
 // parseEvent reads one raw Calendar event resource and classifies it against
@@ -80,7 +79,7 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 	}
 
 	ownerDom := domainOf(owner)
-	attendeeDoms, attendeeEmails, external := classifyAttendees(ev.Attendees, ownerDom)
+	attendeeEmails, external := classifyAttendees(ev.Attendees, ownerDom)
 	organizerDom := domainOf(ev.Organizer.Email)
 
 	return meeting{
@@ -90,7 +89,6 @@ func parseEvent(raw []byte, owner string) (meeting, error) {
 		occurredAt:   parseStart(ev.Start),
 		cancelled:    strings.EqualFold(strings.TrimSpace(ev.Status), "cancelled"),
 		organizerDom: organizerDom,
-		attendeeDoms: attendeeDoms,
 		// An externally-organized meeting is a customer touch even if the owner
 		// is the only listed attendee — fold the organizer into the signal.
 		hasExternal: external > 0 || isExternalDomain(organizerDom, ownerDom),
@@ -147,10 +145,6 @@ func (m meeting) ToRecord(connectorName string, raw []byte) connector.Normalized
 		Source:     connectorName + ":" + m.id,
 		CapturedBy: "connector:" + connectorName,
 		Raw:        raw,
-		Match: connector.ExclusionAttrs{
-			SenderDomain:     m.organizerDom,
-			RecipientDomains: m.attendeeDoms,
-		},
 	}
 }
 
@@ -160,28 +154,18 @@ func (m meeting) ToRecord(connectorName string, raw []byte) connector.Normalized
 // the all-internal skip. An attendee with no parseable domain is treated as
 // external (unknown ≠ internal): capturing a possibly-external touch beats
 // silently dropping it.
-func classifyAttendees(attendees []eventActor, ownerDom string) (domains, emails []string, external int) {
-	seen := map[string]struct{}{}
+func classifyAttendees(attendees []eventActor, ownerDom string) (emails []string, external int) {
 	for _, a := range attendees {
 		email := strings.TrimSpace(a.Email)
 		if email == "" {
 			continue
 		}
 		emails = append(emails, email)
-		dom := domainOf(email)
-		if dom == "" || ownerDom == "" || dom != ownerDom {
+		if dom := domainOf(email); dom == "" || ownerDom == "" || dom != ownerDom {
 			external++
 		}
-		if dom == "" {
-			continue
-		}
-		if _, dup := seen[dom]; dup {
-			continue
-		}
-		seen[dom] = struct{}{}
-		domains = append(domains, dom)
 	}
-	return domains, emails, external
+	return emails, external
 }
 
 // buildBody folds the organizer, the attendee list, and the event description

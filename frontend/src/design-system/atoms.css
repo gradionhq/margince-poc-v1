@@ -32,7 +32,6 @@
   background: var(--accentLight);
   color: var(--accent);
 }
-
 .card {
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
@@ -411,6 +410,38 @@
   gap: var(--space-3);
 }
 
+/* Side-by-side fields inside a .form-stack. They wrap rather than compress,
+   so a narrow column stacks the fields instead of shrinking the inputs. */
+.form-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.form-row > .field {
+  flex: 1 1 140px;
+}
+
+/* A form's submit row: the actions sit right, away from the fields. */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.form-error {
+  color: var(--danger);
+}
+
+/* A card that stacks above the next one in a rail. */
+.card-stack {
+  margin-bottom: var(--space-4);
+}
+
+/* A dialog's own heading, where the content has no SectionHeader of its own. */
+.modal-title {
+  margin-bottom: var(--space-3);
+}
+
 /* Group divider inside a form (create.tsx RecordFormBody): sets custom fields
    apart from core fields with a labeled rule, no input of its own. */
 .form-divider {
@@ -556,4 +587,91 @@ select.input {
   letter-spacing: 0.06em;
   font-weight: 600;
   color: var(--textMeta);
+}
+
+/* Disclosure: a section the reader opens when they want it. The chevron is the
+   only state indicator, so it must turn — a summary that looks identical open
+   and closed leaves the reader unsure whether the click did anything. */
+.disclosure {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  color: var(--textMeta);
+}
+.disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure-summary:hover {
+  color: var(--textPrimary);
+}
+.disclosure-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.disclosure-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 0.15s;
+}
+.disclosure[open] .disclosure-chevron {
+  transform: rotate(90deg);
+}
+.disclosure-body {
+  margin-top: var(--space-3);
+}
+
+/* The overflow menu: one trigger, a popover of the caller's own action
+   buttons. Anchored to the trigger so it opens under it regardless of where
+   the header wraps. */
+.overflow-menu {
+  position: relative;
+  display: inline-flex;
+}
+.overflow-menu-trigger {
+  padding-inline: var(--space-2);
+}
+.overflow-menu-items {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  /* Above the phone layout's fixed bottom rail (shell.css, z-index 30) and
+     below the modal overlay (50): a record's actions opening BEHIND the
+     navigation are unreachable, and only on the layout where the record page
+     is longest. */
+  z-index: 35;
+  min-width: 180px;
+  /* On a 390px screen, or at high zoom, a menu that only states a minimum
+     grows the page instead of itself: the panel goes off the right edge and
+     takes its actions with it. */
+  max-width: calc(100vw - 2 * var(--space-3));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+}
+/* An author-level `display` beats the UA stylesheet's `[hidden] {display:none}`,
+   so without this the closed menu stays open — the whole point of folding the
+   destructive verbs away, undone by one declaration. */
+.overflow-menu-items[hidden] {
+  display: none;
+}
+/* The items are whatever the caller renders — buttons of every variant. They
+   read as a menu here: full width, left-aligned, no competing fills. */
+.overflow-menu-items .btn {
+  width: 100%;
+  justify-content: flex-start;
 }

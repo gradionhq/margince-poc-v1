@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -31,12 +32,17 @@ import (
 // (river:"unique") so two admins refreshing the same workspace collapse to one
 // crawl; RequestedBy is provenance-only, outside the uniqueness hash.
 type FxRateRefreshArgs struct {
-	WorkspaceID ids.UUID `json:"workspace_id" river:"unique"`
+	Workspace   ids.UUID `json:"workspace_id" river:"unique"`
 	RequestedBy string   `json:"requested_by"`
 }
 
 // Kind is the stable River job identifier.
 func (FxRateRefreshArgs) Kind() string { return "fx_rate_refresh" }
+
+// WorkspaceID binds this refresh to its tenant (jobs.WorkspaceScoped).
+// The field is Workspace because Go forbids a field and a method of the
+// same name; the wire key stays workspace_id.
+func (a FxRateRefreshArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // rateRefreshWorkerCtx binds the system principal a refresh producer runs
 // under (bypasses auth.Require), on the requesting admin's workspace, with a
@@ -289,7 +295,10 @@ type fxRefreshWorker struct {
 }
 
 func (w *fxRefreshWorker) Work(ctx context.Context, job *river.Job[FxRateRefreshArgs]) error {
-	return w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.WorkspaceID, job.Args.RequestedBy))
+	if _, err := workspaceJobCtx(ctx, job.Args); err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	return jobs.FaultContext(ctx, w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy)))
 }
 
 func newFxRefreshWorker(pool *pgxpool.Pool, brain completer, url string, bootstrapCurrencies []string, log *slog.Logger) *fxRefreshWorker {

@@ -295,7 +295,7 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 		if in.JoinPending {
 			id, err = s.stageOrJoinPendingInTx(ctx, tx, in)
 		} else {
-			id, err = s.StageInTx(ctx, tx, in)
+			id, err = s.insertProposalInTx(ctx, tx, in)
 		}
 		if err != nil {
 			return err

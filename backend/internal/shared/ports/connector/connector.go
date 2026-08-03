@@ -134,13 +134,6 @@ type NormalizedRecord struct {
 	Source     string // "<system>:<id>" — REQUIRED
 	CapturedBy string // "connector:<name>" — REQUIRED
 	Raw        []byte // re-parseable original → raw jsonb, off the hot path
-	// Match carries the attributes the personal-mail exclusion gate (RC-2)
-	// evaluates in the ONE Sink, BEFORE anything is written. Mail
-	// connectors populate it; a record with a zero value (a lead, a
-	// non-mail activity) can never match a rule, so the gate is a no-op
-	// for it. Kept off Fields on purpose: exclusion is a pipeline concern,
-	// not a domain column.
-	Match ExclusionAttrs
 
 	// Counterparty is the human on the other side of a captured message —
 	// the auto-create pipeline's input (ADR-0063). Zero for records that
@@ -148,28 +141,40 @@ type NormalizedRecord struct {
 	// resolver never runs for those.
 	Counterparty Counterparty
 
-	// ThreadKey is the RFC822 conversation identity: a MESSAGE id — the
+	// ThreadKey is the conversation identity, and what counts as "the
+	// conversation" differs by shape. Mail roots on a MESSAGE id — the
 	// References root, else In-Reply-To, else the message's own id — never a
-	// provider's private conversation id, which lives in a different namespace
-	// and joins nothing here (see SendReceipt). It is the CAP-FORMULA-1
-	// reply-detection join key and activity.thread_key's source. A freshly
-	// captured message with no reply headers is rooted at its OWN Message-ID,
-	// not left empty, so a later reply that references it joins the thread
-	// from the first message onward. Empty only when the record carries none
-	// of the three sources — References, In-Reply-To, nor its own Message-ID.
+	// provider's private conversation id, a different namespace joining
+	// nothing here (see SendReceipt); a fresh message with no reply headers
+	// roots at its OWN Message-ID rather than empty, so a later reply joins
+	// from the first message onward. A channel (Telegram) has no message-id
+	// chain to root on — the chat itself IS the conversation, so ThreadKey is
+	// the provider's chat id ("telegram:<bot_id>:<chat_id>"), the one case
+	// where a provider conversation id is the right join key. Both feed the
+	// same CAP-FORMULA-1 reply join and activity.thread_key. Empty only for a
+	// mail record with none of its three sources; a channel record always has one.
 	ThreadKey string
 }
 
-// Counterparty names the non-owner participant of one captured message.
-// Email is authoritative; DisplayName is the header's human name (may be
-// empty or hostile — consumers must treat it as untrusted text); Domain is
-// the lowercased mail domain; Direction is the message's direction relative
-// to the mailbox owner (DirectionInbound | DirectionOutbound).
+// Counterparty names the non-owner participant of one captured message. A
+// mail record identifies them by Email (authoritative); a channel record
+// carries no address and identifies them by ChannelIdentity instead — the
+// two are mutually exclusive, never both populated. DisplayName is the
+// header's human name (may be empty or hostile — untrusted text); Domain is
+// the lowercased mail domain (empty for a channel record); Direction is
+// relative to the mailbox/bot owner (DirectionInbound | DirectionOutbound).
 type Counterparty struct {
 	Email       string
 	DisplayName string
 	Domain      string
 	Direction   string
+	// ChannelIdentity is the channel-record twin of Email: a messaging
+	// connector (Telegram) populates this instead, having no address to
+	// carry. Zero for every mail record. The four mail-domain gates (T0
+	// internal-domain, freemail, transactional/ESP, quarantine) all key off
+	// Email, so an empty Email already makes them no-ops for a channel
+	// record with no separate switch needed.
+	ChannelIdentity ChannelIdentity
 	// ListUnsubscribe reports whether the message carried an RFC 2369
 	// List-Unsubscribe header — the bulk-mail corroboration the transactional
 	// suppression gate (CAP-PARAM-6, ADR-0072) requires before a subdomain
@@ -224,16 +229,6 @@ func (c Counterparty) WithOwnerAttestation(providerFiled bool) Counterparty {
 
 // SentByOwner reports whether both halves of the attestation agreed.
 func (c Counterparty) SentByOwner() bool { return c.sentByOwner }
-
-// ExclusionAttrs is the normalized, matchable face of a captured message
-// the RC-2 exclusion gate reads: the sender's domain, every recipient's
-// domain, and any provider mail labels. Producers should already lowercase
-// these; the matcher compares case-insensitively regardless.
-type ExclusionAttrs struct {
-	SenderDomain     string
-	RecipientDomains []string
-	Labels           []string
-}
 
 // NaturalKey is the (source_system, source_id) idempotency key the DB
 // unique indexes enforce (data-model §7/§8).
@@ -334,30 +329,30 @@ func BackfillProgressFrom(ctx context.Context) BackfillReporter {
 	return BackfillReporter{to: p}
 }
 
-// Sender is the OPTIONAL outbound seam a connector implements when its provider
-// can transmit a message as the connected user. Type-asserted like Watcher and
-// Backfiller, so the frozen Connector interface is unchanged and a capture-only
-// provider simply does not implement it.
+// EmailSender is the OPTIONAL outbound seam a connector implements when its
+// provider can transmit a message as the connected user. Type-asserted like
+// Watcher and Backfiller, so the frozen Connector interface is unchanged and a
+// capture-only provider simply does not implement it.
 //
-// Send MUST be idempotent on msg.MessageID. Job delivery is at-least-once, so a
-// provider that retransmits on a retry mails the recipient twice; a connector
-// whose provider can look up a prior send by RFC822 Message-ID must do so
-// whenever msg.Attempt > 0 and return the existing receipt instead.
+// SendEmail MUST be idempotent on msg.MessageID. Job delivery is at-least-once,
+// so a provider that retransmits on a retry mails the recipient twice; a
+// connector whose provider can look up a prior send by RFC822 Message-ID must
+// do so whenever msg.Attempt > 0 and return the existing receipt instead.
 //
 // That obligation has a precondition, and an implementation MUST refuse a
-// message that fails it (OutboundMessage.Validate) before any provider I/O: an
+// message that fails it (EmailMessage.Validate) before any provider I/O: an
 // identity the prior-send lookup cannot search for makes the idempotency
 // guarantee unkeepable, and transmitting anyway is the double-send this seam
 // exists to prevent.
-type Sender interface {
-	Send(ctx context.Context, auth Auth, msg OutboundMessage) (SendReceipt, error)
+type EmailSender interface {
+	SendEmail(ctx context.Context, auth Auth, msg EmailMessage) (SendReceipt, error)
 }
 
-// OutboundMessage is one message to transmit, in provider-NEUTRAL form. The
+// EmailMessage is one message to transmit, in provider-NEUTRAL form. The
 // connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
 // JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
 // owns decoding on the way in.
-type OutboundMessage struct {
+type EmailMessage struct {
 	To      []string
 	Cc      []string
 	Subject string
@@ -444,7 +439,7 @@ func ValidMessageID(id string) bool {
 // Validate refuses a message no provider should be handed. It is the sender
 // boundary's own precondition — checked before any provider I/O, so a message
 // that cannot be retried safely is never transmitted a first time.
-func (m OutboundMessage) Validate() error {
+func (m EmailMessage) Validate() error {
 	if !ValidMessageID(m.MessageID) {
 		return ErrInvalidMessageID
 	}

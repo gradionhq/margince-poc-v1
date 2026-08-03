@@ -382,11 +382,15 @@ up)
   # The two externally-reachable bases, always passed. They are not a
   # connector detail: federated sign-in derives its registered redirect_uri
   # from them (and refuses to boot without them, A107 §14), password-reset
-  # links point at them, and a marketing send refuses rather than derive a
-  # token-bearing link from a request Host. Non-secret, dev-computed values —
-  # public base = the SPA, where a browser lands; api base = the api, where a
-  # provider's callback resolves. Ports differ, host does not, which is what
-  # keeps the sign-in flow's host-scoped state cookie working.
+  # links point at them, the MCP resource document and the OAuth audience are
+  # built from the public base (never from a Host header, so cmd/api refuses to
+  # boot with mcp.connector_enabled=true and no --public-base-url), and a
+  # marketing send refuses rather than derive a token-bearing link from a
+  # request Host. Non-secret, dev-computed values — public base = the SPA, where
+  # a browser lands and where DESIGN §5.1 tells an MCP client to connect; api
+  # base = the api, where a provider's callback resolves. Ports differ, host
+  # does not, which is what keeps the sign-in flow's host-scoped state cookie
+  # working.
   base_url_flags=(
     --public-base-url "http://localhost:${fe_port}"
     --api-base-url "http://localhost:${api_port}"
@@ -409,7 +413,10 @@ up)
     # Secrets travel via the environment, NEVER CLI flags (argv is visible in
     # the process table). The client id/secret are already exported from
     # .env.local; export the OAuth state key too — the api/worker flags default
-    # to these env vars, so nothing secret reaches the command line.
+    # to these env vars, so nothing secret reaches the command line. The two
+    # base URLs this connector's consent and callback need are not passed here
+    # either: they ride on $base_url_flags above, unconditionally, so each is
+    # passed exactly once whatever else is configured.
     export MARGINCE_CONNECTOR_STATE_KEY="${MARGINCE_CONNECTOR_STATE_KEY:-margince-dev-connector-state-key-0001}"
     echo "dev: gmail capture connector enabled (callback http://localhost:${api_port}/v1/connectors/gmail/callback)"
   fi
@@ -439,6 +446,13 @@ up)
     capture_note="ai.capture_payloads off"
   fi
   echo "dev: using $deploy_cfg for the deployment config ($capture_note)"
+  # An operator flipping mcp.connector_enabled needs to see that it took
+  # effect — the gate is otherwise silent until a client actually tries it.
+  if grep -Eq '^[[:space:]]*connector_enabled:[[:space:]]*true' "$deploy_cfg"; then
+    echo "dev: mcp.connector_enabled ON — connect a client at http://localhost:${fe_port}/mcp"
+  else
+    echo "dev: mcp.connector_enabled off"
+  fi
 
   # Run the compiled binary directly (not `go run`): it starts in <1s so the
   # poll window is real, and $be_pid is the actual server process for a clean

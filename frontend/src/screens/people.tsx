@@ -23,6 +23,7 @@ import {
   QueryGate,
   throwProblem,
   useSorMode,
+  useViewerId,
 } from "./common";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
@@ -41,6 +42,7 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
+import { PersonNetworkCard } from "./network";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
 import { StrengthCard } from "./strength";
@@ -302,22 +304,58 @@ function timelineKind(kind: string): TimelineEntry["kind"] {
   return known ?? "note";
 }
 
+// A timeline row is one line, so a body used as its title has its whitespace
+// collapsed and is cut at this many characters.
+const TIMELINE_TITLE_MAX = 140;
+
+// timelineTitle is what the row says the activity WAS. A subject is the natural
+// title, but a channel message has none — Telegram carries text, not a subject
+// line — so a subject-only title rendered the literal word "telegram" on every
+// row and made the conversation invisible on the record it belongs to. The
+// body is the title for anything that has no subject, which is also why the
+// connector fills it for a wordless message ("photo", "voice"): capture's
+// messageBody names the kind precisely so this row has something to show.
+function timelineTitle(activity: Activity): string {
+  const subject = activity.subject?.trim();
+  if (subject) {
+    return subject;
+  }
+  // Collapsed rather than trusted: a pasted multi-line message would otherwise
+  // break the row's single-line layout.
+  const body = activity.body?.replace(/\s+/g, " ").trim();
+  if (!body) {
+    return activity.kind;
+  }
+  return body.length > TIMELINE_TITLE_MAX
+    ? `${body.slice(0, TIMELINE_TITLE_MAX - 1)}…`
+    : body;
+}
+
 export function activityTimeline(
   activities: Activity[],
+  // Who is reading, so a row this user logged reads as theirs and a
+  // colleague's does not. Absent while the session is still resolving.
+  viewerUserId?: string,
   renderActions?: (activity: Activity) => ReactNode,
 ): TimelineEntry[] {
   return activities.map((activity) => ({
     id: activity.id,
     kind: timelineKind(activity.kind),
-    title: activity.subject ?? activity.kind,
+    title: timelineTitle(activity),
+    // The body is already in the composite read this row came from, so a
+    // timeline of unreadable subject lines was a rendering choice, not a
+    // limit of what the page knew.
+    body: activity.body,
+    direction: activity.direction,
     atIso: activity.occurred_at,
-    provenance: provenanceOf(activity.captured_by),
+    provenance: provenanceOf(activity.captured_by, viewerUserId),
     actions: renderActions?.(activity),
   }));
 }
 
 export function ContactsScreen() {
   const t = useT();
+  const viewerId = useViewerId();
   const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
     key: "people",
@@ -384,7 +422,7 @@ export function ContactsScreen() {
                 header: t("people.capturedBy"),
                 render: (person: Person) => (
                   <ProvenanceTag
-                    provenance={provenanceOf(person.captured_by)}
+                    provenance={provenanceOf(person.captured_by, viewerId)}
                   />
                 ),
               },
@@ -422,6 +460,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
   });
   const timelineQuery = useTimeline("person", id);
   const overlay = useSorMode() === "overlay";
+  const viewerId = useViewerId();
 
   return (
     <div className="wrap">
@@ -434,7 +473,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             zone="Europe/Berlin"
             badges={
               <>
-                <ProvenanceTag provenance={provenanceOf(person.captured_by)} />
+                <ProvenanceTag
+                  provenance={provenanceOf(person.captured_by, viewerId)}
+                />
                 {person.archived_at ? (
                   // An archived record is read-only: the backend rejects
                   // edit/merge/archive on a non-live row (there is no
@@ -548,14 +589,18 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             }
             timeline={
               timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data, (activity) => (
-                    <TimelineActions
-                      activity={activity}
-                      entityType="person"
-                      entityId={id}
-                      personId={id}
-                    />
-                  ))
+                ? activityTimeline(
+                    timelineQuery.data.data,
+                    viewerId,
+                    (activity) => (
+                      <TimelineActions
+                        activity={activity}
+                        entityType="person"
+                        entityId={id}
+                        personId={id}
+                      />
+                    ),
+                  )
                 : []
             }
             timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
@@ -575,6 +620,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             {tab === "overview" && (
               <>
                 <StrengthCard kind="person" id={person.id} />
+                <PersonNetworkCard id={person.id} />
                 <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
                 <RecordContextPanel entityType="person" id={person.id} />

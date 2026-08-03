@@ -160,7 +160,7 @@ test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before
 
 test("AC-inbox: approve and reject act on the staged row", async ({ page }) => {
   await page.goto("/#/inbox");
-  await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+  await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent: runner")).toBeVisible();
   await page.getByRole("button", { name: "Übernehmen" }).click();
 });
@@ -583,21 +583,26 @@ test.describe("B-EP09.23: overlay mode", () => {
     const errorBox = "Konnten diese Ansicht nicht laden.";
 
     // Person 360 (overview tab, the default): timeline, relationship
-    // strength, and the related-records context panel each read a native
-    // capability the mirror doesn't hold.
+    // strength, the who-knows-them card, and the related-records context panel
+    // each read a native capability the mirror doesn't hold. The interaction
+    // projection is folded from natively captured participants, so an overlay
+    // workspace has none — and "nobody knows them" would be a lie rather than
+    // an empty answer.
     await page.goto("/#/contacts/p-anna");
     await expect(
       page.getByRole("heading", { name: "Anna Weber" }),
     ).toBeVisible();
-    await expect(page.getByText(unavailable)).toHaveCount(3);
+    await expect(page.getByText(unavailable)).toHaveCount(4);
     await expect(page.getByText(errorBox)).toHaveCount(0);
 
-    // Deal 360: timeline, stakeholders, offers, and the context panel.
+    // Deal 360: timeline, coverage, stakeholders, offers, and the context
+    // panel. Coverage joins the interaction projection too, so it is
+    // unavailable for the same reason rather than reporting a clean deal.
     await page.goto("/#/deals/d-fleet");
     await expect(
       page.getByRole("heading", { name: "Fleet retrofit" }),
     ).toBeVisible();
-    await expect(page.getByText(unavailable)).toHaveCount(4);
+    await expect(page.getByText(unavailable)).toHaveCount(5);
     await expect(page.getByText(errorBox)).toHaveCount(0);
 
     // Tasks (nav.tasks): a defining `kind=task` filter the mirror can't honor.
@@ -627,7 +632,7 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+    await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });

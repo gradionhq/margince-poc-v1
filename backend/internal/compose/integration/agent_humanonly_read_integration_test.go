@@ -56,6 +56,12 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 		"/v1/voice-profiles",
 		"/v1/webhook-subscriptions",
 		"/v1/passports",
+		// The consent screen's read model lists the granting human's
+		// lendable passports — ids, labels, scopes, expiries — so it is
+		// the same credential inventory as /v1/passports above. Its
+		// required query parameters are present but need name no real
+		// client: the gate refuses before the handler resolves one.
+		"/v1/oauth/consent-request?client_id=night-agent&scope=read",
 		// The pre-flip export bundle: a full-estate read, audit log
 		// included, in a single GET.
 		"/v1/overlay/export",

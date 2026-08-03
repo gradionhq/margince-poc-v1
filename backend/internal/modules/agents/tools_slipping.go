@@ -70,7 +70,7 @@ type whatsSlippingThisWeek struct {
 
 func (t whatsSlippingThisWeek) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "whats_slipping_this_week", Version: "1.0.0",
+		Name: "whats_slipping_this_week", Title: "What's slipping this week", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -120,7 +120,7 @@ type draftFollowUpsFor struct {
 
 func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "draft_follow_ups_for", Version: "1.0.0",
+		Name: "draft_follow_ups_for", Title: "Draft follow-ups", Version: toolVersionV1,
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + draftEmail + logActivity",
 		InputSchema: schema(`{"type":"object","required":["segment"],"properties":{
@@ -140,10 +140,16 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 		return nil, err
 	}
 	if args.Segment != "slipping" {
-		return nil, &BadArgsError{Cause: fmt.Errorf("segment %q is not a known deal segment (want \"slipping\")", args.Segment)}
+		return nil, &BadArgsError{
+			Cause:    fmt.Errorf("segment %q is not a known deal segment", args.Segment),
+			Guidance: `the only segment this tool serves is "slipping"`,
+		}
 	}
 	if args.Limit < 0 {
-		return nil, &BadArgsError{Cause: fmt.Errorf("limit %d is negative; omit it or ask for 1..%d", args.Limit, maxFollowUpDrafts)}
+		return nil, &BadArgsError{
+			Cause:    fmt.Errorf("limit %d is negative", args.Limit),
+			Guidance: fmt.Sprintf("omit it, or ask for 1..%d", maxFollowUpDrafts),
+		}
 	}
 	candidates, err := t.list(ctx)
 	if err != nil {

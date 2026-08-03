@@ -125,13 +125,15 @@ func scanRelationship(r pgx.Row) (relationshipRow, error) {
 
 // relationshipEndpointScope renders "every non-null endpoint is
 // visible": one EXISTS per endpoint table under the caller's own/team
-// predicate. Unbounded actors carry no clause.
+// predicate. Only a caller unbounded over EVERY endpoint table carries no
+// clause — person and organization hold capture privacy, so that is the
+// system principal alone.
 func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return "", errors.New("crmpeople: no actor bound to context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person", "organization", "deal", projectObjectName) {
 		return "", nil
 	}
 	var clauses []string
@@ -257,9 +259,9 @@ func mapRelationshipConstraint(err error, kind string) error {
 	if constraint, ok := storekit.CheckViolation(err); ok {
 		switch constraint {
 		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape", "rel_project_stakeholder_shape":
-			return &RequiredFieldError{Field: "kind: " + kind + " endpoint shape"}
+			return &RelationshipShapeError{Kind: kind}
 		case "rel_dates":
-			return &RequiredFieldError{Field: "ended_at: must not precede started_at"}
+			return &RelationshipDatesError{}
 		}
 	}
 	if constraint, ok := storekit.UniqueViolation(err); ok {
@@ -321,7 +323,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			RETURNING `+relationshipColumns,
 			id, in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt)
 		if out, err = scanRelationship(row); err != nil {
-			return err
+			// Through the SAME constraint mapping the insert uses. A patch can
+			// violate rel_dates exactly as a create can — moving ended_at behind
+			// started_at — and without this the two verbs answered one rule two
+			// ways: a named refusal on create, the generic constraint net on
+			// update. current.Kind, because a patch cannot change the kind.
+			return mapRelationshipConstraint(err, current.Kind)
 		}
 		return emitRelationshipChange(ctx, tx, "update", out)
 	})

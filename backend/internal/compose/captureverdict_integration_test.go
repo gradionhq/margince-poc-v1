@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -73,7 +74,7 @@ func TestVerdictRealCreatesTheCounterpartyCaptureWithheld(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusReal}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -85,8 +86,16 @@ func TestVerdictRealCreatesTheCounterpartyCaptureWithheld(t *testing.T) {
 		 WHERE pe.email = 'ada@realco.example'`); n != 1 {
 		t.Fatalf("%d persons created for a real verdict, want 1", n)
 	}
-	if n := countIn(t, e, `SELECT count(*) FROM organization WHERE display_name = 'Realco'`); n != 1 {
-		t.Fatalf("%d organizations created, want 1 — a real verdict creates what capture withheld", n)
+	// A `real` verdict admits the PERSON. Whether they have an employer is a
+	// separate question with its own evidence, so the verdict opens it rather
+	// than inventing "Realco" from the domain.
+	if n := countIn(t, e, `SELECT count(*) FROM organization`); n != 0 {
+		t.Fatalf("%d organizations from a verdict, want 0 — the company question is answered by a site read", n)
+	}
+	if n := countIn(t, e, `
+		SELECT count(*) FROM organization_domain_disposition
+		 WHERE domain = 'realco.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d open company questions for realco.example, want exactly 1", n)
 	}
 	// The mail was never the thing in doubt: a real verdict leaves it visible.
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID); n != 1 {
@@ -105,7 +114,7 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -127,7 +136,7 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	}
 
 	// A sweep inside the window must do nothing at all.
-	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+	if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep inside the window: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND body IS NOT NULL`, activityID); n != 1 {
@@ -136,7 +145,7 @@ func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 
 	// Age the disposition past the window rather than waiting seven days for it.
 	backdateArchive(t, e, activityID)
-	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+	if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep past the window: %v", err)
 	}
 	if n := countIn(t, e, `
@@ -170,7 +179,7 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 		confidence: map[string]float64{dispositionID.String(): 0.4},
 	}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -190,7 +199,7 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 	}
 
 	// And the question reaches a human.
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	if n := countIn(t, e, `
@@ -205,7 +214,7 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 	}
 
 	// A second staging pass must find the offer already made.
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("second staging pass: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE kind = 'capture_counterparty'`); n != 1 {
@@ -332,7 +341,7 @@ func TestCounterpartyAcceptCreatesTheRecordsAndClosesTheDisposition(t *testing.T
 
 	svc := approvalsServiceWithEffects(e.Pool)
 	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	approvalID := stagedProposalID(t, e, dispositionID)
@@ -404,7 +413,7 @@ func TestEachSendersPromptContainsOnlyThatSendersText(t *testing.T) {
 
 	brain := &promptRecordingBrain{}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -503,7 +512,7 @@ func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 		},
 	}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -541,7 +550,7 @@ func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -554,7 +563,7 @@ func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
 	for _, id := range []ids.UUID{first, second, third} {
 		backdateArchive(t, e, id)
 	}
-	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+	if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep: %v", err)
 	}
 	if n := countIn(t, e, `
@@ -576,7 +585,7 @@ func TestAnExhaustedDispositionIsRetiredRatherThanStranded(t *testing.T) {
 	spendAttempts(t, e, dispositionID, capture.PendingMaxAttempts)
 
 	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
-	if err := engine.ReconcileLedger(context.Background()); err != nil {
+	if err := engine.ReconcileLedgerWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("reconciling the ledger: %v", err)
 	}
 
@@ -584,7 +593,7 @@ func TestAnExhaustedDispositionIsRetiredRatherThanStranded(t *testing.T) {
 		t.Fatalf("exhausted disposition = %q, want unsure — exhaustion must be terminal, not a dead end", got)
 	}
 	// And having reached `unsure`, it is now something a human can be offered.
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE kind = 'capture_counterparty'`); n != 1 {
@@ -604,7 +613,7 @@ func TestADeclinedReviewClosesTheDispositionInsteadOfReasking(t *testing.T) {
 
 	svc := approvalsServiceWithEffects(e.Pool)
 	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	approvalID := stagedProposalID(t, e, dispositionID)
@@ -613,7 +622,7 @@ func TestADeclinedReviewClosesTheDispositionInsteadOfReasking(t *testing.T) {
 		t.Fatalf("declining the proposal: %v", err)
 	}
 
-	if err := engine.ReconcileLedger(context.Background()); err != nil {
+	if err := engine.ReconcileLedgerWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("reconciling the ledger: %v", err)
 	}
 	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusRejected {
@@ -625,7 +634,7 @@ func TestADeclinedReviewClosesTheDispositionInsteadOfReasking(t *testing.T) {
 	}
 
 	// And the human is not asked again.
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("second staging pass: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE kind = 'capture_counterparty'`); n != 1 {
@@ -668,10 +677,10 @@ func TestAForgedSenderCannotReachTheWorkspacesOwnCorrespondence(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
-	if err := engine.HideNoiseStragglers(context.Background()); err != nil {
+	if err := engine.HideNoiseStragglersWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("straggler sweep: %v", err)
 	}
 
@@ -686,7 +695,7 @@ func TestAForgedSenderCannotReachTheWorkspacesOwnCorrespondence(t *testing.T) {
 	// assertions below would hold whatever the scope rule did.
 	backdateArchive(t, e, forged)
 	backdateArchive(t, e, ownSent)
-	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+	if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND body IS NOT NULL`, forged); n != 1 {
@@ -741,7 +750,7 @@ func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -752,7 +761,7 @@ func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
 	}
 
 	backdateArchive(t, e, activityID)
-	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+	if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 		t.Fatalf("redaction sweep: %v", err)
 	}
 	if n := rawCaptureRows(t, e, activityID); n != 0 {
@@ -778,7 +787,7 @@ func TestANoiseVerdictWithoutBulkCorroborationHidesButNeverDestroys(t *testing.T
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -791,7 +800,7 @@ func TestANoiseVerdictWithoutBulkCorroborationHidesButNeverDestroys(t *testing.T
 	// turns an uncorroborated verdict into permission to destroy.
 	backdateArchive(t, e, activityID)
 	for range 2 {
-		if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+		if err := engine.RedactNoiseWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.NoiseUndoWindow, 0); err != nil {
 			t.Fatalf("redaction sweep: %v", err)
 		}
 	}
@@ -845,7 +854,7 @@ func TestANoiseVerdictCannotReachMailSentLongAfterIt(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -853,7 +862,7 @@ func TestANoiseVerdictCannotReachMailSentLongAfterIt(t *testing.T) {
 	// about anything — and then the real owner writes.
 	backdateResolution(t, e, dispositionID, 30*24*time.Hour)
 	genuine := seedCapturedMail(t, e, "cfo@bigcorp.example", "re: our contract renewal")
-	if err := engine.HideNoiseStragglers(context.Background()); err != nil {
+	if err := engine.HideNoiseStragglersWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("straggler sweep: %v", err)
 	}
 
@@ -872,7 +881,7 @@ func TestANoiseVerdictCannotReachMailSentLongAfterIt(t *testing.T) {
 	stampOccurredAt(t, e, dated, 90*24*time.Hour)
 	sync := seedPendingDisposition(t, e, "cfo@bigcorp.example", "bigcorp.example", dated)
 	resolveAsNoise(t, e, sync)
-	if err := engine.HideNoiseStragglers(context.Background()); err != nil {
+	if err := engine.HideNoiseStragglersWorkspace(principal.WithWorkspaceID(context.Background(), e.WS)); err != nil {
 		t.Fatalf("straggler sweep: %v", err)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, dated); n != 1 {
@@ -932,7 +941,7 @@ func TestAnAddressErasedBeforeTheVerdictRecordsSuppressedNotReal(t *testing.T) {
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusReal}}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
-	if err := engine.Run(context.Background(), 0); err != nil {
+	if err := engine.RunWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
@@ -973,14 +982,14 @@ func TestAnUnansweredReviewAgesOutAndTakesItsOfferWithIt(t *testing.T) {
 	retireToUnsure(t, e, dispositionID)
 
 	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	approvalID := stagedProposalID(t, e, dispositionID)
 
 	// A window still open changes nothing: the question is young, and a
 	// workspace that took a weekend off must not lose it.
-	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+	if err := engine.AgeOutStaleReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.UnsureReviewWindow); err != nil {
 		t.Fatalf("ageing out reviews: %v", err)
 	}
 	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusUnsure {
@@ -996,7 +1005,7 @@ func TestAnUnansweredReviewAgesOutAndTakesItsOfferWithIt(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("backdating the review: %v", err)
 	}
-	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+	if err := engine.AgeOutStaleReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.UnsureReviewWindow); err != nil {
 		t.Fatalf("ageing out reviews: %v", err)
 	}
 
@@ -1034,7 +1043,7 @@ func TestAgeingOutLosesToAHumanWhoDecidedFirst(t *testing.T) {
 
 	svc := approvalsServiceWithEffects(e.Pool)
 	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
-	if err := engine.StageReviews(context.Background(), 0); err != nil {
+	if err := engine.StageReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), 0); err != nil {
 		t.Fatalf("staging reviews: %v", err)
 	}
 	approvalID := stagedProposalID(t, e, dispositionID)
@@ -1052,7 +1061,7 @@ func TestAgeingOutLosesToAHumanWhoDecidedFirst(t *testing.T) {
 		ids.From[ids.ApprovalKind](approvalID), true, nil); err != nil {
 		t.Fatalf("approving the proposal: %v", err)
 	}
-	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+	if err := engine.AgeOutStaleReviewsWorkspace(principal.WithWorkspaceID(context.Background(), e.WS), capture.UnsureReviewWindow); err != nil {
 		t.Fatalf("ageing out reviews: %v", err)
 	}
 

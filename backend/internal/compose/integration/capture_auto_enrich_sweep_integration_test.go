@@ -51,7 +51,7 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 		t.Fatalf("seeding the captured org: %v", err)
 	}
 
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -78,7 +78,9 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichSweepArgs{}.Kind())
+	// The WORKSPACE job, not the dispatcher: a dispatcher completes as soon as
+	// its fan-out is enqueued, so waiting on it would race the work.
+	awaitKindCompleted(waitCtx, t, sub, compose.CaptureAutoEnrichWorkspaceArgs{}.Kind())
 
 	// The sweep created a system-requested dossier for the org...
 	var readCount int

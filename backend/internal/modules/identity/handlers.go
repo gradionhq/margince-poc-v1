@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -23,7 +23,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-const sessionCookie = "crm_session"
+// SessionCookieName is the cookie a signed-in human's browser carries. It is
+// exported because the connector's edge meters the consent flow on the session a
+// request presents (compose/oauthedge.go) and sits outside this middleware, so
+// the cookie name has to be one spelling shared with it rather than two that can
+// drift.
+const SessionCookieName = "crm_session"
 
 // Handlers is the identity module's transport surface: the identity operations of
 // the contract plus the middleware that authenticates everything else.
@@ -74,6 +79,24 @@ type Handlers struct {
 	// identity never imports the overlay module). Nil ⟹ always native,
 	// the correct default for any role that wired no overlay dispatch.
 	sorMode func(context.Context) (overlay bool, err error)
+
+	// mcpResource is the canonical MCP server URL (public_base_url +
+	// "/mcp"), injected by the composition root from deployment config.
+	// The RFC 9728 protected-resource document advertises this verbatim
+	// as "resource" — never the request origin, which an attacker
+	// controls via Host/X-Forwarded-Proto and which an OAuth audience
+	// decision must not depend on.
+	mcpResource string
+
+	// oauthAccessTokenTTL is the operator's lifetime for an OAuth-minted
+	// passport, from --oauth-access-token-ttl. Zero means unset, and an
+	// unset TTL keeps the mint's own default: a connector's access token
+	// is a 30-day passport unless an operator shortens it, which is the
+	// posture every deployment had before the flag existed. It applies to
+	// BOTH mints of a connection's life — the code exchange and every
+	// rotation — because a short-lived access token an hour-old rotation
+	// re-issues for 30 days is not short-lived.
+	oauthAccessTokenTTL time.Duration
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -119,6 +142,37 @@ func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handl
 	return h
 }
 
+// WithMCPResource injects the canonical MCP resource URL the RFC 9728
+// protected-resource document advertises. The composition root computes
+// it from --public-base-url, never from a request, so the audience the
+// OAuth handshake protects can never be steered by an attacker-controlled
+// Host header.
+func (h Handlers) WithMCPResource(resource string) Handlers {
+	h.mcpResource = resource
+	return h
+}
+
+// WithOAuthAccessTokenTTL sets how long a passport minted through the OAuth
+// handshake lives. Connector norms are minutes plus refresh, while a passport
+// defaults to 30 days; this is the knob that lets an operator take that to
+// 15m without a code change, now that the refresh machinery makes a short
+// lifetime cheap. Zero leaves the default alone.
+func (h Handlers) WithOAuthAccessTokenTTL(ttl time.Duration) Handlers {
+	h.oauthAccessTokenTTL = ttl
+	return h
+}
+
+// accessTokenTTL is what the two OAuth mints pass to mintPassport: nil when no
+// operator TTL is configured, so the mint applies its own default rather than
+// this package deciding the number twice.
+func (h Handlers) accessTokenTTL() *time.Duration {
+	if h.oauthAccessTokenTTL == 0 {
+		return nil
+	}
+	ttl := h.oauthAccessTokenTTL
+	return &ttl
+}
+
 // resolveSorMode names the caller's workspace system-of-record mode for
 // the /me response. A nil resolver (no overlay wiring) is native; a
 // resolver error degrades to native rather than failing /me — the 422
@@ -133,19 +187,6 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 		return crmcontracts.Native
 	}
 	return crmcontracts.Overlay
-}
-
-// clientIP is the throttle key for unauthenticated calls. RemoteAddr is
-// the direct peer — behind a reverse proxy this is the proxy, so a
-// deployment fronted by one must terminate rate limiting there or extend
-// this to a *trusted* Forwarded header (never trusted blindly: it is
-// attacker-controlled).
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // GetAuthCapabilities implements (GET /auth/capabilities): the anonymous
@@ -201,8 +242,8 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	// the email with the caller's IP: counting attempts on the bare email
 	// would let ten bogus posts lock the real owner out of their own
 	// account from anywhere.
-	accountKey := strings.ToLower(string(req.Email)) + "|" + clientIP(r)
-	if !h.loginPerIP.Allow(clientIP(r)) || h.loginFailures.Blocked(accountKey) {
+	accountKey := strings.ToLower(string(req.Email)) + "|" + httpserver.ClientIP(r)
+	if !h.loginPerIP.Allow(httpserver.ClientIP(r)) || h.loginFailures.Blocked(accountKey) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}
@@ -224,7 +265,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
 func (h Handlers) Logout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie(sessionCookie); err == nil {
+	if cookie, err := r.Cookie(SessionCookieName); err == nil {
 		if err := h.svc.Logout(r.Context(), cookie.Value); err != nil {
 			httperr.Write(w, r, err)
 			return
@@ -289,9 +330,11 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListPassports implements (GET /passports): passport metadata for the
-// Settings list. Tokens are never re-disclosed; agent_id and
-// last_used_at have no storage yet and read as absent (recorded in the
-// batch's decision file).
+// Settings list. Tokens are never re-disclosed. Two contract fields answer as
+// absent because nothing stores them: agent_id has no storage at all (the
+// A1/local path has no agent-connection table), and last_used_at has a column
+// that nothing writes yet — its debounced stamp on the authenticated /mcp path
+// arrives with the per-workspace admin surface.
 func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
 	identity, ok := identityFrom(r.Context())
 	if !ok {
@@ -361,7 +404,7 @@ func (h Handlers) serveAsAgent(ctx context.Context, w http.ResponseWriter, r *ht
 // workspace-resolved context; it lands on the request exactly once, at
 // the hand-off to next.
 func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler) {
-	cookie, err := r.Cookie(sessionCookie)
+	cookie, err := r.Cookie(SessionCookieName)
 	if err != nil {
 		httperr.Unauthorized(w, r, "missing session cookie")
 		return
@@ -385,8 +428,15 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 		return
 	}
 
-	ctx = withIdentity(ctx, id)
-	ctx = principal.WithActor(ctx, principal.Principal{
+	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
+}
+
+// withHumanPrincipal binds one authenticated human onto the context: the
+// identity the module's own handlers read and the kernel principal every store
+// gate reads. One spelling for both hand-offs below, so a session admitted by
+// either arrives as the same principal.
+func withHumanPrincipal(ctx context.Context, id Identity) context.Context {
+	return principal.WithActor(withIdentity(ctx, id), principal.Principal{
 		Type:        principal.PrincipalHuman,
 		ID:          "human:" + id.UserID.String(),
 		UserID:      id.UserID.UUID,
@@ -394,18 +444,39 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 		SeatType:    principal.SeatType(id.SeatType),
 		Permissions: id.Permissions,
 	})
-	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// bearerToken extracts an Authorization: Bearer credential; empty when
-// the request carries none.
-func bearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
-		return auth[len(prefix):]
+// serveAsOptionalHuman serves the consent entry point (isConsentEntry,
+// middleware.go) with whatever session the browser has, including none: a
+// signed-in human reaches the handler as themselves, and a human who is not
+// signed in reaches it as nobody — which is the case the handler answers with a
+// redirect to the login screen.
+//
+// "Not signed in" deliberately covers an expired or revoked session too. The
+// human's situation is identical (they must sign in again) and so is the answer,
+// while a 401 would strand exactly the human whose consent screen sat open too
+// long. Nothing is admitted by it: this route hands an unidentified caller a
+// redirect and nothing else, and the seat ceiling has no bearing on a GET.
+//
+// A session that cannot be RESOLVED — a database failure, not a dead session —
+// is still an error. Reporting it as "not signed in" would send a human into a
+// login loop against an installation that cannot authenticate anyone.
+func (h Handlers) serveAsOptionalHuman(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler) {
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
 	}
-	return ""
+	id, err := h.svc.Authenticate(ctx, cookie.Value)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		next.ServeHTTP(w, r.WithContext(ctx))
+		return
+	}
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
 }
 
 // restScope maps an HTTP method onto the passport verb it exercises on
@@ -431,14 +502,14 @@ func isMutating(method string) bool {
 
 func setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token,
+		Name: SessionCookieName, Value: token,
 		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", MaxAge: -1,
+		Name: SessionCookieName, Value: "", MaxAge: -1,
 		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 }

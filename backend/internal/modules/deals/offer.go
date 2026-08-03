@@ -31,10 +31,18 @@ import (
 
 // OfferNotDraftError maps to 422: only a draft offer is editable — a
 // sent/accepted/rejected/superseded offer is a fixed record (B-E03.19).
+// offerStatusField names the wire field every offer-lifecycle refusal points at.
+const offerStatusField = "status"
+
 type OfferNotDraftError struct{ Status string }
 
 func (e *OfferNotDraftError) Error() string {
 	return "the offer is " + e.Status + "; only a draft offer can be edited"
+}
+
+// FieldFault refuses editing an offer that has left draft.
+func (e *OfferNotDraftError) FieldFault() (field, code, message string) {
+	return offerStatusField, "offer_not_draft", e.Error()
 }
 
 // OfferEmptyError maps to 422: an offer with no line items has nothing
@@ -42,6 +50,11 @@ func (e *OfferNotDraftError) Error() string {
 type OfferEmptyError struct{}
 
 func (e *OfferEmptyError) Error() string { return "the offer has no line items to send" }
+
+// FieldFault refuses sending an offer with no line items.
+func (e *OfferEmptyError) FieldFault() (field, code, message string) {
+	return "line_items", "offer_empty", e.Error()
+}
 
 type CreateOfferInput struct {
 	Currency   string

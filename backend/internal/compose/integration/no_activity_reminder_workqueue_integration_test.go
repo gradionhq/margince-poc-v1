@@ -59,7 +59,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -70,7 +69,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -89,11 +87,15 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	const noActivityDays = 5
 	staleTouch := time.Now().AddDate(0, 0, -(noActivityDays + 8))
 	seedGenuineTouch(t, owner, e.WS, dealID, "call", staleTouch)
+	// The deal itself must predate the threshold too — activities.
+	// LastTouchBefore holds a record younger than the cutoff out of the
+	// candidate set, and SeedDeal stamps created_at with the real now().
+	backdateCreatedAt(t, owner, "deal", dealID, staleTouch)
 
 	seedTaskCreatePermission(t, owner, e.WS, sam)
 	seedOwnedNoActivityReminder(t, owner, e.WS, sam, noActivityDays)
 
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -104,8 +106,10 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 		t.Fatalf("NewJobRunner: %v", err)
 	}
 	// Subscribe before Start so the RunOnStart completion is never
-	// missed — RunOnStart fires time_scan immediately at boot, and this
-	// channel says exactly when it finished.
+	// missed — RunOnStart fires the time_scan DISPATCHER immediately at boot,
+	// and this channel says exactly when the workspace job it enqueued
+	// finished. Waiting on the dispatcher would race the work: a dispatcher
+	// completes as soon as the fan-out is enqueued, not when it has run.
 	sub, cancelSub := runner.SubscribeCompleted()
 	defer cancelSub()
 
@@ -123,7 +127,7 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, compose.TimeScanArgs{}.Kind())
+	awaitKindCompleted(waitCtx, t, sub, compose.TimeScanWorkspaceArgs{}.Kind())
 
 	// The firing must have cleared Sam's own gate as 'applied', not
 	// 'blocked' — if the seeded role above did not actually grant
@@ -163,42 +167,6 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	}
 	if taskListContains(strangerTasks, taskID) {
 		t.Fatalf("an unrelated rep's Tasks screen surfaced Sam's reminder task %s — the scope clause is not actually row-limited", taskID)
-	}
-}
-
-// applyRiverSchema layers River's schema onto the harness-migrated
-// database, exactly as cmd/migrate does after core+custom. Mirrors
-// compose/jobs_integration_test.go's helper of the same name (a
-// different package — no collision); duplicated rather than exported
-// because this is the only suite in this package driving a real River
-// runner, and platform/jobs.Migrate already owns the one real
-// implementation both copies call.
-func applyRiverSchema(t *testing.T) {
-	t.Helper()
-	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	if ownerDSN == "" {
-		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
-	if err != nil {
-		t.Fatalf("opening owner pool: %v", err)
-	}
-	defer ownerPool.Close()
-	// The compose/integration package shares ONE clone DB across its tests, and
-	// more than one drives the real River runner (no_activity_reminder here,
-	// gmail_watch). River's migrator recreates river_migration on a re-apply
-	// (SQLSTATE 42P07), so ensure-once on the table's existence rather than
-	// migrating twice — these tests run sequentially in-package (no t.Parallel).
-	var present bool
-	if err := ownerPool.QueryRow(ctx, `SELECT to_regclass('public.river_migration') IS NOT NULL`).Scan(&present); err != nil {
-		t.Fatalf("checking river schema: %v", err)
-	}
-	if present {
-		return
-	}
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
 	}
 }
 

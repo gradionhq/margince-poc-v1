@@ -73,6 +73,13 @@ button.evidence-chip:hover {
   background: var(--bgCard);
   color: var(--teal);
 }
+/* An unrecorded source claims neither a person nor a machine, and reads as
+   the absence it is rather than borrowing either one's colour. */
+.provenance-unknown {
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-style: italic;
+}
 
 /* A staged proposal is visibly NOT yet real: AI-tinted ground, dashed border. */
 .staging-card {
@@ -119,6 +126,35 @@ button.evidence-chip:hover {
   flex-wrap: wrap;
   font-family: var(--f-mono);
   font-size: 12px;
+}
+
+/* Either side of a diff can be a whole jsonb document — a scraped fact set
+   runs to thousands of characters — so a long side is capped and scrolls,
+   and one such change cannot push the rest of the history off the screen.
+
+   The cap goes ONLY on the sides FieldDiff marked long, never on every side.
+   A short value that merely wrapped past the cap in a narrow column would
+   scroll without the tab stop that makes a scrolled region reachable, and the
+   part below the fold would be unreachable by keyboard. One threshold, set in
+   the component, decides both. */
+.field-diff-from,
+.field-diff-to {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+.field-diff-long {
+  /* A section is block-level; the diff reads as one line, so it sits inline. */
+  display: inline-block;
+  /* .field-diff is an inline-flex row centring its items, so a tall scrolling
+     side would centre itself against the arrow. align-self is what a flex item
+     obeys; vertical-align says nothing here. */
+  align-self: flex-start;
+  /* Shrinkable, or one long side takes the whole row and pushes the arrow and
+     the other value onto lines of their own — which stops reading as a diff. */
+  min-width: 0;
+  flex: 0 1 auto;
+  max-height: 4.5em;
+  overflow-y: auto;
 }
 
 .field-diff-from {

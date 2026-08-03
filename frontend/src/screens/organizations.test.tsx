@@ -13,7 +13,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { CompaniesScreen, CompanyScreen, mapOrgUpdate } from "./organizations";
+import {
+  CompaniesScreen,
+  CompanyScreen,
+  companyEditFields,
+  mapOrgUpdate,
+} from "./organizations";
 
 // Company-360 enrichment (EP05 scrapeCompany): one click stages a 🟡
 // evidence-backed proposal — human field labels, per-field confidence +
@@ -47,6 +52,22 @@ function render(ui: ReactNode) {
       <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+// The record's rare verbs — edit, merge, archive, share, full history — live
+// behind the header's overflow menu, so a test that operates one opens the
+// menu first. Returns once the item is on screen.
+//
+// getByTestId would find the items whether the menu were open or shut: they
+// stay mounted so their dialogs survive the click that closes the menu. The
+// closed state is asserted separately, on the `hidden` panel.
+async function openRecordMenu(testId: string): Promise<HTMLElement> {
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "More actions" })).toBeTruthy(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await waitFor(() => expect(screen.getByTestId(testId)).toBeTruthy());
+  return screen.getByTestId(testId);
 }
 
 const org = {
@@ -648,8 +669,7 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     const industry = await screen.findByLabelText("Industry");
     await userEvent.clear(industry);
     await userEvent.type(industry, "Manufacturing");
@@ -682,8 +702,7 @@ describe("CompanyScreen — edit domains round-trip (B7)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     await screen.findByLabelText("Industry");
     await userEvent.click(screen.getByText("Add domain"));
     await userEvent.type(screen.getByLabelText("Domain *"), "brandt.example");
@@ -773,7 +792,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
     render(<CompanyScreen id="o-1" />);
 
     await waitFor(() =>
-      expect(screen.getByText("Value proposition")).toBeTruthy(),
+      expect(screen.getByText("What they promise")).toBeTruthy(),
     );
     expect(screen.getByText("Fleet retrofits without downtime")).toBeTruthy();
     // The value carries ONE affordance now: an evidence mark on the value
@@ -893,10 +912,7 @@ describe("CompanyScreen — archive (P-3)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("archive-record")).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByTestId("archive-record"));
+    await userEvent.click(await openRecordMenu("archive-record"));
     await userEvent.click(screen.getByTestId("archive-confirm"));
 
     await waitFor(() => expect(deleted).toBe(true));
@@ -933,7 +949,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await openRecordMenu("edit-record");
     expect(screen.getByTestId("archive-record")).toBeTruthy();
     // Anchor on something only overlay mode produces, so the absence below
     // is asserted AFTER /me landed. Waiting on the absence alone passes on
@@ -966,8 +982,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     const industry = await screen.findByLabelText("Industry");
     await userEvent.clear(industry);
     await userEvent.type(industry, "Manufacturing");
@@ -988,8 +1003,7 @@ describe("CompanyScreen — overlay mode write affordances", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    await userEvent.click(screen.getByTestId("edit-record"));
+    await userEvent.click(await openRecordMenu("edit-record"));
     expect(
       screen.getByText(/Only the fields HubSpot accepts are written back/),
     ).toBeTruthy();
@@ -1072,10 +1086,7 @@ describe("CompanyScreen — merge into target (P-2)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("merge-record")).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByTestId("merge-record"));
+    await userEvent.click(await openRecordMenu("merge-record"));
     await userEvent.type(screen.getByPlaceholderText("Search…"), "acme");
 
     vi.useFakeTimers();
@@ -1326,10 +1337,15 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The number, the contact count, and the last touch all read off the one
-    // composite response — no second round trip for the header.
-    await waitFor(() => expect(screen.getByText(/41/)).toBeTruthy());
-    expect(screen.getByText(/3 contacts/)).toBeTruthy();
+    // The contact, the count and the score all read off the one composite
+    // response — no second round trip for the header. The line leads with the
+    // person because that is what a rep acts on; the score follows, labelled,
+    // because a bare number scales to nothing.
+    await waitFor(() =>
+      expect(screen.getByText(/Strongest contact/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/of 3 people here/)).toBeTruthy();
+    expect(screen.getByText(/relationship 41\/100/)).toBeTruthy();
     expect(screen.getByText(/Last touch/)).toBeTruthy();
   });
 
@@ -1432,10 +1448,37 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
   });
 });
 
-describe("CompanyScreen — History tab", () => {
-  it("shows a History tab that lists record changes", async () => {
+describe("CompanyScreen — the header's overflow menu", () => {
+  // The panel keeps its items mounted so a dialog opened from one survives the
+  // click that closes the menu — which means "closed" has to be asserted on
+  // the panel, not on the absence of the items. A `display` rule in the
+  // author stylesheet once beat the UA's `[hidden] {display:none}` and left
+  // every destructive verb standing open in the header.
+  it("keeps its items out of the page until the trigger is used", async () => {
+    stubFetch(companyBackstop);
+    render(<CompanyScreen id="o-1" />);
+
+    const trigger = await screen.findByRole("button", { name: "More actions" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    const panelId = trigger.getAttribute("aria-controls");
+    expect(panelId).toBeTruthy();
+    const panel = document.getElementById(panelId ?? "");
+    expect(panel?.hasAttribute("hidden")).toBe(true);
+
+    await userEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(panel?.hasAttribute("hidden")).toBe(false);
+  });
+});
+
+describe("CompanyScreen — the record's history", () => {
+  // The audit spine is an inspection of the record, not part of the account's
+  // story, so it opens from the header's overflow menu rather than standing
+  // as a tab beside the timeline.
+  it("opens the full history from the overflow menu", async () => {
     stubFetch(async (url) => {
-      if (url.includes("/history")) {
+      if (url.includes("/records/organization/o-1/history")) {
         return jsonResponse({
           data: [
             {
@@ -1457,14 +1500,52 @@ describe("CompanyScreen — History tab", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /history/i })).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByRole("button", { name: /history/i }));
+    await userEvent.click(await openRecordMenu("company-full-history"));
 
     await waitFor(() =>
       expect(screen.getByText("Created the record")).toBeTruthy(),
     );
+  });
+
+  // Field changes are the account's own chronology, so they sit in the
+  // timeline behind a filter — not on a screen of their own.
+  it("shows field changes in the timeline under the Changes filter", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/field-history")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "f1",
+              entity_type: "organization",
+              entity_id: "o-1",
+              field: "industry",
+              old_value: "Automotive",
+              new_value: "Manufacturing",
+              changed_at: "2026-07-14T10:00:00Z",
+              actor_type: "human",
+              actor_id: "u1",
+            },
+          ],
+          page: { next_cursor: null },
+        });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+
+    // Scoped to the timeline: the account is called "Brandt Automotive GmbH",
+    // so a page-wide match on the old value would pass on the heading.
+    const timeline = await screen.findByRole("region", { name: "Timeline" });
+    await waitFor(() =>
+      expect(within(timeline).getByText("Manufacturing")).toBeTruthy(),
+    );
+    expect(within(timeline).getByText("Automotive")).toBeTruthy();
+    expect(within(timeline).getByText("Industry")).toBeTruthy();
   });
 });
 
@@ -1725,5 +1806,170 @@ describe("CompanyScreen — Ask Margince", () => {
     await waitFor(() =>
       expect(screen.getByText(/could not be answered/)).toBeTruthy(),
     );
+  });
+});
+
+// The page must not re-column itself under the reader. RecordView picks its
+// grid template from which zones are present, so a right rail that arrives
+// with the composite read moves the whole middle column — and everything the
+// reader was looking at — sideways the moment it lands.
+describe("CompanyScreen — the layout does not shift as the read lands", () => {
+  it("holds the three-column template while the 360 is still in flight", async () => {
+    let releaseView: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          await held;
+          return jsonResponse(org360);
+        }
+        if (pathname.endsWith("/hierarchy-rollup")) {
+          return jsonResponse(emptyRollup);
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({
+          data: [],
+          page: { has_more: false, next_cursor: null },
+        });
+      }),
+    );
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    const zonesWhileLoading = container.querySelector(".record-zones");
+    expect(zonesWhileLoading?.className).toContain("record-zones-both");
+    releaseView?.();
+    await waitFor(() =>
+      expect(container.querySelector(".record-zones")?.className).toContain(
+        "record-zones-both",
+      ),
+    );
+  });
+});
+
+// The 360 caps its activities section. A capped list that says nothing reads
+// as the whole history: the rep takes the oldest row on screen for the day the
+// relationship started.
+describe("CompanyScreen — the timeline says where it stops", () => {
+  it("says the activity list is cut when the 360 reports more", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "email",
+              subject: "Re: Lead Gen",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: true, next_cursor: "c1" },
+        },
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    expect(
+      screen.getByText(
+        "This account has more activities than fit here. Only the most recent ones are listed.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("stays silent when the account's whole activity list is on screen", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        activities: {
+          data: [
+            {
+              id: "a-1",
+              kind: "email",
+              subject: "Re: Lead Gen",
+              occurred_at: "2026-06-01T08:30:00Z",
+              direction: "inbound",
+            },
+          ],
+          page: { has_more: false, next_cursor: null },
+        },
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
+    expect(screen.queryByText(/more activities than fit here/)).toBeNull();
+  });
+});
+
+// `UpdateOrganizationRequest.owner_id` cannot carry "unassign" — a null is
+// indistinguishable from an omitted field on the wire. An optional select
+// offers a blank option, so picking it took the answer and dropped it: the
+// save reported success and the old owner stayed responsible.
+describe("companyEditFields — the owner select never offers what it cannot save", () => {
+  const ownerField = (hasOwner: boolean) =>
+    companyEditFields(
+      [{ id: "u1", display_name: "Demo Admin" }],
+      hasOwner,
+    ).find((field) => field.key === "owner_id");
+
+  it("is required while the account has an owner, so no blank option renders", () => {
+    // An optional select renders a blank option; picking it would send a body
+    // the server reads as "leave the owner alone".
+    expect(ownerField(true)?.required).toBe(true);
+  });
+
+  it("stays optional while the account has no owner at all", () => {
+    // There the blank is the truthful current state, not an edit we cannot make.
+    expect(ownerField(false)?.required).toBeFalsy();
+  });
+});
+
+// The filter belongs to the account being read, not to the session: the route
+// swaps one company for another without unmounting, so a reader who checked
+// Changes once met Changes on every account afterwards.
+describe("CompanyScreen — the timeline filter does not follow you", () => {
+  it("returns to Activities when another company is opened", async () => {
+    stubFetch(async (url) =>
+      /\/organizations\/o-\d$/.test(new URL(url).pathname)
+        ? jsonResponse(org)
+        : emptyPage(),
+    );
+    // One QueryClient across both renders, with BOTH records already cached:
+    // that is what keeps the record component mounted across the swap, and a
+    // cold second record would unmount it and reset the filter for free.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["organization", "o-1"], org);
+    client.setQueryData(["organization", "o-2"], { ...org, id: "o-2" });
+    const page = (id: string) => (
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <CompanyScreen id={id} />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = rtlRender(page("o-1"));
+
+    const pressed = (name: string) =>
+      screen.getByRole("button", { name }).getAttribute("aria-pressed");
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+    await waitFor(() => expect(pressed("Changes")).toBe("true"));
+
+    rerender(page("o-2"));
+
+    await waitFor(() => expect(pressed("Activities")).toBe("true"));
   });
 });

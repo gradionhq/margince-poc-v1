@@ -69,35 +69,35 @@ func NewCaptureEnricher(pool *pgxpool.Pool, brain completer, log *slog.Logger) *
 	return &CaptureEnricher{pool: pool, store: people.NewStore(pool), brain: brain, log: log}
 }
 
-// Run enriches up to enrichPassLimit candidates per workspace. A budget
-// stop ends the pass cleanly; per-person model trouble is logged and the
-// person is retried next cycle (their evidence rows are still absent).
-func (e *CaptureEnricher) Run(ctx context.Context) error {
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
+// RunWorkspace enriches up to enrichPassLimit candidates in the workspace
+// already bound in ctx. A budget stop ends the pass cleanly; per-person model
+// trouble is logged and the person is retried next cycle (their evidence rows
+// are still absent).
+func (e *CaptureEnricher) RunWorkspace(ctx context.Context) error {
+	// The store's apply writes audit + outbox rows, so the pass binds
+	// the system actor and an operation scope like every worker job.
+	wsCtx := principal.WithCorrelationID(principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalSystem,
+		ID:   "agent:enrich",
+	}), ids.NewV7())
+	candidates, err := e.store.SignatureCandidates(wsCtx, enrichPassLimit)
 	if err != nil {
 		return err
 	}
-	for _, ws := range workspaces {
-		// The store's apply writes audit + outbox rows, so the pass binds
-		// the system actor and an operation scope like every worker job.
-		wsCtx := principal.WithCorrelationID(principal.WithActor(
-			principal.WithWorkspaceID(ctx, ws), principal.Principal{
-				Type: principal.PrincipalSystem,
-				ID:   "agent:enrich",
-			}), ids.NewV7())
-		candidates, err := e.store.SignatureCandidates(wsCtx, enrichPassLimit)
-		if err != nil {
-			return err
-		}
-		for _, cand := range candidates {
-			if err := e.enrichOne(wsCtx, cand); err != nil {
-				if isBudgetStop(err) {
-					e.log.InfoContext(ctx, "signature enrich: budget exhausted, stopping the pass")
-					return nil
-				}
-				e.log.WarnContext(ctx, "signature enrich: candidate failed",
-					"person", cand.PersonID.String(), "err", err)
+	// A candidate that fails is logged, not returned, and that survives the
+	// fan-out deliberately: the retry is durable in the DATA rather than in
+	// River. A person whose verdict could not be parsed wrote no evidence
+	// rows, so SignatureCandidates re-selects them on the next pass. Failing
+	// the workspace row for one unparseable reply would retry the whole
+	// candidate set to re-reach the same person.
+	for _, cand := range candidates {
+		if err := e.enrichOne(wsCtx, cand); err != nil {
+			if isBudgetStop(err) {
+				e.log.InfoContext(wsCtx, "signature enrich: budget exhausted, stopping the pass")
+				return nil
 			}
+			e.log.WarnContext(wsCtx, "signature enrich: candidate failed",
+				"person", cand.PersonID.String(), "err", err)
 		}
 	}
 	return nil
@@ -268,23 +268,4 @@ func signatureEnrichSchema() json.RawMessage {
 		},
 		"fields",
 	))
-}
-
-// liveWorkspaceIDs lists tenants — the workspace table is the tenant root
-// (outside RLS), the one legitimate cross-tenant read a scheduler makes.
-func liveWorkspaceIDs(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
-	rows, err := pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, fmt.Errorf("compose: listing workspaces: %w", err)
-	}
-	defer rows.Close()
-	var out []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }

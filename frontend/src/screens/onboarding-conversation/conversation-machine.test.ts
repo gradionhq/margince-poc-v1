@@ -16,7 +16,7 @@ import { entityQuestion, run, speakerQuestion } from "./test-fixtures";
 // build-retry semantics live in conversation-correlation.test.ts.
 
 describe("conversationReducer happy path", () => {
-  it("walks the creator journey across all five acts", () => {
+  it("walks the creator journey across all six acts", () => {
     let state = run([{ type: "START", memberPath: false }]);
     expect(state).toMatchObject({ act: "company", phase: "co.intro" });
 
@@ -116,8 +116,20 @@ describe("conversationReducer happy path", () => {
     state = run([{ type: "RESULTS_CONTINUE" }], state);
     expect(state).toMatchObject({ act: "results", phase: "re.recap" });
 
+    // LinkedIn comes between the recap and the inbox: the network is asked
+    // for before the mailbox, because it is what makes a brand-new CRM useful
+    // on day one.
+    state = run([{ type: "RESULTS_CONTINUE" }], state);
+    expect(state).toMatchObject({ act: "linkedin", phase: "ln.why" });
+
     state = run(
-      [{ type: "RESULTS_CONTINUE" }, { type: "CONNECT_DONE" }],
+      [
+        {
+          type: "LINKEDIN_CONNECTED",
+          profile: "https://www.linkedin.com/in/x",
+        },
+        { type: "CONNECT_DONE" },
+      ],
       state,
     );
     expect(state).toMatchObject({ act: "done", phase: "cn.done" });
@@ -274,7 +286,7 @@ describe("restore seeding through START", () => {
 });
 
 describe("member path", () => {
-  it("confirming company jumps straight to consent, skipping voice and results", () => {
+  it("confirming company jumps to LinkedIn, skipping voice and results", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
@@ -282,7 +294,9 @@ describe("member path", () => {
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
-    expect(state).toMatchObject({ act: "connect", phase: "cn.consent" });
+    // A member skips the creator acts but NOT the network ask: a colleague's
+    // LinkedIn is exactly the reach the workspace is missing.
+    expect(state).toMatchObject({ act: "linkedin", phase: "ln.why" });
   });
 
   it("ignores every creator-only event", () => {
@@ -306,7 +320,9 @@ describe("member path", () => {
     for (const event of creatorOnly) {
       expect(conversationReducer(state, event)).toBe(state);
     }
-    const done = conversationReducer(state, { type: "CONNECT_DONE" });
+    const atInbox = conversationReducer(state, { type: "LINKEDIN_SKIPPED" });
+    expect(atInbox).toMatchObject({ act: "connect", phase: "cn.consent" });
+    const done = conversationReducer(atInbox, { type: "CONNECT_DONE" });
     expect(done).toMatchObject({ act: "done", phase: "cn.done" });
   });
 });

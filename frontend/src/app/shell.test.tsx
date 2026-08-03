@@ -12,6 +12,11 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { LocaleProvider } from "../i18n";
+import {
+  clearPendingAuthorize,
+  readPendingAuthorize,
+  stashPendingAuthorize,
+} from "./pendingauthorize";
 import { Shell, TopBar, WorkspaceRail } from "./shell";
 
 function memoryStorage(): Storage {
@@ -42,6 +47,7 @@ afterEach(() => {
   cleanup();
   window.location.hash = "";
   vi.unstubAllGlobals();
+  clearPendingAuthorize();
 });
 
 const render = (ui: ReactNode) => {
@@ -253,6 +259,47 @@ describe("Sign-out (AS-1)", () => {
     await waitFor(() => expect(client.getQueryData(["me"])).toBeUndefined());
   });
 
+  // A pending OAuth authorization lives in sessionStorage, which a sign-out
+  // that leaves the tab open does not touch. It is this human's request: the
+  // next human to sign in here must not be offered a connection they never
+  // started, with their own passports on the consent screen.
+  it("discards a pending connection so the next sign-in is not offered it", async () => {
+    let loggedOut = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input instanceof Request ? input.url : input);
+        const method = input instanceof Request ? input.method : "GET";
+        if (url.endsWith("/v1/auth/logout") && method === "POST") {
+          loggedOut = true;
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith("/v1/me")) {
+          return new Response(null, { status: loggedOut ? 401 : 200 });
+        }
+        return new Response(null, { status: 404 });
+      }),
+    );
+    stashPendingAuthorize({
+      url: "/oauth/authorize?client_id=night&scope=read",
+      clientName: "Claude Code",
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(loggedOut).toBe(true));
+    await waitFor(() => expect(readPendingAuthorize()).toBeNull());
+  });
+
   // CodeRabbit [9]: queryClient.clear() alone empties the cache but does NOT
   // force a mounted ["me"] observer to refetch — a component still watching
   // it can keep rendering its last (stale, authenticated) snapshot. Render
@@ -354,6 +401,15 @@ describe("Shell", () => {
 
   it("renders rail-less for the documented exceptions (AC-shell layout exception)", () => {
     window.location.hash = "#/book";
+    render(<Shell onOpenSearch={() => {}}>{null}</Shell>);
+    expect(screen.queryByRole("navigation")).toBeNull();
+  });
+
+  // The consent screen is where a human hands an agent their own authority —
+  // it must never be framed inside the app's own nav, which is what
+  // RAIL_LESS_SCREENS carrying "oauth-consent" is for.
+  it("renders rail-less for the OAuth consent screen", () => {
+    window.location.hash = "#/oauth-consent";
     render(<Shell onOpenSearch={() => {}}>{null}</Shell>);
     expect(screen.queryByRole("navigation")).toBeNull();
   });

@@ -54,7 +54,12 @@ type RelationKey =
   | "partner_of.owner"
   | "referred_by.counterparty"
   | "referred_by.owner"
-  | "co_sell_with";
+  | "co_sell_with"
+  // Our side of the account: the owner, and teammates with recorded
+  // interactions with a contact. These name a workspace user, not a record at
+  // the account, and read from the user's end rather than the account's.
+  | "owns"
+  | "in_contact_with";
 
 /** useOrganizationGraph reads the account's one-hop connections. */
 export function useOrganizationGraph(id: string) {
@@ -291,28 +296,58 @@ function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
       return `${edge.kind}.${pointsAtNode ? "counterparty" : "owner"}`;
     case "co_sell_with":
       return edge.kind;
+    // A user edge describes the user it starts at, so it labels the FROM end —
+    // the mirror of every account-side edge below.
+    case "owns":
+    case "in_contact_with":
+      return pointsAtNode ? null : edge.kind;
     default:
       return pointsAtNode ? edge.kind : null;
   }
 }
 
 /**
- * NodeList is the card's accessible content: every node the diagram draws, in
- * the same order, each reachable by keyboard through EntityRef's own link and
- * each naming how it attaches to the account.
+ * contactEdges are this user's in_contact_with edges — one per contact they
+ * have exchanged messages with.
  *
- * The root is left out — it is the record the reader is already on, and a
- * link back to the current page is a dead end that costs a tab stop.
+ * A colleague's warmth is PER CONTACT, not per account, so a user row can
+ * carry several. The strongest is shown, because the question the card
+ * answers is "how good a route in is this person", and that is their best
+ * relationship rather than their average one.
  */
-function NodeList({ graph }: Readonly<{ graph: Graph }>) {
+function strongestContactEdge(
+  graph: Graph,
+  userId: string,
+): GraphEdge | undefined {
+  let best: GraphEdge | undefined;
+  for (const edge of graph.edges) {
+    if (edge.kind !== "in_contact_with" || edge.from !== userId) {
+      continue;
+    }
+    // A null score is the "no signal yet" band, which loses to any real one
+    // but still beats having no edge at all.
+    if (best === undefined || (edge.strength ?? -1) > (best.strength ?? -1)) {
+      best = edge;
+    }
+  }
+  return best;
+}
+
+/**
+ * NodeList renders one group of connections, each row reachable by keyboard
+ * through EntityRef's own link and naming how it attaches to the account.
+ */
+function NodeList({
+  nodes,
+  graph,
+}: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
   const t = useT();
-  const neighbours = graph.nodes.filter((node) => !node.root);
-  if (neighbours.length === 0) {
+  if (nodes.length === 0) {
     return <p className="co-empty">{t("co.connections.empty")}</p>;
   }
   return (
     <ul className="co-list cx-nodes">
-      {neighbours.map((node) => (
+      {nodes.map((node) => (
         <li key={node.id} className="co-row">
           <span className="cx-node-name avatar-row">
             {node.kind === "organization" && (
@@ -339,11 +374,62 @@ function NodeList({ graph }: Readonly<{ graph: Graph }>) {
                 {node.strength}
               </Badge>
             )}
+            {node.kind === "user" && (
+              <ContactStrength graph={graph} userId={node.id} />
+            )}
           </span>
         </li>
       ))}
     </ul>
   );
+}
+
+/**
+ * ContactStrength shows how warm this colleague's own relationship with the
+ * account's people is — the per-user score (PO-F-3b), which is a different
+ * number from the contact's workspace-wide strength shown on contact rows.
+ *
+ * The two are deliberately not comparable, so they are never rendered as one
+ * figure: a contact can be warm to the company while the colleague standing
+ * next to them has barely met them, and that gap is exactly what a rep asking
+ * "who should make the introduction" needs to see.
+ *
+ * The `none` band renders as words, not a zero. "We have never spoken" and "we
+ * spoke and it went cold" are different facts about an account, and a zero
+ * would show them identically — it would read as a relationship that decayed
+ * when none ever existed.
+ */
+function ContactStrength({
+  graph,
+  userId,
+}: Readonly<{ graph: Graph; userId: string }>) {
+  const t = useT();
+  const edge = strongestContactEdge(graph, userId);
+  if (edge === undefined) {
+    return null;
+  }
+  if (edge.strength == null || edge.strength_bucket === "none") {
+    return <span className="cx-relation">{t("co.connections.noSignal")}</span>;
+  }
+  return (
+    <Badge tone={edgeStrengthTone(edge.strength_bucket)}>{edge.strength}</Badge>
+  );
+}
+
+// edgeStrengthTone maps the interaction edge's band onto a badge tone. It is
+// its own function rather than a reuse of strengthTone: the node band and the
+// edge band are separate enums on the wire, and collapsing them would make a
+// future divergence render silently wrong instead of failing to compile.
+function edgeStrengthTone(
+  bucket: GraphEdge["strength_bucket"],
+): "success" | "accent" | undefined {
+  if (bucket === "strong") {
+    return "success";
+  }
+  if (bucket === "moderate") {
+    return "accent";
+  }
+  return undefined;
 }
 
 // strengthTone maps the server's band onto a badge tone. The band is the
@@ -391,6 +477,51 @@ function Withheld({ groups }: Readonly<{ groups: readonly Group[] }>) {
  * the 360's sections get from their payload: a failed read is unavailable, and
  * only a successful one may say the account has no connections.
  */
+/**
+ * ConnectionsBody is what the card and the expanded view both show, so the two
+ * cannot drift into saying different things about one payload.
+ *
+ * The connections split by SIDE, because the two answer different questions:
+ * who here already deals with this account, and who at the account there is to
+ * deal with. Rolled into one list, the second buried the first — which is what
+ * made the card read as a staff directory.
+ */
+function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
+  const t = useT();
+  const neighbours = graph.nodes.filter((node) => !node.root);
+  const ourSide = neighbours.filter((node) => node.kind === "user");
+  const theirSide = neighbours.filter((node) => node.kind !== "user");
+  return (
+    <>
+      {/* Absent, not empty, when the server sent no user nodes: an older
+          server that cannot answer who on our side is connected must not be
+          rendered as an account nobody here knows. */}
+      {ourSide.length > 0 && (
+        <section className="co-part" aria-label={t("co.connections.ourSide")}>
+          <h3 className="co-part-label">{t("co.connections.ourSide")}</h3>
+          <NodeList nodes={ourSide} graph={graph} />
+        </section>
+      )}
+      {/* Absent when our side already said something and the account side has
+          nothing: "Lars owns this account" followed by "no connections" reads
+          as the card contradicting itself. A wholly empty graph keeps the
+          group, because there the empty state IS the answer. */}
+      {(theirSide.length > 0 || ourSide.length === 0) && (
+        <section className="co-part" aria-label={t("co.connections.theirSide")}>
+          <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
+          <NodeList nodes={theirSide} graph={graph} />
+        </section>
+      )}
+      <Withheld groups={graph.groups_omitted} />
+      {graph.dropped_count > 0 && (
+        <p className="co-row-meta">
+          {t("co.connections.more", { count: graph.dropped_count })}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -410,14 +541,11 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
       )}
       {readable && (
         <>
-          <EgoDiagram graph={readable} />
-          <NodeList graph={readable} />
-          <Withheld groups={readable.groups_omitted} />
-          {readable.dropped_count > 0 && (
-            <p className="co-row-meta">
-              {t("co.connections.more", { count: readable.dropped_count })}
-            </p>
-          )}
+          {/* The diagram lives in the expanded view only. In a rail card it
+              took half the height to say what the list under it already said,
+              and being aria-hidden decoration it said it to some readers
+              only. */}
+          <ConnectionsBody graph={readable} />
           <p className="cx-actions">
             <Button small onClick={() => setExpanded(true)}>
               {t("co.connections.expand")}
@@ -429,19 +557,17 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
             labelledBy="cx-modal-title"
             size="wide"
           >
-            <h2 id="cx-modal-title" className="t-h2">
+            <h2 id="cx-modal-title" className="t-h2 modal-title">
               {t("co.connections.title")}
             </h2>
             <div className="cx-expanded">
               <EgoDiagram graph={readable} />
-              <NodeList graph={readable} />
+              {/* One flex child, so the two groups stack inside it instead of
+                  becoming two more columns beside the diagram. */}
+              <div className="cx-expanded-list">
+                <ConnectionsBody graph={readable} />
+              </div>
             </div>
-            <Withheld groups={readable.groups_omitted} />
-            {readable.dropped_count > 0 && (
-              <p className="co-row-meta">
-                {t("co.connections.more", { count: readable.dropped_count })}
-              </p>
-            )}
             <p className="cx-actions">
               <Button small onClick={() => setExpanded(false)}>
                 {t("co.connections.collapse")}

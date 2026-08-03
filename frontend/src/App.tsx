@@ -32,6 +32,7 @@ import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
+import { OAuthConsent } from "./screens/oauthconsent";
 import { OfferScreen } from "./screens/offers";
 import { OfferTemplatesScreen } from "./screens/offertemplates";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
@@ -134,6 +135,10 @@ function ScreenView({
       return id ? <OfferScreen id={id} /> : <PendingScreen />;
     case "offer-templates":
       return <OfferTemplatesScreen />;
+    // reached only via the server's redirect off GET /oauth/authorize
+    // (#/oauth-consent?…&consent=<nonce>) — never a rail destination.
+    case "oauth-consent":
+      return <OAuthConsent />;
     case "automations":
       return <AutomationsScreen />;
     // also reached from Settings, not the rail (AC-custom-fields admin door)
@@ -162,6 +167,19 @@ function ScreenView({
 // The anonymous public surfaces render without a session — their slug in the
 // path is the whole address (security: [] in the contract).
 const PUBLIC_SCREENS = new Set(["book", "preferences"]);
+
+// Screens the onboarding gate must never navigate away from, beyond
+// onboarding itself. The OAuth consent screen carries a single-use,
+// cookie-bound nonce in the hash (armed by GET /oauth/authorize's 302); the
+// gate's navigate() rewrites location.hash, which would destroy that nonce
+// with nothing able to recover it — unlike an ordinary screen, there is no
+// route back once this one is skipped mid-flight. This is a narrow carve-out
+// for a request in flight, not a relaxation of the gate for the screen in
+// general.
+const ONBOARDING_GATE_EXEMPT_SCREENS: ReadonlySet<string> = new Set([
+  "onboarding",
+  "oauth-consent",
+]);
 
 export function App() {
   const route = useRoute();
@@ -219,14 +237,15 @@ function AuthedApp({
 
   // route.screen is a dependency on purpose: the gate must hold on every
   // navigation, not only on first load — otherwise the palette or a typed hash
-  // walks straight past onboarding. The onboarding screen itself is exempt or
-  // this effect would fight its own destination.
+  // walks straight past onboarding. ONBOARDING_GATE_EXEMPT_SCREENS is exempt
+  // or this effect would fight its own destination (onboarding) or destroy a
+  // request that cannot survive the rewrite (oauth-consent).
   useEffect(() => {
     if (
       authed &&
       company.isSuccess &&
       !described &&
-      route.screen !== "onboarding"
+      !ONBOARDING_GATE_EXEMPT_SCREENS.has(route.screen)
     ) {
       navigate({ screen: "onboarding", id: "company" });
     }

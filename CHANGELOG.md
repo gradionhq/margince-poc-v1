@@ -31,9 +31,25 @@ numbers appear here when releases start.
   and hosted A2 transport (OAuth), the 🟢/🟡 autonomy tiers enforced
   below the transport on MCP and REST alike, and the approval engine
   (stage → human decision → single-use redemption).
+- **Consent lends a passport**: `GET /oauth/authorize` redirects to an SPA
+  consent screen where the human selects one of their own existing agent
+  passports; the connection receives exactly that passport's scopes,
+  carried by a *new* grant-bound passport, so revoking a connection never
+  touches the human's own credential. Deny
+  answers the client `access_denied`. A human with no passport is guided
+  to mint one and brought back to finish connecting, which means
+  `claude mcp add` no longer completes unattended for a fresh account.
+  The lend is recorded in the audit trail. Deactivating a member ends
+  their consents that no client redeemed yet, alongside the connections
+  that already exist — so reactivating them later cannot hand out a
+  connection on authority an admin took away.
 - **AI surfaces**: model routing (`ai-routing.yaml`, Anthropic BYOK /
   Ollama / vLLM / offline fake), the Surface-B runner + scheduler, search
   (FTS + pgvector hybrid), capture connector seam, cold-start read-back.
+- **Embedding drift self-heal** (ADR-0069 §3a): a periodic worker sweep
+  re-embeds entities whose embed event the at-least-once bus lost, with
+  no operator confirm; the preview → confirm reindex remains solely for
+  a changed embed binding, and the ops banner fires only on that case.
 - **GDPR arm**: per-purpose consent with default-deny suppression,
   retention evaluator with DE (GoBD) statutory floors, legal hold,
   Art. 17 erasure with re-capture suppression, Art. 15 SAR assembly.
@@ -51,6 +67,12 @@ numbers appear here when releases start.
   the caller may not read is omitted and named in `sections_omitted`,
   never returned empty. `POST /organizations/{id}/view-ack` is the
   explicit, human-only, monotonic visit baseline those counts run against.
+- **Company page verbs**: the record page opens a deal on the company it is
+  showing (open stages only, the organization implied rather than asked for),
+  and applies a tag or a list membership by typed name, creating either when
+  the name is new. Each verb renders only on a section the caller's grants let
+  them read, and an already-applied tag or membership is treated as the asked-
+  for state rather than reported as a collision.
 - **Company connections**: `GET /organizations/{id}/graph` serves the
   account's one-hop neighbourhood as nodes and edges the client lays out —
   its contacts by employment (weighted by §4 strength), its open deals and

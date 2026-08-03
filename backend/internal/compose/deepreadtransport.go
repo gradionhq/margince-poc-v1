@@ -106,7 +106,7 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 	read, joined, err := e.people.StartSiteReadQueued(r.Context(), orgID, seedURL, requestedBy(r.Context()),
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
-				WorkspaceID:    storekit.MustWorkspace(ctx),
+				Workspace:      storekit.MustWorkspace(ctx),
 				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
 				SeedURL:        read.SeedURL,

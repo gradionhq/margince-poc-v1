@@ -8,6 +8,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
 import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
+import type { TimelineEntry } from "../design-system/composed";
 import {
   EvidenceChip,
   FieldDiff,
@@ -18,7 +19,12 @@ import {
 } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
-import { LoadMoreButton, problemMessage, QueryStates } from "./common";
+import {
+  LoadMoreButton,
+  problemMessage,
+  QueryStates,
+  useViewerId,
+} from "./common";
 import {
   type ActorFacet,
   distinctFields,
@@ -69,10 +75,23 @@ export function useRecordHistory(
 // it serves AuditHistoryEntry and FieldHistoryEntry alike.
 function provenanceOfEntry(
   entry: Pick<AuditHistoryEntry, "actor_type" | "actor_id">,
+  viewerUserId?: string,
 ): Provenance {
-  return entry.actor_type === "human"
-    ? { kind: "human" }
-    : { kind: "agent", agent: entry.actor_id };
+  if (entry.actor_type !== "human") {
+    return { kind: "agent", agent: entry.actor_id };
+  }
+  // The spine stores the principal id, which for a human is `human:<uuid>`
+  // (principal.Principal.ID), while the session reports the bare user id.
+  // Compared as-is the two never match, and every row a reader wrote came
+  // back attributed to a teammate.
+  const userId = entry.actor_id.startsWith("human:")
+    ? entry.actor_id.slice("human:".length)
+    : entry.actor_id;
+  return {
+    kind: "human",
+    self: Boolean(viewerUserId) && userId === viewerUserId,
+    userId,
+  };
 }
 
 function HistoryEntryRow({
@@ -83,6 +102,7 @@ function HistoryEntryRow({
   locale: ReturnType<typeof useLocale>["locale"];
 }>) {
   const t = useT();
+  const viewerId = useViewerId();
   return (
     <li>
       <span className="tl-body">
@@ -99,7 +119,7 @@ function HistoryEntryRow({
           <span>
             {formatDateTime(entry.occurred_at, locale, "Europe/Berlin")}
           </span>
-          <ProvenanceTag provenance={provenanceOfEntry(entry)} />
+          <ProvenanceTag provenance={provenanceOfEntry(entry, viewerId)} />
         </span>
       </span>
     </li>
@@ -155,11 +175,20 @@ const ACTOR_FACETS = ["all", "human", "agent"] as const;
 export function useFieldHistory(
   kind: EntityKind,
   id: string,
-  opts: Readonly<{ field?: string; actorType?: "human" | "agent" }>,
+  opts: Readonly<{
+    field?: string;
+    actorType?: "human" | "agent";
+    // Off by default on a surface that only shows changes on request — the
+    // record page's timeline filter — so opening an account does not spend a
+    // read nobody asked for. Omitted means enabled, for the callers that ARE
+    // the change view.
+    enabled?: boolean;
+  }>,
 ): UseInfiniteQueryResult<InfiniteData<FieldHistoryListResponse>> {
-  const { field, actorType } = opts;
+  const { field, actorType, enabled } = opts;
   return useInfiniteQuery({
     queryKey: ["field-history", kind, id, field ?? "", actorType ?? ""],
+    enabled: enabled ?? true,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/field-history", {
@@ -188,13 +217,28 @@ export function useFieldHistory(
 // settings.tsx's AuditLogRow), so no actor ever renders a blank attribution;
 // the passport/evidence chips layer on top only when the change carries them.
 function ChangeWho({ change }: Readonly<{ change: FieldHistoryEntry }>) {
-  const evidence = toEvidence(change.evidence);
+  const viewerId = useViewerId();
   return (
     <span className="who">
-      <ProvenanceTag provenance={provenanceOfEntry(change)} />
+      <ProvenanceTag provenance={provenanceOfEntry(change, viewerId)} />
+      <ChangeGrounding change={change} />
+    </span>
+  );
+}
+
+// What makes an agent's change checkable: the passport it acted under and the
+// evidence it cited. Both surfaces that render a change row use this one, so
+// neither can quietly stop showing them.
+function ChangeGrounding({ change }: Readonly<{ change: FieldHistoryEntry }>) {
+  const evidence = toEvidence(change.evidence);
+  if (!change.passport_id && !evidence) {
+    return null;
+  }
+  return (
+    <>
       {change.passport_id && <PassportChip id={change.passport_id} />}
       {evidence && <EvidenceChip evidence={evidence} />}
-    </span>
+    </>
   );
 }
 
@@ -362,6 +406,42 @@ export function FieldHistoryTimeline({
       <QueryStates query={query}>{body}</QueryStates>
     </section>
   );
+}
+
+// Field changes as timeline rows.
+//
+// A record page has ONE chronology. What was said to an account and what was
+// changed about it were two separate screens, and a reader who wanted them in
+// order had to interleave two lists by hand. These rows carry the same shape
+// as the activity rows they sit beside, so the merge is a sort, not a second
+// rendering.
+export function changeTimeline(
+  changes: FieldHistoryEntry[],
+  label: (field: string) => string,
+  viewerUserId?: string,
+): TimelineEntry[] {
+  return changes.map((change) => ({
+    // `id` is the AUDIT row's id, and one audit row projects one entry per
+    // field it touched — so it repeats across a flat list and only the pair
+    // identifies a row. The per-field view never saw this: its groups hold
+    // one field each, where the audit id alone happens to be unique.
+    id: `change:${change.id}:${change.field}`,
+    kind: "change",
+    title: label(change.field),
+    atIso: change.changed_at,
+    provenance: provenanceOfEntry(change, viewerUserId),
+    // The grounding travels with the row. An agent's change is only checkable
+    // through the passport that made it and the evidence it cited, and moving
+    // these rows into the account timeline had left both behind in the
+    // per-field view — the reader kept the claim and lost the proof.
+    via: <ChangeGrounding change={change} />,
+    detail: (
+      <FieldDiff
+        oldValue={change.old_value ?? null}
+        newValue={change.new_value ?? null}
+      />
+    ),
+  }));
 }
 
 // The record-level entry point (B-EP09.x): a SegmentedControl toggling

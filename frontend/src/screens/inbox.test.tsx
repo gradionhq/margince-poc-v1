@@ -134,7 +134,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", inboxBackend(calls));
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     expect(screen.getByText("agent: runner")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
@@ -146,7 +146,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", inboxBackend(calls));
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
     const subject = screen.getByRole("textbox", { name: "subject" });
     await userEvent.clear(subject);
@@ -175,7 +175,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
       ]),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     // send_email is catalogued "auto_execute" — a hardcoded
     // "confirm" dot would render "confirm-first" here instead.
     await waitFor(() =>
@@ -197,7 +197,7 @@ describe("InboxScreen (B-EP09.12a)", () => {
       ]),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await waitFor(() =>
       expect(screen.getByText("via send_email")).toBeTruthy(),
     );
@@ -210,7 +210,7 @@ describe("InboxScreen — reject with reason (AC-3)", () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal("fetch", inboxBackend(calls));
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     // The row's Reject opens the confirm modal (no POST yet).
     await userEvent.click(screen.getByRole("button", { name: "Reject" }));
     const dialog = screen.getByRole("dialog");
@@ -366,7 +366,7 @@ describe("InboxScreen — detail modal (AC-2)", () => {
       }),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(
       screen.getByRole("button", { name: "Approval detail" }),
     );
@@ -415,10 +415,10 @@ describe("InboxScreen — approval token (AC-4)", () => {
       }),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     // The approved row leaves the pending list…
-    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Send an email")).toBeNull());
     // …but the once-shown token + Copy stay visible at screen level.
     expect(screen.getByText("example-approval-token")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
@@ -456,7 +456,7 @@ describe("InboxScreen — version skew (AC-5)", () => {
       }),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
       expect(
@@ -513,13 +513,13 @@ describe("InboxScreen — already decided (AC-6)", () => {
       }),
     );
     render(<InboxScreen />);
-    await waitFor(() => expect(screen.getByText("send_email")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Send an email")).toBeTruthy());
     const pendingBefore = listCalls.filter(
       (u) => statusOf(u) === "pending",
     ).length;
     await userEvent.click(screen.getByRole("button", { name: "Accept" }));
     // Stale row leaves…
-    await waitFor(() => expect(screen.queryByText("send_email")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Send an email")).toBeNull());
     // …the note remains, and it is NOT the version-skew branch.
     expect(
       screen.getByText("Already decided — nothing left to do here."),
@@ -651,7 +651,7 @@ describe("HomeScreen (B-EP09.12b)", () => {
     await waitFor(() =>
       expect(screen.getByText("Waiting on you")).toBeTruthy(),
     );
-    expect(screen.getByText("send_email")).toBeTruthy();
+    expect(screen.getByText("Send an email")).toBeTruthy();
     expect(screen.getByText("Nothing sent yet")).toBeTruthy();
   });
 

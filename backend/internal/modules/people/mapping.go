@@ -19,10 +19,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
-// RequiredFieldError maps to 422 on both surfaces.
+// RequiredFieldError maps to 422 on both surfaces — via FieldFault, so the
+// two surfaces read one mapping rather than each keeping their own.
+// codeRequired is the contract's machine code for a missing required field —
+// one spelling across every refusal in this module that means "you left it out".
+const codeRequired = "required"
+
 type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
+
+// FieldFault carries the verdict to every surface: the MCP tool surface never runs
+// this module's HTTP mapper, so a refusal that lived only there read as a server fault.
+func (e *RequiredFieldError) FieldFault() (field, code, message string) {
+	return e.Field, codeRequired, e.Error()
+}
 
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed store surface (the route already
@@ -44,6 +55,9 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 func personCreateInput(req crmcontracts.CreatePersonRequest) (CreatePersonInput, error) {
 	if req.FullName == "" {
 		return CreatePersonInput{}, &RequiredFieldError{Field: "full_name"}
+	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreatePersonInput{}, err
 	}
 	in := CreatePersonInput{
 		FullName:  req.FullName,
@@ -114,6 +128,9 @@ func organizationCreateInput(req crmcontracts.CreateOrganizationRequest) (Create
 	if req.DisplayName == "" {
 		return CreateOrganizationInput{}, &RequiredFieldError{Field: "display_name"}
 	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateOrganizationInput{}, err
+	}
 	in := CreateOrganizationInput{
 		DisplayName:  req.DisplayName,
 		LegalName:    req.LegalName,
@@ -167,14 +184,6 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 	return in
 }
 
-// ReservedSourceSystemError refuses a client write into the importer's
-// source-system namespace. Maps to 422.
-type ReservedSourceSystemError struct{ Value string }
-
-func (e *ReservedSourceSystemError) Error() string {
-	return "source_system " + e.Value + " is reserved for imports"
-}
-
 // leadCreateInput maps the create wire onto the store input, refusing a
 // client write into the importer's source-system namespace: the lead
 // store keys its idempotent replay on (source_system, source_id), so a
@@ -183,8 +192,13 @@ func (e *ReservedSourceSystemError) Error() string {
 // already existing — suppressing the real record. The importer writes
 // that namespace from inside the process, never through this mapper.
 func leadCreateInput(req crmcontracts.CreateLeadRequest) (CreateLeadInput, error) {
-	if req.SourceSystem != nil && provenance.ReservedSourceSystem(*req.SourceSystem) {
-		return CreateLeadInput{}, &ReservedSourceSystemError{Value: *req.SourceSystem}
+	if req.SourceSystem != nil {
+		if err := provenance.Refuse("source_system", *req.SourceSystem); err != nil {
+			return CreateLeadInput{}, err
+		}
+	}
+	if err := provenance.Refuse("source", req.Source); err != nil {
+		return CreateLeadInput{}, err
 	}
 	in := CreateLeadInput{
 		FullName:        req.FullName,
