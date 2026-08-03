@@ -182,10 +182,14 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		if out, err = upsertPartnerRow(ctx, tx, in, fit, capturedBy); err != nil {
 			return err
 		}
-		// Promotion is an org fact: classification flips with the row.
-		if _, err := tx.Exec(ctx,
-			`UPDATE organization SET classification = 'partner' WHERE id = $1 AND classification <> 'partner'`,
-			in.OrganizationID); err != nil {
+		// Promotion is an org fact, and it is the invariant's other half: an org
+		// IS a partner iff it has this row AND a live 'partner' relationship
+		// type (ADR-0079 amending ADR-0032 §Decision 2). Both are written in
+		// this one transaction, so the two can never disagree — the
+		// classification flip this replaces did the same job for the same
+		// reason, against a column that could hold only one answer.
+		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), in.OrganizationID,
+			relationshipTypePartner, "system", capturedBy); err != nil {
 			return err
 		}
 		// Per-field keys, matching the upsert request's field names: the

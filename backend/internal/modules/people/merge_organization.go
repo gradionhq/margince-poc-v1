@@ -129,20 +129,33 @@ func relinkOrgAssociations(ctx context.Context, tx pgx.Tx, sourceID, targetID id
 	if _, err := relinkLinkRows(ctx, tx, "organization", sourceID.UUID, targetID.UUID); err != nil {
 		return false, fmt.Errorf("relink activity/list/tag rows: %w", err)
 	}
+	// The survivor ends up with the UNION of both companies' relationship
+	// types. These are child ROWS, so survivorship on the organization row
+	// cannot move them — they have to be re-homed here, beside the domains.
+	if err := moveOrgRelationshipTypes(ctx, tx, sourceID, targetID); err != nil {
+		return false, err
+	}
 	return absorbOrgReferences(ctx, tx, sourceID, targetID)
 }
 
 // fillOrgSurvivorship folds the merged-away org's fields into the survivor
-// where the survivor is blank and, when the survivor gained the 1:1 partner
-// extension, flips its classification to 'partner' (the A41 invariant:
-// classification='partner' iff a partner row exists). It returns the
+// where the survivor is blank, and — when the survivor gained the 1:1 partner
+// extension — asserts the 'partner' relationship type that is the other half
+// of the invariant (ADR-0079 amending ADR-0032 §Decision 2). It returns the
 // applied after-image for the merge audit.
+//
+// A merged-away partner would otherwise leave the survivor holding the
+// extension row with nothing saying it is a partner, which is exactly the
+// half-state the enforced invariant exists to make impossible.
 func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.Organization, targetIsPartner bool, tgtLock storekit.RowLock) (map[string]any, error) {
 	p := storekit.NewPatch()
 	fillString(p, fieldLegalName, tgt.LegalName, src.LegalName)
 	fillString(p, "industry", tgt.Industry, src.Industry)
-	if targetIsPartner && (tgt.Classification == nil || *tgt.Classification != crmcontracts.OrganizationClassificationPartner) {
-		p.Set("classification", tgt.Classification, "partner")
+	if targetIsPartner {
+		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), ids.OrganizationID{UUID: ids.UUID(tgt.Id)},
+			relationshipTypePartner, "system", "system:merge"); err != nil {
+			return nil, err
+		}
 	}
 	if !p.Empty() {
 		if err := p.ApplyLocked(ctx, tx, tgtLock); err != nil {
