@@ -35,7 +35,12 @@ var ErrIdentityDrift = errors.New("search: embedder identity drifted from the jo
 // Every UpsertEmbedding error propagates as-is (fail-loud): the job row
 // carrying this workspace fails and is retried, rather than this routine
 // silently leaving a partially re-embedded corpus behind a green pass.
-func (s *Store) ReembedWorkspace(ctx context.Context, wsID ids.WorkspaceID, embedder Embedder, argsIdentity string) error {
+//
+// It also reports its own progress onto run's marker as it goes, because a pass
+// this long is otherwise indistinguishable from one that died: nothing else
+// moves the marker between the fan-out and the workspace finishing, and
+// ReembedClaim.StealAfter reads exactly that gap.
+func (s *Store) ReembedWorkspace(ctx context.Context, run ids.UUID, wsID ids.WorkspaceID, embedder Embedder, argsIdentity string) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
 	// embedder compose hands this call is always the CURRENT one, so a
@@ -50,6 +55,7 @@ func (s *Store) ReembedWorkspace(ctx context.Context, wsID ids.WorkspaceID, embe
 	// workspace, not one caller's row scope — the same posture as
 	// EmbedGen (embedgen.go:51-56) and pendingStats.
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
+	embedded := 0
 	for entityType, src := range pendingSources {
 		items, err := s.liveEntitiesOf(wsCtx, entityType, src)
 		if err != nil {
@@ -59,10 +65,26 @@ func (s *Store) ReembedWorkspace(ctx context.Context, wsID ids.WorkspaceID, embe
 			if _, err := s.UpsertEmbedding(wsCtx, entityType, item.id, item.text, embedder); err != nil {
 				return fmt.Errorf("search: reembedding %s %s: %w", entityType, item.id, err)
 			}
+			embedded++
+			if embedded%reembedProgressEvery == 0 {
+				if err := s.noteReembedProgress(ctx, run); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
 }
+
+// reembedProgressEvery is how many entities a pass may cover before it says so
+// on the marker. Ten, because ai.requestTimeout caps a single embed at 300s: ten
+// of them is fifty minutes even at that ceiling, so a run doing real work always
+// reports inside any steal window set above it, and a marker that has gone an
+// hour unmoved has genuinely covered fewer than ten entities in that hour.
+//
+// The count only paces the CHECK — noteReembedProgress writes nothing unless the
+// marker has actually gone stale — so a small number here is cheap.
+const reembedProgressEvery = 10
 
 // liveEntity is one row selected for re-embedding: an id plus the exact
 // source text pendingSources declares for its entity type.

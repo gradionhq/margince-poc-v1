@@ -18,9 +18,9 @@ package compose
 // owns the transaction, the callback enqueues the River dispatcher inside
 // it — a rolled-back enqueue always undoes the claim. The CAS itself is
 // what tells a fresh claim (202) apart from a run already holding the
-// marker (409 reindex_running): the run's target identity IS the claim,
-// and it outlives the dispatcher row, which completes as soon as it has
-// fanned the fleet out (jobs_embedreindex.go).
+// marker (409 reindex_running): the run id minted here IS the claim, and
+// it outlives every job row the run produces — the dispatcher completes as
+// soon as it has fanned the fleet out (jobs_embedreindex.go).
 
 import (
 	"context"
@@ -49,17 +49,31 @@ import (
 // carries while a fleet-wide re-embed is in flight (binding.go's own CAS).
 const reembeddingStatus = "reembedding"
 
-// reembedStaleAfter is how long a run may leave the marker untouched before a
-// FORCED confirm is allowed to take it back. Every child bumps updated_at as it
-// finishes, so a run that has not moved this long is a run nothing is finishing.
+// reembedStaleAfter is how long a run may leave its marker unmoved before a
+// FORCED confirm is allowed to take it back.
 //
-// It matches River's own RescueAfter, which is what makes the number principled
-// rather than picked: past that window River has itself already rescued or
-// discarded whatever was running, so a marker still unmoved is being held by
-// nothing. Stealing is safe by construction rather than by timing — the stolen
-// run's stragglers carry a run id the marker no longer names, so they act on
-// nothing — and this bound only decides how long a human waits.
+// A run that is working says so: search.ReembedWorkspace refreshes the marker as
+// it embeds, and never lets it read staler than search.ReembedProgressStaleness.
+// So an hour of no movement is not "this run is slow" — a workspace pass is
+// allowed to take hours and must not be interrupted — it is "this run has
+// covered fewer than ten entities in an hour", which is a run nothing is
+// working. The margin over the refresh floor is what leaves a healthy run's
+// timing irrelevant, so the number is chosen against that floor and nothing else.
+//
+// Something has to answer this, because River will not: a workspace job declares
+// Timeout() == -1, and the rescuer ignores a stuck job with a negative timeout at
+// any age, so a child whose process died leaves a running row that is never
+// retried or discarded and a workspace that never leaves the run's pending set.
+//
+// Stealing is safe by construction rather than by timing: the dispossessed run's
+// children carry a run id the marker no longer names, so whatever they go on to
+// do, they cannot touch the new run's set (search/binding.go's own fence).
 const reembedStaleAfter = time.Hour
+
+// The window has to clear the refresh floor, or a run refreshing its marker
+// exactly on time would still read stale and be dispossessed while working. A
+// negative difference does not convert to uint, so this fails to compile.
+const _ = uint(reembedStaleAfter - search.ReembedProgressStaleness)
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
 // needs: the insert rides the claim's own transaction, so a claim that
@@ -219,11 +233,14 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 	// children cancel on the drift they now see (search.ErrIdentityDrift →
 	// river.JobCancel), which releases the marker for this confirm to retake.
 	//
-	// force carries a second meaning here, and it is the recovery path: it takes
-	// the marker off a run that has stopped moving. A run whose last child was
-	// killed outright never reaches the code that would release it — River
-	// discards a job rescued past its attempts without running it — and without
-	// this the marker would be held forever with no job left to explain it.
+	// force carries a SECOND meaning here, deliberately and not by accident: as
+	// well as rebuilding a store that is already current, it takes the marker
+	// off a run that has stopped moving. The contract has one flag and adding a
+	// field is a contract change this work is scoped out of, so the two travel
+	// together — which is safe only because a run that is working keeps its
+	// marker fresh (search.ReembedWorkspace) and so is never stale enough to
+	// dispossess. An operator forcing a routine rebuild cannot take the marker
+	// off a live run, however long that run has been going.
 	claim := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: configured}
 	if force {
 		claim.StealAfter = reembedStaleAfter

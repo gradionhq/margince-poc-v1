@@ -14,11 +14,13 @@ package integration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -133,6 +135,62 @@ func TestASecondFanOutOfTheSameRunIsRefused(t *testing.T) {
 	}
 	if reFannedOut {
 		t.Fatal("a refused seed must not fan the fleet out a second time")
+	}
+}
+
+// TestAHealthyRunIsNotStealableHoweverLongItTakes is the other half of the
+// steal, and the half that is easy to lose. A workspace pass is allowed to run
+// for hours — its worker declares Timeout() == -1 precisely so a large corpus is
+// not cut off mid-pass — and nothing else moves the marker between the fan-out
+// and that workspace finishing. So without the pass reporting its own progress,
+// "no movement for an hour" would mean "one big tenant is still going", and a
+// routine forced rebuild would dispossess a run that is working perfectly:
+// two children re-embedding the same corpus at once, doubling model spend on the
+// largest tenant in the fleet.
+func TestAHealthyRunIsNotStealableHoweverLongItTakes(t *testing.T) {
+	e := setupSearch(t)
+	ctx := context.Background()
+	fake := ai.NewFakeClient()
+	embedder := fakeEmbedderNamed(t, fake, "model-slow-but-healthy")
+	identity, _ := embedder.EmbedIdentity()
+	if err := e.store.SeedBinding(ctx, identity); err != nil {
+		t.Fatalf("SeedBinding: %v", err)
+	}
+	ws := ids.From[ids.WorkspaceKind](e.WS)
+
+	working := claimOf(identity)
+	if err := e.store.ClaimAndEnqueueReembedding(ctx, working, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("claiming the run: %v", err)
+	}
+	if err := e.store.SeedReembeddingFleet(ctx, working.Run, []ids.WorkspaceID{ws}, func(pgx.Tx) error { return nil }); err != nil {
+		t.Fatalf("seeding the run: %v", err)
+	}
+
+	// Enough entities that the pass reports at least once part-way through. A
+	// workspace smaller than that reporting interval finishes and reports by
+	// finishing, which is the case the wedged-run scenario below covers.
+	for i := range 25 {
+		e.seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
+			fmt.Sprintf("Slow Corpus Person %d", i))
+	}
+
+	// The run has been going long enough to look abandoned, and its one
+	// workspace has not finished — the exact shape a steal must NOT take. Aged
+	// rather than waited out: a suite that waited an hour is a suite nobody runs.
+	if _, err := e.owner.Exec(ctx,
+		`UPDATE embed_store_binding SET updated_at = now() - interval '2 hours' WHERE singleton`); err != nil {
+		t.Fatalf("ageing the marker to mid-pass: %v", err)
+	}
+
+	if err := e.store.ReembedWorkspace(ctx, working.Run, ws, embedder, identity); err != nil {
+		t.Fatalf("the healthy pass: %v", err)
+	}
+
+	err := e.store.ClaimAndEnqueueReembedding(ctx,
+		search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: identity, StealAfter: time.Hour},
+		func(pgx.Tx) error { return nil })
+	if !errors.Is(err, search.ErrReembeddingInFlight) {
+		t.Fatalf("a forced confirm over a run that is embedding = %v, want ErrReembeddingInFlight — a pass reporting real progress was dispossessed, and two children now re-embed the same corpus at once", err)
 	}
 }
 

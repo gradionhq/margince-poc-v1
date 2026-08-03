@@ -125,13 +125,18 @@ type ReembedClaim struct {
 	// populated_identity when the run releases.
 	TargetIdentity string
 	// StealAfter takes the marker from a run whose last movement is older than
-	// this. The release is not airtight and cannot be: River discards a job
-	// rescued past its attempts WITHOUT running it, an externally cancelled job
-	// never reaches its own terminal branch, and either leaves a workspace in
-	// the pending set with nothing left to take it out — a marker held forever
-	// and no job anywhere to explain why. So a human keeps a way back. It is
-	// safe by construction rather than by timing: the stolen run's stragglers
-	// carry its Run, which the marker no longer names, so they act on nothing.
+	// this. The release is not airtight and cannot be: a workspace job declares
+	// Timeout() == -1, which makes it exempt from River's rescuer
+	// (job_rescuer.go returns ignore on a negative timeout at any age), so a
+	// child whose process dies leaves a running row nothing will ever retry or
+	// discard, and its workspace stays in the pending set forever. A marker held
+	// for good, and no job anywhere to explain why. So a human keeps a way back.
+	//
+	// What makes the bound meaningful is that a WORKING run keeps its marker
+	// fresh: ReembedWorkspace refreshes it as it goes, never letting it read
+	// staler than ReembedProgressStaleness. What makes stealing SAFE is the run
+	// id: the dispossessed run's stragglers carry a Run the marker no longer
+	// names, so they act on nothing.
 	//
 	// Zero never steals, which is what an ordinary confirm passes.
 	StealAfter time.Duration
@@ -224,6 +229,12 @@ func (s *Store) SeedReembeddingFleet(ctx context.Context, run ids.UUID, workspac
 // belonging to a run that has already released matches no row and leaves the
 // current run's set alone — which the target identity could not do, since a
 // forced rebuild re-runs under the same one.
+//
+// That fence is also what makes ReembedClaim.StealAfter safe: a dispossessed
+// run's children go on working and go on reporting here, and it is only because
+// they name a run the marker no longer holds that they cannot empty — or
+// release — the set of the run that took over from them. Relaxing this fence
+// breaks the steal, not just the straggler.
 func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, workspace ids.WorkspaceID) error {
 	// rls-exempt: deployment metadata, no workspace_id
 	return database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -244,6 +255,32 @@ func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, wo
 		}
 		return releaseReembeddingTx(ctx, tx, run)
 	})
+}
+
+// ReembedProgressStaleness is the most a working run's marker is ever allowed
+// to lag behind its actual progress. A run refreshes updated_at as it embeds
+// (noteReembedProgress), but only when the marker has gone this long unmoved, so
+// a long pass costs a handful of one-row writes rather than one per entity.
+//
+// It is the floor every steal window has to clear: a window at or below this
+// would dispossess runs that are working normally.
+const ReembedProgressStaleness = 5 * time.Minute
+
+// noteReembedProgress moves run's marker forward to say the run is still
+// working, and does nothing at all when the marker has moved recently enough —
+// so the write rate is bounded by ReembedProgressStaleness rather than by corpus
+// size. Fenced on the run, like every other write here: a straggler must not
+// keep the marker of the run that replaced it looking alive.
+func (s *Store) noteReembedProgress(ctx context.Context, run ids.UUID) error {
+	// rls-exempt: deployment metadata, no workspace_id
+	_, err := s.pool.Exec(ctx, `
+		UPDATE embed_store_binding SET updated_at = now()
+		WHERE reembedding_run = $1 AND updated_at < now() - make_interval(secs => $2)`,
+		run, ReembedProgressStaleness.Seconds())
+	if err != nil {
+		return fmt.Errorf("search: recording reembed progress: %w", err)
+	}
+	return nil
 }
 
 // ReleaseReembedding hands the marker back from run and stamps the store

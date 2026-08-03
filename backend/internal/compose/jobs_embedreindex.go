@@ -166,6 +166,12 @@ type embedReindexWorkspaceWorker struct {
 // still stops on ctx cancellation at shutdown, cancels itself on identity drift,
 // and each individual embed is bounded by the model lane's own per-call timeout —
 // this only removes the whole-job wall.
+//
+// It also puts this row outside River's rescuer for good: job_rescuer.go ignores
+// a stuck job whose worker declares a negative timeout, at any age. So nothing
+// retries or discards a child whose process died, and its workspace would sit in
+// the run's pending set forever — which is the wedge ReembedClaim.StealAfter
+// exists to answer, and the reason the pass reports its progress as it goes.
 func (w *embedReindexWorkspaceWorker) Timeout(*river.Job[EmbedReindexWorkspaceArgs]) time.Duration {
 	return -1
 }
@@ -208,5 +214,5 @@ func (w *embedReindexWorkspaceWorker) reembed(ctx context.Context, args EmbedRei
 	if w.embedder == nil {
 		return fmt.Errorf("embed_reindex_workspace: no embed lane configured on this worker role")
 	}
-	return w.store.ReembedWorkspace(wsCtx, ids.From[ids.WorkspaceKind](args.Workspace), w.embedder, args.Identity)
+	return w.store.ReembedWorkspace(wsCtx, args.Run, ids.From[ids.WorkspaceKind](args.Workspace), w.embedder, args.Identity)
 }
