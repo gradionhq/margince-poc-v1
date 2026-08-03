@@ -46,7 +46,12 @@ Operational endpoints (served next to `/v1`):
   customfields schema pool when `--schema-dsn` is set) must pass within
   2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
-  `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
+  `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`, the
+  AI router's counters, the overlay sync-health section, and the
+  **job-runtime section** below.
+- `GET /v1/admin/job-health` — the per-workspace read of the same job
+  table, for an admin rather than a scrape. See
+  [Reading the job surfaces](#reading-the-job-surfaces).
 - `/mcp` plus `/oauth/*` and the RFC 8414/9728 discovery documents
   (`/.well-known/oauth-authorization-server`,
   `/.well-known/oauth-protected-resource` and its `/mcp` suffixed form) —
@@ -71,6 +76,98 @@ Operational endpoints (served next to `/v1`):
   lifetime rather than access to a record. What a connection is granted is the
   passport the human lent, not what the client requested — these documents state
   the vocabulary a client may name, they do not bound the grant.
+
+### Reading the job surfaces
+
+Two readers over one table, `river_job`, answering two different questions.
+Both are served by `cmd/api`, and both are read at request time rather than
+counted in process — `cmd/worker`, where the dispatchers actually run,
+exposes no HTTP surface at all, so an in-process counter there would be
+invisible to every scrape while the api's own copy reported a truthful
+looking zero.
+
+**`/metrics` — is a queue growing?** Seven gauge families:
+
+| Family | Labels | Meaning |
+|---|---|---|
+| `margince_job_queue_depth` | `queue`, `workspace_id` | available + scheduled + retryable + pending — work nobody has done yet (OPS-MET-2) |
+| `margince_job_running` | `queue`, `workspace_id` | currently executing |
+| `margince_job_discarded` | `kind`, `workspace_id` | every attempt spent; will never run without intervention |
+| `margince_job_cancelled` | `kind`, `workspace_id` | stopped deliberately, attempts unspent — counted apart from discarded because the operator story differs, not because it is less dead. The sweep pair counts either as a workspace missed |
+| `margince_job_oldest_queued_age_seconds` | `queue`, `workspace_id` | how long the oldest runnable-and-unclaimed job has waited |
+| `margince_sweep_workspaces_total` | `sweep` | workspaces with a surviving child of that fleet pass |
+| `margince_sweep_workspaces_failed` | `sweep` | those whose MOST RECENT child is discarded or cancelled |
+
+An eighth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
+appears **only when it has something to report**: work sitting in a state
+this exposition does not classify. It is a signal to investigate, not a
+series to graph, which is why it is absent rather than zero the rest of the
+time.
+
+Four things worth knowing before you build an alert on these:
+
+- **An empty `workspace_id` means a dispatcher**, exactly and in both
+  directions — where *empty* means the `workspace_id` key is **absent or
+  JSON null** in the job's args, which is what a fan-out job's args look
+  like. A job that does tenant work always names its workspace.
+  A row whose key is *present but an empty string* is neither: it is
+  malformed, and appears under `workspace_id="malformed_workspace_id"` so it
+  is visible as the anomaly it is rather than being counted as dispatcher
+  work. A job that does tenant work declares its workspace, so a null
+  there is a fan-out job and nothing else. The label carries the **id**,
+  never a name: the exposition endpoint has no redaction path.
+- **A job scheduled for the future is counted in depth but contributes no
+  age.** It is queued, but it is not late. A queue holding nothing but running or
+  discarded rows reports no age series at all — a running job has already
+  been claimed and a discarded one never will be, so neither is what
+  "oldest runnable-and-unclaimed" measures. The endpoint reports `null` for
+  the same rows.
+- **The sweep pair is per workspace, not per pass.** There is no such thing
+  as "the last pass" in this table: River resolves a uniqueness conflict by
+  updating the existing row, so a child still active from the previous
+  fan-out is deduplicated and writes no new row. Any batch-keyed reading
+  would report a dispatcher retried mid-fleet as covering a fraction of the
+  workspaces it actually covers. Instead, each workspace's most recent child
+  of that kind is what counts.
+- **A sweep series can shrink or vanish because of River's retention,** not
+  because the fleet shrank: the cleaner deletes finalized rows on its own
+  schedule. An absent series is the honest answer — a fabricated zero would
+  be indistinguishable from "the fleet is empty".
+
+One further limit, stated because nothing in the numbers reveals it: a
+dispatcher that fans out per **connection** rather than per workspace (Gmail
+sync, Gmail watch, Telegram poll) still counts each workspace once. If one
+workspace holds two connections and only one of them is failing, that
+workspace's most recent child may be the successful one, and the failure is
+not reflected in `margince_sweep_workspaces_failed`. Per-connection health is
+visible on the endpoint below, by kind.
+
+**`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
+every workspace's id and every kind, because an operator scraping a service
+is outside the tenant boundary by construction (ADR-0080/A125 admits the id
+for exactly this reason, and only the id). That is a deliberate asymmetry
+with the admin endpoint below, which is scoped — so `/metrics` must stay
+behind the same access control as any other operator surface, never proxied
+to a tenant.
+
+**`GET /v1/admin/job-health` — whose work died, and why?** Admin-only and
+human-session-only; an agent passport is refused at the middleware and again
+in the handler. It reports, for each kind, the waiting/running/retrying/dead
+counts and the oldest waiting age, plus up to 50 recent failures.
+
+- **It is scoped to the caller's own workspace plus the untenanted
+  dispatcher rows, never the fleet.** `river_job` has no workspace column
+  and therefore no RLS, so the handler imposes the scope itself. The
+  untenanted arm is a closed set of declared dispatcher kinds — an
+  unrecognised untenanted row is omitted rather than shared.
+- **The failure `reason` is the job layer's own vetted sentence.**
+  `river_job.errors` holds whatever a worker returned, and a worker that
+  bypassed the fault seam stored its raw cause — which routinely names an
+  address or record a provider refused. Anything not in the closed
+  vocabulary is replaced by one fixed substitute. River's stored panic trace
+  is never read at all. A row that recorded no cause at all — a job cancelled
+  before it ran — says so, rather than borrowing the unvettable-failure
+  sentence and claiming a failure that never happened.
 
 ## cmd/worker — the background process role
 
