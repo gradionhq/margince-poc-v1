@@ -285,6 +285,66 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-03 (job observability, Phase 0 and Phase 1 PR 1, merged)
+
+**Every unit of tenant work now names one workspace, and spells it one way.**
+PR #367 bound each job to a single workspace; PR #374 made the wire agree with
+that. Seven kinds carried the workspace as `json:"workspace"` while nineteen
+used `json:"workspace_id"`, so `args->>'workspace_id'` was partial over tenant
+jobs — and a null in that column meant either "a dispatcher, which does no
+tenant work" or "a kind that spells its key differently". Every read planned on
+top of `river_job` resolves that ambiguity the reassuring way: it reports the
+divergent kind as no work at all.
+
+`backend/jobwirekey_test.go` is what keeps it true, in both directions —
+workspace-scoped args must carry `Workspace ids.UUID` tagged `workspace_id`, a
+dispatcher must carry no such key, and each half has its own vacuous-pass floor
+so a walker that matched nothing cannot read green. Two of its rules were
+written only after review found the first version passing on real holes: a type
+declaring TWO fields tagged `workspace_id` (`encoding/json` drops both, so the
+row ships no workspace at all), and a dispatcher whose marker stopped being
+recognized (the floor counted only the scoped side). The gate is syntactic, so
+`jobwireformat_integration_test.go` proves the other half — that a tagged type
+lands as `workspace_id` in `river_job.args` through River's own encoder.
+
+**The invariant is not yet exact, by one named kind.** `embed_reindex` does
+tenant work under the `FleetWide` marker with no workspace key at all, so a null
+still means "a dispatcher, OR `embed_reindex`". Both `jobs/role.go` and
+`embedreindextransport.go` now say so; PR 5 below is what deletes the caveat.
+
+**No transition was written for rows queued under the old key, deliberately.**
+They decode to a zero workspace, the binding guard refuses them before any
+tenant read or write, and they strand. Four kinds do not heal —
+`telegram_ingest` permanently, because the poll acks Telegram and advances the
+channel offset in the same transaction as the ingest enqueue. Local databases
+are disposable at this stage and a stranded job failing loudly is the wanted
+behaviour, so recreate rather than debug: `make infra-reset && make db-up &&
+make migrate`.
+
+### Pick up here — Phase 1, PRs 2 through 8
+
+Dependency-ordered; 2, 3 and 4 are independent of each other.
+
+2. **Retention conversion** — the highest-value single item: a nightly GDPR pass
+   currently logs a tenant's failure and returns `nil`.
+3. **Webhook retry conversion.**
+4. **Agent scheduler conversion** — currently aborts the whole fleet on one
+   workspace's error.
+5. **`embed_reindex` conversion** + the `FleetWide`-means-dispatcher gate. This
+   is what makes the caveat above deletable.
+6. **Waiver deletions** in `ratifiedFleetScans`, and the raised waiver bar.
+7. **Fleet metrics** — `job_queue_depth{queue}` (OPS-MET-2) plus the sweep
+   counters. Foundation ADR-0080 / A125 admits a bounded `workspace_id` label on
+   the job-runtime metrics — the id, never a name, and **not** on OPS-MET-1's
+   latency histogram.
+8. **The per-workspace read endpoint** over `/v1` — the consumer all of the
+   above exists to make honest.
+
+**Also still open, and deliberately not bundled:** eight workers call the
+binding guard as a validator and then re-bind in a per-kind helper. It touches
+the same seams and is tempting to fold into any of the above. Don't — it is a
+cross-package signature change and wants its own reviewable diff.
+
 ## Session pickup — 2026-08-02 (capture stops inventing companies, PR #365, merged)
 
 **Capture no longer derives an organization from a mail domain.** The person is
