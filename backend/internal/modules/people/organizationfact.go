@@ -227,13 +227,19 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
 		return err
 	}
-	// BEFORE the row lock the image read takes, and before applyEvidenceFields
-	// would take it on its own: lockOrgNameWrites' ordering rule is that the
-	// workspace-wide name lock comes first, or a human rename holding it and
-	// waiting on this row deadlocks against this apply holding the row and
-	// waiting on the name. Reentrant, so the later take costs nothing.
-	if err := lockOrgNameWrites(ctx, tx); err != nil {
-		return err
+	// Taken here when — and only when — this apply carries a name, on the same
+	// condition applyEvidenceFieldsWithOverwrite uses further down. Two rules
+	// meet at this line. The name lock is workspace-wide and held to COMMIT, so
+	// taking it for a batch of industry or address facts would serialize every
+	// organization write in the installation behind an apply that cannot rename
+	// anything. And when it IS taken it must come before the row lock the image
+	// read below takes, or this path holds the row and waits for the name while
+	// a human rename holds the name and waits for the row. An apply carrying no
+	// name takes neither lock in that pair, so no order exists to invert.
+	if carriesOrgName(fields) {
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return err
+		}
 	}
 	// The columns as they stand before the apply — see applyColdStartTx: the
 	// write reports only that it changed something, so the before image has to

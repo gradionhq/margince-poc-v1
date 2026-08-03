@@ -161,7 +161,9 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 //
 // The watermark advances even when the thread yields nothing, because "read
 // and there was nothing in it" is exactly the answer that must not be paid for
-// twice. It advances on a REFUSED reading too — see the model-error path.
+// twice. It does NOT advance on a refused reading — that is not an answer
+// about the conversation, and see the model-error path for why retiring it
+// there would lose what the conversation says.
 func (x *SignalExtractor) readThread(
 	ctx context.Context, wsID ids.WorkspaceID, thread settledThread, now time.Time,
 ) (int, error) {
@@ -170,22 +172,27 @@ func (x *SignalExtractor) readThread(
 	}
 	events, err := x.ask(ctx, thread)
 	if errors.Is(err, errRefusedReading) {
-		// The reply was this thread's, and it was unusable. Re-reading the
-		// same text next pass buys the same refusal, and until the watermark
-		// moves this thread sits at the head of the due list and starves the
-		// ones behind it. So the reading is recorded as done, with nothing
-		// raised, and the operator is told which conversation it was.
-		// clampToken for the same reason validateExtractPayload uses it on every
-		// echoed token: this error can carry model output, the model read
+		// The WATERMARK DOES NOT MOVE. A refusal says this reply was unusable,
+		// not that the conversation holds nothing — and the two are worlds
+		// apart for a reader. Retiring the thread here would drop whatever it
+		// actually says, permanently: it becomes due again only when new mail
+		// arrives, and the contract that ended in the messages already sitting
+		// there is never raised by anything, ever. Losing a real signal costs
+		// the customer; re-reading a bad thread costs model calls the
+		// workspace budget already caps.
+		//
+		// It is not returned as an error either. Nothing here failed that a
+		// retry of the PASS would fix, and faulting the job would re-run every
+		// other thread to reach this one. The pass carries on to the threads
+		// behind it, which is what keeps one unreadable conversation from
+		// starving the rest.
+		//
+		// clampToken for the same reason validateExtractPayload uses it on
+		// every echoed token: this error can carry model output, the model read
 		// untrusted mail, and an operator log is not the place for either a
 		// correspondent's chosen volume or their private text.
-		x.log.WarnContext(ctx, "signal extract: refusing the model's reading, marking the thread read",
+		x.log.WarnContext(ctx, "signal extract: refusing the model's reading, leaving the thread due",
 			"thread_key", thread.Key, "error", clampToken(err.Error()))
-		if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-			return markThreadScanned(ctx, tx, wsID, thread, now)
-		}); markErr != nil {
-			return 0, markErr
-		}
 		return 0, nil
 	}
 	if err != nil {

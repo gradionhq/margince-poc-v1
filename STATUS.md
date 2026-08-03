@@ -12,7 +12,7 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## Open defect — a backfill of OLDER messages is marked read without being read
+## Open defect — a backfill of OLDER messages leaves those messages unread
 
 `threadMessages` ([signalextractread.go](backend/internal/compose/signalextractread.go))
 always reads the newest `extractThreadMessages` (6) messages of a conversation.
@@ -24,17 +24,19 @@ messages are never sent to the model, and the thread now looks read.
 Widening the tail by the count delta only fixes it for short threads: on a long
 one the backfilled messages sit far outside any bounded window from the newest
 end. The fix is a scan cursor over the unread range — a design change to
-`signal_thread_scan`, not an edit to this read, which is why PR #392 left it
-alone after the reviewer raised it (thread resolved with this reasoning).
+`signal_thread_scan`, not an edit to this read.
 
-Two things found alongside it, both bigger than one PR:
+Two things found alongside it, both bigger than one change:
 
-- **12 `*.down.sql` migrations DELETE rows without lifting RLS.** The migration
-  role is `NOSUPERUSER NOBYPASSRLS`
+- **13 `*.down.sql` migrations DELETE rows without lifting RLS.** Fourteen
+  core down migrations contain a `DELETE`; `0176_signal_material_events` is the
+  only one that lifts the policy around it. The migration role is
+  `NOSUPERUSER NOBYPASSRLS`
   ([scripts/deploy/db-bootstrap.sql](scripts/deploy/db-bootstrap.sql)), so FORCE
-  RLS binds it and those deletes match zero rows in a real deployment. #392
-  fixed only its own (`0176`). The others are pre-existing on `main`. A fitness
-  test would be the right guard — it cannot be added until they are fixed.
+  RLS binds it and the other thirteen match zero rows in a real deployment —
+  each leaving its own migration half-applied wherever the rows it meant to
+  remove would violate a restored constraint. A fitness test asserting the
+  pairing is the right guard, and cannot be added until they are fixed.
 - **`margince_owner` is SUPERUSER + BYPASSRLS in the dev container** but
   `NOSUPERUSER NOBYPASSRLS` in `db-bootstrap.sql`. Migration-time RLS behaviour
   is therefore untested locally and in the integration lane, which is why the

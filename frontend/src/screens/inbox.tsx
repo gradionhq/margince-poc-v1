@@ -91,7 +91,13 @@ function editableStrings(
   kind: string,
   change: Record<string, unknown>,
 ): EditableField[] {
-  const declared = EDITABLE_FIELDS[kind];
+  // Own-property only: `kind` is a wire string, and a value named `constructor`
+  // would otherwise find a function on Object's prototype, pass the truthy
+  // check, and crash the inbox on .filter instead of falling back to the
+  // generic editor.
+  const declared = Object.hasOwn(EDITABLE_FIELDS, kind)
+    ? EDITABLE_FIELDS[kind]
+    : undefined;
   if (declared) {
     // A declared field the payload does not carry is skipped rather than
     // rendered empty: an editor offering a field that is not in the change
@@ -643,7 +649,7 @@ export function ApprovalRow({
                   className="t-label"
                   id={`edit-${approval.id}-${entry.field}`}
                 >
-                  {entry.field}
+                  {entry.label ? t(entry.label) : entry.field}
                 </span>
                 {entry.as === "choice" ? (
                   <select

@@ -1966,6 +1966,9 @@ describe("companyEditFields — the owner select never offers what it cannot sav
     companyEditFields(
       [{ id: "u1", display_name: "Demo Admin" }],
       hasOwner,
+      // The identity translator: this suite is about the owner select's
+      // required-ness, and a key reads as well as a word for that.
+      (key) => key,
     ).find((field) => field.key === "owner_id");
 
   it("is required while the account has an owner, so no blank option renders", () => {

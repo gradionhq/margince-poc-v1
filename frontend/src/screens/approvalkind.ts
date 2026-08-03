@@ -58,10 +58,16 @@ export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
 // kind that declares nothing keeps the default, which is why adding this
 // changed no existing surface.
 export type EditableField =
-  | { readonly field: string; readonly as: "text" }
+  | { readonly field: string; readonly as: "text"; readonly label?: MessageKey }
   | {
       readonly field: string;
       readonly as: "choice";
+      /**
+       * What the field is CALLED. The wire name is a payload path, not a
+       * caption — without this the editor asks a reader to set
+       * "proposed_lifecycle".
+       */
+      readonly label?: MessageKey;
       readonly options: readonly string[];
       /**
        * What each option is CALLED. Without it the editor offers the wire
@@ -108,6 +114,7 @@ export const EDITABLE_FIELDS: Readonly<
     {
       field: "proposed_lifecycle",
       as: "choice",
+      label: "org.lifecycle",
       options: ORG_LIFECYCLE_STAGES,
       optionLabels: ORG_LIFECYCLE_LABELS,
     },

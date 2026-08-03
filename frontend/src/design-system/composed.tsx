@@ -615,7 +615,7 @@ function TimelineGroupRow({
           <span className="tl-group-count">{groupCountLabel(group, t)}</span>
           <span>{formatDate(newest.atIso, locale, zone)}</span>
           <ProvenanceTag provenance={newest.provenance} />
-          <Button small onClick={() => setOpen(!open)}>
+          <Button small aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? t("timeline.group.collapse") : t("timeline.group.expand")}
           </Button>
           {/* Only a real conversation can be completed: a bulk group is one

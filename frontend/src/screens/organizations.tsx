@@ -359,9 +359,13 @@ export const RELATIONSHIP_TYPE_OPTIONS = [
   "other",
 ] as const;
 
+// t is threaded in because the option LABELS are catalog keys, not words: the
+// field renderer prints option.label as given, so an untranslated key reaches
+// the reader as "org.lifecycle.customer".
 export function companyEditFields(
   owners: readonly { id: string; display_name: string }[],
   hasOwner: boolean,
+  t: (key: MessageKey) => string,
 ): CreateField[] {
   return [
     { key: "display_name", label: "create.displayName", required: true },
@@ -402,7 +406,7 @@ export function companyEditFields(
       type: "select",
       options: LIFECYCLE_OPTIONS.map((value) => ({
         value,
-        label: LIFECYCLE_LABELS[value],
+        label: t(LIFECYCLE_LABELS[value]),
       })),
     },
     {
@@ -411,7 +415,7 @@ export function companyEditFields(
       type: "multiselect",
       options: RELATIONSHIP_TYPE_OPTIONS.map((value) => ({
         value,
-        label: RELATIONSHIP_TYPE_LABELS[value],
+        label: t(RELATIONSHIP_TYPE_LABELS[value]),
       })),
     },
     {
@@ -1380,7 +1384,7 @@ function CompanyEditAction({
       label={t("record.edit")}
       notice={overlay ? t("overlay.partialWriteBack") : undefined}
       fields={[
-        ...companyEditFields(owners, Boolean(org.owner_id)),
+        ...companyEditFields(owners, Boolean(org.owner_id), t),
         ...cf.formFields,
       ]}
       record={{

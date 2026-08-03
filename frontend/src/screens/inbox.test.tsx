@@ -189,13 +189,20 @@ describe("InboxScreen (B-EP09.12a)", () => {
     await waitFor(() => expect(screen.getByText("Account stage")).toBeTruthy());
     await userEvent.click(screen.getByRole("button", { name: "Edit" }));
 
-    const stage = screen.getByRole("combobox", { name: "proposed_lifecycle" });
+    // By its LABEL, not its wire path: "proposed_lifecycle" is where the value
+    // lives in the payload, and a reader deciding a proposal is asked about the
+    // account's stage.
+    const stage = screen.getByRole("combobox", { name: "Stage" });
     expect(
       screen.queryByRole("textbox", { name: "organization_id" }),
     ).toBeNull();
     expect(screen.queryByRole("textbox", { name: "signal_id" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "because" })).toBeNull();
 
+    // The option's VALUE is the wire enum and its text is what the reader sees;
+    // both matter, and only the value is submitted.
+    expect(screen.getByRole("option", { name: "Disqualified" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "disqualified" })).toBeNull();
     await userEvent.selectOptions(stage, "disqualified");
     await userEvent.click(
       screen.getByRole("button", { name: "Approve edited" }),
