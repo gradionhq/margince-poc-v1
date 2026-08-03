@@ -742,3 +742,59 @@ func (w *failAfterWriter) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// A deal lands in TWO transactions — born on an open stage, then
+// advanced to its terminal one — so a crash between the create and the
+// identity write leaves a native deal that is open, unmapped, and
+// invisible to the next attempt's lookup. This is the state that leaves
+// behind, seeded directly: a closed-won estate deal that only got half
+// way. The flip must recognize it (one deal, not two) AND finish it
+// (won, not parked open).
+//
+// Only this lane can prove either half: the adoption is a SQL scan over
+// reserved-namespace provenance, and the close reads the native deal's
+// status back — neither is reachable from the unit fakes.
+func TestAFlipAdoptsAHalfLandedDealAndFinishesClosingIt(t *testing.T) {
+	f := setupFlipEstate(t)
+	e := f.e
+	f.writePreflipExport(t)
+
+	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		_, err := tx.Exec(f.adminCtx, `
+			INSERT INTO deal (workspace_id, name, pipeline_id, stage_id, status, source, captured_by)
+			SELECT p.workspace_id, 'Half-landed estate deal', p.id, s.id, 'open',
+			       'mirror:hubspot:deal:d-won', $1
+			FROM pipeline p
+			JOIN stage s ON s.pipeline_id = p.id AND s.workspace_id = p.workspace_id
+			WHERE p.is_default AND s.semantic = 'open'
+			ORDER BY s.position LIMIT 1`, f.adminID)
+		return err
+	})
+
+	var verdict crmcontracts.OverlayFlipPreflight
+	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK || !verdict.Ready {
+		t.Fatalf("green preflight = %d ready=%v", code, verdict.Ready)
+	}
+	var accepted crmcontracts.OverlayFlipAccepted
+	if code := e.call(t, "POST", "/v1/overlay/flip", anyMap{
+		"confirmation_phrase": "FLIP TO SOR",
+	}, nil, &accepted); code != http.StatusAccepted {
+		t.Fatalf("execute = %d %+v", code, accepted)
+	}
+
+	var total, won int
+	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(f.adminCtx,
+			`SELECT count(*) FROM deal WHERE source = 'mirror:hubspot:deal:d-won'`).Scan(&total); err != nil {
+			return err
+		}
+		return tx.QueryRow(f.adminCtx,
+			`SELECT count(*) FROM deal WHERE source = 'mirror:hubspot:deal:d-won' AND status = 'won'`).Scan(&won)
+	})
+	if total != 1 {
+		t.Errorf("deals for d-won = %d, want 1 — the half-landed deal was created a second time", total)
+	}
+	if won != 1 {
+		t.Errorf("won deals for d-won = %d, want 1 — the adopted deal was left parked open and the estate's revenue is wrong", won)
+	}
+}
