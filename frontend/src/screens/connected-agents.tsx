@@ -241,13 +241,16 @@ function ConnectionRow({
               })}
             </span>
           )}
-          {/* This date moves with each renewal, which is the honest thing to
-              show: it is when the agent must next hold a live credential, not
-              when the consent lapses. A revoked row omits it — its credential
-              did not reach its expiry. */}
-          {passport.expires_at && !revoked && (
+          {/* Two of the three states say something about this date; the third
+              must not. A LIVE row shows when the agent must next hold a fresh
+              credential, and a LAPSED one shows the moment it stopped — but a
+              RENEWING row would read "credential expired <date>" beside its own
+              "renewing" badge, which is the contradiction this whole card
+              exists to remove. The badge carries that state alone. A revoked
+              row omits the date too: its credential never reached its expiry. */}
+          {passport.expires_at && !revoked && !renewing && (
             <span className="t-small">
-              {t(expired ? "agents.expiredOn" : "agents.renewsBy", {
+              {t(lapsed ? "agents.expiredOn" : "agents.renewsBy", {
                 date: deadlineDay(passport.expires_at),
               })}
             </span>

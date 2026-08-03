@@ -277,7 +277,12 @@ describe("ConnectedAgentsCard", () => {
         ).toBeTruthy(),
       );
       expect(screen.getByText("renewing")).toBeTruthy();
-      expect(screen.queryByText("credential expired")).toBeNull();
+      // Regex, not an exact string: the phrase carries a formatted date, so an
+      // exact-match query would miss "credential expired 30/07/2026" and pass
+      // against the very contradiction this asserts is gone. A renewing row
+      // says nothing about the expiry at all — the badge is the whole state.
+      expect(screen.queryByText(/credential expired/)).toBeNull();
+      expect(screen.queryByText(/credential renews by/)).toBeNull();
       // Still the human's to end, and still by the primary control.
       expect(
         screen.getByRole("button", { name: "Disconnect Claude Code" }),
