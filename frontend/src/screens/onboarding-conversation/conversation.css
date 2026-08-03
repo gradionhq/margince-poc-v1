@@ -148,29 +148,47 @@
   font: 500 0.9375rem / 1.4 var(--f-body);
 }
 
+/* A stacked choice list, not a wrapped chip row: each answer reads its full
+   name and detail rather than truncating into a chip that can spill over its
+   neighbour. */
 .ob-conv-options {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: var(--space-2);
   margin-block-start: var(--space-2);
 }
 
-.ob-conv-option {
-  display: inline-flex;
+/* Scoped under .ob-conv-question rather than bare .ob-conv-option: at equal
+   specificity, source order alone decided the fight with base.css's .btn over
+   align-items and white-space, and .btn was winning — this scope outranks it
+   so the column layout and wrap actually apply. */
+.ob-conv-question .ob-conv-option {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: var(--space-1);
-  /* Long or translated labels wrap inside a bounded chip instead of forcing
-   * the thread to scroll horizontally. */
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  /* Long or translated labels wrap inside the row instead of forcing the
+     thread to scroll horizontally. */
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: start;
-  max-width: 24rem;
   height: auto;
 }
 
+.ob-conv-option span {
+  color: var(--textPrimary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .ob-conv-option small {
-  color: var(--textSecondary);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
 }
 
 /* Visual clamp only: garbage-length values stay two lines per part; the
@@ -185,7 +203,7 @@
 }
 
 /* The subordinate escape under the options: present, never competing. */
-.ob-conv-question-dismiss {
+.ob-conv-question .ob-conv-question-dismiss {
   margin-block-start: var(--space-2);
   color: var(--textSecondary);
 }
@@ -198,7 +216,7 @@
 }
 
 /* The choice a resolved card recorded stays visible on the card itself. */
-.ob-conv-option-selected {
+.ob-conv-question .ob-conv-option-selected {
   border-color: var(--success);
   box-shadow: inset 0 0 0 1px var(--success);
 }

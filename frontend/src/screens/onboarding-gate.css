@@ -534,12 +534,25 @@
    life is ONE animation, and its end is what removes the chip: the duration
    here is the whole clock, and no timer in the component duplicates it. */
 .ob-snip {
+  /* Half the width of the centred content column, the same figure the width
+     rule below derives its margin from — shared here so a slot's offset and
+     the chip's own width agree on where the column actually sits. */
+  --ob-snip-col-half: calc(min(540px, 100%) / 2);
+  /* How far a hugging slot reaches past the column edge: room for the chip's
+     own width ceiling plus a small breathing gap, so an offset built from
+     this cannot land the chip on top of the column it hugs. */
+  --ob-snip-reach: calc(230px + var(--space-4));
   position: absolute;
-  /* Wide enough to read, never wider than the margin it lives in. The margin is
-     half of whatever the stage has left over after the column, less a gutter —
-     so the chip shrinks with the viewport instead of climbing onto the copy, and
-     there is no width at which it silently overlaps. */
-  max-width: min(230px, calc((100% - min(540px, 100%)) / 2 - var(--space-4)));
+  /* Wide enough to read, never wider than the margin it lives in, and never
+     so narrow it goes unreadable when that margin is thin. The margin is half
+     of whatever the stage has left over after the column, less a gutter — so
+     the chip shrinks with the viewport instead of climbing onto the copy, and
+     there is no width at which it silently overlaps or disappears. */
+  max-width: clamp(
+    150px,
+    calc(50% - var(--ob-snip-col-half) - var(--space-4)),
+    230px
+  );
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -579,38 +592,64 @@
 /* Seven slots, claimed by a coprime step in the component: two chips on screen
    at the same time can never be given the same one.
 
-   The slots are insets from the STAGE, so a chip hangs off the page edge and
-   grows inward, and the centred column is what it can never reach — the width
-   rule above guarantees that geometrically rather than by choosing offsets that
-   happen to clear it. Left and right alternate so the layer stays balanced with
+   The slots are insets from the STAGE, but the offset they inset BY is pinned
+   to the centred column, not the stage edge: max() keeps the old small edge
+   gap as a floor on a narrow stage (nothing changes there — the column already
+   fills most of it) and switches over to "50% minus the column's half minus
+   the reach" once the stage is wide enough that the column has real margin on
+   both sides, so the chip tracks the column instead of stranding itself at the
+   viewport edge. --ob-snip-reach guarantees the switched-over branch always
+   leaves a chip's own width of clearance before the column, so it hugs without
+   ever overlapping. Left and right alternate so the layer stays balanced with
    only two or three chips alive. */
 .ob-snip[data-slot="0"] {
   top: 6%;
-  left: var(--space-4);
+  left: max(
+    var(--space-4),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="1"] {
   top: 20%;
-  right: var(--space-4);
+  right: max(
+    var(--space-4),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="2"] {
   top: 40%;
-  left: var(--space-3);
+  left: max(
+    var(--space-3),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="3"] {
   bottom: 18%;
-  right: var(--space-3);
+  right: max(
+    var(--space-3),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="4"] {
   bottom: 6%;
-  left: var(--space-5);
+  left: max(
+    var(--space-5),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="5"] {
   top: 58%;
-  right: var(--space-5);
+  right: max(
+    var(--space-5),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 .ob-snip[data-slot="6"] {
   bottom: 40%;
-  left: var(--space-2);
+  left: max(
+    var(--space-2),
+    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
+  );
 }
 
 /* ===== breakpoints ====================================================== */

@@ -1955,6 +1955,43 @@
 .mw-conversation .ob-core-link {
   color: var(--textSecondary);
 }
+/* The manual interview card also renders inside the workbench artifact rail
+ * (.ob-conv-artifact), a light panel rather than the dark scene backdrop
+ * .ob-core-dialog is built for — unlike .mw-conversation above, it stays a
+ * visible card here, so every rail token it inherits needs its content-token
+ * counterpart instead of being flattened away. */
+.ob-conv-artifact .ob-core-dialog {
+  color: var(--textContent);
+  border: 1px solid var(--borderSubtle);
+  background: var(--bgCard);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+.ob-conv-artifact .ob-core-dialog h1 {
+  color: var(--textPrimary);
+}
+.ob-conv-artifact .ob-core-dialog > p {
+  color: var(--textSecondary);
+}
+.ob-conv-artifact .ob-manual-input {
+  color: var(--textPrimary);
+  border: 1px solid var(--borderStrong);
+  background: var(--bgElevated);
+}
+.ob-conv-artifact .ob-manual-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentMed);
+}
+.ob-conv-artifact .ob-core-link {
+  color: var(--textSecondary);
+}
+.ob-conv-artifact .ob-core-link:hover,
+.ob-conv-artifact .ob-core-link:focus-visible {
+  color: var(--textPrimary);
+}
+.ob-conv-artifact .ob-manual-required {
+  color: var(--textMeta);
+}
 .mw-read-activity {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
