@@ -16,7 +16,7 @@ import (
 
 // jobRunnerBanner names, for every lane, the configuration that enabled it or
 // the reason it is off.
-func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, vault keyvault.Vault) string {
+func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, vault keyvault.Vault, runnerSvc *compose.RunnerService) string {
 	gmailWired := cfg.gmailAppWired()
 	providers := "imap"
 	if gmailWired {
@@ -56,11 +56,15 @@ func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelP
 	if cfg.webhookKey != "" {
 		webhookNote = fmt.Sprintf("webhook retry every %s", cfg.webhookRetryInterval)
 	}
-	// Gated on a declared model, and it must say so by name: without one the
-	// agent catalog is never seeded, so no morning brief and no at-risk sweep
-	// ever runs while every other lane in this line reads healthy.
+	// Read off the SERVICE, which is the value registration itself gates on
+	// (compose.AgentSchedulerConfig.Service) — not off the model path that
+	// happens to decide it today. A banner announcing a cadence on a worker
+	// that registered no scheduler is worse than no banner, and this line is
+	// the one place an operator looks. Without a service the agent catalog is
+	// never seeded, so no morning brief and no at-risk sweep ever runs while
+	// every other lane here reads healthy; say so by name.
 	schedulerNote := "agent scheduler off (no model path: no brief and no at-risk sweep will run — configure --ai-routing)"
-	if modelPath.AgentLoop != nil {
+	if runnerSvc != nil {
 		schedulerNote = fmt.Sprintf("agent scheduler every %s", cfg.runnerInterval)
 	}
 	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, retention every %s, %s, %s, %s, %s, %s, %s)",

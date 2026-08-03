@@ -256,22 +256,13 @@ func TestWebhookRetryFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	}
 }
 
-// dispatchGapBound is what separates "scheduled on the configured interval"
-// from "scheduled on some larger constant". The suite configures 2s, so a
-// correct schedule lands its second dispatch inside this with ample slack,
-// while the constants actually in reach — dispatchScanInterval, and this flag's
-// own 30s default, the likeliest miswiring of all — do not. It bounds the GAP
-// between dispatches rather than the whole run, because a deadline on the run
-// would also pass for any constant smaller than the deadline.
-const dispatchGapBound = 6 * time.Second
-
 // TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval pins the half of the
 // schedule a boot pass hides. RunOnStart fires once whatever the cadence is, so
 // a dispatcher wired to a constant instead of the operator's
 // --webhook-retry-interval looks identical at boot and then never runs again —
 // every parked delivery in the fleet stranded, with every gate green. Two
 // dispatches less than dispatchGapBound apart can only happen if a cadence far
-// shorter than the constants above is what River is scheduling on.
+// shorter than that flag's own default is what River is scheduling on.
 func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	we := setupWebhooks(t)
 	now := time.Now().UTC()
@@ -282,7 +273,7 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		WebhookRetry: compose.WebhookRetryConfig{
-			Interval: 2 * time.Second, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
+			Interval: dispatchInterval, Deliverer: newTestDeliverer(we, &now, rcv.server.Client()),
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -290,34 +281,10 @@ func TestWebhookRetryDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.WebhookRetryArgs{}.Kind()
-	dispatched := make(map[int64]time.Time, 2)
-	var first, second time.Time
-	for len(dispatched) < 2 {
-		select {
-		case <-waitCtx.Done():
-			t.Fatalf("saw %d of 2 %s dispatches: %v — the sweep fired at boot and then never again, so the operator's interval is not what schedules it",
-				len(dispatched), kind, waitCtx.Err())
-		case ev := <-completed:
-			if ev == nil || ev.Job == nil || ev.Job.Kind != kind {
-				continue
-			}
-			if _, seen := dispatched[ev.Job.ID]; seen {
-				continue
-			}
-			// The arrival of the completion, not the job's own timestamps:
-			// what is under test is that a SECOND dispatch happened soon, and
-			// the observer's clock is what the reader can trust here.
-			dispatched[ev.Job.ID] = time.Now()
-			if len(dispatched) == 1 {
-				first = dispatched[ev.Job.ID]
-			} else {
-				second = dispatched[ev.Job.ID]
-			}
-		}
-	}
+	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
 	if gap := second.Sub(first); gap > dispatchGapBound {
-		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured 2s interval but some larger constant, and the 30s default is the one that would look exactly like this",
-			kind, gap, dispatchGapBound)
+		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and --webhook-retry-interval's own 30s default is the one that would look exactly like this",
+			kind, gap, dispatchGapBound, dispatchInterval)
 	}
 }
 

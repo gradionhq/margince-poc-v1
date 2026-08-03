@@ -105,6 +105,53 @@ func awaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *ri
 	}
 }
 
+// dispatchInterval is the cadence a repeat-schedule suite configures, and
+// dispatchGapBound is what separates "scheduled on the configured interval"
+// from "scheduled on some larger constant": three times the interval, which
+// leaves a correct schedule ample slack while excluding every constant actually
+// in reach — dispatchScanInterval, and the tens-of-seconds defaults these flags
+// carry, which are the likeliest miswiring of all. The bound is on the GAP
+// between two dispatches rather than on the whole run, because a deadline on the
+// run would also pass for any constant smaller than the deadline.
+const (
+	dispatchInterval = 2 * time.Second
+	dispatchGapBound = 3 * dispatchInterval
+)
+
+// awaitTwoDispatchArrivals blocks until two DISTINCT jobs of kind have
+// completed, and reports when each arrived. It is the observer's clock, not the
+// job's own timestamps: what a repeat-schedule suite is asking is whether a
+// SECOND dispatch happened soon, and the reader can trust the arrival.
+//
+// RunOnStart fires once whatever the cadence is, so the first arrival proves
+// nothing about the schedule and every such suite needs the second — which is
+// why this waits here rather than once per pass.
+func awaitTwoDispatchArrivals(ctx context.Context, t *testing.T, completed <-chan *river.Event, kind string) (first, second time.Time) {
+	t.Helper()
+	seen := make(map[int64]struct{}, 2)
+	for len(seen) < 2 {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("saw %d of 2 %s dispatches: %v — the pass fired at boot and then never again, so the operator's interval is not what schedules it",
+				len(seen), kind, ctx.Err())
+		case ev := <-completed:
+			if ev == nil || ev.Job == nil || ev.Job.Kind != kind {
+				continue
+			}
+			if _, duplicate := seen[ev.Job.ID]; duplicate {
+				continue
+			}
+			seen[ev.Job.ID] = struct{}{}
+			if len(seen) == 1 {
+				first = time.Now()
+			} else {
+				second = time.Now()
+			}
+		}
+	}
+	return first, second
+}
+
 // startTestJobRunner boots a worker-role job runner over cfg and returns it
 // with its completion and failure channels, subscribed BEFORE Start so the
 // RunOnStart round's outcomes are never missed. The runner is stopped in

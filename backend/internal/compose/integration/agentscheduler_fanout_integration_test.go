@@ -258,7 +258,7 @@ func TestAgentSchedulerFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(
 // looks identical at boot and then never runs again — every workspace's due
 // occurrences unseeded from that moment on, with every gate green. Two
 // dispatches less than dispatchGapBound apart can only happen if a cadence far
-// shorter than the constants in reach is what River is scheduling on.
+// shorter than that flag's own default is what River is scheduling on.
 func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	re := setupRunner(t)
 
@@ -267,7 +267,7 @@ func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		AgentScheduler: compose.AgentSchedulerConfig{
-			Interval: 2 * time.Second, Service: re.svc,
+			Interval: dispatchInterval, Service: re.svc,
 		},
 	})
 	// Generous compared with the gap bound: a run this slow is a sick machine,
@@ -275,34 +275,10 @@ func TestAgentSchedulerDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	kind := compose.AgentSchedulerArgs{}.Kind()
-	dispatched := make(map[int64]time.Time, 2)
-	var first, second time.Time
-	for len(dispatched) < 2 {
-		select {
-		case <-waitCtx.Done():
-			t.Fatalf("saw %d of 2 %s dispatches: %v — the scheduler fired at boot and then never again, so the operator's interval is not what schedules it",
-				len(dispatched), kind, waitCtx.Err())
-		case ev := <-completed:
-			if ev == nil || ev.Job == nil || ev.Job.Kind != kind {
-				continue
-			}
-			if _, seen := dispatched[ev.Job.ID]; seen {
-				continue
-			}
-			// The arrival of the completion, not the job's own timestamps:
-			// what is under test is that a SECOND dispatch happened soon, and
-			// the observer's clock is what the reader can trust here.
-			dispatched[ev.Job.ID] = time.Now()
-			if len(dispatched) == 1 {
-				first = dispatched[ev.Job.ID]
-			} else {
-				second = dispatched[ev.Job.ID]
-			}
-		}
-	}
+	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
 	if gap := second.Sub(first); gap > dispatchGapBound {
-		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured 2s interval but some larger constant, and the 30s default is the one that would look exactly like this",
-			kind, gap, dispatchGapBound)
+		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and --runner-interval's own 30s default is the one that would look exactly like this",
+			kind, gap, dispatchGapBound, dispatchInterval)
 	}
 }
 

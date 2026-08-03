@@ -395,7 +395,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, configuredVault))
+	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, configuredVault, runnerSvc))
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.
