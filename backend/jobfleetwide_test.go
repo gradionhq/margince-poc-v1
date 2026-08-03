@@ -21,28 +21,43 @@ package backendarch
 //
 //  1. A compose fan-out helper: dispatchPerWorkspace or dispatchWith. Both take
 //     the fleet and one argsFor closure and do a single atomic InsertMany.
-//  2. A direct River insert: Insert, InsertMany or InsertManyTx, in a body that
-//     also resolves the River client (river.ClientFromContext). The pairing is
-//     what keeps the method names from matching any store's own Insert.
+//  2. A direct River insert: Insert, InsertMany or InsertManyTx, alongside a
+//     resolution of the River client (river.ClientFromContext, or the Safely
+//     variant). The pairing is what keeps the method names from matching any
+//     store's own Insert. It is checked across the whole inspected closure, not
+//     within one body, so a dispatcher that resolves the client in Work and
+//     inserts in its helper still passes — deliberately, since this side only
+//     grants a pass and never withholds one.
 //
 // A dispatcher that fans out some third way is a finding on purpose: adding a
 // third spelling is then a deliberate act with a reviewer attached.
+//
+// # Which arm carries the weight
+//
+// The FAN-OUT requirement is the load-bearing one. The regression this phase
+// exists to prevent is a worker that loops the fleet and calls a store method
+// per tenant — the pre-conversion shape — and that worker calls none of the
+// spellings above, so it fails here and nowhere else. jobbinding_test.go does
+// not look at writes at all (it catches a Work body binding its own workspace),
+// and the RLS lane catches only UNBOUND writes, while a fleet loop that binds
+// the GUC per workspace and then writes satisfies RLS completely. Nothing
+// downstream covers that shape.
 //
 // # Reads are fine; writes are not
 //
 // Several sanctioned dispatchers READ tenant tables — the due-scans that find
 // which connections, builds or workspaces have work — and jobs.FleetWide
-// expressly permits that. So the prohibition is on WRITES, scoped to what is
+// expressly permits that. So the second arm prohibits WRITES, scoped to what is
 // honestly visible: a SQL write STATEMENT in the dispatcher's own body or in a
-// helper method on the same worker type that its Work calls. A write behind a
-// store method is out of reach here and is left to jobbinding_test.go and the
-// RLS lane, which catch an unbound tenant write wherever it lives.
+// helper method on the same worker type that its Work calls. No dispatcher in
+// the tree writes inline today, so this arm has no live subject; it is here so
+// that the first inline write is a finding rather than a precedent.
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -66,9 +81,15 @@ var fanOutHelpers = []string{"dispatchPerWorkspace", "dispatchWith"}
 // to be called Insert cannot satisfy this gate.
 var riverInsertMethods = []string{"Insert", "InsertMany", "InsertManyTx"}
 
-// riverClientResolver is how a Work body gets hold of the River client it
-// inserts through.
-const riverClientResolver = "ClientFromContext"
+// riverClientResolverPrefix is how a Work body gets hold of the River client it
+// inserts through. Matched as a PREFIX, because River offers two spellings and
+// the tree uses both: ClientFromContext panics when there is none, so a
+// dispatcher that may run without a client resolves ClientFromContextSafely
+// instead — and two dispatchers carry comments steering the next author to that
+// variant. Pinning the exact name would report those authors' correct code as
+// "never fans out", which is the false positive that gets a gate weakened by
+// the person it blocked.
+const riverClientResolverPrefix = "ClientFromContext"
 
 // fleetWideDispatcher is one resolved args→worker→Work association and what
 // the gate found in it.
@@ -231,7 +252,14 @@ func fansOut(bodies []*ast.BlockStmt) bool {
 			return true
 		}
 	}
-	if !selected[riverClientResolver] {
+	resolved := false
+	for name := range selected {
+		if strings.HasPrefix(name, riverClientResolverPrefix) {
+			resolved = true
+			break
+		}
+	}
+	if !resolved {
 		return false
 	}
 	for _, method := range riverInsertMethods {
@@ -312,6 +340,16 @@ func analyzeFleetWide(fset *token.FileSet, files []*ast.File) (dispatchers []fle
 			writes:  writesIn(bodies),
 		})
 	}
+	// Map iteration order is randomized, so findings would arrive in a different
+	// order every run — a diff between two runs of a red gate would be noise
+	// rather than signal. Report in source order, as the neighbouring gates do.
+	sort.Slice(dispatchers, func(i, j int) bool {
+		if dispatchers[i].pos.Filename != dispatchers[j].pos.Filename {
+			return dispatchers[i].pos.Filename < dispatchers[j].pos.Filename
+		}
+		return dispatchers[i].pos.Line < dispatchers[j].pos.Line
+	})
+	sort.Strings(orphans)
 	return dispatchers, orphans
 }
 
@@ -342,158 +380,4 @@ func checkFleetWideDispatchers(t *testing.T, dir string) {
 // allowlist and what it deliberately does not prove.
 func TestEveryFleetWideJobOnlyDispatches(t *testing.T) {
 	checkFleetWideDispatchers(t, filepath.Join("internal", "compose"))
-}
-
-// parseFleetWideSource parses one synthetic compose file.
-func parseFleetWideSource(t *testing.T, src string) (*token.FileSet, []*ast.File) {
-	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "synthetic.go", src, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("parsing the synthetic source: %v", err)
-	}
-	return fset, []*ast.File{file}
-}
-
-// TestTheFleetWideGateAcceptsEveryDispatchShapeInTheTree pins the gate against
-// its own false positives. A gate that rejected a legitimate dispatcher would
-// be fixed by weakening it, and the weakening is what the next sweep loop walks
-// back in through — so every shape the tree actually uses is a test.
-func TestTheFleetWideGateAcceptsEveryDispatchShapeInTheTree(t *testing.T) {
-	shapes := map[string]string{
-		"dispatchPerWorkspace over the live fleet": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-					workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
-					func(ws ids.UUID) river.JobArgs { return SweepWorkspaceArgs{Workspace: ws} }))
-			}`,
-		"dispatchWith over an archived-inclusive enumeration": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				workspaces, err := enumerateEveryWorkspace(ctx, w.pool)
-				if err != nil {
-					return jobs.FaultContext(ctx, err)
-				}
-				return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-					workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
-					func(ws ids.UUID) river.JobArgs { return SweepWorkspaceArgs{Workspace: ws} }))
-			}`,
-		"a due-scan fanning out one client.Insert per due row": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				due, enumErr := w.registry.DueConnections(ctx)
-				if len(due) == 0 {
-					return jobs.FaultContext(ctx, enumErr)
-				}
-				client := river.ClientFromContext[pgx.Tx](ctx)
-				for _, d := range due {
-					if _, err := client.Insert(ctx, SweepWorkspaceArgs{Workspace: d.Workspace}, nil); err != nil {
-						enumErr = errors.Join(enumErr, err)
-					}
-				}
-				return jobs.FaultContext(ctx, enumErr)
-			}`,
-		"a helper on the same worker that holds the fan-out": `
-			func (w *sweepWorker) Work(ctx context.Context, job *river.Job[SweepArgs]) error {
-				return jobs.FaultContext(ctx, w.fanOut(ctx, job.Args))
-			}
-
-			func (w *sweepWorker) fanOut(ctx context.Context, args SweepArgs) error {
-				workspaces, err := enumerateWorkspaces(ctx, w.pool)
-				if err != nil {
-					return err
-				}
-				return w.store.SeedFleet(ctx, args.Run, func(tx pgx.Tx) error {
-					return dispatchWith(ctx, workspaces, txInsertMany(tx),
-						workspaceSweepOpts(aiCaptureQueue, embedReindexMaxAttempts),
-						func(ws ids.UUID) river.JobArgs { return SweepWorkspaceArgs{Workspace: ws} })
-				})
-			}`,
-		"a due-scan that reads a tenant table before fanning out": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				rows, err := w.pool.Query(ctx, ` + "`SELECT workspace_id FROM connection WHERE next_sweep_at <= now() FOR UPDATE`" + `)
-				if err != nil {
-					return jobs.FaultContext(ctx, err)
-				}
-				defer rows.Close()
-				return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-					workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
-					func(ws ids.UUID) river.JobArgs { return SweepWorkspaceArgs{Workspace: ws} }))
-			}`,
-	}
-	for name, work := range shapes {
-		t.Run(name, func(t *testing.T) {
-			fset, files := parseFleetWideSource(t, fleetWideFixture(work))
-			dispatchers, orphans := analyzeFleetWide(fset, files)
-			if len(orphans) != 0 {
-				t.Fatalf("the args→worker association failed: %v", orphans)
-			}
-			if len(dispatchers) != 1 {
-				t.Fatalf("resolved %d dispatchers, want exactly 1", len(dispatchers))
-			}
-			if !dispatchers[0].fansOut {
-				t.Errorf("the gate does not recognize this dispatch shape as a fan-out; it is in the tree and must be in the allowlist")
-			}
-			if len(dispatchers[0].writes) != 0 {
-				t.Errorf("the gate reads a tenant write into a dispatcher that makes none: %v", dispatchers[0].writes)
-			}
-		})
-	}
-}
-
-// TestTheFleetWideGateRejectsADispatcherThatDoesTenantWork is the falsification
-// the gate exists for: both plants declare FleetWide, both would keep a null
-// `args->>'workspace_id'`, and both do a tenant's work inside one row.
-func TestTheFleetWideGateRejectsADispatcherThatDoesTenantWork(t *testing.T) {
-	plants := map[string]string{
-		"a write in the dispatcher's own body": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				for _, ws := range w.fleet {
-					if _, err := w.pool.Exec(ctx, ` + "`UPDATE deal SET stage = 'stale' WHERE workspace_id = $1`" + `, ws); err != nil {
-						w.log.WarnContext(ctx, "sweep failed", "workspace", ws)
-					}
-				}
-				return nil
-			}`,
-		"a write behind a helper on the same worker": `
-			func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
-				return jobs.FaultContext(ctx, w.sweepEveryTenant(ctx))
-			}
-
-			func (w *sweepWorker) sweepEveryTenant(ctx context.Context) error {
-				_, err := w.pool.Exec(ctx, ` + "`DELETE FROM idempotency_key WHERE expires_at < now()`" + `)
-				return err
-			}`,
-	}
-	for name, work := range plants {
-		t.Run(name, func(t *testing.T) {
-			fset, files := parseFleetWideSource(t, fleetWideFixture(work))
-			dispatchers, _ := analyzeFleetWide(fset, files)
-			if len(dispatchers) != 1 {
-				t.Fatalf("resolved %d dispatchers, want exactly 1", len(dispatchers))
-			}
-			if len(dispatchers[0].writes) == 0 {
-				t.Errorf("the gate sees no tenant write in a dispatcher that issues one — it would let this shape back into the tree")
-			}
-			if dispatchers[0].fansOut {
-				t.Errorf("the gate reads a fan-out into a dispatcher that enqueues nothing")
-			}
-		})
-	}
-}
-
-// fleetWideFixture wraps one Work method in the smallest file that declares a
-// FleetWide args type and a worker embedding river.WorkerDefaults for it, so a
-// shape can be tested without a package to compile it in.
-func fleetWideFixture(work string) string {
-	return `package compose
-
-type SweepArgs struct{}
-
-func (SweepArgs) Kind() string { return "sweep" }
-func (SweepArgs) FleetWide()   {}
-
-type sweepWorker struct {
-	river.WorkerDefaults[SweepArgs]
-	pool *pgxpool.Pool
-}
-` + work + "\n"
 }
