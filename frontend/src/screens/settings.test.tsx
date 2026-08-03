@@ -797,6 +797,168 @@ function auditLogBackend() {
   });
 }
 
+// The danger-zone Reset data action: server-driven, gated on
+// isOrgAdmin && me.non_production. A dedicated backend per test so the
+// role/posture combination is explicit rather than layered on the shared
+// settingsBackend default.
+function resetDataBackend(opts: {
+  roles: string[];
+  nonProduction: boolean;
+  onReset?: (body: unknown) => void;
+  resetStatus?: number;
+  resetBody?: unknown;
+}) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    const method = (
+      input instanceof Request ? input.method : (init?.method ?? "GET")
+    ).toUpperCase();
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { email: "ada@acme.test" },
+        roles: opts.roles,
+        teams: [],
+        workspace_name: "Acme Inc",
+        non_production: opts.nonProduction,
+      });
+    }
+    if (url.includes("/admin/reset-data") && method === "POST") {
+      const raw = input instanceof Request ? await input.clone().text() : "";
+      const body = raw ? JSON.parse(raw) : {};
+      opts.onReset?.(body);
+      if (opts.resetStatus && opts.resetStatus !== 200) {
+        return jsonResponse(
+          opts.resetBody ?? { detail: "confirmation mismatch" },
+          opts.resetStatus,
+        );
+      }
+      return jsonResponse(
+        opts.resetBody ?? { status: "reset", tables_cleared: 3 },
+      );
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("ResetDataCard (danger zone)", () => {
+  it("shows the Reset data control for an admin in a non-production posture", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({ roles: ["admin"], nonProduction: true }),
+    );
+    render(<SettingsScreen tab="data" />);
+    expect(await screen.findByText(/reset data/i)).toBeTruthy();
+  });
+
+  it("hides Reset data for an admin in a production posture", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({ roles: ["admin"], nonProduction: false }),
+    );
+    render(<SettingsScreen tab="data" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy(),
+    );
+    expect(screen.queryByText(/reset data/i)).toBeNull();
+  });
+
+  it("hides Reset data from a rep even in a non-production posture", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({ roles: ["rep"], nonProduction: true }),
+    );
+    render(<SettingsScreen tab="data" />);
+    // Data tab is org-only, so a rep falls back to Account — proven here by
+    // the identity card rendering instead of anything data-tab-shaped.
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    expect(screen.queryByText(/reset data/i)).toBeNull();
+  });
+
+  // The card is admin-ONLY (narrower than the "data" tab's own admin-OR-ops
+  // gate): the server's auth.RequireAdmin on /admin/reset-data admits only
+  // the literal "admin" role, so an ops user — who legitimately reaches the
+  // data tab and its other cards — must never see a Reset-data button that
+  // could only 403 on confirm.
+  it("reaches the data tab as ops but never sees Reset data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({ roles: ["ops"], nonProduction: true }),
+    );
+    render(<SettingsScreen tab="data" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /custom fields/i })).toBeTruthy(),
+    );
+    expect(screen.queryByText(/reset data/i)).toBeNull();
+  });
+
+  it("enables the confirm button once the input is non-empty and POSTs the typed confirmation", async () => {
+    const posted: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({
+        roles: ["admin"],
+        nonProduction: true,
+        onReset: (body) => posted.push(body),
+      }),
+    );
+    render(<SettingsScreen tab="data" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    // The org name is shown so the admin can copy it into the input.
+    expect(within(dialog).getByText("Acme Inc")).toBeTruthy();
+    const confirmButton = within(dialog).getByRole("button", {
+      name: /reset data/i,
+    });
+    expect(confirmButton).toHaveProperty("disabled", true);
+
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, "Acme Inc");
+    expect(confirmButton).toHaveProperty("disabled", false);
+
+    await userEvent.click(confirmButton);
+
+    await waitFor(() => expect(posted).toEqual([{ confirmation: "Acme Inc" }]));
+    // The dialog closes and the input clears on success.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("surfaces the server's confirmation-mismatch message on a 422", async () => {
+    vi.stubGlobal(
+      "fetch",
+      resetDataBackend({
+        roles: ["admin"],
+        nonProduction: true,
+        resetStatus: 422,
+        resetBody: {
+          detail:
+            "The typed confirmation does not match the organization name.",
+        },
+      }),
+    );
+    render(<SettingsScreen tab="data" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: /reset data/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const input = within(dialog).getByRole("textbox");
+    await userEvent.type(input, "Wrong Name");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /reset data/i }),
+    );
+    expect(
+      await screen.findByText(
+        "The typed confirmation does not match the organization name.",
+      ),
+    ).toBeTruthy();
+  });
+});
+
 describe("AuditLogCard", () => {
   it("keeps the before/after diff hidden until the row is expanded", async () => {
     vi.stubGlobal("fetch", auditLogBackend());

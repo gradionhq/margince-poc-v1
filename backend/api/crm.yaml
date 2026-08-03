@@ -342,6 +342,61 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/reset-data:
+    post:
+      tags: [Identity]
+      operationId: resetData
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      x-agent-access: human-only
+      summary: Reset a non-production installation to its first-boot state.
+      description: >
+        Non-production only. Wipes workspace domain + seeded-config data back to the
+        bootstrapped state, preserving the organization and users so login still works,
+        then re-seeds module defaults. Requires the organization name as a typed
+        confirmation. In production this endpoint does not exist (404).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  minLength: 1
+                  description: Must equal the organization name exactly.
+      responses:
+        '200':
+          description: Installation reset to first-boot state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [status, tables_cleared]
+                properties:
+                  status: { type: string, example: reset }
+                  tables_cleared: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: >
+            Refused: the caller is an agent/passport principal (this endpoint is
+            human-only) or a human without the admin role. Not an object/action
+            RBAC grant denial.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404':
+          description: >
+            The endpoint is unavailable in this environment — production, or an
+            unset/unknown MARGINCE_ENV. It is served only under a non-production
+            posture; the body is the standard problem document.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   # ------------------------------ /passports --------------------------------
   /passports:
@@ -12371,9 +12426,20 @@ components:
 
     MeResponse:
       type: object
-      required: [user, roles, teams]
+      required: [user, roles, teams, workspace_name, non_production]
       properties:
         user: { $ref: '#/components/schemas/User' }
+        workspace_name:
+          type: string
+          description: >
+            The installation's organization name (workspace.name). Shown as the
+            typed-confirmation target of the non-production "Reset data" action —
+            the exact string that endpoint validates.
+        non_production:
+          type: boolean
+          description: >
+            True when the installation runs a non-production posture
+            (MARGINCE_ENV). Gates the client-side "Reset data" action.
         roles:
           type: array
           items: { type: string }
@@ -12424,7 +12490,7 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo]
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }

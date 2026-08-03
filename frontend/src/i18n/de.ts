@@ -1295,6 +1295,17 @@ export const de = {
   "settings.automationsSub":
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
   "settings.openAutomations": "Automatisierungs-Editor öffnen",
+  "settings.dangerZone": "Gefahrenzone",
+  "settings.dangerZoneSub":
+    "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
+  "settings.resetDataDesc":
+    "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Workspace-Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
+  "settings.resetDataButton": "Daten zurücksetzen…",
+  "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
+  "settings.resetDataConfirmBody":
+    "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
+  "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
+  "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",

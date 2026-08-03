@@ -1164,6 +1164,28 @@ each fails; changing what re-arms a dismissal means reading that first.
 
 ## Pick up here
 
+### Admin "reset data" (non-production) — 2026-08-03
+
+Implemented on `feat/admin-reset-data`: `MARGINCE_ENV` is now READ by the
+server (`runtimeenv.Parse`, fail-closed — only `dev`/`staging`/`test` are
+non-production; unset/`production`/unknown all resolve to production) and
+gates the new `POST /v1/admin/reset-data`. In production the endpoint 404s
+(the env check runs before auth, so nothing leaks). In a non-production
+posture it is human-only (`auth.RequireHuman`) and admin-only
+(`auth.RequireAdmin`, the literal `admin` role, not `ops`), and requires the
+organization's exact name as a typed confirmation (mismatch → 422). It sweeps
+workspace domain + seeded-config data back to first-boot state as the app
+role — no superuser — via a savepoint-per-table FK-safe multi-pass delete,
+drops orphaned `cf_*` custom-field columns through the owner schema pool, then
+re-runs the module seeders (pipeline/stages, consent purposes + retention, AI
+defaults, starter automations, booking page). It preserves the identity/auth
+layer (`workspace`, every `app_user`, roles, teams, sessions, passports,
+tokens) and the append-only `audit_log`/`system_log` ledgers, and records
+itself in `audit_log` (`reset_data`). `GET /v1/me` gained `non_production` so
+the frontend can show the action only where it works: Admin settings → data
+tab → Danger zone → Reset data. Not yet merged — branch not yet pushed; local
+gates (`make check`, `make test-integration`) still to run before opening the PR.
+
 ### Telegram pull-ingress review — 2026-07-31
 
 The `feat/telegram-oa` pre-merge review found the reported erased-subject

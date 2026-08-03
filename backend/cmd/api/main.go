@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 func main() {
@@ -114,12 +115,22 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	opts, closeSchemaPool, err := baseComposeOptions(ctx, cfg, compose.CaptureConfigFromDeploy(deployCfg.Capture, logger), pool, logger, stdout)
+	opts, schemaPool, closeSchemaPool, err := baseComposeOptions(ctx, cfg, compose.CaptureConfigFromDeploy(deployCfg.Capture, logger), pool, logger, stdout)
 	if err != nil {
 		return err
 	}
 	defer closeSchemaPool()
 
+	// The non-production admin data-reset endpoint (POST /v1/admin/reset-data):
+	// absent this deployment posture, or in production, ResetData answers its
+	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
+	// the reset still succeeds, only the cf_* column finalize is skipped.
+	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
+	opts = append(opts, compose.WithDataReset(schemaPool, deployCfg.Seeds, env))
+	// /me's non_production field is the SAME posture: the client
+	// hides the "Reset data" action it would otherwise render for an
+	// endpoint that answers 404 in production.
+	opts = append(opts, compose.WithNonProduction(env))
 	// Gate 1: the connector's whole route group — /mcp, the authorization
 	// server and both discovery documents — exists only when the deployment
 	// declared it. The boot check above already proved the canonical base URL
@@ -268,13 +279,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 }
 
-// baseComposeOptions assembles the boot-optional compose.Options that
-// don't depend on the inline relay's lifecycle (public base URL,
-// blobstore, keyvault, the customfields schema pool) — split out of run()
-// so that function stays inside the file's long-func budget. The
-// returned close func releases whatever this stage opened (currently
-// only the schema pool) and is always safe to call, even when nothing
-// was opened.
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
 // Presence alone is not enough: every value here is copied verbatim into the
 // OAuth audience, the RFC 9728 protected-resource document and the advertised
@@ -320,7 +324,16 @@ func validatePublicBaseURL(raw string) error {
 	return nil
 }
 
-func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
+// baseComposeOptions assembles the boot-optional compose.Options that
+// don't depend on the inline relay's lifecycle (public base URL,
+// blobstore, keyvault, the customfields schema pool) — split out of run()
+// so that function stays inside the file's long-func budget. The
+// returned schema pool (nil when --schema-dsn is unset) is also handed to
+// WithDataReset in run() so the reset endpoint's cf_* finalize runs on
+// the same owner connection the customfields engine uses. The returned
+// close func releases whatever this stage opened (currently only the
+// schema pool) and is always safe to call, even when nothing was opened.
+func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, *pgxpool.Pool, func(), error) {
 	var opts []compose.Option
 	// Record the deployment's capture suppression-list config first, so the
 	// registry rebuilds in WithKeyvault/WithGraphCapture apply it too — not just
@@ -346,7 +359,7 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	opts = append(opts, blobOpts...)
 
@@ -357,11 +370,11 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// hinge on that).
 	overlayBackfillLimit, err := overlayBackfillLimitFromEnv()
 	if err != nil {
-		return nil, nil, fmt.Errorf("api: %w", err)
+		return nil, nil, nil, fmt.Errorf("api: %w", err)
 	}
 	kvOpts, err := keyvaultOptions(pool, stdout, overlayBackfillLimit)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	opts = append(opts, kvOpts...)
 
@@ -371,22 +384,22 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// configured).
 	gmailOpts, err := gmailOptions(cfg, capCfg, pool, logger, stdout)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	opts = append(opts, gmailOpts...)
 	graphOpts, err := graphOptions(cfg, pool, logger, stdout)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	opts = append(opts, graphOpts...)
 
-	schemaOpts, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
+	schemaOpts, schemaPool, closeSchemaPool, err := schemaPoolOptions(ctx, cfg.schemaDSN, stdout)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	opts = append(opts, schemaOpts...)
 
-	return opts, closeSchemaPool, nil
+	return opts, schemaPool, closeSchemaPool, nil
 }
 
 // passwordResetOptions wires the A74 forgot-password flow when the
@@ -434,13 +447,15 @@ func blobstoreOptions(ctx context.Context, stdout io.Writer) ([]compose.Option, 
 // schemaPoolOptions wires the customfields engine's owner-privileged
 // schema-change pool — the second pgxpool the two
 // runtime-DDL operations (createCustomField, updateCustomFieldOptions)
-// need — only when --schema-dsn/MARGINCE_SCHEMA_DSN is set. Without one
-// those two operations stay their generated 501 (ErrSchemaChangesUnavailable);
-// the close func is a no-op in that case, so run() can always defer it
-// unconditionally.
-func schemaPoolOptions(ctx context.Context, schemaDSN string, stdout io.Writer) ([]compose.Option, func(), error) {
+// need, and the reset-data endpoint's cf_* column finalize rides the
+// same pool — only when --schema-dsn/MARGINCE_SCHEMA_DSN is set. Without
+// one those two operations stay their generated 501
+// (ErrSchemaChangesUnavailable) and reset skips the finalize step; the
+// returned pool is nil in that case, and the close func is a no-op, so
+// run() can always defer it unconditionally.
+func schemaPoolOptions(ctx context.Context, schemaDSN string, stdout io.Writer) ([]compose.Option, *pgxpool.Pool, func(), error) {
 	if schemaDSN == "" {
-		return nil, func() {}, nil
+		return nil, nil, func() {}, nil
 	}
 	// The engine serializes every ALTER on a table behind a transaction-scoped
 	// advisory lock (customfields.beginSchemaChange), so this pool never runs
@@ -449,10 +464,10 @@ func schemaPoolOptions(ctx context.Context, schemaDSN string, stdout io.Writer) 
 	// next to the app pool's MaxConns=16 default (database.NewPool).
 	pool, err := database.NewPool(ctx, withPoolMaxConns(schemaDSN, 3))
 	if err != nil {
-		return nil, nil, fmt.Errorf("api: schema pool: %w", err)
+		return nil, nil, nil, fmt.Errorf("api: schema pool: %w", err)
 	}
 	_, _ = fmt.Fprintln(stdout, "api custom-field schema changes enabled (schema pool configured)")
-	return []compose.Option{compose.WithSchemaPool(pool)}, pool.Close, nil
+	return []compose.Option{compose.WithSchemaPool(pool)}, pool, pool.Close, nil
 }
 
 // withPoolMaxConns appends a pool_max_conns limit to dsn unless the

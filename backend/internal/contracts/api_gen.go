@@ -737,6 +737,7 @@ const (
 	AuditLogEntryActionRecordShare     AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare   AuditLogEntryAction = "record_unshare"
 	AuditLogEntryActionReject          AuditLogEntryAction = "reject"
+	AuditLogEntryActionResetData       AuditLogEntryAction = "reset_data"
 	AuditLogEntryActionRestore         AuditLogEntryAction = "restore"
 	AuditLogEntryActionSendEmail       AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate          AuditLogEntryAction = "update"
@@ -786,6 +787,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionRecordUnshare:
 		return true
 	case AuditLogEntryActionReject:
+		return true
+	case AuditLogEntryActionResetData:
 		return true
 	case AuditLogEntryActionRestore:
 		return true
@@ -10187,6 +10190,9 @@ type LoginRequest struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
+	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
+	NonProduction bool `json:"non_production"`
+
 	// Passport Present when the principal is an agent acting under an Agent Seat Passport.
 	Passport *struct {
 		OnBehalfOf *openapi_types.UUID         `json:"on_behalf_of,omitempty"`
@@ -10213,6 +10219,9 @@ type MeResponse struct {
 
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
+
+	// WorkspaceName The installation's organization name (workspace.name). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	WorkspaceName string `json:"workspace_name"`
 }
 
 // MeResponsePassportScopes defines model for MeResponse.Passport.Scopes.
@@ -13837,6 +13846,12 @@ type SendMessageParams struct {
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
 }
 
+// ResetDataJSONBody defines parameters for ResetData.
+type ResetDataJSONBody struct {
+	// Confirmation Must equal the organization name exactly.
+	Confirmation string `json:"confirmation"`
+}
+
 // ListAiModelRatesParams defines parameters for ListAiModelRates.
 type ListAiModelRatesParams struct {
 	Provider *string `form:"provider,omitempty" json:"provider,omitempty"`
@@ -16616,6 +16631,9 @@ type SendEmailJSONRequestBody = SendEmailRequest
 
 // SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
 type SendMessageJSONRequestBody = SendMessageRequest
+
+// ResetDataJSONRequestBody defines body for ResetData for application/json ContentType.
+type ResetDataJSONRequestBody ResetDataJSONBody
 
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
@@ -22601,6 +22619,9 @@ type ServerInterface interface {
 	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-message)
 	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
+	// Reset a non-production installation to its first-boot state.
+	// (POST /admin/reset-data)
+	ResetData(w http.ResponseWriter, r *http.Request)
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
@@ -23519,6 +23540,12 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-message)
 func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reset a non-production installation to its first-boot state.
+// (POST /admin/reset-data)
+func (_ Unimplemented) ResetData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25829,6 +25856,26 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetData operation middleware
+func (siw *ServerInterfaceWrapper) ResetData(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetData(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39325,6 +39372,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/reset-data", wrapper.ResetData)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)

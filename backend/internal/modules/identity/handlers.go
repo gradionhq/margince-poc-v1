@@ -62,6 +62,13 @@ type Handlers struct {
 	// the correct default for any role that wired no overlay dispatch.
 	sorMode func(context.Context) (overlay bool, err error)
 
+	// nonProduction reports the deployment posture (MARGINCE_ENV), so /me
+	// can tell the client whether the destructive admin "Reset data"
+	// action is even reachable. Injected by the composition root from
+	// runtimeenv.Environment.IsNonProduction() — identity never imports
+	// deployconfig or compose. False ⟹ production, the fail-closed
+	// default for any role that wired no posture (hides the action).
+	nonProduction bool
 	// mcpResource is the canonical MCP server URL (public_base_url +
 	// "/mcp"), injected by the composition root from deployment config.
 	// The RFC 9728 protected-resource document advertises this verbatim
@@ -206,7 +213,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -228,7 +235,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 		httperr.Unauthorized(w, r, "no session")
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context())))
+	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
 }
 
 // serveAsAgent admits a passport bearer under the agent principal. ctx is
@@ -366,7 +373,7 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode) crmcontracts.MeResponse {
+func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, nonProduction bool) crmcontracts.MeResponse {
 	roles := id.Roles
 	if roles == nil {
 		roles = []string{}
@@ -383,10 +390,12 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode) 
 			DisplayName: id.DisplayName,
 			Status:      "active",
 		},
-		Roles: roles,
-		Teams: teams,
+		Roles:         roles,
+		Teams:         teams,
+		WorkspaceName: id.WorkspaceName,
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
+		NonProduction: nonProduction,
 	}
 }
