@@ -13,12 +13,14 @@ package compose
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -180,10 +182,45 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 	}
 	params := make([]river.InsertManyParams, 0, len(workspaces))
 	for _, ws := range workspaces {
-		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: opts})
+		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: markedAsFleetPass(opts)})
 	}
 	if err := insert(ctx, params); err != nil {
 		return fmt.Errorf("compose: dispatching %d workspace jobs: %w", len(params), err)
 	}
 	return nil
+}
+
+// markedAsFleetPass copies opts with the sweep tag added, so a reader can
+// tell one workspace's share of a fleet pass from the same kind enqueued by
+// hand — they are the same kind, and the tag is the only difference in the
+// row. Tags are validated for format only and take no part in River's
+// unique key, so this changes no scheduling behaviour.
+//
+// EVERY fan-out site calls it, not only dispatchWith. Five dispatchers fan
+// out with a loop of single inserts instead — gmailSyncWorker and
+// gmailWatchWorker (jobs_capture.go), telegramPollSweepWorker
+// (telegrampoll.go) and voiceBuildRetryWorker (voicebuild.go) — and a site
+// that forgets the tag is silently absent from the sweep gauges while the
+// gauge's own HELP text blames River's retention for the gap.
+//
+// It COPIES because every dispatcher passes a value built once by
+// workspaceSweepOpts and reused for the life of the process: appending in
+// place would grow one tag per pass and hand the caller back a mutated
+// struct.
+//
+// A nil opts yields a tag-ONLY value on purpose. River merges the explicit
+// opts with the args' own InsertOpts field by field, falling back to the
+// args for any field the explicit value leaves at its zero — so a caller
+// that passes nil to let its args declare the uniqueness window (the
+// telegram poll's per-bot rule) keeps that fallback intact.
+func markedAsFleetPass(opts *river.InsertOpts) *river.InsertOpts {
+	marked := river.InsertOpts{}
+	if opts != nil {
+		marked = *opts
+	}
+	if slices.Contains(marked.Tags, jobs.SweepTag) {
+		return &marked
+	}
+	marked.Tags = append(slices.Clone(marked.Tags), jobs.SweepTag)
+	return &marked
 }

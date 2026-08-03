@@ -151,11 +151,14 @@ func (w *telegramPollSweepWorker) Work(ctx context.Context, _ *river.Job[Telegra
 	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := capture.DueChannelConnections(ctx, w.pool, capture.ProviderTelegram)
 	for _, d := range due {
-		// No InsertOpts here: TelegramPollArgs declares its own, so an inserter
-		// cannot forget the per-bot uniqueness by omission.
+		// The opts carry the sweep tag and NOTHING else: TelegramPollArgs
+		// declares its own uniqueness, and River falls back to the args'
+		// InsertOpts for every field the explicit value leaves at its zero —
+		// so a tag-only value still cannot forget the per-bot rule by
+		// omission, which is what passing nil here bought.
 		if _, err := client.Insert(ctx, TelegramPollArgs{
 			Workspace: d.WorkspaceID, ConnectionID: d.ID.String(),
-		}, nil); err != nil {
+		}, markedAsFleetPass(nil)); err != nil {
 			w.log.WarnContext(ctx, "telegram poll enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}
