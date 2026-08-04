@@ -269,46 +269,65 @@ func returnedFieldNames(body *ast.BlockStmt) []string {
 	return out
 }
 
-// stringLiteralPrefix returns the literal text of a string expression, or the
-// ACCUMULATED literal prefix of a concatenation — every literal operand from the
-// left, joined, up to the first computed one.
+// stringLiteralPrefix is the FieldFault walk's view of a field expression: the
+// literal prefix, with the trailing dot dropped where a computed tail continues
+// the path, so a legitimate nested one (`"edits." + key`) is not read as
+// malformed. A literal that simply ends at a separator names nothing and keeps
+// it, for wireFieldName to refuse.
 //
-// Accumulating rather than taking the leftmost operand is what makes the gate
-// hold against the obvious evasion. `"kind: " + kind` fails on its space either
-// way, but splitting it as `"kind" + ": " + kind` parses as
+// Accumulating the prefix rather than taking the leftmost operand is what makes
+// the gate hold against the obvious evasion. `"kind: " + kind` fails on its space
+// either way, but splitting it as `"kind" + ": " + kind` parses as
 // `(("kind" + ": ") + kind)`, whose leftmost operand is the perfectly
 // field-shaped `"kind"` — so a leftmost-only reading certifies the exact prose it
 // exists to refuse. Joined, the prefix is `kind: ` and the space fails it again.
+func stringLiteralPrefix(expr ast.Expr) (text string, isLiteral bool) {
+	prefix, literal, dynamicTail := literalPrefix(expr)
+	if !literal {
+		return "", false
+	}
+	if dynamicTail {
+		return strings.TrimSuffix(prefix, "."), true
+	}
+	return prefix, true
+}
+
+// literalPrefix is the one reading of a string expression's literal prefix, which
+// both field-name walks rest on: the text, whether there was one at all, and
+// whether a computed operand continues it.
 //
-// A trailing dot is dropped so a legitimate nested path (`"edits." + key`) is not
-// read as malformed.
-func stringLiteralPrefix(expr ast.Expr) (string, bool) {
+// It stops at the first computed operand. Literals that a computed operand
+// separates are not adjacent, so `"a" + dynamic + "b"` reads as the prefix `a`
+// with a tail — joining it to `ab` would judge a value no run ever produces.
+func literalPrefix(expr ast.Expr) (text string, isLiteral, dynamicTail bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind != token.STRING {
-			return "", false
+			return "", false, false
 		}
 		text, err := strconv.Unquote(e.Value)
 		if err != nil {
-			return "", false
+			return "", false, false
 		}
-		return text, true
+		return text, true, false
 	case *ast.BinaryExpr:
 		if e.Op != token.ADD {
-			return "", false
+			return "", false, false
 		}
-		left, ok := stringLiteralPrefix(e.X)
+		left, ok, leftTail := literalPrefix(e.X)
 		if !ok {
-			return "", false
+			return "", false, false
 		}
-		// The right operand joins the prefix only when it too is literal; a
-		// computed one ends the prefix and leaves what precedes it to be judged.
-		if right, literal := stringLiteralPrefix(e.Y); literal {
-			left += right
+		if leftTail {
+			return left, true, true
 		}
-		return strings.TrimSuffix(left, "."), true
+		right, literal, rightTail := literalPrefix(e.Y)
+		if !literal {
+			return left, true, true
+		}
+		return left + right, true, rightTail
 	}
-	return "", false
+	return "", false, false
 }
 
 // httpErrPackage and validationHelper name the transport helper whose first argument
@@ -365,12 +384,12 @@ func TestEveryValidationFieldLiteralNamesAContractField(t *testing.T) {
 				!callsValidationHelper(call.Fun, pf.file.Name.Name == httpErrPackage) {
 				return true
 			}
-			text, isLiteral := leadingStringLiteral(call.Args[0])
+			text, isLiteral, dynamicTail := literalPrefix(call.Args[0])
 			if !isLiteral {
 				return true
 			}
 			checked++
-			reportIfNotAContractField(t, pf.path, text, vocabulary)
+			reportIfNotAContractField(t, pf.path, text, vocabulary, dynamicTail)
 			return true
 		})
 	}
@@ -437,51 +456,27 @@ func callsValidationHelper(fun ast.Expr, insideHTTPErr bool) bool {
 	return unqualified && insideHTTPErr && bare.Name == validationHelper
 }
 
-// leadingStringLiteral returns a string argument's literal text, or the ACCUMULATED literal
-// prefix of a concatenation — every literal operand from the left, joined, up to the first
-// computed one, since `"company_draft." + field` is a legal dotted path at runtime.
-// Accumulating rather than reading the leftmost operand holds against prose split across
-// operands: `"name" + ": missing" + x` has a field-shaped leftmost operand, and the joined
-// prefix `name: missing` does not. Unlike stringLiteralPrefix the trailing dot stays —
-// whether a path ending at a separator names anything is the segment walk's question.
-func leadingStringLiteral(expr ast.Expr) (string, bool) {
-	switch e := expr.(type) {
-	case *ast.BasicLit:
-		if e.Kind != token.STRING {
-			return "", false
-		}
-		text, err := strconv.Unquote(e.Value)
-		if err != nil {
-			return "", false
-		}
-		return text, true
-	case *ast.BinaryExpr:
-		if e.Op != token.ADD {
-			return "", false
-		}
-		left, ok := leadingStringLiteral(e.X)
-		if !ok {
-			return "", false
-		}
-		if right, literal := leadingStringLiteral(e.Y); literal {
-			left += right
-		}
-		return left, true
-	}
-	return "", false
-}
-
 // reportIfNotAContractField judges a dotted path one segment at a time, because a nested
 // path is legal while no whole path is a declared name. An index is dropped (`edits[0]`
-// addresses `edits`), and so is the empty segment a runtime-continued path leaves at its end.
-func reportIfNotAContractField(t *testing.T, path, text string, vocabulary map[string]bool) {
+// addresses `edits`). An empty segment addresses nothing, so a leading or interior one is
+// malformed; a trailing one is the separator a computed tail continues from
+// (`"company_draft." + field`), and is only legal when there is such a tail.
+func reportIfNotAContractField(t *testing.T, path, text string, vocabulary map[string]bool, dynamicTail bool) {
 	t.Helper()
 	named := 0
-	for _, segment := range strings.Split(text, ".") {
+	segments := strings.Split(text, ".")
+	for i, segment := range segments {
 		if index := strings.IndexByte(segment, '['); index >= 0 {
 			segment = segment[:index]
 		}
 		if segment == "" {
+			if i == len(segments)-1 && dynamicTail {
+				continue
+			}
+			t.Errorf("%s: %s.%s publishes field %q, which has an empty segment: a dotted path names a "+
+				"segment on each side of every separator, and it may end at one only when a computed "+
+				"tail continues it. Name the segment, or refuse with a MessageFault, which publishes "+
+				"no field.", path, httpErrPackage, validationHelper, text)
 			continue
 		}
 		named++
