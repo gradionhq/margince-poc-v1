@@ -21,11 +21,6 @@
       "matchManagers": ["gomod"],
       "matchDepTypes": ["golang"],
       "enabled": false
-    },
-    {
-      "description": "No CI job builds the root Dockerfiles, so a FROM bump skips every meaningful gate (gradionhq/margince-poc-v1#400) — keep these human-merged until an image-build gate exists",
-      "matchManagers": ["dockerfile"],
-      "automerge": false
     }
   ],
   "vulnerabilityAlerts": {

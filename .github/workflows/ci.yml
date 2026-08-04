@@ -46,6 +46,7 @@ jobs:
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
+  #   docker   = the root Dockerfile.* + .dockerignore — gates the image builds
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -54,6 +55,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -87,6 +89,9 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
+            docker:
+              - 'Dockerfile.*'
+              - '.dockerignore'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.
   # PR-only: the direct-to-main workflow signs off at push time, and history
@@ -431,6 +436,33 @@ jobs:
           path: backend/coverage.out
           if-no-files-found: ignore
           retention-days: 1
+
+  # The root Dockerfiles (api, web, worker) are consumed only by downstream
+  # deploy tooling — no other job builds them, so without this gate a FROM
+  # bump (Renovate's dockerfile manager auto-merges when green) or a stage
+  # restructure would ship untested: the change matches no other classifier
+  # scope, every meaningful job skips, and the PR looks green. Each leg is a
+  # required check; a build the deploy pipeline would reject fails the merge
+  # here instead.
+  docker-image:
+    name: docker image (${{ matrix.image }})
+    needs: [changes]
+    if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    strategy:
+      # A broken web image must not hide whether api/worker still build.
+      fail-fast: false
+      matrix:
+        image: [api, web, worker]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build -f Dockerfile.${{ matrix.image }} .
 
   vuln:
     name: govulncheck
