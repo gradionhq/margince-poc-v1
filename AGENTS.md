@@ -14,11 +14,10 @@ Route findings as you work: implementation decisions are recorded in the
 commit and PR that makes the change (git history is the record); spec/ticket
 defects are reconciled upstream against the spec (contract-first, P3), never
 worked around in this source; a finding you are NOT fixing now (bug, gap,
-follow-up task — engineer's call) becomes a GitHub issue in this repo added
-to the delivery board (org Project 9): the exact commands and field IDs are
-in [docs/reference/delivery-board.md](docs/reference/delivery-board.md).
+follow-up task — engineer's call) becomes a GitHub issue in this repo.
 This repo is public — never put private spec paths or local machine paths
-in an issue.
+in an issue. Team-internal issue tracking beyond this repo: see the spec
+repo's `tooling/delivery-board.md`.
 
 ## Build / test / seed
 
