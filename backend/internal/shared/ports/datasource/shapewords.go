@@ -46,10 +46,10 @@ func wantedShape(t reflect.Type) (want, shape string, perItem bool) {
 	case reflect.Slice, reflect.Array:
 		elem := derefType(t.Elem())
 		if elem != nil && elem.Kind() == reflect.Struct && !isNamedShape(elem.Name()) {
-			return "an array of " + pluralize(objectShape), objectSketch(elem), true
+			return arrayOfPrefix + pluralize(objectShape), objectSketch(elem), true
 		}
 		elemWant, _, _ := wantedShape(t.Elem())
-		return "an array of " + pluralize(elemWant), "", false
+		return arrayOfPrefix + pluralize(elemWant), "", false
 	case reflect.Struct:
 		return objectShape, objectSketch(t), false
 	case reflect.Map:
@@ -64,6 +64,10 @@ func wantedShape(t reflect.Type) (want, shape string, perItem bool) {
 const (
 	objectShape = "an object"
 	anyShape    = "a value this field accepts"
+	// arrayOfPrefix opens every array phrase. Named because pluralize has to
+	// RECOGNISE it to pluralize a nested array's head rather than its tail, so
+	// the phrase built here and the phrase matched there are one string.
+	arrayOfPrefix = "an array of "
 )
 
 // namedShape names the WIRE shape of a type whose Go representation is not it.
@@ -223,7 +227,7 @@ func sentShape(raw json.RawMessage) string {
 		if len(items) == 0 {
 			return "an empty array"
 		}
-		return "an array of " + pluralize(sentShape(items[0]))
+		return arrayOfPrefix + pluralize(sentShape(items[0]))
 	case '"':
 		return "a string"
 	case 't', 'f':
@@ -257,7 +261,7 @@ func pluralize(phrase string) string {
 	// A nested array pluralizes its HEAD, not its tail: [][]string wants
 	// "arrays of strings", and the trailing-s shortcut alone answered "array of
 	// strings" — which the caller then reads as "an array of array of strings".
-	if rest, nested := strings.CutPrefix(bare, "array of "); nested {
+	if rest, nested := strings.CutPrefix(bare, bareShape(arrayOfPrefix)); nested {
 		return "arrays of " + rest
 	}
 	if strings.HasSuffix(bare, "s") {

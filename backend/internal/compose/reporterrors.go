@@ -11,6 +11,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // reportFieldNotAllowedCode is the ONE 422 code crm.yaml declares for this
@@ -81,34 +83,33 @@ func (e *FieldNotAllowedError) MessageFault() (code, message string) {
 		e.Error() + " — expected one of: " + strings.Join(e.Allowed, ", ")
 }
 
-// UnknownReportError refuses a prebuilt report key the catalog does not serve.
+// UnknownReportError refuses a prebuilt report key the catalog does not serve,
+// naming the keys it does.
 //
-// It is NOT apperrors.ErrNotFound, which is what it used to be. That sentinel
-// renders as "No such record in this workspace (or it is outside the acting
-// user's row scope)" — existence-hiding, which is right for a tenant record and
-// a category error for a static catalog entry. There is no row scope over the
-// catalog, so the message told a caller their PERMISSIONS might be at fault when
-// the truth was that the key does not exist; a reasonable agent retries,
-// escalates auth, or reports a permissions problem to its user. A saved report
-// IS a record and keeps the sentinel.
+// It stays a 404 by wrapping apperrors.ErrNotFound, and that is the contract's
+// call, not a preference: crm.yaml declares BOTH 404 and 422 on runReport, and
+// scopes the 422 to "the plan failed validation (out-of-vocabulary field,
+// invalid aggregate)" — about the plan's FIELDS. `report` is the path parameter
+// naming the resource, so a key that names nothing is a 404 (P3). An earlier
+// pass made this a 422 on the reasoning that a static catalog has no row scope
+// to hide behind; the integration lane caught it, and the contract settles it.
+//
+// What was actually wrong survives the correction: the refusal used to name
+// nothing available, so a caller could not tell a typo from a denial. The keys
+// ride in the message now.
 type UnknownReportError struct {
 	Report string
 	Served []string
 }
 
 func (e *UnknownReportError) Error() string {
-	return fmt.Sprintf("report %q is not a report this installation serves", e.Report)
+	return fmt.Sprintf("report %q is not a report this installation serves; the prebuilt reports are: %s",
+		e.Report, strings.Join(e.Served, ", "))
 }
 
-// MessageFault names the keys this installation DOES serve, and reuses the
-// contract's one declared code rather than minting `report_not_found` — the same
-// P3 reasoning EmptyReportPlanError records below. The reuse is honest as well as
-// contract-safe: `report` IS a field whose value is outside the served
-// vocabulary, which is exactly what the code says.
-func (e *UnknownReportError) MessageFault() (code, message string) {
-	return reportFieldNotAllowedCode,
-		e.Error() + " — the prebuilt reports are: " + strings.Join(e.Served, ", ")
-}
+// Unwrap puts it on the sentinel table's 404 row. Deliberately NOT a
+// MessageFault: that interface forces 422, and Classify reaches it first.
+func (e *UnknownReportError) Unwrap() error { return apperrors.ErrNotFound }
 
 // allowedReportNames renders a report vocabulary for a refusal to carry, sorted
 // because map iteration is not.

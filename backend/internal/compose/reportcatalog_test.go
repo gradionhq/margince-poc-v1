@@ -130,17 +130,20 @@ func TestUnknownReportKeyNamesTheOnesThatExist(t *testing.T) {
 	if err == nil {
 		t.Fatal("a report key the catalog does not serve was accepted")
 	}
-	if errors.Is(err, apperrors.ErrNotFound) {
-		t.Error("an unknown catalog key still answers the row-scope not-found sentence")
+	// A 404, because crm.yaml says so: `report` is the path parameter naming the
+	// resource, and the operation's 422 is scoped to the PLAN's fields. What the
+	// refusal must also do is name the keys that exist, so a caller can tell a
+	// typo from a denial.
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Error("an unknown report key no longer maps to the contract's 404")
 	}
 	var unknown *UnknownReportError
 	if !errors.As(err, &unknown) {
 		t.Fatalf("err = %v, want an UnknownReportError", err)
 	}
-	_, message := unknown.MessageFault()
 	for report := range prebuiltReports {
-		if !strings.Contains(message, report) {
-			t.Errorf("the refusal never names the served report %q: %s", report, message)
+		if !strings.Contains(unknown.Error(), report) {
+			t.Errorf("the refusal never names the served report %q: %s", report, unknown.Error())
 		}
 	}
 }

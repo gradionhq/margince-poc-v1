@@ -256,25 +256,28 @@ func structTypeOf(into any) reflect.Type {
 func fieldByJSONName(t reflect.Type, name string) (reflect.StructField, bool) {
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		tag := field.Tag.Get("json")
-		wire := tag
-		if comma := strings.IndexByte(tag, ','); comma >= 0 {
-			wire = tag[:comma]
-		}
+		wire, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if wire == name && wire != "" && wire != "-" {
 			return field, true
 		}
-		if field.Anonymous && wire == "" {
-			embedded := field.Type
-			for embedded.Kind() == reflect.Pointer {
-				embedded = embedded.Elem()
-			}
-			if embedded.Kind() == reflect.Struct {
-				if found, ok := fieldByJSONName(embedded, name); ok {
-					return found, true
-				}
-			}
+		if found, ok := promotedFieldByJSONName(field, wire, name); ok {
+			return found, true
 		}
 	}
 	return reflect.StructField{}, false
+}
+
+// promotedFieldByJSONName follows an EMBEDDED struct, which encoding/json treats
+// as promoting its fields into the outer one. Split out so the walk above reads
+// as the two cases it has — this field, or a field this one promotes — rather
+// than as one loop carrying the pointer-deref of the second.
+func promotedFieldByJSONName(field reflect.StructField, wire, name string) (reflect.StructField, bool) {
+	if !field.Anonymous || wire != "" {
+		return reflect.StructField{}, false
+	}
+	embedded := derefType(field.Type)
+	if embedded == nil || embedded.Kind() != reflect.Struct {
+		return reflect.StructField{}, false
+	}
+	return fieldByJSONName(embedded, name)
 }
