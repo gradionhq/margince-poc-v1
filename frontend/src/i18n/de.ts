@@ -2405,7 +2405,14 @@ export const de = {
   "auth.resetSub": "Dein Link ist gültig. Wähle ein neues Passwort.",
   "auth.newPassword": "Neues Passwort",
   "auth.setNewPassword": "Neues Passwort speichern",
-  "auth.resetFailed": "Dieser Link ist ungültig, verbraucht oder abgelaufen.",
+  // "bereits verwendet", nicht "verbraucht": ein Link wird verwendet, nicht
+  // verbraucht wie Kraftstoff.
+  "auth.resetFailed":
+    "Dieser Link ist ungültig, bereits verwendet oder abgelaufen.",
+  "auth.resetRejectedPassword":
+    "Dieses Passwort wurde abgelehnt. Wähle ein anderes und versuche es erneut.",
+  "auth.resetServerFailed":
+    "Wir konnten dein Passwort gerade nicht setzen. Dein Link ist weiterhin gültig — versuche es in einem Moment erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
   "auth.resetDoneTitle": "Passwort aktualisiert",
   "auth.resetDoneBody":

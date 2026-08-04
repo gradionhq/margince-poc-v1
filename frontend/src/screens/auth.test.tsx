@@ -562,8 +562,8 @@ describe("AuthScreen reset deep link", () => {
     );
     vi.stubGlobal("location", {
       ...window.location,
-      pathname: "/reset-password",
-      search: "?token=raw-reset-token",
+      pathname: "/",
+      hash: "#/reset-password?token=raw-reset-token",
       origin: "http://localhost",
     });
     render(<AuthScreen onAuthed={vi.fn()} />);
@@ -585,8 +585,8 @@ describe("AuthScreen reset deep link", () => {
     );
     vi.stubGlobal("location", {
       ...window.location,
-      pathname: "/reset-password",
-      search: "?token=spent-token",
+      pathname: "/",
+      hash: "#/reset-password?token=spent-token",
       origin: "http://localhost",
     });
     render(<AuthScreen onAuthed={vi.fn()} />);
@@ -600,6 +600,108 @@ describe("AuthScreen reset deep link", () => {
       await screen.findByText("That reset link is invalid, used, or expired."),
     ).toBeTruthy();
     expect(screen.getByText("Request a new link")).toBeTruthy();
+  });
+
+  // These three cases exist because one string used to serve every failure, and
+  // the remedy it offered — "Request a new link" — SUPERSEDES the token the user
+  // is still holding. So for anything that is not a token verdict, the old copy
+  // was both wrong and destructive. What each failure must not do is as important
+  // as what it says, hence the absence assertions.
+  it("blames the password, not the link, when the server refuses the password", async () => {
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(422, { title: "validation_error", detail: "password too weak" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "That password was refused. Choose a different one and try again.",
+      ),
+    ).toBeTruthy();
+    // The link is still good, so replacing it must not be offered.
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
+  it("keeps a good link alive when the request never reaches the server", async () => {
+    stubApi({ password: true, password_reset: true }, () => {
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "We couldn't set your password just now. Your link is still valid — try again in a moment.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
+  it("announces a reset failure to assistive tech", async () => {
+    // The reset error was the one error region on this surface with no role, so a
+    // screen-reader user submitted an expired token and was told nothing.
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid, used, or expired" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=spent-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "That reset link is invalid, used, or expired.",
+    );
+  });
+
+  it("ignores a token in the server-visible query string", async () => {
+    // The security property, asserted directly rather than implied by the happy
+    // path: a query string is sent to servers, lands in access logs, is attached
+    // as a Referer on same-origin api calls, and becomes a Cache Storage key. So
+    // the reset view must open ONLY for a fragment token. If someone reverts the
+    // parser to location.search to "be more forgiving", this fails.
+    stubApi({ password: true, password_reset: true }, () => ok(204));
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/reset-password",
+      search: "?token=raw-reset-token",
+      hash: "",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    // The sign-in form, not the reset form.
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
+    expect(screen.queryByLabelText("New password")).toBeNull();
   });
 });
 

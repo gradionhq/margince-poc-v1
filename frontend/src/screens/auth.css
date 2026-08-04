@@ -154,7 +154,9 @@
   justify-content: center;
   gap: 9px;
   padding: 11px 12px;
-  border: 1px solid var(--borderStrong);
+  /* Same rule as the input shell: an unfilled button on a same-coloured pane is
+     defined entirely by its border, so the border owes 1.4.11 its 3:1. */
+  border: 1px solid var(--borderControl);
   border-radius: var(--r-md);
   background: var(--bgElevated);
   cursor: pointer;
@@ -283,7 +285,12 @@
      target meets the 44px floor rather than being a 24px icon with air around
      it. The input carries its own right padding instead. */
   padding: 0 0 0 13px;
-  border: 1px solid var(--borderStrong);
+  /* --borderControl, not --borderStrong. The shell's fill equals the pane's fill
+     (--bgElevated both), so this border is the ONLY thing that says "you can type
+     here" — and at --borderStrong it measured 1.45:1, well under the 3:1 WCAG
+     1.4.11 asks of a control boundary. A field a low-vision user cannot find is
+     not a styling nit. */
+  border: 1px solid var(--borderControl);
   border-radius: var(--r-md);
   background: var(--bgElevated);
   transition:
