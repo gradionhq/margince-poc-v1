@@ -66,7 +66,10 @@ func (s Scope) Files(t testing.TB) []ParsedFile {
 		t.Errorf("a Scope with no Subject predicate sweeps for nothing: name the site this gate must judge")
 		return nil
 	}
-	roots := s.normalizedRoots()
+	roots, usable := s.normalizedRoots(t)
+	if !usable {
+		return nil
+	}
 	if len(roots) == 0 {
 		t.Errorf("a Scope with no Roots claims no coverage: name the subtrees this gate's obligation lives in")
 		return nil
@@ -175,19 +178,34 @@ func (s Scope) universe(t testing.TB) string {
 }
 
 // normalizedRoots returns the roots in the one spelling paths are compared in,
-// deduplicated so a root named twice cannot mask an empty one.
-func (s Scope) normalizedRoots() []string {
+// deduplicated so a root named twice is reported once, and reports whether every
+// declared root names a subtree at all. A root that does not is refused here
+// rather than swept, because sweeping it produces a confident finding about the
+// obligation when the defect is in the root's spelling.
+func (s Scope) normalizedRoots(t testing.TB) (roots []string, usable bool) {
+	t.Helper()
 	seen := make(map[string]bool, len(s.Roots))
-	roots := make([]string, 0, len(s.Roots))
-	for _, root := range s.Roots {
-		root = strings.TrimSuffix(filepath.ToSlash(filepath.Clean(root)), "/")
-		if root == "" || seen[root] {
+	roots = make([]string, 0, len(s.Roots))
+	for _, declared := range s.Roots {
+		root := strings.TrimSuffix(filepath.ToSlash(filepath.Clean(declared)), "/")
+		switch {
+		case root == ".":
+			t.Errorf("a Scope root of %q covers the whole sweep universe, so no code lies outside the roots "+
+				"and the sweep has nothing left to judge: name the subtrees this gate's obligation lives in",
+				declared)
+			return nil, false
+		case root == "":
+			t.Errorf("a Scope root of %q is an absolute path, and a root is relative to the sweep universe, so "+
+				"it matches no file at all: name the subtrees this gate's obligation lives in, relative to Tree",
+				declared)
+			return nil, false
+		case seen[root]:
 			continue
 		}
 		seen[root] = true
 		roots = append(roots, root)
 	}
-	return roots
+	return roots, true
 }
 
 // under reports whether path lies in root, matching whole segments so that

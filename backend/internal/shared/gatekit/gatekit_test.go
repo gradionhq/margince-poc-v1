@@ -242,6 +242,97 @@ func TestFilesFailsWhenASubjectLivesOutsideEveryRoot(t *testing.T) {
 	}
 }
 
+// A Scope missing either half of its claim sweeps for nothing, and says which
+// half is missing — neither guard needs a tree, because there is no question yet
+// to ask of one.
+func TestFilesRefusesAScopeThatClaimsNothing(t *testing.T) {
+	for _, probe := range []struct {
+		name  string
+		scope Scope
+		says  string
+	}{
+		{
+			name:  "no subject predicate",
+			scope: Scope{Roots: []string{"inside"}},
+			says:  "sweeps for nothing",
+		},
+		{
+			name:  "no roots",
+			scope: Scope{Subject: declaresObligatedSite},
+			says:  "claims no coverage",
+		},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			rec := &recorder{TB: t}
+			if got := probe.scope.Files(rec); got != nil {
+				t.Errorf("Files() = %v, want no subjects from a scope that claims nothing", paths(got))
+			}
+			if len(rec.errs) != 1 {
+				t.Fatalf("want exactly one report, got %d: %s", len(rec.errs), rec.joined())
+			}
+			if !strings.Contains(rec.errs[0], probe.says) {
+				t.Errorf("the report does not say %q: %s", probe.says, rec.errs[0])
+			}
+		})
+	}
+}
+
+// A root that is not a subtree is refused at the root, not diagnosed as a
+// missing obligation: swept, "." would report every subject out-of-root and the
+// root itself vacuous, which reads as a tree-wide gap when the tree is fine.
+func TestFilesRefusesARootThatNamesNoSubtree(t *testing.T) {
+	for _, probe := range []struct {
+		name string
+		root string
+		says string
+	}{
+		{name: "the sweep universe itself", root: ".", says: "covers the whole sweep universe"},
+		{name: "an empty root", root: "", says: "covers the whole sweep universe"},
+		{name: "an absolute root", root: "/", says: "is an absolute path"},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			tree := writeProbeTree(t, map[string]string{
+				"inside/obligated.go": fmt.Sprintf(obligatedSource, "inside"),
+			})
+			scope := Scope{Tree: tree, Roots: []string{probe.root}, Subject: declaresObligatedSite}
+			rec := &recorder{TB: t}
+			if got := scope.Files(rec); got != nil {
+				t.Errorf("Files() = %v, want no subjects from a refused root", paths(got))
+			}
+			if len(rec.errs) != 1 {
+				t.Fatalf("want exactly one report naming the root, got %d: %s", len(rec.errs), rec.joined())
+			}
+			if !strings.Contains(rec.errs[0], probe.says) {
+				t.Errorf("the report does not say %q: %s", probe.says, rec.errs[0])
+			}
+		})
+	}
+}
+
+// A root named twice is one root: it is reported once, and the sweep it proves
+// is the same sweep either way.
+func TestARootNamedTwiceIsReportedOnce(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go":  fmt.Sprintf(obligatedSource, "inside"),
+		"outside/obligated.go": fmt.Sprintf(obligatedSource, "outside"),
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside", "inside"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	if got := paths(scope.Files(rec)); got != "inside/obligated.go" {
+		t.Errorf("Files() = %q, want only the in-root subject", got)
+	}
+	if len(rec.errs) != 1 {
+		t.Fatalf("want exactly one out-of-root report, got %d: %s", len(rec.errs), rec.joined())
+	}
+	if !strings.Contains(rec.errs[0], "(inside)") {
+		t.Errorf("the report lists the root more than once: %s", rec.errs[0])
+	}
+}
+
 func TestAnExemptedOutsideSubjectIsAcceptedAndCountsAsMatched(t *testing.T) {
 	tree := writeProbeTree(t, map[string]string{
 		"inside/obligated.go":  fmt.Sprintf(obligatedSource, "inside"),
