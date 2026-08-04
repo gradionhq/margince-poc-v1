@@ -1,14 +1,17 @@
 import type { Dispatch } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { navigate } from "../../app/router";
 import { useT } from "../../i18n";
 import { BackfillPanel } from "../backfill";
 import { EMPTY_DRAFT } from "../onboarding";
 import { BuildScene } from "../onboarding-build-scene";
 import {
+  clearOAuthAttempt,
   ImapConnectPanel,
   OAuthConnectPanel,
+  type OAuthProvider,
   OAuthReturnPanel,
+  peekOAuthAttempt,
 } from "../onboarding-connect-panels";
 import type { MailProvider } from "./connect-scene";
 import { ConnectScene } from "./connect-scene";
@@ -47,6 +50,34 @@ type ConnectActProps = Readonly<{
   returningProvider?: string;
 }>;
 
+// `outcome` and `returningProvider` are ROUTE segments — a stale bookmark or
+// a reload of an old return URL replays them with no live attempt behind
+// them. `peekOAuthAttempt` is the one thing that DOES prove this tab started
+// the trip (see onboarding-connect-panels.tsx), so the reader only lands
+// back inside the dialog it left from when the mark actually matches; a
+// mismatch or an unmarked outcome falls back to the plain inline result
+// instead of implying a return this tab never made.
+function attemptedProvider(
+  outcome: string | undefined,
+  returningProvider: string | undefined,
+): MailProvider | null {
+  if (outcome === undefined) {
+    return null;
+  }
+  const marked = peekOAuthAttempt();
+  if (marked === null) {
+    return null;
+  }
+  if (returningProvider !== undefined && returningProvider !== marked) {
+    return null;
+  }
+  const byMarked: Record<OAuthProvider, MailProvider> = {
+    gmail: "google",
+    graph: "microsoft",
+  };
+  return byMarked[marked];
+}
+
 export function ConnectAct({
   state,
   dispatch,
@@ -55,14 +86,42 @@ export function ConnectAct({
   returningProvider,
 }: ConnectActProps) {
   const t = useT();
-  // The OAuth return view no longer depends on which chip was open when the
-  // consent redirect left this screen — it reads the connector roster fresh,
-  // so `provider` only tracks which pre-consent panel is open right now.
-  const [provider, setProvider] = useState<MailProvider | null>(null);
+  // Which dialog is open. On an ordinary visit this starts null; on the real
+  // page load a redirect lands on, it opens straight to the provider this
+  // tab's own attempt marks — the reader lands back inside the same chrome
+  // they left, rather than a bare surface with the result buried inline.
+  const [provider, setProvider] = useState<MailProvider | null>(() =>
+    attemptedProvider(outcome, returningProvider),
+  );
+  // Whether the OPEN dialog is showing that reopened result rather than a
+  // fresh ask — cleared the moment the reader closes it or picks a
+  // different provider, so a retry after a denied/failed return is a real
+  // ask again, not a replay of the same result forever.
+  const [resultFor, setResultFor] = useState<MailProvider | null>(() =>
+    attemptedProvider(outcome, returningProvider),
+  );
   const [finishing, setFinishing] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
   const [entering, setEntering] = useState(false);
   const linkedin = useSaveLinkedInAccount();
+
+  // Spends the mark once this mount has read it, so reloading the same
+  // return URL finds nothing and correctly falls back to the plain inline
+  // result instead of reopening the dialog a second time.
+  useEffect(() => {
+    if (outcome !== undefined) {
+      clearOAuthAttempt();
+    }
+  }, [outcome]);
+
+  const openAsk = (key: MailProvider) => {
+    setResultFor(null);
+    setProvider(key);
+  };
+  const closeDialog = () => {
+    setProvider(null);
+    setResultFor(null);
+  };
 
   // The act advances LinkedIn only once the answer is STORED. Dispatching
   // first and saving in the background would let a member finish onboarding
@@ -130,8 +189,12 @@ export function ConnectAct({
         <ConnectScene
           eyebrow={eyebrow}
           provider={provider}
-          onPick={setProvider}
-          onDialogClose={() => setProvider(null)}
+          onPick={openAsk}
+          onDialogClose={closeDialog}
+          // True only for the ONE dialog this mount reopened from a proven
+          // attempt (see `attemptedProvider`): its content is the settled
+          // result, not a fresh ask, so the dialog's own chrome must say so.
+          dialogShowsResult={provider !== null && provider === resultFor}
           onSkip={() => void finish(true)}
           skipDisabled={finishing}
           // Once consent has returned, "skip connecting" is no longer a true
@@ -155,29 +218,22 @@ export function ConnectAct({
           dialogPanel={
             <>
               {provider === "google" && (
-                <OAuthConnectPanel
-                  provider="gmail"
-                  onDismiss={() => setProvider(null)}
-                />
+                <OAuthConnectPanel provider="gmail" onDismiss={closeDialog} />
               )}
               {provider === "microsoft" && (
-                <OAuthConnectPanel
-                  provider="graph"
-                  onDismiss={() => setProvider(null)}
-                />
+                <OAuthConnectPanel provider="graph" onDismiss={closeDialog} />
               )}
               {provider === "imap" && (
-                <ImapConnectPanel
-                  onComplete={finish}
-                  onDismiss={() => setProvider(null)}
-                />
+                <ImapConnectPanel onComplete={finish} onDismiss={closeDialog} />
               )}
             </>
           }
           // The ask is settled: a redirect already returned. This is a
           // finding plus one more real decision (the backfill window), not a
-          // fresh consent round, so it renders inline on the surface rather
-          // than inside a dialog.
+          // fresh consent round — `ConnectScene` shows it in the dialog the
+          // reader left from when a proven attempt says so, and inline on
+          // the surface otherwise (a stale or bookmarked return link, which
+          // is real information but not a return this tab can vouch for).
           returnPanel={
             outcome !== undefined ? (
               <>

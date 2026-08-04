@@ -23,6 +23,7 @@ function renderConnectAct(
   outcome?: string,
   linkedinStatus: ConversationState["linkedinStatus"] = "pending",
   phase: ConversationState["phase"] = "cn.consent",
+  returningProvider?: string,
 ) {
   const state: ConversationState = {
     ...initialConversationState,
@@ -44,6 +45,7 @@ function renderConnectAct(
           dispatch={dispatch}
           persist={persist}
           outcome={outcome}
+          returningProvider={returningProvider}
         />
       </LocaleProvider>
     </QueryClientProvider>,
@@ -73,6 +75,10 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The OAuth-attempt mark lives in sessionStorage (see
+  // onboarding-connect-panels.tsx) — jsdom shares it across tests in this
+  // same process, so a mark one test writes must not leak into the next.
+  sessionStorage.clear();
 });
 
 it("offers Microsoft as a live card and opens its dialog", async () => {
@@ -91,6 +97,101 @@ it("offers Microsoft as a live card and opens its dialog", async () => {
       name: "Allow access to my Microsoft",
     }),
   ).toBeTruthy();
+});
+
+// The mark is what tells a genuine return apart from a stale or bookmarked
+// outcome URL (see `attemptedProvider` in connect-act.tsx) — it has to be
+// written before the redirect actually leaves, not after.
+it("marks this tab's own attempt before the real redirect fires", async () => {
+  installFetchStub({
+    "GET /connectors": () => jsonResponse({ data: [] }),
+    "POST /connectors/graph/connect": () =>
+      jsonResponse({ authorize_url: "https://login.microsoftonline/x" }),
+  });
+  const assign = vi.fn();
+  vi.stubGlobal("location", { ...globalThis.location, assign });
+  renderConnectAct();
+  await userEvent.click(screen.getByRole("button", { name: /Microsoft/ }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Allow access to my Microsoft" }),
+  );
+  await waitFor(() => expect(assign).toHaveBeenCalled());
+  expect(sessionStorage.getItem("ob.connect.oauthAttempt")).toBe("graph");
+});
+
+describe("returning to the dialog a proven attempt left from", () => {
+  it("reopens the same dialog, showing the result rather than a fresh ask", async () => {
+    sessionStorage.setItem("ob.connect.oauthAttempt", "graph");
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "g1",
+              provider: "graph",
+              status: "connected",
+              scopes: ["read"],
+              backfill: { state: "done" },
+            },
+          ],
+        }),
+    });
+    renderConnectAct("ok", "pending", "cn.consent", "graph");
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeTruthy();
+    // The plain provider name, not the pre-consent "access needed" ask —
+    // nothing is being requested any more.
+    expect(
+      screen.getByRole("heading", { name: "Microsoft" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Live and capturing")).toBeTruthy();
+    // Consumed on read: a reload of this same URL would find no mark.
+    expect(sessionStorage.getItem("ob.connect.oauthAttempt")).toBeNull();
+  });
+
+  it("falls back to the plain inline result when the URL's provider does not match this tab's own attempt", async () => {
+    sessionStorage.setItem("ob.connect.oauthAttempt", "gmail");
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "g1",
+              provider: "graph",
+              status: "connected",
+              scopes: ["read"],
+              backfill: { state: "done" },
+            },
+          ],
+        }),
+    });
+    renderConnectAct("ok", "pending", "cn.consent", "graph");
+
+    expect(await screen.findByText("Live and capturing")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("falls back to the plain inline result when no mark is recorded at all — a stale or bookmarked link", async () => {
+    installFetchStub({
+      "GET /connectors": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "g1",
+              provider: "graph",
+              status: "connected",
+              scopes: ["read"],
+              backfill: { state: "done" },
+            },
+          ],
+        }),
+    });
+    renderConnectAct("ok", "pending", "cn.consent", "graph");
+
+    expect(await screen.findByText("Live and capturing")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
 
 it("renders the provider-agnostic return view on OAuth return", async () => {
@@ -263,6 +364,29 @@ describe("the LinkedIn card", () => {
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
     expect(screen.getByText(/awaiting approval/i)).toBeTruthy();
+  });
+
+  // The three consent guarantees the dialog owes a reader before they click
+  // Authorize, each proven on the rendered dialog rather than a catalog key
+  // so a copy edit that quietly drops one fails here, not in review.
+  it("states that connections never become contacts", async () => {
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
+    expect(screen.getByText(/do NOT become contacts/i)).toBeTruthy();
+  });
+
+  it("states that nothing is sent to a connection", async () => {
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
+    expect(
+      screen.getByText(/sends no invitations and no messages/i),
+    ).toBeTruthy();
+  });
+
+  it("states that no connections sync yet", async () => {
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
+    expect(screen.getByText(/no connections sync yet/i)).toBeTruthy();
   });
 
   it("shows the resolved state and offers no further action once skipped", () => {

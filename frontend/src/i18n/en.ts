@@ -2220,14 +2220,14 @@ export const en = {
   "ob.conv.linkedin.scope4Rest":
     "Connecting sends no invitations and no messages, ever.",
   "ob.conv.linkedin.neverContacts":
-    "Your connections do NOT become contacts. They never appear in search, lists or contact pages, nothing can be written to them, and nobody can email them. They exist only to answer one question: does anyone here already know someone at this company?",
+    "Your connections do NOT become contacts — they exist only to answer one question: does anyone here already know someone at this company?",
   "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "Needed so the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+    "So the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
   "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
   "ob.conv.linkedin.appPending":
-    "Heads up: our LinkedIn developer app is still awaiting approval, so this records your consent and profile but no connections sync yet. Until it clears you can upload your own Connections.csv under Settings, which works today.",
+    "Heads up: our LinkedIn app is still awaiting approval, so no connections sync yet — this only records your consent and profile. Upload Connections.csv under Settings, which works today.",
   "ob.conv.linkedin.skip": "Skip LinkedIn for now",
   "ob.conv.linkedin.connected":
     "LinkedIn authorized. Your connections will sync as soon as the app is approved.",

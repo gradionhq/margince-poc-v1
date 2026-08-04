@@ -116,6 +116,7 @@ export function ConnectScene({
   provider,
   onPick,
   onDialogClose,
+  dialogShowsResult,
   dialogPanel,
   returnPanel,
   onSkip,
@@ -134,14 +135,21 @@ export function ConnectScene({
   onPick: (provider: MailProvider) => void;
   /** Closes the open dialog via its own chrome (the X, Escape, backdrop). */
   onDialogClose: () => void;
+  /**
+   * True when `provider`'s dialog is showing a proven attempt's RESULT
+   * (`returnPanel`) rather than the pre-consent ask (`dialogPanel`) — the
+   * caller is the one place that can tell a genuine return from this tab
+   * apart from a stale or bookmarked outcome URL, so it decides which.
+   */
+  dialogShowsResult: boolean;
   /** The chosen provider's pre-consent panel, rendered INSIDE its dialog. */
   dialogPanel: ReactNode;
   /**
    * The post-consent result (`OAuthReturnPanel` plus the backfill window
-   * control) once a redirect has actually returned — rendered inline on the
-   * surface, never inside a dialog: the ask is over, this is a settled fact
-   * plus one more real decision (how far back to read), not a new consent
-   * round.
+   * control) once a redirect has returned. Shown INSIDE the dialog the
+   * reader left from when `dialogShowsResult` says this tab genuinely made
+   * that trip; otherwise rendered inline on the surface — still a real
+   * finding, just not one this tab can vouch for having just requested.
    */
   returnPanel: ReactNode;
   onSkip: () => void;
@@ -210,7 +218,11 @@ export function ConnectScene({
         })}
       </div>
 
-      {returnPanel}
+      {/* The inline fallback: a real finding either way, but shown here
+          rather than inside a dialog because this tab has no proof it just
+          requested it — see `dialogShowsResult` on why that distinction is
+          the caller's to make. */}
+      {!dialogShowsResult && returnPanel}
 
       {showSkip && (
         <p className="ob-connect-skip-row">
@@ -248,14 +260,26 @@ export function ConnectScene({
           open
           onClose={onDialogClose}
           providerMarkKey={PROVIDER_MARKS[provider]}
-          headline={openCopy ? openCopy.dialogHeadline(t) : ""}
+          // The result dialog names the provider plainly — `returnPanel`
+          // (OAuthReturnPanel) carries its own heading for what happened,
+          // so a second "access needed" headline above it would be both
+          // redundant and wrong: nothing is being asked for any more.
+          headline={
+            dialogShowsResult
+              ? openCopy
+                ? t(openCopy.name)
+                : ""
+              : openCopy
+                ? openCopy.dialogHeadline(t)
+                : ""
+          }
           intro={
-            openCopy
+            !dialogShowsResult && openCopy
               ? t("ob.conv.connect.dialogIntro", { brings: t(openCopy.brings) })
               : undefined
           }
         >
-          {dialogPanel}
+          {dialogShowsResult ? returnPanel : dialogPanel}
         </ConnectDialog>
       )}
 
@@ -476,7 +500,13 @@ function LinkedinPanel({
       <div className="ob-conv-scopes">
         {linkedinScopes.map((scope) => (
           <p key={scope.lead}>
-            <Check aria-hidden /> <b>{t(scope.lead)}</b> {t(scope.rest)}
+            <Check aria-hidden />
+            {/* Lead and rest share ONE flex item so the row wraps as a
+                single line of prose — two items each shrinking to their own
+                width is what broke the bold lead across lines. */}
+            <span>
+              <b>{t(scope.lead)}</b> {t(scope.rest)}
+            </span>
           </p>
         ))}
       </div>

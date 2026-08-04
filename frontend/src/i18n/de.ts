@@ -2255,14 +2255,14 @@ export const de = {
   "ob.conv.linkedin.scope4Rest":
     "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
   "ob.conv.linkedin.neverContacts":
-    "Deine Kontakte werden NICHT zu Kontakten im CRM. Sie erscheinen nie in Suche, Listen oder Kontaktseiten, nichts kann ihnen geschrieben werden, und niemand kann sie anmailen. Sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+    "Deine Kontakte werden NICHT zu Kontakten im CRM \u2014 sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
   "ob.conv.linkedin.profileLabel": "Deine LinkedIn-Profil-URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "N\u00f6tig, damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+    "Damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
   "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
   "ob.conv.linkedin.appPending":
-    "Hinweis: Unsere LinkedIn-Entwickler-App wartet noch auf Freigabe. Deine Zustimmung und dein Profil werden erfasst, es werden aber noch keine Kontakte synchronisiert. Bis dahin kannst du in den Einstellungen deine eigene Connections.csv hochladen \u2014 das funktioniert heute schon.",
+    "Hinweis: Unsere LinkedIn-App wartet noch auf Freigabe, es werden also noch keine Kontakte synchronisiert \u2014 nur deine Zustimmung und dein Profil werden erfasst. Lade dazu in den Einstellungen deine Connections.csv hoch, das funktioniert heute schon.",
   "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
   "ob.conv.linkedin.connected":
     "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",

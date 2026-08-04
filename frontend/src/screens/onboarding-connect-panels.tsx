@@ -48,7 +48,7 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
   );
 }
 
-type OAuthProvider = "gmail" | "graph";
+export type OAuthProvider = "gmail" | "graph";
 
 const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
 
@@ -58,6 +58,48 @@ const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
 // NOT the same fact as the segment being absent: the caller keeps the two apart.
 function asOAuthProvider(value: string | undefined): OAuthProvider | null {
   return OAUTH_PROVIDERS.find((p) => p === value) ?? null;
+}
+
+// A real "allow" click leaves the page entirely for the provider's own
+// consent screen — this tab's sessionStorage is the only thing that survives
+// that round trip, so it is what tells a genuine return apart from a stale
+// or bookmarked `/connect/ok/...` URL replayed with no live attempt behind
+// it. `sessionStorage` (not `localStorage`) is deliberate: the mark belongs
+// to the ONE tab that started the trip, the same scope the redirect itself
+// stays within.
+const OAUTH_ATTEMPT_KEY = "ob.connect.oauthAttempt";
+
+function markOAuthAttempt(provider: OAuthProvider): void {
+  try {
+    sessionStorage.setItem(OAUTH_ATTEMPT_KEY, provider);
+  } catch {
+    // Storage can be unavailable (private browsing, disabled): the redirect
+    // still happens, and the return trip falls back to showing its result
+    // inline rather than reopening a dialog it has no proof this tab opened.
+  }
+}
+
+/** The provider a real attempt from THIS tab is returning for, or null if
+ * none is recorded — read-only, so the caller decides when the mark is
+ * actually spent (`clearOAuthAttempt`). */
+export function peekOAuthAttempt(): OAuthProvider | null {
+  try {
+    return asOAuthProvider(
+      sessionStorage.getItem(OAUTH_ATTEMPT_KEY) ?? undefined,
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Spends the mark so a reload of the same return URL reads as the stale
+ * link it now is, not a second live attempt. */
+export function clearOAuthAttempt(): void {
+  try {
+    sessionStorage.removeItem(OAUTH_ATTEMPT_KEY);
+  } catch {
+    // Nothing to clear if the write never landed.
+  }
 }
 
 const OAUTH_COPY: Record<
@@ -117,6 +159,7 @@ export function OAuthConnectPanel({
     },
     onSuccess: (data) => {
       if (data.authorize_url) {
+        markOAuthAttempt(provider);
         globalThis.location.assign(data.authorize_url);
       }
     },
