@@ -41,6 +41,8 @@ const storekitOwned = "internal/platform/database/storekit"
 // owns its writes (module doc.go "Tables owned" declarations, kept in sync).
 // This map is the hand-maintained artifact: a new table gets an owner here
 // before its first write lands.
+// gatekit:fixture the owning module path each table's writes are compared
+// against — expected data, not a cost anyone is paying.
 var tableOwners = map[string]string{
 	// identity
 	"workspace":                "internal/modules/identity",
