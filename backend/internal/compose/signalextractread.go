@@ -97,8 +97,8 @@ type settledThread struct {
 // A conversation's account comes from the three-arm walk (the message's own
 // link, its deal's account, the employer of the contact it is about) rather
 // than a direct organization link. Capture files mail against the PERSON it was
-// with, so a direct match resolved nothing on real correspondence and this
-// producer read no conversations at all.
+// with, so a direct match resolves nothing on real correspondence — an account
+// is reached through its people, or not at all.
 //
 // The walk is joined rather than applied as a predicate because the question
 // here is which account a thread belongs to, not whether it belongs to a known

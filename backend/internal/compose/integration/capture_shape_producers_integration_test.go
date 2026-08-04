@@ -13,11 +13,10 @@ package integration
 // only through that person's employment, and no direct organization link
 // anywhere — and requires that each producer still finds the account.
 //
-// It exists because both signal producers shipped resolving accounts through a
-// direct activity_link row. Their own tests seeded that row by hand, so the
-// tests passed while the producers found nothing on any real workspace: they
-// ran hourly for a full release and wrote no signal at all. A test that seeds
-// what the writer writes is the only kind that could have failed.
+// A fixture that hand-writes a link no connector emits proves the producer
+// against data that does not exist: it passes while the producer finds nothing
+// on every real workspace, and nothing about the green tells anyone. Seeding
+// what the writer writes is the only way a test can fail for the right reason.
 //
 // A producer added later belongs in this list. The cost of joining it is a
 // couple of lines; the cost of staying out of it is a feature that looks
@@ -31,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -111,10 +111,14 @@ func TestTheExtractorIsOfferedAConversationCaptureLinkedThroughAPerson(t *testin
 	}
 }
 
-// The account's own timeline count is the reader-facing number over the same
-// walk. It is here because the producers and the number above the list they
-// explain must agree about which messages belong to the account — they drifted
-// once already, in opposite directions.
+// The reader-facing side of the same walk. The producers and the timeline the
+// account's page shows must agree about which messages belong to it: a signal
+// about correspondence the reader cannot find on the page is unanswerable.
+//
+// It asks activities.OrgLinkedActivityExists rather than a copy of the three
+// arms. A hand-spelled walk here would keep passing against whatever the arms
+// used to be, which is the failure this whole file exists to prevent, wearing
+// a test's clothes.
 func TestTheAccountTimelineCountsMailCaptureLinkedThroughAPerson(t *testing.T) {
 	e := Setup(t)
 	org := seedAccountAsCaptureWould(t, e)
@@ -123,13 +127,7 @@ func TestTheAccountTimelineCountsMailCaptureLinkedThroughAPerson(t *testing.T) {
 	ctx := e.Admin()
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `SELECT count(*) FROM activity a
-			 WHERE a.archived_at IS NULL AND EXISTS (
-			   SELECT 1 FROM activity_link l
-			     LEFT JOIN deal d ON d.id = l.deal_id
-			     LEFT JOIN relationship r ON r.person_id = l.person_id
-			       AND r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
-			    WHERE l.activity_id = a.id
-			      AND ($1 IN (l.organization_id, d.organization_id, r.organization_id)))`,
+			 WHERE a.archived_at IS NULL AND `+activities.OrgLinkedActivityExists(1),
 			org).Scan(&reached)
 	}); err != nil {
 		t.Fatalf("count the account's reachable mail: %v", err)

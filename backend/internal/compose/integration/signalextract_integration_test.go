@@ -54,23 +54,27 @@ func (b *scriptedBrain) Complete(_ context.Context, _ model.Request) (model.Resp
 // given contact and nothing else.
 //
 // This is the shape capture actually writes: mail is linked to the PERSON it
-// was with, never to their employer. Seeding a direct organization link — which
-// these fixtures used to do — describes a row no connector has ever produced,
-// and a producer that resolved accounts the narrow way passed every test here
-// while finding no conversation at all on a real workspace.
+// was with, never to their employer. A fixture that seeds a direct organization
+// link describes a row no connector produces, and proves the producer against
+// correspondence no workspace has.
 func seedMessage(t *testing.T, e *Env, contact ids.UUID, key, subject, body, direction string, at time.Time) ids.UUID {
 	t.Helper()
-	owner := OwnerConn(t)
+	id := seedUnlinkedMessage(t, e, key, subject, body, direction, at)
+	LinkActivity(t, OwnerConn(t), e.WS, id, "person", contact)
+	return id
+}
+
+// seedUnlinkedMessage logs the same captured email with no link at all, for the
+// cases that attach their own — a deal, or the direct account link a human
+// filing an activity by hand still writes.
+func seedUnlinkedMessage(t *testing.T, e *Env, key, subject, body, direction string, at time.Time) ids.UUID {
+	t.Helper()
 	stamp := at.UTC().Format(time.RFC3339Nano)
-	id := SeedRow(t, owner, `INSERT INTO activity
+	return SeedRow(t, OwnerConn(t), `INSERT INTO activity
 		(id, workspace_id, kind, direction, subject, body, thread_key, occurred_at, created_at,
 		 source, captured_by)
 		VALUES ($1, $2, 'email', '`+direction+`', '`+subject+`', '`+body+`', '`+key+`',
 		        '`+stamp+`', '`+stamp+`', 'gmail', 'connector:gmail')`, e.WS)
-	if contact != (ids.UUID{}) {
-		LinkActivity(t, owner, e.WS, id, "person", contact)
-	}
-	return id
 }
 
 // employeeOf is a contact who works at the account, which is the only way
@@ -328,12 +332,20 @@ func TestAnUnplaceableMessageStillHoldsTheConversationOpen(t *testing.T) {
 	}
 }
 
-// Two of the three arms are LIVE relationships, so a conversation's account can
-// change with no new mail on it. A contact moving employer re-points every
-// quiet thread they are on, and the new account has never had these events
-// read for it — the watermark says the THREAD was read, which is a different
-// claim.
-func TestAThreadIsReReadWhenItsContactChangesEmployer(t *testing.T) {
+// A conversation's account is not fixed when it is read, so the watermark
+// cannot be either.
+//
+// Two of the three arms are live relationships: an activity linked to a deal
+// follows that deal's account, and a message filed against a contact follows
+// their employment. Either can move with no new mail on the thread. Keyed on
+// the thread alone, the watermark answers "this conversation has been read" —
+// which is not the question. The question is whether it has been read FOR THIS
+// ACCOUNT, and resolved_org_id is what makes the row able to answer it.
+//
+// The re-read is what this pins. Where its events end up is a separate
+// question, and a sharper one than this walk currently answers — see the note
+// on OrgReachSet about employment carrying no start date.
+func TestAConversationIsOwedAFreshReadingWhenItsAccountChanges(t *testing.T) {
 	e := Setup(t)
 	acme := e.SeedOrg(t, "Acme", &e.Rep1)
 	contoso := e.SeedOrg(t, "Contoso", &e.Rep1)
@@ -346,6 +358,11 @@ func TestAThreadIsReReadWhenItsContactChangesEmployer(t *testing.T) {
 	if raised := extractPass(t, e, brain); raised != 1 {
 		t.Fatalf("the first pass raised %d signals, want one against the first account", raised)
 	}
+	// Read once, so the conversation is settled business: unchanged, it is not
+	// offered again.
+	if again := extractPassStats(t, e, brain); again.Due != 0 {
+		t.Fatalf("an unchanged conversation was offered again (%d due)", again.Due)
+	}
 
 	owner := OwnerConn(t)
 	e.WsExec(t, `UPDATE relationship SET ended_at = $1
@@ -353,11 +370,17 @@ func TestAThreadIsReReadWhenItsContactChangesEmployer(t *testing.T) {
 		extractClock.Add(-time.Hour), mover, acme)
 	seedEmployment(t, owner, e.WS, mover, contoso)
 
-	if raised := extractPass(t, e, brain); raised != 1 {
-		t.Fatalf("the second pass raised %d signals, want one against the account they moved to", raised)
+	// Same thread, same messages, same count — a watermark that knew only the
+	// thread would call this read and never look at it again.
+	if again := extractPassStats(t, e, brain); again.Due != 1 {
+		t.Fatalf("the conversation was offered %d times after its account changed, "+
+			"want the one reading the new account has never had", again.Due)
 	}
-	if kinds := openSignalKinds(t, e, contoso); len(kinds) != 1 || kinds[0] != "contract_ended" {
-		t.Fatalf("the new account carries %v, want the contract_ended its own mail states", kinds)
+	// The account it was FIRST read for keeps what its own mail stated. A
+	// signal is not withdrawn because the person who wrote it changed jobs.
+	if kinds := openSignalKinds(t, e, acme); len(kinds) != 1 || kinds[0] != "contract_ended" {
+		t.Fatalf("the original account carries %v, want the contract_ended it "+
+			"was told about while the contact still worked there", kinds)
 	}
 }
 
@@ -413,7 +436,7 @@ func TestAPassThatRunsOutOfTimeStopsAndLeavesTheRestDue(t *testing.T) {
 func TestAThreadLinkedStraightToTheAccountIsStillRead(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	notice := seedMessage(t, e, ids.UUID{}, "thread-direct", "Renewal for 2027",
+	notice := seedUnlinkedMessage(t, e, "thread-direct", "Renewal for 2027",
 		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)

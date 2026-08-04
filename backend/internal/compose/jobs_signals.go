@@ -82,10 +82,10 @@ type signalScanWorkspaceWorker struct {
 //
 // One pass reads up to extractThreadCap conversations, each of them a model
 // call, so a minute covers a quiet workspace and nothing else. An installation
-// that has just connected a mailbox has thousands of messages of history, and
-// under the default the first pass was killed part-way through, retried twice
-// against the same backlog, and discarded — while the reading it HAD done was
-// committed and fine.
+// that has just connected a mailbox has thousands of messages of history: under
+// the default such a pass is killed part-way through, retried twice against the
+// same backlog and discarded, while the reading it managed is committed and
+// fine.
 //
 // Five minutes is a pass that gets somewhere against a real backlog. It is a
 // ceiling, not a target: the pass stops itself with extractStopMargin to spare
@@ -135,23 +135,34 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	// that are already standing. Every error is reported, none of them stop
 	// the reconcile.
 	standing, proposeErr := w.proposer.RunWorkspace(wsCtx)
+
+	// Logged on EVERY pass, including the ones that raised nothing and the ones
+	// that failed, and carrying what each half was OFFERED as well as what it
+	// wrote.
+	//
+	// Raised alone cannot tell a calm week from a broken walk: both write
+	// nothing. Considered and due are what separate them, and a pass that
+	// failed is exactly when "what did the working half manage?" is worth
+	// knowing — so this runs before the error is returned, not after.
+	//
+	// The extractor's numbers are omitted when no model lane is bound, because
+	// a hard zero there reads as the broken-queue signature rather than as an
+	// installation that bought no model.
+	fields := []any{
+		"ghosted_considered", ghosted.Considered, "ghosted_raised", ghosted.Raised,
+		"offers_standing", standing, "model_lane", w.extractor != nil,
+	}
+	if w.extractor != nil {
+		fields = append(fields,
+			"threads_due", read.Due, "extracted", read.Raised,
+			"at_cap", read.AtCap, "budget_deferred", read.Deferred,
+			"out_of_time", read.OutOfTime)
+	}
+	w.log.InfoContext(wsCtx, "signal scan pass", fields...)
+
 	if err := errors.Join(extractErr, proposeErr); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	// Logged on EVERY pass, including the ones that raised nothing, and carrying
-	// what each half was OFFERED as well as what it wrote.
-	//
-	// The line used to appear only when something was raised. A producer whose
-	// account walk resolved nothing on any real workspace therefore looked
-	// exactly like a quiet week — it shipped, ran hourly, wrote nothing for a
-	// full release, and said nothing about it. Considered and due are the
-	// numbers that tell a broken queue from a calm one; one line per workspace
-	// per hour is what that costs.
-	w.log.InfoContext(wsCtx, "signal scan pass",
-		"ghosted_considered", ghosted.Considered, "ghosted_raised", ghosted.Raised,
-		"threads_due", read.Due, "extracted", read.Raised,
-		"at_cap", read.AtCap, "budget_deferred", read.Deferred,
-		"out_of_time", read.OutOfTime, "offers_standing", standing)
 	return nil
 }
 

@@ -62,11 +62,10 @@ type ghostedCandidate struct {
 //
 // The account behind an interaction comes from the three-arm walk
 // (activities.OrgReachSet), not a direct organization link. Capture files mail
-// against the PERSON it was with, so a direct match found nothing on real
-// correspondence and this rule fired on no account at all. Reaching through the
-// contact is also what makes the rule TRUE: a reply from a colleague at the
-// same account answers us, and under the direct match it was invisible, so an
-// answered thread still read as ghosted.
+// against the PERSON it was with, so a direct match resolves nothing on real
+// correspondence. Reaching through the contact is also what makes the rule
+// TRUE: a reply from a colleague at the same account answers us, and a rule
+// that cannot see that reply calls an answered thread ghosted.
 //
 // An interaction reaching two accounts counts as the newest for BOTH, and that
 // is the intended reading here — "we spoke last and nobody answered" is a fact

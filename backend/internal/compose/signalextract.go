@@ -114,52 +114,6 @@ func (p extractPayload) events() []extractedEvent {
 	return *p.Events
 }
 
-// ExtractPass is what one workspace's reading pass did.
-//
-// Raised alone cannot describe a pass. A pass that read two hundred
-// conversations and found nothing worth filing is a healthy one; a pass that
-// was offered no conversation at all is a broken queue — and for a full release
-// the two were the same line in the log, which is how a producer that resolved
-// no account on any real workspace went unnoticed.
-type ExtractPass struct {
-	// Due is how many conversations the queue offered this pass.
-	Due int
-	// Raised is how many signals were written.
-	Raised int
-	// AtCap says the queue filled its per-pass limit, so there is very likely
-	// more backlog behind it. The first passes over an installation's history
-	// are expected to sit here for a few hours.
-	AtCap bool
-	// Deferred says the workspace's model budget stopped the pass early.
-	Deferred bool
-	// OutOfTime says the pass ran up against its own deadline and stopped
-	// while conversations were still owed a reading.
-	OutOfTime bool
-}
-
-// extractStopMargin is how much of the pass's deadline is kept in reserve.
-//
-// A pass stops on its own rather than being killed mid-conversation. Each
-// thread commits its signals and its watermark together, so being cut off costs
-// only the thread in flight — but it costs it as a FAILED job, which retries the
-// whole pass twice more and then discards it, and a discarded job is a fault
-// somebody should look at rather than the ordinary shape of a first run over a
-// mailbox's history.
-//
-// Ten seconds: room for the thread in flight to finish its model call and
-// commit, without spending a meaningful slice of the pass on caution.
-const extractStopMargin = 10 * time.Second
-
-// outOfTime reports whether the pass should stop rather than start another
-// conversation. A pass with no deadline never stops here.
-func outOfTime(ctx context.Context) bool {
-	if ctx.Err() != nil {
-		return true
-	}
-	deadline, ok := ctx.Deadline()
-	return ok && time.Until(deadline) <= extractStopMargin
-}
-
 // RunWorkspace reads every due thread in the workspace already bound in ctx,
 // and reports what the pass did.
 //
@@ -207,27 +161,62 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 				"conversations_read", i, "still_due", len(due)-i, "raised", raised)
 			pass.Raised = raised
 			pass.OutOfTime = true
-			return pass, errors.Join(failed...)
+			return pass, passFailure(failed)
 		}
-		n, err := x.readThread(ctx, wsID, thread, now)
+		// The read gets the pass's remaining time MINUS the margin, so the
+		// margin is a reserve rather than a hope. Checking the clock before a
+		// read only bounds when one STARTS: a single conversation escalates
+		// tiers and retries inside the model lane, where one call alone may run
+		// for ai.requestTimeout, so a read begun with time to spare can still
+		// arrive at the job's deadline and fault the pass there.
+		//
+		// Cut short by OUR bound, the read is not a failure — it is the same
+		// "no time left" the loop above stops on, noticed one conversation
+		// later. The job's own deadline is still unspent, which is exactly what
+		// tells the two apart.
+		readCtx, cancelRead := readDeadline(ctx)
+		n, err := x.readThread(readCtx, wsID, thread, now)
+		// Read BEFORE the cancel, which would set this error itself and make
+		// every provider failure look like a conversation we cut short.
+		cutShort := err != nil && readCtx.Err() != nil && ctx.Err() == nil
+		cancelRead()
 		raised += n
+		if cutShort {
+			x.log.InfoContext(ctx, "signal extract: out of time mid-conversation, stopping the pass",
+				"conversations_read", i, "still_due", len(due)-i, "raised", raised)
+			pass.Raised = raised
+			pass.OutOfTime = true
+			return pass, passFailure(failed)
+		}
 		if errors.Is(err, ai.ErrBudgetDeferred) {
 			// The budget is the WORKSPACE's, so this one does stop the pass:
 			// every thread behind it would buy the same refusal.
 			x.log.InfoContext(ctx, "signal extract: budget exhausted, stopping the pass", "raised", raised)
 			pass.Raised = raised
 			pass.Deferred = true
-			return pass, errors.Join(failed...)
+			return pass, passFailure(failed)
 		}
 		if err != nil {
 			failed = append(failed, fmt.Errorf("reading conversation %q: %w", thread.Key, err))
 		}
 	}
 	pass.Raised = raised
-	if len(failed) > 0 {
-		return pass, fmt.Errorf("signal extract: %w", errors.Join(failed...))
+	return pass, passFailure(failed)
+}
+
+// passFailure names the pass in whatever its conversations reported, or reports
+// nothing when none of them failed.
+//
+// A pass leaves by four doors — out of time, budget exhausted, and the two ends
+// of the loop — and the conversations that failed before it left read the same
+// through all of them. Wrapping at each door instead let the same failure reach
+// River with or without the pass's name on it, depending only on when the pass
+// happened to stop.
+func passFailure(failed []error) error {
+	if len(failed) == 0 {
+		return nil
 	}
-	return pass, nil
+	return fmt.Errorf("signal extract: %w", errors.Join(failed...))
 }
 
 // readThread asks about one conversation and commits what it learned.

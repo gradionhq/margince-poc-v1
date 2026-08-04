@@ -58,16 +58,14 @@ func OrgLinkedActivityExistsAny(orgsPos int) string {
 // against, the account its deal belongs to, and the employer of the contact it
 // is about.
 //
-// It is a separate constant because the walk is now asked two different
-// questions. A predicate asks whether an activity reaches a KNOWN account; a
-// producer asks which accounts an activity reaches at all, and needs them in
-// its SELECT. The arms are where drift would actually happen — an arm gaining
-// a condition in one spelling and not the other — so the arms are what is
-// shared, and each question keeps its own shape around them.
+// The arms live apart from the two shapes built on them because that is where
+// drift would happen — an arm gaining a condition in one spelling and not the
+// other — while the shapes differ for a reason that will not go away
+// (OrgReachSet says what it is).
 //
-// The deal arm deliberately does not exclude archived or lost deals: a
-// fragment stricter than the predicate would show a message on the timeline
-// whose account never gets a signal about it.
+// The deal arm deliberately does not exclude archived or lost deals: a set
+// stricter than the predicate would show a message on the timeline whose
+// account never gets a signal about it.
 const orgArms = `FROM activity_link l
 		    LEFT JOIN deal d ON d.id = l.deal_id
 		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
@@ -108,6 +106,17 @@ func activityReachesOrg(operand string) string {
 //
 // No workspace filter: activity_link, deal and relationship all carry FORCE
 // row-level security, and every caller runs inside WithWorkspaceTx.
+//
+// Known limit, and it matters more to a producer than to a reader: the
+// employment arm asks who a contact works for NOW, not who they worked for
+// when the message was sent. Mail exchanged with someone at a previous job
+// therefore reaches whoever employs them today. A timeline showing it is
+// arguably being helpful; a signal FILED against that account is a claim
+// nobody made. Bounding the arm by relationship.started_at is the fix, and it
+// is not available yet — people.plantEmploymentEdge writes no start date, so
+// the bound would resolve nothing (see the follow-up issue). Until then the
+// extractor's one-account rule carries most of the weight, since a contact
+// with two live employers makes their conversations ambiguous and skipped.
 func OrgReachSet() string {
 	return sprintf(`SELECT DISTINCT l.activity_id, o.org_id AS organization_id
 		    %s
