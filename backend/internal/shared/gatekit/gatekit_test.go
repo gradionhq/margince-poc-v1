@@ -83,6 +83,32 @@ func TestAReasonThatStatesNoCostIsRefusedHoweverLongItIs(t *testing.T) {
 	}
 }
 
+// The floor counts characters, not bytes. A handful of wide runes occupies
+// twenty bytes while saying about as much as a handful of ASCII ones, so a
+// byte-counted floor would ratify it; the same count of runes states a cost in
+// any script, so a reason written in one is held to the same length as an
+// English one and no stricter.
+func TestTheReasonFloorCountsCharactersRatherThanBytes(t *testing.T) {
+	const wide = "貸方の理由"                          // five runes, fifteen bytes
+	const enough = "この免除が何を犠牲にしているかを説明する理由がここにある" // twenty-eight runes
+
+	rec := &recorder{TB: t}
+	if !Waive(map[string]string{"a": wide}).Waived(rec, "a") {
+		t.Fatal("setup: the subject was not waived")
+	}
+	if len(rec.errs) != 1 || !strings.Contains(rec.joined(), "what it costs") {
+		t.Errorf("a five-character reason was accepted because its bytes reached the floor: %s", rec.joined())
+	}
+
+	rec = &recorder{TB: t}
+	if !Waive(map[string]string{"a": enough}).Waived(rec, "a") {
+		t.Fatal("setup: the subject was not waived")
+	}
+	if len(rec.errs) != 0 {
+		t.Errorf("a reason well past the floor in characters was refused: %s", rec.joined())
+	}
+}
+
 // A reason may open with its subject and then explain it — the shape several
 // live gates write — because naming the subject first and stating the cost after
 // is a reason, and refusing it would push those gates to bury the subject.

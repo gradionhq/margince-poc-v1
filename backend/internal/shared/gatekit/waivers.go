@@ -18,11 +18,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 )
 
-// minReason is the shortest text that can state a cost, measured on the text a
-// reason states rather than the bytes it occupies: whitespace is normalised
-// first, so padding is not length.
+// minReason is the shortest text that can state a cost, counted in characters
+// rather than bytes: whitespace is normalised first so padding is not length,
+// and a reason written in a script whose runes are several bytes wide states no
+// more than the same count of them in ASCII.
 //
 // Length is only half the floor. A reason that restates its own subject
 // identifies the exception at any length without saying what it buys or gives
@@ -91,7 +93,7 @@ func (w *Waivers[K]) Waived(t testing.TB, subject K) bool {
 	case restatesSubject(stated, string(subject)):
 		t.Errorf("waiver %s answers with its own subject (%q): state what it costs, so the next "+
 			"reader can judge whether the cost is still worth paying", subject, reason)
-	case len(stated) < minReason:
+	case utf8.RuneCountInString(stated) < minReason:
 		t.Errorf("waiver %s carries no usable reason (%q): state what it costs, so the next "+
 			"reader can judge whether the cost is still worth paying", subject, reason)
 	}
