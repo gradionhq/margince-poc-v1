@@ -11,6 +11,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -51,10 +52,32 @@ func TestSecondAttemptFailureAlsoEvictsItsCachedAnswer(t *testing.T) {
 	}
 }
 
+// Outside a workspace the helper must return without evicting anything: a key
+// it cannot scope belongs to no tenant, and guessing one would drop another
+// workspace's valid answer.
 func TestForgetCachedToleratesAMissingWorkspace(t *testing.T) {
 	r := testRouter(map[Tier]model.Client{TierCheapCloud: NewFakeClient().Script("x")},
 		&memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
-	// Outside a workspace there is no cache row to evict; the helper must
-	// simply return rather than derive a key it cannot scope.
-	r.forgetCached(context.Background(), TaskColdStart, structuredReq())
+	// Two entries stand in for what an unscoped eviction could reach: a real
+	// tenant's answer, and the one at the key a workspace-less call would
+	// derive if it computed a key at all.
+	for _, seeded := range []struct {
+		name string
+		wsID ids.WorkspaceID
+	}{
+		{"a real tenant's entry", ids.From[ids.WorkspaceKind](ids.NewV7())},
+		{"the entry at the unscoped key", ids.WorkspaceID{}},
+	} {
+		key, err := cacheKey(seeded.wsID, TaskColdStart, structuredReq())
+		if err != nil {
+			t.Fatalf("deriving the cache key for %s: %v", seeded.name, err)
+		}
+		r.cache.put(key, seeded.wsID, model.Response{Text: `{"ok":true}`}, TierCheapCloud)
+
+		r.forgetCached(context.Background(), TaskColdStart, structuredReq())
+
+		if _, _, ok := r.cache.get(key, seeded.wsID); !ok {
+			t.Errorf("a workspace-less eviction dropped %s; it must derive no key at all", seeded.name)
+		}
+	}
 }

@@ -14,25 +14,36 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// cachedModeDispatcher builds a Dispatcher whose cache already answers
-// `cached` for wsID while the workspace ROW (what queryMode reads) answers
-// `stored`. Passing cached=false with stored=true reproduces the second api
-// replica in the connect race: the process that committed the flip
-// invalidated only its OWN cache, so this one still holds the pre-flip mode.
+// sorMode names the workspace's system-of-record answer at one layer of the
+// dispatcher — the cache entry or the workspace row: modeOverlay routes to
+// the mirror, modeNative to the native modules.
+type sorMode bool
+
+const (
+	modeNative  sorMode = false
+	modeOverlay sorMode = true
+)
+
+// cachedModeDispatcher builds a Dispatcher whose cache answers `cached` for
+// wsID while the workspace ROW (what queryMode reads) says overlay — the
+// post-flip truth every case here starts from. Passing cached=modeNative
+// reproduces the second api replica in the connect race: the process that
+// committed the flip invalidated only its OWN cache, so this one still holds
+// the pre-flip mode.
 //
 // queryMode counts its calls, so a test can assert not just where a verb
 // routed but whether the mode was actually re-read or served from the entry
 // seeded below. The native provider is left nil: a verb that wrongly routes
 // native panics rather than quietly passing.
-func cachedModeDispatcher(wsID ids.UUID, cached, stored bool) (*Dispatcher, *int) {
+func cachedModeDispatcher(wsID ids.UUID, cached sorMode) (*Dispatcher, *int) {
 	calls := 0
 	now := dispatcherFixedNow
 	d := newDispatcherWithClock(nil, overlay.NewProvider(nil, nil), nil, func() time.Time { return now })
 	d.queryMode = func(context.Context, ids.UUID) (bool, error) {
 		calls++
-		return stored, nil
+		return bool(modeOverlay), nil
 	}
-	d.cache[wsID] = sorModeCacheEntry{overlay: cached, expiresAt: now.Add(time.Hour)}
+	d.cache[wsID] = sorModeCacheEntry{overlay: bool(cached), expiresAt: now.Add(time.Hour)}
 	return d, &calls
 }
 
@@ -52,7 +63,7 @@ func cachedModeDispatcher(wsID ids.UUID, cached, stored bool) (*Dispatcher, *int
 // panic rather than quietly pass — the assertion is that none of them do.
 func TestDispatcherWriteVerbsIgnoreAStaleCachedMode(t *testing.T) {
 	wsID := ids.NewV7()
-	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	d, calls := cachedModeDispatcher(wsID, modeNative)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
 
@@ -104,7 +115,7 @@ func TestDispatcherWriteVerbsIgnoreAStaleCachedMode(t *testing.T) {
 // write, and it makes the doc above false.
 func TestOverlayWriteShadowResolvesTheModeOnce(t *testing.T) {
 	wsID := ids.NewV7()
-	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	d, calls := cachedModeDispatcher(wsID, modeNative)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
 
@@ -135,7 +146,7 @@ func TestOverlayWriteShadowResolvesTheModeOnce(t *testing.T) {
 // not a divergent write.
 func TestDispatcherReadVerbsStillUseTheCachedMode(t *testing.T) {
 	wsID := ids.NewV7()
-	d, calls := cachedModeDispatcher(wsID, true /* cached: overlay */, true /* stored: overlay */)
+	d, calls := cachedModeDispatcher(wsID, modeOverlay)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 
 	if _, err := d.Read(ctx, datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}); err == nil {

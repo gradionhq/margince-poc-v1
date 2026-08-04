@@ -406,28 +406,20 @@ func auditOnboardingState(
 	if err != nil {
 		return err
 	}
-	return storekit.EmitEvent(ctx, tx, auditID, after.ID, onboardingStateChangedPayload(
-		userID, after.Path, after.Step, after.Version,
-		after.VoiceSkipped, after.ConnectSkipped, after.CompletedAt != nil,
-	))
+	return storekit.EmitEvent(ctx, tx, auditID, after.ID, onboardingStateChangedPayload(userID, after))
 }
 
 // onboardingStateChangedPayload builds onboarding.state_changed's typed
-// payload.
-func onboardingStateChangedPayload(
-	userID ids.UUID,
-	path, step string,
-	version int64,
-	voiceSkipped, connectSkipped, completed bool,
-) crmcontracts.PublicEventOnboardingStateChanged {
+// payload from the state row the transaction just wrote.
+func onboardingStateChangedPayload(userID ids.UUID, state OnboardingState) crmcontracts.PublicEventOnboardingStateChanged {
 	return crmcontracts.PublicEventOnboardingStateChanged{
 		UserId:         openapi_types.UUID(userID),
-		Path:           path,
-		Step:           step,
-		Version:        version,
-		VoiceSkipped:   voiceSkipped,
-		ConnectSkipped: connectSkipped,
-		Completed:      completed,
+		Path:           state.Path,
+		Step:           state.Step,
+		Version:        state.Version,
+		VoiceSkipped:   state.VoiceSkipped,
+		ConnectSkipped: state.ConnectSkipped,
+		Completed:      state.CompletedAt != nil,
 	}
 }
 

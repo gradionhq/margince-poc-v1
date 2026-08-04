@@ -235,13 +235,9 @@ func embedReindexDriftError(previewedIdentity *string, configured string) error 
 	}
 }
 
-// embedReindexNotNeededError answers the 409 that stops a no-op confirm: no
-// pending work, no reindex already in flight, and the caller didn't pass
-// force.
-func embedReindexNotNeededError(needed bool, jobStatus string, force bool) error {
-	if needed || jobStatus == reembeddingStatus || force {
-		return nil
-	}
+// errEmbedReindexNotNeeded is the 409 that stops a no-op confirm — the store
+// is current, nothing is in flight, and the caller didn't pass force.
+func errEmbedReindexNotNeeded() error {
 	return &httperr.DetailedError{
 		Status: http.StatusConflict,
 		Code:   "reindex_not_needed",
@@ -286,8 +282,10 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	if notNeededErr := embedReindexNotNeededError(needed, jobStatus, force); notNeededErr != nil {
-		httperr.Write(w, r, notNeededErr)
+	// No pending work, no reindex already in flight, and no force: the
+	// confirm is a no-op and refuses rather than rebuilding a current store.
+	if !needed && jobStatus != reembeddingStatus && !force {
+		httperr.Write(w, r, errEmbedReindexNotNeeded())
 		return
 	}
 
