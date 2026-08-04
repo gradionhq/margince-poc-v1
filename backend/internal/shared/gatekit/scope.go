@@ -115,39 +115,55 @@ func (s Scope) sweep(tree string, roots []string) (inside []ParsedFile, outside 
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() {
-			return nil
+		subject, isSubject, subjectErr := s.subjectAt(fset, tree, path, entry)
+		if subjectErr != nil {
+			return subjectErr
 		}
-		rel, relErr := filepath.Rel(tree, path)
-		if relErr != nil {
-			return relErr
-		}
-		rel = filepath.ToSlash(rel)
-		if !isSweptSource(rel) {
-			return nil
-		}
-		file, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
-		if parseErr != nil {
-			return parseErr
-		}
-		if !s.Subject(rel, file) {
+		if !isSubject {
 			return nil
 		}
 		covered := false
 		for i, root := range roots {
-			if under(rel, root) {
+			if under(subject.Path, root) {
 				perRoot[i]++
 				covered = true
 			}
 		}
 		if !covered {
-			outside = append(outside, rel)
+			outside = append(outside, subject.Path)
 			return nil
 		}
-		inside = append(inside, ParsedFile{Path: rel, File: file})
+		inside = append(inside, subject)
 		return nil
 	})
 	return inside, outside, perRoot, err
+}
+
+// subjectAt resolves one walk entry to the parsed subject it holds, reporting
+// false when the entry is not a subject at all — a directory, a source the sweep
+// does not judge, or a file the predicate declines. A file the sweep judges but
+// cannot read is an error, never a silent skip: the roots would then be proven
+// against a tree with a hole in it.
+func (s Scope) subjectAt(fset *token.FileSet, tree, path string, entry fs.DirEntry) (ParsedFile, bool, error) {
+	if entry.IsDir() {
+		return ParsedFile{}, false, nil
+	}
+	rel, err := filepath.Rel(tree, path)
+	if err != nil {
+		return ParsedFile{}, false, err
+	}
+	rel = filepath.ToSlash(rel)
+	if !isSweptSource(rel) {
+		return ParsedFile{}, false, nil
+	}
+	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return ParsedFile{}, false, err
+	}
+	if !s.Subject(rel, file) {
+		return ParsedFile{}, false, nil
+	}
+	return ParsedFile{Path: rel, File: file}, true, nil
 }
 
 // universe resolves the tree the roots are proven against.
