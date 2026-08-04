@@ -169,32 +169,6 @@ type NormalizedRecord struct {
 	Participants []MessageParticipant
 }
 
-// MessageParticipant is one further party to a captured message.
-//
-// Email is the raw header address; capture lowercases it, because that is how
-// person_email stores one and a case difference would otherwise read as a
-// different human. Role is one of the ParticipantRole constants below and is
-// closed at the database, so an unknown value is refused rather than stored.
-type MessageParticipant struct {
-	Email string
-	Role  string
-}
-
-// The roles a further participant may hold. The set is closed by the
-// activity_participant CHECK, so an unlisted value is a constraint violation
-// rather than a stored surprise.
-//
-// These name a HEADER POSITION, not a direction. The third name on a To line
-// is a recipient whether the mailbox owner sent the message or received it —
-// only the two ends of the exchange are assigned by direction, and capture
-// does that from Counterparty rather than from anything a connector reports.
-const (
-	ParticipantRoleTo        = "to"
-	ParticipantRoleCC        = "cc"
-	ParticipantRoleAttendee  = "attendee"
-	ParticipantRoleOrganizer = "organizer"
-)
-
 // Counterparty names the non-owner participant of one captured message. A
 // mail record identifies them by Email (authoritative); a channel record
 // carries no address and identifies them by ChannelIdentity instead — the

@@ -22,7 +22,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
-	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -249,17 +248,6 @@ type Server struct {
 }
 
 var _ crmcontracts.ServerInterface = Server{}
-
-// wirePerson360 binds the person record page — the organization page's
-// sibling: same one-transaction assembly, same omitted-and-named sections,
-// same overlay refusal. Its own function so the composition root reads as a
-// list of what is wired rather than how each piece is built.
-func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
-	srv.person360Handlers = person360.NewHandlers(
-		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now),
-		srv.sorDispatch.isOverlay,
-	)
-}
 
 // Option, readinessChecks, and every With* role-customization function live
 // in serveroptions.go — the per-process-role wiring surface, kept separate

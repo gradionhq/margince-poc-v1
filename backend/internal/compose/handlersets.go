@@ -4,6 +4,10 @@
 package compose
 
 import (
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/compose/person360"
@@ -50,3 +54,14 @@ type (
 	person360Handlers    = person360.Handlers
 	orgBriefHandlers     = orgbrief.Handlers
 )
+
+// wirePerson360 binds the person record page — the organization page's
+// sibling: same one-transaction assembly, same omitted-and-named sections,
+// same overlay refusal. Its own function so the composition root reads as a
+// list of what is wired rather than how each piece is built.
+func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
+	srv.person360Handlers = person360.NewHandlers(
+		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now),
+		srv.sorDispatch.isOverlay,
+	)
+}
