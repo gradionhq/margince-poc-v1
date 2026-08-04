@@ -212,7 +212,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// neither switch (and, with it, their own Router, cache and budget).
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
 	modelPath, aiState, assistantProfile, routingVersion, err := resolveModelPath(
-		cfg.routingPath, cfg.fakeBrain, pool, deployCfg.AI.CapturePayloads, logger)
+		modelPathSpecFrom(cfg, deployCfg), pool, logger)
 	if err != nil {
 		return err
 	}

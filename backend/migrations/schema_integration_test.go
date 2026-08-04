@@ -469,7 +469,7 @@ func TestChannelTablesEnforceRowLevelSecurity(t *testing.T) {
 	}
 }
 
-// The 0181 backfill narrows what a PRODUCER already wrote, and touches nothing
+// The 0185 backfill narrows what a PRODUCER already wrote, and touches nothing
 // else.
 //
 // It runs against installations that already had the signal producers, where
@@ -495,16 +495,16 @@ func TestSignalVisibilityBackfillNarrowsOnlyWhatAProducerWrote(t *testing.T) {
 	}
 	idx := -1
 	for i, m := range core.Migrations {
-		if m.Version == "0181" {
+		if m.Version == "0185" {
 			idx = i
 			break
 		}
 	}
 	if idx < 0 {
-		t.Fatal("core migrations contain no 0181 — the signal visibility migration is missing")
+		t.Fatal("core migrations contain no 0185 — the signal visibility migration is missing")
 	}
 	if _, err := dbmigrate.Down(ctx, conn, core, len(core.Migrations)-idx); err != nil {
-		t.Fatalf("down to pre-0181: %v", err)
+		t.Fatalf("down to pre-0185: %v", err)
 	}
 
 	ws := seedWorkspace(t, conn, "pre-signal-visibility")
@@ -576,7 +576,7 @@ func TestSignalVisibilityBackfillNarrowsOnlyWhatAProducerWrote(t *testing.T) {
 		"signal-scan", "agent:commitment_made", namelessMail)
 
 	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
-		t.Fatalf("re-applying 0181 over existing rows: %v — a migration that cannot "+
+		t.Fatalf("re-applying 0185 over existing rows: %v — a migration that cannot "+
 			"run over real evidence is a deploy that cannot happen", err)
 	}
 
@@ -614,7 +614,7 @@ func seedSignalSource(t *testing.T, conn *pgx.Conn, ws string, contact *string) 
 	return id
 }
 
-// seedPreVisibilitySignal inserts one signal as it looked before 0181.
+// seedPreVisibilitySignal inserts one signal as it looked before 0185.
 func seedPreVisibilitySignal(t *testing.T, conn *pgx.Conn, ws, org, kind, source, capturedBy, activity string) string {
 	t.Helper()
 	var id string
@@ -626,7 +626,7 @@ func seedPreVisibilitySignal(t *testing.T, conn *pgx.Conn, ws, org, kind, source
 		  'They wrote that they will not renew.',
 		  jsonb_build_array(jsonb_build_object('source_id', $6::text)), 'open', now(), $4, $5)
 		RETURNING id`, ws, kind, org, source, capturedBy, activity).Scan(&id); err != nil {
-		t.Fatalf("seeding a pre-0181 signal: %v", err)
+		t.Fatalf("seeding a pre-0185 signal: %v", err)
 	}
 	return id
 }
