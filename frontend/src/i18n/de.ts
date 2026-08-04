@@ -331,8 +331,7 @@ export const de = {
   "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
   "overlay.empty":
     "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
-  "overlay.adminOnly":
-    "Du hast keine Berechtigung, HubSpot zu verbinden oder zu trennen.",
+  "overlay.adminOnly": "Du hast keine Berechtigung, HubSpot zu verbinden.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "USA",

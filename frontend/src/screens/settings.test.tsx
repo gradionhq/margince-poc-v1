@@ -662,9 +662,7 @@ describe("SettingsScreen overlay tab", () => {
       await screen.findByRole("heading", { name: "HubSpot mirror" }),
     ).toBeTruthy();
     expect(
-      await screen.findByText(
-        "You do not have permission to connect or disconnect HubSpot.",
-      ),
+      await screen.findByText("You do not have permission to connect HubSpot."),
     ).toBeTruthy();
     expect(
       await screen.findByText(

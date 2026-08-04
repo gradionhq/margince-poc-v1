@@ -169,9 +169,7 @@ describe("the overlay card", () => {
     await screen.findByText(/No incumbent is connected/);
     expect(screen.queryByLabelText("Private-app token")).toBeNull();
     expect(
-      await screen.findByText(
-        /You do not have permission to connect or disconnect HubSpot/,
-      ),
+      await screen.findByText(/You do not have permission to connect HubSpot/),
     ).toBeTruthy();
   });
 

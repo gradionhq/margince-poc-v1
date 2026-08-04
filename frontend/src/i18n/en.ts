@@ -324,8 +324,7 @@ export const en = {
   "overlay.loadFailed": "Couldn't load the incumbent connection.",
   "overlay.empty":
     "No incumbent is connected. Connect HubSpot to read records from its mirror.",
-  "overlay.adminOnly":
-    "You do not have permission to connect or disconnect HubSpot.",
+  "overlay.adminOnly": "You do not have permission to connect HubSpot.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "United States",
