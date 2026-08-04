@@ -377,14 +377,24 @@ drift, the 500-LOC cap, composition reproducibility). `make check-fe` green —
 advisory long-func majors, every one of them a pre-existing function in a file
 this branch touched.
 
-`make test-integration` needed three attempts to produce a trustworthy answer,
+`make test-integration` took five attempts to produce a trustworthy answer,
 and the reason is worth knowing: **a parallel agent session was running the
 same lane against the shared `margince_test` template**, which produced 1,235
 deadlocks (40P01) and a half-migrated schema underneath them. Neither the
-parallel nor the serial lane means anything in that state. On a quiet machine
-27 of 28 packages passed and the 28th carried one real finding, now fixed:
+parallel nor the serial lane means anything in that state — check
+`pg_stat_activity` and `ps` for a competing `go test -tags integration` before
+believing any result.
+
+On a quiet machine the lane found exactly one real defect, now fixed:
 `activity_participant_replay.activity_id` needed a row-scope classification in
-`TestFK_rowScopedTargetsHaveVisibilityDecision`.
+`TestFK_rowScopedTargetsHaveVisibilityDecision`. The final run after that fix
+executed all 28 packages with **zero `--- FAIL` lines, zero `--- SKIP` lines,
+and `EXIT 0` from every package**. The wrapper script still printed its red
+banner, and none of its own checks explains why: no package missed its EXIT
+line, the ran/discovered counts reconcile, and nothing skipped. It reads as a
+log-flush race in `scripts/test-integration-parallel.sh` under a loaded
+machine. **Re-run it once on an idle machine before the PR** — the substance
+is green, the wrapper's verdict is not yet.
 
 The same contention explains the 7 frontend files that first went red — deals,
 inbox, onboarding ×2, overlay, telegram, onboarding-conversation. All pass on
