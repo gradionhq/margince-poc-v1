@@ -491,3 +491,70 @@ func TestRelationshipChangesRefuseAContactOutsideRowScope(t *testing.T) {
 		t.Errorf("changes for another team's contact → %v, want ErrNotFound", err)
 	}
 }
+
+// The enrichment sidecar moves with the person on a merge. Left behind it is
+// invisible to every read of the survivor, so the evidence for their title
+// would vanish at a merge nobody expected to lose it — and the row would
+// outlive the merged-away record's own archival.
+func TestMergeCarriesTheEnrichmentSidecarToTheSurvivor(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	survivor := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	duplicate := e.SeedPerson(t, "A. Weber", &e.Rep1)
+
+	// The duplicate carries a field the survivor does not.
+	SeedRow(t, owner, `INSERT INTO person_profile_field
+		(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+		VALUES ($1, $2, '`+duplicate.String()+`', 'title', 'Head of Procurement',
+		        'Anna Weber — Head of Procurement', 'site_read:https://example.test/team',
+		        'site_read', 'agent:enrich')`, e.WS)
+	// And one they BOTH carry, with different values.
+	for _, p := range []struct {
+		id    ids.UUID
+		value string
+	}{
+		{survivor, "+49 111"}, {duplicate, "+49 222"},
+	} {
+		SeedRow(t, owner, `INSERT INTO person_profile_field
+			(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+			VALUES ($1, $2, '`+p.id.String()+`', 'phone', '`+p.value+`', 'sig',
+			        'activity:x', 'capture_enrich', 'agent:enrich')`, e.WS)
+	}
+
+	if _, err := e.People.MergePerson(e.Admin(),
+		ids.From[ids.PersonKind](duplicate), ids.From[ids.PersonKind](survivor)); err != nil {
+		t.Fatalf("MergePerson: %v", err)
+	}
+
+	rows := map[string]string{}
+	got, err := OwnerConn(t).Query(context.Background(),
+		`SELECT field, value FROM person_profile_field WHERE person_id = $1`, survivor)
+	if err != nil {
+		t.Fatalf("reading the survivor's fields: %v", err)
+	}
+	defer got.Close()
+	for got.Next() {
+		var field, value string
+		if err := got.Scan(&field, &value); err != nil {
+			t.Fatalf("scanning: %v", err)
+		}
+		rows[field] = value
+	}
+	if rows["title"] != "Head of Procurement" {
+		t.Errorf("the survivor did not inherit the title; got %q", rows["title"])
+	}
+	// Where the survivor already held the field, THEIRS is the one a human has
+	// been reading. The merged-away copy is dropped, never allowed to overwrite.
+	if rows["phone"] != "+49 111" {
+		t.Errorf("phone = %q, want the survivor's own value", rows["phone"])
+	}
+
+	var left int
+	if err := OwnerConn(t).QueryRow(context.Background(),
+		`SELECT count(*) FROM person_profile_field WHERE person_id = $1`, duplicate).Scan(&left); err != nil {
+		t.Fatalf("counting the merged-away rows: %v", err)
+	}
+	if left != 0 {
+		t.Errorf("%d row(s) stayed on the merged-away person, invisible to every read", left)
+	}
+}
