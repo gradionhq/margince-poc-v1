@@ -373,11 +373,19 @@ func TestProbeStripsCredentialsOutOfAFailureItReports(t *testing.T) {
 	jsonOut := filepath.Join(dir, "result.json")
 
 	var out strings.Builder
-	// The probe reports a harness failure, so a non-nil error here is expected.
-	_ = runAITaskProbe(context.Background(), []string{
+	err := runAITaskProbe(context.Background(), []string{
 		"run", "--site", "rate_extract/pricing", "--fixture", fixture,
 		"--ai-fake", "--corpus", testCorpusDir(), "--json", jsonOut,
 	}, &out)
+	// A refused fixture IS the scenario under test: the probe must report it as
+	// a harness failure, which is what puts the quoted message on the paths this
+	// test then checks.
+	if err == nil {
+		t.Fatal("a fixture this site cannot read must be reported as a failure")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Error("the returned error carries the credential")
+	}
 
 	if strings.Contains(out.String(), secret) {
 		t.Errorf("the report printed the credential:\n%s", out.String())

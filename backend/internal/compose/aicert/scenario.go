@@ -19,6 +19,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -370,7 +371,10 @@ func LoadScenarioFile(path string, census *aitasks.Registry) (Scenario, error) {
 // ScenarioRenderShape and ExpectRenderShape expose the render-only mirrors so a
 // test can hold their field sets against the types they mirror. A dropped field
 // would otherwise break RenderScenario's round-trip contract silently.
-func ScenarioRenderShape() any { return scenarioForRender{} }
+//
+// They return the TYPE rather than a value: comparing declared fields is the
+// whole purpose, and a reflect.Type says that where a bare value would not.
+func ScenarioRenderShape() reflect.Type { return reflect.TypeOf(scenarioForRender{}) }
 
 // ExpectRenderShape is ScenarioRenderShape's sibling for the expectation half.
-func ExpectRenderShape() any { return expectForRender{} }
+func ExpectRenderShape() reflect.Type { return reflect.TypeOf(expectForRender{}) }

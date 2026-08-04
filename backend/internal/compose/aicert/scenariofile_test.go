@@ -135,12 +135,12 @@ func TestRenderStructsCarryEveryFieldTheyMirror(t *testing.T) {
 		{
 			name:     "Scenario",
 			source:   reflect.TypeOf(aicert.Scenario{}),
-			rendered: reflect.TypeOf(aicert.ScenarioRenderShape()),
+			rendered: aicert.ScenarioRenderShape(),
 		},
 		{
 			name:     "Expectations",
 			source:   reflect.TypeOf(aicert.Expectations{}),
-			rendered: reflect.TypeOf(aicert.ExpectRenderShape()),
+			rendered: aicert.ExpectRenderShape(),
 		},
 	} {
 		t.Run(pair.name, func(t *testing.T) {
