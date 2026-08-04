@@ -1,4 +1,25 @@
 import type { Page, Route } from "@playwright/test";
+import { type GrantSpec, meFixture } from "../src/app/mefixture";
+
+// The AC specs drive an admin, and the UI now scopes every write affordance on
+// the grant map /me carries rather than on the role name — so the mock has to
+// answer with real grants or every button under test disappears.
+//
+// Listed explicitly rather than "everything": a spec that reaches a surface
+// this list forgot fails loudly here, which is how the omission gets noticed.
+// Extend it when a new AC needs a new object.
+const E2E_ADMIN_GRANTS: GrantSpec = {
+  automation: ["create", "read", "update", "delete"],
+  overlay_connection: ["create", "read", "update", "delete"],
+  pipeline: ["create", "read", "update", "delete"],
+  custom_field: ["create", "read", "update", "delete"],
+  webhook_subscription: ["create", "read", "update", "delete"],
+  capture_settings: ["read", "update"],
+  embedding_reindex: ["read", "update"],
+  fx_rate: ["create", "read", "update"],
+  ai_model_rate: ["create", "read", "update"],
+  saved_view: ["create", "read", "update", "delete"],
+};
 
 // The coherent seed (mirrors design/seed-fixtures.md entities: Anna Weber,
 // Brandt Automotive, the fleet-retrofit deal) mocked at the network edge so
@@ -530,10 +551,15 @@ export async function mockApi(
           401,
         );
       }
+      const me = meFixture({ allow: E2E_ADMIN_GRANTS });
       return json({
-        user: { id: "u1", email: "lars@brandt.example", locale: "de-DE" },
-        roles: ["admin"],
-        teams: [],
+        ...me,
+        user: {
+          ...me.user,
+          id: "u1",
+          email: "lars@brandt.example",
+          locale: "de-DE",
+        },
         system_of_record: { mode: sorMode },
       });
     }
