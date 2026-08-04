@@ -225,10 +225,11 @@ fe-uat:
 		node scripts/fe-uat.mjs $(ARGS)
 
 ## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over the
-## whole backend. The pre-push hook (.githooks/pre-push) runs the diff-scoped
-## subset automatically; this target is the full manual sweep.
+## whole backend, strict: BLOCKER and MAJOR findings both fail it. The pre-push
+## hook (.githooks/pre-push) runs the same bar diff-scoped; this target is the
+## full manual sweep, and it is green — the backlog was cleared to arm it.
 craft-static:
-	go run -C cli/craft . static --root ../../backend
+	go run -C cli/craft . static --strict --root ../../backend
 
 ## craft-residue — fail if any unresolved CRAFT-FIX/CRAFT-DISPUTE marker was
 ## left in the backend tree (the review-loop residue check, ADR-0045). The CI

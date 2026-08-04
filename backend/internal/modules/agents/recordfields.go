@@ -136,6 +136,16 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type, rendere
 // disagree about several of them, and the wrong advice is worse than none.
 func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	b.WriteString("A task is record_type=activity with kind=task. ")
+	writeStampedAndRequiredAdvisories(b, shapes)
+	writeRelationshipAdvisory(b, shapes)
+	writeActivityReachAdvisories(b, shapes)
+	writeCustomFieldAdvisories(b, shapes)
+}
+
+// writeStampedAndRequiredAdvisories appends the advisories about fields a caller
+// can name but cannot rely on: the one this surface overwrites, and the two it
+// requires without being able to supply them.
+func writeStampedAndRequiredAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	// Only where the shapes actually carry `source`. On create it is accepted
 	// and then overwritten, so believing it took effect would be wrong; on
 	// update no request type has it at all, so it is REFUSED as an unknown key
@@ -153,28 +163,18 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else ")
 		b.WriteString("on this surface yields them, and neither is defaultable. ")
 	}
-	// The trap a caller cannot see from the field list alone. A relationship's
-	// field list shows `kind`, `person_id`, `organization_id`, `deal_id` and
-	// `project_id` all as equal optional siblings — and they are not: which PAIR
-	// is required is decided by the kind, enforced by a database CHECK, and
-	// invisible from a flat list of names. A caller working from names alone
-	// sends a plausible pair and gets a shape refusal it cannot predict.
-	//
-	// Keyed on an ENDPOINT FIELD, not on the record type, because both maps carry
-	// relationship — the patch tool serves it too. Only the create shape declares
-	// `counterparty_org_id`, so this is the honest test for "can the caller name
-	// an endpoint at all", which is what the pairing rule is about.
-	writeRelationshipAdvisory(b, shapes)
-	// The other field a caller reasonably expects and will not find. An
-	// activity DOES carry links — log_activity and create_record both take them —
-	// so being told the field is unknown, with no pointer, reads as "this is
-	// impossible" rather than "this is a different verb".
-	//
-	// Keyed on the ABSENCE of the links field, not on the record type: both shape
-	// maps carry activity, so a record-type test put this patch-only advice on the
-	// create tool too, which DOES accept links. Same mistake as the endpoint
-	// advisory above, in its sibling.
-	// An activity is not searchable either, and only the EDGE was ever told
+}
+
+// writeActivityReachAdvisories appends what an activity write does and does not
+// let a caller reach afterwards: whether the record is searchable, and whether
+// its links can be moved later.
+//
+// The links advisories are keyed on the PRESENCE or ABSENCE of the links field,
+// not on the record type. Both shape maps carry activity, so a record-type test
+// put patch-only advice on the create tool too — which DOES accept links. Same
+// mistake as the endpoint advisory, in its sibling.
+func writeActivityReachAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
+	// An activity is not searchable, and only the EDGE was ever told
 	// this. search_records' record_type enum has no activity, so an activity is
 	// retrievable afterwards only through the id its write returned — the same
 	// hazard the relationship advisory names, on the record type this surface
@@ -194,6 +194,11 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
 		b.WriteString("this tool changes what an activity says, never who it is about. ")
 	}
+}
+
+// writeCustomFieldAdvisories appends how an extra key is read, which of the two
+// fates it meets, and which record types carry no custom fields at all.
+func writeCustomFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	// Two different fates, and the sentence used to describe neither. It said
 	// every extra key is "silently discarded", which is wrong in both
 	// directions: a key that is not cf_-prefixed is REFUSED by name (this file's
@@ -356,6 +361,11 @@ func jsonString(s string) string {
 // optional siblings, and they are not. Which pair is required is decided by the
 // kind and enforced by a database CHECK, so a caller working from names alone
 // sends a plausible pair and gets a shape refusal it could not have predicted.
+//
+// Keyed on an ENDPOINT FIELD, not on the record type, because both shape maps
+// carry relationship — the patch tool serves it too. Only the create shape
+// declares `counterparty_org_id`, so that is the honest test for "can the caller
+// name an endpoint at all", which is what the pairing rule is about.
 func writeRelationshipAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	if describesField(shapes, "counterparty_org_id") {
 		b.WriteString("A person's employer is a relationship, not a field on the person: ")

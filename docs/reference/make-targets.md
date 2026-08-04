@@ -124,7 +124,7 @@ exception to it.
 
 | Target | What it does |
 |---|---|
-| `craft-static` | Full deterministic craftsmanship sweep of `backend/` (the pre-push hook runs the diff-scoped subset) |
+| `craft-static` | Full deterministic craftsmanship sweep of `backend/`, **strict**: BLOCKER and MAJOR findings both fail it, MINOR is advisory. Green — the backlog was cleared to arm this bar. The pre-push hook runs the same bar diff-scoped, and CI's `craftsmanship` job runs this target as a required check. Size ceilings: 80 body lines / 500 file lines for product code, 160 / 1000 for `*_test.go` |
 
 ## Variables
 
