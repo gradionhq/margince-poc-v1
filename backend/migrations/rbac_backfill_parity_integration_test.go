@@ -93,7 +93,26 @@ var backfilledObjects = []rbacBackfill{
 			"rep": readOnly, "read_only": readOnly,
 		},
 	},
+	{
+		object: "list", version: "0183",
+		// Everyday organizational surfaces: a rep creates and uses them,
+		// archiving stays with manager and above.
+		want: map[string]grant{
+			"admin": crud, "ops": crud, "manager": crud,
+			"rep": cru, "read_only": readOnly,
+		},
+	},
+	{
+		object: "tag", version: "0183",
+		want: map[string]grant{
+			"admin": crud, "ops": crud, "manager": crud,
+			"rep": cru, "read_only": readOnly,
+		},
+	},
 }
+
+// systemRoleKeys are the five seeded role keys every backfill targets.
+var systemRoleKeys = []string{"admin", "ops", "manager", "rep", "read_only"}
 
 // alteredGrant is deliberately unlike every seeded default, so a fixture row
 // carrying it can only survive by the migration's only-if-absent guard
@@ -115,20 +134,24 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	}
 	rollBackTo(ctx, t, conn, core, backfilledObjects[0].version)
 
-	// Three workspaces, one per upgrade shape the backfills must survive.
+	// Four workspaces, one per upgrade shape the backfills must survive.
 	missing := seedWorkspace(t, conn, "rbac-backfill-missing")
 	present := seedWorkspace(t, conn, "rbac-backfill-present")
+	custom := seedWorkspace(t, conn, "rbac-backfill-custom")
 	empty := seedWorkspace(t, conn, "rbac-backfill-empty")
 
-	// The real upgrade path: system roles holding a populated document that
-	// predates every backfilled object.
-	for _, key := range []string{"admin", "ops", "manager", "rep", "read_only"} {
+	for _, key := range systemRoleKeys {
+		// The real upgrade path: system roles holding a populated document that
+		// predates every backfilled object.
 		seedRole(t, conn, missing, key, true, policyDocument(nil))
 		seedRole(t, conn, present, key, true, policyDocument(backfilledObjects))
+		// Non-system roles carrying the SAME five keys. A custom role named
+		// something else would prove nothing: dropping `is_system` while keeping
+		// `key IN ('admin', …)` would still miss it. Only a key collision makes
+		// the predicate the single thing standing between the migration and
+		// these rows.
+		seedRole(t, conn, custom, key, false, policyDocument(nil))
 	}
-	// A non-system role proves `is_system` is honoured — a custom role must
-	// never be rewritten by a backfill.
-	seedRole(t, conn, missing, "custom_analyst", false, policyDocument(nil))
 	// An installation whose document is a literal '{}': jsonb_set cannot create
 	// the missing `objects` parent, and the `?` guard NULL-skips the row. The
 	// two must stay aligned — if a future migration drops the guard, jsonb_set
@@ -141,30 +164,40 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 
 	for _, bf := range backfilledObjects {
 		t.Run(bf.object, func(t *testing.T) {
-			for role, want := range bf.want {
+			// Errorf, not Fatalf: one missing role must not hide the other four,
+			// nor the guard/is_system/'{}' assertions below.
+			for _, role := range systemRoleKeys {
 				got, found := readGrant(ctx, t, conn, missing, role, bf.object)
 				if !found {
-					t.Fatalf("%s: role %q holds no %s grant after the backfill; an existing "+
+					t.Errorf("%s: role %q holds no %s grant after the backfill; an existing "+
 						"installation would 403 on every %s route", bf.version, role, bf.object, bf.object)
+					continue
 				}
-				if got != want {
+				if want := bf.want[role]; got != want {
 					t.Errorf("%s: role %q got %s grant %+v, want %+v", bf.version, role, bf.object, got, want)
 				}
 			}
 
-			// The only-if-absent guard must preserve a grant the operator or an
-			// earlier release already set, not overwrite it with the default.
-			kept, found := readGrant(ctx, t, conn, present, "admin", bf.object)
-			if !found || kept != alteredGrant {
-				t.Errorf("%s: pre-existing admin %s grant was overwritten: got %+v (found=%v), want %+v",
-					bf.version, bf.object, kept, found, alteredGrant)
+			// The only-if-absent guard must preserve a grant an operator or an
+			// earlier release already set. Checked for EVERY role: these
+			// migrations are multi-statement and each statement carries its own
+			// guard, so an admin-only assertion would miss a guard dropped from
+			// the rep or read_only statement.
+			for _, role := range systemRoleKeys {
+				kept, found := readGrant(ctx, t, conn, present, role, bf.object)
+				if !found || kept != alteredGrant {
+					t.Errorf("%s: pre-existing %s %s grant was overwritten: got %+v (found=%v), want %+v",
+						bf.version, role, bf.object, kept, found, alteredGrant)
+				}
 			}
 
-			// A non-system role is not part of the seeded policy set and must be
-			// left exactly as it was.
-			if _, found := readGrant(ctx, t, conn, missing, "custom_analyst", bf.object); found {
-				t.Errorf("%s: backfill wrote %s into a non-system role; the is_system predicate is missing or wrong",
-					bf.version, bf.object)
+			// Non-system roles sharing the same keys must be untouched — this is
+			// the only fixture shape that can fail when `is_system` is dropped.
+			for _, role := range systemRoleKeys {
+				if _, found := readGrant(ctx, t, conn, custom, role, bf.object); found {
+					t.Errorf("%s: backfill wrote %s into non-system role %q; the is_system predicate "+
+						"is missing or wrong", bf.version, bf.object, role)
+				}
 			}
 
 			// The '{}' document stays empty — guard and jsonb_set agree.
@@ -221,23 +254,27 @@ func seedRole(t *testing.T, conn *pgx.Conn, workspaceID, key string, system bool
 	}
 }
 
-// readGrant returns the role's grant on object; found is false when the
-// permissions document carries no entry for it at all.
+// readGrant returns the role's grant on object. found reports KEY PRESENCE,
+// asked of jsonb directly rather than inferred from a null value — a migration
+// that wrote `<object>: null` would otherwise read as "absent" and satisfy the
+// untouched-row assertions it should fail.
 func readGrant(ctx context.Context, t *testing.T, conn *pgx.Conn, workspaceID, key, object string) (grant, bool) {
 	t.Helper()
+	var present bool
 	var raw []byte
 	err := conn.QueryRow(ctx,
-		`SELECT permissions->'objects'->$3 FROM role WHERE workspace_id = $1 AND key = $2`,
-		workspaceID, key, object).Scan(&raw)
+		`SELECT COALESCE(permissions->'objects' ? $3, false), permissions->'objects'->$3
+		   FROM role WHERE workspace_id = $1 AND key = $2`,
+		workspaceID, key, object).Scan(&present, &raw)
 	if err != nil {
 		t.Fatalf("reading %s grant for %s: %v", object, key, err)
 	}
-	if len(raw) == 0 || string(raw) == "null" {
+	if !present {
 		return grant{}, false
 	}
 	var g grant
 	if err := json.Unmarshal(raw, &g); err != nil {
-		t.Fatalf("decoding %s grant for %s: %v", object, key, err)
+		t.Fatalf("decoding %s grant for %s (a present key must hold a valid grant): %v", object, key, err)
 	}
 	return g, true
 }

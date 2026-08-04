@@ -1,7 +1,7 @@
 -- Deliberately a no-op, diverging from the destructive downs of the earlier
 -- *_rbac backfills (0072, 0154, …).
 --
--- Reversing the SCHEMA does not remove webhook_subscription from the application's RBAC
+-- Reversing the SCHEMA does not remove list and tag from the application's RBAC
 -- vocabulary — policy.coreObjects has carried it since long before this
 -- migration. So deleting the grant on rollback cannot restore an earlier
 -- correct state; it can only recreate the permanent 403 this migration exists

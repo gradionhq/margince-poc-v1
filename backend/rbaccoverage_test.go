@@ -29,37 +29,45 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 )
 
 const policyFile = "internal/modules/identity/internal/policy/policy.go"
 
-// frozenLegacyObjects is the RBAC vocabulary as it stood in the first shipped
-// defaults — the cohort every installation received from its own bootstrap, so
-// no backfill was ever needed. Derived from the objects present in
-// policy.coreObjects before the backfill practice began at migration 0035
-// (the first *_rbac backfill), cross-checked against the migration history:
-// no migration under 0035 writes role.permissions at all.
+// frozenLegacyObjects is the RBAC vocabulary of the INITIAL COMMIT — the only
+// objects every installation necessarily received from its own bootstrap, so no
+// backfill can ever have been needed. Derived from git, not from reasoning
+// about the migration history: commit 2cb50021 ("Initial commit: WP0 foundation
+// + WP1 core spine") declares
+//
+//	var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline"}
+//
+// An earlier draft of this gate derived the cohort as "everything present
+// before the backfill practice began at 0035" and so listed `list` and `tag`
+// here too. That rule is self-refuting: by it, `relationship` and `partner`
+// would also have been frozen — and those are two of the four objects this
+// change exists to backfill. Any object added after the initial commit reached
+// existing installations only if a migration put it there.
 //
 // This list is FROZEN. A new object never belongs here — it belongs in
 // objectBackfills with a migration. Editing it is a security-owned review,
 // because moving an object in here silently excuses it from ever reaching an
-// existing installation.
+// existing installation, which is precisely the defect this gate exists to
+// catch.
 var frozenLegacyObjects = []string{
 	"activity",
 	"deal",
 	"lead",
-	"list",
 	"organization",
 	"person",
 	"pipeline",
-	"tag",
 }
 
-// objectBackfills maps every object added after the first release to the
-// migration that grants it to existing installations. The parity test in
-// backend/migrations proves each one writes the right grants to the right
-// roles; this map proves none is missing.
+// objectBackfills maps every object added after the initial commit to the
+// migration that grants it to existing installations. TestEveryNamedBackfill
+// below proves each named migration exists AND writes that object's JSON path;
+// the parity test in backend/migrations executes the five newest end to end.
 var objectBackfills = map[string]string{
 	"ai_model_rate":        "0117",
 	"automation":           "0035",
@@ -69,6 +77,7 @@ var objectBackfills = map[string]string{
 	"custom_field":         "0064",
 	"embedding_reindex":    "0115",
 	"fx_rate":              "0117",
+	"list":                 "0183",
 	"offer":                "0044",
 	"offer_template":       "0072",
 	"partner":              "0182",
@@ -78,6 +87,7 @@ var objectBackfills = map[string]string{
 	"relationship":         "0181",
 	"saved_view":           "0179",
 	"signal":               "0047",
+	"tag":                  "0183",
 	"voice_profile":        "0042",
 	"webhook_subscription": "0180",
 }
@@ -139,21 +149,41 @@ func TestEveryNamedBackfillMigrationExists(t *testing.T) {
 			t.Fatalf("reading %s: %v", spec.dir, err)
 		}
 		for object, version := range spec.entries {
-			found := false
-			for _, f := range files {
-				name := f.Name()
-				if len(name) >= len(version) && name[:len(version)] == version &&
-					filepath.Ext(name) == ".sql" {
-					found = true
-					break
-				}
-			}
+			upSQL, found := readUpMigration(t, spec.dir, files, version)
 			if !found {
-				t.Errorf("object %q names backfill migration %s in %s, but no such migration exists",
+				t.Errorf("object %q names backfill migration %s in %s, but no such up migration exists",
 					object, version, spec.dir)
+				continue
+			}
+			// Existence is not enough: a mapping may name a real migration that
+			// grants something else entirely, which would leave the object
+			// unbackfilled while this gate stayed green.
+			if !strings.Contains(upSQL, "{objects,"+object+"}") {
+				t.Errorf("object %q names migration %s, but that migration never writes the "+
+					"'{objects,%s}' path — the mapping points at the wrong migration",
+					object, version, object)
 			}
 		}
 	}
+}
+
+// readUpMigration returns the body of the .up.sql whose filename starts with
+// version. Matching the up specifically matters: a down-only match would let a
+// mapping name a migration that never grants anything.
+func readUpMigration(t *testing.T, dir string, files []os.DirEntry, version string) (string, bool) {
+	t.Helper()
+	for _, f := range files {
+		name := f.Name()
+		if !strings.HasPrefix(name, version) || !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		return string(body), true
+	}
+	return "", false
 }
 
 // coreObjectsFromSource extracts the string values of policy.go's coreObjects

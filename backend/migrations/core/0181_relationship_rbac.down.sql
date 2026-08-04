@@ -1,10 +1,13 @@
--- Mirror of the up: it targeted the five system roles, so the down removes the
--- key from those five.
+-- Deliberately a no-op, diverging from the destructive downs of the earlier
+-- *_rbac backfills (0072, 0154, …).
 --
--- Honest limit: the up wrote only where the object was ABSENT, but this down
--- cannot tell a grant the up created from one that was already there — the
--- guard leaves no trace. Rolling back therefore removes a pre-existing
--- relationship grant too.
-
-UPDATE role SET permissions = permissions #- '{objects,relationship}'
-  WHERE is_system AND key IN ('admin','manager','ops','rep','read_only');
+-- Reversing the SCHEMA does not remove relationship from the application's RBAC
+-- vocabulary — policy.coreObjects has carried it since long before this
+-- migration. So deleting the grant on rollback cannot restore an earlier
+-- correct state; it can only recreate the permanent 403 this migration exists
+-- to fix, and it would do so on every workspace that legitimately held the
+-- grant already (where the up's only-if-absent guard wrote nothing, and left
+-- no trace distinguishing those rows from the ones it did write).
+--
+-- A forward-only data repair has no meaningful inverse. The migration still
+-- reverses cleanly (B-EP02.1b) — it simply has nothing to undo.
