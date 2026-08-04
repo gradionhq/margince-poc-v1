@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { CaptureSettingsCard } from "./capture-settings";
 
@@ -24,9 +25,13 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-// backendFor answers /me with the given roles and /capture/settings with the
+// The toggle is capture_settings:update server-side. Naming the grant rather
+// than a role keeps the fixture honest about what the screen actually asks.
+const CAPTURE_EDITOR: GrantSpec = { capture_settings: ["update"] };
+
+// backendFor answers /me with the given grants and /capture/settings with the
 // given auto_enrich, capturing any PATCH body so the wire shape is assertable.
-function backendFor(roles: string[], autoEnrich = true) {
+function backendFor(allow: GrantSpec, autoEnrich = true) {
   let autoState = autoEnrich;
   let capturedPatch: unknown = null;
   const fetchMock = vi.fn(
@@ -34,11 +39,7 @@ function backendFor(roles: string[], autoEnrich = true) {
       const req =
         input instanceof Request ? input : new Request(String(input), init);
       if (req.url.endsWith("/v1/me")) {
-        return jsonResponse({
-          user: { email: "p@acme.test" },
-          roles,
-          teams: [],
-        });
+        return jsonResponse(meFixture({ allow }));
       }
       if (req.url.includes("/capture/settings")) {
         if (req.method === "PATCH") {
@@ -71,7 +72,7 @@ afterEach(() => {
 
 describe("CaptureSettingsCard", () => {
   it("shows the current posture and an enabled toggle for admin", async () => {
-    vi.stubGlobal("fetch", backendFor(["admin"], true).fetchMock);
+    vi.stubGlobal("fetch", backendFor(CAPTURE_EDITOR, true).fetchMock);
     render(<CaptureSettingsCard />);
 
     const toggle = await waitFor(() =>
@@ -82,7 +83,7 @@ describe("CaptureSettingsCard", () => {
   });
 
   it("disables the toggle for a non-admin role", async () => {
-    vi.stubGlobal("fetch", backendFor(["rep"], true).fetchMock);
+    vi.stubGlobal("fetch", backendFor({}, true).fetchMock);
     render(<CaptureSettingsCard />);
 
     const toggle = await waitFor(() =>
@@ -93,7 +94,7 @@ describe("CaptureSettingsCard", () => {
   });
 
   it("PATCHes the new value when admin toggles it off", async () => {
-    const backend = backendFor(["ops"], true);
+    const backend = backendFor(CAPTURE_EDITOR, true);
     vi.stubGlobal("fetch", backend.fetchMock);
     render(<CaptureSettingsCard />);
 

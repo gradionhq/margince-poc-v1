@@ -16,6 +16,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // TestRLS_coversEveryTenantTable is the fitness function for the "RLS on
@@ -28,12 +30,14 @@ import (
 // rlsExemptTables are the ratified non-RLS workspace_id tables. Every
 // entry carries its rationale inline — an entry without one is a
 // finding, and a stale entry (table gone or since enrolled) fails too.
-var rlsExemptTables = map[string]string{
+var rlsExemptTables = gatekit.Waive(map[string]string{
 	"booking_page":     "the slug→tenant RESOLVER (0036): it is read to discover which workspace to bind BEFORE any GUC exists, exactly like the workspace table itself (data-model §1.2); it carries no CRM record data — slug, workspace, host, revocation only",
 	"preference_token": "the token→tenant RESOLVER (0048): the no-login preference center / RFC 8058 unsubscribe reads it to discover which workspace to bind BEFORE any GUC exists, exactly like booking_page; it carries no CRM record data beyond the person link + revocation",
-}
+})
 
 func TestRLS_coversEveryTenantTable(t *testing.T) {
+	defer rlsExemptTables.AssertAllMatched(t)
+
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
 	resetSchema(t, owner)
@@ -58,7 +62,6 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 	defer rows.Close()
 
 	tenantTables := 0
-	exemptSeen := map[string]bool{}
 	for rows.Next() {
 		var name string
 		var enabled, forced, hasPolicy bool
@@ -66,11 +69,7 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		tenantTables++
-		if rationale, exempt := rlsExemptTables[name]; exempt {
-			exemptSeen[name] = true
-			if strings.TrimSpace(rationale) == "" {
-				t.Errorf("rlsExemptTables[%s] has no rationale — an exemption must say why RLS cannot apply", name)
-			}
+		if rlsExemptTables.Waived(t, name) {
 			if enabled || forced {
 				t.Errorf("table %s is RLS-exempt by rationale but HAS row security — retire the stale exemption", name)
 			}
@@ -81,11 +80,6 @@ func TestRLS_coversEveryTenantTable(t *testing.T) {
 		}
 		if !hasPolicy {
 			t.Errorf("table %s has RLS flags but NO policy — it would deny everything, or worse, a later DISABLE would open it", name)
-		}
-	}
-	for name := range rlsExemptTables {
-		if !exemptSeen[name] {
-			t.Errorf("rlsExemptTables names %s but the schema has no such workspace_id table — retire the stale exemption", name)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -248,7 +242,7 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // rowScopedFKDecisions is the classification: one entry per FK column
 // naming a row-scoped business record. Values are prose for the reader;
 // the map's completeness is the invariant.
-var rowScopedFKDecisions = map[string]string{
+var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// Client-supplied references — visibility-gated at the store:
 	"site_read.organization_id":            "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
 	"deal.organization_id":                 "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
@@ -366,7 +360,7 @@ var rowScopedFKDecisions = map[string]string{
 	// that conversation is owed a fresh reading. Resolved by the producer's own
 	// three-arm walk inside a workspace transaction, never from a request body.
 	"signal_thread_scan.resolved_org_id": "server-derived: the account the signal producer's own account walk resolved, never from a request body",
-}
+})
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
 // from the schema: an FK argument that names a row-scoped business record
@@ -378,6 +372,8 @@ var rowScopedFKDecisions = map[string]string{
 // table that nobody classified fails here, so the decision cannot be
 // skipped silently.
 func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
+	defer rowScopedFKDecisions.AssertAllMatched(t)
+
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
 	resetSchema(t, owner)
@@ -399,26 +395,17 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 	}
 	defer rows.Close()
 
-	seen := map[string]bool{}
 	for rows.Next() {
 		var srcTable, srcCol, target string
 		if err := rows.Scan(&srcTable, &srcCol, &target); err != nil {
 			t.Fatal(err)
 		}
 		key := srcTable + "." + srcCol
-		seen[key] = true
-		if _, decided := rowScopedFKDecisions[key]; !decided {
+		if !rowScopedFKDecisions.Waived(t, key) {
 			t.Errorf("FK %s -> %s has no visibility decision: a reference to a row-scoped record is a read of it — gate it (auth.EnsureLinkTarget) or classify it here", key, target)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
-	}
-	// The map must not carry dead entries either — a renamed column would
-	// otherwise keep a stale decision alive forever.
-	for key := range rowScopedFKDecisions {
-		if !seen[key] {
-			t.Errorf("decision map entry %s matches no FK in the live schema — remove or fix it", key)
-		}
 	}
 }

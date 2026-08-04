@@ -22,6 +22,8 @@ import (
 // and agree with whatever this build declares, including a narrowing added to
 // hide a case that quietly stopped driving its path, and including one dropped
 // from a case that still needs it.
+// gatekit:fixture the scope each narrowed site's reading is compared against —
+// expected data, not an exception granted to the site.
 var narrowedSites = map[string]string{
 	// One call labels a batch; every below-floor message is re-asked solo.
 	"capture_classify/classify": aitasks.ScopeSingleCall,

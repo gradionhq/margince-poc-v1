@@ -1,13 +1,82 @@
 version: "2"
 
+run:
+  # The tagged lanes are linted here too. Without this the baseline compiles
+  # only untagged files, so the integration and livesmoke harnesses
+  # (internal/compose/integration, platform/testdb, budgettest, …) were the one
+  # part of the tree NO pass covered once forbidigo moved out of the strict
+  # config — and harness code is exactly where an http.Error or a stray
+  # fmt.Print slips in unnoticed. The tagged test files themselves are already
+  # exempted from the taste-adjacent rules below by path.
+  build-tags:
+    - integration
+    - livesmoke
+
 linters:
   default: standard
   enable:
     - depguard
+    - forbidigo
     - gosec
     - misspell
     - revive
   settings:
+    # forbidigo is enabled HERE AND NOWHERE ELSE, and that is the whole
+    # point rather than an accident of where the rules were written.
+    # .golangci.strict.yml used to enable it too, with a different `forbid:`
+    # set — and since that pass also runs nolintlint, a //nolint:forbidigo
+    # written against either set was reported as an UNUSED directive by the
+    # other, which failed `make check` in a linter unrelated to the rule
+    # being waived. The in-source waiver was therefore unusable tree-wide
+    # for this one linter, and the only remaining escape hatch was exempting
+    # a whole FILE by path, which is coarser than anything it stood in for.
+    # One owner means `//nolint:forbidigo // <reason>` works, and a waiver
+    # binds the line it sits on rather than the file it sits in.
+    #
+    # Two consequences of the move, both deliberate: the fmt.Print* and
+    # http.Error rules are now repo-wide rather than new-code-only, and the
+    # patterns below apply to the whole tree on every run.
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # The job-registration door. addDeclaredWorker's type parameter is
+        # what makes an undeclared kind unbuildable; any direct registration
+        # walks around that constraint, around jobs.Govern (so the worker
+        # answers River's option methods for itself again), and around the
+        # kind list jobs.MustBeTotal reads at boot.
+        #
+        # ALL THREE of River's registration spellings, not just AddWorker:
+        # AddWorkerArgs and AddWorkerSafely are equally unconstrained and
+        # equally direct, and AddWorkerSafely is already idiom in this tree.
+        - pattern: '^river\.AddWorker(Args|Safely)?$'
+          pkg: '^github\.com/riverqueue/river$'
+          msg: "register through addDeclaredWorker — a kind absent from api/jobs.yaml is not in declaredJobArgs, and a direct registration also escapes jobs.Govern and the boot-time totality check"
+        # The other schedule door: River's RUNTIME periodic-job bundle. Every
+        # tick this fleet places is built by periodicFor from the declared
+        # cadence, and its type parameter is the declared set — but a client
+        # resolved inside a Work body hands out this bundle, whose Add and
+        # Remove methods take any args and any schedule, unconstrained and
+        # invisible to a census that reads the file.
+        #
+        # The whole TYPE rather than today's method names: every exported
+        # method on it mutates the running schedule, so a method a River
+        # upgrade adds is closed on arrival. river.ClientFromContext itself
+        # stays allowed — seven dispatchers resolve the client inside a worker
+        # to insert transactionally, which is the sanctioned path.
+        - pattern: '^river\.PeriodicJobBundle\.'
+          pkg: '^github\.com/riverqueue/river$'
+          msg: "a periodic tick is api/jobs.yaml's to declare — give the kind a cadence: and let periodicFor build it; the bundle mutates the running schedule with an args type and an interval nothing in the contract has seen"
+        # Structured logging is the only logging: a fmt.Print* line carries
+        # no level, no correlation_id, and no fields, so it is invisible to
+        # every reader that joins a log line to an audit row and a bus event.
+        - pattern: '^fmt\.Print.*$'
+          msg: "use slog, not fmt.Print*"
+        # Every refusal this backend writes is an RFC 7807 problem document.
+        # http.Error writes text/plain, so a client that parses the contract's
+        # error shape meets an unparseable body on exactly the paths it needs
+        # most.
+        - pattern: '^http\.Error$'
+          msg: "ship RFC 7807 JSON via platform/httperr, not http.Error"
     depguard:
       rules:
         # Layer B of the boundary stack (ADR-0014 §3): the module DAG from
@@ -76,6 +145,17 @@ linters:
       # the two passes agree (a nolint would read as unused under strict).
       - path: '_test\.go$'
         linters: [gosec]
+      # platform/jobs' own suites register fixture kinds against a throwaway
+      # river.Workers — kinds api/jobs.yaml will never declare, and no door
+      # into a running fleet. Closing that would leave the declaration
+      # untestable from outside the contract.
+      - path: '_test\.go$'
+        linters: [forbidigo]
+      # The ONE sanctioned river.AddWorker — the shared body addDeclaredWorker
+      # routes into — is waived IN SOURCE, on the line it applies to. There is
+      # deliberately no path exclusion for it: exempting the whole file would
+      # also exempt a second, unsanctioned registration added to it later,
+      # which is the gap the single-owner rule above exists to close.
 
 formatters:
   enable:

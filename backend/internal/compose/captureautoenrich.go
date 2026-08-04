@@ -71,7 +71,6 @@ func (CaptureAutoEnrichSweepArgs) FleetWide() {}
 
 // captureAutoEnrichSweepWorker runs one sweep pass across every workspace.
 type captureAutoEnrichSweepWorker struct {
-	river.WorkerDefaults[CaptureAutoEnrichSweepArgs]
 	pool       *pgxpool.Pool
 	people     *people.Store
 	settings   *capture.SettingsStore
@@ -96,7 +95,7 @@ func newCaptureAutoEnrichSweepWorker(pool *pgxpool.Pool, log *slog.Logger) *capt
 // workspace, and touches no tenant data itself.
 func (w *captureAutoEnrichSweepWorker) Work(ctx context.Context, _ *river.Job[CaptureAutoEnrichSweepArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureAutoEnrichWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureAutoEnrichWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -115,7 +114,6 @@ func (a CaptureAutoEnrichWorkspaceArgs) WorkspaceID() ids.UUID { return a.Worksp
 // dispatcher's wiring rather than a second copy: the stores, the daily cap and
 // the actor are the pass's, not the fan-out's.
 type captureAutoEnrichWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureAutoEnrichWorkspaceArgs]
 	sweeper *captureAutoEnrichSweepWorker
 }
 
@@ -250,7 +248,6 @@ func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
 				Workspace:      storekit.MustWorkspace(ctx),
 				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
-				SeedURL:        read.SeedURL,
 				RequestedBy:    read.RequestedBy,
 				// Declared in the payload as well as enforced at the worker: a
 				// job carries what it was queued to cost, so an operator

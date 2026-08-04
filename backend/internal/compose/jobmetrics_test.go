@@ -137,6 +137,28 @@ func TestTheSweepPairIsRenderedPerFanOutKind(t *testing.T) {
 	}
 }
 
+// TestTheSweepUnitPairIsRenderedAtTheDeclaredGrain — the pair exists because
+// the per-workspace one cannot tell a workspace with one broken connection
+// from a healthy workspace. Both halves carry the same sweep label so an alert
+// can compare them, and the unit label says which grain is being read; without
+// it the two pairs are indistinguishable in a dashboard.
+func TestTheSweepUnitPairIsRenderedAtTheDeclaredGrain(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Units: []jobs.SweepUnit{
+		{Kind: "capture_sync", Unit: jobs.FanOutConnection, Units: 9, Failed: 2},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	for _, line := range []string{
+		`margince_sweep_units_total{sweep="capture_sync",unit="connection"} 9`,
+		`margince_sweep_units_failed{sweep="capture_sync",unit="connection"} 2`,
+	} {
+		if !strings.Contains(buf.String(), line) {
+			t.Errorf("exposition missing %q\ngot:\n%s", line, buf.String())
+		}
+	}
+}
+
 // TestEverySeriesIsWrittenInAStableOrder — a scrape target's series order
 // should not flap between scrapes for no reason, and map iteration order is
 // not stable. sortedKeys next door exists for the same reason.
@@ -190,6 +212,8 @@ func TestAnEmptySnapshotWritesEveryFamilyHeaderAndNoSeries(t *testing.T) {
 		"margince_job_oldest_queued_age_seconds",
 		"margince_sweep_workspaces_total",
 		"margince_sweep_workspaces_failed",
+		"margince_sweep_units_total",
+		"margince_sweep_units_failed",
 	} {
 		if !strings.Contains(buf.String(), "# TYPE "+family+" gauge") {
 			t.Errorf("family header for %s missing from an empty snapshot\ngot:\n%s", family, buf.String())
@@ -212,14 +236,16 @@ func TestARefusedWriteSurfacesRatherThanBeingRenderedPast(t *testing.T) {
 	snap := jobs.Snapshot{
 		Rows:   []jobs.StateRow{{Queue: "default", Kind: "k", Untenanted: true, State: "available", Count: 1}},
 		Sweeps: []jobs.SweepPass{{Kind: "s", Workspaces: 1}},
+		Units:  []jobs.SweepUnit{{Kind: "u", Unit: jobs.FanOutConnection, Units: 1}},
 	}
 
 	// Fail at each write in turn, so no single family's writes are the only
 	// ones checked. The count is deliberately larger than the exposition is
-	// long; once the writer stops failing the render succeeds and the loop
-	// has covered every position.
+	// long — the declared catalogue alone is one write per declared kind —
+	// so once the writer stops failing the render succeeds and the loop has
+	// covered every position.
 	var everSucceeded bool
-	for n := range 64 {
+	for n := range 256 {
 		w := &failingWriter{failOn: n, err: refused}
 		err := writeJobMetrics(w, snap)
 		if err == nil {

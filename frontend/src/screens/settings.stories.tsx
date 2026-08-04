@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
 import {
   installFetchStub,
@@ -161,7 +162,7 @@ export const AuditTab: Story = {
 };
 
 // PipelinesCard (D-8, on the Catalog tab) reads GET /me (roles →
-// canConfigureAutomations gate) and GET /pipelines. Rendered directly here so
+// pipeline grant) and GET /pipelines. Rendered directly here so
 // the admin write affordances vs the rep read-only state each get a story.
 const pipelinesFixture = {
   data: [
@@ -205,16 +206,19 @@ const pipelinesFixture = {
   page: { next_cursor: null, has_more: false },
 };
 
-const pipelineMe = (roles: string[]) =>
-  jsonResponse({ user: { id: "u-1", display_name: "Me" }, roles, teams: [] });
+const pipelineMe = (allow: GrantSpec) =>
+  jsonResponse({
+    ...meFixture({ allow }),
+    user: { ...meFixture().user, id: "u-1", display_name: "Me" },
+  });
 
 // useMe() fails fast without a workspace slug, collapsing the admin state into
 // read-only — seed the slug so /me resolves and the affordances render.
-function pipelinesCard(roles: string[]) {
+function pipelinesCard(allow: GrantSpec) {
   return () => {
     globalThis.localStorage.setItem("margince.workspaceSlug", "acme");
     installFetchStub({
-      "GET /me": () => pipelineMe(roles),
+      "GET /me": () => pipelineMe(allow),
       "GET /pipelines": () => jsonResponse(pipelinesFixture),
     });
     return (
@@ -225,9 +229,13 @@ function pipelinesCard(roles: string[]) {
   };
 }
 
-export const PipelinesAdmin: Story = { render: pipelinesCard(["admin"]) };
+export const PipelinesAdmin: Story = {
+  render: pipelinesCard({ pipeline: ["read", "create", "update"] }),
+};
 
-export const PipelinesReadOnly: Story = { render: pipelinesCard(["rep"]) };
+export const PipelinesReadOnly: Story = {
+  render: pipelinesCard({ pipeline: ["read"] }),
+};
 
 // AuditLogCard (AO-3/AO-4): one entry carrying a full before/after diff plus
 // the agent attribution trail (passport, on-behalf-of human, authorization

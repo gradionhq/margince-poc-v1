@@ -126,37 +126,12 @@ func walk(n *yaml.Node, scanKeys bool) error {
 			continue
 		}
 
-		switch key.Value {
-		case "openapi":
-			if val.Kind == yaml.ScalarNode {
-				val.Value = "3.0.3"
-			}
+		rewritten, err := rewriteKeyword(n, key, val)
+		if err != nil {
+			return err
+		}
+		if rewritten {
 			continue
-		case "type":
-			if val.Kind == yaml.SequenceNode {
-				if err := rewriteTypeUnion(n, val); err != nil {
-					return err
-				}
-			}
-			continue
-		case "const":
-			// 3.0 has no const; its faithful equivalent is a single-value
-			// enum (const: X ⇔ enum: [X]), so downgrade rather than drop it.
-			constValue := *val
-			key.Value = "enum"
-			*val = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{&constValue}}
-			continue
-		case "examples":
-			// Only the schema-level plural form (a sequence) is 3.1-only;
-			// media-type examples (a mapping) exist in 3.0 and stay. The
-			// chosen example is opaque data — never descended into.
-			if val.Kind == yaml.SequenceNode {
-				if len(val.Content) > 0 {
-					key.Value = "example"
-					*val = *val.Content[0]
-				}
-				continue
-			}
 		}
 
 		if _, unsupported := unsupported31Keywords[key.Value]; unsupported {
@@ -175,6 +150,49 @@ func walk(n *yaml.Node, scanKeys bool) error {
 		}
 	}
 	return nil
+}
+
+// rewriteKeyword applies the 3.0.3 rewrite one schema keyword needs and
+// reports whether the entry is fully handled — a handled entry is never
+// descended into, including the cases where the shape needed no rewrite at all
+// (`openapi` carrying a non-scalar, `type` without a union). `examples` in its
+// media-type MAPPING form is the one keyword here that 3.0 already
+// expresses: it stays unhandled, so the caller walks it as the arbitrary-key
+// container it is.
+func rewriteKeyword(mapping, key, val *yaml.Node) (bool, error) {
+	switch key.Value {
+	case "openapi":
+		if val.Kind == yaml.ScalarNode {
+			val.Value = "3.0.3"
+		}
+		return true, nil
+	case "type":
+		if val.Kind == yaml.SequenceNode {
+			if err := rewriteTypeUnion(mapping, val); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	case "const":
+		// 3.0 has no const; its faithful equivalent is a single-value
+		// enum (const: X ⇔ enum: [X]), so downgrade rather than drop it.
+		constValue := *val
+		key.Value = "enum"
+		*val = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: []*yaml.Node{&constValue}}
+		return true, nil
+	case "examples":
+		// Only the schema-level plural form (a sequence) is 3.1-only;
+		// media-type examples (a mapping) exist in 3.0 and stay. The
+		// chosen example is opaque data — never descended into.
+		if val.Kind == yaml.SequenceNode {
+			if len(val.Content) > 0 {
+				key.Value = "example"
+				*val = *val.Content[0]
+			}
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // rewriteTypeUnion turns type: [T, 'null'] into type: T + nullable: true on

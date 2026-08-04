@@ -11,6 +11,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -23,12 +24,7 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
-import {
-  canManageCustomFields,
-  problemMessage,
-  QueryGate,
-  useMe,
-} from "./common";
+import { problemMessage, QueryGate, useMe } from "./common";
 import {
   apiKey,
   CF_OBJECTS,
@@ -284,14 +280,17 @@ const STAGED_ID = "staged";
 export function FieldTable({
   object,
   fields,
-  canManage,
+  canEdit,
   meUserId,
   onRename,
   onArchive,
 }: Readonly<{
   object: CfObject;
   fields: CustomField[];
-  canManage: boolean;
+  // Both affordances this gates are updates: renaming relabels a live field,
+  // and retiring one is a lifecycle transition that keeps the column and its
+  // history. Neither is custom_field:delete, which no surface offers.
+  canEdit: boolean;
   meUserId?: string;
   onRename: (field: CustomField) => void;
   onArchive: (field: CustomField) => void;
@@ -373,7 +372,7 @@ export function FieldTable({
     },
   ];
 
-  if (canManage) {
+  if (canEdit) {
     columns.push({
       key: "actions",
       header: "",
@@ -530,7 +529,10 @@ export function CustomFieldsScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const me = useMe();
-  const canManage = canManageCustomFields(me.data?.roles);
+  // Two grants, two affordances: the builder adds a column to a live table,
+  // while rename and retire change one that already exists.
+  const canCreate = useCanWrite("custom_field", "create");
+  const canEdit = useCanWrite("custom_field", "update");
   const meUserId = me.data?.user?.id;
 
   const [object, setObject] = useState<CfObject>("deal");
@@ -718,7 +720,7 @@ export function CustomFieldsScreen() {
             <FieldTable
               object={object}
               fields={page.data}
-              canManage={canManage}
+              canEdit={canEdit}
               meUserId={meUserId}
               onRename={startRename}
               onArchive={(field) => archive.mutate(field)}
@@ -727,7 +729,7 @@ export function CustomFieldsScreen() {
         </QueryGate>
       </section>
 
-      {canManage ? (
+      {canCreate ? (
         <FieldBuilder
           key={`${object}-${builderKey}`}
           object={object}

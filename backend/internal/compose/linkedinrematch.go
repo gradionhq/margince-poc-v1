@@ -23,7 +23,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -45,15 +44,7 @@ func (LinkedInRematchArgs) Kind() string { return "linkedin_rematch" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (LinkedInRematchArgs) FleetWide() {}
 
-// linkedInRematchInterval is hourly rather than daily, because the window it
-// covers is the workspace's first day: an export uploaded during onboarding is
-// waiting on a capture backfill that finishes in minutes, and a rep who
-// imported their network in the morning should not have to wait until tomorrow
-// to see it on an account.
-const linkedInRematchInterval = time.Hour
-
 type linkedInRematchWorker struct {
-	river.WorkerDefaults[LinkedInRematchArgs]
 	pool      *pgxpool.Pool
 	store     *people.Store
 	authority authz.Resolver
@@ -68,7 +59,7 @@ func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority
 // a failure in one leaves the others swept.
 func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInRematchArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(LinkedInRematchWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return LinkedInRematchWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -86,7 +77,6 @@ func (a LinkedInRematchWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspac
 // linkedInRematchWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type linkedInRematchWorkspaceWorker struct {
-	river.WorkerDefaults[LinkedInRematchWorkspaceArgs]
 	*linkedInRematchWorker
 }
 

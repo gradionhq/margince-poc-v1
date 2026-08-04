@@ -24,6 +24,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 const idempotencyMapSource = "internal/compose/replayscope.go"
@@ -34,14 +36,14 @@ const idempotencyMapSource = "internal/compose/replayscope.go"
 // be honored yet. An exemption never outlives its cause: an entry the
 // contract stops declaring, or one that shows up in the runtime map
 // anyway, fails the gate.
-var idempotencyExemptions = map[string]string{
+var idempotencyExemptions = gatekit.Waive(map[string]string{
 	"POST /v1/public/booking/{host_slug}": "anonymous edge: every visitor shares the" +
 		" system:public_booking principal, so the middleware's per-principal claim scope" +
 		" cannot tell callers apart — one visitor's key + body would replay another's" +
 		" recorded confirmation; the anonymous surface needs its own dedupe scope" +
 		" (workspace + request digest) before the promise can be honored, and the slot's" +
 		" natural key refuses duplicate bookings meanwhile",
-}
+})
 
 // contractOperation is the slice of one crm.yaml operation this gate
 // reads: the parameter list, each entry either a $ref or an inline
@@ -155,8 +157,11 @@ func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
 	if len(mapped) < 20 {
 		t.Fatalf("found only %d entries in replayableOperations — the source extractor no longer sees the map", len(mapped))
 	}
+	// Registered only past the vacuity guards: on either Fatal every entry would
+	// report as unmatched, burying the one failure that explains all of them.
+	defer idempotencyExemptions.AssertAllMatched(t)
 
-	for op := range idempotencyExemptions {
+	for _, op := range idempotencyExemptions.Subjects() {
 		if !declared[op] {
 			t.Errorf("idempotencyExemptions names %s but the contract no longer declares IdempotencyKey on it — delete the stale exemption", op)
 		}
@@ -165,7 +170,7 @@ func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
 		}
 	}
 	for op := range declared {
-		if !mapped[op] && idempotencyExemptions[op] == "" {
+		if !mapped[op] && !idempotencyExemptions.Waived(t, op) {
 			t.Errorf("%s declares the IdempotencyKey parameter but is missing from replayableOperations — a retried request re-executes instead of replaying", op)
 		}
 	}

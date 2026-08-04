@@ -14,28 +14,29 @@ package compose
 
 import (
 	"sort"
-	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // synthesizedVerbs maps each verb that legitimately resolves without a
 // registered tool to the reason it may. An entry claims `write` is the right
 // cap for it.
-var synthesizedVerbs = map[string]string{
+var synthesizedVerbs = gatekit.Waive(map[string]string{
 	"advance_project_phase": "internal state change on a project; reversible by advancing again",
 	"draft_offer":           "regenerates a draft in place — no message is transmitted to a counterparty; the AI lane may send the deal's context to the configured model provider, but that is governed by model routing and budget, not the send scope",
 	"relink_activity":       "moves an activity between records; internal and reversible",
 	"render_offer":          "renders a document for the caller; no transmission",
 	"disqualify_lead":       "internal lifecycle change; the row survives disqualification",
 	"disconnect_incumbent":  "revokes the connection row, purges the mirror, and flips the workspace to native mode, all local; the sealed vault credential it deletes afterward is our own Postgres-backed store, not the incumbent — nothing here calls out. Contrast connect_incumbent (outboundHoles), which calls the incumbent's API and writes that credential in the first place",
-}
+})
 
 // outboundHoles are synthesized verbs that DO leave the workspace and are
 // admitted under `write` today. The value names the scope each should carry
 // — or, where that has not been decided, says so and why — so the pin reads
 // as the debt it is rather than as approval. Closing one means registering a
 // tool for it (as send_message was) and deleting its line.
-var outboundHoles = map[string]string{
+var outboundHoles = gatekit.Waive(map[string]string{
 	// send_offer only flips the offer's status to sent, freezes fx_rate_to_base
 	// and the buyer/issuer snapshots, and emits offer.sent
 	// (deals/offer_lifecycle.go:39-96) — no delivery, no counterparty
@@ -45,11 +46,15 @@ var outboundHoles = map[string]string{
 	// intended shape (ADR context: an outbound send), not because today's
 	// code egresses — this is a contract/implementation discrepancy to
 	// reconcile upstream, not merely scope-registration debt.
-	"send_offer":        "send — pinned for what the contract promises, though the current implementation performs no delivery (see comment above)",
-	"enrich":            "enrich",
+	"send_offer": "send — pinned for what the contract promises, though the current implementation performs no delivery (see comment above)",
+	"enrich": "enrich — scrapeCompany and deepReadCompany fetch " +
+		"the target's own website through the web-read seam, and both " +
+		"coldstart operations do the same before any record exists, so " +
+		"the call egresses; nothing is transmitted to a counterparty, " +
+		"which is why it still reads as an internal write today",
 	"connect_incumbent": "write is likely right for authenticating a connection, but the tier and scope were never decided together",
 	"reconcile_overlay": "enrich — the sweep it queues calls overlay.Reconcile's inc.Modified fetch against the incumbent's API and spends its budget",
-}
+})
 
 // deadEndVerbs are synthesized verbs whose approved-and-redeemed agent call
 // can never execute: the handler behind them requires a human principal, so
@@ -59,18 +64,20 @@ var outboundHoles = map[string]string{
 // and outboundHoles (egress admitted under the wrong scope) — because
 // neither of those labels is true of them: the verb is reachable, resolves
 // at `write` by synthesis, and yet no agent call through it can ever land.
-var deadEndVerbs = map[string]string{
+var deadEndVerbs = gatekit.Waive(map[string]string{
 	"share_record": "createRecordGrant/revokeRecordGrant (identity/grants.go:141,189) reject any principal.Actor whose Type is not PrincipalHuman. Redemption (agents.RedeemAndMark, compose/agentgate.go) marks the context as released but never changes the actor's type — the redeeming caller is still the staging agent — so an agent-staged, human-approved share_record is refused at redemption every time. It is not outbound (the grant never leaves the workspace) and not a legitimate write cap (no agent call through it can succeed), so it belongs in neither other map.",
-}
+})
 
 func TestEverySynthesizedVerbIsPinned(t *testing.T) {
-	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles, deadEndVerbs} {
-		for verb, reason := range pins {
-			if strings.TrimSpace(reason) == "" {
-				t.Errorf("the pin for %s has no reason — a pin must say why the verb may resolve by synthesis", verb)
-			}
-		}
-	}
+	// This sweep visits every synthesized verb in the policy table, so it is the
+	// one place all three maps' staleness is owned. A pinned verb that left the
+	// table, or that gained a registered tool, is skipped by the loop below and
+	// so goes unmatched — this sweep reports it stale on its own.
+	// TestThePinsDescribeVerbsThatStillExist names WHICH of the two happened,
+	// sharpening the diagnosis rather than carrying the detection.
+	defer synthesizedVerbs.AssertAllMatched(t)
+	defer outboundHoles.AssertAllMatched(t)
+	defer deadEndVerbs.AssertAllMatched(t)
 
 	registry := NewRegistry(nil, SendPath{})
 
@@ -84,13 +91,13 @@ func TestEverySynthesizedVerbIsPinned(t *testing.T) {
 			continue
 		}
 		checked++
-		if _, pinned := synthesizedVerbs[pol.Tool]; pinned {
+		if synthesizedVerbs.Waived(t, pol.Tool) {
 			continue
 		}
-		if _, known := outboundHoles[pol.Tool]; known {
+		if outboundHoles.Waived(t, pol.Tool) {
 			continue
 		}
-		if _, deadEnd := deadEndVerbs[pol.Tool]; deadEnd {
+		if deadEndVerbs.Waived(t, pol.Tool) {
 			continue
 		}
 		unexplained = append(unexplained, pol.Tool+" ("+route+")")
@@ -120,8 +127,8 @@ func TestThePinsDescribeVerbsThatStillExist(t *testing.T) {
 		}
 	}
 
-	for _, pins := range []map[string]string{synthesizedVerbs, outboundHoles, deadEndVerbs} {
-		for verb := range pins {
+	for _, pins := range []*gatekit.Waivers[string]{synthesizedVerbs, outboundHoles, deadEndVerbs} {
+		for _, verb := range pins.Subjects() {
 			if !inTable[verb] {
 				t.Errorf("%s is pinned but no longer appears in the policy table; delete the pin", verb)
 			}

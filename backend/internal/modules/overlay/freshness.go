@@ -174,27 +174,11 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 	}
 
 	// Reserve the force-fresh unit against the incumbent's REST window
-	// BEFORE the live call. ReserveREST is an atomic band-check-and-record,
-	// so concurrent force-fresh reads cannot all observe a non-shed band and
-	// collectively overshoot the budget; and because the unit is reserved up
-	// front, a live read that later FAILS still counts (its HTTP call spent
-	// quota either way). A shed reservation (the REST window is at or over
-	// its shed threshold) degrades to the mirror row already loaded above
-	// (never re-reading it) and emits the budget event. The meter is always
-	// non-nil (NewFreshnessReader normalizes nil to fail-closed).
-	allowed, rErr := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
-	if rErr != nil {
-		// The budget system is unreachable (a Redis error). Fail closed —
-		// degrade to the mirror rather than hard-failing a force-fresh read
-		// over a metering outage — logging the error (never swallowing it,
-		// T2) before the honest fallback. This is the same shed-equivalent
-		// outcome a declined reservation takes: we could not confirm budget,
-		// so we do not spend a live call.
-		slog.WarnContext(ctx, "overlay: reserving the force-fresh budget failed, degrading to the mirror",
-			"entity_type", string(ref.Type), "incumbent", inc.Name(), "err", rErr)
-		return f.degradeForShed(ctx, ref, mirror)
-	}
-	if !allowed {
+	// BEFORE the live call. A reservation that does not hold (the window is
+	// at or over its shed threshold, or the budget could not be confirmed at
+	// all) degrades to the mirror row already loaded above — never re-reading
+	// it — and emits the budget event.
+	if !f.reserveForceFreshUnit(ctx, inc, string(ref.Type)) {
 		return f.degradeForShed(ctx, ref, mirror)
 	}
 
@@ -209,6 +193,30 @@ func (f *FreshnessReader) Read(ctx context.Context, ref datasource.EntityRef) (d
 		return mirror, nil
 	}
 	return datasource.FreshnessInfo{LastSyncedAt: rec.ModifiedAt, Authoritative: true}, nil
+}
+
+// reserveForceFreshUnit spends one unit of the incumbent's REST window on
+// the force_fresh source and answers whether the live read may proceed.
+// ReserveREST is an atomic band-check-and-record, so concurrent force-fresh
+// reads cannot all observe a non-shed band and collectively overshoot the
+// budget; and because the unit is reserved up front, a live read that later
+// FAILS still counts (its HTTP call spent quota either way). The meter is
+// always non-nil (NewFreshnessReader normalizes nil to fail-closed).
+//
+// An unreachable budget system (a Redis error) answers false rather than
+// failing the read: fail closed — degrade rather than hard-fail a
+// force-fresh read over a metering outage — logging the error (never
+// swallowing it, T2) before the honest fallback. That is the same
+// shed-equivalent outcome a declined reservation takes: we could not confirm
+// budget, so we do not spend a live call.
+func (f *FreshnessReader) reserveForceFreshUnit(ctx context.Context, inc Incumbent, entityType string) bool {
+	allowed, err := f.meter.ReserveREST(ctx, inc.Name(), overlaybudget.SourceForceFresh, 1)
+	if err != nil {
+		slog.WarnContext(ctx, "overlay: reserving the force-fresh budget failed, degrading to the mirror",
+			"entity_type", entityType, "incumbent", inc.Name(), "err", err)
+		return false
+	}
+	return allowed
 }
 
 // incumbentClassFor answers the SINGLE incumbent class a force-fresh of

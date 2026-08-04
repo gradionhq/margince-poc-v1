@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { RatesScreen } from "./rates";
 
@@ -27,15 +28,20 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function ratesBackend(roles: string[]) {
+// Both rate cards gate on CREATE, not update: setting a rate is an upsert the
+// server admits through the create grant, and no endpoint anywhere checks
+// fx_rate:update. A fixture granting update instead would leave both cards
+// hidden — which is exactly the mis-binding this names away.
+const RATE_SETTER: GrantSpec = {
+  fx_rate: ["create"],
+  ai_model_rate: ["create"],
+};
+
+function ratesBackend(allow: GrantSpec) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({
-        user: { email: "ada@acme.test" },
-        roles,
-        teams: [],
-      });
+      return jsonResponse(meFixture({ allow }));
     }
     if (url.includes("/v1/fx-rates")) {
       return jsonResponse({
@@ -85,7 +91,7 @@ describe("RatesScreen", () => {
   });
 
   it("renders both price sheets with their current rows", async () => {
-    vi.stubGlobal("fetch", ratesBackend(["admin"]));
+    vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
     render(<RatesScreen />);
     // trimDecimal turns the numeric(20,10) value into a readable 0.92.
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
@@ -95,7 +101,7 @@ describe("RatesScreen", () => {
   });
 
   it("shows write affordances for an admin", async () => {
-    vi.stubGlobal("fetch", ratesBackend(["admin"]));
+    vi.stubGlobal("fetch", ratesBackend(RATE_SETTER));
     render(<RatesScreen />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Set rate" })).toBeTruthy();
@@ -107,7 +113,7 @@ describe("RatesScreen", () => {
   });
 
   it("hides write affordances for a non-admin role", async () => {
-    vi.stubGlobal("fetch", ratesBackend(["rep"]));
+    vi.stubGlobal("fetch", ratesBackend({}));
     render(<RatesScreen />);
     await waitFor(() => expect(screen.getByText("USD")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Set rate" })).toBeNull();

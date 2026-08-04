@@ -54,13 +54,12 @@ func (a SignalScanWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // signalScanWorker is the dispatcher.
 type signalScanWorker struct {
-	river.WorkerDefaults[SignalScanArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *signalScanWorker) Work(ctx context.Context, _ *river.Job[SignalScanArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(SignalScanWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return SignalScanWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -70,7 +69,6 @@ func (w *signalScanWorker) Work(ctx context.Context, _ *river.Job[SignalScanArgs
 // degraded state to log about on every tick — it is an installation that
 // bought no model, and the deterministic half is the whole product for it.
 type signalScanWorkspaceWorker struct {
-	river.WorkerDefaults[SignalScanWorkspaceArgs]
 	pool      *pgxpool.Pool
 	extractor *SignalExtractor
 	proposer  *SignalProposer
@@ -177,20 +175,20 @@ func newSignalExtractorIfConfigured(pool *pgxpool.Pool, brain completer, log *sl
 	return NewSignalExtractor(pool, brain, time.Now, log)
 }
 
-// addSignalJobs registers both producers and their hourly tick, so this
-// wiring stays one line in jobs.go as the surface grows — the same shape
-// addGraphJobs and addPrivacyRetentionJobs already keep.
+// addSignalJobs registers both producers and hands back the dispatcher's
+// schedule, so this wiring stays one line in jobs.go as the surface grows —
+// the same shape addGraphJobs and addPrivacyRetentionJobs already keep. The
+// cadence is api/jobs.yaml's, which is why periodicFor is what places it.
 //
-// It registers unconditionally. The deterministic ghosted-thread rule needs no
-// model, so an installation that bought none still gets the signals a
-// comparison can produce; only the extractor half is absent by omission.
-// Run-on-start, so an installation upgrading into this surface does not wait
-// an hour for its first signal.
+// Both register unconditionally. The deterministic ghosted-thread rule needs
+// no model, so an installation that bought none still gets the signals a
+// comparison can produce; only the extractor half is absent by omission, and
+// that absence is inside the worker rather than a registration gate.
 func addSignalJobs(
-	workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger,
+	reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger,
 ) []*river.PeriodicJob {
-	river.AddWorker(workers, &signalScanWorker{pool: pool})
-	river.AddWorker(workers, &signalScanWorkspaceWorker{
+	addDeclaredWorker[SignalScanArgs](reg, &signalScanWorker{pool: pool})
+	addDeclaredWorker[SignalScanWorkspaceArgs](reg, &signalScanWorkspaceWorker{
 		pool:      pool,
 		extractor: newSignalExtractorIfConfigured(pool, cfg.SignalExtractBrain, log),
 		// The SAME approvals service the HTTP surface decides on, so a released
@@ -199,9 +197,5 @@ func addSignalJobs(
 		now:      time.Now,
 		log:      log,
 	})
-	return []*river.PeriodicJob{river.NewPeriodicJob(
-		river.PeriodicInterval(time.Hour),
-		func() (river.JobArgs, *river.InsertOpts) { return SignalScanArgs{}, sweepInsertOpts() },
-		&river.PeriodicJobOpts{RunOnStart: true},
-	)}
+	return periodicFor(cfg, SignalScanArgs{})
 }

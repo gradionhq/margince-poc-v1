@@ -68,12 +68,6 @@ const sendMaxAttempts = 10
 // against the very provider the policy is pacing us for.
 const minSendSnooze = time.Second
 
-// sendTimeout overrides River's one-minute default: one attempt unseals a
-// credential from the vault, refreshes an OAuth token, may run the connector's
-// prior-send lookup, and then transmits — four network round trips, each of
-// which can be slow before it is wrong.
-const sendTimeout = 5 * time.Minute
-
 // sendInsertOpts is the enqueue policy for one delivery, and the ONE place the
 // ladder length is declared — the dispatcher's exhaustion guard reads its bound
 // from here (newSendWorker) rather than from a second copy of the constant.
@@ -106,12 +100,8 @@ var _ deliveryDispatcher = (*comms.Dispatcher)(nil)
 // It decides nothing itself: the dispatcher owns the gates, the policies, and
 // the row's state, and this is the adapter that keeps River out of comms.
 type commsSendWorker struct {
-	river.WorkerDefaults[SendEmailArgs]
 	dispatcher deliveryDispatcher
 }
-
-// Timeout gives one transmission room to finish over a live provider.
-func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { return sendTimeout }
 
 // SendWorkerContext is the scope one dispatch attempt runs under. RecordSent's
 // identity reconcile writes an audit row and an outbox event, and storekit

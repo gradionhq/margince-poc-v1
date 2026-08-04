@@ -229,12 +229,22 @@ func (h Handlers) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetCurrentPrincipal implements (GET /me).
+//
+// Human sessions only. A passport bearer is admitted as an agent principal and
+// never binds the session identity read here (serveAsAgent below), so an agent
+// arrives without one and is answered 401 rather than a partial profile — which
+// is why the contract's passport claim is deprecated as permanently null.
 func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 	id, ok := identityFrom(r.Context())
 	if !ok {
 		httperr.Unauthorized(w, r, "no session")
 		return
 	}
+	// The authorization snapshot is this principal's alone and outlives nothing:
+	// a shared cache that served it to the next caller would hand them someone
+	// else's capabilities, and a stored copy would survive the role change that
+	// revoked them.
+	w.Header().Set("Cache-Control", "private, no-store")
 	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
 }
 
@@ -397,5 +407,41 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, 
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
 		NonProduction: nonProduction,
+		Authorization: &crmcontracts.Authorization{
+			SeatType: contractSeatType(id.SeatType),
+			Objects:  contractObjectGrants(id.Permissions.Objects),
+		},
 	}
+}
+
+// contractSeatType maps the stored seat onto the contract enum through the
+// kernel's own predicate rather than a cast. Two properties follow that a cast
+// would not give: the response can only ever carry a value the enum declares,
+// and a seat the kernel does not recognize reports the ceiling that denies
+// instead of the one that admits.
+func contractSeatType(seat string) crmcontracts.AuthorizationSeatType {
+	if principal.SeatType(seat).CanMutate() {
+		return crmcontracts.AuthorizationSeatTypeFull
+	}
+	return crmcontracts.AuthorizationSeatTypeRead
+}
+
+// contractObjectGrants maps the merged permissions onto the wire shape.
+//
+// The field-by-field mapping is deliberate: principal.ObjectGrant carries no
+// JSON tags, so handing it to the encoder would emit Create/Read/Update/Delete
+// and every client check — which asks for the lowercase names the contract
+// declares — would read absent and silently deny. That failure looks exactly
+// like a correctly withheld permission, so it is worth the explicit copy.
+func contractObjectGrants(objects map[string]principal.ObjectGrant) map[string]crmcontracts.RbacObjectGrant {
+	grants := make(map[string]crmcontracts.RbacObjectGrant, len(objects))
+	for object, grant := range objects {
+		grants[object] = crmcontracts.RbacObjectGrant{
+			Create: grant.Create,
+			Read:   grant.Read,
+			Update: grant.Update,
+			Delete: grant.Delete,
+		}
+	}
+	return grants
 }

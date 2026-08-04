@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { AutomationRow, AutomationsScreen, paramFields } from "./automations";
 
@@ -95,17 +96,23 @@ type Recorded = {
   ifMatch: string | null;
 };
 
+// The screen asks three separate questions of the automation object, so the
+// default fixture answers all three and the read-only case answers none.
+const AUTOMATION_OPERATOR: GrantSpec = {
+  automation: ["create", "update", "delete"],
+};
+
 function automationsBackend(
   automations: Automation[],
   calls: Recorded[],
-  roles: string[] = ["admin"],
+  allow: GrantSpec = AUTOMATION_OPERATOR,
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({ user: {}, roles, teams: [] });
+      return jsonResponse(meFixture({ allow }));
     }
     if (url.includes("/automations/catalog")) {
       return jsonResponse({ data: catalog });
@@ -274,7 +281,9 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
-          canConfigure
+          canViewRuns
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -285,7 +294,9 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
-          canConfigure
+          canViewRuns
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -297,19 +308,77 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     // screen still shows catalog + instances, but no affordance that could
     // only 403 — and it says WHY instead of silently thinning out.
     const automations = [instance({})];
-    vi.stubGlobal("fetch", automationsBackend(automations, [], ["rep"]));
+    vi.stubGlobal("fetch", automationsBackend(automations, [], {}));
     render(<AutomationsScreen />);
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
     );
     expect(
       screen.getByText(
-        "Read-only view — automation settings are managed by the admin and ops roles.",
+        "Read-only view — you do not have permission to change automations.",
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  // One grant at a time. A fixture holding create+update+delete together
+  // cannot tell a correct binding from a transposed one — swapping update and
+  // delete in the screen passes such a suite outright. These pin each verb to
+  // the control it actually governs.
+  it("shows only the affordances the specific grant covers", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read", "update"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    // update -> the pause/enable toggle is offered (its label follows status)
+    expect(screen.getAllByRole("button", { name: /Pause|Enable/ }).length).toBe(
+      1,
+    );
+    // no delete grant -> the destructive control is withheld
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    // no create grant -> the catalog cannot be instantiated
+    expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+  });
+
+  it("offers deletion only with the delete grant, and nothing else with it", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read", "delete"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(1);
+    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+  });
+
+  // The runs and preview inspectors are READS (automations_runs.go gates on
+  // automation:read; Preview resolves through Get). A read-only principal must
+  // still reach them.
+  it("offers the runs and preview inspectors on the read grant alone", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(screen.getAllByRole("button", { name: "Runs" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Preview" }).length).toBe(1);
+    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
@@ -322,7 +391,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     );
     expect(
       screen.queryByText(
-        "Read-only view — automation settings are managed by the admin and ops roles.",
+        "Read-only view — you do not have permission to change automations.",
       ),
     ).toBeNull();
     await waitFor(() =>
@@ -336,7 +405,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
 });
 
 // The two ops behind these toggles are human-only and gated on the same
-// canConfigure grant as pause/edit/delete; the panels mount lazily and
+// automation:update grant as pause and edit; the panels mount lazily and
 // independently (opening one never closes the other).
 describe("AutomationRow — Runs/Preview toggles", () => {
   // A benign stub for the lazily-mounted panels' first fetch: the toggle
@@ -358,14 +427,16 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     });
   }
 
-  it("shows the Runs/Preview toggles only when canConfigure", () => {
+  it("shows the Runs/Preview toggles on the READ grant, not the write one", () => {
     vi.stubGlobal("fetch", panelBackend());
     const view = render(
       <ul>
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canViewRuns
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -373,12 +444,33 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
     view.unmount();
 
+    // Read but no write: the inspectors stay, because the server gates them on
+    // automation:read. Hiding them behind the write grant — as the old role
+    // proxy did — withheld a surface a reader is entitled to.
+    const readOnly = render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canViewRuns
+          canEdit={false}
+          canDelete={false}
+        />
+      </ul>,
+    );
+    expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    readOnly.unmount();
+
+    // No read grant: gone.
     render(
       <ul>
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure={false}
+          canViewRuns={false}
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -393,7 +485,9 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canViewRuns
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -410,7 +504,9 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canViewRuns
+          canEdit
+          canDelete
         />
       </ul>,
     );

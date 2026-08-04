@@ -1,14 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../api/client";
+import { useCanWrite } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import {
-  canConfigureAutomations,
-  problemMessage,
-  QueryGate,
-  useMe,
-} from "./common";
+import { problemMessage, QueryGate } from "./common";
 
 // The workspace capture-settings card (CAP-WIRE-7, ADR-0072/A118): the
 // captured-organization auto-enrich toggle. Every role reads it; only admin/ops
@@ -48,8 +44,7 @@ function useUpdateCaptureSettings() {
 
 export function CaptureSettingsCard() {
   const t = useT();
-  const me = useMe();
-  const canManage = canConfigureAutomations(me.data?.roles);
+  const canManage = useCanWrite("capture_settings", "update");
   const query = useCaptureSettings();
   const update = useUpdateCaptureSettings();
 

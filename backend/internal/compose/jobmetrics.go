@@ -4,12 +4,19 @@
 package compose
 
 // The job-runtime section of /metrics: OPS-MET-2's queue depth and the
-// gauges beside it, plus the sweep pair. Every number is read from
-// river_job at scrape time rather than counted in process, because the
-// dispatchers run in cmd/worker and cmd/worker serves no exposition
-// endpoint at all — an in-process counter incremented there would be
-// invisible to every scrape while the api's own copy read a truthful
-// looking zero.
+// gauges beside it, plus the two sweep pairs. Every number here is read from
+// river_job at scrape time rather than counted in process, because the work
+// itself happens in cmd/worker: an in-process counter incremented there is
+// one replica's tally, so a fleet-wide number kept that way would report
+// whatever the scraped process happened to have done. cmd/worker does serve
+// its own /metrics (--observe-addr), and deliberately carries only what IS
+// process-local — its runtime, its pool, its relay counter — leaving every
+// reading of this shared table to the one reader here.
+//
+// The two families in jobdeclared.go beside it are the exception, and the
+// reason they exist: a table scan can only ever name a kind that HAS rows,
+// so it reads a declared-but-idle kind and a kind nobody wired identically.
+// Those two are read against the compiled declaration instead.
 
 import (
 	"cmp"
@@ -176,6 +183,11 @@ func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
 	discarded, cancelled := a.discarded, a.cancelled
 	oldest, unrecognised := a.oldest, a.unrecognised
 
+	// The catalogue leads: everything below it is a projection of whatever
+	// rows happen to exist, and this is the closed set they are read against.
+	if err := writeDeclaredInfo(w); err != nil {
+		return err
+	}
 	if err := writeQueueGauge(w, "margince_job_queue_depth",
 		"Jobs waiting to run (available + scheduled + retryable + pending) per queue and workspace. An empty workspace_id is a dispatcher, which does no tenant work.",
 		depth); err != nil {
@@ -202,7 +214,13 @@ func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
 	if err := writeSweepGauges(w, snap.Sweeps); err != nil {
 		return err
 	}
-	return writeUnrecognisedStateGauge(w, unrecognised)
+	if err := writeSweepUnitGauges(w, snap.Units); err != nil {
+		return err
+	}
+	if err := writeUnrecognisedStateGauge(w, unrecognised); err != nil {
+		return err
+	}
+	return writeUnrecognisedKindGauge(w, snap.Rows)
 }
 
 func writeQueueGauge(w io.Writer, name, help string, series map[queueKey]int64) error {
@@ -276,6 +294,46 @@ func writeSweepGauges(w io.Writer, sweeps []jobs.SweepPass) error {
 	for _, s := range ordered {
 		if _, err := fmt.Fprintf(w, "margince_sweep_workspaces_failed{sweep=%s} %d\n",
 			label(s.Kind), s.Failed); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeSweepUnitGauges renders the pair that answers the same question one
+// grain down, for the dispatchers that fan out per connection or per build.
+// The workspace pair above is the coarser reading of the same passes and can
+// mask a failed unit behind a healthy sibling in the same workspace; these two
+// cannot, because each unit is counted in its own right.
+//
+// Present ONLY for kinds whose declared unit is finer than a workspace. For
+// every other fan-out kind the unit IS the workspace, so this pair would repeat
+// the one above value for value, and two published series for one number is a
+// worse surface than one series and a documented pairing. The unit rides as a
+// label so an alert can see which grain it is reading without a lookup.
+func writeSweepUnitGauges(w io.Writer, units []jobs.SweepUnit) error {
+	ordered := slices.SortedFunc(slices.Values(units), func(a, b jobs.SweepUnit) int {
+		return cmp.Compare(a.Kind, b.Kind)
+	})
+
+	if err := writeFamilyHeader(w, "margince_sweep_units_total",
+		"Fan-out units with a surviving child of this fleet pass, for the dispatchers that fan out per connection or per build rather than per workspace. The unit label names the grain. Kinds that fan out per workspace are absent here and reported by margince_sweep_workspaces_total, which is the same measurement for them."); err != nil {
+		return err
+	}
+	for _, u := range ordered {
+		if _, err := fmt.Fprintf(w, "margince_sweep_units_total{sweep=%s,unit=%s} %d\n",
+			label(u.Kind), label(fanOutUnitName(u.Unit)), u.Units); err != nil {
+			return err
+		}
+	}
+
+	if err := writeFamilyHeader(w, "margince_sweep_units_failed",
+		"Fan-out units whose MOST RECENT child of this fleet pass ended discarded or cancelled. Unlike the per-workspace pair, a failed connection is counted even when a sibling connection in the same workspace succeeded afterwards -- which is the masking this pair exists to remove."); err != nil {
+		return err
+	}
+	for _, u := range ordered {
+		if _, err := fmt.Fprintf(w, "margince_sweep_units_failed{sweep=%s,unit=%s} %d\n",
+			label(u.Kind), label(fanOutUnitName(u.Unit)), u.Failed); err != nil {
 			return err
 		}
 	}

@@ -90,7 +90,7 @@ func openTriageQuestion(t *testing.T, e *integration.Env, domain, email, display
 	if err != nil {
 		t.Fatalf("starting the triage read: %v", err)
 	}
-	return SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID, SeedURL: read.SeedURL, RequestedBy: systemDomainTriageActor}
+	return SiteDeepReadArgs{Workspace: e.WS, SiteReadID: read.ID, RequestedBy: systemDomainTriageActor}
 }
 
 // triageState reads back what the run decided.

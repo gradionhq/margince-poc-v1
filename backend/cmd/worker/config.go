@@ -56,6 +56,7 @@ type workerConfig struct {
 	deepReadWall         time.Duration
 	logLevel             string
 	logFormat            string
+	observeAddr          string
 }
 
 // parseWorkerFlags parses and validates the boot flags; the DSN is the
@@ -92,21 +93,9 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.gmailWatchRenew, "gmail-watch-renew-within", 48*time.Hour, "renew a Gmail watch this far ahead of its 7-day expiry")
 	fs.DurationVar(&cfg.overlayInterval, "overlay-reconcile-interval", 2*time.Minute, "overlay-mode incumbent mirror reconcile poll interval (design.md §4.4)")
 	fs.IntVar(&cfg.overlayBackfillLimit, "overlay-backfill-limit", 0, "cap the overlay initial mirror backfill at this many records per object class (dev/demo; 0 = uncapped)")
-	maxPagesDefault, err := envIntOr("MARGINCE_DEEPREAD_MAX_PAGES", 0)
-	if err != nil {
+	if err := registerDeepReadFlags(fs, &cfg); err != nil {
 		return workerConfig{}, err
 	}
-	maxBytesDefault, err := envIntOr("MARGINCE_DEEPREAD_MAX_BYTES", 0)
-	if err != nil {
-		return workerConfig{}, err
-	}
-	wallDefault, err := envDurationOr("MARGINCE_DEEPREAD_WALL", 0)
-	if err != nil {
-		return workerConfig{}, err
-	}
-	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPagesDefault, "deep-read crawl page cap; 0 takes the built-in default")
-	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
-	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
 	// Outbound pacing. Zero on any of the three takes the compose default —
 	// a forgotten flag must degrade to the conservative rule, never to "no
 	// limit" or "defer forever".
@@ -119,6 +108,13 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	// verbatim as the River schedule; compose clamps nothing
 	// (compose.WebhookRetryConfig.Interval).
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 30*time.Second, "how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace")
+	// Off by default, and off means no listener at all rather than one bound
+	// somewhere harmless. Unlike the api's /metrics it carries no workspace id
+	// and no tenant data — but it is unauthenticated and discloses dependency
+	// health and process capacity, so whether to expose it, and on which
+	// interface, is the operator's decision.
+	fs.StringVar(&cfg.observeAddr, "observe-addr", os.Getenv("MARGINCE_OBSERVE_ADDR"),
+		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -142,6 +138,31 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 		return workerConfig{}, err
 	}
 	return cfg, nil
+}
+
+// registerDeepReadFlags declares the three deep-read crawl caps. They are a
+// group of their own because each backs its flag default with an environment
+// variable that has to be READ before the flag is declared, and a set-but
+// unparseable value there is a boot error rather than a silent fallback to the
+// built-in — an operator who typed a cap and got the default instead would have
+// no way to tell.
+func registerDeepReadFlags(fs *flag.FlagSet, cfg *workerConfig) error {
+	maxPages, err := envIntOr("MARGINCE_DEEPREAD_MAX_PAGES", 0)
+	if err != nil {
+		return err
+	}
+	maxBytes, err := envIntOr("MARGINCE_DEEPREAD_MAX_BYTES", 0)
+	if err != nil {
+		return err
+	}
+	wall, err := envDurationOr("MARGINCE_DEEPREAD_WALL", 0)
+	if err != nil {
+		return err
+	}
+	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPages, "deep-read crawl page cap; 0 takes the built-in default")
+	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytes, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
+	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wall, "deep-read crawl wall clock; 0 takes the built-in default")
+	return nil
 }
 
 // validateSchedulerIntervals rejects a non-positive value for any duration
@@ -203,6 +224,8 @@ func overlayBackfillLimitFromEnv(limit *int) error {
 	return nil
 }
 
+// envOr reads an environment variable with an explicit default, keeping
+// flag definitions self-documenting.
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v

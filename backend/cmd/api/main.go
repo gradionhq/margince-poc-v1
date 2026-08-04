@@ -18,30 +18,24 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	// The composed extension set (ADR-0069): the generated module under
 	// build/composition/ in a composed build, the committed vanilla stub
 	// in a bare one — same import path either way.
 	"github.com/gradionhq/margince/composition"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
-	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 func main() {
@@ -54,9 +48,11 @@ func main() {
 	}
 }
 
-// run boots the HTTP server (plus, by default, the inline outbox relay)
-// with explicit operational limits and graceful shutdown — a server
-// without timeouts leaks connections under slow clients.
+// run boots the HTTP server (plus, by default, the inline outbox relay).
+// It is the boot sequence itself — flags, extensions, logger, pool,
+// installation, the options each declared surface contributes, then the
+// listener — and the order it reads in is the order the process depends on;
+// boot.go holds the phases.
 func run(ctx context.Context, args []string, stdout io.Writer) error {
 	cfg, err := parseAPIFlags(args)
 	if err != nil {
@@ -84,28 +80,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
-	// The boot state machine (A107/ADR-0061): bootstrap an empty database
-	// from the deployment file, bind an existing singleton, refuse a
-	// multi-workspace database. Runs before the listener opens — the API
-	// never serves an unbound installation.
-	deployCfg, err := deployconfig.Load(cfg.configPath)
+	deployCfg, err := bindInstallation(ctx, cfg, pool, logger)
 	if err != nil {
-		return err
-	}
-	// The connector's OAuth audience and its advertised MCP resource are
-	// both derived from --public-base-url, never from the Host header an
-	// attacker controls — so the gate that turns the connector on cannot
-	// be satisfied without it.
-	if deployCfg.MCP.ConnectorEnabled {
-		if cfg.publicBaseURL == "" {
-			return errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
-				"audience and the advertised MCP resource must not be derived from the Host header")
-		}
-		if err := validatePublicBaseURL(cfg.publicBaseURL); err != nil {
-			return err
-		}
-	}
-	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
 		return err
 	}
 	// Record the composed extension set when it changed since the last
@@ -121,170 +97,43 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer closeSchemaPool()
 
-	// The non-production admin data-reset endpoint (POST /v1/admin/reset-data):
-	// absent this deployment posture, or in production, ResetData answers its
-	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
-	// the reset still succeeds, only the cf_* column finalize is skipped.
-	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
-	opts = append(opts, compose.WithDataReset(schemaPool, deployCfg.Seeds, env))
-	// /me's non_production field is the SAME posture: the client
-	// hides the "Reset data" action it would otherwise render for an
-	// endpoint that answers 404 in production.
-	opts = append(opts, compose.WithNonProduction(env))
-	// Gate 1: the connector's whole route group — /mcp, the authorization
-	// server and both discovery documents — exists only when the deployment
-	// declared it. The boot check above already proved the canonical base URL
-	// those routes advertise.
-	if deployCfg.MCP.ConnectorEnabled {
-		opts = append(opts, compose.WithMCPConnector())
-	}
-
-	resetOpts, err := passwordResetOptions(deployCfg, cfg.publicBaseURL, stdout)
+	surfaceOpts, err := declaredSurfaceOptions(cfg, deployCfg, schemaPool, stdout)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, resetOpts...)
+	opts = append(opts, surfaceOpts...)
 
-	// The signing key enables the mutating /webhook-subscriptions surface
-	// (create/rotate/replay); without it those paths answer an honest 503.
-	if cfg.webhookKey != "" {
-		webhookOpt, err := compose.WithWebhookKey(cfg.webhookKey)
-		if err != nil {
-			return fmt.Errorf("api: %w", err)
-		}
-		opts = append(opts, webhookOpt)
+	overlayOpts, closeOverlayBudget, err := overlayOptions(cfg, deployCfg, pool, logger, stdout)
+	if err != nil {
+		return err
 	}
+	defer closeOverlayBudget()
+	opts = append(opts, overlayOpts...)
 
-	// The overlay budget meter records against Redis, the SAME server the
-	// worker's poller uses, so force-fresh reads (this role) and poller
-	// sweeps (cmd/worker) spend against ONE shared per-workspace-per-
-	// incumbent count. A LAZY client (no boot ping): a split-deployment api
-	// that cannot reach Redis must still boot — the meter then fails closed
-	// (force-fresh degrades to the mirror), never a hard boot dependency.
-	// cmd builds the meter (the raw-Redis dependency stays here, not in
-	// compose); WithOverlayMeter Rebinds the Server's shared instance to it.
-	overlayRDB := redis.NewClient(&redis.Options{Addr: cfg.redisAddr})
-	defer func() {
-		if err := overlayRDB.Close(); err != nil {
-			logger.Warn("overlay budget: closing the redis client", "err", err)
-		}
-	}()
-	overlayMeter := overlaybudget.New(overlayRDB, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()))
-	opts = append(opts, compose.WithOverlayMeter(overlayMeter))
-
-	// The HubSpot webhook-as-signal receiver (OVA-WIRE-10) mounts only when the
-	// app client secret is configured — it verifies the inbound v3 signature
-	// and enqueues coalesced re-fetches on an insert-only River client (the
-	// worker runs the overlayRefetchWorker). Absent the secret, /webhooks/hubspot
-	// is not mounted at all.
-	if cfg.hubspotAppSecret != "" {
-		webhookInserter, werr := jobs.NewInserter(pool, logger)
-		if werr != nil {
-			return werr
-		}
-		opts = append(opts, compose.WithOverlayWebhook(webhookInserter, cfg.hubspotAppSecret))
-		_, _ = fmt.Fprintln(stdout, "api overlay webhook receiver enabled (/webhooks/hubspot)")
+	relayOpts, stopRelay, err := inlineRelayLane(ctx, cfg, pool, logger, stdout)
+	if err != nil {
+		return err
 	}
+	// On EVERY return, and registered last so LIFO runs it FIRST — before the pool
+	// it ships from closes. relay.go carries why only this stop ends the lane.
+	defer stopRelay()
+	opts = append(opts, relayOpts...)
 
-	stopRelay := func() {
-		// No inline relay to stop unless --inline-relay wires one below.
-	}
-	if cfg.inlineRelay {
-		busReady, stop, err := startInlineRelay(ctx, pool, cfg.redisAddr, cfg.webhookKey, logger)
-		if err != nil {
-			return err
-		}
-		stopRelay = stop
-		opts = append(opts, busReady)
-		if cfg.webhookKey != "" {
-			// Say the half this role does NOT do, by name. The inline consumer
-			// makes first delivery attempts and parks the ones that fail; the
-			// retry sweep is a River periodic job and this role runs no runner,
-			// so an api-only installation never re-attempts a parked delivery
-			// and nothing else here would ever say so.
-			_, _ = fmt.Fprintln(stdout, "api webhook delivery inline (cg:webhooks first attempts); re-attempting a PARKED delivery needs cmd/worker")
-		}
-	}
-
-	// ONE resolution point: coldStartOptions, offerDraftOptions and the
-	// /readyz AI line all consume the same *compose.ModelPath rather than
-	// each running their own copy of the declared-routing/--ai-fake/
-	// neither switch (and, with it, their own Router, cache and budget).
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelPath, aiState, assistantProfile, routingVersion, err := resolveModelPath(
-		modelPathSpecFrom(cfg, deployCfg), pool, logger)
+	modelOpts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
 	if err != nil {
 		return err
 	}
-	modelPath.SetCompanyContextEnabled(deployCfg.CompanyContext.TasksEnabled())
-	opts = append(opts, compose.WithAiPayloadCaptureFlag(deployCfg.AI.CapturePayloads))
-	opts = append(opts, coldStartOptions(modelPath, routingVersion)...)
-	opts = append(opts, offerDraftOptions(pool, modelPath)...)
-	opts = append(opts, compose.WithAssistantProfile(aiState, assistantProfile))
-	if modelPath != nil {
-		opts = append(opts, compose.WithAIMetrics(modelPath.WriteMetrics))
-		// The backfill preview's cost pre-flight (ADR-0068) prices observed
-		// history at this role's live tier bindings; self-gates to a no-op when
-		// the backfill surface isn't wired. Appended after baseComposeOptions'
-		// WithCaptureBackfill so the shared registry is already set.
-		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
-	}
+	opts = append(opts, modelOpts...)
 
-	// The outbound send path: an accepted message stages a delivery row and
-	// its transmit job on ONE transaction, so the 202 the caller gets means
-	// something durable will actually carry it. Insert-only here (the worker
-	// role works the queue) — the same shape as every other api-enqueued job.
-	sendInserter, err := jobs.NewInserter(pool, logger)
+	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)))
-
-	enqueueOpts, err := jobEnqueueOptions(pool, logger, modelPath)
-	if err != nil {
-		return err
-	}
-	embedReindex, err := embedReindexOption(pool, modelPath, logger)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, embedReindex)
-	opts = append(opts, enqueueOpts...)
+	opts = append(opts, handoffOpts...)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
-	srv := &http.Server{
-		Addr:              cfg.addr,
-		Handler:           compose.New(pool, logger, opts...),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
-
-	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
-	if cfg.inlineRelay {
-		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1), relaying events to %s\n", cfg.addr, cfg.redisAddr)
-	} else {
-		_, _ = fmt.Fprintf(stdout, "api listening on %s (base path /v1); the outbox relay runs in cmd/worker\n", cfg.addr)
-	}
-
-	stopHTTP := func() error {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
-	}
-	stopAll := func(httpErr error) error {
-		stopRelay()
-		return httpErr
-	}
-
-	select {
-	case err := <-errCh:
-		return stopAll(err)
-	case <-ctx.Done():
-		return stopAll(stopHTTP())
-	}
+	return serveUntilSignal(ctx, cfg, compose.New(pool, logger, opts...), stdout)
 }
 
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
@@ -334,13 +183,13 @@ func validatePublicBaseURL(raw string) error {
 
 // baseComposeOptions assembles the boot-optional compose.Options that
 // don't depend on the inline relay's lifecycle (public base URL,
-// blobstore, keyvault, the customfields schema pool) — split out of run()
-// so that function stays inside the file's long-func budget. The
+// blobstore, keyvault, the customfields schema pool). The
 // returned schema pool (nil when --schema-dsn is unset) is also handed to
-// WithDataReset in run() so the reset endpoint's cf_* finalize runs on
-// the same owner connection the customfields engine uses. The returned
-// close func releases whatever this stage opened (currently only the
-// schema pool) and is always safe to call, even when nothing was opened.
+// WithDataReset by declaredSurfaceOptions so the reset endpoint's cf_*
+// finalize runs on the same owner connection the customfields engine
+// uses. The returned close func releases whatever this stage opened
+// (currently only the schema pool) and is always safe to call, even when
+// nothing was opened.
 func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, *pgxpool.Pool, func(), error) {
 	var opts []compose.Option
 	// Record the deployment's capture suppression-list config first, so the
@@ -351,7 +200,8 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 		// The canonical MCP resource (RFC 9728) is the same configured
 		// base, never a request-derived origin — see the boot check in
-		// run() that requires this flag once the connector gate is on.
+		// bindInstallation that requires this flag once the connector
+		// gate is on.
 		opts = append(opts, compose.WithMCPResource(strings.TrimSuffix(cfg.publicBaseURL, "/")+"/mcp"))
 	}
 	// An operator-shortened access token, applied to both mints of a
