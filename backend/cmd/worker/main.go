@@ -66,6 +66,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) > 0 && args[0] == "siteread" {
 		return runSiteReadDebug(ctx, args[1:], stdout)
 	}
+	// `worker aitask …` is the DB-less AI-task probe (aitask.go), dispatched
+	// for the same reason as siteread above.
+	if len(args) > 0 && args[0] == "aitask" {
+		return runAITaskProbe(ctx, args[1:], stdout)
+	}
 
 	cfg, err := parseWorkerFlags(args)
 	if err != nil {
@@ -125,7 +130,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}()
 
-	modelPath, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
+	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
+	modelPath, boundModels, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
 	if err != nil {
 		return err
 	}
@@ -214,7 +220,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", webhookDeliverer.HandleEvent, logger, 0) })
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, webhookDeliverer, runnerSvc, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, boundModels, blob, webhookDeliverer, runnerSvc, stdout)
 	if err != nil {
 		return err
 	}
@@ -279,7 +285,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, boundModels map[string]map[string]bool, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -347,6 +353,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		ClassifyBrain:        modelPath.CaptureClassify,
 		VerdictBrain:         modelPath.CaptureCounterpartyVerdict,
 		EnrichBrain:          modelPath.Enrich,
+		SignalExtractBrain:   modelPath.SignalExtract,
 		OverlayVault:         configuredVault,
 		OverlayInterval:      cfg.overlayInterval,
 		OverlayBackfillLimit: cfg.overlayBackfillLimit,
@@ -373,6 +380,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		FxBootstrapCurrencies: fxBootstrapCurrencies(cfg.ratesCurrencies),
 		FxExtractBrain:        modelPath.RateExtract,
 		ModelPricingSources:   compose.PricingSourcesFromMap(cfg.ratesModelPricing),
+		BoundModelIDs:         boundModels,
 		DeepReadCaps: compose.CrawlCaps{
 			MaxPages: cfg.deepReadMaxPages,
 			MaxBytes: cfg.deepReadMaxBytes,
@@ -411,12 +419,12 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, error) {
+func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return compose.ModelPath{}, err
+			return compose.ModelPath{}, nil, err
 		}
 		// A task whose whole fallback ladder has no bound tier is not a
 		// boot error (a deployment may legitimately not run every
@@ -425,7 +433,10 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		for _, w := range cfg.UnboundLadderWarnings() {
 			log.Warn(w)
 		}
-		return compose.NewModelPath(cfg, pool, capturePayloads, log)
+		// The bound model ids travel with the path because they describe the
+		// SAME binding: the cost refresh narrows a provider catalog to the
+		// models this deployment actually calls.
+		return modelPathWithBoundModels(cfg, pool, capturePayloads, log)
 	case fake:
 		// A real ModelPath over ai.FakeRoutingConfig() rather than
 		// FakeModelPath's direct client wiring: the worker always has a
@@ -435,10 +446,17 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		// still names the deployment's own posture — cmd/api's
 		// resolveModelPath honors it on this same arm, and two process
 		// roles must never disagree on whether content capture is on.
-		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
+		return modelPathWithBoundModels(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
-		return compose.ModelPath{}, nil
+		return compose.ModelPath{}, nil, nil
 	}
+}
+
+// modelPathWithBoundModels assembles the path and reports which models the SAME
+// binding names, so the two can never describe different routing configs.
+func modelPathWithBoundModels(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
+	path, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
+	return path, cfg.BoundModelIDsByProvider(), err
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions

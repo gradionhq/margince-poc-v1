@@ -221,7 +221,7 @@ export const en = {
   "merge.submit": "Merge",
 
   "tab.overview": "Overview",
-  "tab.relationships": "Relationships",
+  "tab.relationships": "People & companies",
   "tab.partner": "Partner",
   "tab.rollup": "Roll-up",
   "tab.history": "History",
@@ -467,6 +467,81 @@ export const en = {
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
+  // Offered only where there is no partner programme yet: the tab that holds
+  // the form appears once one exists, so this is how the first one is made.
+  // Where the account stands with us, and what it is to us — the two
+  // questions the retired classification answered with one value.
+  "org.lifecycle": "Stage",
+  "org.relationshipTypes": "Relationship to us",
+  "org.lifecycle.unknown": "Not assessed",
+  "org.lifecycle.target": "Target",
+  "org.lifecycle.prospect": "Prospect",
+  "org.lifecycle.opportunity": "Opportunity",
+  "org.lifecycle.customer": "Customer",
+  "org.lifecycle.former_customer": "Former customer",
+  "org.lifecycle.disqualified": "Disqualified",
+  "org.relType.customer": "Customer",
+  "org.relType.partner": "Partner",
+  "org.relType.supplier": "Supplier",
+  "org.relType.investor": "Investor",
+  "org.relType.portfolio_company": "Portfolio company",
+  "org.relType.competitor": "Competitor",
+  "org.relType.other": "Other",
+  // Why a stored fact contradicts its own field. The fact is still shown
+  // with its evidence — a reader can tell, and hiding it would be worse.
+  "co.factSuspect.phoneShapedLocation": "Looks like a phone number",
+  "co.factSuspect.notAPhone": "Does not look like a phone number",
+  "co.factSuspect.notAYear": "Does not look like a year",
+  "co.factSuspect.notAnEmail": "Does not look like an email address",
+  "co.factSuspect.notASize": "Does not look like a headcount",
+  // The three readings the overview leads with, and what performing a
+  // suggestion means. "Whose move" is the question the 0-100 score was
+  // mistaken for.
+  "co.strip.title": "Where this account stands",
+  "co.strip.account": "Stage",
+  "co.strip.engagement": "Whose move",
+  "co.strip.commercial": "Open work",
+  "co.strip.engagement.never_contacted": "Never contacted",
+  "co.strip.engagement.active": "In conversation",
+  "co.strip.engagement.waiting_on_them": "Waiting on them",
+  "co.strip.engagement.waiting_on_us": "Waiting on us",
+  "co.strip.engagement.dormant": "Gone quiet",
+  "co.strip.lastBoth": "They wrote {inbound} · we wrote {outbound}",
+  "co.strip.never": "never",
+  "co.strip.openDeals": "{count} open",
+  "co.strip.stalled": "{count} stalled",
+  "co.suggest.act.draftReply": "Draft a reply",
+  "co.suggest.act.openDeal": "Open the deal",
+  "co.suggest.act.addTask": "Add the next step",
+  // A conversation shown as one event says what it IS before what it
+  // says: the reader is scanning for an event, not a sentence.
+  "timeline.group.thread": "{count} messages",
+  "timeline.group.threadOne": "1 message",
+  "timeline.group.bulk": "sent to {count} people",
+  "timeline.group.bulkOne": "sent to 1 person",
+  "timeline.group.expand": "Open",
+  "timeline.group.collapse": "Close",
+  "timeline.group.openThread": "View the whole thread",
+  "timeline.group.mayContinue": "may continue earlier",
+  "tab.people": "People",
+  "tab.timeline": "History",
+  // The brief under the questions it answers, and what kind of claim each
+  // sentence makes — a judgment must not read as a stored fact.
+  "co.brief.section.snapshot": "What they are",
+  "co.brief.section.fit": "Why it matters to us",
+  "co.brief.section.health": "How it stands",
+  "co.brief.section.activity": "What happened",
+  "co.brief.section.next_step": "What to do",
+  "co.brief.nature.fact": "Fact",
+  "co.brief.nature.assessment": "Our read",
+  "co.brief.nature.recommendation": "Suggested",
+  "co.health.title": "How it stands",
+  "co.health.sinceInbound": "They last wrote {days} days ago",
+  "co.health.replyBalance": "{percent}% of the exchange came from them",
+  "co.health.activeContacts": "{count} people here have ever interacted",
+  "co.health.openCommitments": "{count} open commitment(s)",
+  "co.health.singleThreaded": "One contact carries this account",
+  "org.partnerSetUp": "Set up partner programme",
   // The classification values a reader sees. The column stores the enum;
   // rendering the enum itself ("prospect") told a German reader nothing and
   // an English one only slightly more.
@@ -487,17 +562,35 @@ export const en = {
   "signal.kind.buying_intent": "Buying intent",
   "signal.kind.risk": "Risk",
   "signal.kind.other": "Other",
+  "signal.kind.contract_ended": "Contract ending",
+  "signal.kind.new_opportunity": "New opportunity",
+  "signal.kind.commitment_made": "Something was promised",
+  "signal.kind.ghosted_thread": "No answer",
+  "co.strip.signal": "Worth knowing",
+  "co.routeIn.open": "Route in",
+  "co.routeIn.title": "Who here talks to {name}",
+  "co.routeIn.none": "Nobody here has written to them yet.",
+  "co.routeIn.partial":
+    "No way in among the connections this page could read — some were withheld or left out.",
+  "co.routeIn.mayBeMore":
+    "Some connections were withheld or left out, so there may be more.",
+  "co.routeIn.band.strong": "in regular contact",
+  "co.routeIn.band.some": "some contact",
+  "co.routeIn.band.faint": "barely in contact",
+  "co.routeIn.band.unknown": "contact on file, no pattern yet",
   "record.profile": "Profile",
   "record.business": "Business",
-  "co.pulse.strongestLead": "Strongest contact",
-  "co.pulse.strengthTail.one":
-    "\u2014 the only one here (relationship {score}/100)",
-  "co.pulse.strengthTail.other":
-    "\u2014 of {count} people here (relationship {score}/100)",
-  "co.pulse.strengthExplain":
-    "Relationship strength, 0\u2013100: how much back-and-forth there has been with this account, taken from the contact with the most.",
+  "co.pulse.strongestLead": "Way in",
+  "co.pulse.strengthTail.one": "\u2014 the only contact here",
+  "co.pulse.strengthTail.other": "\u2014 of {count} contacts here",
   "co.pulse.noStrength": "No interactions logged yet",
-  "co.pulse.lastTouch": "Last touch {when}",
+  // Two timestamps, never folded into one "last touch": which side wrote
+  // last is the question. Mailed a fortnight ago with no reply, and wrote
+  // to us this morning, are the same date and opposite situations.
+  "co.pulse.lastInbound": "They wrote {when}",
+  "co.pulse.lastOutbound": "We wrote {when}",
+  "co.pulse.noInbound": "They have never written",
+  "co.pulse.noOutbound": "We have never written",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
   "co.owner.notInRoster": "Current owner (no longer in the user list)",
@@ -538,12 +631,14 @@ export const en = {
   "co.brief.cite.activity": "activity",
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "account",
+  "co.brief.cite.fact": "fact",
   // Several sources of one kind that have no screen to open collapse into one
   // counted chip, rather than a run of identical labels.
   "co.brief.cite.deal.many": "{count} deals",
   "co.brief.cite.activity.many": "{count} activities",
   "co.brief.cite.person.many": "{count} contacts",
   "co.brief.cite.organization.many": "{count} accounts",
+  "co.brief.cite.fact.many": "{count} facts",
   "approval.kind.advance_deal": "Move a deal forward",
   "approval.kind.close_date_correction": "Correct a close date",
   "approval.kind.deal_follow_up": "Add a follow-up on a deal",
@@ -563,6 +658,7 @@ export const en = {
   "approval.kind.site_lead": "Add a person found on the site",
   "approval.kind.capture_counterparty": "Add someone from your mail",
   "approval.kind.org_name_promotion": "Rename an account",
+  "approval.kind.lifecycle_change": "Account stage",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
   "approval.kind.ai_model_rate_proposal": "Refresh model prices",
   "co.assistant.title": "Ask about this account",
@@ -581,6 +677,7 @@ export const en = {
   "co.suggest.kind.no_reply": "No reply",
   "co.suggest.kind.stalled_deal": "Stalled deal",
   "co.suggest.kind.no_next_step": "Nothing scheduled",
+  "co.suggest.kind.lifecycle_conflict": "Record disagrees",
   "co.suggest.more": "{count} more not shown here.",
   "co.suggest.dismiss": "Not now",
   "co.suggest.dismissFailed":
@@ -770,9 +867,6 @@ export const en = {
   "co.lists.pick": "List name",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
-  "co.health.title": "Data health",
-  "co.health.lastRead": "Last read {when}",
-  "co.health.neverRead": "Never read from the web",
   "co.timeline.filterKind": "Filter by type",
   "co.timeline.filterAll": "All types",
   "co.timeline.filterPerson": "Filter by person",

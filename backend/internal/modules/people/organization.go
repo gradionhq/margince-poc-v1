@@ -182,6 +182,14 @@ type UpdateOrganizationInput struct {
 	// add missing, archive removed, flip is_primary). nil leaves domains
 	// untouched; an empty slice clears them.
 	Domains *[]OrgDomainInput
+	// Lifecycle, when non-nil, moves where the account stands with us
+	// (ADR-0079/A124). nil leaves it untouched.
+	Lifecycle *string
+	// RelationshipTypes, when non-nil, is the desired live type set — the same
+	// replace-set shape as Domains. nil leaves them untouched; an empty slice
+	// clears them, except that 'partner' cannot be dropped while the partner
+	// extension row lives.
+	RelationshipTypes *[]string
 	// CustomFields carries the request body's extra top-level keys
 	// (additionalProperties); only active cf_* catalog columns land,
 	// drop-on-mismatch (customfields.go).
@@ -226,6 +234,20 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		// bump (updated_at below), so If-Match still guards it and the audit
 		// row records the transition — the same shape as UpdatePerson/social.
 		var by string
+		if in.RelationshipTypes != nil {
+			if by, err = storekit.CapturedBy(ctx); err != nil {
+				return err
+			}
+			deduped, err := dedupeRelationshipTypes(*in.RelationshipTypes)
+			if err != nil {
+				return err
+			}
+			*in.RelationshipTypes = deduped
+			// The reconcile rides the org row's version bump, exactly as the
+			// domain replace-set does, so If-Match still guards it and the
+			// audit row records the transition.
+			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+		}
 		if in.Domains != nil {
 			if by, err = storekit.CapturedBy(ctx); err != nil {
 				return err
@@ -270,6 +292,14 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 			}
 			before["domains"] = domainsBefore
 			after["domains"] = domainSummaries(*in.Domains)
+		}
+		if in.RelationshipTypes != nil {
+			typesBefore, err := reconcileOrgRelationshipTypes(ctx, tx, workspaceID(ctx), id, "manual", by, *in.RelationshipTypes)
+			if err != nil {
+				return err
+			}
+			before["relationship_types"] = typesBefore
+			after["relationship_types"] = *in.RelationshipTypes
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, before, after)
@@ -327,6 +357,12 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 	if in.OwnerID != nil {
 		p.Set(ownerIDColumn, current.OwnerId, *in.OwnerID)
 	}
+	if in.Lifecycle != nil {
+		if err := checkLifecycle(*in.Lifecycle); err != nil {
+			return nil, err
+		}
+		p.Set("lifecycle", lifecycleValue(current.Lifecycle), *in.Lifecycle)
+	}
 	if in.ParentOrgID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.ParentOrgID.UUID); err != nil {
 			return nil, err
@@ -345,63 +381,6 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 	return p, nil
 }
 
-func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) (crmcontracts.Organization, error) {
-	if err := auth.Require(ctx, "organization", principal.ActionDelete); err != nil {
-		return crmcontracts.Organization{}, err
-	}
-	active, err := s.activeColumns(ctx, "organization")
-	if err != nil {
-		return crmcontracts.Organization{}, err
-	}
-	var out crmcontracts.Organization
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
-			return err
-		}
-		if _, err := readOrganization(ctx, tx, id, storekit.LiveOnly, active); err != nil {
-			return err
-		}
-
-		now := time.Now().UTC()
-		for _, stmt := range []string{
-			`UPDATE organization SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
-			`UPDATE organization_domain SET archived_at = $2 WHERE organization_id = $1 AND archived_at IS NULL`,
-			`UPDATE relationship SET archived_at = $2 WHERE (organization_id = $1 OR counterparty_org_id = $1) AND archived_at IS NULL`,
-		} {
-			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM list_member WHERE entity_type = 'organization' AND entity_id = $1`, id); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM taggable WHERE entity_type = 'organization' AND entity_id = $1`, id); err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "archive", "organization", id.UUID, nil, nil)
-		if err != nil {
-			return err
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationArchived{}); err != nil {
-			return err
-		}
-		out, err = readOrganization(ctx, tx, id, storekit.IncludeArchived, active)
-		return err
-	})
-	return out, err
-}
-
-const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_band, owner_id,
-	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-	classification, relevance, parent_org_id, merged_into_id, logo_object_key, source, captured_by,
-	version, created_at, updated_at, archived_at`
-
-// readOrganization resolves one organization row; active names the
-// custom-field columns to carry alongside the core ones — nil for
-// internal decision reads whose result never reaches the wire.
 func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Organization, error) {
 	q := `SELECT ` + orgColumns + storekit.SelectSuffix(active) + ` FROM organization WHERE id = $1`
 	if archived == storekit.LiveOnly {
@@ -418,6 +397,9 @@ func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, arc
 	if err := attachOrgDomains(ctx, tx, orgs); err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	if err := attachOrgRelationshipTypes(ctx, tx, orgs); err != nil {
+		return crmcontracts.Organization{}, err
+	}
 	return orgs[0], nil
 }
 
@@ -428,7 +410,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	var o crmcontracts.Organization
 	var id, wsID ids.UUID
 	var ownerID, parentID, mergedInto *ids.UUID
-	var classification string
+	var classification, lifecycle string
 	var relevance *int16
 	var addr crmcontracts.Address
 	var logoObjectKey *string
@@ -437,7 +419,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	dests := []any{
 		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
-		&classification, &relevance, &parentID, &mergedInto, &logoObjectKey, &o.Source, &o.CapturedBy,
+		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt,
 	}
 	cf := storekit.ScanDests(active)
@@ -455,6 +437,8 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	o.MergedIntoId = uuidPtr(mergedInto)
 	cls := crmcontracts.OrganizationClassification(classification)
 	o.Classification = &cls
+	lc := crmcontracts.OrganizationLifecycle(lifecycle)
+	o.Lifecycle = &lc
 	o.LogoUrl = LogoURL(id, logoObjectKey)
 	if a := addressOrNil(addr); a != nil {
 		o.Address = a

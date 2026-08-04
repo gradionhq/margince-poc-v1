@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -389,19 +390,26 @@ func closedWonMinorThisQuarter(ctx context.Context, tx pgx.Tx, included []ids.UU
 	return total, err
 }
 
-// orgActivityCount30d counts distinct live activities linked to any
-// included organization in the half-open window [asOf−30d, asOf).
-// DISTINCT because one activity may link several orgs of the same tree
-// and must count once; the upper bound keeps a future-dated activity (a
-// scheduled call, a clock-skewed import) out of a count that claims to
-// describe the PAST 30 days.
+// orgActivityCount30d counts live activities that reach any included
+// organization in the half-open window [asOf−30d, asOf). The upper bound
+// keeps a future-dated activity (a scheduled call, a clock-skewed import)
+// out of a count that claims to describe the PAST 30 days.
+//
+// "Reaches" is activities.OrgLinkedActivityExistsAny — the same three-arm
+// walk (own link, its deal's org, the contact's employer) the timeline
+// list and the company view's sections use. A count that answered a
+// narrower question than the timeline it is displayed above was a number
+// the reader could disprove by scrolling.
+//
+// EXISTS rather than a join, so an activity reachable through several
+// links of the same tree is one row and COUNT(*) needs no DISTINCT.
 func orgActivityCount30d(ctx context.Context, tx pgx.Tx, included []ids.UUID, asOf time.Time) (int, error) {
 	var count int
 	err := tx.QueryRow(ctx, `
-		SELECT COUNT(DISTINCT a.id)
+		SELECT COUNT(*)
 		FROM activity a
-		JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization'
-		WHERE l.organization_id = ANY($1) AND a.archived_at IS NULL
+		WHERE `+activities.OrgLinkedActivityExistsAny(1)+`
+		  AND a.archived_at IS NULL
 		  AND a.occurred_at >= $2 AND a.occurred_at < $3`,
 		included, asOf.AddDate(0, 0, -30), asOf).Scan(&count)
 	return count, err

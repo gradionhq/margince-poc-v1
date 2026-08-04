@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -67,6 +68,40 @@ type RoutingConfig struct {
 	// bytes. Zero value "" on a config built by struct literal (FakeRoutingConfig,
 	// most unit-test configs) rather than parsed from yaml.
 	sourceHash string
+}
+
+// BoundModelIDsByProvider is every model this deployment actually calls, keyed
+// by the PROVIDER that serves it: each bound tier's model plus the embeddings
+// model. The identity is the model id as the VENDOR spells it, which is the
+// same string that vendor's catalog entry names itself by.
+//
+// Keyed by provider rather than flattened because the cost refresh applies it
+// per pricing SOURCE, and a source is one provider's catalog
+// (rates.model_pricing names the provider exactly as this file binds it). A
+// flat set would let one provider's bindings decide what another provider's
+// catalog is filtered to, and — worse — make "none of the bound models appear
+// here" indistinguishable from "this catalog belongs to a provider that binds
+// nothing".
+//
+// Returns an empty (non-nil) map when nothing is bound, so a caller can tell
+// "this deployment binds nothing" from a nil it forgot to build.
+func (cfg RoutingConfig) BoundModelIDsByProvider() map[string]map[string]bool {
+	bound := make(map[string]map[string]bool, len(cfg.Tiers)+1)
+	add := func(provider, modelID string) {
+		provider, modelID = strings.TrimSpace(provider), strings.TrimSpace(modelID)
+		if provider == "" || modelID == "" {
+			return
+		}
+		if bound[provider] == nil {
+			bound[provider] = map[string]bool{}
+		}
+		bound[provider][modelID] = true
+	}
+	for _, tier := range cfg.Tiers {
+		add(tier.Provider, tier.Model)
+	}
+	add(cfg.Embeddings.Provider, cfg.Embeddings.Model)
+	return bound
 }
 
 // RoutingVersion identifies the model binding this config expresses — the

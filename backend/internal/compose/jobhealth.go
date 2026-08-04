@@ -59,6 +59,7 @@ var fleetDispatchers = []jobs.FleetWide{
 	OverlayReconcileArgs{},
 	ParticipantBackfillArgs{},
 	PrivacyRetentionArgs{},
+	SignalScanArgs{},
 	TelegramPollSweepArgs{},
 	TimeScanArgs{},
 	VoiceBuildRetryArgs{},

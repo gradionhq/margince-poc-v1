@@ -86,7 +86,17 @@ func TestStructuredExhaustionIsAnHonestError(t *testing.T) {
 	r := testRouter(map[Tier]model.Client{TierCheapCloud: cheap}, &memMeter{}, DefaultMonthlyTokens, ProfileEUHosted)
 
 	_, _, err := r.CompleteStructured(wsContext(t), TaskColdStart, structuredReq(), jsonObjectValidator)
-	if err == nil || !strings.Contains(err.Error(), "failed validation after retry and escalation") {
-		t.Fatalf("exhaustion → %v, want the honest degraded error", err)
+	// The SENTINEL, not the wording: a caller with a watermark or a queue has
+	// to tell "this input will never validate" from "the provider had a bad
+	// minute", and only one of those is worth retrying. Asserting the message
+	// text let the classification change without the test noticing.
+	if !errors.Is(err, ErrOutputRejected) {
+		t.Fatalf("exhaustion → %v, want it to wrap ErrOutputRejected", err)
+	}
+	// Still legible to a human reading a log: the task and the validator's own
+	// complaint survive the wrap.
+	if !strings.Contains(err.Error(), "after retry and escalation") ||
+		!strings.Contains(err.Error(), "not a JSON object") {
+		t.Errorf("exhaustion error %q drops the task or the validator's reason", err)
 	}
 }

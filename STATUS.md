@@ -12,6 +12,53 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — the brief's omitted sections are prompt-enforced, not code-enforced
+
+`Input.SectionsOmitted` names what a reader could not see, and the writer is
+told to stay silent about those subjects
+([orgbrief/write.go](backend/internal/compose/orgbrief/write.go) briefSystem,
+last line). That instruction is the only thing enforcing it. The grounding
+filter cannot: `knownRecords` always contains the organization itself, so a
+sentence citing the organization is grounded whatever was withheld, and a model
+that ignores the instruction can put a claim about a withheld section in front
+of a restricted reader.
+
+Closing it needs a mapping from the 360's omitted section names onto the
+brief's own section kinds (`snapshot`/`fit`/`health`/`activity`/`next_step`) —
+two different vocabularies — and then dropping any section whose source was
+withheld. That is a boundary decision, not a filter tweak, which is why it is
+here rather than in PR #392.
+
+## Open defect — a backfill of OLDER messages leaves those messages unread
+
+`threadMessages` ([signalextractread.go](backend/internal/compose/signalextractread.go))
+always reads the newest `extractThreadMessages` (6) messages of a conversation.
+`signal_thread_scan` notices a backfill because the message COUNT changes, so
+the thread becomes due again — but the window it re-reads is the same newest
+six, and `markThreadScanned` then records the new count. The inserted older
+messages are never sent to the model, and the thread now looks read.
+
+Widening the tail by the count delta only fixes it for short threads: on a long
+one the backfilled messages sit far outside any bounded window from the newest
+end. The fix is a scan cursor over the unread range — a design change to
+`signal_thread_scan`, not an edit to this read.
+
+Two things found alongside it, both bigger than one change:
+
+- **13 `*.down.sql` migrations DELETE rows without lifting RLS.** Fourteen
+  core down migrations contain a `DELETE`; `0176_signal_material_events` is the
+  only one that lifts the policy around it. The migration role is
+  `NOSUPERUSER NOBYPASSRLS`
+  ([scripts/deploy/db-bootstrap.sql](scripts/deploy/db-bootstrap.sql)), so FORCE
+  RLS binds it and the other thirteen match zero rows in a real deployment —
+  each leaving its own migration half-applied wherever the rows it meant to
+  remove would violate a restored constraint. A fitness test asserting the
+  pairing is the right guard, and cannot be added until they are fixed.
+- **`margince_owner` is SUPERUSER + BYPASSRLS in the dev container** but
+  `NOSUPERUSER NOBYPASSRLS` in `db-bootstrap.sql`. Migration-time RLS behaviour
+  is therefore untested locally and in the integration lane, which is why the
+  `0176` bug reproduced only against a hand-built non-bypass role.
+
 ## Open defect — capture_counterparty repeats the version-pin failure
 
 `capture_counterparty` stages with a pinned `activity` version, and the classify
@@ -207,35 +254,19 @@ together, and warm paths and the matrix fall out of it as queries. That is a
 schema addition, a capture change, a backfill, and a spec raise against
 ADR-0021 and NEVER-10. Contract-first: the spec decides first.
 
-## Open defect — the graph cannot answer "who do I know here"
+## Resolved — the graph can answer "who do I know here" (PR #355)
 
-The `in_contact_with` edge exists in the contract and is implemented
-(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+The `in_contact_with` edge used to join on who TYPED the activity
+(`a.captured_by = 'human:' || u.id::text`). Connector-captured mail is stamped
+`connector:gmail`, so the join matched nothing and the edge was never drawn —
+on precisely the accounts with the most correspondence. PR #355 replaced it
+with the interaction projection folded from the participant rows capture
+stamps, and `compose/org360/graphourside.go:113` now says so in its own
+comment.
 
-```sql
-JOIN app_user u ON a.captured_by = 'human:' || u.id::text
-```
-
-Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
-never matches and no edge is drawn. In a product whose premise is that capture
-means nobody types anything, the condition excludes essentially all real data:
-on a live account with three contacts and a year of correspondence, the graph
-returns only `owns` and `employment`, and "who on our side has a way in" is
-unanswerable.
-
-The authorship the edge wants is on the row already: `direction`
-(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
-`counterparty_email` (`migrations/core/0123`) says who the other end was. The
-edge should be derived from the mailbox the activity came through and its
-participants, not from who entered it.
-
-Related contract gap: `counterparty_email` is stored and used by the capture
-sweeps but is not on the `Activity` schema, so no client can see who a
-captured mail was actually with. `direction` IS on the wire and unused by the
-UI today.
-
-Both block the coverage matrix (their buying committee × our team, cells by
-relationship strength) agreed as the company page's centrepiece.
+Still open from that entry: `counterparty_email` is stored and used by the
+capture sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with.
 
 ## Open items left by the consent screen (PR #345)
 
@@ -285,6 +316,87 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-04 (the company page overhaul, PR #392, merged)
+
+**The page answers what an account is, where it stands, and what to do about
+it.** Merged as PR #392 (squashed), which strictly contained the P0 half in
+PR #371 — #371 was closed unmerged rather than landed twice.
+
+The review cost more than the build. Cubic raised 72 findings across three
+passes; two review subagents and three Codex stop-gate rounds followed. Two
+things are worth carrying forward from that:
+
+- **Every tenant-isolation finding against this diff was a false positive**,
+  four times over. The pattern each time: a query with no `workspace_id`
+  predicate, read as a cross-tenant leak. It never was — the callers run inside
+  `database.WithWorkspaceTx`, the tables carry FORCE RLS, and `margince_app` is
+  `NOSUPERUSER NOBYPASSRLS`. Check those three before spending time on the next
+  one.
+- **Three consecutive stop-gate rounds each found a defect in the previous
+  round's fix**, and each fix had traded one failure for another: retiring a
+  refused conversation stopped queue starvation but lost its signal; leaving it
+  due stopped the loss but let it hold a queue slot forever; bounding the
+  attempts stopped that but made parking permanent. It settled only once
+  refusals were counted against a pinned conversation state AND the park was
+  given an expiry (migration 0178).
+
+**The page answers what an account is, where it stands, and what to do about
+it.** 26 commits on `feat/company-page-p1`, based on P0's PR #371 (still open).
+`make check`, `make check-fe` and the touched integration lanes are green. Not
+yet pushed: a Codex review of the full diff is the gate, then a rebase onto
+`origin/main` (which has since taken #378, #379 and #381).
+
+What the failure was: the ScaleCommerce record held an email ending the
+contract on 31 July while the page read "Prospect", and nothing anywhere put
+those two facts next to each other. `organization.classification` was
+`NOT NULL DEFAULT 'prospect'` and **never had a writer** — ADR-0032 promised
+enrichment would set it and that was never built — so "Prospect" was the
+column's default rendered as a finding.
+
+Built, in the order it ships:
+
+- **P0** — `classification` splits into an `organization.lifecycle` column and
+  an `organization_relationship_type` child table (ADR-0079, migration 0175);
+  the partner invariant is enforced in both directions. The 30-day activity
+  count now uses the same three-arm link walk the timeline uses. The header
+  shows last-inbound and last-outbound instead of a 0–100 score. Enrichment
+  audit rows carry per-column before/after images.
+- **P1** — the state strip, the sectioned brief (fact | assessment |
+  recommendation, parsed and enforced per section), ranked suggestions that
+  carry their action, client-side thread grouping, and the People/Timeline
+  tabs.
+- **P2** — two signal producers where there were none: the deterministic
+  `ghosted_thread` rule and the `signal_extract` model site that reads
+  `contract_ended`, `new_opportunity` and `commitment_made` out of a settled
+  conversation (migration 0176, four corpus scenarios including a
+  prompt-injection one). The `lifecycle_conflict` card states the disagreement
+  the record has with its own mail. The `lifecycle_change` reconciler offers
+  the fix to a human — nothing structural is written before their yes, a
+  refusal is remembered against the account and the stage, and a stale accept
+  is refused rather than overwriting an edit someone made by hand.
+
+Two things a reader should know:
+
+1. `Signal.kind` on the wire declared only the six kinds a human files by hand
+   while the producers had been writing four more since 0176 — the API was
+   serving values outside its own enum. Fixed in the same branch.
+2. `contract_ended` proposes `former_customer` from every live stage,
+   including `prospect`. That was open question 7 in the plan; the founder's
+   own example is a record reading Prospect whose mail ends a contract, so the
+   mail is the fact whether or not the record ever said customer. Worth
+   confirming.
+
+Deliberately not built: `deal_from_thread` and `task_from_commitment` staged
+proposals. They add cards to the approvals panel and change nothing the page
+shows today; deal creation also has no source-key replay, so its executor needs
+a new idempotent deals-store method rather than a copy of the task effect.
+
+Two things owed to `main` at merge time: the `margince` database records
+`org_legal_name_trgm` as version 0169 while `origin/main` has it at 0170
+(`UPDATE schema_migrations_core SET version='0170' WHERE version='0169' AND
+name='org_legal_name_trgm';`), and a stray seed of "Demo GmbH" plus three
+people landed in the founder's own `margince` database from a `scripts/seed-dev.sh`
+run that ignores `DEV_SLUG` and hard-defaults to `localhost:8080`.
 ## Session pickup — 2026-08-03/04 (job observability, Phase 0 + Phase 1 A/B/C — Phase 1 COMPLETE)
 
 **Every unit of tenant work now names one workspace, and spells it one way.**
