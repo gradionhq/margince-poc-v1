@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import {
   Button,
   DataTable,
@@ -11,7 +12,6 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { useCan } from "../app/capability";
 import { problemMessage, QueryGate } from "./common";
 import "./rates.css";
 

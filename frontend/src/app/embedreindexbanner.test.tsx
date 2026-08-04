@@ -82,12 +82,15 @@ it('shows "Reindex needed" for ops too', async () => {
 it("renders nothing for a non-ops role even when the binding changed", async () => {
   // Gated the same as EconomyBanner: a rep has nothing actionable to do
   // with this surface, so the status read is never even probed.
-  const { fetchMock } = mount({}, {
-    configured_identity: "anthropic/voyage-3@1024",
-    populated_identity: "anthropic/voyage-2@1024",
-    reindex_needed: true,
-    entities_pending: 42,
-  });
+  const { fetchMock } = mount(
+    {},
+    {
+      configured_identity: "anthropic/voyage-3@1024",
+      populated_identity: "anthropic/voyage-2@1024",
+      reindex_needed: true,
+      entities_pending: 42,
+    },
+  );
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   expect(
     fetchMock.mock.calls.some(([input]) =>
@@ -147,9 +150,12 @@ it("renders nothing while the status probe is pending or errors", async () => {
       "https://test",
     ).pathname;
     if (path.endsWith("/me")) {
-      return new Response(JSON.stringify(meFixture({ allow: REINDEX_READER })), {
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify(meFixture({ allow: REINDEX_READER })),
+        {
+          headers: { "Content-Type": "application/json" },
+        },
+      );
     }
     return new Response(null, { status: 500 });
   });

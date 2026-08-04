@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../api/client";
+import { useCan } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { useCan } from "../app/capability";
 import { problemMessage, QueryGate } from "./common";
 
 // The workspace capture-settings card (CAP-WIRE-7, ADR-0072/A118): the

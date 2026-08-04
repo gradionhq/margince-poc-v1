@@ -6,6 +6,7 @@ import { Plug } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { isOption } from "../app/options";
 import {
   Badge,
@@ -20,7 +21,6 @@ import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
-import { useCan } from "../app/capability";
 import { problemCodeOf, throwProblem } from "./common";
 import type { Budget, SyncStatus } from "./overlay-health";
 import { converged, OverlayLiveSection } from "./overlay-health";

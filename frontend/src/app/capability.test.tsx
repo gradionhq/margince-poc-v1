@@ -30,9 +30,7 @@ function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
-  );
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 // Waits for /me to SETTLE before reading the answer. Waiting on the answer
@@ -93,7 +91,10 @@ describe("useCan", () => {
   it("denies while /me is still loading", async () => {
     // A hook that answered `true` before the snapshot arrived would flash
     // every affordance on first paint and retract them a moment later.
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
 
     const { result } = renderHook(() => useCan("automation", "update"), {
       wrapper,

@@ -11,6 +11,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import {
   Badge,
   Button,
@@ -23,7 +24,6 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AuditEntryLine } from "./audit";
-import { useCan } from "../app/capability";
 import { problemMessage, QueryGate, useMe } from "./common";
 import {
   apiKey,

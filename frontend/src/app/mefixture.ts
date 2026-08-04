@@ -53,10 +53,11 @@ export function meFixture({
 } = {}): MeResponse {
   const objects: Record<string, RbacObjectGrant> = {};
   for (const [object, actions] of Object.entries(allow)) {
-    objects[object] = (actions ?? []).reduce<RbacObjectGrant>(
-      (grant, action) => ({ ...grant, [action]: true }),
-      NO_GRANT,
-    );
+    const grant: RbacObjectGrant = { ...NO_GRANT };
+    for (const action of actions ?? []) {
+      grant[action] = true;
+    }
+    objects[object] = grant;
   }
   const me: MeResponse = {
     user: {

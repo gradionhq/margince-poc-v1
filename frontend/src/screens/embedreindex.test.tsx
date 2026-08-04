@@ -270,9 +270,12 @@ it("F2: a stuck reembedding marker shows the age of the last progress and keeps 
 });
 
 it("renders nothing for a role without the embedding_reindex read grant", async () => {
-  const { requests } = mount({}, {
-    "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
-  });
+  const { requests } = mount(
+    {},
+    {
+      "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
+    },
+  );
 
   // A rep holds no grant on embedding_reindex at all (migration 0114) —
   // the card renders null rather than a 403 rendered as "unavailable",

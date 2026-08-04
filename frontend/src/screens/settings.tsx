@@ -24,6 +24,7 @@ import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
+import { useCan } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
@@ -48,7 +49,6 @@ import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
-import { useCan } from "../app/capability";
 import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {

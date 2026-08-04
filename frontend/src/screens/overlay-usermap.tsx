@@ -11,6 +11,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import {
   Badge,
   Button,
@@ -26,13 +27,7 @@ import {
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useCan } from "../app/capability";
-import {
-  LoadMoreButton,
-  problemCodeOf,
-  throwProblem,
-  useMe,
-} from "./common";
+import { LoadMoreButton, problemCodeOf, throwProblem, useMe } from "./common";
 
 // The mirror user-map card (Settings → the overlay tab): who, in the
 // incumbent CRM, each workspace user IS. That mapping is the whole of a

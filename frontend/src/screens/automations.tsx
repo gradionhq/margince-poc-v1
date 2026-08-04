@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import {
   Badge,
   Button,
@@ -11,7 +12,6 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
-import { useCan } from "../app/capability";
 import { problemMessage, QueryGate, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED

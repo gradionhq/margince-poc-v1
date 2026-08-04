@@ -10,6 +10,7 @@ import { api } from "../api/client";
 import { subscribableEventTypeValues } from "../api/public-events";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { useCan } from "../app/capability";
 import {
   Badge,
   Button,
@@ -23,7 +24,6 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useCan } from "../app/capability";
 import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,

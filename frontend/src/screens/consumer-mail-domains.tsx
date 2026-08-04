@@ -2,9 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Mail, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
+import { useCan } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { useCan } from "../app/capability";
 import { problemMessage, QueryGate } from "./common";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer

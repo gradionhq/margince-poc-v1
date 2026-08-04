@@ -5,12 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan } from "../app/capability";
 import { Badge, Button, SectionHeader } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
-import { useCan } from "../app/capability";
 import { problemMessage } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
