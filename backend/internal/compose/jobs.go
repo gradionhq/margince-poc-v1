@@ -191,10 +191,10 @@ type JobRunnerConfig struct {
 	// ModelPricingSources binds provider names to pricing-page URLs the
 	// model-cost refresh crawls; empty = no-op.
 	ModelPricingSources []pricingSource
-	// BoundModelIDs narrows a structured provider catalog to the models this
-	// deployment's routing actually binds. Empty keeps every model, which is
-	// the honest reading of "nothing to filter by".
-	BoundModelIDs map[string]bool
+	// BoundModelIDs maps a provider to the model ids this deployment's routing
+	// binds on it, so each pricing source is narrowed to its OWN provider's
+	// bindings. Nil (nothing wired) keeps every model.
+	BoundModelIDs map[string]map[string]bool
 }
 
 // NewJobRunner wires the deals correctors, the automation time-scan and the

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -183,5 +184,16 @@ func TestAITaskListCarriesTheLadderAndScope(t *testing.T) {
 		if !strings.Contains(row, want) {
 			t.Errorf("row %q is missing %q", row, want)
 		}
+	}
+}
+
+// The work directory's safety is a property of .gitignore, not of the constant.
+// Asserting only the literal would stay green if the ignore rule were dropped —
+// exactly the change that would start committing fetched pages.
+func TestTheWorkDirIsActuallyIgnored(t *testing.T) {
+	out, err := exec.Command("git", "-C", "../..", "check-ignore", "-q", workDirDefault+"/probe.txt").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git does not ignore %s (%v): probe artifacts carry whatever the source carried and must never be committable\n%s",
+			workDirDefault, err, out)
 	}
 }

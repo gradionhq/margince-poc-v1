@@ -37,8 +37,16 @@ type probeCall struct {
 	// marshals to an empty object and cannot be read back — a --json result
 	// nothing can decode is not machine-readable. Wire carries the readable
 	// projection instead.
-	Request  model.Request  `json:"-"`
-	Wire     probeRequest   `json:"request"`
+	Request model.Request `json:"-"`
+	// Wire is the request as it is ALLOWED to leave this process: projected to
+	// serializable fields and then run through the SecretStripper. It is raw
+	// JSON rather than a struct because stripping operates on the marshaled
+	// document, and re-decoding it into a struct would only invite a later
+	// edit to serialize the unstripped one by mistake.
+	Wire json.RawMessage `json:"request"`
+	// Response is stripped in place before it is written: Text is the only
+	// field that can carry content, and a model that echoes a credential out of
+	// its context must not land it in a dump.
 	Response model.Response `json:"response"`
 	Route    ai.RouteInfo   `json:"route"`
 	Latency  time.Duration  `json:"latency_ns"`
@@ -63,7 +71,55 @@ type probeMessage struct {
 	Content string `json:"content"`
 }
 
-func wireRequest(req model.Request) probeRequest {
+// stripRequest projects a request to what may be written down and runs the
+// credential pass over it.
+//
+// This is NOT free: model.Request carries a SecretStripper but nothing has run
+// it yet — stripping happens inside each provider adapter as it marshals its
+// own wire payload, and it never mutates the request. So a dump built straight
+// from req would be PRE-strip, whatever a comment claimed. A site that declares
+// no stripper still gets one here rather than an unstripped dump.
+func stripRequest(ctx context.Context, req model.Request) (json.RawMessage, error) {
+	doc, err := json.Marshal(projectRequest(req))
+	if err != nil {
+		return nil, fmt.Errorf("aitask: rendering the request: %w", err)
+	}
+	return stripDoc(ctx, req.SecretStripper, doc)
+}
+
+func stripDoc(ctx context.Context, stripper model.SecretStripper, doc []byte) (json.RawMessage, error) {
+	if stripper == nil {
+		stripper = ai.NewSecretStripper()
+	}
+	stripped, _, err := stripper.Strip(ctx, doc)
+	if err != nil {
+		return nil, fmt.Errorf("aitask: stripping credentials: %w", err)
+	}
+	return json.RawMessage(stripped), nil
+}
+
+// stripText runs the credential pass over a bare string, returning what may be
+// written down in its place.
+func stripText(ctx context.Context, stripper model.SecretStripper, text string) (string, error) {
+	if text == "" {
+		return "", nil
+	}
+	doc, err := json.Marshal(text)
+	if err != nil {
+		return "", fmt.Errorf("aitask: rendering text: %w", err)
+	}
+	stripped, err := stripDoc(ctx, stripper, doc)
+	if err != nil {
+		return "", err
+	}
+	var out string
+	if err := json.Unmarshal(stripped, &out); err != nil {
+		return "", fmt.Errorf("aitask: reading stripped text: %w", err)
+	}
+	return out, nil
+}
+
+func projectRequest(req model.Request) probeRequest {
 	out := probeRequest{
 		System:         req.System,
 		MaxTokens:      req.MaxTokens,
@@ -92,11 +148,28 @@ type recordingCompleter struct {
 func (c *recordingCompleter) Complete(ctx context.Context, req model.Request) (model.Response, error) {
 	started := time.Now()
 	resp, route, err := c.inner(ctx, req)
-	call := probeCall{Request: req, Wire: wireRequest(req), Response: resp, Route: route, Latency: time.Since(started)}
+	call := probeCall{Request: req, Response: resp, Route: route, Latency: time.Since(started)}
 	if err != nil {
 		call.Err = err.Error()
 	}
+	// A request that cannot be stripped is not written down at all: a dump is a
+	// convenience, and no convenience is worth emitting a credential. The
+	// failure is recorded on the call so it is visible rather than silent.
+	wire, stripErr := stripRequest(ctx, req)
+	if stripErr != nil {
+		call.Err = strings.TrimSpace(call.Err + " " + stripErr.Error())
+	} else {
+		call.Wire = wire
+	}
+	if text, err := stripText(ctx, req.SecretStripper, resp.Text); err == nil {
+		call.Response.Text = text
+	} else {
+		call.Response.Text = ""
+		call.Err = strings.TrimSpace(call.Err + " " + err.Error())
+	}
 	c.calls = append(c.calls, call)
+	// The caller gets the UNALTERED reply: stripping guards what is written
+	// down, never what the case under probe reasons about.
 	return resp, err
 }
 
@@ -178,7 +251,13 @@ func runProbe(ctx context.Context, stdout io.Writer, census *aitasks.Registry, c
 	// same thing the certification runner and the siteread debug lane do.
 	trace, runErr := prepared.Run(principal.WithWorkspaceID(ctx, ids.NewV7()), recorder)
 	res.Calls = recorder.calls
-	res.Output = trace.Output
+	// The final output is written to --json like everything else, so it passes
+	// the same credential gate the per-call replies do.
+	output, stripErr := stripText(ctx, nil, trace.Output)
+	if stripErr != nil {
+		return stripErr
+	}
+	res.Output = output
 	if runErr != nil {
 		// The calls recorded so far still ship: a failure on the third of four
 		// calls is diagnosed from the two that worked.

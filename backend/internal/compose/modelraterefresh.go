@@ -134,10 +134,11 @@ type modelCostRefresh struct {
 	fetcher pageFetcher
 	brain   completer
 	sources []pricingSource
-	// bound is the set of model ids this deployment's routing actually binds.
-	// It narrows a structured catalog to the models whose cost sheet anyone
-	// reads; empty means "filter by nothing", which keeps every model.
-	bound map[string]bool
+	// bound maps a provider to the model ids this deployment's routing binds on
+	// it. A structured catalog is narrowed to that provider's own bindings —
+	// nil (nothing wired) keeps every model, which is what a deployment with no
+	// routing had before.
+	bound map[string]map[string]bool
 	log   *slog.Logger
 }
 
@@ -218,20 +219,31 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	}
 	pageText := doc.Text
 	if doc.IsJSON() {
-		reduced, models, ok := catalogPassages(doc.Text, m.bound)
+		wanted := m.bound[src.Provider]
+		reduced, kept, ok := catalogPassages(doc.Text, wanted)
 		if !ok {
 			return nil, errors.New("extract: the source served JSON that is not a model catalog")
 		}
-		if models == 0 {
-			// Nothing this deployment binds appears in the catalog. That is a
-			// configuration answer, not a crawl failure: refreshing prices for
-			// models nobody calls is what the filter exists to avoid.
-			m.log.Info("model-cost refresh: catalog carries none of the bound models",
-				"provider", src.Provider, "url", src.URL, "bound", len(m.bound))
-			return nil, nil
+		if kept == 0 {
+			// Every id this provider binds is absent from its own catalog. That
+			// is never a quiet success: those ids came from the routing file
+			// precisely BECAUSE this deployment calls them, so a vendor rename
+			// or a mis-spelled binding would otherwise leave their prices
+			// silently stale forever. Report it so the job is retried and the
+			// run is visibly failed.
+			return nil, fmt.Errorf(
+				"extract: none of the %d model(s) bound on %s appears in its catalog — check the ids in ai-routing.yaml against the vendor's own spelling",
+				len(wanted), src.Provider)
+		}
+		if len(wanted) > 0 && kept < len(wanted) {
+			// A partial match still refreshes what it found, but the gap is the
+			// operator's to see: a model missing from the catalog can never be
+			// repriced from this source.
+			m.log.Warn("model-cost refresh: some bound models are absent from the catalog",
+				"provider", src.Provider, "bound", len(wanted), "found", kept)
 		}
 		m.log.Debug("model pricing source served a catalog",
-			"provider", src.Provider, "models", models, "bytes_before", len(doc.Text), "bytes_after", len(reduced))
+			"provider", src.Provider, "models", kept, "bytes_before", len(doc.Text), "bytes_after", len(reduced))
 		pageText = reduced
 	}
 	resp, err := m.brain.Complete(ctx, rateExtractRequest(pageText))
@@ -384,9 +396,10 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 // converts or rewrites a price. Interpreting the numbers stays the model's job,
 // behind the evidence gate and the confirm-first approval that follow.
 //
-// An empty bound set keeps every model. That is the honest reading of "this
-// deployment binds nothing to filter by" — it restores the previous behaviour
-// rather than silently refreshing nothing.
+// An empty bound set keeps every model — the honest reading of "this deployment
+// binds nothing on this provider to filter by". The caller, not this function,
+// decides whether that is acceptable: it knows whether the emptiness means
+// "nothing wired" or "everything this provider binds is missing".
 func catalogPassages(body string, bound map[string]bool) (string, int, bool) {
 	var catalog struct {
 		Data []json.RawMessage `json:"data"`
@@ -450,7 +463,7 @@ func (w *aiModelRateRefreshWorker) Work(ctx context.Context, job *river.Job[AiMo
 	return jobs.FaultContext(ctx, w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy)))
 }
 
-func newModelCostRefreshWorker(pool *pgxpool.Pool, brain completer, sources []pricingSource, bound map[string]bool, log *slog.Logger) *aiModelRateRefreshWorker {
+func newModelCostRefreshWorker(pool *pgxpool.Pool, brain completer, sources []pricingSource, bound map[string]map[string]bool, log *slog.Logger) *aiModelRateRefreshWorker {
 	return &aiModelRateRefreshWorker{refresh: modelCostRefresh{
 		rates:   ai.NewRateStore(pool),
 		svc:     approvals.NewService(pool),

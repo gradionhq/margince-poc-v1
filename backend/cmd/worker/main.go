@@ -285,7 +285,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, boundModels map[string]bool, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, boundModels map[string]map[string]bool, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -418,7 +418,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]bool, error) {
+func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
@@ -453,9 +453,9 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 
 // modelPathWithBoundModels assembles the path and reports which models the SAME
 // binding names, so the two can never describe different routing configs.
-func modelPathWithBoundModels(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]bool, error) {
+func modelPathWithBoundModels(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
 	path, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
-	return path, cfg.BoundModelIDs(), err
+	return path, cfg.BoundModelIDsByProvider(), err
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions

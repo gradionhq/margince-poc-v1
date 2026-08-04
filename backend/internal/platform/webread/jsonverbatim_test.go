@@ -4,7 +4,10 @@
 package webread
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -29,25 +32,60 @@ func TestIsJSONRecognisesTheStructuredSuffix(t *testing.T) {
 // '<' and '>' is swallowed. Both occur inside ordinary JSON string values, so a
 // caller that parsed the reduced text would be parsing something the server
 // never sent.
-func TestStripTagsWouldRewriteJSONThatMustSurviveVerbatim(t *testing.T) {
-	body := `{"data":[{"id":"a","modality":"text->text","desc":"see <https://x.test/> for more"}]}`
+//
+// This drives the REAL Fetch, not a hand-built Doc: a test that constructed its
+// own Doc would stay green if the JSON branch were deleted and JSON went back
+// through StripTags.
+func TestFetchServesJSONVerbatim(t *testing.T) {
+	const body = `{"data":[{"id":"a","modality":"text->text","desc":"see <https://x.test/> for more"}]}`
 
-	reduced := StripTags(body)
-	if strings.Contains(reduced, "text->text") {
-		t.Error("StripTags left '->' intact; this test no longer guards what it claims to")
-	}
-	if strings.Contains(reduced, "https://x.test/") {
-		t.Error("StripTags left the angle-bracketed URL intact; this test no longer guards what it claims to")
+	// The reduction this test exists to prevent must actually damage the body,
+	// or the assertion below proves nothing.
+	if StripTags(body) == body {
+		t.Fatal("StripTags left this body unchanged; the fixture no longer exercises the hazard")
 	}
 
-	// The fetch branch must therefore hand JSON back untouched: a Doc the
-	// fetcher marked as JSON carries the server's own bytes, still parseable.
-	doc := Doc{Text: body, MediaType: "application/json"}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		//craft:ignore swallowed-errors httptest handler write; a failed write fails the test through the assertion below
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	doc, err := newFetcher(http.DefaultTransport).Fetch(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
 	if !doc.IsJSON() {
-		t.Fatal("application/json must be recognised, or Fetch would strip it")
+		t.Fatalf("MediaType = %q, want it recognised as JSON", doc.MediaType)
+	}
+	if doc.Text != body {
+		t.Errorf("Fetch rewrote the server's JSON:\n got %q\nwant %q", doc.Text, body)
 	}
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(doc.Text), &parsed); err != nil {
-		t.Fatalf("a JSON doc must remain parseable: %v", err)
+		t.Fatalf("fetched JSON must remain parseable: %v", err)
+	}
+}
+
+// HTML is still reduced — the JSON branch must not have widened into a
+// pass-through for everything.
+func TestFetchStillReducesHTML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		//craft:ignore swallowed-errors httptest handler write; a failed write fails the test through the assertion below
+		_, _ = w.Write([]byte("<p>Aurora Large</p>"))
+	}))
+	defer srv.Close()
+
+	doc, err := newFetcher(http.DefaultTransport).Fetch(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if strings.Contains(doc.Text, "<p>") {
+		t.Errorf("HTML must still be reduced, got %q", doc.Text)
+	}
+	if !strings.Contains(doc.Text, "Aurora Large") {
+		t.Errorf("the reduction must keep the text, got %q", doc.Text)
 	}
 }

@@ -297,3 +297,61 @@ func TestEveryRegisteredSiteIsListedAndScaffoldable(t *testing.T) {
 		}
 	}
 }
+
+// Nothing has stripped the request by the time the probe records it: the
+// credential pass runs inside each provider adapter as it marshals its own wire
+// payload, and never mutates model.Request. So a dump built straight from the
+// request would carry secrets verbatim, whatever a comment claimed. This test
+// fails if the probe stops stripping what it writes down.
+func TestProbeStripsCredentialsOutOfEverythingItWritesDown(t *testing.T) {
+	const secret = "sk-liveKEYmaterialThatMustNeverBeWritten1234"
+
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "fixture.json")
+	body, err := json.Marshal(map[string]string{
+		"provider":  "Aurora AI",
+		"page_text": "Aurora Large (model id: aurora-large). Input $5.00 / 1M tokens, output $25.00 / 1M tokens. Contact support with " + secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expect := filepath.Join(dir, "expect.json")
+	if err := os.WriteFile(expect, []byte(`{"aurora-large":{"input_per_mtok":"5","output_per_mtok":"25","cache_read_per_mtok":"0","cache_write_per_mtok":"0"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jsonOut := filepath.Join(dir, "result.json")
+
+	var out strings.Builder
+	if err := runAITaskProbe(context.Background(), []string{
+		"run", "--site", "rate_extract/pricing",
+		"--fixture", fixture, "--expect", expect,
+		"--ai-fake", "--corpus", testCorpusDir(),
+		"--json", jsonOut, "--dump-request", dir,
+	}, &out); err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+
+	// The fixture on disk is the operator's own and untouched; what the probe
+	// WRITES is what must be clean.
+	dumped, err := filepath.Glob(filepath.Join(dir, "*.request.json"))
+	if err != nil || len(dumped) != 1 {
+		t.Fatalf("--dump-request wrote %v (err %v)", dumped, err)
+	}
+	for _, path := range []string{dumped[0], jsonOut} {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		if strings.Contains(string(raw), secret) {
+			t.Errorf("%s carries the credential verbatim", filepath.Base(path))
+		}
+		// The surrounding page must still be there — a redaction that ate the
+		// payload would pass the check above while making the dump useless.
+		if !strings.Contains(string(raw), "aurora-large") {
+			t.Errorf("%s lost the page it was supposed to record", filepath.Base(path))
+		}
+	}
+}

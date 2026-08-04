@@ -161,7 +161,7 @@ func TestExtractSendsACatalogAsNarrowedPerModelPassages(t *testing.T) {
 	refresh := modelCostRefresh{
 		fetcher: catalogFetcher{text: body, mediaType: "application/json"},
 		brain:   brain,
-		bound:   map[string]bool{"vendor/wanted": true},
+		bound:   map[string]map[string]bool{"openai_compatible": {"vendor/wanted": true}},
 		log:     slog.New(slog.DiscardHandler),
 	}
 
@@ -196,7 +196,7 @@ func TestExtractLeavesANonJSONPageAlone(t *testing.T) {
 	refresh := modelCostRefresh{
 		fetcher: catalogFetcher{text: "Aurora Large: input $5.00 / 1M tokens.", mediaType: "text/html"},
 		brain:   brain,
-		bound:   map[string]bool{"something/else": true},
+		bound:   map[string]map[string]bool{"aurora": {"something/else": true}},
 		log:     slog.New(slog.DiscardHandler),
 	}
 	if _, err := refresh.extract(context.Background(), pricingSource{Provider: "aurora", URL: "https://x.test/pricing"}); err != nil {
@@ -221,24 +221,73 @@ func TestExtractReportsJSONThatIsNotACatalog(t *testing.T) {
 	}
 }
 
-// Nothing bound appearing in the catalog is a configuration answer, not a crawl
-// failure: it yields no models and no error, so the run is not retried forever.
-func TestExtractIsQuietWhenTheCatalogCarriesNothingBound(t *testing.T) {
+// A bound model absent from its own provider's catalog must NOT read as a
+// successful refresh. Those ids came from the routing file precisely because
+// this deployment calls them, so a vendor rename or a mis-spelled binding would
+// otherwise leave their prices stale forever while every run reported success.
+func TestExtractFailsWhenNoBoundModelAppearsInItsCatalog(t *testing.T) {
 	var sent model.Request
 	refresh := modelCostRefresh{
 		fetcher: catalogFetcher{text: `{"data":[{"id":"vendor/a"}]}`, mediaType: "application/json"},
 		brain:   &catalogCaptureBrain{got: &sent, reply: `{"models":[]}`},
-		bound:   map[string]bool{"vendor/absent": true},
+		bound:   map[string]map[string]bool{"x": {"vendor/absent": true}},
 		log:     slog.New(slog.DiscardHandler),
 	}
-	models, err := refresh.extract(context.Background(), pricingSource{Provider: "x", URL: "https://x.test/m"})
-	if err != nil {
-		t.Fatalf("a catalog with none of the bound models is not a failure: %v", err)
+	_, err := refresh.extract(context.Background(), pricingSource{Provider: "x", URL: "https://x.test/m"})
+	if err == nil {
+		t.Fatal("a bound model missing from its catalog must be reported, not counted as a refresh")
 	}
-	if len(models) != 0 {
-		t.Errorf("extracted %d models, want none", len(models))
+	if !strings.Contains(err.Error(), "ai-routing") {
+		t.Errorf("error %q should point at the binding the operator has to fix", err)
 	}
 	if sent.System != "" {
 		t.Error("no model call may be made when there is nothing to price")
+	}
+}
+
+// A provider this deployment binds nothing on is not an error: the catalog is
+// simply not filtered, which is what a deployment with no routing had before.
+func TestExtractKeepsEveryModelForAProviderThatBindsNothing(t *testing.T) {
+	var sent model.Request
+	refresh := modelCostRefresh{
+		fetcher: catalogFetcher{text: `{"data":[{"id":"vendor/a"},{"id":"vendor/b"}]}`, mediaType: "application/json"},
+		brain:   &catalogCaptureBrain{got: &sent, reply: `{"models":[]}`},
+		bound:   map[string]map[string]bool{"someone_else": {"vendor/z": true}},
+		log:     slog.New(slog.DiscardHandler),
+	}
+	if _, err := refresh.extract(context.Background(), pricingSource{Provider: "x", URL: "https://x.test/m"}); err != nil {
+		t.Fatalf("a provider with no bindings must not fail: %v", err)
+	}
+	payload := sent.Messages[0].Content
+	if !strings.Contains(payload, "vendor/a") || !strings.Contains(payload, "vendor/b") {
+		t.Errorf("an unfiltered catalog keeps every model:\n%s", payload)
+	}
+}
+
+// One provider's bindings must never decide what another provider's catalog is
+// filtered to.
+func TestExtractFiltersByTheSourcesOwnProvider(t *testing.T) {
+	var sent model.Request
+	refresh := modelCostRefresh{
+		fetcher: catalogFetcher{
+			text:      `{"data":[{"id":"vendor/mine"},{"id":"vendor/theirs"}]}`,
+			mediaType: "application/json",
+		},
+		brain: &catalogCaptureBrain{got: &sent, reply: `{"models":[]}`},
+		bound: map[string]map[string]bool{
+			"mine":   {"vendor/mine": true},
+			"theirs": {"vendor/theirs": true},
+		},
+		log: slog.New(slog.DiscardHandler),
+	}
+	if _, err := refresh.extract(context.Background(), pricingSource{Provider: "mine", URL: "https://x.test/m"}); err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+	payload := sent.Messages[0].Content
+	if !strings.Contains(payload, "vendor/mine") {
+		t.Errorf("this provider's own bound model must survive:\n%s", payload)
+	}
+	if strings.Contains(payload, "vendor/theirs") {
+		t.Errorf("another provider's binding must not select rows from this catalog:\n%s", payload)
 	}
 }
