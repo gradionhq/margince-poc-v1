@@ -243,3 +243,10 @@ and it caps how much of the site one certification run can cover:
   entry keyed by the old name.
 - **Retiring a site** means deleting its scenarios and its record too. A record
   left behind asserts a band for a prompt that no longer ships.
+
+## Verify the new site is probeable
+
+`make ai-probe ARGS=list` reads the census, so a newly registered site appears
+there with no change to the probe. If it does not, the registration did not land.
+`make ai-probe ARGS='scaffold <task>/<variant>'` then confirms the corpus scenario
+round-trips into something runnable. See [debug an AI task](debug-an-ai-task.md).

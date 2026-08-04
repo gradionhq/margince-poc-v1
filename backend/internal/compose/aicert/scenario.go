@@ -284,3 +284,35 @@ func isKnownTask(task string) bool {
 	}
 	return false
 }
+
+// LoadScenarioFile reads ONE scenario file in the corpus format — the debug
+// lane's entry point, distinct from LoadCorpus.
+//
+// It deliberately does NOT apply the corpus's admission rules. Source and
+// SanitizedBy gate what may ENTER the committed corpus; a scratch scenario an
+// operator is probing with is not entering it, and demanding a provenance
+// stamp for a throwaway would only teach people to type a false one.
+// Everything that says what to RUN is still checked: the site must be one this
+// build registers, and the fixture must exist.
+func LoadScenarioFile(path string, census *aitasks.Registry) (Scenario, error) {
+	if census == nil {
+		return Scenario{}, fmt.Errorf("aicert: %s: no census supplied — a scenario names the site that runs it", path)
+	}
+	raw, err := os.ReadFile(path) // #nosec G304 -- an operator-named scratch scenario is the point of the debug lane
+	if err != nil {
+		return Scenario{}, fmt.Errorf("aicert: reading %s: %w", path, err)
+	}
+	var sc Scenario
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&sc); err != nil {
+		return Scenario{}, fmt.Errorf("aicert: %s is not a scenario: %w", path, err)
+	}
+	if _, ok := census.Lookup(ai.Task(sc.Task), sc.Site); !ok {
+		return Scenario{}, fmt.Errorf("aicert: %s names site %s/%s, which this build does not register", path, sc.Task, sc.Site)
+	}
+	if len(sc.Fixture) == 0 {
+		return Scenario{}, fmt.Errorf("aicert: %s carries no fixture, so there is nothing to give the site", path)
+	}
+	return sc, nil
+}

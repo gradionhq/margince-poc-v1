@@ -47,25 +47,28 @@ const e2eSeedURL = "https://gradion.com"
 // (e.g. anthropic:claude-sonnet-4-6), or MARGINCE_AI_ROUTING a full
 // routing file. Missing both fails loudly: a quality gate that silently
 // skips looks exactly like one that passed.
-func e2eBrain(t *testing.T) (profile, facts completer, banner string) {
+func e2eBrain(t *testing.T) (profile, facts, triage completer, banner string) {
 	t.Helper()
 	modelSpec := os.Getenv("MARGINCE_E2E_MODEL")
 	routing := os.Getenv("MARGINCE_AI_ROUTING")
-	profile, facts, banner, err := SiteReadDebugBrain(routing, modelSpec, false)
+	profile, facts, triage, banner, err := SiteReadDebugBrain(routing, modelSpec, false)
 	if err != nil {
 		t.Fatalf("e2e-siteread needs a model: set MARGINCE_E2E_MODEL=provider:model (plus the provider's BYOK env key) or MARGINCE_AI_ROUTING: %v", err)
 	}
-	return profile, facts, banner
+	return profile, facts, triage, banner
 }
 
 func TestSiteReadE2EGradionQualityFloor(t *testing.T) {
-	profile, facts, banner := e2eBrain(t)
+	profile, facts, triage, banner := e2eBrain(t)
 	t.Logf("model under judgment: %s", banner)
 
+	// The triage lane rides its own binding in production; passing it here
+	// judges the classifier on the model that actually runs it.
 	report, err := RunSiteReadDebug(context.Background(), SiteReadDebugOptions{
-		SeedURL:   e2eSeedURL,
-		Brain:     profile,
-		FactBrain: facts,
+		SeedURL:     e2eSeedURL,
+		Brain:       profile,
+		FactBrain:   facts,
+		TriageBrain: triage,
 	})
 	if err != nil {
 		t.Fatalf("the read failed outright: %v", err)
