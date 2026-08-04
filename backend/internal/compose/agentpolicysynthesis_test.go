@@ -46,8 +46,12 @@ var outboundHoles = gatekit.Waive(map[string]string{
 	// intended shape (ADR context: an outbound send), not because today's
 	// code egresses — this is a contract/implementation discrepancy to
 	// reconcile upstream, not merely scope-registration debt.
-	"send_offer":        "send — pinned for what the contract promises, though the current implementation performs no delivery (see comment above)",
-	"enrich":            "enrich",
+	"send_offer": "send — pinned for what the contract promises, though the current implementation performs no delivery (see comment above)",
+	"enrich": "enrich — scrapeCompany and deepReadCompany fetch " +
+		"the target's own website through the web-read seam, and both " +
+		"coldstart operations do the same before any record exists, so " +
+		"the call egresses; nothing is transmitted to a counterparty, " +
+		"which is why it still reads as an internal write today",
 	"connect_incumbent": "write is likely right for authenticating a connection, but the tier and scope were never decided together",
 	"reconcile_overlay": "enrich — the sweep it queues calls overlay.Reconcile's inc.Modified fetch against the incumbent's API and spends its budget",
 })
@@ -65,6 +69,11 @@ var deadEndVerbs = gatekit.Waive(map[string]string{
 })
 
 func TestEverySynthesizedVerbIsPinned(t *testing.T) {
+	// This sweep visits every synthesized verb in the policy table, so it is the
+	// one place all three maps' staleness is owned. That is only sound because
+	// TestThePinsDescribeVerbsThatStillExist independently holds the other half:
+	// a pinned verb that left the table, or that gained a registered tool, is
+	// skipped by the loop below and would never be reported here.
 	defer synthesizedVerbs.AssertAllMatched(t)
 	defer outboundHoles.AssertAllMatched(t)
 	defer deadEndVerbs.AssertAllMatched(t)

@@ -134,6 +134,10 @@ func (w *Waivers[K]) AssertAllMatched(t testing.TB) {
 
 // waivedLocked is the shared body of Waived and Reason. mu is held.
 func (w *Waivers[K]) waivedLocked(t testing.TB, subject K) bool {
+	// Helper marking is per-function, and the reason-floor Errorf lives here:
+	// without this the failure is reported at gatekit's own line rather than at
+	// the gate that relied on the waiver.
+	t.Helper()
 	reason, ratified := w.reasons[subject]
 	if !ratified {
 		return false

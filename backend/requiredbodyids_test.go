@@ -82,12 +82,14 @@ var unguardedRequiredIDBodies = gatekit.Waive(map[string]string{
 })
 
 func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {
-	defer unguardedRequiredIDBodies.AssertAllMatched(t)
 	bodies := contractBodiesWithARequiredID(t)
 	if len(bodies) == 0 {
 		t.Fatalf("no request body in %s declares a required non-pointer UUID — the walk is reading "+
 			"the wrong shape", generatedContract)
 	}
+	// Registered only past the vacuity guard: on that Fatal every entry would
+	// report as unmatched, burying the one failure that explains all of them.
+	defer unguardedRequiredIDBodies.AssertAllMatched(t)
 
 	names := make([]string, 0, len(bodies))
 	for name := range bodies {

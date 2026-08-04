@@ -36,7 +36,6 @@ var nilAfterLogging = gatekit.Waive(map[string]string{
 })
 
 func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
-	defer nilAfterLogging.AssertAllMatched(t)
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
 	workers := 0
 	for _, file := range files {
@@ -87,6 +86,10 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	if workers < workerFloor {
 		t.Fatalf("found only %d Work methods, expected at least %d — the walker matched nothing", workers, workerFloor)
 	}
+	// Staleness is only meaningful once the sweep above actually ran: on the
+	// vacuity Fatal every entry would report as unmatched, burying the one
+	// failure that explains all of them.
+	nilAfterLogging.AssertAllMatched(t)
 }
 
 // errorLogsAndReturnsNil reports whether fn both logs a failure and returns

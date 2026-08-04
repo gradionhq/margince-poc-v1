@@ -146,7 +146,6 @@ func mappedIdempotentOperations(t *testing.T) map[string]bool {
 }
 
 func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
-	defer idempotencyExemptions.AssertAllMatched(t)
 	declared := idempotencyKeyDeclarations(t)
 	mapped := mappedIdempotentOperations(t)
 	// Vacuous-pass guards: both sides carry dozens of operations; finding
@@ -158,6 +157,9 @@ func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
 	if len(mapped) < 20 {
 		t.Fatalf("found only %d entries in replayableOperations — the source extractor no longer sees the map", len(mapped))
 	}
+	// Registered only past the vacuity guards: on either Fatal every entry would
+	// report as unmatched, burying the one failure that explains all of them.
+	defer idempotencyExemptions.AssertAllMatched(t)
 
 	for _, op := range idempotencyExemptions.Subjects() {
 		if !declared[op] {

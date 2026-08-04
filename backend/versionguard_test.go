@@ -81,8 +81,8 @@ func TestEveryVersionPinnedTableBumpsItsVersion(t *testing.T) {
 
 	for _, table := range sortedNames(pinned) {
 		if at, ok := dropped[table]; ok {
-			t.Errorf("approvals.versionTables pins %s, and %s drops a trigger on it: this derivation reads the migrations as a set and cannot tell whether the %s attachment survived the drop, so the pin can no longer be shown to bind anything",
-				table, at, bumpFunction)
+			t.Errorf("approvals.versionTables pins %s, and %s drops a trigger on it: this derivation reads the migrations as a set and cannot tell whether the %s attachment survived the drop, so the pin can no longer be shown to bind anything. Re-attach %s BEFORE UPDATE on %s in a later migration, so one CREATE TRIGGER statement carries the attachment on its own, or drop %s from versionTables in %s/redeem.go and leave TargetVersion nil for that type",
+				table, at, bumpFunction, bumpFunction, table, table, approvalsDir)
 			continue
 		}
 		if _, ok := bumped[table]; ok {
@@ -104,7 +104,7 @@ func versionPinnedTables(t *testing.T) map[string]bool {
 	t.Helper()
 	fset := token.NewFileSet()
 	files := parsePackageDir(t, fset, approvalsDir)
-	consts := stringConsts(files)
+	consts := stringConsts(t, fset, files)
 
 	lit := packageVarCompositeLit(t, files, "versionTables")
 	tables := map[string]bool{}
@@ -155,8 +155,14 @@ func versionBumpAttachments(t *testing.T) (bumped, dropped map[string]string) {
 			text := sqlLineComment.ReplaceAllString(string(raw), "")
 			line := 1
 			for _, stmt := range strings.Split(text, ";") {
+				// Splitting on ";" leaves the newlines that FOLLOW the previous
+				// statement at the head of this one. They belong to the gap, so
+				// they are counted before the position is taken — counting them
+				// afterwards reports every statement at the preceding ";".
+				body := strings.TrimLeft(stmt, " \t\r\n")
+				line += strings.Count(stmt[:len(stmt)-len(body)], "\n")
 				at := path + ":" + strconv.Itoa(line)
-				line += strings.Count(stmt, "\n")
+				line += strings.Count(body, "\n")
 				if m := triggerDrop.FindStringSubmatch(stmt); m != nil {
 					dropped[m[1]] = at
 					continue
@@ -201,8 +207,13 @@ func parsePackageDir(t *testing.T, fset *token.FileSet, dir string) []*ast.File 
 	return files
 }
 
-// stringConsts indexes every package-level string constant by name.
-func stringConsts(files []*ast.File) map[string]string {
+// stringConsts indexes every package-level string constant by name. A literal
+// the parser accepted as token.STRING but that does not unquote is reported
+// rather than skipped: the constant would silently drop out of the index, and
+// every versionTables key spelled with it would then look unresolvable for a
+// reason that has nothing to do with the pin.
+func stringConsts(t *testing.T, fset *token.FileSet, files []*ast.File) map[string]string {
+	t.Helper()
 	consts := map[string]string{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
@@ -222,6 +233,8 @@ func stringConsts(files []*ast.File) map[string]string {
 					}
 					value, err := strconv.Unquote(lit.Value)
 					if err != nil {
+						t.Errorf("%s: const %s holds a string literal that does not unquote (%s): %v — it cannot enter the constant index, so any versionTables key spelled with it resolves to nothing",
+							fset.Position(lit.Pos()), name.Name, lit.Value, err)
 						continue
 					}
 					consts[name.Name] = value
