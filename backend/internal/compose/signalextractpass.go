@@ -11,6 +11,8 @@ package compose
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 )
 
@@ -76,4 +78,19 @@ func readDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 		return context.WithCancel(ctx)
 	}
 	return context.WithDeadline(ctx, deadline.Add(-extractStopMargin))
+}
+
+// passFailure names the pass in whatever its conversations reported, or reports
+// nothing when none of them failed.
+//
+// A pass leaves by four doors — out of time, budget exhausted, and the two ends
+// of the loop — and the conversations that failed before it left read the same
+// through all of them. Wrapping at each door instead let the same failure reach
+// River with or without the pass's name on it, depending only on when the pass
+// happened to stop.
+func passFailure(failed []error) error {
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("signal extract: %w", errors.Join(failed...))
 }
