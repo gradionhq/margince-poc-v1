@@ -114,23 +114,24 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Deferred, not called at the end of the serve: this lane runs on a context
+	// of its OWN so it drains instead of cancelling with a request, which also
+	// means the process signal never reaches it — a later boot step failing would
+	// return with the relay still shipping from the pool closed above. It is
+	// still the last thing to stop on the happy path, because serveUntilSignal
+	// drains HTTP before it returns.
+	defer stopRelay()
 	opts = append(opts, relayOpts...)
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelOpts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
+	aiOpts, err := aiSurfaceOptions(cfg, deployCfg, pool, logger)
 	if err != nil {
 		return err
 	}
-	opts = append(opts, modelOpts...)
-
-	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
-	if err != nil {
-		return err
-	}
-	opts = append(opts, handoffOpts...)
+	opts = append(opts, aiOpts...)
 	opts = append(opts, compose.WithCompanyContextRollout(string(deployCfg.CompanyContext.EffectiveRollout())))
 
-	return serveUntilSignal(ctx, cfg, compose.New(pool, logger, opts...), stdout, stopRelay)
+	return serveUntilSignal(ctx, cfg, compose.New(pool, logger, opts...), stdout)
 }
 
 // validatePublicBaseURL refuses a base URL the connector cannot be reached at.
