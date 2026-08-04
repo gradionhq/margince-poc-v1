@@ -417,7 +417,7 @@ func TestDismissedMomentDoesNotComeBack(t *testing.T) {
 // personChanges runs the Tx-scoped derivation in a transaction of its own.
 // There is no pool-level variant, and adding one for a test would be an
 // entry point with no production caller.
-func personChanges(t *testing.T, e *Env, ctx context.Context, personID ids.PersonID) ([]relstrength.Change, error) {
+func personChanges(ctx context.Context, t *testing.T, e *Env, personID ids.PersonID) ([]relstrength.Change, error) {
 	t.Helper()
 	var out []relstrength.Change
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
@@ -446,7 +446,7 @@ func TestRelationshipChangesAreDerivedFromTheTimeline(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
-	changes, err := personChanges(t, e, rep, ids.From[ids.PersonKind](mine))
+	changes, err := personChanges(rep, t, e, ids.From[ids.PersonKind](mine))
 	if err != nil {
 		t.Fatalf("PersonRelationshipChangesTx: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestRelationshipChangesSayNothingAboutAContactWithNoHistory(t *testing.T) {
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
-	changes, err := personChanges(t, e, rep, ids.From[ids.PersonKind](mine))
+	changes, err := personChanges(rep, t, e, ids.From[ids.PersonKind](mine))
 	if err != nil {
 		t.Fatalf("PersonRelationshipChangesTx: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestRelationshipChangesRefuseAContactOutsideRowScope(t *testing.T) {
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
-	if _, err := personChanges(t, e, rep, ids.From[ids.PersonKind](theirs)); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := personChanges(rep, t, e, ids.From[ids.PersonKind](theirs)); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("changes for another team's contact → %v, want ErrNotFound", err)
 	}
 }
