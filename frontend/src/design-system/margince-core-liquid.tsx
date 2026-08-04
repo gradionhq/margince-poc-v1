@@ -124,27 +124,90 @@ void main(){
   // around it, so the shading relationships survive a hue swing to amber or red.
   vec3 cMid =mix(vec3(.08,.60,.40), uTint,                      uTintMix);
   vec3 cDeep=mix(vec3(.02,.32,.21), uTint*.42,                  uTintMix);
-  vec3 cMint=mix(vec3(.58,.97,.78), mix(uTint,vec3(1.),.62),    uTintMix);
+  // Its white target is a GREEN-white, not a neutral one. Pulling a green toward
+  // pure white raises blue fastest — the highlight went cyan against the body and
+  // put a fringe on everything it touched.
+  vec3 cMint=mix(vec3(.62,.97,.72), mix(uTint,vec3(.95,1.,.90),.62), uTintMix);
+  // The emission colour, and the reason it is its own stop: cMint is the mint the
+  // glass REFLECTS, so it is mixed most of the way to white and desaturates as it
+  // brightens. A source does the opposite — it gets more saturated the hotter it
+  // is. This one keeps its chroma at full brightness, which is the difference
+  // between a pale sphere and a lit one.
+  // Red and blue deliberately BALANCED, which is not the same as "low blue".
+  // Green clips first in every bright emitter here, and once it does the hue that
+  // remains is decided entirely by the residual red-to-blue ratio: at blue .45
+  // against red .31 the hottest pixels — the ones the eye goes to — slid cyan.
+  // Equalising them keeps a clipped highlight on the brand's own hue.
+  vec3 cGlow=mix(vec3(.34,.96,.34),  mix(uTint,vec3(.72,1.,.58),.50), uTintMix);
   vec3 c=mix(cMid,cDeep,smoothstep(.55,1.45,dd));
   // The broad vein system, pulled back from .55. It and the filaments are two
   // ridge systems over the same field: at full strength they overlay into a
   // scribble and neither is legible.
   c=mix(c,cMint,vein*.34*smoothstep(.15,.7,dd));
   c=mix(c,cMint,pow(clamp(n-.5,0.,1.),2.)*.85*smoothstep(.2,.8,dd));
-  // .52, not higher: at full strength the strands go near-white and stop looking
-  // like light in a liquid.
-  c=mix(c,cMint,fil*.52);
-  c+=cMint*sss*.10;
+  // The strands mix toward the EMISSIVE stop, not the reflective one. cMint is
+  // mixed most of the way to white and so carries blue: against the green body it
+  // put a cyan fringe on every thread, which read as chromatic aberration rather
+  // than as light. .46, not higher — past that the threads stop being in the
+  // liquid and start being drawn on it.
+  c=mix(c,cGlow,fil*.46);
+  /*
+   * EMISSION — the inner light, and the thing the sphere had none of. Everything
+   * above only ever MIXED between ramp stops, which can lighten a colour but can
+   * never make it brighter than the brightest stop: a liquid lit entirely by
+   * being paler. Adding light instead of interpolating toward it is what lets the
+   * dense masses read as the source.
+   *
+   * Three emitters, deliberately not one flat centre glow — a uniform hot middle
+   * reads as a torch pointed at the glass:
+   *  - the MASSES, so the light lives in the moving liquid and travels with it
+   *  - the FILAMENTS, hottest of all, so the threads are light rather than paint
+   *  - the DEPTH, a soft bloom through the body of the stone
+   *
+   * The limb multiply below then cuts it back at the edge, so emission never
+   * flattens the roundness the dark limb buys.
+   */
+  float emit = smoothstep(.42,1.30,dd)*.26
+             + fil*.44
+             + sss*.12;
+  // Reinhard rolloff on the emission, not a clamp. The three terms can sum past
+  // 1 where a hot filament crosses a dense mass, and a hard clip there drives
+  // whichever channel saturates first — green — and the hue slides off the brand
+  // exactly at the brightest, most-looked-at pixels. This compresses the highs
+  // instead, so the hot spots keep their chroma.
+  emit = emit/(1.+emit*.75);
+  c += cGlow*emit*1.7;
   // The dark limb. A cabochon of jade is DARKEST just inside its edge, because
   // that is the longest path light takes through the stone. Without it a sphere
   // reads as a flat lit disc however good its interior is — this one line does
   // more for the roundness than everything above it.
   c*=1.-.20*pow(1.-z,2.2);
-  c=mix(c,cMint,fres*.20);
+  // The rim, now the ONLY thing drawing the sphere's edge: the shell's 1.5px
+  // hairline is gone, because an outline is what a lit body does not have. So it
+  // is stronger than it was, and it is emissive rather than a mix — an edge made
+  // of light reads as a boundary without reading as a drawn line.
+  c += cGlow*fres*.30;
+  /*
+   * HUE-PRESERVING highlight rolloff, and the reason it exists is measured: with
+   * the emission added, green railed at 1.0 across about 7% of the sphere. That
+   * is not merely "too bright" — once one channel clips, the hue of the pixel is
+   * decided by whatever the OTHER two happened to be, and since every stop in
+   * this ramp is a blue-leaning green (jade is), the hottest and most-looked-at
+   * pixels drifted cyan. Balancing the emitter's own channels did not fix it,
+   * because the clipping was in the sum, not in one term.
+   *
+   * So: find the brightest channel, soft-knee THAT, and scale all three by the
+   * same factor. The ratio between them is untouched, so a hot pixel becomes a
+   * more saturated green and never a different colour. Nothing can exceed 1 after
+   * this, which means the driver's own clamp never gets to pick a hue for us.
+   */
+  float mx=max(max(c.r,c.g),c.b);
+  float rolled=mx/(1.+max(mx-.72,0.));
+  c*= mx>1e-4 ? rolled/mx : 1.;
   float a=(1.-exp(-dd*2.6))*.97;
   // The rim stays present even where the liquid is thin, so the stone has an
   // edge instead of fading out into the glass.
-  a=mix(a,1.,fres*.28);
+  a=mix(a,1.,fres*.34);
   a*=smoothstep(1.,.985,r);
   gl_FragColor=vec4(c*a,a);
 }`;

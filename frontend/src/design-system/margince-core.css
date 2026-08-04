@@ -133,40 +133,58 @@
   height: var(--coreGlass);
   z-index: 1;
   border-radius: var(--r-full);
+  /* The washes over the liquid are TINT-led, not white-led. White at 65% over
+     the top third was most of why the sphere read pale: it desaturated the one
+     part of the Core that is supposed to look like a lit material, and it did it
+     directly over the brightest interior. The white that remains is the entry
+     point of the light source and stops at 24%; the body wash below it carries
+     the green instead. */
   background:
     radial-gradient(
       circle at 30% 22%,
-      color-mix(in srgb, var(--overlayLight) 65%, transparent) 0%,
-      transparent 22%
+      color-mix(in srgb, var(--overlayLight) 40%, transparent) 0%,
+      transparent 24%
     ),
     radial-gradient(
       circle at 50% 42%,
-      color-mix(in srgb, var(--coreTint) 22%, transparent) 0%,
-      color-mix(in srgb, var(--coreTint) 8%, transparent) 100%
+      color-mix(in srgb, var(--coreTint) 34%, transparent) 0%,
+      color-mix(in srgb, var(--coreTint) 16%, transparent) 100%
     );
+  /* NO hairline ring here, and its absence is deliberate: a 1.5px near-white
+     inset used to outline the sphere, and an outline is the one thing a light
+     source does not have — it read as a drawn circle sitting in front of the
+     glow. The shader's fresnel term carries the edge instead, which is an edge
+     made of light rather than of ink.
+
+     The shade below is 18% ALPHA, not an opaque dark green. `color-mix(…
+     var(--overlayDark) 18%)` mixes toward black and stays fully opaque, which
+     painted a solid dark crescent over two thirds of the sphere and is what made
+     the Core read as a dark marble. The artifact's value is the same hue at 18%
+     alpha — barely there. */
   box-shadow:
-    inset 0 0 0 1.5px color-mix(in srgb, var(--overlayLight) 65%, transparent),
-    /* 18% ALPHA, not an opaque dark green. `color-mix(… var(--overlayDark)
-       18%)` mixes toward black and stays fully opaque, which painted a solid
-       dark crescent over two thirds of the sphere and is what made the Core
-       read as a dark marble rather than as glass. The artifact's value is the
-       same hue at 18% alpha — barely there. */
-    inset
-    -8px -12px 22px
+    inset -8px -12px 22px
     color-mix(
       in srgb,
       color-mix(in oklab, var(--coreTint) 55%, var(--overlayDark)) 18%,
       transparent
     ),
-    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 32%, transparent),
+    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 20%, transparent),
     /* The bounce light off the bottom of the glass. The artifact's is nearly
        white at 45% alpha: this is the sphere's SECOND light source, and rendering
        it in the shade colour at a lower alpha is what made the glass look unlit
        from below. */
     inset
-    0 -3px 12px color-mix(in srgb, var(--coreLight) 45%, transparent),
-    0 18px 34px color-mix(in srgb, var(--coreTint) 20%, transparent),
-    0 4px 10px color-mix(in srgb, var(--coreTint) 10%, transparent);
+    0 -3px 12px color-mix(in srgb, var(--coreLight) 55%, transparent),
+    /* Light LEAVING the stone, not a shadow cast by it. These were offset
+       downward — `0 18px 34px` — which is what a solid object does to the light
+       falling on it, and it read as a green drop shadow under a green ball. A
+       source is lit evenly around itself, so these are centred and graded from a
+       tight bloom to a wide bleed. The ground contact is `.core-caustic`'s job,
+       and it still does it. */
+    0
+    0 16px color-mix(in srgb, var(--coreLight) 50%, transparent),
+    0 0 38px color-mix(in srgb, var(--coreTint) 28%, transparent),
+    0 0 78px color-mix(in srgb, var(--coreTint) 12%, transparent);
   /* Breath and sheen share ONE period. At 1 : 0.7 two close periods beat against
      each other, so the swell and the brightening drifted in and out of phase over
      a ~19s cycle — read as the Core stuttering rather than as two rhythms. */

@@ -80,18 +80,18 @@ describe("the Core's colour", () => {
     }
   });
 
-  it("keeps the filaments' colour on the same ramp as the body", () => {
-    // The interior's threads are the one part of the liquid bright enough to
-    // carry a hue of their own, so they are the likeliest place for a second
-    // colour to arrive. They must be a mix toward cMint — which is itself built
-    // from uTint — and never a literal.
+  it("builds every colour in the liquid out of the tint uniform", () => {
+    // Derived from the shader rather than from a list of stop names, because the
+    // failure this guards against is someone ADDING a stop. A new one that hard
+    // -codes its rgb would be invisible to a test that only checked the three
+    // that existed when it was written — and the emissive stops are the tempting
+    // place to do it, since an emitter wants more chroma than the tint carries.
     const shader = readFileSync(join(here, "margince-core-liquid.tsx"), "utf8");
-    expect(shader).toMatch(/c=mix\(c,cMint,fil\*[\d.]+\);/);
-    // Three ramp stops, all derived from the tint uniform. If a fourth colour
-    // appears it will not be one of these.
-    for (const stop of ["cMid", "cDeep", "cMint"]) {
-      expect(shader).toMatch(
-        new RegExp(`vec3 ${stop}\\s*=mix\\(.*uTintMix\\)`),
+    const stops = [...shader.matchAll(/vec3\s+(c[A-Z]\w*)\s*=([^;]+);/g)];
+    expect(stops.length).toBeGreaterThanOrEqual(3);
+    for (const [, name, definition] of stops) {
+      expect(definition, `${name} must be built from the tint`).toContain(
+        "uTintMix",
       );
     }
   });
