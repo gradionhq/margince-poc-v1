@@ -775,6 +775,112 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/360:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPerson360
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+      description: |
+        The person half of the one-composite-read doctrine (PO-EXT-3), assembled inside ONE
+        workspace transaction so the sections describe one consistent moment rather than a
+        stack of independently-timed round trips. `as_of` stamps that moment; the isolation
+        level is Read Committed, so a write committed mid-read may land in a later section —
+        the stamp is what makes that honest rather than hidden.
+
+        **Authorization is per section.** Reading the person is mandatory: a caller who
+        cannot see them gets the usual 403/404. Every other section needs its own object
+        grant, and a section the caller may not read is *omitted* and named in
+        `sections_omitted` — never returned empty, because empty and forbidden are
+        different facts.
+
+        **Nested collections are summaries, not paging surfaces.** Each carries at most 25
+        rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is
+        always null: page two comes from the endpoint that owns that collection —
+        `GET /activities`, `GET /relationships`.
+
+        `last_inbound_at` and `last_outbound_at` are shown beside each other rather than
+        folded into one "last touch": which direction went last is the whole question — a
+        contact we mailed a fortnight ago with no reply is not the same as one who just
+        wrote to us.
+
+        Native system-of-record only: a workspace reading from an incumbent mirror gets
+        `422 unsupported_in_overlay_mode`.
+      responses:
+        '200':
+          description: The person's 360 view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Person360' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/view-ack:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [People]
+      operationId: acknowledgePersonView
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+      description: |
+        The baseline moves forward only here, never as a side effect of reading the 360: a
+        GET that silently advanced it would destroy the very "what changed" answer the
+        caller opened the page to read, and would make a prefetch indistinguishable from a
+        visit. The upsert is monotonic (`GREATEST(last_viewed_at, now())`), so a
+        late-arriving ack from a slower tab can never rewind a newer one.
+
+        Human-only: an agent reading a record through a passport is not a visit, and must
+        not consume the human's unread marker.
+      responses:
+        '200':
+          description: The stored baseline after the acknowledgment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordViewAck' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /people/{id}/profile-fields:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [People]
+      operationId: getPersonProfileFields
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+      description: |
+        The person arm of the enrichment evidence ledger (`person_profile_field`): the
+        fields capture and site-read derive — title, phone, role, linkedin, org_name —
+        each carrying the **verbatim source snippet**, the source reference, confidence,
+        and who set it (`agent:enrich` until a human edits, `human:*` after).
+
+        Evidence-or-omit: a row exists only where a snippet was captured, so this never
+        asserts a value it cannot show the reader. This is the surface behind the
+        "enriched from signature" card (AC-person-11).
+      responses:
+        '200':
+          description: The person's enriched fields with their evidence.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/PersonProfileField' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /people/{id}/strength:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -10735,7 +10841,7 @@ components:
       description: The per-user "I have seen this record" baseline, after an acknowledgment.
       required: [entity_type, entity_id, last_viewed_at]
       properties:
-        entity_type: { type: string, enum: [organization] }
+        entity_type: { type: string, enum: [organization, person] }
         entity_id: { type: string, format: uuid }
         last_viewed_at: { type: string, format: date-time }
 
@@ -11153,6 +11259,142 @@ components:
             Absent on an organization with no resolved logo and on every person or deal node —
             a client draws the node's monogram or its token-coloured circle instead.
 
+    PersonProfileField:
+      type: object
+      description: |
+        One enriched field with the evidence it was read from. Evidence-or-omit: a row
+        exists only where a verbatim snippet was captured.
+      required: [field, value, evidence_snippet, source, captured_by, captured_at]
+      properties:
+        field: { type: string, enum: [title, phone, role, linkedin, org_name] }
+        value: { type: string }
+        evidence_snippet:
+          type: string
+          description: The verbatim source text the value was read from — the reader checks the claim against its own source.
+        source_ref:
+          type: [string, 'null']
+          description: "What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page."
+        confidence: { type: [number, 'null'], minimum: 0, maximum: 1 }
+        source: { type: string, description: "The channel that produced it, e.g. `capture_enrich` or `site_read`." }
+        captured_by:
+          type: string
+          description: "`agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says \"corrected by you\"."
+        captured_at: { type: string, format: date-time }
+
+    Person360Employment:
+      type: object
+      description: One employment edge, current primary first.
+      required: [relationship_id, organization_id, is_current_primary]
+      properties:
+        relationship_id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        organization_name: { type: [string, 'null'] }
+        role: { type: [string, 'null'], description: The title as the edge records it, which may differ from the person's own title field. }
+        is_current_primary: { type: boolean }
+        started_at: { type: [string, 'null'], format: date-time }
+        ended_at: { type: [string, 'null'], format: date-time, description: Null means ongoing. A former employment keeps its row — history is never overwritten. }
+
+    Person360DealRole:
+      type: object
+      description: One stakeholder seat this person holds on a deal.
+      required: [relationship_id, deal_id, role]
+      properties:
+        relationship_id: { type: string, format: uuid }
+        deal_id: { type: string, format: uuid }
+        deal_title: { type: [string, 'null'] }
+        deal_stage: { type: [string, 'null'] }
+        role:
+          type: string
+          description: "The buying role as recorded — champion, economic_buyer, blocker, influencer, user by convention. Never inferred from a job title."
+
+    Person360SinceLastVisit:
+      type: object
+      description: |
+        What changed on this person since the caller last acknowledged seeing them.
+        Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+      required: [new_activities]
+      properties:
+        baseline_at:
+          type: [string, 'null']
+          format: date-time
+          description: The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the person's whole history).
+        new_activities: { type: integer, minimum: 0 }
+
+    Person360:
+      type: object
+      description: |
+        The person record page in one payload (PO-EXT-3). Every section except `person` is
+        optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+      required: [as_of, person, sections_omitted]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+        person: { $ref: '#/components/schemas/Person' }
+        last_inbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When they last wrote to us. Null means nothing inbound was ever captured — a fact
+            about the relationship, not a missing field. Absent entirely when the caller has no
+            activity grant, named in `sections_omitted` as `last_touch`.
+        last_outbound_at:
+          type: [string, 'null']
+          format: date-time
+          description: >-
+            When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one
+            "last touch": which direction went last is the whole question.
+        sections_omitted:
+          type: array
+          description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+          items:
+            type: string
+            enum: [employments, deal_roles, strength, network, activities, next_steps, consent, profile_fields, since_last_visit, last_touch]
+        strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        network:
+          type: object
+          description: The colleagues who know this contact, warmest first — who to ask.
+          required: [colleagues]
+          properties:
+            colleagues: { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+        employments:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Person360Employment' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        deal_roles:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Person360DealRole' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        activities:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        next_steps:
+          type: object
+          description: Open tasks filed against this person.
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        consent:
+          type: object
+          description: Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger.
+          required: [state]
+          properties:
+            state: { type: array, items: { $ref: '#/components/schemas/PersonConsentState' } }
+        profile_fields:
+          type: array
+          description: The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
+          items: { $ref: '#/components/schemas/PersonProfileField' }
+        since_last_visit: { $ref: '#/components/schemas/Person360SinceLastVisit' }
+
     PersonNetworkColleague:
       type: object
       description: One colleague's own relationship with this contact.
@@ -11168,6 +11410,14 @@ components:
         strength_bucket: { type: string, enum: [none, weak, moderate, strong] }
         interactions_90d: { type: integer, minimum: 0 }
         last_at:          { type: [string, 'null'], format: date-time }
+        # The direction split. Without it a surface can say "6 exchanges" but not
+        # "6 TWO-WAY exchanges" or "replied 2 days ago", and cannot tell a live
+        # correspondence from six unanswered sends — which is the distinction that
+        # decides whether this colleague is a route in at all.
+        inbound_90d:      { type: integer, minimum: 0, description: Interactions in the last 90 days where they wrote to this colleague. }
+        outbound_90d:     { type: integer, minimum: 0, description: Interactions in the last 90 days where this colleague wrote to them. }
+        last_inbound_at:  { type: [string, 'null'], format: date-time, description: When they last replied to this colleague. Null means they never have. }
+        last_outbound_at: { type: [string, 'null'], format: date-time, description: When this colleague last wrote to them. }
 
     PersonNetwork:
       type: object

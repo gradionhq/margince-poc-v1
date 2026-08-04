@@ -4848,6 +4848,48 @@ func (e PartnerRelationshipStage) Valid() bool {
 	}
 }
 
+// Defines values for Person360SectionsOmitted.
+const (
+	Person360SectionsOmittedActivities     Person360SectionsOmitted = "activities"
+	Person360SectionsOmittedConsent        Person360SectionsOmitted = "consent"
+	Person360SectionsOmittedDealRoles      Person360SectionsOmitted = "deal_roles"
+	Person360SectionsOmittedEmployments    Person360SectionsOmitted = "employments"
+	Person360SectionsOmittedLastTouch      Person360SectionsOmitted = "last_touch"
+	Person360SectionsOmittedNetwork        Person360SectionsOmitted = "network"
+	Person360SectionsOmittedNextSteps      Person360SectionsOmitted = "next_steps"
+	Person360SectionsOmittedProfileFields  Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedSinceLastVisit Person360SectionsOmitted = "since_last_visit"
+	Person360SectionsOmittedStrength       Person360SectionsOmitted = "strength"
+)
+
+// Valid indicates whether the value is a known member of the Person360SectionsOmitted enum.
+func (e Person360SectionsOmitted) Valid() bool {
+	switch e {
+	case Person360SectionsOmittedActivities:
+		return true
+	case Person360SectionsOmittedConsent:
+		return true
+	case Person360SectionsOmittedDealRoles:
+		return true
+	case Person360SectionsOmittedEmployments:
+		return true
+	case Person360SectionsOmittedLastTouch:
+		return true
+	case Person360SectionsOmittedNetwork:
+		return true
+	case Person360SectionsOmittedNextSteps:
+		return true
+	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedSinceLastVisit:
+		return true
+	case Person360SectionsOmittedStrength:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonConsentStateState.
 const (
 	PersonConsentStateStateGranted   PersonConsentStateState = "granted"
@@ -4932,6 +4974,33 @@ func (e PersonPhonePhoneType) Valid() bool {
 	case PersonPhonePhoneTypeOther:
 		return true
 	case PersonPhonePhoneTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonProfileFieldField.
+const (
+	PersonProfileFieldFieldLinkedin PersonProfileFieldField = "linkedin"
+	PersonProfileFieldFieldOrgName  PersonProfileFieldField = "org_name"
+	PersonProfileFieldFieldPhone    PersonProfileFieldField = "phone"
+	PersonProfileFieldFieldRole     PersonProfileFieldField = "role"
+	PersonProfileFieldFieldTitle    PersonProfileFieldField = "title"
+)
+
+// Valid indicates whether the value is a known member of the PersonProfileFieldField enum.
+func (e PersonProfileFieldField) Valid() bool {
+	switch e {
+	case PersonProfileFieldFieldLinkedin:
+		return true
+	case PersonProfileFieldFieldOrgName:
+		return true
+	case PersonProfileFieldFieldPhone:
+		return true
+	case PersonProfileFieldFieldRole:
+		return true
+	case PersonProfileFieldFieldTitle:
 		return true
 	default:
 		return false
@@ -6509,16 +6578,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	Text       VoiceCorpusPreviewRequestFormat = "text"
-	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
+	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
+	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case Text:
+	case VoiceCorpusPreviewRequestFormatText:
 		return true
-	case Transcript:
+	case VoiceCorpusPreviewRequestFormatTranscript:
 		return true
 	default:
 		return false
@@ -7913,31 +7982,31 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 
 // Defines values for ListSavedViewsParamsResource.
 const (
-	Activities    ListSavedViewsParamsResource = "activities"
-	Deals         ListSavedViewsParamsResource = "deals"
-	Leads         ListSavedViewsParamsResource = "leads"
-	Organizations ListSavedViewsParamsResource = "organizations"
-	Partners      ListSavedViewsParamsResource = "partners"
-	People        ListSavedViewsParamsResource = "people"
-	Projects      ListSavedViewsParamsResource = "projects"
+	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
+	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
+	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
+	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
+	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
+	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
+	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
 func (e ListSavedViewsParamsResource) Valid() bool {
 	switch e {
-	case Activities:
+	case ListSavedViewsParamsResourceActivities:
 		return true
-	case Deals:
+	case ListSavedViewsParamsResourceDeals:
 		return true
-	case Leads:
+	case ListSavedViewsParamsResourceLeads:
 		return true
-	case Organizations:
+	case ListSavedViewsParamsResourceOrganizations:
 		return true
-	case Partners:
+	case ListSavedViewsParamsResourcePartners:
 		return true
-	case People:
+	case ListSavedViewsParamsResourcePeople:
 		return true
-	case Projects:
+	case ListSavedViewsParamsResourceProjects:
 		return true
 	default:
 		return false
@@ -12536,6 +12605,103 @@ type Person struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// Person360 The person record page in one payload (PO-EXT-3). Every section except `person` is
+// optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+type Person360 struct {
+	Activities *struct {
+		Data []Activity `json:"data"`
+		Page PageInfo   `json:"page"`
+	} `json:"activities,omitempty"`
+
+	// AsOf The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// Consent Per-purpose state. The proof log stays at `GET /people/{id}/consent` — this is the guard, not the ledger.
+	Consent *struct {
+		State []PersonConsentState `json:"state"`
+	} `json:"consent,omitempty"`
+	DealRoles *struct {
+		Data []Person360DealRole `json:"data"`
+		Page PageInfo            `json:"page"`
+	} `json:"deal_roles,omitempty"`
+	Employments *struct {
+		Data []Person360Employment `json:"data"`
+		Page PageInfo              `json:"page"`
+	} `json:"employments,omitempty"`
+
+	// LastInboundAt When they last wrote to us. Null means nothing inbound was ever captured — a fact about the relationship, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question.
+	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+	// Network The colleagues who know this contact, warmest first — who to ask.
+	Network *struct {
+		Colleagues []PersonNetworkColleague `json:"colleagues"`
+	} `json:"network,omitempty"`
+
+	// NextSteps Open tasks filed against this person.
+	NextSteps *struct {
+		Data []Activity `json:"data"`
+		Page PageInfo   `json:"page"`
+	} `json:"next_steps,omitempty"`
+
+	// Person A contact. Mirrors the `person` table.
+	Person Person `json:"person"`
+
+	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
+	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
+
+	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	SectionsOmitted []Person360SectionsOmitted `json:"sections_omitted"`
+
+	// SinceLastVisit What changed on this person since the caller last acknowledged seeing them.
+	// Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+	SinceLastVisit *Person360SinceLastVisit `json:"since_last_visit,omitempty"`
+
+	// Strength Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+	// interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+	// interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+	// `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+	Strength *RelationshipStrength `json:"strength,omitempty"`
+}
+
+// Person360SectionsOmitted defines model for Person360.SectionsOmitted.
+type Person360SectionsOmitted string
+
+// Person360DealRole One stakeholder seat this person holds on a deal.
+type Person360DealRole struct {
+	DealId         openapi_types.UUID `json:"deal_id"`
+	DealStage      *string            `json:"deal_stage,omitempty"`
+	DealTitle      *string            `json:"deal_title,omitempty"`
+	RelationshipId openapi_types.UUID `json:"relationship_id"`
+
+	// Role The buying role as recorded — champion, economic_buyer, blocker, influencer, user by convention. Never inferred from a job title.
+	Role string `json:"role"`
+}
+
+// Person360Employment One employment edge, current primary first.
+type Person360Employment struct {
+	// EndedAt Null means ongoing. A former employment keeps its row — history is never overwritten.
+	EndedAt          *time.Time         `json:"ended_at,omitempty"`
+	IsCurrentPrimary bool               `json:"is_current_primary"`
+	OrganizationId   openapi_types.UUID `json:"organization_id"`
+	OrganizationName *string            `json:"organization_name,omitempty"`
+	RelationshipId   openapi_types.UUID `json:"relationship_id"`
+
+	// Role The title as the edge records it
+	Role      *string    `json:"role,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+}
+
+// Person360SinceLastVisit What changed on this person since the caller last acknowledged seeing them.
+// Read-only: the 360 never advances the baseline — `POST /people/{id}/view-ack` does.
+type Person360SinceLastVisit struct {
+	// BaselineAt The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the person's whole history).
+	BaselineAt    *time.Time `json:"baseline_at,omitempty"`
+	NewActivities int        `json:"new_activities"`
+}
+
 // PersonConsentState A person's current consent for one purpose.
 type PersonConsentState struct {
 	DoubleOptInConfirmedAt *time.Time              `json:"double_opt_in_confirmed_at,omitempty"`
@@ -12590,9 +12756,21 @@ type PersonNetwork struct {
 
 // PersonNetworkColleague One colleague's own relationship with this contact.
 type PersonNetworkColleague struct {
-	DisplayName     string     `json:"display_name"`
+	DisplayName string `json:"display_name"`
+
+	// Inbound90d Interactions in the last 90 days where they wrote to this colleague.
+	Inbound90d      *int       `json:"inbound_90d,omitempty"`
 	Interactions90d int        `json:"interactions_90d"`
 	LastAt          *time.Time `json:"last_at,omitempty"`
+
+	// LastInboundAt When they last replied to this colleague. Null means they never have.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When this colleague last wrote to them.
+	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+	// Outbound90d Interactions in the last 90 days where this colleague wrote to them.
+	Outbound90d *int `json:"outbound_90d,omitempty"`
 
 	// Strength PO-F-3b, computed at read; null when the band is `none`.
 	Strength       *int                                 `json:"strength,omitempty"`
@@ -12624,6 +12802,30 @@ type PersonPhone struct {
 
 // PersonPhonePhoneType defines model for PersonPhone.PhoneType.
 type PersonPhonePhoneType string
+
+// PersonProfileField One enriched field with the evidence it was read from. Evidence-or-omit: a row
+// exists only where a verbatim snippet was captured.
+type PersonProfileField struct {
+	CapturedAt time.Time `json:"captured_at"`
+
+	// CapturedBy `agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says "corrected by you".
+	CapturedBy string   `json:"captured_by"`
+	Confidence *float32 `json:"confidence,omitempty"`
+
+	// EvidenceSnippet The verbatim source text the value was read from — the reader checks the claim against its own source.
+	EvidenceSnippet string                  `json:"evidence_snippet"`
+	Field           PersonProfileFieldField `json:"field"`
+
+	// Source The channel that produced it, e.g. `capture_enrich` or `site_read`.
+	Source string `json:"source"`
+
+	// SourceRef What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page.
+	SourceRef *string `json:"source_ref,omitempty"`
+	Value     string  `json:"value"`
+}
+
+// PersonProfileFieldField defines model for PersonProfileField.Field.
+type PersonProfileFieldField string
 
 // PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
 // `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
@@ -24023,6 +24225,9 @@ type ServerInterface interface {
 	// Update a person (partial).
 	// (PATCH /people/{id})
 	UpdatePerson(w http.ResponseWriter, r *http.Request, id Id, params UpdatePersonParams)
+	// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+	// (GET /people/{id}/360)
+	GetPerson360(w http.ResponseWriter, r *http.Request, id Id)
 	// Read a person's per-purpose consent state plus the append-only proof log.
 	// (GET /people/{id}/consent)
 	GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id)
@@ -24038,9 +24243,15 @@ type ServerInterface interface {
 	// Who on our team knows this contact, and how well.
 	// (GET /people/{id}/network)
 	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+	// (GET /people/{id}/profile-fields)
+	GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+	// (POST /people/{id}/view-ack)
+	AcknowledgePersonView(w http.ResponseWriter, r *http.Request, id Id)
 	// List pipelines.
 	// (GET /pipelines)
 	ListPipelines(w http.ResponseWriter, r *http.Request, params ListPipelinesParams)
@@ -25511,6 +25722,12 @@ func (_ Unimplemented) UpdatePerson(w http.ResponseWriter, r *http.Request, id I
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The whole person record page in one round trip — identity, employments, buying roles, strength, who-knows-them, timeline, consent, provenance.
+// (GET /people/{id}/360)
+func (_ Unimplemented) GetPerson360(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Read a person's per-purpose consent state plus the append-only proof log.
 // (GET /people/{id}/consent)
 func (_ Unimplemented) GetPersonConsent(w http.ResponseWriter, r *http.Request, id Id) {
@@ -25541,9 +25758,21 @@ func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The evidence sidecar for this person's enriched fields — each value with the verbatim snippet it was read from.
+// (GET /people/{id}/profile-fields)
+func (_ Unimplemented) GetPersonProfileFields(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Relationship strength for a person (deterministic recency × frequency × reciprocity).
 // (GET /people/{id}/strength)
 func (_ Unimplemented) GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record that the calling human has now seen this person — the baseline `since_last_visit` counts from.
+// (POST /people/{id}/view-ack)
+func (_ Unimplemented) AcknowledgePersonView(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -34726,6 +34955,38 @@ func (siw *ServerInterfaceWrapper) UpdatePerson(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetPerson360 operation middleware
+func (siw *ServerInterfaceWrapper) GetPerson360(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPerson360(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonConsent operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonConsent(w http.ResponseWriter, r *http.Request) {
 
@@ -34959,6 +35220,38 @@ func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonProfileFields operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonProfileFields(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonProfileFields(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPersonStrength operation middleware
 func (siw *ServerInterfaceWrapper) GetPersonStrength(w http.ResponseWriter, r *http.Request) {
 
@@ -34984,6 +35277,38 @@ func (siw *ServerInterfaceWrapper) GetPersonStrength(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPersonStrength(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgePersonView operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgePersonView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgePersonView(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -40846,6 +41171,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/people/{id}", wrapper.UpdatePerson)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/360", wrapper.GetPerson360)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/consent", wrapper.GetPersonConsent)
 	})
 	r.Group(func(r chi.Router) {
@@ -40861,7 +41189,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/profile-fields", wrapper.GetPersonProfileFields)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/people/{id}/view-ack", wrapper.AcknowledgePersonView)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/pipelines", wrapper.ListPipelines)

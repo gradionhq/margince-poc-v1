@@ -807,6 +807,10 @@ func (stubs) UpdatePerson(w nethttp.ResponseWriter, r *nethttp.Request, id crmco
 	httperr.NotImplemented(w, r, "UpdatePerson")
 }
 
+func (stubs) GetPerson360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetPerson360")
+}
+
 func (stubs) GetPersonConsent(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetPersonConsent")
 }
@@ -827,8 +831,16 @@ func (stubs) GetPersonNetwork(w nethttp.ResponseWriter, r *nethttp.Request, id o
 	httperr.NotImplemented(w, r, "GetPersonNetwork")
 }
 
+func (stubs) GetPersonProfileFields(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetPersonProfileFields")
+}
+
 func (stubs) GetPersonStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetPersonStrength")
+}
+
+func (stubs) AcknowledgePersonView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AcknowledgePersonView")
 }
 
 func (stubs) ListPipelines(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListPipelinesParams) {
