@@ -7461,10 +7461,12 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes")[];
+            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes" | "moments")[];
             strength?: components["schemas"]["RelationshipStrength"];
             /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
             relationship_changes?: components["schemas"]["PersonRelationshipChange"][];
+            /** @description Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below. */
+            moments?: components["schemas"]["PersonMoment"][];
             /** @description The colleagues who know this contact, warmest first — who to ask. */
             network?: {
                 colleagues: components["schemas"]["PersonNetworkColleague"][];
@@ -7493,6 +7495,68 @@ export interface components {
             /** @description The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`. */
             profile_fields?: components["schemas"]["PersonProfileField"][];
             since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
+        };
+        /**
+         * @description One reason this contact is worth attention now, with the evidence behind it.
+         *
+         *     Every moment in this version is DETERMINISTIC: derived from captured activity by a
+         *     rule, never asserted by a model. That is what lets every one of them carry evidence a
+         *     reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
+         *     the softer values a later inferred source would need, and nothing produces them yet.
+         */
+        PersonMoment: {
+            /** @description The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow. */
+            claim_key: string;
+            /**
+             * @description `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+             * @enum {string}
+             */
+            kind: "replied_after_gap" | "unanswered_inbound" | "meeting_ahead" | "task_overdue" | "went_quiet";
+            /** @description The reason in one line, written from the evidence — never a model's paraphrase of it. */
+            headline: string;
+            /** @description What makes it timely rather than merely true. A moment that would read the same next month is not a moment. */
+            why_now: string;
+            /**
+             * @description `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+             * @enum {string}
+             */
+            confidence: "observed_fact" | "high" | "medium";
+            /**
+             * Format: date-time
+             * @description When the fact behind this moment happened, so a reader can judge its age themselves.
+             */
+            freshness_at?: string;
+            /** @description What the moment is derived from. Never empty — a reason with no evidence is an opinion. */
+            evidence: components["schemas"]["PersonMomentEvidence"][];
+            recommended_action: components["schemas"]["PersonMomentAction"];
+            secondary_actions?: components["schemas"]["PersonMomentAction"][];
+        };
+        /** @description One thing that actually happened, which the reader can open. */
+        PersonMomentEvidence: {
+            /** @enum {string} */
+            type: "activity" | "task" | "relationship_change";
+            /**
+             * Format: uuid
+             * @description The record to open. Absent when the evidence is a derived fact rather than a row.
+             */
+            id?: string;
+            label: string;
+            /** @description A verbatim excerpt of the evidence, never a summary of it. */
+            snippet?: string;
+            /** Format: date-time */
+            observed_at?: string;
+        };
+        /** @description What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click. */
+        PersonMomentAction: {
+            /** @enum {string} */
+            kind: "draft_reply" | "schedule_meeting" | "complete_task" | "log_activity" | "open_record";
+            label: string;
+            /**
+             * @description `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+             * @enum {string}
+             */
+            state: "available" | "will_confirm" | "blocked";
+            blocked_reason?: string;
         };
         /** @description A human's verdict on one derived claim. */
         AIFeedbackInput: {

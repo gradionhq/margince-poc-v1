@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -43,14 +44,23 @@ type Service struct {
 	pool    *pgxpool.Pool
 	people  *people.Store
 	consent *consent.Store
-	now     func() time.Time
+	// feedback is the correction ledger, consulted so a moment a human
+	// dismissed does not come back.
+	feedback *ai.FeedbackStore
+	now      func() time.Time
 }
 
 // NewService binds the composite read to its module stores. now is the
 // injected clock — a test pins a fixed instant so a strength half-life
 // cannot flake between seeding and reading.
-func NewService(pool *pgxpool.Pool, peopleStore *people.Store, consentStore *consent.Store, now func() time.Time) *Service {
-	return &Service{pool: pool, people: peopleStore, consent: consentStore, now: now}
+func NewService(
+	pool *pgxpool.Pool,
+	peopleStore *people.Store,
+	consentStore *consent.Store,
+	feedbackStore *ai.FeedbackStore,
+	now func() time.Time,
+) *Service {
+	return &Service{pool: pool, people: peopleStore, consent: consentStore, feedback: feedbackStore, now: now}
 }
 
 // Assemble reads the whole person page inside ONE workspace transaction.
@@ -128,6 +138,13 @@ func (s *Service) sections(personID ids.PersonID, now time.Time) []section {
 		}},
 		{name: crmcontracts.Person360SectionsOmittedSinceLastVisit, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
 			return s.sinceLastVisitSection(ctx, tx, personID, out)
+		}},
+		// LAST, and it has to be: the moments are derived from what the
+		// sections above gathered, so a moment can never cite evidence this
+		// page is not showing, and a section withheld for want of a grant
+		// contributes no moments rather than leaking through one.
+		{name: crmcontracts.Person360SectionsOmittedMoments, read: func(ctx context.Context, tx pgx.Tx, out *crmcontracts.Person360) error {
+			return s.momentsSection(ctx, tx, personID, now, out)
 		}},
 	}
 }

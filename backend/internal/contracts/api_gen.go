@@ -3077,16 +3077,16 @@ func (e EnrichmentProposalStatus) Valid() bool {
 
 // Defines values for ExtractedFieldConfidence.
 const (
-	High   ExtractedFieldConfidence = "high"
-	Medium ExtractedFieldConfidence = "medium"
+	ExtractedFieldConfidenceHigh   ExtractedFieldConfidence = "high"
+	ExtractedFieldConfidenceMedium ExtractedFieldConfidence = "medium"
 )
 
 // Valid indicates whether the value is a known member of the ExtractedFieldConfidence enum.
 func (e ExtractedFieldConfidence) Valid() bool {
 	switch e {
-	case High:
+	case ExtractedFieldConfidenceHigh:
 		return true
-	case Medium:
+	case ExtractedFieldConfidenceMedium:
 		return true
 	default:
 		return false
@@ -4124,19 +4124,19 @@ func (e Organization360StateStripSignalSeverity) Valid() bool {
 
 // Defines values for Organization360SuggestionActionKind.
 const (
-	AddTask    Organization360SuggestionActionKind = "add_task"
-	DraftReply Organization360SuggestionActionKind = "draft_reply"
-	OpenDeal   Organization360SuggestionActionKind = "open_deal"
+	Organization360SuggestionActionKindAddTask    Organization360SuggestionActionKind = "add_task"
+	Organization360SuggestionActionKindDraftReply Organization360SuggestionActionKind = "draft_reply"
+	Organization360SuggestionActionKindOpenDeal   Organization360SuggestionActionKind = "open_deal"
 )
 
 // Valid indicates whether the value is a known member of the Organization360SuggestionActionKind enum.
 func (e Organization360SuggestionActionKind) Valid() bool {
 	switch e {
-	case AddTask:
+	case Organization360SuggestionActionKindAddTask:
 		return true
-	case DraftReply:
+	case Organization360SuggestionActionKindDraftReply:
 		return true
-	case OpenDeal:
+	case Organization360SuggestionActionKindOpenDeal:
 		return true
 	default:
 		return false
@@ -4927,6 +4927,7 @@ const (
 	Person360SectionsOmittedDealRoles           Person360SectionsOmitted = "deal_roles"
 	Person360SectionsOmittedEmployments         Person360SectionsOmitted = "employments"
 	Person360SectionsOmittedLastTouch           Person360SectionsOmitted = "last_touch"
+	Person360SectionsOmittedMoments             Person360SectionsOmitted = "moments"
 	Person360SectionsOmittedNetwork             Person360SectionsOmitted = "network"
 	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
 	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
@@ -4947,6 +4948,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedEmployments:
 		return true
 	case Person360SectionsOmittedLastTouch:
+		return true
+	case Person360SectionsOmittedMoments:
 		return true
 	case Person360SectionsOmittedNetwork:
 		return true
@@ -5001,6 +5004,123 @@ func (e PersonEmailEmailType) Valid() bool {
 	case PersonEmailEmailTypePersonal:
 		return true
 	case PersonEmailEmailTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentConfidence.
+const (
+	PersonMomentConfidenceHigh         PersonMomentConfidence = "high"
+	PersonMomentConfidenceMedium       PersonMomentConfidence = "medium"
+	PersonMomentConfidenceObservedFact PersonMomentConfidence = "observed_fact"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentConfidence enum.
+func (e PersonMomentConfidence) Valid() bool {
+	switch e {
+	case PersonMomentConfidenceHigh:
+		return true
+	case PersonMomentConfidenceMedium:
+		return true
+	case PersonMomentConfidenceObservedFact:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentKind.
+const (
+	PersonMomentKindMeetingAhead      PersonMomentKind = "meeting_ahead"
+	PersonMomentKindRepliedAfterGap   PersonMomentKind = "replied_after_gap"
+	PersonMomentKindTaskOverdue       PersonMomentKind = "task_overdue"
+	PersonMomentKindUnansweredInbound PersonMomentKind = "unanswered_inbound"
+	PersonMomentKindWentQuiet         PersonMomentKind = "went_quiet"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentKind enum.
+func (e PersonMomentKind) Valid() bool {
+	switch e {
+	case PersonMomentKindMeetingAhead:
+		return true
+	case PersonMomentKindRepliedAfterGap:
+		return true
+	case PersonMomentKindTaskOverdue:
+		return true
+	case PersonMomentKindUnansweredInbound:
+		return true
+	case PersonMomentKindWentQuiet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentActionKind.
+const (
+	PersonMomentActionKindCompleteTask    PersonMomentActionKind = "complete_task"
+	PersonMomentActionKindDraftReply      PersonMomentActionKind = "draft_reply"
+	PersonMomentActionKindLogActivity     PersonMomentActionKind = "log_activity"
+	PersonMomentActionKindOpenRecord      PersonMomentActionKind = "open_record"
+	PersonMomentActionKindScheduleMeeting PersonMomentActionKind = "schedule_meeting"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentActionKind enum.
+func (e PersonMomentActionKind) Valid() bool {
+	switch e {
+	case PersonMomentActionKindCompleteTask:
+		return true
+	case PersonMomentActionKindDraftReply:
+		return true
+	case PersonMomentActionKindLogActivity:
+		return true
+	case PersonMomentActionKindOpenRecord:
+		return true
+	case PersonMomentActionKindScheduleMeeting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentActionState.
+const (
+	PersonMomentActionStateAvailable   PersonMomentActionState = "available"
+	PersonMomentActionStateBlocked     PersonMomentActionState = "blocked"
+	PersonMomentActionStateWillConfirm PersonMomentActionState = "will_confirm"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentActionState enum.
+func (e PersonMomentActionState) Valid() bool {
+	switch e {
+	case PersonMomentActionStateAvailable:
+		return true
+	case PersonMomentActionStateBlocked:
+		return true
+	case PersonMomentActionStateWillConfirm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonMomentEvidenceType.
+const (
+	PersonMomentEvidenceTypeActivity           PersonMomentEvidenceType = "activity"
+	PersonMomentEvidenceTypeRelationshipChange PersonMomentEvidenceType = "relationship_change"
+	PersonMomentEvidenceTypeTask               PersonMomentEvidenceType = "task"
+)
+
+// Valid indicates whether the value is a known member of the PersonMomentEvidenceType enum.
+func (e PersonMomentEvidenceType) Valid() bool {
+	switch e {
+	case PersonMomentEvidenceTypeActivity:
+		return true
+	case PersonMomentEvidenceTypeRelationshipChange:
+		return true
+	case PersonMomentEvidenceTypeTask:
 		return true
 	default:
 		return false
@@ -5123,22 +5243,22 @@ func (e PersonRelationshipChangeFromBucket) Valid() bool {
 
 // Defines values for PersonRelationshipChangeKind.
 const (
-	Cooled          PersonRelationshipChangeKind = "cooled"
-	RepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
-	Warmed          PersonRelationshipChangeKind = "warmed"
-	WentQuiet       PersonRelationshipChangeKind = "went_quiet"
+	PersonRelationshipChangeKindCooled          PersonRelationshipChangeKind = "cooled"
+	PersonRelationshipChangeKindRepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
+	PersonRelationshipChangeKindWarmed          PersonRelationshipChangeKind = "warmed"
+	PersonRelationshipChangeKindWentQuiet       PersonRelationshipChangeKind = "went_quiet"
 )
 
 // Valid indicates whether the value is a known member of the PersonRelationshipChangeKind enum.
 func (e PersonRelationshipChangeKind) Valid() bool {
 	switch e {
-	case Cooled:
+	case PersonRelationshipChangeKindCooled:
 		return true
-	case RepliedAfterGap:
+	case PersonRelationshipChangeKindRepliedAfterGap:
 		return true
-	case Warmed:
+	case PersonRelationshipChangeKindWarmed:
 		return true
-	case WentQuiet:
+	case PersonRelationshipChangeKindWentQuiet:
 		return true
 	default:
 		return false
@@ -6668,25 +6788,25 @@ func (e VoiceBuildStage) Valid() bool {
 
 // Defines values for VoiceBuildStatus.
 const (
-	VoiceBuildStatusDeferred  VoiceBuildStatus = "deferred"
-	VoiceBuildStatusFailed    VoiceBuildStatus = "failed"
-	VoiceBuildStatusQueued    VoiceBuildStatus = "queued"
-	VoiceBuildStatusRunning   VoiceBuildStatus = "running"
-	VoiceBuildStatusSucceeded VoiceBuildStatus = "succeeded"
+	Deferred  VoiceBuildStatus = "deferred"
+	Failed    VoiceBuildStatus = "failed"
+	Queued    VoiceBuildStatus = "queued"
+	Running   VoiceBuildStatus = "running"
+	Succeeded VoiceBuildStatus = "succeeded"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatus enum.
 func (e VoiceBuildStatus) Valid() bool {
 	switch e {
-	case VoiceBuildStatusDeferred:
+	case Deferred:
 		return true
-	case VoiceBuildStatusFailed:
+	case Failed:
 		return true
-	case VoiceBuildStatusQueued:
+	case Queued:
 		return true
-	case VoiceBuildStatusRunning:
+	case Running:
 		return true
-	case VoiceBuildStatusSucceeded:
+	case Succeeded:
 		return true
 	default:
 		return false
@@ -6695,31 +6815,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -12813,6 +12933,9 @@ type Person360 struct {
 	// LastOutboundAt When we last wrote to them. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question.
 	LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
 
+	// Moments Why this contact is worth attention NOW, most consequential first, at most five. Deterministic and computed at read from captured data — a moment is a reason with its evidence attached, not a model's opinion. A moment a human dismissed does not come back: the verdict lives in `ai_feedback` keyed on `claim_key` below.
+	Moments *[]PersonMoment `json:"moments,omitempty"`
+
 	// Network The colleagues who know this contact, warmest first — who to ask.
 	Network *struct {
 		Colleagues []PersonNetworkColleague `json:"colleagues"`
@@ -12927,6 +13050,76 @@ type PersonListResponse struct {
 	Data []Person `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// PersonMoment One reason this contact is worth attention now, with the evidence behind it.
+//
+// Every moment in this version is DETERMINISTIC: derived from captured activity by a
+// rule, never asserted by a model. That is what lets every one of them carry evidence a
+// reader can open, and why `confidence` is `observed_fact` throughout — the enum admits
+// the softer values a later inferred source would need, and nothing produces them yet.
+type PersonMoment struct {
+	// ClaimKey The stable identity of this moment as a claim. Pass it to `POST /ai/feedback` as `claim_path` to dismiss it — keyed on what the moment is ABOUT, so a dismissal survives the evidence moving and the moment being re-derived tomorrow.
+	ClaimKey string `json:"claim_key"`
+
+	// Confidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+	Confidence PersonMomentConfidence `json:"confidence"`
+
+	// Evidence What the moment is derived from. Never empty — a reason with no evidence is an opinion.
+	Evidence []PersonMomentEvidence `json:"evidence"`
+
+	// FreshnessAt When the fact behind this moment happened, so a reader can judge its age themselves.
+	FreshnessAt *time.Time `json:"freshness_at,omitempty"`
+
+	// Headline The reason in one line, written from the evidence — never a model's paraphrase of it.
+	Headline string `json:"headline"`
+
+	// Kind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+	Kind PersonMomentKind `json:"kind"`
+
+	// RecommendedAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+	RecommendedAction PersonMomentAction    `json:"recommended_action"`
+	SecondaryActions  *[]PersonMomentAction `json:"secondary_actions,omitempty"`
+
+	// WhyNow What makes it timely rather than merely true. A moment that would read the same next month is not a moment.
+	WhyNow string `json:"why_now"`
+}
+
+// PersonMomentConfidence `observed_fact` is a thing that happened; the softer values exist for sources that infer rather than observe.
+type PersonMomentConfidence string
+
+// PersonMomentKind `replied_after_gap` — they answered after a long silence. `unanswered_inbound` — they wrote and nobody has written back. `meeting_ahead` — a meeting with them is coming. `task_overdue` — a next step filed against them has passed its date. `went_quiet` — an established relationship stopped.
+type PersonMomentKind string
+
+// PersonMomentAction What to do about it, with an honest state — an action the caller cannot take says so rather than failing on click.
+type PersonMomentAction struct {
+	BlockedReason *string                `json:"blocked_reason,omitempty"`
+	Kind          PersonMomentActionKind `json:"kind"`
+	Label         string                 `json:"label"`
+
+	// State `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+	State PersonMomentActionState `json:"state"`
+}
+
+// PersonMomentActionKind defines model for PersonMomentAction.Kind.
+type PersonMomentActionKind string
+
+// PersonMomentActionState `available` proceeds. `will_confirm` stages a 🟡 approval first. `blocked` cannot proceed, and `blocked_reason` says why.
+type PersonMomentActionState string
+
+// PersonMomentEvidence One thing that actually happened, which the reader can open.
+type PersonMomentEvidence struct {
+	// Id The record to open. Absent when the evidence is a derived fact rather than a row.
+	Id         *openapi_types.UUID `json:"id,omitempty"`
+	Label      string              `json:"label"`
+	ObservedAt *time.Time          `json:"observed_at,omitempty"`
+
+	// Snippet A verbatim excerpt of the evidence, never a summary of it.
+	Snippet *string                  `json:"snippet,omitempty"`
+	Type    PersonMomentEvidenceType `json:"type"`
+}
+
+// PersonMomentEvidenceType defines model for PersonMomentEvidence.Type.
+type PersonMomentEvidenceType string
 
 // PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
 // a presentation detail: it is who to ask.

@@ -256,7 +256,7 @@ var _ crmcontracts.ServerInterface = Server{}
 // list of what is wired rather than how each piece is built.
 func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
 	srv.person360Handlers = person360.NewHandlers(
-		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), time.Now),
+		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), ai.NewFeedbackStore(pool), time.Now),
 		srv.sorDispatch.isOverlay,
 	)
 }
