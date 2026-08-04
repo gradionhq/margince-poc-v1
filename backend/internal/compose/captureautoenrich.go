@@ -71,7 +71,6 @@ func (CaptureAutoEnrichSweepArgs) FleetWide() {}
 
 // captureAutoEnrichSweepWorker runs one sweep pass across every workspace.
 type captureAutoEnrichSweepWorker struct {
-	river.WorkerDefaults[CaptureAutoEnrichSweepArgs]
 	pool       *pgxpool.Pool
 	people     *people.Store
 	settings   *capture.SettingsStore
@@ -115,7 +114,6 @@ func (a CaptureAutoEnrichWorkspaceArgs) WorkspaceID() ids.UUID { return a.Worksp
 // dispatcher's wiring rather than a second copy: the stores, the daily cap and
 // the actor are the pass's, not the fan-out's.
 type captureAutoEnrichWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureAutoEnrichWorkspaceArgs]
 	sweeper *captureAutoEnrichSweepWorker
 }
 

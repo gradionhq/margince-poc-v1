@@ -42,7 +42,6 @@ func (OverlayReconcileArgs) FleetWide() {}
 // drives via capture.Registry.DueConnections) and enqueues one reconcile per
 // due connection. It sweeps nothing itself.
 type overlayReconcileWorker struct {
-	river.WorkerDefaults[OverlayReconcileArgs]
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
@@ -134,7 +133,6 @@ func (a OverlayReconcileWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 // hardcoded hubspot.NewAdapter) so the whole sweep is drivable against a
 // fake incumbent in a test.
 type overlayReconcileWorkspaceWorker struct {
-	river.WorkerDefaults[OverlayReconcileWorkspaceArgs]
 	pool         *pgxpool.Pool
 	vault        keyvault.Vault
 	ms           *overlay.MirrorStore

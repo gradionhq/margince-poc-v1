@@ -10,9 +10,9 @@ import "time"
 const JobContractHash = "ca4e15c4e69932ea9dadfefe5aadf6fad7c2b7ab0c2a65d510a1f9f99f6bc757"
 
 // specs is every declared kind. A kind absent from this table is a kind
-// nobody declared, and MustBeTotal is what names them — nothing calls it
-// yet, so today that is a report a caller can ask for rather than a boot
-// the runner refuses.
+// nobody declared, and MustBeTotal is what names them: the runner calls it
+// over the kinds it registered and refuses the boot when any is missing,
+// because a kind with no Spec would run at River's one-minute default.
 var specs = map[string]Spec{
 	"agent_scheduler": {
 		Kind:         "agent_scheduler",

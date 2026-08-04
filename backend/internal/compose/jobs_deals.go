@@ -78,7 +78,6 @@ const dealsSweepMaxAttempts = 5
 // closeDateSweepWorker is the dispatcher: it enumerates and enqueues, and
 // touches no tenant data itself.
 type closeDateSweepWorker struct {
-	river.WorkerDefaults[CloseDateSweepArgs]
 	pool *pgxpool.Pool
 }
 
@@ -90,7 +89,6 @@ func (w *closeDateSweepWorker) Work(ctx context.Context, _ *river.Job[CloseDateS
 
 // closeDateWorkspaceWorker runs one workspace's pass.
 type closeDateWorkspaceWorker struct {
-	river.WorkerDefaults[CloseDateWorkspaceArgs]
 	corrector *deals.CloseDateCorrector
 }
 
@@ -106,7 +104,6 @@ func (w *closeDateWorkspaceWorker) Work(ctx context.Context, job *river.Job[Clos
 
 // followUpReconcileWorker is the dispatcher for the overnight pass.
 type followUpReconcileWorker struct {
-	river.WorkerDefaults[FollowUpReconcileArgs]
 	pool *pgxpool.Pool
 }
 
@@ -118,7 +115,6 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 
 // followUpWorkspaceWorker runs one workspace's overnight pass.
 type followUpWorkspaceWorker struct {
-	river.WorkerDefaults[FollowUpWorkspaceArgs]
 	reconciler *deals.FollowUpReconciler
 }
 

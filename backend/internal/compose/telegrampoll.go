@@ -80,15 +80,15 @@ const (
 // handed. A nil api takes the real Bot API client — the acceptance suites pass a
 // fake, because a poller left on the real client would reach api.telegram.org from
 // a test run.
-func registerTelegramPoll(workers *river.Workers, periodic []*river.PeriodicJob, pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) []*river.PeriodicJob {
+func registerTelegramPoll(reg *jobRegistry, periodic []*river.PeriodicJob, pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) []*river.PeriodicJob {
 	if vault == nil {
 		return periodic
 	}
 	if api == nil {
 		api = telegram.NewAPI(nil, "")
 	}
-	river.AddWorker(workers, &telegramPollSweepWorker{pool: pool, log: log})
-	river.AddWorker(workers, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log))
+	addGovernedWorker[TelegramPollSweepArgs](reg, &telegramPollSweepWorker{pool: pool, log: log}, 0)
+	addGovernedWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log), 0)
 	return append(periodic, river.NewPeriodicJob(
 		river.PeriodicInterval(telegramPollSweepInterval),
 		func() (river.JobArgs, *river.InsertOpts) { return TelegramPollSweepArgs{}, sweepInsertOpts() },
@@ -142,7 +142,6 @@ func (TelegramPollArgs) InsertOpts() river.InsertOpts {
 // fleet-enumeration failure is returned, so River retries the tick rather than
 // the fleet silently going unpolled.
 type telegramPollSweepWorker struct {
-	river.WorkerDefaults[TelegramPollSweepArgs]
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
@@ -199,7 +198,6 @@ func (ambientTelegramEnqueuer) EnqueueTx(ctx context.Context, tx pgx.Tx, args ri
 // the live Bot API, and inserter is the narrow enqueue slice (telegramEnqueuer)
 // so a test can fail the enqueue INSIDE the real transaction.
 type telegramPollWorker struct {
-	river.WorkerDefaults[TelegramPollArgs]
 	pool     *pgxpool.Pool
 	vault    keyvault.Vault
 	api      telegram.API
@@ -209,12 +207,6 @@ type telegramPollWorker struct {
 
 func newTelegramPollWorker(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, inserter telegramEnqueuer, log *slog.Logger) *telegramPollWorker {
 	return &telegramPollWorker{pool: pool, vault: vault, api: api, inserter: inserter, log: log}
-}
-
-// Timeout overrides River's one-minute default so a long poll is never cancelled
-// by the job that is running it. See telegramPollJobTimeout.
-func (*telegramPollWorker) Timeout(*river.Job[TelegramPollArgs]) time.Duration {
-	return telegramPollJobTimeout
 }
 
 // Work resolves the connection, long-polls it, and persists what came back.

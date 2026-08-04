@@ -79,7 +79,7 @@ type AgentSchedulerConfig struct {
 // dispatcher's periodic schedule for the caller to append. A non-positive
 // interval registers the workers but no schedule, for periodicWhenPositive's
 // reasons.
-func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
+func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.AgentScheduler.Service == nil {
 		return nil
 	}
@@ -87,8 +87,8 @@ func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRu
 	if now == nil {
 		now = time.Now
 	}
-	river.AddWorker(workers, &agentSchedulerWorker{pool: pool})
-	river.AddWorker(workers, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
+	addGovernedWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool}, 0)
+	addGovernedWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now}, 0)
 	return periodicWhenPositive(cfg.AgentScheduler.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
 		// Run-on-start because a restart must not add a whole interval to a due
@@ -111,7 +111,6 @@ func (AgentSchedulerArgs) FleetWide() {}
 // only: an archived tenant has nobody to read a morning brief, so seeding one
 // would spend model budget producing a report no one will open.
 type agentSchedulerWorker struct {
-	river.WorkerDefaults[AgentSchedulerArgs]
 	pool *pgxpool.Pool
 }
 
@@ -134,13 +133,8 @@ func (a AgentSchedulerWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace
 
 // agentSchedulerWorkspaceWorker ticks one workspace.
 type agentSchedulerWorkspaceWorker struct {
-	river.WorkerDefaults[AgentSchedulerWorkspaceArgs]
 	svc *RunnerService
 	now func() time.Time
-}
-
-func (w *agentSchedulerWorkspaceWorker) Timeout(*river.Job[AgentSchedulerWorkspaceArgs]) time.Duration {
-	return agentSchedulerPassTimeout
 }
 
 // Work binds the tenant and nothing else: each claimed job resolves its own

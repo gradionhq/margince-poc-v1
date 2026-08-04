@@ -53,7 +53,6 @@ func (LinkedInRematchArgs) FleetWide() {}
 const linkedInRematchInterval = time.Hour
 
 type linkedInRematchWorker struct {
-	river.WorkerDefaults[LinkedInRematchArgs]
 	pool      *pgxpool.Pool
 	store     *people.Store
 	authority authz.Resolver
@@ -86,7 +85,6 @@ func (a LinkedInRematchWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspac
 // linkedInRematchWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type linkedInRematchWorkspaceWorker struct {
-	river.WorkerDefaults[LinkedInRematchWorkspaceArgs]
 	*linkedInRematchWorker
 }
 

@@ -73,7 +73,7 @@ type PrivacyRetentionConfig struct {
 // A non-positive interval registers the workers but no schedule; the reasoning
 // for that split, and for why it cannot reach a deployment that owes the
 // storage-limitation obligation, is periodicWhenPositive's.
-func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
+func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
 	// Retention removes the interactions the relationship graph is folded
 	// from, so it carries the fold with it — in the same transaction, not on
 	// the bus. Without the blobstore its erase action leaves the attachment
@@ -83,8 +83,8 @@ func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg Job
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})
-	river.AddWorker(workers, &privacyRetentionWorker{pool: pool})
-	river.AddWorker(workers, &privacyRetentionWorkspaceWorker{retention: retention})
+	addGovernedWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool}, 0)
+	addGovernedWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention}, 0)
 	return periodicWhenPositive(cfg.PrivacyRetention.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return PrivacyRetentionArgs{}, sweepInsertOpts() },
 		// Run-on-start because the interval is an operator's dial and a
@@ -109,7 +109,6 @@ func (PrivacyRetentionArgs) FleetWide() {}
 // data inside it, and storage limitation is owed on the tenants nobody looks at
 // any more exactly as much as on the ones in daily use.
 type privacyRetentionWorker struct {
-	river.WorkerDefaults[PrivacyRetentionArgs]
 	pool *pgxpool.Pool
 }
 
@@ -136,12 +135,7 @@ func (a PrivacyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 
 // privacyRetentionWorkspaceWorker evaluates one workspace.
 type privacyRetentionWorkspaceWorker struct {
-	river.WorkerDefaults[PrivacyRetentionWorkspaceArgs]
 	retention *privacy.RetentionService
-}
-
-func (w *privacyRetentionWorkspaceWorker) Timeout(*river.Job[PrivacyRetentionWorkspaceArgs]) time.Duration {
-	return privacyRetentionPassTimeout
 }
 
 func (w *privacyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[PrivacyRetentionWorkspaceArgs]) error {

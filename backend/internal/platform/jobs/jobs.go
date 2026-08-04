@@ -13,10 +13,13 @@
 // workers, and schedules the periodic jobs. So platform never learns what
 // a worker does.
 //
-// The declaration is not yet what the runtime OBEYS. Each worker still
-// answers River's option methods for itself, so the Spec table and a
-// worker can still disagree about what a kind costs; the adapter that
-// makes the file the sole authority arrives with Govern.
+// The declaration is what the runtime OBEYS for a job's timeout. Govern
+// wraps a worker in a type River reaches only through Work, so a worker
+// cannot answer for its own wall clock and the file is the sole authority
+// on it. What the declaration does not yet BIND is registration: a kind
+// the file has never heard of can still be registered, which is why the
+// composition layer asserts totality (MustBeTotal) at boot rather than
+// relying on the compiler to refuse one.
 //
 // It owns no domain either way. The boundary with the bus is deliberate:
 // an event announces that something happened (outbox); a job asks for

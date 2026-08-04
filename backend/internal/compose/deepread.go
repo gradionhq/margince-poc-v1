@@ -89,7 +89,6 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // with no model path it fails the read honestly instead of leaving it
 // queued forever.
 type siteDeepReadWorker struct {
-	river.WorkerDefaults[SiteDeepReadArgs]
 	people  *people.Store
 	crawler *siteCrawler
 	extract evidenceExtractor
@@ -153,14 +152,22 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 // escalate headroom.
 const extractLaneBudget = 90 * time.Second
 
-// Timeout overrides River's 1-minute default: the crawl wall, plus the
-// parallel extraction budget, plus the logo lane's own bounded spend, plus a
-// minute for the staging and dossier writes — floored at eight minutes so a
-// tightened cap never squeezes the terminal writes. Every lane that can hold
-// the job is counted here, or a slow one silently eats the allowance the
-// terminal write depends on.
-func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + extractLaneBudget + logoLaneBudget + time.Minute
+// deepReadTimeout is the one declared timeout in the tree that cannot be a
+// number in api/jobs.yaml: the crawl wall is an operator's, so the file
+// declares {operator: DeepReadCaps} and the value is computed here and handed
+// over at registration.
+//
+// It is the crawl wall, plus the parallel extraction budget, plus the logo
+// lane's own bounded spend, plus a minute for the staging and dossier writes —
+// floored at eight minutes so a tightened cap never squeezes the terminal
+// writes. Every lane that can hold the job is counted here, or a slow one
+// silently eats the allowance the terminal write depends on.
+//
+// It defaults the caps first, so a caller passing the zero CrawlCaps gets the
+// budget the crawler will actually spend rather than one derived from a wall
+// of zero.
+func deepReadTimeout(caps CrawlCaps) time.Duration {
+	budget := caps.withDefaults().Wall + extractLaneBudget + logoLaneBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}
@@ -171,7 +178,7 @@ func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration
 // A replacement worker may reclaim only after the prior worker has exceeded
 // both its configured crawl budget and the time reserved to close the dossier.
 func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
-	return w.Timeout(nil) + time.Minute
+	return deepReadTimeout(w.caps) + time.Minute
 }
 
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {

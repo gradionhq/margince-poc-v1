@@ -35,7 +35,6 @@ func (IdempotencyRetentionArgs) FleetWide() {}
 // snapshots inside a workspace, and idempotency_key.workspace_id is
 // ON DELETE RESTRICT, so leftovers would also refuse the eventual hard delete.
 type idempotencyRetentionWorker struct {
-	river.WorkerDefaults[IdempotencyRetentionArgs]
 	pool *pgxpool.Pool
 }
 
@@ -62,7 +61,6 @@ func (a IdempotencyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Wor
 
 // idempotencyRetentionWorkspaceWorker purges one workspace.
 type idempotencyRetentionWorkspaceWorker struct {
-	river.WorkerDefaults[IdempotencyRetentionWorkspaceArgs]
 	sweeper *IdempotencyRetentionSweeper
 }
 

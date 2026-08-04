@@ -63,10 +63,10 @@ import (
 )
 
 // fleetWideDispatcherFloor guards against a vacuous pass. This gate resolves an
-// association across two types — args declare FleetWide, a separate worker
-// embeds river.WorkerDefaults[Args] and owns Work — so a walker that matched no
-// files, or a resolution step that silently stopped associating the two, would
-// inspect nothing and report green. The tree declares 23 FleetWide args types
+// association across two types — args declare FleetWide, a separate worker owns
+// a Work over *river.Job[Args] — so a walker that matched no files, or a
+// resolution step that silently stopped associating the two, would inspect
+// nothing and report green. The tree declares 23 FleetWide args types
 // today, every one of them resolving to a worker; the floor sits at 20 so
 // retiring a pass or two does not drag the gate along, while any wholesale
 // failure to resolve still trips it.
@@ -119,41 +119,56 @@ func fleetWideArgsTypes(files []*ast.File) map[string]bool {
 }
 
 // workerByArgs maps an args type name to the worker type that works it, read
-// off the embedded river.WorkerDefaults[Args]. This is the association a
-// method-name index cannot make: the marker is on the args, the behaviour is on
-// the worker, and the generic embed is the only thing joining them.
+// off the Work method's own *river.Job[Args] parameter. This is the
+// association a method-name index cannot make: the marker is on the args, the
+// behaviour is on the worker, and that generic parameter is the only thing
+// joining them — a worker embeds nothing now that jobs.Govern supplies River's
+// option methods, so the Work signature is the whole of what names its kind.
 func workerByArgs(files []*ast.File) map[string]string {
 	byArgs := map[string]string{}
 	for _, file := range files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			spec, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "Work" {
+				continue
 			}
-			structType, ok := spec.Type.(*ast.StructType)
-			if !ok {
-				return true
+			recv := receiverTypeName(fn)
+			if recv == "" {
+				continue
 			}
-			for _, field := range structType.Fields.List {
-				if len(field.Names) > 0 {
-					continue
-				}
-				index, ok := field.Type.(*ast.IndexExpr)
-				if !ok {
-					continue
-				}
-				sel, ok := index.X.(*ast.SelectorExpr)
-				if !ok || sel.Sel.Name != "WorkerDefaults" {
-					continue
-				}
-				if args, ok := index.Index.(*ast.Ident); ok {
-					byArgs[args.Name] = spec.Name.Name
-				}
+			if args := riverJobParamType(fn); args != "" {
+				byArgs[args] = recv
 			}
-			return true
-		})
+		}
 	}
 	return byArgs
+}
+
+// riverJobParamType reads the T out of a Work method's *river.Job[T]
+// parameter, or "" when it has none — which is what a same-named method on
+// something that is not a River worker looks like.
+func riverJobParamType(fn *ast.FuncDecl) string {
+	if fn.Type.Params == nil {
+		return ""
+	}
+	for _, param := range fn.Type.Params.List {
+		star, ok := param.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		index, ok := star.X.(*ast.IndexExpr)
+		if !ok {
+			continue
+		}
+		sel, ok := index.X.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Job" {
+			continue
+		}
+		if args, ok := index.Index.(*ast.Ident); ok {
+			return args.Name
+		}
+	}
+	return ""
 }
 
 // methodDeclsByType indexes every method body by its receiver type, so the gate
@@ -359,7 +374,7 @@ func checkFleetWideDispatchers(t *testing.T, dir string) {
 	fset, files := parseGoFilesUnder(t, dir)
 	dispatchers, orphans := analyzeFleetWide(fset, files)
 	for _, args := range orphans {
-		t.Errorf("%s declares FleetWide() but no worker embeds river.WorkerDefaults[%s] with a Work method: a dispatcher nothing runs enqueues nothing, and every tenant it was to fan out to is silently never swept.", args, args)
+		t.Errorf("%s declares FleetWide() but no worker has a Work method over *river.Job[%s]: a dispatcher nothing runs enqueues nothing, and every tenant it was to fan out to is silently never swept.", args, args)
 	}
 	for _, d := range dispatchers {
 		if !d.fansOut {

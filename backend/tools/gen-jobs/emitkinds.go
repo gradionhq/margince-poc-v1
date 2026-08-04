@@ -50,8 +50,8 @@ func writeDeclaredSet(b *strings.Builder, c contract) {
 	b.WriteString("// else. A job kind the file has never heard of cannot satisfy it, so it\n")
 	b.WriteString("// cannot be passed to addDeclaredWorker below.\n")
 	b.WriteString("//\n")
-	b.WriteString("// Registration does not route through that function yet — the runner still\n")
-	b.WriteString("// calls river.AddWorker directly — so what the set buys today is a closed\n")
+	b.WriteString("// Registration does not route through that function yet — the runner has\n")
+	b.WriteString("// its own unconstrained helper — so what the set buys today is a closed\n")
 	b.WriteString("// list the compiler checks, not a gate every registration has to pass. The\n")
 	b.WriteString("// commit that routes registration through it is what makes an undeclared\n")
 	b.WriteString("// kind unbuildable.\n")
@@ -69,20 +69,21 @@ func writeDeclaredSet(b *strings.Builder, c contract) {
 
 // writeAddDeclaredWorker renders the single registration entry point.
 //
-// The body is still River's own AddWorker: the commit that introduces
-// jobs.Govern is what makes registration supply the declared timeout, and
-// narrowing the parameter to WorkOnly[T] before that adapter exists would be a
-// signature nothing can satisfy. What this commit already buys is the
-// constraint above — the set of types that may be registered is closed today.
+// The body is still River's own AddWorker. jobs.Govern now exists and the
+// runner's own helper already supplies the declared timeout through it; what
+// is left for the commit that adopts this function is to narrow the parameter
+// to jobs.WorkOnly[T] and make the closed constraint above the one every
+// registration has to pass.
 func writeAddDeclaredWorker(b *strings.Builder) {
 	b.WriteString("// addDeclaredWorker registers one worker for a DECLARED kind: its type\n")
 	b.WriteString("// parameter is constrained to the set above, so a kind api/jobs.yaml does\n")
 	b.WriteString("// not declare cannot be passed to it.\n")
 	b.WriteString("//\n")
-	b.WriteString("// It is not yet the only way in. The runner still calls river.AddWorker\n")
-	b.WriteString("// directly, so an undeclared kind can still be registered around this\n")
-	b.WriteString("// function; the commit that moves every registration onto it is what makes\n")
-	b.WriteString("// the declared set the set this build can actually work.\n")
+	b.WriteString("// It is not yet the only way in. The runner registers through a helper of\n")
+	b.WriteString("// its own whose type parameter is unconstrained, so an undeclared kind can\n")
+	b.WriteString("// still be registered around this function; the commit that moves every\n")
+	b.WriteString("// registration onto it is what makes the declared set the set this build\n")
+	b.WriteString("// can actually work.\n")
 	b.WriteString("func addDeclaredWorker[T declaredJobArgs](workers *river.Workers, w river.Worker[T]) {\n")
 	b.WriteString("\triver.AddWorker(workers, w)\n")
 	b.WriteString("}\n\n")

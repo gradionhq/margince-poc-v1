@@ -52,7 +52,6 @@ const graphEdgeReconcileInterval = 24 * time.Hour
 
 // graphEdgeReconcileWorker rebuilds the projection for every workspace.
 type graphEdgeReconcileWorker struct {
-	river.WorkerDefaults[GraphEdgeReconcileArgs]
 	pool  *pgxpool.Pool
 	store *search.Store
 	log   *slog.Logger
@@ -86,7 +85,6 @@ func (a GraphEdgeWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // graphEdgeWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type graphEdgeWorkspaceWorker struct {
-	river.WorkerDefaults[GraphEdgeWorkspaceArgs]
 	*graphEdgeReconcileWorker
 }
 

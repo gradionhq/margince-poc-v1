@@ -101,7 +101,6 @@ func WithVoiceBuildEnqueue(inserter *jobs.Runner) Option {
 
 // voiceBuildWorker drives one claimed build to a terminal state.
 type voiceBuildWorker struct {
-	river.WorkerDefaults[VoiceBuildArgs]
 	store *ai.VoiceStore
 	brain completer
 	log   *slog.Logger
@@ -110,11 +109,6 @@ type voiceBuildWorker struct {
 
 func newVoiceBuildWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger) *voiceBuildWorker {
 	return &voiceBuildWorker{store: ai.NewVoiceStore(pool), brain: brain, log: log, now: time.Now}
-}
-
-// Timeout overrides River's 1-minute default for the multi-call run.
-func (w *voiceBuildWorker) Timeout(*river.Job[VoiceBuildArgs]) time.Duration {
-	return voiceBuildTimeout
 }
 
 // reclaimAfter leaves a grace beyond the work timeout before a replacement
@@ -340,7 +334,6 @@ func modelNameOrUnrecorded(name string) string {
 // voiceBuildRetryWorker re-enqueues every due deferred build; the per-build
 // job's uniqueness makes a double offer harmless.
 type voiceBuildRetryWorker struct {
-	river.WorkerDefaults[VoiceBuildRetryArgs]
 	store *ai.VoiceStore
 	log   *slog.Logger
 }

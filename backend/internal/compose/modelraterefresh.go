@@ -362,7 +362,6 @@ func numberPassages(text string) string {
 }
 
 type aiModelRateRefreshWorker struct {
-	river.WorkerDefaults[AiModelRateRefreshArgs]
 	refresh modelCostRefresh
 }
 

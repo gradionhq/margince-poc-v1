@@ -106,12 +106,8 @@ var _ deliveryDispatcher = (*comms.Dispatcher)(nil)
 // It decides nothing itself: the dispatcher owns the gates, the policies, and
 // the row's state, and this is the adapter that keeps River out of comms.
 type commsSendWorker struct {
-	river.WorkerDefaults[SendEmailArgs]
 	dispatcher deliveryDispatcher
 }
-
-// Timeout gives one transmission room to finish over a live provider.
-func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { return sendTimeout }
 
 // SendWorkerContext is the scope one dispatch attempt runs under. RecordSent's
 // identity reconcile writes an audit row and an outbox event, and storekit

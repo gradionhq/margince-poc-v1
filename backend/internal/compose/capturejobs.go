@@ -37,7 +37,6 @@ func (CaptureClassifyArgs) FleetWide() {}
 
 // captureClassifyWorker is the dispatcher for the label pass.
 type captureClassifyWorker struct {
-	river.WorkerDefaults[CaptureClassifyArgs]
 	pool *pgxpool.Pool
 }
 
@@ -62,7 +61,6 @@ func (a CaptureClassifyWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspac
 // workspace; the engine commits per model call, so a mid-pass crash or budget
 // stop loses nothing and the next tick resumes from the shrunken backlog.
 type captureClassifyWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureClassifyWorkspaceArgs]
 	classifier *CaptureClassifier
 }
 
@@ -86,7 +84,6 @@ func (CaptureEnrichArgs) FleetWide() {}
 
 // captureEnrichWorker is the dispatcher for the signature-enrich pass.
 type captureEnrichWorker struct {
-	river.WorkerDefaults[CaptureEnrichArgs]
 	pool *pgxpool.Pool
 }
 
@@ -111,7 +108,6 @@ func (a CaptureEnrichWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace 
 // one workspace; every accepted field is auditable back to its verbatim
 // signature line.
 type captureEnrichWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureEnrichWorkspaceArgs]
 	enricher *CaptureEnricher
 }
 
@@ -135,7 +131,6 @@ func (OrgNamePromotionArgs) FleetWide() {}
 
 // orgNamePromotionWorker is the dispatcher for the corroborated-name sweep.
 type orgNamePromotionWorker struct {
-	river.WorkerDefaults[OrgNamePromotionArgs]
 	pool *pgxpool.Pool
 }
 
@@ -159,7 +154,6 @@ func (a OrgNamePromotionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 // orgNamePromotionWorkspaceWorker runs one workspace's pass: a database-only
 // walk over the org_name evidence the enrich job collects.
 type orgNamePromotionWorkspaceWorker struct {
-	river.WorkerDefaults[OrgNamePromotionWorkspaceArgs]
 	promoter *OrgNamePromoter
 }
 
@@ -185,7 +179,6 @@ func (CaptureDigestArgs) FleetWide() {}
 // captureDigestWorker assembles one digest per connected user per
 // workspace; a re-run replaces the day's payload (as-of-now truths).
 type captureDigestWorker struct {
-	river.WorkerDefaults[CaptureDigestArgs]
 	registry *capture.Registry
 	pool     *pgxpool.Pool
 	log      *slog.Logger
@@ -224,7 +217,6 @@ func (a CaptureDigestWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace 
 // GRANULARITY: one row per workspace instead of one joined error for the
 // fleet, and a retry that re-runs only the workspace that failed.
 type captureDigestWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureDigestWorkspaceArgs]
 	digests *captureDigestWorker
 }
 
@@ -257,7 +249,6 @@ func (a CaptureBackfillArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // (snooze) so a long mailbox never monopolizes a worker slot. A page error
 // returns nil after the engine recorded it — the run row owns its state.
 type captureBackfillWorker struct {
-	river.WorkerDefaults[CaptureBackfillArgs]
 	registry *capture.Registry
 	log      *slog.Logger
 }
@@ -276,11 +267,6 @@ const backfillPagesPerTick = 1
 // fail as a spurious "unreachable". (Matches the voice-build precedent of
 // overriding the default for a multi-call, network-bound job.)
 const backfillTimeout = 8 * time.Minute
-
-// Timeout gives one page-per-tick room to finish over a live mailbox.
-func (w *captureBackfillWorker) Timeout(*river.Job[CaptureBackfillArgs]) time.Duration {
-	return backfillTimeout
-}
 
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
 	bfID, err := ids.Parse(job.Args.BackfillID)
@@ -368,7 +354,6 @@ func (CounterpartyVerdictArgs) FleetWide() {}
 // picked up by the next tick, because the backlog is a query, not a queue this
 // worker holds.
 type counterpartyVerdictWorker struct {
-	river.WorkerDefaults[CounterpartyVerdictArgs]
 	pool *pgxpool.Pool
 }
 
@@ -399,7 +384,6 @@ func (a CounterpartyVerdictWorkspaceArgs) WorkspaceID() ids.UUID { return a.Work
 // so splitting them into separate jobs per workspace would break the ordering
 // the pass depends on.
 type counterpartyVerdictWorkspaceWorker struct {
-	river.WorkerDefaults[CounterpartyVerdictWorkspaceArgs]
 	engine *CounterpartyVerdictEngine
 }
 

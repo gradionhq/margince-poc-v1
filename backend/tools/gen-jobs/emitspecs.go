@@ -28,9 +28,9 @@ func emitSpecs(c contract, contractHash string) (string, error) {
 	fmt.Fprintf(&b, "const JobContractHash = %q\n\n", contractHash)
 
 	b.WriteString("// specs is every declared kind. A kind absent from this table is a kind\n")
-	b.WriteString("// nobody declared, and MustBeTotal is what names them — nothing calls it\n")
-	b.WriteString("// yet, so today that is a report a caller can ask for rather than a boot\n")
-	b.WriteString("// the runner refuses.\n")
+	b.WriteString("// nobody declared, and MustBeTotal is what names them: the runner calls it\n")
+	b.WriteString("// over the kinds it registered and refuses the boot when any is missing,\n")
+	b.WriteString("// because a kind with no Spec would run at River's one-minute default.\n")
 	b.WriteString("var specs = map[string]Spec{\n")
 	for _, name := range c.sortedKinds() {
 		writeSpec(&b, name, c.Kinds[name])

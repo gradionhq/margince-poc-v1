@@ -51,7 +51,6 @@ func (GmailSyncArgs) FleetWide() {}
 // already-queued sync is not double-enqueued; only a fleet-enumeration
 // failure is returned (so River retries the tick).
 type gmailSyncWorker struct {
-	river.WorkerDefaults[GmailSyncArgs]
 	registry *capture.Registry
 	log      *slog.Logger
 }
@@ -101,7 +100,6 @@ func (a CaptureSyncArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // sync failure returns nil after the registry has recorded it: the sidecar's
 // backoff owns the retry cadence (ADR-0063) — a River retry would bypass it.
 type captureSyncWorker struct {
-	river.WorkerDefaults[CaptureSyncArgs]
 	registry *capture.Registry
 	log      *slog.Logger
 }
@@ -145,7 +143,6 @@ func (GmailWatchArgs) FleetWide() {}
 // connection's problem, and per-connection jobs keep it from being read as the
 // tenant's.
 type gmailWatchWorker struct {
-	river.WorkerDefaults[GmailWatchArgs]
 	registry    *capture.Registry
 	renewWithin time.Duration
 	log         *slog.Logger
@@ -193,7 +190,6 @@ func (a GmailWatchRenewArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // watch_expires_at. A revoked mailbox fails its OWN row now, where before it
 // was logged and skipped inside a pass River recorded as completed.
 type gmailWatchRenewWorker struct {
-	river.WorkerDefaults[GmailWatchRenewArgs]
 	registry *capture.Registry
 	topic    string
 }

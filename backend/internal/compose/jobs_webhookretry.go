@@ -72,12 +72,12 @@ type WebhookRetryConfig struct {
 // addWebhookRetryJobs registers the retry workers and returns the dispatcher's
 // periodic schedule for the caller to append. A non-positive interval registers
 // the workers but no schedule, for periodicWhenPositive's reasons.
-func addWebhookRetryJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
+func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
-	river.AddWorker(workers, &webhookRetryWorker{pool: pool})
-	river.AddWorker(workers, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
+	addGovernedWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool}, 0)
+	addGovernedWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer}, 0)
 	return periodicWhenPositive(cfg.WebhookRetry.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
 		// Run-on-start because a restart must not add a whole interval to a
@@ -101,7 +101,6 @@ func (WebhookRetryArgs) FleetWide() {}
 // nobody is listening on any more, so re-attempting it spends outbound
 // attempts on work nobody wants.
 type webhookRetryWorker struct {
-	river.WorkerDefaults[WebhookRetryArgs]
 	pool *pgxpool.Pool
 }
 
@@ -127,12 +126,7 @@ func (a WebhookRetryWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // webhookRetryWorkspaceWorker sweeps one workspace.
 type webhookRetryWorkspaceWorker struct {
-	river.WorkerDefaults[WebhookRetryWorkspaceArgs]
 	deliverer *webhooks.Deliverer
-}
-
-func (w *webhookRetryWorkspaceWorker) Timeout(*river.Job[WebhookRetryWorkspaceArgs]) time.Duration {
-	return webhookRetrySweepTimeout
 }
 
 // Work binds the tenant and nothing else: the sweep re-sends deliveries that

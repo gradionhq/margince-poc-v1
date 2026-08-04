@@ -59,7 +59,6 @@ const participantBackfillInterval = 24 * time.Hour
 
 // participantBackfillWorker recovers participants for one workspace at a time.
 type participantBackfillWorker struct {
-	river.WorkerDefaults[ParticipantBackfillArgs]
 	pool  *pgxpool.Pool
 	store *activities.Store
 	log   *slog.Logger
@@ -93,7 +92,6 @@ func (a ParticipantBackfillWorkspaceArgs) WorkspaceID() ids.UUID { return a.Work
 // participantBackfillWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type participantBackfillWorkspaceWorker struct {
-	river.WorkerDefaults[ParticipantBackfillWorkspaceArgs]
 	*participantBackfillWorker
 }
 

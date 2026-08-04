@@ -46,7 +46,6 @@ func (EmbedDriftSweepArgs) FleetWide() {}
 // embedDriftSweepWorker is the dispatcher: it enumerates the fleet and
 // enqueues one sweep per workspace, and heals nothing itself.
 type embedDriftSweepWorker struct {
-	river.WorkerDefaults[EmbedDriftSweepArgs]
 	pool *pgxpool.Pool
 }
 
@@ -68,17 +67,9 @@ func (EmbedDriftWorkspaceArgs) Kind() string { return "embed_drift_workspace" }
 func (a EmbedDriftWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 type embedDriftWorkspaceWorker struct {
-	river.WorkerDefaults[EmbedDriftWorkspaceArgs]
 	store    *search.Store
 	embedder search.Embedder
 	log      *slog.Logger
-}
-
-// Timeout disables River's 1-minute default, the embedReindexWorkspaceWorker's
-// own reasoning: the pass is bounded by the pending backlog, not a wall
-// clock, and each embed is bounded by the model lane's per-call timeout.
-func (w *embedDriftWorkspaceWorker) Timeout(*river.Job[EmbedDriftWorkspaceArgs]) time.Duration {
-	return -1
 }
 
 func (w *embedDriftWorkspaceWorker) Work(ctx context.Context, job *river.Job[EmbedDriftWorkspaceArgs]) error {
@@ -99,15 +90,15 @@ func (w *embedDriftWorkspaceWorker) Work(ctx context.Context, job *river.Job[Emb
 // empty identity, there is no store to heal and no marker seeded to read —
 // the WithEmbedReindex posture. Run-on-start so a backlog accumulated
 // while the worker was down is healed at boot, not one interval later.
-func addEmbedDriftSweepJob(workers *river.Workers, pool *pgxpool.Pool, embedder search.Embedder, log *slog.Logger) []*river.PeriodicJob {
+func addEmbedDriftSweepJob(reg *jobRegistry, pool *pgxpool.Pool, embedder search.Embedder, log *slog.Logger) []*river.PeriodicJob {
 	if embedder == nil {
 		return nil
 	}
 	if identity, _ := embedder.EmbedIdentity(); identity == "" {
 		return nil
 	}
-	river.AddWorker(workers, &embedDriftSweepWorker{pool: pool})
-	river.AddWorker(workers, &embedDriftWorkspaceWorker{store: search.NewStore(pool), embedder: embedder, log: log})
+	addGovernedWorker[EmbedDriftSweepArgs](reg, &embedDriftSweepWorker{pool: pool}, 0)
+	addGovernedWorker[EmbedDriftWorkspaceArgs](reg, &embedDriftWorkspaceWorker{store: search.NewStore(pool), embedder: embedder, log: log}, 0)
 	return []*river.PeriodicJob{river.NewPeriodicJob(
 		river.PeriodicInterval(embedDriftSweepInterval),
 		func() (river.JobArgs, *river.InsertOpts) { return EmbedDriftSweepArgs{}, sweepInsertOpts() },

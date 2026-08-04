@@ -22,7 +22,6 @@ package compose
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,10 +55,10 @@ const embedReindexMaxAttempts = 5
 // embed lane then fails with an actionable message (and leaves the run's pending
 // set on its last attempt) instead of sitting queued forever behind a job no one
 // can work — the deep-read worker's posture.
-func addEmbedReindexJobs(workers *river.Workers, pool *pgxpool.Pool, embedder search.Embedder) {
+func addEmbedReindexJobs(reg *jobRegistry, pool *pgxpool.Pool, embedder search.Embedder) {
 	store := search.NewStore(pool)
-	river.AddWorker(workers, &embedReindexWorker{pool: pool, store: store})
-	river.AddWorker(workers, &embedReindexWorkspaceWorker{store: store, embedder: embedder})
+	addGovernedWorker[EmbedReindexArgs](reg, &embedReindexWorker{pool: pool, store: store}, 0)
+	addGovernedWorker[EmbedReindexWorkspaceArgs](reg, &embedReindexWorkspaceWorker{store: store, embedder: embedder}, 0)
 }
 
 // EmbedReindexArgs schedules one fleet-wide re-embed. Identity is the embed
@@ -83,7 +82,6 @@ func (EmbedReindexArgs) FleetWide() {}
 // an archived tenant's records are not searched, so re-embedding them spends
 // model budget building an index nobody queries.
 type embedReindexWorker struct {
-	river.WorkerDefaults[EmbedReindexArgs]
 	pool  *pgxpool.Pool
 	store *search.Store
 }
@@ -169,24 +167,8 @@ func (a EmbedReindexWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // embedReindexWorkspaceWorker re-embeds one workspace and reports that workspace
 // finished with the run.
 type embedReindexWorkspaceWorker struct {
-	river.WorkerDefaults[EmbedReindexWorkspaceArgs]
 	store    *search.Store
 	embedder search.Embedder
-}
-
-// Timeout disables River's 1-minute default: re-embedding a workspace is a
-// resumable batch bounded by corpus size, not by a wall-clock budget, so a large
-// corpus (or a slow embed provider) must not be cancelled mid-pass and forced to
-// burn its attempts re-walking work the skip-compare would anyway make free. It
-// still stops on ctx cancellation at shutdown, cancels itself on identity drift,
-// and each individual embed is bounded by the model lane's own per-call timeout —
-// this only removes the whole-job wall.
-//
-// It also puts this row outside River's rescuer for good — job_rescuer.go
-// ignores a stuck job whose worker declares a negative timeout, at any age —
-// which is the wedge search.ReembedClaim.StealAfter exists to answer.
-func (w *embedReindexWorkspaceWorker) Timeout(*river.Job[EmbedReindexWorkspaceArgs]) time.Duration {
-	return -1
 }
 
 func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[EmbedReindexWorkspaceArgs]) error {

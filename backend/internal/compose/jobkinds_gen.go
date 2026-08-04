@@ -17,8 +17,8 @@ const jobContractHash = "ca4e15c4e69932ea9dadfefe5aadf6fad7c2b7ab0c2a65d510a1f9f
 // else. A job kind the file has never heard of cannot satisfy it, so it
 // cannot be passed to addDeclaredWorker below.
 //
-// Registration does not route through that function yet — the runner still
-// calls river.AddWorker directly — so what the set buys today is a closed
+// Registration does not route through that function yet — the runner has
+// its own unconstrained helper — so what the set buys today is a closed
 // list the compiler checks, not a gate every registration has to pass. The
 // commit that routes registration through it is what makes an undeclared
 // kind unbuildable.
@@ -84,10 +84,11 @@ type declaredJobArgs interface {
 // parameter is constrained to the set above, so a kind api/jobs.yaml does
 // not declare cannot be passed to it.
 //
-// It is not yet the only way in. The runner still calls river.AddWorker
-// directly, so an undeclared kind can still be registered around this
-// function; the commit that moves every registration onto it is what makes
-// the declared set the set this build can actually work.
+// It is not yet the only way in. The runner registers through a helper of
+// its own whose type parameter is unconstrained, so an undeclared kind can
+// still be registered around this function; the commit that moves every
+// registration onto it is what makes the declared set the set this build
+// can actually work.
 func addDeclaredWorker[T declaredJobArgs](workers *river.Workers, w river.Worker[T]) {
 	river.AddWorker(workers, w)
 }

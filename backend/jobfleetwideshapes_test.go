@@ -168,8 +168,9 @@ func TestTheFleetWideGateRejectsADispatcherThatDoesTenantWork(t *testing.T) {
 }
 
 // fleetWideFixture wraps one Work method in the smallest file that declares a
-// FleetWide args type and a worker embedding river.WorkerDefaults for it, so a
-// shape can be tested without a package to compile it in.
+// FleetWide args type and a worker for it, so a shape can be tested without a
+// package to compile it in. The worker embeds nothing, as the tree's do: the
+// Work signature is what associates it with its args.
 func fleetWideFixture(work string) string {
 	return `package compose
 
@@ -179,7 +180,6 @@ func (SweepArgs) Kind() string { return "sweep" }
 func (SweepArgs) FleetWide()   {}
 
 type sweepWorker struct {
-	river.WorkerDefaults[SweepArgs]
 	pool *pgxpool.Pool
 }
 ` + work + "\n"
