@@ -45,6 +45,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/websearch"
 )
 
 // autoEnrichActor is the provenance a fill from this pass carries. It is
@@ -58,12 +59,16 @@ type PersonAutoEnrich struct {
 	pool      *pgxpool.Pool
 	people    *people.Store
 	approvals *approvals.Service
-	log       *slog.Logger
+	// search is the ADR-0081 seam, and nil is a supported deployment rather
+	// than a broken one: without a bound provider the pass fills from the
+	// employer's staged pages alone and skips discovery silently.
+	search websearch.Client
+	log    *slog.Logger
 }
 
 // NewPersonAutoEnrich builds the consumer over the stores it composes.
-func NewPersonAutoEnrich(pool *pgxpool.Pool, store *people.Store, approvalsSvc *approvals.Service, log *slog.Logger) *PersonAutoEnrich {
-	return &PersonAutoEnrich{pool: pool, people: store, approvals: approvalsSvc, log: log}
+func NewPersonAutoEnrich(pool *pgxpool.Pool, store *people.Store, approvalsSvc *approvals.Service, search websearch.Client, log *slog.Logger) *PersonAutoEnrich {
+	return &PersonAutoEnrich{pool: pool, people: store, approvals: approvalsSvc, search: search, log: log}
 }
 
 // HandleEvent routes one envelope. An event this consumer does not care about
@@ -106,7 +111,12 @@ func (g *PersonAutoEnrich) systemContext(ctx context.Context, env events.Envelop
 // published, and fill the person from the one entry that is unmistakably
 // them.
 func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) error {
-	return database.WithWorkspaceTx(ctx, g.pool, func(tx pgx.Tx) error {
+	// Locals, not fields: one consumer instance serves concurrent events, so
+	// carrying per-event state on the struct would race.
+	var needsDiscovery bool
+	var discoverName, discoverEmployer string
+
+	if err := database.WithWorkspaceTx(ctx, g.pool, func(tx pgx.Tx) error {
 		orgID, ok, err := g.employerOf(ctx, tx, personID)
 		if err != nil || !ok {
 			// No employer means nothing to match against. That is the common
@@ -114,9 +124,10 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 			return err
 		}
 		staged, err := g.stagedSitePeople(ctx, tx, orgID)
-		if err != nil || len(staged) == 0 {
+		if err != nil {
 			return err
 		}
+		filled := false
 		for _, sp := range staged {
 			// ApplySitePersonFields owns the match rule and keeps it narrow:
 			// an exact live email among that organization's own employees, or
@@ -144,12 +155,40 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 			if err != nil {
 				return err
 			}
+			filled = true
 			g.log.InfoContext(ctx, "person auto-enriched from the employer's site",
 				"person", personID.String(), "organization", orgID.String(),
 				"source", sp.proposal.SourceURL, "proposal_withdrawn", withdrawn)
 		}
+		if filled {
+			return nil
+		}
+		// Nothing filled from the staged pages. Remember what a later
+		// discovery pass would need; it runs after this transaction, because
+		// a network call must never be made with a write transaction open.
+		needsDiscovery, discoverName, discoverEmployer = true, "", ""
+		if n, e, err := g.searchTerms(ctx, tx, personID, orgID); err == nil {
+			discoverName, discoverEmployer = n, e
+		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	if !needsDiscovery {
+		return nil
+	}
+	return g.discoverFromSearch(ctx, personID, discoverName, discoverEmployer)
+}
+
+// searchTerms reads the two facts a discovery query is anchored on: the
+// person's name and their employer's. A query without both is not run —
+// a bare name returns somebody else.
+func (g *PersonAutoEnrich) searchTerms(ctx context.Context, tx pgx.Tx, personID ids.PersonID, orgID ids.OrganizationID) (name, employer string, err error) {
+	err = tx.QueryRow(ctx, `
+		SELECT p.full_name, coalesce(o.name, '')
+		FROM person p LEFT JOIN organization o ON o.id = $2
+		WHERE p.id = $1`, personID, orgID).Scan(&name, &employer)
+	return name, employer, err
 }
 
 // employerOf resolves the person's current primary employer — the only

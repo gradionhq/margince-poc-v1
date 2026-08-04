@@ -67,7 +67,7 @@ func MayFetch(raw string) FetchDecision {
 	default:
 		return FetchDecision{Reason: "only http and https are fetched"}
 	}
-	host := strings.ToLower(u.Hostname())
+	host := normalizeHost(u.Hostname())
 	for _, denied := range deniedHosts {
 		if host == denied || strings.HasSuffix(host, "."+denied) {
 			return FetchDecision{
@@ -76,6 +76,19 @@ func MayFetch(raw string) FetchDecision {
 		}
 	}
 	return FetchDecision{Allowed: true, Reason: "public page, fetched under robots and the site-read caps"}
+}
+
+// normalizeHost renders a hostname the way DNS resolves it, so the policy
+// cannot be walked past by spelling the same host differently.
+//
+// The trailing dot is the one that matters and it is not theoretical:
+// `linkedin.com.` is the fully-qualified form of `linkedin.com`, resolves to
+// the same servers, and is a DIFFERENT string. A suffix check written
+// against the raw hostname therefore allows a fetch the deny-list exists to
+// refuse — a parser differential between this policy and the HTTP client
+// underneath it. Case folds for the same reason.
+func normalizeHost(host string) string {
+	return strings.TrimRight(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
 // Citable reports whether a result may be quoted as evidence. Every result

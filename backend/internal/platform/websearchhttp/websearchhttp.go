@@ -83,6 +83,10 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 	if terms == "" {
 		return nil, fmt.Errorf("websearch: a search needs terms")
 	}
+	// Every error path below names the provider and the failure and NOTHING
+	// about the query: these searches are for named people, so the query
+	// string is personal data and an error message is an observability
+	// surface that outlives the request.
 	if q.Site != "" {
 		// Narrowing to one domain is the cheapest and least intrusive form of
 		// the questions this product asks, so it is expressed in the query
@@ -107,13 +111,18 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 
 	resp, err := b.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("websearch: calling the provider: %w", err)
+		// The transport error is NOT wrapped. net/http returns a *url.Error
+		// carrying the request URL, and this request's URL carries the query
+		// — which, for the searches this product runs, is a named person and
+		// their employer. Wrapping it would put that in every log line a
+		// failed search produces. The failure is reported as what it is.
+		return nil, fmt.Errorf("websearch: the %s request did not complete", b.Provider())
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		// The status is named without the body: a provider error page can
-		// carry the query back, and the query can carry a person's name.
-		return nil, fmt.Errorf("websearch: the provider answered %s", resp.Status)
+		// The status alone. A provider error page echoes the query back, and
+		// the query names a person.
+		return nil, fmt.Errorf("websearch: %s answered %d", b.Provider(), resp.StatusCode)
 	}
 
 	var payload struct {
@@ -127,7 +136,9 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 		} `json:"web"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("websearch: reading the provider's answer: %w", err)
+		// Same reasoning as the transport error above: a decode failure can
+		// echo the payload, and the payload is about a person.
+		return nil, fmt.Errorf("websearch: the %s answer could not be read", b.Provider())
 	}
 
 	readAt := b.now().UTC()

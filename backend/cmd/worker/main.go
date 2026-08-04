@@ -47,6 +47,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
+	"github.com/gradionhq/margince/backend/internal/platform/websearchhttp"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -201,8 +202,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// arrives after the read would otherwise never be matched against what
 	// that site said about them.
 	{
-		enricher := compose.NewPersonAutoEnrich(pool, people.NewStore(pool), approvals.NewService(pool), logger)
-		_, _ = fmt.Fprintln(stdout, "worker filling contacts from their employer's published pages")
+		// Search is optional by design (ADR-0081): a deployment that binds no
+		// provider fills from the employer's own pages and skips discovery,
+		// which is the sovereign posture rather than a degraded one.
+		searchClient, searchConfigured := websearchhttp.FromEnv(time.Now)
+		enricher := compose.NewPersonAutoEnrich(pool, people.NewStore(pool), approvals.NewService(pool), searchClient, logger)
+		if searchConfigured {
+			_, _ = fmt.Fprintln(stdout, "worker filling contacts from their employer's pages and public search results")
+		} else {
+			_, _ = fmt.Fprintln(stdout, "worker filling contacts from their employer's published pages (no search provider bound)")
+		}
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:person-auto-enrich", enricher.HandleEvent, logger, 0) })
 	}
 

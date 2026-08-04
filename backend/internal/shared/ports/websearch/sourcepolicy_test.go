@@ -15,6 +15,12 @@ func TestMayFetchRefusesTheAuthWalledPlatforms(t *testing.T) {
 		"https://de.linkedin.com/in/anna-weber",
 		"https://www.xing.com/profile/Anna_Weber",
 		"http://facebook.com/someone",
+		// The fully-qualified spellings. DNS resolves these to the same
+		// servers, so a policy that reads them as different hosts is a
+		// bypass rather than a nicety.
+		"https://linkedin.com./in/anna-weber",
+		"https://WWW.LinkedIn.COM./in/anna-weber",
+		"https://de.linkedin.com../in/anna-weber",
 	}
 	for _, raw := range refused {
 		if d := MayFetch(raw); d.Allowed {
