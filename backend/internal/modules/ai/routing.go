@@ -78,14 +78,14 @@ type RoutingConfig struct {
 //
 // Returns an empty (non-nil) set when nothing is bound, so a caller can tell
 // "this deployment binds nothing" from a nil it forgot to build.
-func (c RoutingConfig) BoundModelIDs() map[string]bool {
-	bound := make(map[string]bool, len(c.Tiers)+1)
-	for _, tier := range c.Tiers {
+func (cfg RoutingConfig) BoundModelIDs() map[string]bool {
+	bound := make(map[string]bool, len(cfg.Tiers)+1)
+	for _, tier := range cfg.Tiers {
 		if id := strings.TrimSpace(tier.Model); id != "" {
 			bound[id] = true
 		}
 	}
-	if id := strings.TrimSpace(c.Embeddings.Model); id != "" {
+	if id := strings.TrimSpace(cfg.Embeddings.Model); id != "" {
 		bound[id] = true
 	}
 	return bound

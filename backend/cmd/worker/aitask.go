@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -29,8 +28,6 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
@@ -295,63 +292,16 @@ func scaffoldSite(w io.Writer, census *aitasks.Registry, corpusDir, siteRef, out
 		if sc.Task != string(site.Task) || sc.Site != site.Variant {
 			continue
 		}
-		rendered, err := renderScaffold(sc)
+		body, err := aicert.RenderScenario(sc)
 		if err != nil {
 			return err
 		}
-		return emitArtifact(w, outPath, rendered,
+		header := []byte("# Scaffolded by `worker aitask scaffold` — edit the fixture, keep the shape.\n" +
+			"# This file is yours: it is NOT part of the corpus, and nothing reads it but --scenario.\n")
+		return emitArtifact(w, outPath, append(header, body...),
 			fmt.Sprintf("scaffolded %s from the corpus scenario %q", siteKey(site), sc.Name))
 	}
 	return fmt.Errorf("aitask: %s has no corpus scenario to scaffold from — hand-write one, or probe with --fixture", siteKey(site))
-}
-
-// scaffoldScenario mirrors aicert.Scenario for OUTPUT only. It exists because
-// Scenario carries its fixture as JSONValue — a []byte, which yaml.Marshal
-// renders as a list of byte values rather than as the mapping it holds. Fixture
-// and Answer are therefore `any` here: the JSON is decoded back into a plain
-// value so it emits as the YAML a human edits and the loader reads back.
-type scaffoldScenario struct {
-	Name        string         `yaml:"name"`
-	Task        string         `yaml:"task"`
-	Site        string         `yaml:"site"`
-	Source      string         `yaml:"source"`
-	SanitizedBy string         `yaml:"sanitized_by"`
-	Fixture     any            `yaml:"fixture"`
-	Expect      scaffoldExpect `yaml:"expect"`
-}
-
-type scaffoldExpect struct {
-	Outcome string       `yaml:"outcome"`
-	Answer  any          `yaml:"answer,omitempty"`
-	Rubric  string       `yaml:"rubric,omitempty"`
-	Bands   aicert.Bands `yaml:"bands"`
-	Caps    aicert.Caps  `yaml:"caps,omitempty"`
-}
-
-func renderScaffold(sc aicert.Scenario) ([]byte, error) {
-	out := scaffoldScenario{
-		Name: sc.Name, Task: sc.Task, Site: sc.Site,
-		Source: sc.Source, SanitizedBy: sc.SanitizedBy,
-		Expect: scaffoldExpect{
-			Outcome: sc.Expect.Outcome, Rubric: sc.Expect.Rubric,
-			Bands: sc.Expect.Bands, Caps: sc.Expect.Caps,
-		},
-	}
-	if err := json.Unmarshal(sc.Fixture, &out.Fixture); err != nil {
-		return nil, fmt.Errorf("aitask: the fixture of %s is not decodable JSON: %w", sc.Name, err)
-	}
-	if len(sc.Expect.Answer) > 0 {
-		if err := json.Unmarshal(sc.Expect.Answer, &out.Expect.Answer); err != nil {
-			return nil, fmt.Errorf("aitask: the expected answer of %s is not decodable JSON: %w", sc.Name, err)
-		}
-	}
-	body, err := yaml.Marshal(out)
-	if err != nil {
-		return nil, fmt.Errorf("aitask: rendering %s: %w", sc.Name, err)
-	}
-	header := "# Scaffolded by `worker aitask scaffold` — edit the fixture, keep the shape.\n" +
-		"# This file is yours: it is NOT part of the corpus, and nothing reads it but --scenario.\n"
-	return append([]byte(header), body...), nil
 }
 
 // emitArtifact writes a probe artifact to disk and reports where it went, or to
@@ -366,10 +316,14 @@ func emitArtifact(w io.Writer, outPath string, content []byte, what string) erro
 		_, err := w.Write(content)
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
+	// The destination is the operator's own --out or --work-dir, supplied on
+	// their own command line in a DB-less local debug tool. There is no
+	// untrusted principal here to traverse anywhere: naming where your artifact
+	// lands is the flag's entire purpose.
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil { // #nosec G703 -- destination is the operator's own flag, not request input
 		return fmt.Errorf("aitask: %w", err)
 	}
-	if err := os.WriteFile(outPath, content, 0o600); err != nil {
+	if err := os.WriteFile(outPath, content, 0o600); err != nil { // #nosec G703 -- destination is the operator's own flag, not request input
 		return fmt.Errorf("aitask: %w", err)
 	}
 	_, err := fmt.Fprintf(w, "%s → %s\n", what, outPath)

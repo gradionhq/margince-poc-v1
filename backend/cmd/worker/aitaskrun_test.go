@@ -189,9 +189,9 @@ func TestProbeRunsASiteEndToEndOverTheFake(t *testing.T) {
 	}
 }
 
-func TestProbeRoutingReportsAnUnreadableRoutingFile(t *testing.T) {
-	_, _, err := probeRouting(aiTaskFlags{routingPath: filepath.Join(t.TempDir(), "absent.yaml")})
-	if err == nil {
+func TestProbeCompleterReportsAnUnreadableRoutingFile(t *testing.T) {
+	cfg := aiTaskFlags{routingPath: filepath.Join(t.TempDir(), "absent.yaml")}
+	if _, _, err := probeCompleter(cfg, ai.TaskRateExtract); err == nil {
 		t.Fatal("an unreadable routing file must be refused, not silently ignored")
 	}
 }

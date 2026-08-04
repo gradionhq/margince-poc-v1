@@ -130,6 +130,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}()
 
+	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
 	modelPath, boundModels, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
 	if err != nil {
 		return err
@@ -431,11 +432,10 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		for _, w := range cfg.UnboundLadderWarnings() {
 			log.Warn(w)
 		}
-		path, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
 		// The bound model ids travel with the path because they describe the
 		// SAME binding: the cost refresh narrows a provider catalog to the
 		// models this deployment actually calls.
-		return path, cfg.BoundModelIDs(), err
+		return modelPathWithBoundModels(cfg, pool, capturePayloads, log)
 	case fake:
 		// A real ModelPath over ai.FakeRoutingConfig() rather than
 		// FakeModelPath's direct client wiring: the worker always has a
@@ -445,12 +445,17 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		// still names the deployment's own posture — cmd/api's
 		// resolveModelPath honors it on this same arm, and two process
 		// roles must never disagree on whether content capture is on.
-		fakeCfg := ai.FakeRoutingConfig()
-		path, err := compose.NewModelPath(fakeCfg, pool, capturePayloads, log)
-		return path, fakeCfg.BoundModelIDs(), err
+		return modelPathWithBoundModels(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil, nil
 	}
+}
+
+// modelPathWithBoundModels assembles the path and reports which models the SAME
+// binding names, so the two can never describe different routing configs.
+func modelPathWithBoundModels(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]bool, error) {
+	path, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
+	return path, cfg.BoundModelIDs(), err
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions

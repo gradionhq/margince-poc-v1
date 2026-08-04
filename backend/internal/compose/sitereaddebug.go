@@ -376,3 +376,75 @@ func extractionLane(system string) string {
 		return "other"
 	}
 }
+
+// TaskProbeCompleter is a debug-lane completer that also reports the route that
+// served each call. The plain completer seam deliberately hides routing — a
+// case must not be able to reason about which tier answered it — but a probe's
+// whole job is to REPORT what happened, and "which model actually served this"
+// is the first thing a surprising answer is explained by.
+type TaskProbeCompleter func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error)
+
+// TaskProbeBrain binds one task to the model that will answer it for the
+// `worker aitask` probe, under the same one-of-three rule SiteReadDebugBrain
+// uses: a routing file, a direct provider:model override, or the offline fake.
+//
+// It lives HERE, beside SiteReadDebugBrain, because this file is one of the two
+// files that ARE the model-path assembly seam (backend/arch_test.go's
+// modelPathAssemblySeam). A probe that built its own router in cmd/ would be a
+// third gate, and the invariant is that there are exactly two.
+//
+// DB-less like its sibling: the probe has no pool, so this is the local router
+// — no metering, no budget store, no call tracing. That is what makes a probe
+// free to run and is also why it is not a production path.
+func TaskProbeBrain(routingPath, modelSpec string, fake bool, task ai.Task) (TaskProbeCompleter, string, error) {
+	selected := 0
+	for _, on := range []bool{routingPath != "", modelSpec != "", fake} {
+		if on {
+			selected++
+		}
+	}
+	if selected != 1 {
+		return nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
+	}
+
+	if fake {
+		client := ai.NewFakeClient()
+		return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
+			resp, err := client.Complete(ctx, req)
+			return resp, ai.RouteInfo{Provider: string(ai.ProviderFake)}, err
+		}, "fake (offline; the seam is driven, nothing is spent)", nil
+	}
+
+	cfg, banner, err := taskProbeRouting(routingPath, modelSpec)
+	if err != nil {
+		return nil, "", err
+	}
+	router, err := ai.NewLocalRouter(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
+		return router.Complete(ctx, task, req)
+	}, banner, nil
+}
+
+func taskProbeRouting(routingPath, modelSpec string) (ai.RoutingConfig, string, error) {
+	if routingPath != "" {
+		cfg, err := ai.LoadRoutingFile(routingPath)
+		if err != nil {
+			return ai.RoutingConfig{}, "", err
+		}
+		return cfg, "routing " + routingPath, nil
+	}
+	provider, modelName, found := strings.Cut(modelSpec, ":")
+	if !found || provider == "" || modelName == "" {
+		return ai.RoutingConfig{}, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelSpec)
+	}
+	// One pinned model serves every lane: each task's ladder falls through to
+	// the single bound tier.
+	return ai.RoutingConfig{
+		Profile:    ai.ProfileCloudFrontier,
+		Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
+	}, "model override " + modelSpec, nil
+}

@@ -40,8 +40,12 @@ func TestStripTagsWouldRewriteJSONThatMustSurviveVerbatim(t *testing.T) {
 		t.Error("StripTags left the angle-bracketed URL intact; this test no longer guards what it claims to")
 	}
 
-	// The fetch branch must therefore hand JSON back untouched.
+	// The fetch branch must therefore hand JSON back untouched: a Doc the
+	// fetcher marked as JSON carries the server's own bytes, still parseable.
 	doc := Doc{Text: body, MediaType: "application/json"}
+	if !doc.IsJSON() {
+		t.Fatal("application/json must be recognised, or Fetch would strip it")
+	}
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(doc.Text), &parsed); err != nil {
 		t.Fatalf("a JSON doc must remain parseable: %v", err)

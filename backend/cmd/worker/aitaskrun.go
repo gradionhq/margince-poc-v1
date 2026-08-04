@@ -9,7 +9,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,8 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -87,7 +85,7 @@ func wireRequest(req model.Request) probeRequest {
 // every call. It never alters a request or a reply: what the site sent is what
 // the report shows.
 type recordingCompleter struct {
-	inner func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error)
+	inner compose.TaskProbeCompleter
 	calls []probeCall
 }
 
@@ -247,24 +245,19 @@ func loadProbeInput(census *aitasks.Registry, cfg aiTaskFlags) (probeInput, erro
 // scenario is not entering it. Everything that says what to RUN is still
 // checked: the site must be one this build registers.
 func loadScenarioInput(census *aitasks.Registry, path string) (probeInput, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- an operator-named scratch scenario is the whole point of the verb
+	sc, err := aicert.LoadScenarioFile(path, census)
 	if err != nil {
-		return probeInput{}, fmt.Errorf("aitask: reading the scenario: %w", err)
-	}
-	var sc aicert.Scenario
-	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
-	dec.KnownFields(true)
-	if err := dec.Decode(&sc); err != nil {
-		return probeInput{}, fmt.Errorf("aitask: %s is not a scenario: %w", path, err)
+		return probeInput{}, err
 	}
 	site, err := resolveSite(census, sc.Task+"/"+sc.Site)
 	if err != nil {
 		return probeInput{}, err
 	}
-	if len(sc.Fixture) == 0 {
-		return probeInput{}, fmt.Errorf("aitask: %s carries no fixture, so there is nothing to give the site", path)
-	}
-	return probeInput{site: site, fixture: json.RawMessage(sc.Fixture), expected: json.RawMessage(sc.Expect.Answer)}, nil
+	return probeInput{
+		site:     site,
+		fixture:  json.RawMessage(sc.Fixture),
+		expected: json.RawMessage(sc.Expect.Answer),
+	}, nil
 }
 
 func readJSONFile(path, what string) (json.RawMessage, error) {
@@ -278,61 +271,17 @@ func readJSONFile(path, what string) (json.RawMessage, error) {
 	return json.RawMessage(raw), nil
 }
 
-// probeCompleter binds the site's task to the model that will answer it, under
-// the same one-of-three rule the siteread debug lane uses: a routing file, a
-// direct model override, or the offline fake. Two would disagree about what
-// answered; none would leave nothing to answer at all.
-func probeCompleter(cfg aiTaskFlags, task ai.Task) (func(context.Context, model.Request) (model.Response, ai.RouteInfo, error), string, error) {
-	selected := 0
-	for _, on := range []bool{cfg.routingPath != "", cfg.modelSpec != "", cfg.fakeBrain} {
-		if on {
-			selected++
-		}
-	}
-	if selected != 1 {
-		return nil, "", errors.New("aitask run: pick exactly one of --ai-routing, --model, --ai-fake")
-	}
-
-	if cfg.fakeBrain {
-		fake := ai.NewFakeClient()
-		return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
-			resp, err := fake.Complete(ctx, req)
-			return resp, ai.RouteInfo{Provider: "fake"}, err
-		}, "fake (offline; the seam is driven, nothing is spent)", nil
-	}
-
-	routing, banner, err := probeRouting(cfg)
-	if err != nil {
-		return nil, "", err
-	}
-	router, err := ai.NewLocalRouter(routing)
+// probeCompleter binds the site's task to the model that will answer it.
+//
+// The router itself is built by compose, not here: backend/arch_test.go pins
+// the model-path assembly seam to exactly two files, and a cmd/ process role
+// constructing its own would be a third gate.
+func probeCompleter(cfg aiTaskFlags, task ai.Task) (compose.TaskProbeCompleter, string, error) {
+	complete, banner, err := compose.TaskProbeBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain, task)
 	if err != nil {
 		return nil, "", fmt.Errorf("aitask run: %w", err)
 	}
-	return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
-		return router.Complete(ctx, task, req)
-	}, banner, nil
-}
-
-func probeRouting(cfg aiTaskFlags) (ai.RoutingConfig, string, error) {
-	if cfg.routingPath != "" {
-		routing, err := ai.LoadRoutingFile(cfg.routingPath)
-		if err != nil {
-			return ai.RoutingConfig{}, "", fmt.Errorf("aitask run: %w", err)
-		}
-		return routing, "routing " + cfg.routingPath, nil
-	}
-	provider, modelName, found := strings.Cut(cfg.modelSpec, ":")
-	if !found || provider == "" || modelName == "" {
-		return ai.RoutingConfig{}, "", fmt.Errorf("aitask run: --model wants provider:model, got %q", cfg.modelSpec)
-	}
-	// One pinned model serves the whole ladder: every task's ladder falls
-	// through to the single bound tier.
-	return ai.RoutingConfig{
-		Profile:    ai.ProfileCloudFrontier,
-		Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
-	}, "model override " + cfg.modelSpec, nil
+	return complete, banner, nil
 }
 
 func ladderOf(task ai.Task) string {
