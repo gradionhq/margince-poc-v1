@@ -342,7 +342,9 @@ func finishProbe(stdout io.Writer, cfg aiTaskFlags, res probeResult, failure err
 		}
 	}
 	if failure != nil {
-		return fmt.Errorf("aitask run %s: %w", res.Site, failure)
+		// res.Failure, not the original: main prints the returned error to
+		// stderr, so returning the raw one would undo every redaction above.
+		return fmt.Errorf("aitask run %s: %s", res.Site, res.Failure)
 	}
 	return nil
 }

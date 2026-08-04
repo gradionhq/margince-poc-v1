@@ -213,3 +213,60 @@ func TestRenderScenarioPreservesExactNumbers(t *testing.T) {
 		t.Errorf("the id did not survive the full round trip: %s", back.Fixture)
 	}
 }
+
+// A value the corpus format cannot carry back unchanged is REFUSED, not
+// silently approximated. yaml.v3 decodes an integer wider than int64 as a float
+// and then rejects it as an !!int, so emitting one would produce a scaffold that
+// does not load — and rounding it would produce one that loads as different data.
+func TestRenderScenarioRefusesNumbersItCannotCarryBack(t *testing.T) {
+	for _, tc := range []struct{ name, literal, want string }{
+		{"an integer wider than int64", "123456789012345678901234567890", "wider than the corpus format"},
+		{"a decimal finer than float64", "0.12345678901234567890123", "precision exceeds"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := aicert.Scenario{
+				Task: "rate_extract", Site: "pricing",
+				Fixture: aicert.JSONValue(`{"page_text":"x","n":` + tc.literal + `}`),
+			}
+			_, err := aicert.RenderScenario(sc)
+			if err == nil {
+				t.Fatalf("want a refusal mentioning %q", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "n") {
+				t.Errorf("error = %q, want it to name the field and mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Everything the format CAN carry stays exact, including the int64 boundary and
+// ordinary decimals.
+func TestRenderScenarioKeepsEveryNumberItAccepts(t *testing.T) {
+	reg := census(t)
+	for _, literal := range []string{"9223372036854775807", "-9223372036854775808", "1234567890123456789", "0", "1.5", "0.25", "-3.75"} {
+		sc := aicert.Scenario{
+			Task: "rate_extract", Site: "pricing",
+			Fixture: aicert.JSONValue(`{"page_text":"x","n":` + literal + `}`),
+		}
+		body, err := aicert.RenderScenario(sc)
+		if err != nil {
+			t.Errorf("RenderScenario(%s): %v", literal, err)
+			continue
+		}
+		if strings.Contains(string(body), `"`+literal+`"`) {
+			t.Errorf("%s was emitted as a string:\n%s", literal, body)
+		}
+		path := filepath.Join(t.TempDir(), "s.yaml")
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		back, err := aicert.LoadScenarioFile(path, reg)
+		if err != nil {
+			t.Errorf("%s does not load back: %v", literal, err)
+			continue
+		}
+		if !strings.Contains(string(back.Fixture), literal) {
+			t.Errorf("%s did not survive the round trip: %s", literal, back.Fixture)
+		}
+	}
+}

@@ -273,7 +273,7 @@ column is what each flag actually affects.
 | `--json <path\|->` | run | the whole result, machine-readable |
 | `--dump-request <dir>` | run | each stripped request |
 | `--out <path\|->` | scaffold, fetch | where this verb's artifact goes |
-| `--work-dir <dir>` | scaffold, fetch, run | artifact sink (default gitignored `.tmp/aitask`) |
+| `--work-dir <dir>` | scaffold, fetch | artifact sink (default gitignored `.tmp/aitask`); `run` writes only to the paths `--json` / `--dump-request` name |
 | `--corpus <dir>` | list, scaffold | corpus to read |
 
 The BYOK key is loaded from repo-root `.env.local`, exactly as `make e2e-ai` does.

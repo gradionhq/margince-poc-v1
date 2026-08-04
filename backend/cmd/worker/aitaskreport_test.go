@@ -189,3 +189,36 @@ func TestServedIdentityPrefersWhatAnsweredOverWhatWasBound(t *testing.T) {
 		t.Errorf("servedIdentity = %q, want empty when nothing is known", got)
 	}
 }
+
+// By the time a request is built the page text has been WRAPPED: the fence adds
+// an opening and a closing marker of its own. Counting non-empty lines would
+// report a one-model payload as three passages — a false claim about evidence
+// coverage, on the very number the guide tells operators to read.
+func TestPayloadPassagesIgnoreTheFenceMarkers(t *testing.T) {
+	req := model.Request{Messages: []model.Message{{Role: "user", Content: strings.Join([]string{
+		"<untrusted-019fcad9-cec6-7533-b938-7be67a2f9ea9>",
+		"[s0] vendor/a costs $1",
+		"[s1] vendor/b costs $2",
+		"</untrusted-019fcad9-cec6-7533-b938-7be67a2f9ea9>",
+	}, "\n")}}}
+	if got := payloadPassages(req); got != 2 {
+		t.Errorf("payloadPassages = %d, want 2 — the fence markers are not passages", got)
+	}
+}
+
+func TestIsNumberedPassageMatchesOnlyTheNumbering(t *testing.T) {
+	for line, want := range map[string]bool{
+		"[s0] a":        true,
+		"[s12] a":       true,
+		"[s0]":          true,
+		"[sx] a":        false,
+		"[s] a":         false,
+		"<untrusted-1>": false,
+		"plain text":    false,
+		"":              false,
+	} {
+		if got := isNumberedPassage(line); got != want {
+			t.Errorf("isNumberedPassage(%q) = %v, want %v", line, got, want)
+		}
+	}
+}

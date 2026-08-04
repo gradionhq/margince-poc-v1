@@ -48,6 +48,10 @@ const corpusDirDefault = "internal/compose/aicert/corpus"
 // Relative to the repo root; the make target passes an absolute path.
 const workDirDefault = ".tmp/aitask"
 
+// maxArtifactSlug bounds the URL-derived part of a generated filename, leaving
+// room for the prefix and extension inside a 255-byte name.
+const maxArtifactSlug = 200
+
 // The verbs. Each is a different question, which is why they are separate
 // rather than flags on one: list asks what exists, scaffold asks what a
 // fixture looks like, fetch produces input, run spends money.
@@ -404,7 +408,14 @@ func fetchPage(ctx context.Context, stdout io.Writer, rawURL, outPath string) er
 // one session do not overwrite each other.
 func fetchArtifactName(rawURL string) string {
 	trimmed := strings.TrimPrefix(strings.TrimPrefix(rawURL, "https://"), "http://")
-	return "fetch-" + slugify(trimmed) + ".txt"
+	slug := slugify(trimmed)
+	// Filesystems cap a single name (255 bytes on ext4/APFS), and a URL carrying
+	// a long query would otherwise produce a name the write simply fails on.
+	// The tail is kept rather than the head: that is where two long URLs differ.
+	if len(slug) > maxArtifactSlug {
+		slug = slug[len(slug)-maxArtifactSlug:]
+	}
+	return "fetch-" + slug + ".txt"
 }
 
 // fetchBoundaryLine reports what the fetch produced in the terms the extraction

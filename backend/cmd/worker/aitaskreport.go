@@ -12,7 +12,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -94,19 +93,42 @@ func requestLine(req model.Request) string {
 	return strings.Join(parts, "  ")
 }
 
-// payloadPassages counts the numbered passages the payload actually carries.
+// payloadPassages counts the numbered passages a built request actually carries.
 //
-// It is in the run report and not only in `fetch` because it is the number that
-// explains a whole class of failure: a body served as ONE line numbers to ONE
-// passage however many bytes it holds, so every extracted row cites the same
-// id and the evidence gate has nothing to disagree with. A byte count hides
-// that completely.
+// It counts `[sN]` markers rather than non-empty lines, because by this point
+// the page text has been WRAPPED: the fence adds an opening and a closing
+// marker of its own, and counting those would report a one-model payload as
+// three passages — an evidence-coverage claim that is simply false.
+// compose.CountPassages answers the other question (what raw text WOULD number
+// to) and is what `fetch` uses, before any fencing exists.
+//
+// This is the number that explains a whole class of failure: a body served as
+// ONE line numbers to ONE passage however many bytes it holds, so every
+// extracted row cites the same id and the evidence gate has nothing to disagree
+// with. A byte count hides that completely.
 func payloadPassages(req model.Request) int {
 	n := 0
 	for _, msg := range req.Messages {
-		n += compose.CountPassages(msg.Content)
+		for _, line := range strings.Split(msg.Content, "\n") {
+			if isNumberedPassage(strings.TrimSpace(line)) {
+				n++
+			}
+		}
 	}
 	return n
+}
+
+// isNumberedPassage matches the `[sN] ` prefix numberPassages emits.
+func isNumberedPassage(line string) bool {
+	rest, ok := strings.CutPrefix(line, "[s")
+	if !ok {
+		return false
+	}
+	digits, _, ok := strings.Cut(rest, "]")
+	if !ok || digits == "" {
+		return false
+	}
+	return strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
 
 func responseLine(call probeCall) string {
