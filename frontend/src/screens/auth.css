@@ -68,6 +68,12 @@
   grid-template-rows: 1fr auto;
   justify-items: center;
   align-items: center;
+  /* A grid/flex item's automatic minimum is its min-content, so without this the
+     column refuses to go narrower than the widest unbreakable thing inside it and
+     pushes the surface past the viewport instead. Its sibling
+     `.auth-identity-col` already carries this; the task region was the one that
+     did not. */
+  min-width: 0;
   padding: 48px 5vw;
   background: var(--bgElevated);
 }
@@ -138,6 +144,13 @@
 .auth-sso {
   margin-top: 22px;
   display: flex;
+  /* Wraps, and the buttons carry a flex-basis rather than `flex: 1` alone. With
+     one line and no basis, a third provider divides the row into slices narrower
+     than the brand word inside them, and `min-width: 0` on the button then lets
+     it shrink past its own content — so the label overflows the card rather than
+     the row growing a second line. Nothing serves 3 providers today; the layout
+     should not be what discovers that it can. */
+  flex-wrap: wrap;
   gap: 10px;
 }
 /* Not the Button atom, deliberately: `btn-ghost` contributes a background, a
@@ -146,7 +159,9 @@
    reuse. If the DS ever wants this look it wants a new Button VARIANT, which is
    a design-system change rather than a screen's business. */
 .auth-social {
-  flex: 1;
+  /* A basis, so a wrapped row breaks into readable buttons instead of dividing
+     one line into slices narrower than the words in them. */
+  flex: 1 1 140px;
   min-width: 0;
   min-height: 44px;
   display: flex;
@@ -361,6 +376,12 @@
   width: 100%;
   min-height: 44px;
   justify-content: center;
+  /* Overrides the atom's `white-space: nowrap`. A nowrap label in a full-width
+     button cannot overflow the button — it widens it, and the card with it, until
+     the surface is wider than the viewport. `min-height` rather than `height` is
+     what makes wrapping safe here: a second line grows the control instead of
+     being clipped by it. */
+  white-space: normal;
 }
 .auth-link {
   background: transparent;
@@ -465,6 +486,12 @@
 .auth-legal-links {
   display: flex;
   align-items: center;
+  /* Wraps, because this row is two of the longest words on the surface
+     ("Nutzungsbedingungen · Datenschutz") in a card that is 280px wide at 320px.
+     It holds at 100%, and a row that only holds at 100% is one text-zoom step
+     from pushing the surface wider than the viewport. */
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
 }
 .auth-legal a {
@@ -548,6 +575,31 @@
       color-mix(in srgb, var(--accent) 4%, var(--bgElevated)) 0%,
       color-mix(in srgb, var(--accent) 7%, var(--bgElevated)) 100%
     );
+}
+/*
+ * The Core is sized from THIS PANE rather than left at the primitive's default,
+ * because the pane is roughly half the viewport and the primitive's own
+ * `--coreCap: 24vw` never binds here: 24vw exceeds 230px from 958px up, which is
+ * exactly where this layout starts. So the sphere stayed 230px whether its column
+ * had 514px of room (1440) or 326px (960) — and at 960 the halo measured 320px
+ * against 326px of inner width, filling it edge to edge, while the mote field
+ * (wider still) was clipped by the column's `overflow: hidden`. A blurred point of
+ * light cut off on a straight edge reads as a rendering fault.
+ *
+ * Set on the ELEMENT, not on the column: `.core` declares `--coreSize` in its own
+ * rule, and a property declared on the element beats one inherited from an
+ * ancestor — which is why the narrow-width override below is written the same way.
+ *
+ * 17vw tracks the column because the column IS a fraction of the viewport in this
+ * layout; the floor keeps it a sphere rather than a dot on a small laptop, and the
+ * ceiling is the hero size it was designed at. The glass keeps the primitive's own
+ * 172/230 ratio so the shell and the liquid stay in proportion, and the feed's
+ * reach is already expressed in fractions of --coreSize, so it follows with no
+ * second knob.
+ */
+.auth-identity-col .core {
+  --coreSize: clamp(150px, 17vw, 230px);
+  --coreGlass: calc(var(--coreSize) * 0.748);
 }
 /* The region itself: words only. It keeps its own grid so the copy and the
    server-read line stay one cluster wherever the column puts them. */
@@ -710,7 +762,15 @@
   list-style: none;
   margin-top: var(--space-6);
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  /* auto-fit, not repeat(2, 1fr), and the difference is whether text survives.
+     `1fr` is `minmax(auto, 1fr)`, so each track refuses to go below its
+     min-content — while the column this list sits in carries `min-width: 0` and
+     `overflow: hidden`. Two tracks that will not shrink inside a container that
+     will therefore CLIP, and German runs 20-35% longer than English: the limits
+     lost words with no scrollbar to recover them. auto-fit drops to one column
+     instead, and `min(100%, …)` keeps the track from exceeding the container at
+     the narrowest widths. */
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   gap: var(--space-3) var(--space-4);
 }
 .auth-limits li {
@@ -830,7 +890,10 @@
     font-size: 23px;
   }
   .auth-limits {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* minmax(0, …) already lets these tracks shrink, so the stacked layout never
+       clipped — but it shrinks them to unreadable rather than collapsing, so it
+       gets the same auto-fit treatment for the same reason. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
     gap: var(--space-3) var(--space-4);
     /* Tighter than the wide layout's: the same 24px that separates two registers
        in a tall column is a hole in a stacked one. */
