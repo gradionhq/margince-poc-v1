@@ -331,7 +331,7 @@ What landed, in build order:
   `NormalizedRecord.Participants`, resolved to a colleague or a known contact
   at stamping time rather than left for a promotion that never comes — the
   interaction graph joins `user_id` to `person_id`, so an address-only row is
-  invisible to it. Migration 0182 adds the replay marker the history pass
+  invisible to it. Migration 0185 adds the replay marker the history pass
   needs; the two-end backfill needs no state because its predicate shrinks as
   it runs, and this one cannot borrow that trick because most messages have no
   CCs.
@@ -341,7 +341,7 @@ What landed, in build order:
   BAND crossing is reported and a point drift is not. No table, so an erased
   activity takes its derived change with it.
 - **The correction ledger (C0).** `ai_feedback`, specified upstream
-  (AIRT-SCHEMA-1) and never built until now. Migration 0183.
+  (AIRT-SCHEMA-1) and never built until now. Migration 0186.
   `POST /ai/feedback` is human-only and gated on the SUBJECT's update grant.
   Art. 17 deletes it in the single erasure transaction; Art. 15 exports it as
   `corrections`.
@@ -414,6 +414,103 @@ answers *which of several employers is the main one*, not *are they still
 there*), and a flow-mapping description in `crm.yaml` whose comma split it
 into a sibling key and made the whole contract fail OpenAPI validation while
 the codegen stayed happy about it.
+## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
+
+**`backend/api/jobs.yaml` is now the declaration every River job kind is built
+from**, and `tools/gen-jobs` compiles it into two tables: a kind-keyed `Spec`
+in `internal/platform/jobs` and, in `internal/compose`, the closed type set a
+worker may be registered under. 55 kinds; 45 of them got a chosen timeout for
+the first time, where River's silent one-minute default had been standing in.
+
+What the declaration now decides, rather than each site deciding for itself:
+
+- **The timeout.** `jobs.Govern` wraps a worker in a type River reaches only
+  through `Work`, so a worker cannot answer for its own wall clock — the
+  declared value is what River is handed. A kind with no chosen timeout fails
+  generation.
+- **Registration.** `addDeclaredWorker`'s type parameter is a generated union
+  of the declared args types, so a kind the file has never heard of does not
+  compile; `forbidigo` bans River's three direct registration spellings outside
+  one file, and `jobs.MustBeTotal` refuses the boot on anything left. What that
+  boot check reads is every kind River will WORK — `Kind()` plus any
+  `KindAliases()`, which River registers a worker under just the same — so a
+  rename cannot answer to a kind the file never named.
+- **The fan-out.** `workspaceSweepOpts` and `dispatchOne` are the only two
+  paths, both read the child's declared queue and attempt cap, and both stamp
+  the sweep tag — so a dispatcher cannot forget it.
+- **The schedule.** `periodicFor` resolves cadence and registration posture per
+  kind from the file, so moving a wiring site cannot quietly move a schedule.
+  River's RUNTIME periodic-job bundle is the door beside it — a client resolved
+  inside a `Work` body hands one out, and its `Add`/`Remove` take any args at
+  any interval — so `forbidigo` closes the whole type, derived from River's own
+  method set rather than from today's four names.
+- **The fleet surfaces** enumerate what is DECLARED rather than what happens to
+  have rows, which is what tells an idle kind apart from one nobody wired.
+
+**`compose.NewJobCensus` is what holds the two ends together.** It assembles a
+maximally-configured runner — every vault, registry and model seam supplied,
+because which kinds are wired is deployment-dependent — and asserts eight
+things no compiler can: that the two generated halves came from one revision of
+the file, declared-vs-registered totality both ways, that each `{derived: …}`
+timeout still equals the Go constant it names, that exactly the `{operator: …}`
+kinds pass a value at registration, that the declared args fields and the
+compiled struct's fields are the same set, that an args-owned kind's own
+`InsertOpts()` inserts on its declared queue, that no args type answers to a
+second kind through River's `KindAliases`, and that the declared `queues:`
+block and compose's `jobQueues()` agree on names and bounds both ways. It
+refuses to build at all when its own configuration has fallen behind a declared
+dependency, so it cannot quietly measure less than it claims.
+
+**What the file governs and what it only records, stated rather than implied.**
+The queue SET is bound — the census compares every name and `max_workers`
+against `jobQueues()`, so a bound that moved in one place makes the number
+operators read a lie, and a queue declared but never built (rows inserted onto a
+pool no client works) fails the gate. Which queue a ROW lands on is bound only
+where the file supplies the options: `fan_out` kinds take theirs from the
+declaration and `args` kinds are compared against their own `InsertOpts()`,
+while an `opts_owner: caller` kind's `queue` is documentation for the readers —
+its enqueue sites decide. `max_attempts` is likewise declared only for `fan_out`
+kinds, because that is the only case anything reads it.
+
+**Two hand-maintained lists were retired into the file.** The
+nil-after-logging waivers are now `fault:` declarations keyed by kind, joined
+to the worker receiver the fault gate reads by the registration itself; the
+transcribed timeouts are `{derived: …}` declarations the census resolves. The
+`{derived: …}` form is for a constant something ELSE reads — two durations that
+had no other reader are literals in the contract now, and their constants are
+deleted, because a declaration derived from a private copy of itself compares
+nothing and puts the number in two places.
+
+**`jobargscontent_test.go` grew the arm its own comment said would be the
+proof, and kept the one it had.** It now has two, and neither subsumes the
+other. COVERAGE reflects over every registered args struct and requires each
+field to be declared an id or waived as a scalar with a reason — total over the
+fields that exist, so `Snippet`, `Note` and `Domain` are in scope, which the
+word list admitted it missed. SUSPICION keeps that word list as a second arm:
+a field whose NAME reads like content owes a written reason even when it is
+declared an id, because `Body: id` passing in silence is exactly the line a
+reviewer should have to argue for. A word list cannot decide whether a field is
+safe; it can insist that somebody said so. Coverage's first run found one:
+`SiteDeepReadArgs` carried a `SeedURL` no product code read (the worker crawls
+`claim.SeedURL`, because the dossier row is the authority), which is now
+deleted rather than waived.
+
+**Carried forward from job observability Phase 1 C, restated.** Items 1 and 2
+are closed STRUCTURALLY rather than by a test: a worker has nowhere to write a
+timeout any more, and the sweep tag is stamped at a chokepoint the declaration
+drives. Item 3 is partly closed — every worker return is gated syntactically
+and the four ratified exceptions are declared, though the vetted-vocabulary
+substitution at the endpoint is still what makes the surface safe. Items 4, 5
+and 6 are unchanged and are now filed as issues: #430 (`cmd/worker` serves no
+`/metrics`), #431 (the per-connection sweep masking, a product decision), and
+#432 (`enqueueDigest` fanning the fleet out for one tenant). Two unrelated
+findings were filed alongside them: #428 (`//nolint:forbidigo` is unusable
+tree-wide, so the only available waiver is a path exclusion) and #429 (a
+`STATUS.md` pointer left in a source comment).
+
+**What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
+`craft static` only, so the forbidigo bans on direct River registration and on
+`ClientFromContext` are held at `make check` and in CI, not before the push.
 
 ## Session pickup — 2026-08-04 (the company page overhaul, PR #392, merged)
 
@@ -496,6 +593,7 @@ Two things owed to `main` at merge time: the `margince` database records
 name='org_legal_name_trgm';`), and a stray seed of "Demo GmbH" plus three
 people landed in the founder's own `margince` database from a `scripts/seed-dev.sh`
 run that ignores `DEV_SLUG` and hard-defaults to `localhost:8080`.
+
 ## Session pickup — 2026-08-03/04 (job observability, Phase 0 + Phase 1 A/B/C — Phase 1 COMPLETE)
 
 **Every unit of tenant work now names one workspace, and spells it one way.**
@@ -570,24 +668,31 @@ them: [Reading the job surfaces](docs/reference/configuration.md#reading-the-job
 highest-value work left in this topic:
 
 1. **No fitness test asserts a workspace worker declares a `Timeout`** — see
-   the paragraph below; unchanged by C and still the blocker #390 shipped.
+   the paragraph below. CLOSED structurally by `feat/job-contract`: a worker
+   has nowhere to write a timeout any more, so there is no longer a rule for a
+   test to hold.
 2. **No fitness test asserts a fan-out site tags its children.** C tags all six
    call sites, but the only registry of which sites exist is a comment — and the
    adversarial review of C found a real missed site (`overlayReconcileWorker`)
-   whose absence would have silently emptied the overlay sweep series. Deriving
-   "this insert is a fan-out" needs a static notion the tree does not support
-   today; until it does, that comment is load-bearing code.
+   whose absence would have silently emptied the overlay sweep series. CLOSED
+   structurally by `feat/job-contract`: the tag is stamped at the two chokepoints
+   the declaration drives, and both refuse a child no dispatcher declares.
 3. **Not every worker routes its failure through `jobs.Fault`.** The endpoint is
    safe regardless — it allowlists against the vocabulary and substitutes
    otherwise — but the underlying obligation, that a raw provider error naming
    an address must not reach a fleet-visible column, is held by no gate.
+   PARTLY closed by `feat/job-contract`: every worker return is now gated
+   syntactically and the four log-and-return-nil exceptions are declared per
+   kind, so the vocabulary substitution is a second line rather than the only one.
 4. **`cmd/worker` exposes no `/metrics`**, against OPS-MET-8's "every service".
+   Filed as #430.
 5. **A per-connection dispatcher can mask a failed connection** in the sweep
    pair: the pair counts distinct workspaces, so a workspace whose second
    connection succeeded later is not reported as failing. Stated in the docs;
-   whether it wants its own metric is a product decision.
+   whether it wants its own metric is a product decision. Filed as #431.
 6. **`captureBackfillWorker.enqueueDigest` enqueues dispatcher args with no
    uniqueness**, so one tenant's backfill triggers a whole-fleet digest fan-out.
+   Filed as #432.
 
 **Phase 2's screen stays blocked upstream on U2** (`margince-foundation#1225`,
 still open). The endpoint is the layer underneath it and is built now; the SPA

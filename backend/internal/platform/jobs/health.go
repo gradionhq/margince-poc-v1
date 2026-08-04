@@ -102,9 +102,10 @@ const recentFailureLimit = 50
 // workspace's own rows plus the untenanted rows of the named dispatcher
 // kinds, and nothing else.
 //
-// dispatcherKinds is passed in rather than derived here because which
-// kinds are fleet-wide is a fact about the composition layer's job
-// catalog, and platform owns no domain.
+// dispatcherKinds is supplied by the caller rather than read off the
+// declaration in this package. This table has no RLS, so the untenanted arm
+// IS the scope — and a scope the calling surface states for itself is one
+// that surface can be gated on, which is where the gate for it lives.
 func WorkspaceHealth(ctx context.Context, pool *pgxpool.Pool, workspaceID string, dispatcherKinds []string) (Health, error) {
 	kinds, err := healthByKind(ctx, pool, workspaceID, dispatcherKinds)
 	if err != nil {

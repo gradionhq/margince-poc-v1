@@ -331,8 +331,7 @@ export const de = {
   "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
   "overlay.empty":
     "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
-  "overlay.adminOnly":
-    "Bitte eine Admin- oder Ops-Person bitten, HubSpot zu verbinden oder zu trennen.",
+  "overlay.adminOnly": "Du hast keine Berechtigung, HubSpot zu verbinden.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "USA",
@@ -387,7 +386,7 @@ export const de = {
   "overlay.userMap.loadFailed":
     "Die Nutzerzuordnung konnte nicht geladen werden.",
   "overlay.userMap.adminOnly":
-    "Bitte eine Admin- oder Ops-Person bitten, die Zuordnung zu prüfen.",
+    "Du hast keine Berechtigung, die Zuordnung zu prüfen.",
   "overlay.userMap.notOverlay":
     "Dieser Workspace liest aus nativen Tabellen, es gibt also nichts zuzuordnen.",
   "overlay.userMap.notConfigured":
@@ -1458,8 +1457,7 @@ export const de = {
     "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub":
-    "Pipelines und ihre Phasen konfigurieren (Admin/Ops).",
+  "settings.pipelinesSub": "Pipelines und ihre Phasen konfigurieren.",
   "pipeline.new": "Neue Pipeline",
   "pipeline.edit": "Pipeline bearbeiten",
   "pipeline.name": "Name",
@@ -1961,7 +1959,8 @@ export const de = {
   "consumerMail.remove": "Entfernen",
   "consumerMail.none":
     "Nichts ergänzt. Die mitgelieferte Liste entscheidet über jede Domain.",
-  "consumerMail.adminOnly": "Diese Liste kann nur eine Administratorin ändern.",
+  "consumerMail.adminOnly":
+    "Du hast keine Berechtigung, diese Liste zu ändern.",
 
   "ob.s4.googleVerifying": "Verbindung wird geprüft…",
   "ob.s4.googleDenied": "Du hast die Google-Einwilligung abgelehnt",
@@ -2360,7 +2359,7 @@ export const de = {
   "auto.sub":
     "ein geschlossener Katalog — Typ wählen, Parameter setzen, aktivieren",
   "auto.readOnly":
-    "Nur-Lese-Ansicht — Automatisierungen verwalten die Rollen Admin und Ops.",
+    "Nur-Lese-Ansicht — du hast keine Berechtigung, Automatisierungen zu ändern.",
   "auto.catalog": "Starter-Bibliothek",
   "auto.catalogSub": "die geschlossene Menge an Automatisierungstypen",
   "auto.instances": "Eingerichtete Automatisierungen",
@@ -2523,7 +2522,7 @@ export const de = {
   "cf.audit.footer":
     "Jedes Hinzufügen / Bearbeiten / Archivieren wird dauerhaft im Audit-Log festgehalten.",
   "cf.noPermission":
-    "Admin-Rolle erforderlich. Du hast nur Lesezugriff — der Builder sowie die Bearbeiten-/Archivieren-Steuerelemente sind deaktiviert.",
+    "Du hast nur Lesezugriff auf benutzerdefinierte Felder — der Builder sowie die Bearbeiten- und Archivieren-Steuerelemente sind deaktiviert.",
   "cf.retired": "Archiviert",
   "cf.propagate.title": "Wo ein neues Feld auftaucht",
   "cf.propagate.360": "In der 360-Ansicht des Datensatzes",

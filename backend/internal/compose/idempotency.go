@@ -18,6 +18,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -161,87 +162,98 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 	outcome := claimFresh
 	var stored storedResponse
 	err := database.WithWorkspaceTx(r.Context(), pool, func(tx pgx.Tx) error {
-		claim := func() (bool, error) {
-			tag, err := tx.Exec(r.Context(), `
-				INSERT INTO idempotency_key (workspace_id, principal_id, key, endpoint, request_digest)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-				ON CONFLICT (workspace_id, principal_id, key, endpoint) DO NOTHING`,
-				principalID, key, endpoint, digest)
-			if err != nil {
-				return false, err
-			}
-			return tag.RowsAffected() == 1, nil
-		}
-		claimed, err := claim()
+		claimed, err := insertClaim(r.Context(), tx, principalID, key, endpoint, digest)
 		if err != nil {
 			return err
 		}
 		if claimed {
 			return nil // fresh claim
 		}
-		var storedDigest, contentType string
-		var status *int
-		var respBody *string
-		var expired bool
-		err = tx.QueryRow(r.Context(), `
-			SELECT request_digest, response_status, response_body, response_content_type,
-			       created_at < now() - make_interval(secs => $4)
-			FROM idempotency_key
-			WHERE principal_id = $1 AND key = $2 AND endpoint = $3
-			FOR UPDATE`,
-			principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired)
-		if errors.Is(err, pgx.ErrNoRows) {
-			// The retention sweep removed the row between the INSERT above and
-			// this read. It was past the replay window, so it was protecting
-			// nothing — but simply erroring here would degrade to executing
-			// with NO claim recorded, and two concurrent retries of one key
-			// would then both execute. Claim it again instead.
-			claimed, err = claim()
-			if err != nil {
-				return err
-			}
-			if claimed {
-				return nil
-			}
-			// Someone re-created it in the same instant; the honest answer is
-			// that this attempt is still in flight elsewhere.
-			outcome = claimInProgress
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if expired {
-			// Past the retention window the key means nothing anymore:
-			// re-claim it in place for this attempt.
-			_, err := tx.Exec(r.Context(), `
-				UPDATE idempotency_key
-				SET request_digest = $4, response_status = NULL, response_body = NULL,
-				    response_content_type = DEFAULT, created_at = now()
-				WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
-				principalID, key, endpoint, digest)
-			return err
-		}
-		switch {
-		case storedDigest != digest:
-			outcome = claimMismatch
-		case status == nil:
-			outcome = claimInProgress
-		default:
-			outcome = claimReplay
-			stored.status = *status
-			stored.contentType = contentType
-			if respBody != nil {
-				stored.body = *respBody
-			}
-		}
-		return nil
+		outcome, stored, err = resolveExistingClaim(r.Context(), tx, principalID, key, endpoint, digest)
+		return err
 	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "idempotency claim failed; executing without replay protection", "err", err)
 		return claimFresh, storedResponse{}
 	}
 	return outcome, stored
+}
+
+// insertClaim writes the claim row insert-first and reports whether THIS
+// attempt is the one that claimed the key: false means a row for the same
+// (workspace, principal, key, endpoint) already exists.
+func insertClaim(ctx context.Context, tx pgx.Tx, principalID, key, endpoint, digest string) (bool, error) {
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO idempotency_key (workspace_id, principal_id, key, endpoint, request_digest)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+		ON CONFLICT (workspace_id, principal_id, key, endpoint) DO NOTHING`,
+		principalID, key, endpoint, digest)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// resolveExistingClaim decides what an already-claimed key means for this
+// attempt: a replay of the recorded response, a first attempt still in flight,
+// the same key reused for a different body, or — past the replay window — a
+// re-claim in place. The row is read FOR UPDATE inside the caller's
+// transaction, so two concurrent attempts under one key cannot both execute.
+func resolveExistingClaim(ctx context.Context, tx pgx.Tx, principalID, key, endpoint, digest string) (claimOutcome, storedResponse, error) {
+	var storedDigest, contentType string
+	var status *int
+	var respBody *string
+	var expired bool
+	err := tx.QueryRow(ctx, `
+		SELECT request_digest, response_status, response_body, response_content_type,
+		       created_at < now() - make_interval(secs => $4)
+		FROM idempotency_key
+		WHERE principal_id = $1 AND key = $2 AND endpoint = $3
+		FOR UPDATE`,
+		principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The retention sweep removed the row between the INSERT above and
+		// this read. It was past the replay window, so it was protecting
+		// nothing — but simply erroring here would degrade to executing
+		// with NO claim recorded, and two concurrent retries of one key
+		// would then both execute. Claim it again instead.
+		claimed, err := insertClaim(ctx, tx, principalID, key, endpoint, digest)
+		if err != nil {
+			return claimFresh, storedResponse{}, err
+		}
+		if claimed {
+			return claimFresh, storedResponse{}, nil
+		}
+		// Someone re-created it in the same instant; the honest answer is
+		// that this attempt is still in flight elsewhere.
+		return claimInProgress, storedResponse{}, nil
+	}
+	if err != nil {
+		return claimFresh, storedResponse{}, err
+	}
+	if expired {
+		// Past the retention window the key means nothing anymore:
+		// re-claim it in place for this attempt.
+		_, err := tx.Exec(ctx, `
+			UPDATE idempotency_key
+			SET request_digest = $4, response_status = NULL, response_body = NULL,
+			    response_content_type = DEFAULT, created_at = now()
+			WHERE principal_id = $1 AND key = $2 AND endpoint = $3`,
+			principalID, key, endpoint, digest)
+		return claimFresh, storedResponse{}, err
+	}
+	switch {
+	case storedDigest != digest:
+		return claimMismatch, storedResponse{}, nil
+	case status == nil:
+		return claimInProgress, storedResponse{}, nil
+	default:
+		stored := storedResponse{status: *status, contentType: contentType}
+		if respBody != nil {
+			stored.body = *respBody
+		}
+		return claimReplay, stored, nil
+	}
 }
 
 // settleClaim records a 2xx outcome for replay and releases the claim on

@@ -90,6 +90,8 @@ func RenderScenario(sc Scenario) ([]byte, error) {
 // The default decoding would render a 19-digit id as 1.234567890123457e+18 and
 // an exact literal as its nearest double — silently changing the fixture on the
 // way to YAML, which is the one thing a round trip must not do.
+//
+//craft:ignore naked-any the return is a whole decoded JSON document — a fixture is free to be an object, an array or a bare scalar, so the shape is only known by inspecting it
 func decodePreservingNumbers(raw []byte) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -113,6 +115,8 @@ func decodePreservingNumbers(raw []byte) (any, error) {
 // types hold exactly; anything wider — a 20-digit id, a high-precision
 // decimal — would be silently approximated, which is the failure this whole
 // path exists to prevent.
+//
+//craft:ignore naked-any v is one node of a decoded JSON tree — mapping, sequence or scalar — and the type switch below IS what decides which; the rewritten node goes back into the same untyped slot it came from
 func exactNumbers(v any) any {
 	switch typed := v.(type) {
 	case map[string]any:
@@ -139,6 +143,8 @@ func exactNumbers(v any) any {
 // an !!int, and a decimal finer than float64 comes back rounded. Either way the
 // scenario that loads is not the scenario that was written — so RenderScenario
 // says so instead of emitting one that quietly differs.
+//
+//craft:ignore naked-any v walks the same decoded JSON tree exactNumbers produced, where every node is untyped until the switch reaches the numbers this check is about
 func representableNumbers(v any, path string) error {
 	switch typed := v.(type) {
 	case map[string]any:
@@ -200,6 +206,8 @@ type yamlNumber string
 // MarshalYAML tags the scalar so a reader parses it back as a number. The tag is
 // chosen from the lexeme rather than by converting: an integer literal too wide
 // for int64 is still an integer, and saying so costs nothing.
+//
+//craft:ignore naked-any the signature is fixed by yaml.v3's Marshaler interface; naming *yaml.Node here would stop implementing it
 func (n yamlNumber) MarshalYAML() (any, error) {
 	tag := "!!int"
 	if strings.ContainsAny(string(n), ".eE") {

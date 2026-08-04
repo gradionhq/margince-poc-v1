@@ -254,7 +254,7 @@ func presentOwners(ctx context.Context, pool *pgxpool.Pool, owners map[string]id
 	return present, nil
 }
 
-func readBundleJSON(zr *zip.Reader, name string, out any) error {
+func readBundleJSON[T any](zr *zip.Reader, name string, out *T) error {
 	f, err := zr.Open(name)
 	if err != nil {
 		return fmt.Errorf("reconstruction: the bundle has no %s: %w", name, err)

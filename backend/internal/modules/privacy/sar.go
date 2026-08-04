@@ -153,8 +153,20 @@ type sarSection struct {
 // sarSections is the Art. 15 gather list: the exact set of tables that hold
 // data about the subject, each bound to the package field it populates. The
 // query set is compliance-critical — adding or dropping a source changes what
-// the export owes the data subject.
+// the export owes the data subject. It is assembled chapter by chapter, and the
+// order the chapters concatenate in is the order the export runs them in.
 func sarSections(pkg *SARPackage) []sarSection {
+	sections := sarIdentitySections(pkg)
+	sections = append(sections, sarRecordSections(pkg)...)
+	sections = append(sections, sarMessagingSections(pkg)...)
+	sections = append(sections, sarConsentSections(pkg)...)
+	return append(sections, sarProvenanceSections(pkg)...)
+}
+
+// sarIdentitySections gather how the subject is identified and where they are
+// named: their own addresses, numbers and channel accounts, the conversations
+// they were recorded as a party to, and the imported networks they appear in.
+func sarIdentitySections(pkg *SARPackage) []sarSection {
 	return []sarSection{
 		// The three identifier sections export ARCHIVED rows alongside live
 		// ones: Art. 15 owes what is HELD, and a retired address, number or
@@ -198,6 +210,14 @@ func sarSections(pkg *SARPackage) []sarSection {
 		              WHERE r.person_id = $1 AND r.kind = 'employment'
 		                AND r.archived_at IS NULL
 		                AND r.organization_id = g.matched_org_id))`},
+	}
+}
+
+// sarRecordSections gather the business records the subject appears in: who
+// they are connected to, the deals they hold a stake in, the leads they came
+// from, and their timeline with the files hanging off it.
+func sarRecordSections(pkg *SARPackage) []sarSection {
+	return []sarSection{
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency
@@ -218,6 +238,14 @@ func sarSections(pkg *SARPackage) []sarSection {
 		   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
 		      OR (at.entity_type = 'activity' AND at.entity_id IN (
 		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
+	}
+}
+
+// sarMessagingSections gather both directions of the messaging boundary: what
+// capture decided about mail arriving from the subject, and what this
+// installation sent out about or to them.
+func sarMessagingSections(pkg *SARPackage) []sarSection {
+	return []sarSection{
 		{&pkg.CaptureDispositions, `SELECT p.email, p.display_name, p.status, p.disposition_reason, p.created_at, p.resolved_at
 		   FROM capture_pending_counterparty p
 		   WHERE p.email IN (SELECT email FROM person_email WHERE person_id = $1)`},
@@ -260,12 +288,27 @@ func sarSections(pkg *SARPackage) []sarSection {
 		      OR EXISTS (
 		           SELECT 1 FROM jsonb_array_elements_text(o.recipients || o.cc) AS addr
 		           WHERE lower(addr) IN (SELECT email FROM person_email WHERE person_id = $1))`},
+	}
+}
+
+// sarConsentSections gather the per-purpose consent state and the proof log
+// behind it — what the subject agreed to, and every change of mind on record.
+func sarConsentSections(pkg *SARPackage) []sarSection {
+	return []sarSection{
 		{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
 		   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
 		   WHERE pc.person_id = $1`},
 		{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
 		   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
 		   WHERE ce.person_id = $1`},
+	}
+}
+
+// sarProvenanceSections gather where the held data CAME FROM: the raw provider
+// payloads the subject was captured out of, and the per-field record of who
+// captured what from where.
+func sarProvenanceSections(pkg *SARPackage) []sarSection {
+	return []sarSection{
 		// Reached two ways, like the erasure purge this mirrors (erasure.go's
 		// purgeDerivedTraces): by email, ILIKE against the stored address, and
 		// by channel identity, a typed JSONB path equality rather than a

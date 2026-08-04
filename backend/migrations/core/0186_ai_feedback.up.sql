@@ -1,4 +1,4 @@
--- 0183: the correction ledger — a human's verdict on an AI-surfaced claim
+-- 0186: the correction ledger — a human's verdict on an AI-surfaced claim
 -- (AIRT-SCHEMA-1 / AIRT-AC-9). DDL per the ai-runtime chapter.
 --
 -- Everything the product infers is re-derived, not stored: a brief line, a

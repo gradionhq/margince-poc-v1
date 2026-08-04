@@ -42,8 +42,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-          # SBOM_VERSION reads `git describe --tags --exact-match` (else the short
-          # revision); resolving a release tag needs the tags and history.
+          # SBOM_VERSION is the release tag when HEAD is exactly on one (`git
+          # describe --tags --exact-match`), else the full git revision; resolving
+          # that tag needs the tags and history.
           fetch-depth: 0
       - name: Generate SBOMs
         run: make sbom

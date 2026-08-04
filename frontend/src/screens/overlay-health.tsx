@@ -266,7 +266,8 @@ export function OverlayLiveSection({
   sync,
   budget,
   locale,
-  canManage,
+  canReconcile,
+  canDisconnect,
   onReconcile,
   reconcilePending,
   reconcileQueued,
@@ -276,7 +277,11 @@ export function OverlayLiveSection({
   sync: QueryLike<SyncStatus>;
   budget: QueryLike<Budget>;
   locale: Locale;
-  canManage: boolean;
+  // Two grants, not one: reconciling re-syncs the mirror
+  // (overlay_connection:update) while disconnecting tears it down and flips
+  // the workspace back to native (overlay_connection:delete).
+  canReconcile: boolean;
+  canDisconnect: boolean;
   onReconcile: () => void;
   reconcilePending: boolean;
   reconcileQueued: boolean;
@@ -288,7 +293,7 @@ export function OverlayLiveSection({
     <>
       <SyncStatusPanel query={sync} locale={locale} />
       <BudgetPanel query={budget} />
-      {canManage && (
+      {(canReconcile || canDisconnect) && (
         <div
           style={{
             display: "flex",
@@ -296,12 +301,16 @@ export function OverlayLiveSection({
             marginTop: "var(--space-3)",
           }}
         >
-          <Button small onClick={onReconcile} disabled={reconcilePending}>
-            <RefreshCw aria-hidden /> {t("overlay.reconcile")}
-          </Button>
-          <Button small variant="danger" onClick={onDisconnect}>
-            {t("overlay.disconnect")}
-          </Button>
+          {canReconcile && (
+            <Button small onClick={onReconcile} disabled={reconcilePending}>
+              <RefreshCw aria-hidden /> {t("overlay.reconcile")}
+            </Button>
+          )}
+          {canDisconnect && (
+            <Button small variant="danger" onClick={onDisconnect}>
+              {t("overlay.disconnect")}
+            </Button>
+          )}
         </div>
       )}
       {reconcileQueued && (

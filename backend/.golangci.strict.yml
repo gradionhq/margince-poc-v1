@@ -49,7 +49,14 @@ linters:
     - nilerr          # no return nil after a non-nil err
     - govet           # enable-all (the baseline runs the default vet suite)
     # --- anti-slop & taste-adjacent ---
-    - forbidigo       # project blocklist (see settings)
+    # forbidigo is deliberately ABSENT, and this is the only place that says
+    # so. It lives in .golangci.yml alone, repo-wide, because two passes
+    # enabling it with different `forbid:` sets made its in-source waiver
+    # unusable everywhere in the tree: a //nolint:forbidigo written against
+    # one set suppresses nothing under the other, and this config's nolintlint
+    # then fails the build for an unused directive — in a linter unrelated to
+    # the rule being waived, on a line that looks correct. One owner, one
+    # pattern set, and //nolint:forbidigo means what it says.
     - goconst         # repeated literals -> named const
     - unparam         # unused function parameters (speculative API)
     - unused          # dead/speculative code
@@ -110,14 +117,6 @@ linters:
           json: snake
           yaml: snake
         use-field-name: false
-    forbidigo:
-      analyze-types: true
-      forbid:
-        - pattern: '^fmt\.Print.*$'
-          msg: "use slog, not fmt.Print*"
-        - pattern: '^http\.Error$'
-          msg: "ship RFC 7807 JSON via platform/httperr, not http.Error"
-
   exclusions:
     generated: lax
     rules:

@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// entityTypePerson is this baseline's record type; migration 0179 widened
+// entityTypePerson is this baseline's record type; migration 0184 widened
 // the table's CHECK to admit it beside organization.
 const entityTypePerson = "person"
 

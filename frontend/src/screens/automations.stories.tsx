@@ -66,7 +66,36 @@ export const Configurable: Story = {
     return (
       <StoryProviders>
         <ul style={{ listStyle: "none" }}>
-          <AutomationRow automation={automation} entry={entry} canConfigure />
+          <AutomationRow
+            automation={automation}
+            entry={entry}
+            canViewRuns
+            canEdit
+            canDelete
+          />
+        </ul>
+      </StoryProviders>
+    );
+  },
+};
+
+// Deliberately a combination no seeded role holds: update without delete. The
+// row must offer pause and edit while withholding the destructive action — the
+// case a single "canManage" flag could not express, and the one a divergent
+// fixture exists to catch.
+export const EditableButNotDeletable: Story = {
+  render: () => {
+    stubPanels();
+    return (
+      <StoryProviders>
+        <ul style={{ listStyle: "none" }}>
+          <AutomationRow
+            automation={automation}
+            entry={entry}
+            canViewRuns
+            canEdit
+            canDelete={false}
+          />
         </ul>
       </StoryProviders>
     );
@@ -82,7 +111,9 @@ export const ReadOnly: Story = {
           <AutomationRow
             automation={automation}
             entry={entry}
-            canConfigure={false}
+            canViewRuns
+            canEdit={false}
+            canDelete={false}
           />
         </ul>
       </StoryProviders>

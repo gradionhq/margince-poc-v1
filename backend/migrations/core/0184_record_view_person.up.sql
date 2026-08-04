@@ -1,4 +1,4 @@
--- 0171: the visit baseline covers people, not only organizations.
+-- 0184: the visit baseline covers people, not only organizations.
 --
 -- user_record_view was built generic — (entity_type, entity_id) — and then
 -- pinned to a single value by its CHECK, because the company page was the

@@ -49,7 +49,7 @@ func (e *deepReadEngine) startCompanySiteRead(w http.ResponseWriter, r *http.Req
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
 				Workspace: storekit.MustWorkspace(ctx), SiteReadID: read.ID,
-				SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+				RequestedBy: read.RequestedBy,
 			}, siteDeepReadInsertOpts())
 		})
 	if err != nil {
@@ -246,38 +246,8 @@ func companySiteRead(read people.SiteRead, compared []people.SiteReadComparison,
 			EvidenceUrl: fact.SourceURL, Confidence: fact.Confidence,
 		})
 	}
-	entities := make([]crmcontracts.CompanySiteReadLegalEntity, 0, len(read.LegalEntities))
-	for _, entity := range read.LegalEntities {
-		wire := crmcontracts.CompanySiteReadLegalEntity{Name: entity.Name, SourceUrl: entity.SourceURL}
-		// The optional details stay ABSENT rather than empty: "the page did
-		// not state it" and "the page stated nothing" must not read alike.
-		if entity.RegisteredAddress != "" {
-			wire.RegisteredAddress = &entity.RegisteredAddress
-		}
-		if entity.RegisterNumber != "" {
-			wire.RegisterNumber = &entity.RegisterNumber
-		}
-		if entity.EvidenceSnippet != "" {
-			wire.EvidenceSnippet = &entity.EvidenceSnippet
-		}
-		entities = append(entities, wire)
-	}
-	found := make([]crmcontracts.CompanySiteReadPerson, 0, len(read.People))
-	for _, person := range read.People {
-		disposition := crmcontracts.CompanySiteReadPersonDisposition("separate_lead_proposal")
-		out := crmcontracts.CompanySiteReadPerson{
-			Name: person.Name, Role: person.Role, EvidenceSnippet: person.EvidenceSnippet,
-			EvidenceUrl: person.SourceURL, Disposition: &disposition,
-		}
-		if person.PublishedEmail != "" {
-			email := openapi_types.Email(person.PublishedEmail)
-			out.PublishedEmail = &email
-		}
-		if person.LinkedinURL != "" {
-			out.LinkedinUrl = &person.LinkedinURL
-		}
-		found = append(found, out)
-	}
+	entities := contractSiteReadLegalEntities(read.LegalEntities)
+	found := contractSiteReadPeople(read.People)
 	comparisons := contractSiteReadComparisons(compared)
 	// Every terminal status the store can hold maps to something. A status
 	// missing from this table renders as the empty string, which is not a
@@ -342,6 +312,46 @@ func contractRunSummary(summary ai.RunSummary) crmcontracts.AiRunSummary {
 		LatencyMs: summary.LatencyMS, EstimatedCostMicrousd: summary.EstimatedCostMicroUSD,
 		UnpricedCalls: summary.UnpricedCalls, Models: models,
 	}
+}
+
+func contractSiteReadLegalEntities(entities []people.SiteReadLegalEntity) []crmcontracts.CompanySiteReadLegalEntity {
+	out := make([]crmcontracts.CompanySiteReadLegalEntity, 0, len(entities))
+	for _, entity := range entities {
+		wire := crmcontracts.CompanySiteReadLegalEntity{Name: entity.Name, SourceUrl: entity.SourceURL}
+		// The optional details stay ABSENT rather than empty: "the page did
+		// not state it" and "the page stated nothing" must not read alike.
+		if entity.RegisteredAddress != "" {
+			wire.RegisteredAddress = &entity.RegisteredAddress
+		}
+		if entity.RegisterNumber != "" {
+			wire.RegisterNumber = &entity.RegisterNumber
+		}
+		if entity.EvidenceSnippet != "" {
+			wire.EvidenceSnippet = &entity.EvidenceSnippet
+		}
+		out = append(out, wire)
+	}
+	return out
+}
+
+func contractSiteReadPeople(found []people.SiteReadPerson) []crmcontracts.CompanySiteReadPerson {
+	out := make([]crmcontracts.CompanySiteReadPerson, 0, len(found))
+	for _, person := range found {
+		disposition := crmcontracts.CompanySiteReadPersonDisposition("separate_lead_proposal")
+		wire := crmcontracts.CompanySiteReadPerson{
+			Name: person.Name, Role: person.Role, EvidenceSnippet: person.EvidenceSnippet,
+			EvidenceUrl: person.SourceURL, Disposition: &disposition,
+		}
+		if person.PublishedEmail != "" {
+			email := openapi_types.Email(person.PublishedEmail)
+			wire.PublishedEmail = &email
+		}
+		if person.LinkedinURL != "" {
+			wire.LinkedinUrl = &person.LinkedinURL
+		}
+		out = append(out, wire)
+	}
+	return out
 }
 
 func contractSiteReadComparisons(compared []people.SiteReadComparison) []crmcontracts.CompanySiteReadComparison {

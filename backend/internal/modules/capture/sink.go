@@ -112,28 +112,8 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
 			return err
 		}
-		if len(rec.Raw) > 0 {
-			payload := rec.Raw
-			if !json.Valid(payload) {
-				// Non-JSON originals are stored as a JSON string so the
-				// column type never rejects a provider's format.
-				encoded, err := json.Marshal(string(rec.Raw))
-				if err != nil {
-					return err
-				}
-				payload = encoded
-			}
-			// Raw capture is EVIDENCE: append-once, never rewritten. A
-			// replay carrying different bytes for the same natural key
-			// keeps the original — silently replacing provenance would
-			// gut lineage and forensic replay.
-			if _, err := tx.Exec(ctx, `
-				INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
-				ON CONFLICT (workspace_id, source_system, source_id) DO NOTHING`,
-				rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
-				return fmt.Errorf("capture: raw store: %w", err)
-			}
+		if err := storeRawCapture(ctx, tx, rec); err != nil {
+			return err
 		}
 
 		switch fields := rec.Fields.(type) {
@@ -174,6 +154,35 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	}
 	return ref, nil
+}
+
+// storeRawCapture appends the provider's original bytes under the natural
+// key. Raw capture is EVIDENCE: append-once, never rewritten. A replay
+// carrying different bytes for the same natural key keeps the original —
+// silently replacing provenance would gut lineage and forensic replay. A
+// record that arrived with no original stores nothing.
+func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord) error {
+	if len(rec.Raw) == 0 {
+		return nil
+	}
+	payload := rec.Raw
+	if !json.Valid(payload) {
+		// Non-JSON originals are stored as a JSON string so the
+		// column type never rejects a provider's format.
+		encoded, err := json.Marshal(string(rec.Raw))
+		if err != nil {
+			return err
+		}
+		payload = encoded
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+		ON CONFLICT (workspace_id, source_system, source_id) DO NOTHING`,
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
+		return fmt.Errorf("capture: raw store: %w", err)
+	}
+	return nil
 }
 
 // captureActivity lands one activity: upsert on the natural key, links,

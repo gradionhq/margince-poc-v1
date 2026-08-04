@@ -26,9 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
-	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -256,9 +254,8 @@ var _ crmcontracts.ServerInterface = Server{}
 // New wires the modules and returns the ready http.Handler: contract
 // routes under /v1, health probe, session middleware, panic recovery.
 func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
-	// The fieldcatalog seam for deals (the peopleHandlers wiring in
-	// newServer carries the full note): active cf_* deal columns ride
-	// deal payloads on both surfaces.
+	// The fieldcatalog seam for deals (newPeopleHandlers carries the full
+	// note): active cf_* deal columns ride deal payloads on both surfaces.
 	dealsH := deals.NewHandlers(pool).WithFieldCatalog(customfields.NewService(pool, nil))
 	// Bootstrap happens at boot from deployment configuration
 	// (EnsureInstallation, A107/ADR-0061) — the HTTP surface only ever
@@ -281,33 +278,17 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }
 
-// newServer assembles the module handler sets. Every cross-module edge
-// is injected HERE, never as a sibling import (ADR-0054).
+// newServer assembles the module handler sets. Every cross-module edge is
+// injected here, or in the assembly step this calls for it
+// (serverassembly.go) — never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
 	srv := Server{
-		authHandlers: authH,
-		// The fieldcatalog seam: customfields' catalog read makes the
-		// workspace's active cf_* columns ride person/organization
-		// payloads (values only — the schema-change engine stays behind
-		// WithSchemaPool; ActiveColumns needs none of it).
-		// The match stager is injected here because approvals is a sibling of
-		// people and a module never imports one: compose is where that edge is
-		// made, as it is for every other cross-module dependency.
-		peopleHandlers: people.NewHandlers(pool).
-			WithFieldCatalog(customfields.NewService(pool, nil)).
-			WithMatchStager(linkedInMatchStager(pool)),
-		dealsHandlers: dealsH,
-		activitiesHandlers: activities.NewHandlers(pool).
-			WithConsent(consent.NewGate(consent.NewStore(pool))).
-			// The public booking capture seams (feedback/14): people is the
-			// idempotent-on-email person path, consent records the
-			// passthrough — both injected here, never sibling imports.
-			WithPublicBooking(people.NewStore(pool), bookingConsentAdapter{store: consent.NewStore(pool)}).
-			// The RFC 8058 unsubscribe linker (B-E11.32): consent mints the
-			// preference token behind the List-Unsubscribe URL.
-			WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}),
-		approvalsHandlers: approvalsHandlersWithEffects(pool),
-		searchHandlers:    search.NewHandlers(pool),
+		authHandlers:       authH,
+		peopleHandlers:     newPeopleHandlers(pool),
+		dealsHandlers:      dealsH,
+		activitiesHandlers: newActivitiesHandlers(pool),
+		approvalsHandlers:  approvalsHandlersWithEffects(pool),
+		searchHandlers:     search.NewHandlers(pool),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated
 		// read rather than answer anything at all.
@@ -326,35 +307,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		reportHandlers:     reportHandlers{engine: newReportEngine(pool)},
 		// The Morning Brief always serves on the deterministic §10.1 floor;
 		// the L2 re-order is opt-in via WithBrief (the api role's model path).
-		Handlers: briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
-		Reads:    network.NewReads(pool),
-		// The workspace capture-settings surface (CAP-WIRE-7, ADR-0072):
-		// read the auto-enrich posture (all roles), toggle it (admin/ops).
-		captureSettingsHandlers: captureSettingsHandlers{store: capture.NewSettings(pool)},
-		// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
-		// domain control, and the only way an operator corrects a shipped
-		// baseline that is wrong about one of their customers.
-		consumerMailDomainHandlers: consumerMailDomainHandlers{store: capture.NewFreemailDomains(pool)},
-		// First-class filtered export (B-E15.13): the writer reuses the ONE
-		// predicate engine + the bundle writer's open-format rendering; the
-		// collections store resolves a saved view / dynamic list source
-		// behind its own visibility gate.
-		filteredExportHandlers: filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)},
-		overlayExportHandlers:  newOverlayExportHandlers(pool, log),
-		orgRollupHandlers:      orgRollupHandlers{pool: pool, now: time.Now},
-		strengthHandlers:       strengthHandlers{people: people.NewStore(pool), now: time.Now},
-		// The installation's own company (the 0083 anchor). Its own store
-		// instance, like every other people-backed shadow here: the company
-		// form's write shape is people's, the transport is compose's.
-		companyHandlers:  companyHandlers{store: people.NewStore(pool), rollout: companyContextRolloutOnboarding},
-		siteReadHandlers: siteReadHandlers{companyContextRollout: companyContextRolloutOnboarding},
-		onboardingStateHandlers: onboardingStateHandlers{
-			state: identity.NewOnboardingStore(pool), company: people.NewStore(pool),
-			proposal: &onboardingProposalEngine{
-				state: identity.NewOnboardingStore(pool), people: people.NewStore(pool),
-				rollout: companyContextRolloutOnboarding,
-			},
-		},
+		Handlers:          briefs.NewHandlers(briefs.NewBriefEngine(pool, people.NewStore(pool))),
+		Reads:             network.NewReads(pool),
+		orgRollupHandlers: orgRollupHandlers{pool: pool, now: time.Now},
+		strengthHandlers:  strengthHandlers{people: people.NewStore(pool), now: time.Now},
 		// The schema-change pool is boot-optional; nil
 		// here means Create/SetOptions stay their generated 501 until the
 		// api role's WithSchemaPool rebuilds this over the real pool.
@@ -380,37 +336,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// Redis client + config.
 		overlayMeter: failClosedOverlayMeter(),
 	}
-	// The overlay read dispatch is built with a nil live-incumbent resolver
-	// here (force-fresh degrades to the mirror). WithKeyvault injects the
-	// vault-backed resolver once the vault is known — the vault arrives via
-	// an option applied AFTER newServer returns, and the dispatch/provider/
-	// freshness reader are pointers shared across that return, so a
-	// boot-time SetOverlayIncumbentResolver reaches the same instance this
-	// field serves reads through.
-	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter, nil), pool)
-	// The company view (org360) is assembled from THIS system of record;
-	// it asks the same dispatch every other overlay-aware read asks, so a
-	// workspace running on the incumbent mirror gets one honest refusal
-	// instead of a page that quietly omits most of itself. Wired after the
-	// literal because it needs srv.sorDispatch, which is built above.
-	// The people store carries the SAME fieldcatalog seam peopleHandlers
-	// gets: the 360 serves the organization object, and without it the
-	// company view would silently omit the cf_* columns GET
-	// /organizations/{id} returns for the same record.
-	// The brief reads THROUGH the 360 service, so it inherits every gate the
-	// page itself applies and can only describe what this caller may see.
-	// The model lane is nil here: WithAccountBrief binds the api role's
-	// summarize lane, and without it the brief serves its deterministic
-	// floor.
-	srv.peopleStore = people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil))
-	srv.org360Svc = org360.NewService(pool, srv.peopleStore, approvals.NewService(pool), time.Now)
-	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, srv.peopleStore, nil, "", time.Now)
-	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
-	srv.org360Handlers = org360.NewHandlers(
-		srv.org360Svc,
-		srv.sorDispatch.isOverlay,
-	)
-	srv.wirePerson360(pool)
+	srv.wireCaptureSettingsSurface(pool)
+	srv.wireExportSurface(pool, log)
+	srv.wireOnboardingSurface(pool)
+	srv.wireSystemOfRecordReads(pool)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
 	// the vault-backed live-incumbent resolver that lets force-fresh reads and
 	// HUMAN write-back reach HubSpot (an AGENT write is refused before it gets
@@ -437,21 +366,6 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
 }
 
-// contractAPI mounts the generated contract router with the ADR-0055
-// admission layer, which rides INSIDE the router (it needs the matched
-// route pattern) and shares the MCP surface's tier table, approvals
-// staging, and live-authority gate — one gate, two transports.
-// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
-// whatever embed lane this process role already wired via
-// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
-// status/preview/confirm read, so this reports through the one seam
-// rather than opening a second router/store pair. A role that never
-// wires an embed lane (no declared routing config, --ai-fake, or the
-// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
-// is a legitimate "no embed lane to report on" shape, not a fault, so it
-// renders "unknown" exactly like a marker-read failure does — Readyz's
-// body never distinguishes the two, only ever "was this readable right
-// now or not."
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

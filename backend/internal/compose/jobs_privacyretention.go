@@ -39,15 +39,19 @@ const (
 	privacyRetentionMaxWorkers = 2
 )
 
-// privacyRetentionPassTimeout bounds one workspace's pass, and it is the
-// heaviest of the fanned-out passes: River's whole-job default of a minute
-// would cancel a tenant with a real backlog mid-record on every attempt until
-// the row discarded, leaving a permanently failing job row on the one
-// obligation whose entire point is auditability. privacy.MaxPassDuration is the
-// pass's own ceiling (its stage count times its batch bound times its
-// per-record allowance), and the margin covers the policy read and the
-// per-stage due-list reads between records, which the pool bounds rather than
-// this cap.
+// privacyRetentionPassTimeout is the arithmetic behind
+// privacy_retention_workspace's declared timeout, the heaviest of the
+// fanned-out passes: privacy.MaxPassDuration is the pass's own ceiling (its
+// stage count times its batch bound times its per-record allowance), and the
+// margin covers the policy read and the per-stage due-list reads between
+// records, which the pool bounds rather than this cap. Anything shorter cancels
+// a tenant with a real backlog mid-record on every attempt until the row
+// discards, leaving a permanently failing job row on the one obligation whose
+// entire point is auditability.
+//
+// api/jobs.yaml carries the value River is actually handed, so moving this
+// number alone moves no wall clock; the declaration names this constant in its
+// derived timeout and the job census keeps the two equal.
 //
 // A var rather than a const because the engine derives its stage count from its
 // own selector table instead of hand-counting it.
@@ -58,7 +62,7 @@ var privacyRetentionPassTimeout = privacy.MaxPassDuration + 5*time.Minute
 type PrivacyRetentionConfig struct {
 	// Interval is the dispatcher's cadence — the operator-facing
 	// --retention-interval, which stays the schedule source it always was.
-	// Non-positive schedules no retention dispatch (periodicWhenPositive).
+	// Non-positive schedules no retention dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 }
 
@@ -70,10 +74,13 @@ type PrivacyRetentionConfig struct {
 // runner's own (Art. 17 reaches the attachment bytes), and the edge invalidator
 // is a search closure, which a module may not import from privacy.
 //
-// A non-positive interval registers the workers but no schedule; the reasoning
-// for that split, and for why it cannot reach a deployment that owes the
-// storage-limitation obligation, is periodicWhenPositive's.
-func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
+// A non-positive interval registers the workers but no schedule — the posture
+// the declaration states and jobschedule.go resolves. It cannot reach a
+// deployment that owes the storage-limitation obligation: --retention-interval
+// carries a positive default and cmd/worker's validateSchedulerIntervals
+// refuses a non-positive one at boot. The omission serves the callers that
+// wire a runner for a few named passes and never meant to run this one.
+func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
 	// Retention removes the interactions the relationship graph is folded
 	// from, so it carries the fold with it — in the same transaction, not on
 	// the bus. Without the blobstore its erase action leaves the attachment
@@ -83,15 +90,9 @@ func addPrivacyRetentionJobs(workers *river.Workers, pool *pgxpool.Pool, cfg Job
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})
-	river.AddWorker(workers, &privacyRetentionWorker{pool: pool})
-	river.AddWorker(workers, &privacyRetentionWorkspaceWorker{retention: retention})
-	return periodicWhenPositive(cfg.PrivacyRetention.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return PrivacyRetentionArgs{}, sweepInsertOpts() },
-		// Run-on-start because the interval is an operator's dial and a
-		// storage-limitation obligation is not: a deployment that restarts
-		// inside its own retention window must not silently defer the pass that
-		// window was already too long for.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool})
+	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention})
+	return periodicFor(cfg, PrivacyRetentionArgs{})
 }
 
 // PrivacyRetentionArgs schedules one fleet-wide retention pass.
@@ -109,7 +110,6 @@ func (PrivacyRetentionArgs) FleetWide() {}
 // data inside it, and storage limitation is owed on the tenants nobody looks at
 // any more exactly as much as on the ones in daily use.
 type privacyRetentionWorker struct {
-	river.WorkerDefaults[PrivacyRetentionArgs]
 	pool *pgxpool.Pool
 }
 
@@ -119,7 +119,7 @@ func (w *privacyRetentionWorker) Work(ctx context.Context, _ *river.Job[PrivacyR
 		return jobs.FaultContext(ctx, err)
 	}
 	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(privacyRetentionQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return PrivacyRetentionWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -136,12 +136,7 @@ func (a PrivacyRetentionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 
 // privacyRetentionWorkspaceWorker evaluates one workspace.
 type privacyRetentionWorkspaceWorker struct {
-	river.WorkerDefaults[PrivacyRetentionWorkspaceArgs]
 	retention *privacy.RetentionService
-}
-
-func (w *privacyRetentionWorkspaceWorker) Timeout(*river.Job[PrivacyRetentionWorkspaceArgs]) time.Duration {
-	return privacyRetentionPassTimeout
 }
 
 func (w *privacyRetentionWorkspaceWorker) Work(ctx context.Context, job *river.Job[PrivacyRetentionWorkspaceArgs]) error {

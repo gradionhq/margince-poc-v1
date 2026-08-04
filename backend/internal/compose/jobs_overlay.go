@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -23,6 +22,44 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// addOverlayJobs registers the three workers the incumbent mirror needs, and
+// registers none of them without a vault: every one of them opens by unsealing
+// a connection's token, so a role with no custodian could only fail whatever it
+// picked up. The dispatcher's schedule stays in the runner's own list, the
+// posture the embed-reindex wiring takes — it is periodicFor's to resolve from
+// the same declaration this gate reads.
+//
+// The mirror store and the budget meter are built once and shared by the two
+// workers that use them, which is why this is a block rather than three lines
+// in the runner.
+func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
+	if cfg.OverlayVault == nil {
+		return
+	}
+	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	// cmd/worker built the meter over the shared Redis (so the poller's spend
+	// and the api's force-fresh spend land on ONE count); fall back to a
+	// fail-closed meter if a role wired the poller without one.
+	meter := cfg.OverlayMeter
+	if meter == nil {
+		meter = failClosedOverlayMeter()
+	}
+	addDeclaredWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log})
+	addDeclaredWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
+		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+	})
+	// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
+	// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one record
+	// through the same store the poller uses. Registered whenever the overlay
+	// vault is present (the receiver only enqueues when the api role has the
+	// app secret wired).
+	addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{
+		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+	})
+}
 
 // OverlayReconcileArgs schedules one incremental reconcile pass across
 // every workspace running in overlay mode (design.md §4.4: "Pull always
@@ -42,7 +79,6 @@ func (OverlayReconcileArgs) FleetWide() {}
 // drives via capture.Registry.DueConnections) and enqueues one reconcile per
 // due connection. It sweeps nothing itself.
 type overlayReconcileWorker struct {
-	river.WorkerDefaults[OverlayReconcileArgs]
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
@@ -73,16 +109,8 @@ func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) contex
 // row, which is the visibility this phase is after.
 func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayReconcileArgs]) error {
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
-	if len(due) == 0 {
-		// Nothing to fan out. The client is resolved only past this point
-		// because ClientFromContext panics when there is none, and a tick with
-		// no due connection has no insert to make.
-		return jobs.FaultContext(ctx, enumErr)
-	}
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
-		if _, err := client.Insert(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID},
-			markedAsFleetPass(workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts))); err != nil {
+		if err := dispatchOne(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID}, nil); err != nil {
 			// A refused enqueue means this workspace gets no sweep at all, so
 			// it fails the DISPATCHER rather than being logged past: a green
 			// tick over a tenant nobody swept is the shape this phase removes.
@@ -91,14 +119,6 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	}
 	return jobs.FaultContext(ctx, enumErr)
 }
-
-// overlaySweepMaxAttempts is ONE: this kind's retry is the sweep backoff the
-// worker itself records (overlay_sync_state.next_sweep_at — at least minutes
-// out, and longer for a rate limit), and the dispatcher's due-scan is gated on
-// it. River's own ladder does not read that column, so a second rung would
-// re-sweep a throttled incumbent seconds after the worker deliberately paced
-// it. The failed row stays failed and visible; the next due tick is the retry.
-const overlaySweepMaxAttempts = 1
 
 // OverlayReconcileWorkspaceArgs reconciles ONE workspace's incumbent mirror.
 // It names the workspace and nothing else: the connection's incumbent, region,
@@ -134,7 +154,6 @@ func (a OverlayReconcileWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 // hardcoded hubspot.NewAdapter) so the whole sweep is drivable against a
 // fake incumbent in a test.
 type overlayReconcileWorkspaceWorker struct {
-	river.WorkerDefaults[OverlayReconcileWorkspaceArgs]
 	pool         *pgxpool.Pool
 	vault        keyvault.Vault
 	ms           *overlay.MirrorStore
@@ -294,15 +313,25 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// and its callees treat that signal as a clean stop.
 	ms = ms.WithResolver(inc).WithFenceIdentity(d.ConnectedAt)
 
-	// Seed mirror_user_map from the incumbent's owners directory each
-	// sweep: match every incumbent owner's email to an existing workspace
-	// app_user and write the email-sourced mapping (design.md §4.6 — a
-	// MATCH, never an import). Running it per sweep (not only on connect)
-	// catches users who joined the workspace after connect and owners
-	// added incumbent-side since. Best-effort: a directory-fetch or
-	// per-owner match failure is logged and does not abort the record
-	// sweep below — an unseeded mapping is a fail-closed-eventually gap
-	// (the NEXT sweep retries), never a reason to stop syncing records.
+	if err := seedUserMapFromOwners(ctx, ms, inc, d, log); err != nil {
+		return err
+	}
+	if err := revalidateOwnerEmailMappings(ctx, ms, inc, d, log); err != nil {
+		return err
+	}
+	return sweepObjectClasses(ctx, sweepDeps{inc: inc, ms: ms, meter: meter, log: log}, d)
+}
+
+// seedUserMapFromOwners seeds mirror_user_map from the incumbent's owners
+// directory: it matches every incumbent owner's email to an existing workspace
+// app_user and writes the email-sourced mapping (design.md §4.6 — a MATCH,
+// never an import). Running it per sweep (not only on connect) catches users
+// who joined the workspace after connect and owners added incumbent-side
+// since. Best-effort: a directory-fetch or per-owner match failure is logged
+// and returns nil so the record sweep still runs — an unseeded mapping is a
+// fail-closed-eventually gap (the NEXT sweep retries), never a reason to stop
+// syncing records.
+func seedUserMapFromOwners(ctx context.Context, ms *overlay.MirrorStore, inc overlay.Incumbent, d overlay.DueOverlayConnection, log *slog.Logger) error {
 	if owners, err := inc.Owners(ctx); err != nil {
 		// The owners fetch is the sweep's first incumbent call. A
 		// connection-level failure here (auth revoked, rate-limited,
@@ -322,17 +351,20 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		log.WarnContext(ctx, "overlay reconcile: seeding mirror_user_map from the owners directory failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
+	return nil
+}
 
-	// Periodic realization of design.md §4.6 rule 5: an owner's email can
-	// change with NO record ever getting reassigned, so Ingest's own
-	// reassignment-triggered revalidateEmailMapping call (mirrorstore.go)
-	// never gets a chance to run for that owner. Once per sweep, per
-	// connection, re-check every email-sourced mapping this workspace has
-	// against inc's CURRENT owner emails — bounded to the distinct set of
-	// already-mapped owners, not a per-record scan. A failure here is
-	// logged and does not abort the object-class sweep below: a stale
-	// mapping is a fail-closed-eventually gap (the NEXT sweep tries
-	// again), not a reason to stop syncing records this tick.
+// revalidateOwnerEmailMappings is the periodic realization of design.md §4.6
+// rule 5: an owner's email can change with NO record ever getting reassigned,
+// so Ingest's own reassignment-triggered revalidateEmailMapping call
+// (mirrorstore.go) never gets a chance to run for that owner. Once per sweep,
+// per connection, it re-checks every email-sourced mapping this workspace has
+// against inc's CURRENT owner emails — bounded to the distinct set of
+// already-mapped owners, not a per-record scan. A per-mapping failure is
+// logged and returns nil so the object-class sweep still runs: a stale mapping
+// is a fail-closed-eventually gap (the NEXT sweep tries again), not a reason to
+// stop syncing records this tick.
+func revalidateOwnerEmailMappings(ctx context.Context, ms *overlay.MirrorStore, inc overlay.Incumbent, d overlay.DueOverlayConnection, log *slog.Logger) error {
 	if err := ms.RevalidateEmailMappings(ctx, inc); err != nil {
 		if errors.Is(err, overlay.ErrConnectionGone) {
 			return err
@@ -343,8 +375,14 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		log.WarnContext(ctx, "overlay reconcile: periodic email-mapping revalidation failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
+	return nil
+}
 
-	deps := sweepDeps{inc: inc, ms: ms, meter: meter, log: log}
+// sweepObjectClasses converges every overlayObjectClasses class for one
+// connection, in the catalog's order. It returns an error only for a failure
+// that must stop the whole connection's sweep, so the caller's backoff paces a
+// dead or throttled incumbent instead of the sweep re-running hot every tick.
+func sweepObjectClasses(ctx context.Context, deps sweepDeps, d overlay.DueOverlayConnection) error {
 	for _, objectClass := range overlayObjectClasses {
 		// A connection-level failure sweeping a SCOPE-BACKED class
 		// (contacts/companies/deals) aborts the whole sweep (the caller backs
@@ -362,7 +400,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 			// absent object, or a portal-shaped validation error. Log the full
 			// err (the cause varies) and move on; it never breaks the
 			// scope-backed classes.
-			log.WarnContext(ctx, "overlay reconcile: best-effort object class sweep failed, skipping it",
+			deps.log.WarnContext(ctx, "overlay reconcile: best-effort object class sweep failed, skipping it",
 				"workspace", d.Workspace.String(), "object_class", objectClass, "err", err)
 		}
 	}

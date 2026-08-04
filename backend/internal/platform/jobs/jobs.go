@@ -2,11 +2,35 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package jobs owns the River client lifecycle — the durable
-// background-job substrate, the peer of platform/events for the outbox.
-// It owns no domain: the queue set, workers, and periodic jobs are
-// supplied by the composition layer. The boundary is deliberate: an event
-// announces that something happened (outbox); a job asks for work to be
-// done (here).
+// background-job substrate, the peer of platform/events for the outbox —
+// and the DECLARATION every job kind is built from: the Spec table
+// compiled from backend/api/jobs.yaml, which holds each kind's role,
+// queue, timeout, attempt cap, fan-out edge and registration posture.
+//
+// Declaration and wiring are split on purpose, and the split is the whole
+// design: this package says what a kind IS, and the composition layer
+// still assembles the runner — it supplies the queue set, constructs the
+// workers, and schedules the periodic jobs. So platform never learns what
+// a worker does.
+//
+// The declaration is what the runtime OBEYS for the timeout of every job
+// registered THROUGH Govern: it wraps a worker in a type River reaches
+// only through Work, so that worker cannot answer for its own wall clock.
+//
+// Registration is bound too, and the binding lives one layer up: the
+// composition layer registers only through a generated function whose type
+// parameter is the closed set of DECLARED args types, so a kind
+// api/jobs.yaml has never heard of does not compile, and forbidigo refuses
+// every direct River registration — AddWorker, AddWorkerArgs and
+// AddWorkerSafely alike — that would go around it. Neither gate reaches a
+// fixture registering into a throwaway *river.Workers, and neither would
+// notice a hand-edited generated union, which is what MustBeTotal is for: it
+// names any registered kind the file does not declare, and the runner refuses
+// to boot rather than working it at River's silent one-minute default.
+//
+// It owns no domain either way. The boundary with the bus is deliberate:
+// an event announces that something happened (outbox); a job asks for
+// work to be done (here).
 package jobs
 
 import (

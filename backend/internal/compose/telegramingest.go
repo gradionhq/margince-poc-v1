@@ -77,7 +77,6 @@ func (a TelegramIngestArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // specific, controlled way (a unique-constraint race) without a real
 // Postgres write path to provoke one.
 type telegramIngestWorker struct {
-	river.WorkerDefaults[TelegramIngestArgs]
 	pool   *pgxpool.Pool
 	sink   connector.Sink
 	people *people.Store

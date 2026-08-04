@@ -121,6 +121,8 @@ func runSiteProfileCase(t *testing.T, want map[string]string, reply string) (ait
 	return prepared.Evaluate(trace), trace
 }
 
+// gatekit:fixture the legal name this case's reply is graded against — expected
+// data the case owns, not a waived exception.
 var siteProfileWantLegalName = map[string]string{
 	string(crmcontracts.ColdStartFieldFieldLegalName): "Acme Robotics GmbH",
 }

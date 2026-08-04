@@ -19,7 +19,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -53,13 +52,8 @@ const participantBackfillBatch = 500
 // worker slot — and no single transaction grows long enough to matter.
 const participantBackfillBatchesPerTick = 25
 
-// participantBackfillInterval is daily. The pass is a catch-up, not a
-// deadline: new mail already arrives with its participants stamped.
-const participantBackfillInterval = 24 * time.Hour
-
 // participantBackfillWorker recovers participants for one workspace at a time.
 type participantBackfillWorker struct {
-	river.WorkerDefaults[ParticipantBackfillArgs]
 	pool  *pgxpool.Pool
 	store *activities.Store
 	log   *slog.Logger
@@ -75,7 +69,7 @@ func newParticipantBackfillWorker(pool *pgxpool.Pool, log *slog.Logger) *partici
 // pass carries no cursor to lose.
 func (w *participantBackfillWorker) Work(ctx context.Context, _ *river.Job[ParticipantBackfillArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(ParticipantBackfillWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return ParticipantBackfillWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -93,7 +87,6 @@ func (a ParticipantBackfillWorkspaceArgs) WorkspaceID() ids.UUID { return a.Work
 // participantBackfillWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type participantBackfillWorkspaceWorker struct {
-	river.WorkerDefaults[ParticipantBackfillWorkspaceArgs]
 	*participantBackfillWorker
 }
 

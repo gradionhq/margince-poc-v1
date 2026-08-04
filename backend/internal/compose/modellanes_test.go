@@ -22,14 +22,15 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // laneExemptions are the ModelPath fields that are NOT task lanes, each with
 // the reason it is not. An exemption without a reason is itself a finding: the
 // point of the list is that adding to it costs an explanation.
-var laneExemptions = map[string]string{
+var laneExemptions = gatekit.Waive(map[string]string{
 	"Embedder": "the retrieval embed lane — the router itself under no task label, typed search.Embedder",
-}
+})
 
 // taskConstantName renders a contract task name the way tools/gen-aitasks
 // renders the ai.Task… constant suffix (cert_judge -> CertJudge), so the
@@ -59,6 +60,8 @@ func exportedLanes(t reflect.Type) []reflect.StructField {
 }
 
 func TestEveryModelLaneIsNamedForAShippedTask(t *testing.T) {
+	defer laneExemptions.AssertAllMatched(t)
+
 	shipped := map[string]bool{}
 	for _, task := range ai.AllTasks() {
 		if ai.Status(task) == ai.StatusShipped {
@@ -70,10 +73,7 @@ func TestEveryModelLaneIsNamedForAShippedTask(t *testing.T) {
 	}
 
 	for _, field := range exportedLanes(reflect.TypeOf(ModelPath{})) {
-		if reason, exempt := laneExemptions[field.Name]; exempt {
-			if strings.TrimSpace(reason) == "" {
-				t.Errorf("ModelPath.%s is exempted from the lane-naming rule with no reason — state why it is not a task lane, or drop the exemption", field.Name)
-			}
+		if laneExemptions.Waived(t, field.Name) {
 			continue
 		}
 		if !shipped[field.Name] {
@@ -98,7 +98,7 @@ func TestEveryModelLaneIsWiredToTheTaskItIsNamedFor(t *testing.T) {
 			t.Errorf("ModelPath.%s is declared but the model path constructor leaves it nil — bind it in modelPathForRouter so it rides the same router as every other lane", field.Name)
 			continue
 		}
-		if _, exempt := laneExemptions[field.Name]; exempt {
+		if laneExemptions.Waived(t, field.Name) {
 			continue
 		}
 		var task ai.Task

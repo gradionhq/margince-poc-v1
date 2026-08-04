@@ -10,6 +10,7 @@ import { api } from "../api/client";
 import { subscribableEventTypeValues } from "../api/public-events";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -25,14 +26,12 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
-  canConfigureAutomations,
   LoadMoreButton,
   problemCode,
   problemMessage,
   QueryGate,
   QueryStates,
   throwProblem,
-  useMe,
 } from "./common";
 import {
   type CreateField,
@@ -523,7 +522,7 @@ function deliveryColumns(
   t: (key: MessageKey, vars?: Record<string, string | number>) => string,
   locale: ReturnType<typeof useLocale>["locale"],
   subscriptionId: string,
-  canManage: boolean,
+  canReplay: boolean,
 ): {
   key: string;
   header: string;
@@ -581,7 +580,7 @@ function deliveryColumns(
       },
     },
   ];
-  if (!canManage) {
+  if (!canReplay) {
     return columns;
   }
   return [
@@ -607,8 +606,8 @@ function deliveryColumns(
 // marks them individually.
 function DeliveriesPanel({
   subscription,
-  canManage,
-}: Readonly<{ subscription: WebhookSubscription; canManage: boolean }>) {
+  canReplay,
+}: Readonly<{ subscription: WebhookSubscription; canReplay: boolean }>) {
   const t = useT();
   const { locale } = useLocale();
   const { query, loadMore, canLoadMore } = useWebhookDeliveries(
@@ -624,7 +623,7 @@ function DeliveriesPanel({
         <DeliveriesBody
           response={query.data}
           subscriptionId={subscription.id}
-          canManage={canManage}
+          canReplay={canReplay}
           locale={locale}
           t={t}
           loadMoreQuery={{
@@ -641,14 +640,14 @@ function DeliveriesPanel({
 function DeliveriesBody({
   response,
   subscriptionId,
-  canManage,
+  canReplay,
   locale,
   t,
   loadMoreQuery,
 }: Readonly<{
   response: WebhookDeliveryListResponse | undefined;
   subscriptionId: string;
-  canManage: boolean;
+  canReplay: boolean;
   locale: ReturnType<typeof useLocale>["locale"];
   t: (key: MessageKey, vars?: Record<string, string | number>) => string;
   loadMoreQuery: {
@@ -663,7 +662,7 @@ function DeliveriesBody({
   }
   const deadLettered = deliveries.filter((d) => d.status === "dead_lettered");
   const others = deliveries.filter((d) => d.status !== "dead_lettered");
-  const columns = deliveryColumns(t, locale, subscriptionId, canManage);
+  const columns = deliveryColumns(t, locale, subscriptionId, canReplay);
   return (
     <>
       {deadLettered.length > 0 && (
@@ -697,11 +696,17 @@ function DeliveriesBody({
 
 function SubscriptionRow({
   subscription,
-  canManage,
+  canEdit,
+  canArchive,
   onRotated,
 }: Readonly<{
   subscription: WebhookSubscription;
-  canManage: boolean;
+  // Editing the config, rotating the signing secret and replaying a delivery
+  // are all webhook_subscription:update; archiving is the delete. They are
+  // separate grants, so they are separate props rather than one "manage" flag
+  // that would show an archive button to a role holding only update.
+  canEdit: boolean;
+  canArchive: boolean;
   onRotated: (secret: string) => void;
 }>) {
   const t = useT();
@@ -763,7 +768,7 @@ function SubscriptionRow({
             ? t("webhooks.deliveries.hide")
             : t("webhooks.deliveries.show")}
         </Button>
-        {canManage && (
+        {canEdit && (
           <>
             <EditAction
               label={t("webhooks.edit")}
@@ -777,19 +782,21 @@ function SubscriptionRow({
               subscription={subscription}
               onRotated={onRotated}
             />
-            <ArchiveAction
-              label={t("webhooks.archive")}
-              confirmText={t("webhooks.archiveConfirm")}
-              invalidate="webhook-subscriptions"
-              recordKey="webhook-subscription"
-              onArchived={() => {}}
-              archive={() => archiveWebhookSubscription(subscription)}
-            />
           </>
+        )}
+        {canArchive && (
+          <ArchiveAction
+            label={t("webhooks.archive")}
+            confirmText={t("webhooks.archiveConfirm")}
+            invalidate="webhook-subscriptions"
+            recordKey="webhook-subscription"
+            onArchived={() => {}}
+            archive={() => archiveWebhookSubscription(subscription)}
+          />
         )}
       </div>
       {showDeliveries && (
-        <DeliveriesPanel subscription={subscription} canManage={canManage} />
+        <DeliveriesPanel subscription={subscription} canReplay={canEdit} />
       )}
     </Card>
   );
@@ -797,8 +804,13 @@ function SubscriptionRow({
 
 export function WebhooksCard() {
   const t = useT();
-  const me = useMe();
-  const canManage = canConfigureAutomations(me.data?.roles);
+  // Three grants, three affordances. The seeded matrix gives admin and ops all
+  // three and every other role none, so today they move together — but they are
+  // independent columns in role.permissions, and an operator who narrows one is
+  // entitled to a UI that follows.
+  const canCreate = useCanWrite("webhook_subscription", "create");
+  const canEdit = useCanWrite("webhook_subscription", "update");
+  const canArchive = useCanWrite("webhook_subscription", "delete");
   const query = useWebhookSubscriptions();
   const [creating, setCreating] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
@@ -812,12 +824,12 @@ export function WebhooksCard() {
   // case) is still creatable; QueryGate's `empty` branch renders the shared
   // EmptyState in place of `children`, which would otherwise swallow a
   // button nested inside it.
-  const canCreate = canManage && query.data?.deliveryEnabled === true;
+  const canCreateHere = canCreate && query.data?.deliveryEnabled === true;
 
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
       <SectionHeader title={t("webhooks.title")} sub={t("webhooks.sub")} />
-      {canCreate && (
+      {canCreateHere && (
         <div style={{ marginBottom: "var(--space-3)" }}>
           <Button
             small
@@ -843,21 +855,22 @@ export function WebhooksCard() {
           >
             {/* No signing key: delivery is off, so mutating controls are
                 withheld and a not-enabled note explains why. Existing
-                subscriptions still render read-only (canManage forced false)
+                subscriptions still render read-only (write grants forced false)
                 so their config and delivery health stay inspectable. */}
             {!result.deliveryEnabled && <NotConfiguredState />}
             {result.data.map((subscription) => (
               <SubscriptionRow
                 key={subscription.id}
                 subscription={subscription}
-                canManage={canManage && result.deliveryEnabled}
+                canEdit={canEdit && result.deliveryEnabled}
+                canArchive={canArchive && result.deliveryEnabled}
                 onRotated={setRevealedSecret}
               />
             ))}
           </div>
         )}
       </QueryGate>
-      {canCreate && (
+      {canCreateHere && (
         <CreateRecordModal
           open={creating}
           onClose={() => setCreating(false)}

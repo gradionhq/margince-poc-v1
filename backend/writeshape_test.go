@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // auditOnlyWrites are the ratified audit-without-event functions, keyed
@@ -31,7 +33,7 @@ import (
 // entry without a rationale is a finding, not a pass. When the spec's
 // events.md gains the missing event types, wiring storekit.Emit into
 // these mutations removes the entries.
-var auditOnlyWrites = map[string]string{
+var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/modules/ai:Record":                         "a human's verdict on a derived claim (AIRT-SCHEMA-1). The closed catalog (events.md \u00a75) defines no ai_feedback.* type and the closed-verb law forbids inventing one build-side. Nothing downstream reacts to a verdict either: the ledger is CONSULTED at re-derivation time, so a subscriber would have nothing to do that the next read does not already do. The audit row carries the attribution a \"corrected by you\" marker and any later dispute both need",
 	"internal/modules/activities:RedactCapturedNoiseTx":  "the ADR-0072 noise redaction nulls content on a row that is ALREADY archived, and the one consumer that would not have reacted to the archive — the embedding lane — is handled directly: the redaction deletes the vectors itself, so no subscriber is left holding derived content. The closed catalog (events.md \u00a75) defines no activity.redacted type, and re-announcing an invisible row's content change would tell the rest nothing they can act on",
 	"internal/modules/activities:auditIdentityReKey":     "the outbound-send reconcile moves a sent message onto the transport identity its provider actually stamped. activity.updated is the only candidate event and its changed_fields is a REQUIRED, typed, BOUNDED delta over the fields a human patches (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done, a relinked target) — the natural key is not among them and cannot be expressed as one, so emitting it would publish an empty required delta: an event that says a change happened and cannot say what. The closed catalog (events.md §5, shared/kernel/events/catalog.go) defines no transport-identity verb either, and the closed-verb law forbids inventing one build-side. Recorded upstream (P3): the fix is a contract change — a typed identity delta or a discrete reconciliation event — not a build-side substitute",
@@ -115,15 +117,10 @@ var auditOnlyWrites = map[string]string{
 	// WriteFiltered no longer belongs here: the bulk export is a non-entity
 	// operational event, so it moved from storekit.Audit to storekit.LogSystem
 	// (system_log, 0074) \u2014 it writes no audit_log row at all now.
-}
+})
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
-	for fn, rationale := range auditOnlyWrites {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("auditOnlyWrites[%s] has no rationale — a waiver must say why the event is missing", fn)
-		}
-	}
-	used := map[string]bool{}
+	defer auditOnlyWrites.AssertAllMatched(t)
 	emissionPathsByDir := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
@@ -172,8 +169,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 				})
 				if audits && !emits {
 					key := filepath.ToSlash(filepath.Dir(path)) + ":" + fn.Name.Name
-					if _, ratified := auditOnlyWrites[key]; ratified {
-						used[key] = true
+					if auditOnlyWrites.Waived(t, key) {
 						continue
 					}
 					t.Errorf("%s: %s calls storekit.Audit without storekit.Emit — every audited mutation ships its event, or the exception is ratified in auditOnlyWrites",
@@ -184,11 +180,6 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-	for key := range auditOnlyWrites {
-		if !used[key] {
-			t.Errorf("auditOnlyWrites[%s] matches no audit-only function — stale waiver, remove it", key)
 		}
 	}
 }

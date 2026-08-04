@@ -89,27 +89,10 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", subject.UUID); err != nil {
 			return err
 		}
-		var held bool
-		if err := tx.QueryRow(ctx,
-			`SELECT legal_hold FROM person WHERE id = $1`, subject).Scan(&held); err != nil {
-			if err == pgx.ErrNoRows {
-				return apperrors.ErrNotFound
-			}
+		if err := refusePersonUnderLegalHold(ctx, tx, subject); err != nil {
 			return err
 		}
-		if held {
-			return fmt.Errorf("erasing a person under legal hold: %w", apperrors.ErrConflict)
-		}
-
-		// Collect identifiers BEFORE wiping — the suppression list needs
-		// their hashes, and afterwards nothing holds them.
-		emails, err := collectStrings(ctx, tx,
-			`SELECT email FROM person_email WHERE person_id = $1`, subject)
-		if err != nil {
-			return err
-		}
-		// Same reason: read before eraseChannelIdentities deletes the table.
-		identities, err := personChannelIdentities(ctx, tx, subject)
+		emails, identities, err := subjectIdentifiers(ctx, tx, subject)
 		if err != nil {
 			return err
 		}
@@ -141,25 +124,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
 		}
-		// The vectors go with the text they were built from. purgeDerivedTraces
-		// reaches embeddings through activity_link, which by construction cannot
-		// see the unlinked mail redactSubjectTimeline now covers — and
-		// an embedding of erased text is the erased text in another shape, which
-		// a similarity probe can still reach.
-		if len(activitiesRedacted) > 0 {
-			if _, err := tx.Exec(ctx, `
-				DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`,
-				activitiesRedacted); err != nil {
-				return err
-			}
-		}
-		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
-			return err
-		}
-		// The transmitted copy of every activity just redacted. Without this
-		// the timeline row is a tombstone while the send log still holds the
-		// address, the subject line and the body of the same message.
-		if err := redactDeliveries(ctx, tx, activitiesRedacted, erasedName); err != nil {
+		if err := purgeRedactedActivityTraces(ctx, tx, activitiesRedacted, reason); err != nil {
 			return err
 		}
 		// Purge the subject's attachment bytes and rows together, inside the
@@ -178,22 +143,98 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			return err
 		}
 
-		// The tombstone: action=erase with counts only — proof without
-		// PII. The counts are evidence ABOUT the scrub, so they ride the
-		// evidence column; before/after stay empty — they are reserved for
-		// field images, and the record-history read serves a tombstone's
-		// images verbatim. The paired event tells consumers the subject is
-		// gone.
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
-			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
-			"ai_payloads_purged": aiPayloadsPurged, "activities_redacted": len(activitiesRedacted),
-			"channel_identities_suppressed": channelsSuppressed,
+		return tombstonePersonErasure(ctx, tx, subject, reason, personErasureCounts{
+			emailsSuppressed: len(emails), rawRowsPurged: rawPurged, aiPayloadsPurged: aiPayloadsPurged,
+			activitiesRedacted: len(activitiesRedacted), channelIdentitiesSuppressed: channelsSuppressed,
 		})
-		if err != nil {
+	})
+}
+
+// refusePersonUnderLegalHold refuses an erasure the workspace is obliged to
+// refuse: a legal hold says somebody must keep this record, which outranks the
+// subject's Art. 17 request until the hold is lifted.
+func refusePersonUnderLegalHold(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
+	var held bool
+	if err := tx.QueryRow(ctx,
+		`SELECT legal_hold FROM person WHERE id = $1`, personID).Scan(&held); err != nil {
+		if err == pgx.ErrNoRows {
+			return apperrors.ErrNotFound
+		}
+		return err
+	}
+	if held {
+		return fmt.Errorf("erasing a person under legal hold: %w", apperrors.ErrConflict)
+	}
+	return nil
+}
+
+// subjectIdentifiers collects the addresses and channel accounts the cascade
+// suppresses and purges by. Read BEFORE anything is wiped — the suppression
+// list needs their hashes, and afterwards nothing holds them.
+func subjectIdentifiers(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]string, []channelIdentity, error) {
+	emails, err := collectStrings(ctx, tx,
+		`SELECT email FROM person_email WHERE person_id = $1`, personID)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Same reason: read before eraseChannelIdentities deletes the table.
+	identities, err := personChannelIdentities(ctx, tx, personID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return emails, identities, nil
+}
+
+// purgeRedactedActivityTraces finishes off the activities the timeline redaction
+// just emptied: their vectors, their own audit spines, and the transmitted copy
+// in the send log.
+func purgeRedactedActivityTraces(ctx context.Context, tx pgx.Tx, activities []ids.UUID, reason string) error {
+	// The vectors go with the text they were built from. purgeDerivedTraces
+	// reaches embeddings through activity_link, which by construction cannot
+	// see the unlinked mail redactSubjectTimeline now covers — and
+	// an embedding of erased text is the erased text in another shape, which
+	// a similarity probe can still reach.
+	if len(activities) > 0 {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`,
+			activities); err != nil {
 			return err
 		}
-		return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
+	}
+	if err := tombstoneCollateralScrubs(ctx, tx, "activity", activities, reason); err != nil {
+		return err
+	}
+	// The transmitted copy of every activity just redacted. Without this
+	// the timeline row is a tombstone while the send log still holds the
+	// address, the subject line and the body of the same message.
+	return redactDeliveries(ctx, tx, activities, erasedName)
+}
+
+// personErasureCounts is what an erasure tombstone certifies: how much each arm
+// of the cascade removed, and nothing whatsoever about whom.
+type personErasureCounts struct {
+	emailsSuppressed            int
+	rawRowsPurged               int64
+	aiPayloadsPurged            int64
+	activitiesRedacted          int
+	channelIdentitiesSuppressed int
+}
+
+// tombstonePersonErasure closes the cascade with action=erase and counts only —
+// proof without PII. The counts are evidence ABOUT the scrub, so they ride the
+// evidence column; before/after stay empty — they are reserved for field
+// images, and the record-history read serves a tombstone's images verbatim. The
+// paired event tells consumers the subject is gone.
+func tombstonePersonErasure(ctx context.Context, tx pgx.Tx, subject ids.PersonID, reason string, counts personErasureCounts) error {
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
+		"reason": reason, "emails_suppressed": counts.emailsSuppressed, "raw_rows_purged": counts.rawRowsPurged,
+		"ai_payloads_purged": counts.aiPayloadsPurged, "activities_redacted": counts.activitiesRedacted,
+		"channel_identities_suppressed": counts.channelIdentitiesSuppressed,
 	})
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -229,118 +270,11 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		WHERE id = $1`, nullColumnAssignments(personCustom)), personID, erasedName); err != nil {
 		return nil, err
 	}
-	// Read BEFORE the delete: the LinkedIn ghost sweep further down identifies
-	// rows by this address, and person_social is about to stop holding it.
-	linkedInHandles, err := collectStrings(ctx, tx,
-		`SELECT handle FROM person_social WHERE person_id = $1 AND platform = 'linkedin'`, personID)
+	linkedInHandles, err := deleteSubjectIdentifierRows(ctx, tx, personID, emails)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
-		return nil, err
-	}
-	// The capture disposition ledger keys on the subject's own address and
-	// carries the display name a message arrived with, so an erasure that
-	// stopped at person_email would leave both readable in the ledger — and
-	// the address would keep answering the correspondence and pending gates.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM capture_pending_counterparty
-		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
-		return nil, err
-	}
-	// By ADDRESS as well as by person_id, for the reason eraseChannelIdentities
-	// deletes by account (erasure_rivals.go): uq_person_email_dedupe is partial
-	// on archived_at IS NULL, so an archived duplicate Person can hold the same
-	// address, and leaving that row behind would keep the erased subject's
-	// address stored under a record this erasure suppressed and purged for.
-	// A LIVE duplicate never reaches here — the guard refuses the erasure.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM person_email WHERE person_id = $1 OR email = ANY($2)`, personID, emails); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
-		return nil, err
-	}
-	// The interaction participants (ACT-DDL-3) name the subject twice over: by
-	// person_id, and by the raw ADDRESS a message carried — a row that exists
-	// precisely for the party who never became a record, so it survives the
-	// person_email purge above and would keep the erased subject's address
-	// readable and re-matchable.
-	//
-	// Delete first, then null. A participant row must name SOMEBODY (the
-	// ACT-DDL-3 identity CHECK), so a row whose only identity is the subject
-	// cannot be blanked — it has to go. A row that also names one of our
-	// users is a different matter: the colleague was in that conversation and
-	// that is not the subject's data to erase, so the subject's arms are
-	// nulled and the row stands.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM activity_participant
-		 WHERE user_id IS NULL
-		   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-		personID, emails); err != nil {
-		return nil, err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE activity_participant SET person_id = NULL, address = NULL
-		 WHERE user_id IS NOT NULL
-		   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-		personID, emails); err != nil {
-		return nil, err
-	}
-	// A LinkedIn ghost (CG-DDL-2) can BE the subject: it holds their name,
-	// employer and — on CSV rows — their address, imported from a colleague's
-	// export without the subject ever being asked. That is exactly the data an
-	// Art. 17 request is about, and it is invisible to every other clause here
-	// because a ghost is not a person row.
-	//
-	// It deletes on SUGGESTION-GRADE evidence, not just on a confirmed match,
-	// and that asymmetry is deliberate. Matching errs toward caution because a
-	// wrong link attaches a stranger to a customer record. Deletion errs the
-	// other way, because the two mistakes do not cost the same: deleting one
-	// ghost too many costs a re-import of a file the colleague still has,
-	// while keeping one too few leaves a named person's data behind after we
-	// certified it destroyed.
-	//
-	// So: matched to them, or carrying their address, or bearing their name at
-	// an employer they actually work for — the same evidence that would have
-	// produced a suggestion.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM linkedin_connection g
-		 WHERE g.matched_person_id = $1
-		    OR (g.email IS NOT NULL AND g.email = ANY($2))
-		    -- The LinkedIn address, passed in rather than joined: person_social
-		    -- is cleared earlier in this same transaction, so a join here would
-		    -- read an empty table and miss every ghost identified only by URL.
-		    OR (g.profile_url IS NOT NULL AND g.profile_url = ANY($4))
-		    -- Name + employer, matched on the NAME the ghost carries rather
-		    -- than on its derived matched_org_id. That column is set by a
-		    -- matcher that runs on upload: a ghost imported before its account
-		    -- existed, or one whose matcher pass failed, has it NULL and would
-		    -- survive an erasure it plainly belongs in. The employer is
-		    -- compared as text, which is the evidence the ghost actually holds.
-		    OR (g.normalized_company IS NOT NULL
-		        AND lower(f_unaccent($3)) = g.normalized_name
-		        AND EXISTS (
-		            SELECT 1 FROM relationship r
-		              JOIN organization o ON o.id = r.organization_id
-		             WHERE r.person_id = $1 AND r.kind = 'employment'
-		               AND r.archived_at IS NULL
-		               AND (r.organization_id = g.matched_org_id
-		                    OR lower(f_unaccent(o.display_name)) = g.normalized_company
-		                    OR lower(f_unaccent(o.display_name)) LIKE g.normalized_company || ' %')))`,
-		personID, emails, subjectName, linkedInHandles); err != nil {
-		return nil, err
-	}
-	// The interaction projection (CG-DDL-1) is derived, but derived from data
-	// that is now gone — and it holds who corresponded with the subject, how
-	// often and how recently. It is dropped HERE, in the erasure transaction,
-	// rather than left to the cg:graph-edge consumer: an erasure obligation
-	// that depends on an event being delivered is an obligation that fails
-	// silently when the bus is behind or the handler is wrong. It was in fact
-	// wrong — the consumer listened for a `person.erased` event this path has
-	// never emitted, so the edges outlived every erasure.
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM graph_interaction_edge WHERE person_id = $1`, personID); err != nil {
+	if err := scrubSubjectFromGraph(ctx, tx, personID, emails, subjectName, linkedInHandles); err != nil {
 		return nil, err
 	}
 	if err := deletePreferenceToken(ctx, tx, personID); err != nil {
@@ -398,6 +332,46 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		return nil, err
 	}
 	return wiped, nil
+}
+
+// deleteSubjectIdentifierRows drops every row that stores an identifier the
+// subject was reached by, and returns the LinkedIn profile URLs it removed:
+// the ghost sweep identifies rows by them, and person_social no longer holds
+// them once this returns.
+func deleteSubjectIdentifierRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]string, error) {
+	// Read BEFORE the delete: the LinkedIn ghost sweep identifies rows by this
+	// address, and person_social is about to stop holding it.
+	linkedInHandles, err := collectStrings(ctx, tx,
+		`SELECT handle FROM person_social WHERE person_id = $1 AND platform = 'linkedin'`, personID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
+		return nil, err
+	}
+	// The capture disposition ledger keys on the subject's own address and
+	// carries the display name a message arrived with, so an erasure that
+	// stopped at person_email would leave both readable in the ledger — and
+	// the address would keep answering the correspondence and pending gates.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM capture_pending_counterparty
+		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
+		return nil, err
+	}
+	// By ADDRESS as well as by person_id, for the reason eraseChannelIdentities
+	// deletes by account (erasure_rivals.go): uq_person_email_dedupe is partial
+	// on archived_at IS NULL, so an archived duplicate Person can hold the same
+	// address, and leaving that row behind would keep the erased subject's
+	// address stored under a record this erasure suppressed and purged for.
+	// A LIVE duplicate never reaches here — the guard refuses the erasure.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_email WHERE person_id = $1 OR email = ANY($2)`, personID, emails); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
+		return nil, err
+	}
+	return linkedInHandles, nil
 }
 
 // deletePreferenceToken retires the subject's preference-center token. That

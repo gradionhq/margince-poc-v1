@@ -59,6 +59,15 @@ numbers appear here when releases start.
 - **Quality gates**: golangci-lint + depguard, go-arch-lint, tree-derived
   architecture/schema/license fitness tests, contract drift-lint, and a
   real-Postgres integration lane covering the security invariants.
+- **Craftsmanship gate, strict** (ADR-0045): `craft static` now fails on
+  MAJOR findings as well as BLOCKER ones, in the pre-push hook (diff-scoped)
+  and in CI's `craftsmanship` job (whole tree). MINOR stays advisory. Test
+  files carry their own size ceilings — 160 body lines / 1000 file lines,
+  against 80 / 500 for product code — because a long scenario test that sets
+  up, acts and asserts once is not the god-function smell the product
+  thresholds hunt. Arming this meant clearing the whole backlog first: every
+  swallowed error, bare `any` in a signature, boolean-trap signature,
+  assertion-free test and over-long function in the tree.
 - **Company 360**: `GET /organizations/{id}/360` serves the whole company
   record page in one transaction — profile, contacts with §4 relationship
   strength and per-purpose consent, deals, timeline, tags, list

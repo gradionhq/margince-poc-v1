@@ -74,7 +74,8 @@ export const AdminWithActions: Story = {
         sync={query(syncFresh)}
         budget={query(budgetOk)}
         locale="en"
-        canManage
+        canReconcile
+        canDisconnect
         onReconcile={() => {}}
         reconcilePending={false}
         reconcileQueued={false}
@@ -87,7 +88,7 @@ export const AdminWithActions: Story = {
 
 // A rep/manager seat reads the same health rows but never sees the
 // reconcile/disconnect controls — the server stays the RBAC authority
-// regardless (canManageOverlay in common.tsx).
+// regardless.
 export const ReadOnlySeat: Story = {
   render: () => (
     <StoryProviders>
@@ -95,7 +96,8 @@ export const ReadOnlySeat: Story = {
         sync={query(syncFresh)}
         budget={query(budgetOk)}
         locale="en"
-        canManage={false}
+        canReconcile={false}
+        canDisconnect={false}
         onReconcile={() => {}}
         reconcilePending={false}
         reconcileQueued={false}
@@ -113,7 +115,8 @@ export const ReconcileQueuedMessage: Story = {
         sync={query(syncFresh)}
         budget={query(budgetOk)}
         locale="en"
-        canManage
+        canReconcile
+        canDisconnect
         onReconcile={() => {}}
         reconcilePending={false}
         reconcileQueued

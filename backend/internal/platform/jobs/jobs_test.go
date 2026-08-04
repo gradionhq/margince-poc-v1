@@ -16,7 +16,9 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -110,6 +112,78 @@ func migratedAppPool(t *testing.T) (*jobs.Runner, *pgxpool.Pool) {
 		t.Fatalf("jobs.New: %v", err)
 	}
 	return r, appPool
+}
+
+// riverLifecycleBudget bounds the wait for the fixture job to be claimed
+// and finished. It is a failure guard, not a pace: the test proceeds the
+// instant River reports the completion, and only a client that never got
+// there spends the budget.
+const riverLifecycleBudget = 30 * time.Second
+
+// TestRiversOwnMaintenanceWritesNoJobRowsOfItsOwn pins the belief the
+// unrecognised-kind metric rests on.
+//
+// That metric reports rows whose kind api/jobs.yaml does not declare, and it
+// is readable as a signal only if River's own upkeep is never one of them:
+// the rescuer, the cleaner, the scheduler and the leader election are
+// SERVICES inside the client, running on timers over their own tables, not
+// work enqueued into river_job. Reasonable, and cheaper to verify than to
+// leave a reader to trust — a single housekeeping row of River's own would
+// put a permanent series on a family whose whole purpose is to be absent.
+//
+// A whole client lifecycle, not just a boot: election, maintenance startup,
+// one job claimed, worked and completed, then a graceful drain. The only
+// kind that may have reached the table afterwards is the one enqueued here.
+func TestRiversOwnMaintenanceWritesNoJobRowsOfItsOwn(t *testing.T) {
+	r, pool := migratedAppPool(t)
+	ctx := t.Context()
+
+	// Subscribed before Start so the completion cannot be missed, and waited
+	// on rather than slept through: what matters is that the client got far
+	// enough to claim and finish work, not that an interval elapsed.
+	completed, unsubscribe := r.SubscribeCompleted()
+	defer unsubscribe()
+	if err := r.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := r.Enqueue(ctx, noopArgs{}, nil); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	waitCtx, cancelWait := context.WithTimeout(ctx, riverLifecycleBudget)
+	defer cancelWait()
+	select {
+	case <-completed:
+	case <-waitCtx.Done():
+		t.Fatalf("the fixture job was never worked: %v — the lifecycle this test is about "+
+			"did not happen, so its finding would be vacuous", waitCtx.Err())
+	}
+	if err := r.Stop(ctx); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	cursor, err := pool.Query(ctx, `SELECT DISTINCT kind FROM river_job ORDER BY kind`)
+	if err != nil {
+		t.Fatalf("reading the kinds that reached river_job: %v", err)
+	}
+	defer cursor.Close()
+	var kinds []string
+	for cursor.Next() {
+		var kind string
+		if err := cursor.Scan(&kind); err != nil {
+			t.Fatalf("scanning a kind: %v", err)
+		}
+		kinds = append(kinds, kind)
+	}
+	if err := cursor.Err(); err != nil {
+		t.Fatalf("reading the kinds that reached river_job: %v", err)
+	}
+
+	want := []string{noopArgs{}.Kind()}
+	if !slices.Equal(kinds, want) {
+		t.Errorf("river_job holds kinds %v, want only %v — River enqueued housekeeping of its "+
+			"own, which the unrecognised-kind metric would report forever as work of a kind "+
+			"the contract does not declare", kinds, want)
+	}
 }
 
 func TestRunnerStartsAndStopsCleanlyAsAppRole(t *testing.T) {

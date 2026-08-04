@@ -42,7 +42,7 @@ func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
 	}
 	args := SiteDeepReadArgs{
 		Workspace: e.WS, OrganizationID: org, SiteReadID: read.ID,
-		SeedURL: read.SeedURL, RequestedBy: read.RequestedBy,
+		RequestedBy: read.RequestedBy,
 	}
 
 	if err := worker.run(context.Background(), args); err != nil {

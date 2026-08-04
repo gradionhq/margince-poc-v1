@@ -5,19 +5,13 @@ import {
   StoryProviders,
 } from "../screens/story-utils";
 import { EconomyBanner } from "./economybanner";
+import { meFixture } from "./mefixture";
 
 function story(band: string) {
   return () => {
     installFetchStub({
       "GET /me": () =>
-        jsonResponse({
-          user: {
-            id: "u1",
-            email: "admin@example.test",
-            display_name: "Admin",
-          },
-          roles: ["admin"],
-        }),
+        jsonResponse(meFixture({ allow: { automation: ["update"] } })),
       "GET /ai/usage": () =>
         jsonResponse({
           days: [],

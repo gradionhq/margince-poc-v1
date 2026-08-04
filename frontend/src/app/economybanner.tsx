@@ -4,16 +4,16 @@ import { api } from "../api/client";
 import { Badge, Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { bandTone } from "../screens/aiusage";
-import {
-  canConfigureAutomations,
-  problemMessage,
-  useMe,
-} from "../screens/common";
+import { problemMessage } from "../screens/common";
+import { useCan } from "./capability";
 
 export function EconomyBanner() {
   const t = useT();
-  const me = useMe();
-  const enabled = canConfigureAutomations(me.data?.roles);
+  // GET /ai/usage gates on automation:update, not on any AI-named object — the
+  // budget it reports is the automation runtime's, and the server treats
+  // seeing it as an operator concern. Binding this to a more intuitive object
+  // would 403 the banner for exactly the roles that are meant to see it.
+  const enabled = useCan("automation", "update");
   const previousBand = useRef<string | undefined>(undefined);
   const [occurrence, setOccurrence] = useState(0);
   const [dismissedOccurrence, setDismissedOccurrence] = useState<string | null>(

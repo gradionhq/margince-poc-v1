@@ -3,9 +3,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plug } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
 import {
   Badge,
@@ -20,7 +21,7 @@ import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
-import { canManageOverlay, problemCodeOf, throwProblem, useMe } from "./common";
+import { problemCodeOf, throwProblem } from "./common";
 import type { Budget, SyncStatus } from "./overlay-health";
 import { converged, OverlayLiveSection } from "./overlay-health";
 
@@ -78,18 +79,18 @@ const STATUS_LABEL: Record<ConnectionStatus, MessageKey> = {
 // /overlay/connection` fires only from that modal's confirm, never from
 // this form's own submit.
 function OverlayConnectForm({
-  canManage,
+  canConnect,
   reconnect,
   onRequestConfirm,
 }: Readonly<{
-  canManage: boolean;
+  canConnect: boolean;
   reconnect: boolean;
   onRequestConfirm: (region: Region, token: string) => void;
 }>) {
   const t = useT();
   const [region, setRegion] = useState<Region>("eu1");
   const [token, setToken] = useState("");
-  if (!canManage) {
+  if (!canConnect) {
     return <p className="t-small">{t("overlay.adminOnly")}</p>;
   }
   const ready = token.trim() !== "";
@@ -186,7 +187,9 @@ function ConnectionSummary({
 function ConnectedBody({
   connection,
   locale,
-  canManage,
+  canConnect,
+  canReconcile,
+  canDisconnect,
   live,
   sync,
   budget,
@@ -199,7 +202,9 @@ function ConnectedBody({
 }: Readonly<{
   connection: Connection;
   locale: Locale;
-  canManage: boolean;
+  canConnect: boolean;
+  canReconcile: boolean;
+  canDisconnect: boolean;
   live: boolean;
   sync: QueryLike<SyncStatus>;
   budget: QueryLike<Budget>;
@@ -216,7 +221,7 @@ function ConnectedBody({
       {connection.status === "revoked" && (
         <div style={{ marginTop: "var(--space-3)" }}>
           <OverlayConnectForm
-            canManage={canManage}
+            canConnect={canConnect}
             reconnect
             onRequestConfirm={onReconnectRequest}
           />
@@ -227,7 +232,8 @@ function ConnectedBody({
           sync={sync}
           budget={budget}
           locale={locale}
-          canManage={canManage}
+          canReconcile={canReconcile}
+          canDisconnect={canDisconnect}
           onReconcile={onReconcile}
           reconcilePending={reconcilePending}
           reconcileQueued={reconcileQueued}
@@ -242,8 +248,13 @@ function ConnectedBody({
 export function OverlayCard() {
   const t = useT();
   const { locale } = useLocale();
-  const me = useMe();
-  const canManage = canManageOverlay(me.data?.roles);
+  // Connecting binds an incumbent CRM, reconciling re-syncs the mirror, and
+  // disconnecting purges it and flips the workspace back to native — create,
+  // update and delete on the same object, and three different amounts of
+  // damage.
+  const canConnect = useCanWrite("overlay_connection", "create");
+  const canReconcile = useCanWrite("overlay_connection", "update");
+  const canDisconnect = useCanWrite("overlay_connection", "delete");
   const queryClient = useQueryClient();
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   // Connect/reconnect is confirm-first (same posture as Disconnect below):
@@ -255,6 +266,21 @@ export function OverlayCard() {
     region: Region;
     token: string;
   } | null>(null);
+
+  // A confirmation must not outlive the grant that opened it. Hiding the modal
+  // is not enough: the state behind it would still be set, so a grant that came
+  // back — /me refetches on focus and after any 403 — would resurrect a
+  // destructive confirmation nobody re-requested. Clear the state instead.
+  useEffect(() => {
+    if (!canConnect) {
+      setPendingConnect(null);
+    }
+  }, [canConnect]);
+  useEffect(() => {
+    if (!canDisconnect) {
+      setConfirmingDisconnect(false);
+    }
+  }, [canDisconnect]);
 
   const connection = useQuery({
     queryKey: ["overlay", "connection"],
@@ -383,7 +409,7 @@ export function OverlayCard() {
         <EmptyState>
           <p>{t("overlay.empty")}</p>
           <OverlayConnectForm
-            canManage={canManage}
+            canConnect={canConnect}
             reconnect={false}
             onRequestConfirm={(region, token) =>
               setPendingConnect({ reconnect: false, region, token })
@@ -395,7 +421,9 @@ export function OverlayCard() {
         <ConnectedBody
           connection={connection.data}
           locale={locale}
-          canManage={canManage}
+          canConnect={canConnect}
+          canReconcile={canReconcile}
+          canDisconnect={canDisconnect}
           live={live}
           sync={sync}
           budget={budget}
@@ -425,7 +453,10 @@ export function OverlayCard() {
         pending={connect.isPending}
         error={connect.isError ? connect.error.message : null}
         onConfirm={() => {
-          if (!pendingConnect) {
+          // Re-read at the moment of the write. /me refetches on focus and
+          // after any 403, so a grant held when this dialog opened can be gone
+          // by the time it is confirmed.
+          if (!pendingConnect || !canConnect) {
             return;
           }
           connect.mutate({
@@ -444,7 +475,12 @@ export function OverlayCard() {
         confirmVariant="danger"
         pending={disconnect.isPending}
         error={disconnect.isError ? disconnect.error.message : null}
-        onConfirm={() => disconnect.mutate()}
+        onConfirm={() => {
+          if (!canDisconnect) {
+            return;
+          }
+          disconnect.mutate();
+        }}
       >
         <p className="t-small">{t("overlay.disconnectBody")}</p>
       </ConfirmModal>

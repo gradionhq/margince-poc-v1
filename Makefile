@@ -3,7 +3,11 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
+# Overridable exactly as in backend/Makefile, so a pinned toolchain reaches the
+# one target here that invokes the compiler directly instead of delegating.
+GO ?= go
+
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -62,6 +66,15 @@ check-q:
 ## work; the full `make check` adds the deterministic script gates.
 check-go:
 	$(MAKE) -C backend check
+
+## check-gates — the meta-gate lane: the waiver census, the obligations derived
+## from the migrations and the contract, and the walk-scope proofs. A dev-loop
+## convenience for iterating on those gates, and NEVER a prerequisite of
+## check-backend: every test named below lives in `package backendarch`, which
+## `make -C backend check` already runs uncached, so `make check` covers them
+## and a prerequisite here would only run them twice.
+check-gates:
+	@cd backend && $(GO) test -count=1 -run 'TestEveryPackageLevelReasonMapIsAWaiverOrADeclaredFixture|TestEveryWaiversDeclarationIsSweptForStalenessExactlyOnce|TestGatekitServesTestsOnly|TestEveryVersionPinnedTableBumpsItsVersion|TestEveryToolRegistrarIsInvokedByEveryFullRegistry|TestAPublishedFieldNameIsAFieldNameNotProse|TestEveryValidationFieldLiteralNamesAContractField|TestSeamReachableModulesCarryTheirOwnFieldVerdict|TestEveryStoreEntryPointIsAuthGated' .
 
 ## infra-up / infra-down — aliases for the dev stack (some deploy tooling and
 ## UAT guides call the infra lane by these names). infra-up
@@ -225,10 +238,11 @@ fe-uat:
 		node scripts/fe-uat.mjs $(ARGS)
 
 ## craft-static — the deterministic code-craftsmanship gate (ADR-0045) over the
-## whole backend. The pre-push hook (.githooks/pre-push) runs the diff-scoped
-## subset automatically; this target is the full manual sweep.
+## whole backend, strict: BLOCKER and MAJOR findings both fail it. The pre-push
+## hook (.githooks/pre-push) runs the same bar diff-scoped; this target is the
+## full manual sweep, and it is green — the backlog was cleared to arm it.
 craft-static:
-	go run -C cli/craft . static --root ../../backend
+	go run -C cli/craft . static --strict --root ../../backend
 
 ## craft-residue — fail if any unresolved CRAFT-FIX/CRAFT-DISPUTE marker was
 ## left in the backend tree (the review-loop residue check, ADR-0045). The CI
@@ -324,11 +338,13 @@ COSIGN       ?= $(DOCKER_SBOM) -u $(shell id -u):$(shell id -g) -e HOME=/src/$(C
 # Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
 # files) never leaks into the SBOM and .gitignore stays the single authority.
 SBOM_SRC     := .tmp/sbom-src
-# Release tag when HEAD is exactly on one, else dev-<short-revision>. The dev-
-# prefix marks an unreleased build at a glance; --exact-match avoids git
-# describe's nearest-tag "-N-g<sha>" form leaking a non-release tag (e.g.
-# archive/*) into the version.
-SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)")
+# A release build (HEAD exactly on a tag) reads as the tag alone — the tag maps
+# to one commit, so the revision is implicit. An unreleased build pins the full
+# git revision as dev-<revision> so a published pre-release SBOM is traceable to
+# its exact commit. --exact-match avoids git describe's nearest-tag "-N-g<sha>"
+# form leaking a non-release tag (e.g. archive/*) into a release version. The
+# revision travels inside each SBOM, so cosign's signature covers it.
+SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse HEAD 2>/dev/null || echo unknown)")
 SBOM_FILES   := $(SBOM_DIR)/margince.cdx.json $(SBOM_DIR)/margince.spdx221.json $(SBOM_DIR)/margince.spdx300.json
 
 ## sbom — generate the source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0)

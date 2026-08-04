@@ -280,7 +280,7 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: craft static (blocker-only)
+      - name: craft static (strict — blocker + major)
         working-directory: .
         run: make craft-static
 

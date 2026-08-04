@@ -55,16 +55,19 @@ func (VoiceBuildRetryArgs) Kind() string { return "voice_build_retry" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (VoiceBuildRetryArgs) FleetWide() {}
 
-// voiceBuildRetryInterval paces the deferred sweep; deferrals are hours
-// long, so a 15-minute scan is prompt without being busywork.
-const voiceBuildRetryInterval = 15 * time.Minute
-
 // voiceBuildDeferral is how long a budget-deferred build waits before the
 // sweep re-offers it to the (possibly refreshed) budget window.
 const voiceBuildDeferral = 6 * time.Hour
 
-// voiceBuildTimeout bounds one run: one builder call plus 15 evaluation
-// drafts and 5 judge calls, each small, with validator retry headroom.
+// voiceBuildTimeout is the reasoning behind voice_build's declared timeout: one
+// builder call plus 15 evaluation drafts and 5 judge calls, each small, with
+// validator retry headroom. It is still read at runtime for one thing only —
+// reclaimAfter, the grace a replacement worker waits beyond the job's own wall
+// clock — so it must not drift below what that wall clock actually is.
+//
+// api/jobs.yaml carries the value River is actually handed, so moving this
+// number alone moves no wall clock; the declaration names this constant in its
+// derived timeout and the job census keeps the two equal.
 const voiceBuildTimeout = 10 * time.Minute
 
 // The live voice_build row states the worker distinguishes when a claim is
@@ -101,7 +104,6 @@ func WithVoiceBuildEnqueue(inserter *jobs.Runner) Option {
 
 // voiceBuildWorker drives one claimed build to a terminal state.
 type voiceBuildWorker struct {
-	river.WorkerDefaults[VoiceBuildArgs]
 	store *ai.VoiceStore
 	brain completer
 	log   *slog.Logger
@@ -110,11 +112,6 @@ type voiceBuildWorker struct {
 
 func newVoiceBuildWorker(pool *pgxpool.Pool, brain completer, log *slog.Logger) *voiceBuildWorker {
 	return &voiceBuildWorker{store: ai.NewVoiceStore(pool), brain: brain, log: log, now: time.Now}
-}
-
-// Timeout overrides River's 1-minute default for the multi-call run.
-func (w *voiceBuildWorker) Timeout(*river.Job[VoiceBuildArgs]) time.Duration {
-	return voiceBuildTimeout
 }
 
 // reclaimAfter leaves a grace beyond the work timeout before a replacement
@@ -340,14 +337,12 @@ func modelNameOrUnrecorded(name string) string {
 // voiceBuildRetryWorker re-enqueues every due deferred build; the per-build
 // job's uniqueness makes a double offer harmless.
 type voiceBuildRetryWorker struct {
-	river.WorkerDefaults[VoiceBuildRetryArgs]
 	store *ai.VoiceStore
 	log   *slog.Logger
 }
 
 func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuildRetryArgs]) error {
 	due, enumErr := w.store.DueDeferredBuilds(ctx)
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, ref := range due {
 		if ref.RequestedBy == nil {
 			// The requester was deleted (ON DELETE SET NULL): nobody can own
@@ -356,16 +351,18 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			w.log.WarnContext(ctx, "voice build skipped: requester deleted", "build", ref.BuildID.String())
 			continue
 		}
-		if _, err := client.Insert(ctx, VoiceBuildArgs{
+		if err := dispatchOne(ctx, VoiceBuildArgs{
 			Workspace:   ref.Workspace,
 			ProfileID:   ref.ProfileID.String(),
 			BuildID:     ref.BuildID.String(),
 			RequestedBy: ref.RequestedBy.String(),
-			// Tagged HERE rather than inside voiceBuildInsertOpts, which the
-			// user-initiated build path shares: a build someone asked for is
-			// not one workspace's share of a fleet pass, and counting it as
-			// one is precisely what the tag exists to prevent.
-		}, markedAsFleetPass(voiceBuildInsertOpts())); err != nil {
+			// voice_build declares opts_owner: caller, so the opts are passed
+			// in and the tag is added to a COPY of them here. It never goes
+			// into voiceBuildInsertOpts, which the user-initiated build path
+			// shares: a build someone asked for is not one workspace's share
+			// of a fleet pass, and counting it as one is precisely what the
+			// tag exists to prevent.
+		}, voiceBuildInsertOpts()); err != nil {
 			w.log.WarnContext(ctx, "voice build retry enqueue failed", "build", ref.BuildID.String(), "err", err)
 		}
 	}
