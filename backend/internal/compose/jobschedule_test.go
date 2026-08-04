@@ -228,7 +228,8 @@ func periodicSiteKinds(t *testing.T) map[string]int {
 	t.Helper()
 	byType := kindByGoType()
 	wired := map[string]int{}
-	for _, file := range parseComposeSources(t) {
+	_, files := parseComposeSources(t)
+	for _, file := range files {
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {

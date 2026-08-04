@@ -513,7 +513,7 @@ var specs = map[string]Spec{
 		GoType:       "SiteDeepReadArgs",
 		Role:         Workspace,
 		Queue:        "deep_read",
-		Timeout:      TimeoutPolicy{FromOperator: true},
+		Timeout:      TimeoutPolicy{OperatorField: "DeepReadCaps"},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"DeepReadBrain"}, AbsentRegistersAnyway: true},
 		Args:         []ArgField{{Name: "MaxPages", Scalar: true, Reason: "this run's page ceiling, or zero for the deployment's own. The worker clamps it against the configured cap, so it can only ever narrow what an operator set, and a crawl budget states nothing about a subject."}, {Name: "OrganizationID"}, {Name: "RequestedBy"}, {Name: "SiteReadID"}, {Name: "Workspace"}},

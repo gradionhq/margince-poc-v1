@@ -205,15 +205,19 @@ func TestAnIdleFleetMapsToEmptyListsNotNulls(t *testing.T) {
 	}
 }
 
-// TestTheUntenantedArmAdmitsExactlyTheDeclaredDispatchers — the arm is a
-// closed set, and forgetting a kind fails in the direction that hurts: its
-// rows are simply omitted, and an admin looking for "is the fleet being
-// swept" reads silence as a healthy no.
+// TestTheUntenantedArmResolvesItsKindsFromTheDeclaredRole gates the FILTER,
+// and only the filter. Both sides here read jobs.Declared(), so this cannot
+// catch a kind whose role is wrong — it catches dispatcherKinds() growing a
+// hard-coded entry, dropping one, or answering by some predicate other than
+// the declared role, which is what would put a kind in the untenanted arm or
+// leave it out for a reason api/jobs.yaml never states.
 //
-// The set is derived from the declaration rather than restated, so what
-// this gate catches is a filter that stopped matching the declaration — the
-// one way the two can now part company.
-func TestTheUntenantedArmAdmitsExactlyTheDeclaredDispatchers(t *testing.T) {
+// What holds the ROLE itself to something outside the file is the generated
+// pair of interface assertions: a declared dispatcher must satisfy
+// jobs.FleetWide and a declared workspace kind jobs.WorkspaceScoped, so a role
+// that disagreed with the args struct it names fails to compile. That is the
+// independent binding; this is the filter in front of it.
+func TestTheUntenantedArmResolvesItsKindsFromTheDeclaredRole(t *testing.T) {
 	var want []string
 	for kind, spec := range jobs.Declared() {
 		if spec.Role == jobs.Dispatcher {
@@ -221,7 +225,7 @@ func TestTheUntenantedArmAdmitsExactlyTheDeclaredDispatchers(t *testing.T) {
 		}
 	}
 	// A vacuous pass is the failure mode of any derived gate. The contract
-	// declares 23 dispatchers today; the floor sits below that so retiring a
+	// declares 24 dispatchers today; the floor sits below that so retiring a
 	// pass does not drag the gate along, while a filter that matched nothing
 	// still trips it.
 	if len(want) < 20 {

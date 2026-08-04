@@ -253,6 +253,13 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	if err := jobs.MustBeTotal(reg.kinds); err != nil {
 		return nil, err
 	}
+	// Totality says every kind this role works is declared; it does not say
+	// each is worked by the args type its declaration names. A Kind() that
+	// returns another declared kind's string passes the check above and runs
+	// under that kind's timeout, queue and attempt cap.
+	if err := reg.everyKindIsRegisteredWithItsDeclaredType(); err != nil {
+		return nil, err
+	}
 
 	return jobs.New(pool, jobs.Config{
 		Queues:       jobQueues(),

@@ -158,7 +158,7 @@ func timeoutLiteral(t timeoutDef) string {
 	case t.None:
 		return "TimeoutPolicy{None: true}"
 	case t.Operator != "":
-		return "TimeoutPolicy{FromOperator: true}"
+		return fmt.Sprintf("TimeoutPolicy{OperatorField: %q}", t.Operator)
 	case t.Derived != "":
 		return fmt.Sprintf("TimeoutPolicy{Fixed: %s, DerivedFrom: %q}", goDuration(t.Fixed), t.Derived)
 	default:

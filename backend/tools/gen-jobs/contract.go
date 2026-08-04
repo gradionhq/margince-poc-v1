@@ -10,12 +10,41 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// decodeMapping reads one mapping node into out with unknown keys refused.
+//
+// It exists because yaml.Node.Decode builds its own decoder and so does NOT
+// carry the KnownFields setting parseContract put on the outer one: every block
+// below with a custom UnmarshalYAML is a hole in that setting, and a typo inside
+// one is dropped in silence. That is not a missing declaration but a DIFFERENT
+// one — `absnet: registers_anyway` leaves Absent at "", which is the opposite
+// posture — and the whole point of this file is that nothing about a job is left
+// to be inferred. Re-encoding the node and reading it back through a strict
+// decoder is what restores the setting.
+func decodeMapping(node *yaml.Node, out any) error {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	if err := enc.Encode(node); err != nil {
+		return fmt.Errorf("re-encoding for a strict read: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("re-encoding for a strict read: %w", err)
+	}
+	dec := yaml.NewDecoder(&buf)
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		return err
+	}
+	return nil
+}
 
 // queueDef is one queues.<name> entry: the pool bound, and why it is that
 // number. The reason is prose for the reader — nothing derives behaviour from
@@ -64,7 +93,7 @@ func (t *timeoutDef) UnmarshalYAML(node *yaml.Node) error {
 		None     bool   `yaml:"none"`
 		Reason   string `yaml:"reason"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("timeout: %w", err)
 	}
 	t.Derived, t.Operator, t.None, t.Reason = raw.Derived, raw.Operator, raw.None, raw.Reason
@@ -105,7 +134,7 @@ func (c *cadenceDef) UnmarshalYAML(node *yaml.Node) error {
 		Operator             string `yaml:"operator"`
 		ScheduleWhenPositive string `yaml:"schedule_when_positive"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("cadence: %w", err)
 	}
 	c.Operator, c.ScheduleWhenPositive = raw.Operator, raw.ScheduleWhenPositive
@@ -133,7 +162,7 @@ func (r *registrationDef) UnmarshalYAML(node *yaml.Node) error {
 		When   []string `yaml:"when"`
 		Absent string   `yaml:"absent"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("registration: %w", err)
 	}
 	r.When, r.Absent = raw.When, raw.Absent
@@ -172,7 +201,7 @@ func (a *argFieldDef) UnmarshalYAML(node *yaml.Node) error {
 		Scalar bool   `yaml:"scalar"`
 		Reason string `yaml:"reason"`
 	}
-	if err := node.Decode(&raw); err != nil {
+	if err := decodeMapping(node, &raw); err != nil {
 		return fmt.Errorf("args field: %w", err)
 	}
 	a.Scalar, a.Reason, a.argued = raw.Scalar, raw.Reason, true
@@ -251,10 +280,33 @@ func parseContract(raw []byte) (contract, error) {
 	if err := dec.Decode(&c); err != nil {
 		return contract{}, fmt.Errorf("parsing contract: %w", err)
 	}
+	if err := rejectSecondDocument(dec); err != nil {
+		return contract{}, err
+	}
 	if err := c.validate(); err != nil {
 		return contract{}, err
 	}
 	return c, nil
+}
+
+// rejectSecondDocument refuses a `---` and anything after it. Only the FIRST
+// document is decoded, and only the first is walked for duplicate kinds — but
+// the fingerprint both generated tables carry is the sha256 of the whole FILE.
+// So declarations after a separator would be hashed as if they governed
+// something while reaching neither table: the closed kind set would disagree
+// with the contract, and every gate downstream compares one generated half
+// against the other rather than against the file.
+func rejectSecondDocument(dec *yaml.Decoder) error {
+	var second yaml.Node
+	err := dec.Decode(&second)
+	switch {
+	case errors.Is(err, io.EOF):
+		return nil
+	case err != nil:
+		return fmt.Errorf("parsing contract: reading past the first document: %w", err)
+	default:
+		return fmt.Errorf("the contract carries more than one YAML document — everything after the first `---` is hashed into the generated fingerprint and compiled into neither table; keep every kind in one document")
+	}
 }
 
 // rejectDuplicateKinds walks the raw document for a kind declared twice.

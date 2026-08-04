@@ -17,8 +17,11 @@ package compose
 // the workspace would panic here rather than fail — so this suite also pins
 // the ORDER, which no gate can see.
 //
-// The count below is what keeps the suite from thinning in silence: a worker
-// dropped from the map fails here rather than going unnoticed.
+// WHICH workers it must drive is the contract's to say: the set is every
+// workspace-role kind api/jobs.yaml declares, read from the declaration below
+// rather than counted. A count is satisfied by any N entries, so a kind added
+// to the file and forgotten here would leave the number right and its guard
+// unproven — which is the same silence the suite exists to break.
 
 import (
 	"context"
@@ -26,14 +29,19 @@ import (
 	"testing"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// workspaceScopedKinds is how many workers this suite drives, stated apart
-// from the map so the check below can hold the map to it.
-const workspaceScopedKinds = 27
+// workspaceKindFloor guards against a vacuous pass. The contract declares 31
+// workspace kinds today; the floor sits low enough that retiring a few passes
+// does not drag it along, and high enough that a declaration answering nothing
+// — which would make the derivation below demand nothing — is reported rather
+// than read as full coverage.
+const workspaceKindFloor = 25
 
 func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	// Named by kind rather than by Go type: a failure should say which JOB is
@@ -140,11 +148,46 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 		SignalScanWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
 			return (&signalScanWorkspaceWorker{}).Work(ctx, &river.Job[SignalScanWorkspaceArgs]{})
 		},
+		AgentSchedulerWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&agentSchedulerWorkspaceWorker{}).Work(ctx, &river.Job[AgentSchedulerWorkspaceArgs]{})
+		},
+		PrivacyRetentionWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&privacyRetentionWorkspaceWorker{}).Work(ctx, &river.Job[PrivacyRetentionWorkspaceArgs]{})
+		},
+		WebhookRetryWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&webhookRetryWorkspaceWorker{}).Work(ctx, &river.Job[WebhookRetryWorkspaceArgs]{})
+		},
+
+		// The reindex worker takes its LAST attempt out of the pending set
+		// before returning, which is a store write; the row here is given an
+		// attempt below its cap so the refusal is what the call answers with,
+		// rather than a nil store panicking on the way to it.
+		EmbedReindexWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&embedReindexWorkspaceWorker{}).Work(ctx, &river.Job[EmbedReindexWorkspaceArgs]{
+				JobRow: &rivertype.JobRow{Attempt: 1, MaxAttempts: 2},
+			})
+		},
 	}
 
-	if len(refusals) != workspaceScopedKinds {
-		t.Fatalf("this suite drives %d workers but is declared to drive %d — a kind whose refusal nobody pins is one that can silently stop refusing",
-			len(refusals), workspaceScopedKinds)
+	declared := 0
+	for kind, spec := range jobs.Declared() {
+		if spec.Role != jobs.Workspace {
+			continue
+		}
+		declared++
+		if _, driven := refusals[kind]; !driven {
+			t.Errorf("%s carries one tenant's pass, but nothing here proves it refuses args naming no workspace — drive its worker above, or it can stop refusing and no test will notice", kind)
+		}
+	}
+	if declared < workspaceKindFloor {
+		t.Fatalf("the contract declares only %d workspace kinds, expected at least %d — the derivation resolved almost nothing and this suite would demand almost nothing",
+			declared, workspaceKindFloor)
+	}
+	for kind := range refusals {
+		spec, declaredKind := jobs.SpecFor(kind)
+		if !declaredKind || spec.Role != jobs.Workspace {
+			t.Errorf("%s is driven here but api/jobs.yaml declares no workspace kind by that name — the suite is pinning something the fleet does not run", kind)
+		}
 	}
 
 	for kind, work := range refusals {

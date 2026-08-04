@@ -34,6 +34,11 @@ package compose
 // file, whose union the compiler would believe.
 
 import (
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/riverqueue/river"
@@ -85,6 +90,54 @@ func (r *jobRegistry) markOperatorSupplied(kind string) {
 	}
 	entry.operatorSupplied = true
 	r.wired[kind] = entry
+}
+
+// misfiledKinds names every registration whose args type is not the one the
+// contract pairs with the kind it registered under.
+//
+// The registration path can only ASK for the kind: Kind() is a method on the
+// args type, and whatever string it returns is the one River works the rows of
+// and the one the Spec is looked up by. So an args type whose Kind() names
+// ANOTHER declared kind — the ordinary way one args struct is written, by
+// copying the one beside it — is registered under that kind and takes its
+// timeout, its queue and its attempt cap, while the kind it was meant to serve
+// silently has no worker. Every other gate on this path is satisfied by that:
+// both kinds are declared, so the closed type set admits it and MustBeTotal
+// finds nothing missing.
+//
+// Spec.GoType is the other half of the pairing, carried in the compiled table
+// precisely so it can be asked here. Findings rather than one error because a
+// swap misfiles two kinds at once, and naming one of them would send the
+// reader round the loop twice.
+func misfiledKinds(wired map[string]wiredWorker) []string {
+	var findings []string
+	for _, kind := range slices.Sorted(maps.Keys(wired)) {
+		spec, declared := jobs.SpecFor(kind)
+		if !declared {
+			// An undeclared kind has no GoType to be paired with, and is
+			// MustBeTotal's finding (and the census totality arm's) already.
+			continue
+		}
+		if got := goTypeName(wired[kind].args); got != spec.GoType {
+			findings = append(findings, fmt.Sprintf(
+				"%s is registered with %s, but api/jobs.yaml pairs that kind with %s — River works these rows under the declaration %s carries, not %s's; check what Kind() returns",
+				kind, got, spec.GoType, spec.GoType, got))
+		}
+	}
+	return findings
+}
+
+// everyKindIsRegisteredWithItsDeclaredType is the boot half of the pairing
+// check, refused for the same reason MustBeTotal's totality is: a process that
+// started anyway would work rows under a wall clock and an attempt cap chosen
+// for a different job.
+func (r *jobRegistry) everyKindIsRegisteredWithItsDeclaredType() error {
+	findings := misfiledKinds(r.wired)
+	if len(findings) == 0 {
+		return nil
+	}
+	return errors.New("compose: a worker is registered under a kind the contract pairs with another args type:\n  " +
+		strings.Join(findings, "\n  "))
 }
 
 // addGovernedWorker registers one worker under its DECLARED options.

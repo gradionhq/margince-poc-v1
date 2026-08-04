@@ -43,6 +43,10 @@ export MARGINCE_ENV          ?= dev
 # workspace — it must work before the composition exists.
 COMPOSITION_DIR := $(abspath ../build/composition)
 GOWORK_COMPOSED := GOWORK=$(COMPOSITION_DIR)/go.work
+# The root workspace, which is what every backend/tools generator runs under:
+# the tools are a separate module, and their resolution must not depend on
+# what the caller exported.
+GOWORK_ROOT := GOWORK=$(abspath ../go.work)
 
 .DEFAULT_GOAL := help
 
@@ -72,10 +76,10 @@ check: ## The merge gate: everything a PR must pass
 # the separate backend/tools module, so a caller-exported GOWORK (off, or
 # an unrelated workspace) would break resolution before anything builds.
 composition: ## Materialize build/composition/ from the enabled set under extensions/ (every build lane depends on this)
-	@GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
+	@$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 check-composition: composition ## Reproducibility gate: a clean regeneration must reproduce composition.json byte-for-byte
-	@$(GO) run ./tools/gen-composition -verify
+	@$(GOWORK_ROOT) $(GO) run ./tools/gen-composition -verify
 	@echo "OK: composition reproducible"
 
 # EXT_COVER_OUT (optional): merge every unit's -coverprofile into ONE
@@ -270,16 +274,24 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # The stub and agent-policy generators run here explicitly (not via
 # `go generate ./...`): internal/compose is generated INTO, and its own
 # generate directives would need the tools resolvable from that package.
+#
+# EVERY generator runs pinned to the ROOT workspace, for the reason
+# gen-composition already did: they all live in the separate backend/tools
+# module, so what a caller happens to export as GOWORK (off, or the composed
+# workspace, or an unrelated one) decides which module graph resolves their
+# dependencies. Generated files are committed and drift-gated, so a generator
+# whose own build inputs move with the caller's environment turns a clean
+# checkout into a red gate on somebody else's machine.
 gen: ## Regenerate everything derived from the contract
 	$(GO) generate ./internal/contracts
-	$(GO) run ./tools/gen-stubs
-	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
-	$(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go
-	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
-	$(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
 		-out-specs internal/platform/jobs/specs_gen.go \
 		-out-kinds internal/compose/jobkinds_gen.go
-	GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	# gen regenerates the committed per-unit manifests too (via composition);
@@ -298,7 +310,7 @@ drift: gen ## Fail when any generated file drifted from the contract
 # new pair of files per invocation.
 gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_idle_deals
 	@test -n "$(NAME)" || { echo "gen-workflow: usage: make gen-workflow NAME=<snake_case_handler_name>"; exit 1; }
-	$(GO) run ./tools/gen-workflow $(NAME)
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-workflow $(NAME)
 
 # The scan runs in CI (.github/workflows/ci.yml), not in the local
 # `make check`, so a missing network never blocks a local build. The

@@ -25,7 +25,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -74,6 +73,7 @@ func (c *JobCensus) Validate() error {
 	findings := slices.Concat(
 		bothGeneratedHalvesCameFromOneContract(),
 		c.everyDeclaredKindIsWiredAndBack(),
+		c.everyKindIsWorkedByItsDeclaredArgsType(),
 		c.everyDerivedTimeoutStillEqualsItsConstant(),
 		c.exactlyTheOperatorKindsSupplyTheirTimeout(),
 		c.everyArgsFieldIsDeclaredAndBack(),
@@ -101,55 +101,9 @@ func (c *JobCensus) NilAfterLoggingWaivers() map[string]string {
 		if !wired || spec.Fault.NilAfterLogging == "" {
 			continue
 		}
-		waivers[workerTypeName(entry.worker)] = spec.Fault.NilAfterLogging
+		waivers[goTypeName(entry.worker)] = spec.Fault.NilAfterLogging
 	}
 	return waivers
-}
-
-// JobArgsField is one field of one registered kind's COMPILED args struct,
-// joined to what api/jobs.yaml says about it. The compiled side leads: the
-// question a caller asks of this is what a job actually carries, and the
-// declaration is the answer being checked, not the source of the question.
-type JobArgsField struct {
-	Kind   string
-	GoType string
-	Name   string
-	// Declared is false for a field the contract says nothing about, which is
-	// the finding rather than a default — a zero ArgField would read as a
-	// declared id.
-	Declared bool
-	Scalar   bool
-	Reason   string
-}
-
-// ArgsFields walks every registered kind's args struct, in kind order and then
-// in field order, and reports each field beside its declaration.
-func (c *JobCensus) ArgsFields() []JobArgsField {
-	var fields []JobArgsField
-	for _, kind := range slices.Sorted(maps.Keys(c.wired)) {
-		spec, declared := jobs.SpecFor(kind)
-		for _, name := range argsFieldNames(c.wired[kind].args) {
-			field := JobArgsField{Kind: kind, GoType: spec.GoType, Name: name}
-			if declared {
-				if arg, found := declaredArg(spec, name); found {
-					field.Declared, field.Scalar, field.Reason = true, arg.Scalar, arg.Reason
-				}
-			}
-			fields = append(fields, field)
-		}
-	}
-	return fields
-}
-
-// declaredArg answers the declaration for one args field, and whether there is
-// one at all.
-func declaredArg(spec jobs.Spec, name string) (jobs.ArgField, bool) {
-	for _, field := range spec.Args {
-		if field.Name == name {
-			return field, true
-		}
-	}
-	return jobs.ArgField{}, false
 }
 
 // bothGeneratedHalvesCameFromOneContract catches a half-regenerated pair. One
@@ -199,6 +153,20 @@ func (c *JobCensus) everyDeclaredKindIsWiredAndBack() []string {
 			findings = append(findings,
 				kind+" is registered but api/jobs.yaml declares no such kind — it would run at River's silent one-minute default; declare it and run `make gen`")
 		}
+	}
+	return findings
+}
+
+// everyKindIsWorkedByItsDeclaredArgsType is the build-time half of the pairing
+// the runner refuses to boot without. The finding is the same one and the
+// wording is misfiledKinds'; what this arm adds is the floor, because a walk
+// that inspected nothing would report nothing and read exactly like a fleet
+// whose every kind is filed correctly.
+func (c *JobCensus) everyKindIsWorkedByItsDeclaredArgsType() []string {
+	findings := misfiledKinds(c.wired)
+	if len(c.wired) < declaredJobKindFloor {
+		findings = append(findings, fmt.Sprintf(
+			"only %d registrations were paired against their declared go_type, expected at least %d — the census wired almost nothing and this check would pass by asking nobody", len(c.wired), declaredJobKindFloor))
 	}
 	return findings
 }
@@ -262,7 +230,7 @@ func (c *JobCensus) everyDerivedTimeoutStillEqualsItsConstant() []string {
 }
 
 // exactlyTheOperatorKindsSupplyTheirTimeout checks the one input a policy test
-// cannot reach. TimeoutPolicy{FromOperator: true} returns whatever it is
+// cannot reach. An operator-supplied TimeoutPolicy returns whatever it is
 // handed, so registering such a kind through the plain addDeclaredWorker
 // compiles, reads as the ordinary case, and hands River a zero — the silent
 // one-minute default this contract exists to remove. The converse matters too:
@@ -277,7 +245,7 @@ func (c *JobCensus) exactlyTheOperatorKindsSupplyTheirTimeout() []string {
 			continue // already reported by the totality check.
 		}
 		switch {
-		case spec.Timeout.FromOperator:
+		case spec.Timeout.FromOperator():
 			operatorKinds++
 			if !entry.operatorSupplied {
 				findings = append(findings,
@@ -291,40 +259,6 @@ func (c *JobCensus) exactlyTheOperatorKindsSupplyTheirTimeout() []string {
 	if operatorKinds == 0 {
 		findings = append(findings,
 			"no {operator: …} kind was checked — site_deep_read is the one kind this check exists for, and it matched nothing")
-	}
-	return findings
-}
-
-// everyArgsFieldIsDeclaredAndBack is what makes the args declaration a proof
-// rather than a description. River persists args verbatim in a table with no
-// workspace column and no RLS, so a field carrying a body or an address would
-// be a second store of subject data that Art. 17 erasure never reaches. The
-// generator already refuses a declared field that is neither an id nor an
-// argued-for scalar; holding the declared set EQUAL to the compiled set is
-// what closes the gap between "every declared field is safe" and "every field
-// is safe".
-func (c *JobCensus) everyArgsFieldIsDeclaredAndBack() []string {
-	var findings []string
-	for kind, spec := range jobs.Declared() {
-		entry, wired := c.wired[kind]
-		if !wired {
-			continue // already reported by the totality check.
-		}
-		compiled := argsFieldNames(entry.args)
-		for _, field := range spec.Args {
-			if !slices.Contains(compiled, field.Name) {
-				findings = append(findings, fmt.Sprintf(
-					"%s declares an args field %s that %s does not have — a declaration for a field nobody carries governs nothing", kind, field.Name, spec.GoType))
-			}
-		}
-	}
-	// The other direction reads the compiled fields, which ArgsFields already
-	// joins to the declaration for its own callers.
-	for _, field := range c.ArgsFields() {
-		if !field.Declared {
-			findings = append(findings, fmt.Sprintf(
-				"%s.%s is not declared in api/jobs.yaml — say what it carries: `%s: id`, or a scalar with the reason it is safe in a table Art. 17 erasure never reaches", field.GoType, field.Name, field.Name))
-		}
 	}
 	return findings
 }
@@ -401,83 +335,4 @@ func (c *JobCensus) noArgsTypeAnswersToASecondKind() []string {
 			"only %d registered args types were inspected for kind aliases, expected at least %d — the walk matched almost nothing and this check would pass by asking nobody", inspected, declaredJobKindFloor))
 	}
 	return findings
-}
-
-// argsFieldNames is the fields an args struct puts in river_job.args, in
-// declaration order and under the Go names the declaration spells them with.
-// River marshals args to a JSON object, so a non-struct carries no fields at
-// all and answers none.
-//
-// An EMBEDDED struct is walked THROUGH rather than counted as one field,
-// because flattening is what actually reaches the column: encoding/json lifts
-// an anonymous field's own fields into the enclosing object unless a tag names
-// it. Reported as its type name, a Body sitting one level down would satisfy
-// every check here while landing in the args verbatim, which is the one thing
-// the args declaration exists to prevent.
-func argsFieldNames(args river.JobArgs) []string {
-	return structFieldNames(reflect.TypeOf(args), nil)
-}
-
-// structFieldNames walks one struct type, inlining what JSON would inline.
-// enclosing carries the types already on the path: a struct may embed a
-// pointer to itself, which is legal Go and would otherwise recur forever.
-func structFieldNames(t reflect.Type, enclosing []reflect.Type) []string {
-	if t == nil || t.Kind() != reflect.Struct || slices.Contains(enclosing, t) {
-		return nil
-	}
-	names := make([]string, 0, t.NumField())
-	for i := range t.NumField() {
-		field := t.Field(i)
-		if inner, inlined := inlinedStruct(field); inlined {
-			names = append(names, structFieldNames(inner, append(enclosing, t))...)
-			continue
-		}
-		names = append(names, field.Name)
-	}
-	return names
-}
-
-// inlinedStruct reports the struct an anonymous field contributes its own
-// fields to the enclosing object, and whether the field is such an embedding at
-// all. A tag that names the field is what stops the inlining: JSON then writes
-// a nested object under that name, and the embedding is one field like any
-// other.
-func inlinedStruct(field reflect.StructField) (reflect.Type, bool) {
-	if !field.Anonymous || jsonName(field) != "" {
-		return nil, false
-	}
-	t := field.Type
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Struct {
-		return nil, false
-	}
-	return t, true
-}
-
-// jsonName is the name a field's json tag gives it, which is the part before
-// the first option and is empty when the tag only carries options.
-func jsonName(field reflect.StructField) string {
-	tag, tagged := field.Tag.Lookup("json")
-	if !tagged {
-		return ""
-	}
-	name, _, _ := strings.Cut(tag, ",")
-	return name
-}
-
-// workerTypeName is the Go type name of a registered worker, which is what a
-// Work method's receiver is spelled as. Workers are registered as pointers, so
-// the pointer is followed; the name alone is enough because every worker in
-// this fleet lives in this one package.
-func workerTypeName(worker any) string {
-	t := reflect.TypeOf(worker)
-	if t == nil {
-		return ""
-	}
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	return t.Name()
 }

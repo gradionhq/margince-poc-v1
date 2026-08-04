@@ -72,21 +72,33 @@ const (
 // (privacy.MaxPassDuration and friends). Fixed still carries the resolved
 // duration — Govern hands River a duration, not a name — and the census is
 // what keeps the two from drifting apart when the upstream constant moves.
+//
+// OperatorField names the JobRunnerConfig field the value is computed FROM at
+// registration, exactly as Cadence.OperatorField does for a schedule. The name
+// is what makes the source checkable: the duration itself is not knowable here
+// — it is an expression a call site writes — so without the field path a
+// registration computing its wall clock from an unrelated dial would read
+// exactly like one computing it from the declared one.
 type TimeoutPolicy struct {
-	Fixed        time.Duration
-	None         bool
-	FromOperator bool
-	DerivedFrom  string
+	Fixed         time.Duration
+	None          bool
+	OperatorField string
+	DerivedFrom   string
 }
 
+// FromOperator reports that the value comes from the operator's config rather
+// than from the file. It is derived from OperatorField rather than stored
+// beside it, so the two cannot say different things.
+func (p TimeoutPolicy) FromOperator() bool { return p.OperatorField != "" }
+
 // Duration is the value Govern hands River. A None policy yields -1, which
-// takes the job out of River's rescuer; a FromOperator policy yields the
+// takes the job out of River's rescuer; an operator-supplied policy yields the
 // value supplied at registration.
 func (p TimeoutPolicy) Duration(supplied time.Duration) time.Duration {
 	switch {
 	case p.None:
 		return -1
-	case p.FromOperator:
+	case p.FromOperator():
 		return supplied
 	default:
 		return p.Fixed
@@ -199,12 +211,28 @@ type Spec struct {
 	Args []ArgField
 }
 
+// clone is one declaration a caller cannot reach the table through. A Spec is
+// copied by value, but its two slices are not: a reader that appended to
+// Args or sorted Registration.When in place would edit the compiled table for
+// every later reader in the process, and the contract's whole claim is that
+// what the file says is what the fleet does. Every hand-out below goes through
+// it — specCloneCoversEveryReference in spec_test.go is what holds the list to
+// the type as Spec grows.
+func (s Spec) clone() Spec {
+	s.Registration.When = slices.Clone(s.Registration.When)
+	s.Args = slices.Clone(s.Args)
+	return s
+}
+
 // SpecFor returns the declaration for one kind. The bool is the whole point:
 // a caller that ignored it would get a zero Spec, whose zero timeout is
 // River's one-minute default under another name.
 func SpecFor(kind string) (Spec, bool) {
 	s, ok := specs[kind]
-	return s, ok
+	if !ok {
+		return Spec{}, false
+	}
+	return s.clone(), true
 }
 
 // Declared iterates every declared kind in kind order, so a caller building a
@@ -212,7 +240,7 @@ func SpecFor(kind string) (Spec, bool) {
 func Declared() iter.Seq2[string, Spec] {
 	return func(yield func(string, Spec) bool) {
 		for _, kind := range slices.Sorted(maps.Keys(specs)) {
-			if !yield(kind, specs[kind]) {
+			if !yield(kind, specs[kind].clone()) {
 				return
 			}
 		}

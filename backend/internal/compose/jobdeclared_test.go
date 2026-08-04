@@ -109,7 +109,7 @@ func TestADeclaredTimeoutIsNeverPublishedAsZeroSeconds(t *testing.T) {
 			if !strings.Contains(series, `timeout_seconds="-1"`) {
 				t.Errorf("%s deliberately has no deadline; want timeout_seconds=\"-1\", got %s", kind, series)
 			}
-		case spec.Timeout.FromOperator:
+		case spec.Timeout.FromOperator():
 			sawOperator++
 			if strings.Contains(series, "timeout_seconds=") {
 				t.Errorf("%s takes its wall clock from an operator's dial, which this process "+
@@ -331,7 +331,7 @@ func TestNoTimeoutPolicyResolvesToZeroSeconds(t *testing.T) {
 	// The two the file does not state: an operator's dial, and a Spec nobody
 	// declared. Both must be reported as unstated rather than as a number.
 	for name, policy := range map[string]jobs.TimeoutPolicy{
-		"operator":   {FromOperator: true},
+		"operator":   {OperatorField: "DeepReadCaps"},
 		"undeclared": {},
 	} {
 		if _, stated := declaredTimeoutSeconds(policy); stated {

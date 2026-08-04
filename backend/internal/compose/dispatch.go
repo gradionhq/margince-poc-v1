@@ -228,9 +228,13 @@ func dispatchOne(ctx context.Context, args river.JobArgs, callerOpts *river.Inse
 //     never into that shared helper, because a build someone asked for is not
 //     one workspace's share of a fleet pass.
 //
-// callerOpts is read only for opts_owner: caller, and supplying one for any
-// other owner is refused rather than ignored — a uniqueness window that was
-// silently dropped reads, in the source, exactly like one that was applied.
+// callerOpts is read only for opts_owner: caller, and the guard runs in BOTH
+// directions — supplying one for another owner is refused, and so is omitting
+// one for caller. The two are the same defect: the reason a caller-owned kind
+// carries that owner is that its options exist and are nobody else's to
+// reconstruct, so a nil here yields the tag-only value and drops them, and a
+// uniqueness window that was silently dropped reads, in the source, exactly
+// like one that was applied.
 //
 // It is separate from dispatchOne so a unit test can assert all three
 // postures directly, without a River client or a database: the postures are
@@ -239,6 +243,9 @@ func fanOutChildOpts(childKind string, callerOpts *river.InsertOpts) *river.Inse
 	spec := fanOutChildSpec(childKind)
 	if spec.OptsOwner != jobs.OptsCaller && callerOpts != nil {
 		panic("compose: insert options passed for " + childKind + ", whose opts_owner is not caller — they would be dropped, not merged")
+	}
+	if spec.OptsOwner == jobs.OptsCaller && callerOpts == nil {
+		panic("compose: no insert options passed for " + childKind + ", whose opts_owner is caller — its queue and uniqueness window are the caller's to supply, and this child would be inserted with neither")
 	}
 	switch spec.OptsOwner {
 	case jobs.OptsFanOut:

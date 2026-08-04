@@ -43,7 +43,7 @@ func TestGovernYieldsNegativeForADeliberateAbsence(t *testing.T) {
 }
 
 func TestGovernUsesTheSuppliedValueForAnOperatorPolicy(t *testing.T) {
-	spec := Spec{Kind: "govern_fixture", Timeout: TimeoutPolicy{FromOperator: true}}
+	spec := Spec{Kind: "govern_fixture", Timeout: TimeoutPolicy{OperatorField: "DeepReadCaps"}}
 	governed := Govern[fixtureArgs](stubbornWorker{}, spec, 12*time.Minute)
 
 	if got := governed.Timeout(nil); got != 12*time.Minute {

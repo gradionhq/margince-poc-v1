@@ -133,7 +133,7 @@ func declaredTimeoutSeconds(p jobs.TimeoutPolicy) (int64, bool) {
 	switch {
 	case p.None:
 		return -1, true
-	case p.FromOperator:
+	case p.FromOperator():
 		return 0, false
 	case p.Fixed > 0:
 		return max(int64(p.Fixed/time.Second), 1), true

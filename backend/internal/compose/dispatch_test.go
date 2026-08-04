@@ -212,6 +212,20 @@ func TestFanOutChildOptsRefusesOptsForAKindThatDoesNotOwnThem(t *testing.T) {
 	fanOutChildOpts(CaptureSyncArgs{}.Kind(), &river.InsertOpts{MaxAttempts: 2})
 }
 
+// The other direction, and the same defect: a caller-owned kind reaching here
+// with nothing would get the tag-only value, which is precisely the shape that
+// makes River fall back to the ARGS' opts — and a caller-owned kind carries
+// that owner because its args declare none. The window would be gone, and the
+// call site would still read as one that supplied it.
+func TestFanOutChildOptsRefusesACallerOwnedKindWithNoOpts(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a caller-owned kind with no opts must be refused, not degraded to a tag-only value")
+		}
+	}()
+	fanOutChildOpts(VoiceBuildArgs{}.Kind(), nil)
+}
+
 func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 	return CloseDateWorkspaceArgs{Workspace: ws}
 }

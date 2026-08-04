@@ -207,6 +207,118 @@ kinds:
 `, "declared twice")
 }
 
+// A typo inside a block with its own UnmarshalYAML is the case the outer
+// decoder's KnownFields cannot see: yaml.Node.Decode makes its own decoder, so
+// an unknown key there is dropped in silence and the field keeps its zero. That
+// zero is not an absence but the OPPOSITE declaration — registers_nothing where
+// registers_anyway was meant, an id where a scalar was argued for — so each
+// block that takes the mapping form is pinned here.
+//
+// Each fixture is otherwise complete and carries the misspelling once, so a
+// failure can only be the strict read refusing it.
+func TestParseRejectsAnUnknownKeyInsideACustomDecodedBlock(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "registration",
+			src: `
+kinds:
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    registration: {when: [Brain], absnet: registers_anyway}
+`,
+			want: "absnet",
+		},
+		{
+			name: "timeout",
+			src: `
+kinds:
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: {none: true, resaon: bounded by a backlog, not a wall clock}
+    opts_owner: caller
+`,
+			want: "resaon",
+		},
+		{
+			name: "args",
+			src: `
+kinds:
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      Workspace: {scalar: true, resaon: not an id}
+`,
+			want: "resaon",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mustFail(t, validQueues+tc.src, tc.want)
+		})
+	}
+}
+
+// A cadence mapping is the same hole, on a block whose valid keys are a
+// different pair; it takes its own fixture because only a DISPATCHER may carry
+// one.
+func TestParseRejectsAnUnknownKeyInACadenceMapping(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: dispatcher
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: {operator: Interval, schedule_when_postive: Interval}
+    fans_out_to: foo_workspace
+    fan_out_unit: workspace
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+`, "schedule_when_postive")
+}
+
+// Only the first document is decoded and only the first is walked for
+// duplicates, but the fingerprint both generated tables carry is the sha256 of
+// the whole FILE. Kinds after a separator would therefore be hashed as if they
+// governed something while compiling into neither table.
+func TestParseRejectsASecondDocument(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+---
+kinds:
+  bar_workspace:
+    role: workspace
+    go_type: BarWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+`, "more than one YAML document")
+}
+
 func TestParseRejectsTwoKindsSharingOneGoType(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:
@@ -279,7 +391,7 @@ kinds:
     role: workspace
     go_type: DWorkspaceArgs
     queue: default
-    timeout: {none: true, reason: bounded by a backlog, not a wall clock}
+    timeout: {none: true, reason: "bounded by a backlog, not a wall clock"}
     opts_owner: caller
   e_dispatcher:
     role: dispatcher
@@ -360,9 +472,12 @@ func TestEmitRendersEachTimeoutForm(t *testing.T) {
 		}
 	}
 
+	// The field path, not merely the posture: it is what a gate joins the
+	// registration's computed expression back to, and a policy that rendered
+	// only "this comes from an operator" would leave WHICH dial uncheckable.
 	operator := specBlock(t, src, "c_workspace")
-	if !strings.Contains(operator, "TimeoutPolicy{FromOperator: true}") {
-		t.Errorf("c_workspace rendered as:\n%s\nwant TimeoutPolicy{FromOperator: true}", operator)
+	if !strings.Contains(operator, `TimeoutPolicy{OperatorField: "SomeCaps"}`) {
+		t.Errorf("c_workspace rendered as:\n%s\nwant TimeoutPolicy{OperatorField: \"SomeCaps\"}", operator)
 	}
 	if strings.Contains(operator, "Fixed") {
 		t.Errorf("c_workspace rendered as:\n%s\nan {operator: …} policy must not carry a Fixed: Duration returns the SUPPLIED value, so a leaked one would be silently unreachable", operator)
