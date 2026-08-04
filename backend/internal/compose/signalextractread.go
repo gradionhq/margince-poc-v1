@@ -100,42 +100,14 @@ type settledThread struct {
 	Messages  []threadMessage
 }
 
-// dueThreads lists the conversations that have settled and have moved since
-// they were last read, newest first.
+// dueThreadsQuery is the queue itself. It is a package-level constant rather
+// than a literal inside dueThreads because the query IS the rule — settled,
+// resolvable to one account, moved since it was last read, not parked — and a
+// hundred lines of it wrapped around twenty lines of scanning made the Go read
+// like a footnote to the SQL.
 //
-// A conversation's account comes from the three-arm walk (the message's own
-// link, its deal's account, the employer of the contact it is about) rather
-// than a direct organization link. Capture files mail against the PERSON it was
-// with, so a direct match resolves nothing on real correspondence — an account
-// is reached through its people, or not at all.
-//
-// The walk is joined rather than applied as a predicate because the question
-// here is which account a thread belongs to, not whether it belongs to a known
-// one — and it is a LEFT join because the two things the aggregate computes are
-// different questions over different rows:
-//
-//   - WHEN the conversation last moved, and how many messages it holds, is
-//     asked of EVERY message on the thread. Counting only the resolvable ones
-//     would let a thread look settled while a message nobody can place arrived
-//     minutes ago, and the settle window exists precisely to keep the model out
-//     of a conversation still in progress.
-//   - WHICH account it belongs to is asked only of the messages that reach one;
-//     count(DISTINCT) ignores the NULLs a LEFT join leaves behind.
-//
-// The org resolution is deliberately strict: exactly one organization across
-// the whole thread. A conversation touching two accounts would have its events
-// filed against whichever the join happened to pick, and a signal on the wrong
-// account is worse than no signal — it is a claim the reader cannot trace back.
-// A contact with two live employers makes their threads ambiguous by the same
-// rule and skips them; filtering the walk down to a primary employer would buy
-// those threads back by guessing, which is the thing being refused.
-//
-// A message whose contact reaches no account at all still reaches the PROMPT —
-// threadMessages reads the conversation by thread_key alone. Resolution decides
-// whose conversation this is, not which of its messages the model may read.
-func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]settledThread, error) {
-	settled := now.Add(-extractSettleHours * time.Hour)
-	rows, err := tx.Query(ctx, `
+// $1 settled instant, $2 per-pass cap, $3 refusal cap, $4 park cutoff.
+var dueThreadsQuery = `
 		WITH conversation AS (
 			SELECT a.thread_key,
 			       max(a.occurred_at) AS newest,
@@ -155,7 +127,7 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			       bool_and(coalesce(vis.shared, true)) AS shared,
 			       min(vis.private_owner::text) AS private_owner
 			  FROM activity a
-			  LEFT JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
+			  LEFT JOIN (` + activities.OrgReachSet() + `) ro ON ro.activity_id = a.id
 			  -- Who may read this message, asked of the records it is filed
 			  -- against. A message is readable when ANY of its links is
 			  -- (auth.ActivityScopeClause), so one workspace-visible link
@@ -210,7 +182,45 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		        OR s.message_count <> c.message_count
 		        OR s.resolved_org_id IS DISTINCT FROM c.one_org::uuid)
 		 ORDER BY c.newest DESC
-		 LIMIT $2`, settled, limit, extractRefusalCap, now.Add(-extractParkFor))
+		 LIMIT $2`
+
+// dueThreads lists the conversations that have settled and have moved since
+// they were last read, newest first.
+//
+// A conversation's account comes from the three-arm walk (the message's own
+// link, its deal's account, the employer of the contact it is about) rather
+// than a direct organization link. Capture files mail against the PERSON it was
+// with, so a direct match resolves nothing on real correspondence — an account
+// is reached through its people, or not at all.
+//
+// The walk is joined rather than applied as a predicate because the question
+// here is which account a thread belongs to, not whether it belongs to a known
+// one — and it is a LEFT join because the two things the aggregate computes are
+// different questions over different rows:
+//
+//   - WHEN the conversation last moved, and how many messages it holds, is
+//     asked of EVERY message on the thread. Counting only the resolvable ones
+//     would let a thread look settled while a message nobody can place arrived
+//     minutes ago, and the settle window exists precisely to keep the model out
+//     of a conversation still in progress.
+//   - WHICH account it belongs to is asked only of the messages that reach one;
+//     count(DISTINCT) ignores the NULLs a LEFT join leaves behind.
+//
+// The org resolution is deliberately strict: exactly one organization across
+// the whole thread. A conversation touching two accounts would have its events
+// filed against whichever the join happened to pick, and a signal on the wrong
+// account is worse than no signal — it is a claim the reader cannot trace back.
+// A contact with two live employers makes their threads ambiguous by the same
+// rule and skips them; filtering the walk down to a primary employer would buy
+// those threads back by guessing, which is the thing being refused.
+//
+// A message whose contact reaches no account at all still reaches the PROMPT —
+// threadMessages reads the conversation by thread_key alone. Resolution decides
+// whose conversation this is, not which of its messages the model may read.
+func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]settledThread, error) {
+	settled := now.Add(-extractSettleHours * time.Hour)
+	rows, err := tx.Query(ctx, dueThreadsQuery,
+		settled, limit, extractRefusalCap, now.Add(-extractParkFor))
 	if err != nil {
 		return nil, fmt.Errorf("list the threads due for a read: %w", err)
 	}

@@ -104,28 +104,11 @@ func readDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 // or neither does, so a budget stop or a crash costs at most the thread in
 // flight, and that one is read again next pass.
 func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID) (ExtractPass, error) {
-	// Before the queue is even read. The deadline belongs to the whole scan
-	// job, and the deterministic half has already spent some of it, so there is
-	// a real case where nothing is left by the time this pass begins. Asking
-	// for the queue anyway would fail the transaction on the deadline and fault
-	// a pass whose only news is that it had no time — the exact fault this
-	// stop exists to prevent, moved one query earlier.
-	if stop, cancelled := outOfTime(ctx); stop {
-		if cancelled {
-			return ExtractPass{}, fmt.Errorf("signal extract: %w", ctx.Err())
-		}
-		return ExtractPass{OutOfTime: true}, nil
-	}
 	now := x.now()
-	var due []settledThread
-	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-		found, err := dueThreads(ctx, tx, now, extractThreadCap)
-		due = found
-		return err
-	}); err != nil {
-		return ExtractPass{}, fmt.Errorf("signal extract: %w", err)
+	due, pass, stop, err := x.queue(ctx, now)
+	if stop {
+		return pass, err
 	}
-	pass := ExtractPass{Due: len(due), AtCap: len(due) >= extractThreadCap}
 
 	raised := 0
 	// One thread's failure is not the pass's. Returning on the first error left
@@ -167,12 +150,7 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 		// "no time left" the loop above stops on, noticed one conversation
 		// later. The job's own deadline is still unspent, which is exactly what
 		// tells the two apart.
-		readCtx, cancelRead := readDeadline(ctx)
-		n, err := x.readThread(readCtx, wsID, thread, now)
-		// Read BEFORE the cancel, which would set this error itself and make
-		// every provider failure look like a conversation we cut short.
-		cutShort := err != nil && readCtx.Err() != nil && ctx.Err() == nil
-		cancelRead()
+		n, err, cutShort := x.readBounded(ctx, wsID, thread, now)
 		raised += n
 		if cutShort {
 			x.log.InfoContext(ctx, "signal extract: out of time mid-conversation, stopping the pass",
@@ -195,6 +173,50 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 	}
 	pass.Raised = raised
 	return pass, passFailure(failed)
+}
+
+// queue takes the conversations due for a reading, or reports that the pass
+// should not begin.
+//
+// The deadline is checked BEFORE the queue is read. It belongs to the whole
+// scan job and the deterministic half has already spent some of it, so a pass
+// can begin with nothing left — and asking for the queue anyway would fail the
+// transaction on the deadline and fault a pass whose only news is that it had
+// no time, which is the exact fault the stop exists to prevent, one query
+// earlier.
+func (x *SignalExtractor) queue(ctx context.Context, now time.Time) (due []settledThread, pass ExtractPass, stop bool, err error) {
+	if out, cancelled := outOfTime(ctx); out {
+		if cancelled {
+			return nil, ExtractPass{}, true, fmt.Errorf("signal extract: %w", ctx.Err())
+		}
+		return nil, ExtractPass{OutOfTime: true}, true, nil
+	}
+	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
+		found, err := dueThreads(ctx, tx, now, extractThreadCap)
+		due = found
+		return err
+	}); err != nil {
+		return nil, ExtractPass{}, true, fmt.Errorf("signal extract: %w", err)
+	}
+	return due, ExtractPass{Due: len(due), AtCap: len(due) >= extractThreadCap}, false, nil
+}
+
+// readBounded reads one conversation inside the time the pass may spend on it,
+// and reports whether OUR bound is what stopped it.
+//
+// The margin alone only decides which readings begin. A conversation retries and
+// escalates tiers inside the model lane, so one begun with time to spare can
+// still reach the job's deadline and fault the pass there. Bounded, it is cut
+// short instead — and the verdict is taken BEFORE the cancel, which would
+// otherwise set that same error itself and make every provider failure look
+// like a conversation stopped for time.
+func (x *SignalExtractor) readBounded(
+	ctx context.Context, wsID ids.WorkspaceID, thread settledThread, now time.Time,
+) (raised int, err error, cutShort bool) {
+	readCtx, cancelRead := readDeadline(ctx)
+	defer cancelRead()
+	raised, err = x.readThread(readCtx, wsID, thread, now)
+	return raised, err, err != nil && readCtx.Err() != nil && ctx.Err() == nil
 }
 
 // passFailure names the pass in whatever its conversations reported, or reports

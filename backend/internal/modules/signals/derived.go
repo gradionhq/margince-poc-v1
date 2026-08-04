@@ -75,11 +75,11 @@ const visibilityWorkspace = "workspace"
 
 // nullableOwner renders the zero id as SQL NULL, so a shared signal names no
 // owner rather than naming the nil one.
-func nullableOwner(owner ids.UUID) any {
+func nullableOwner(owner ids.UUID) *ids.UUID {
 	if owner == (ids.UUID{}) {
 		return nil
 	}
-	return owner
+	return &owner
 }
 
 // DerivedEvidence is one citable record behind a derived signal.
