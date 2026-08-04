@@ -173,6 +173,35 @@ describe("clarify interplay with read terminals", () => {
     expect(state.pendingQuestion?.id).toBe("clarify-industry");
   });
 
+  // The co.review branch admits a later clarify by phase alone, not by a
+  // blanket "any readId will do": a clarify naming some OTHER run must still
+  // be rejected as stale, exactly as it would be anywhere else in the act.
+  it("rejects a clarify from a different read while promoting later questions in co.review", () => {
+    const secondQuestion: ConversationQuestion = {
+      id: "clarify-industry",
+      i18nKey: "ob.conv.clarify.entity",
+      options: [{ value: "robotics", label: "Robotics" }],
+    };
+    let state = conversationReducer(clarifying(), {
+      type: "READ_TERMINAL",
+      readId: "r1",
+      status: "ready",
+    });
+    state = conversationReducer(state, {
+      type: "QUESTION_ANSWERED",
+      questionId: "clarify-entity",
+      value: "acme-holding",
+    });
+    expect(state.phase).toBe("co.review");
+
+    const stale = conversationReducer(state, {
+      type: "CLARIFY",
+      readId: "some-other-read",
+      question: secondQuestion,
+    });
+    expect(stale).toBe(state);
+  });
+
   it("a ready or partial terminal never adds an outcome bubble, whichever the server calls it", () => {
     for (const status of ["ready", "partial"] as const) {
       const state = conversationReducer(clarifying(), {

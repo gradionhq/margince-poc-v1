@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { components } from "../api/schema";
 import {
   MarginceCoreScene,
@@ -413,9 +420,7 @@ function TheatreTail({
     read.pages_read ??
     read.pages.filter((page) => page.status === "fetched").length;
   const skipped = read.pages.filter((page) => page.status === "skipped").length;
-  // Newest-arrived, not "first tracked": the array is append-order, so the
-  // page the reader should be watching right now is the last one in it.
-  const latestPage = read.pages.at(-1) ?? null;
+  const latestPage = useLatestArrivedPage(read.pages);
 
   return (
     <>
@@ -498,15 +503,55 @@ function TheatreTail({
         <div className="ob-scan-cost-head">
           <p className="ob-scan-cost-label">{t("ob.scan.transparency")}</p>
           <p className="ob-scan-cost-line">
-            {runtime === undefined
-              ? t("ob.scan.costPending")
-              : costLine(t, runtime, locale)}
+            {runtime === undefined ? (
+              t("ob.scan.costPending")
+            ) : (
+              <>
+                {costLine(t, runtime, locale)}
+                {/* A call the provider billed with no effective rate is missing
+                    from the total above, not folded into it as a silent zero —
+                    so the figure reads as complete unless this says otherwise. */}
+                {runtime.unpriced_calls > 0 && (
+                  <small className="ob-scan-cost-unpriced">
+                    {t("ob.scan.costUnpriced")}
+                  </small>
+                )}
+              </>
+            )}
           </p>
         </div>
         <p className="ob-scan-cost-model">{configuredModel}</p>
       </div>
     </>
   );
+}
+
+/**
+ * The page the ticker should say was "just walked".
+ *
+ * The wire's `pages` array carries no arrival order: the transport lists every
+ * fetched page before any skipped one regardless of when either actually
+ * happened, so the last array entry is not the newest page — once a single
+ * page is skipped, `.at(-1)` would keep naming it forever, even while later
+ * pages keep arriving. What IS honest is which URLs are new since the last
+ * poll: this hook diffs against the URLs it has already shown and only a
+ * genuinely new arrival replaces the ticker. Between polls with no new page it
+ * holds what it last showed rather than re-deriving a "latest" from position.
+ */
+function useLatestArrivedPage(
+  pages: readonly CompanySiteReadPage[],
+): CompanySiteReadPage | null {
+  const seen = useRef<Set<string>>(new Set());
+  const latest = useRef<CompanySiteReadPage | null>(null);
+  const arrived = pages.filter((page) => !seen.current.has(page.url));
+  const next = arrived.at(-1) ?? latest.current;
+  useEffect(() => {
+    for (const page of pages) {
+      seen.current.add(page.url);
+    }
+    latest.current = next;
+  });
+  return next;
 }
 
 // The page a crawled URL is, as the site's own path. Parsed with a pattern

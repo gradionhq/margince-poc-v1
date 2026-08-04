@@ -133,6 +133,7 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(4 * MINUTE_MS)}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
@@ -147,6 +148,22 @@ describe("PayoffMessage", () => {
     expect(screen.getByText(/Settings → People/)).toBeInTheDocument();
   });
 
+  it("keeps the two deferrals a list for assistive tech despite the markerless styling", () => {
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(4 * MINUTE_MS)}
+        nowMs={NOW_MS}
+        resumedSession={false}
+      />,
+    );
+
+    const list = screen.getByRole("list");
+    expect(list).toHaveTextContent(/Settings → Autonomy/);
+    expect(list).toHaveTextContent(/Settings → People/);
+  });
+
   // Setup is resumable, so "minutes ago" is a claim about elapsed time and the
   // payoff is the one screen that cannot afford to overstate. Each case fixes
   // both instants itself.
@@ -157,6 +174,7 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS - MINUTE_MS)}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
@@ -172,6 +190,7 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(2 * 24 * 60 * MINUTE_MS)}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
@@ -190,6 +209,7 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS)}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
@@ -207,6 +227,7 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={null}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
@@ -223,11 +244,37 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(-MINUTE_MS)}
         nowMs={NOW_MS}
+        resumedSession={false}
       />,
     );
 
     expect(
       screen.getByText("This started as an empty install."),
     ).toBeInTheDocument();
+  });
+
+  it("drops the time claim for a resumed session even when the reader's own clock reads it as fresh", () => {
+    // A restored session compares a server instant (startedAt) against a
+    // reader's device clock that was never in the room for `startedAt` being
+    // written — a device clock that runs behind reality can make days of
+    // real elapsed time look like minutes. `resumedSession` is the one
+    // signal the wire can prove without trusting that clock at all, so it
+    // overrides an elapsed check that would otherwise call this fresh.
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(4 * MINUTE_MS)}
+        nowMs={NOW_MS}
+        resumedSession={true}
+      />,
+    );
+
+    expect(
+      screen.getByText("This started as an empty install."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Minutes ago this was an empty install."),
+    ).not.toBeInTheDocument();
   });
 });

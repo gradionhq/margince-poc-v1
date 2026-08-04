@@ -58,7 +58,7 @@ function renderWorkbench() {
 }
 
 describe("the runtime chip", () => {
-  it("toggles what the reader can see, not a pin flag behind it", async () => {
+  it("pins the popover open on the first press, even though focus already opened it", async () => {
     renderWorkbench();
     const chip = screen.getByRole("button", { name: new RegExp(LABELS.chip) });
 
@@ -68,15 +68,19 @@ describe("the runtime chip", () => {
     expect(chip).toHaveFocus();
     expect(chip).toHaveAttribute("aria-expanded", "true");
 
-    // Every press now flips what is on screen. Focus has not moved, so if the
-    // press acted on a separate pin flag instead, the first one would appear to
-    // do nothing at all.
-    await userEvent.keyboard("[Space]");
-    expect(chip).toHaveAttribute("aria-expanded", "false");
+    // The press pins what focus already opened rather than reading "already
+    // open" as a request to close it — a reader who presses once should not
+    // have to press again just to make the popover stick.
     await userEvent.keyboard("[Space]");
     expect(chip).toHaveAttribute("aria-expanded", "true");
+
+    // A second press is the honest close: it un-pins and dismisses.
     await userEvent.keyboard("[Space]");
     expect(chip).toHaveAttribute("aria-expanded", "false");
+
+    // A third press opens it again.
+    await userEvent.keyboard("[Space]");
+    expect(chip).toHaveAttribute("aria-expanded", "true");
   });
 
   it("puts the spend it shows into the name a screen reader hears", () => {

@@ -349,7 +349,7 @@
 }
 .stepper .step.current {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 
 /* The message under a timeline row. Two lines by default: enough to recognise

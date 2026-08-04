@@ -84,6 +84,54 @@ describe("the scope preview", () => {
     );
   });
 
+  // Changing the window must not leave the old window's estimate on screen,
+  // and Start must not fire for a scope the reader never actually saw a
+  // preview for.
+  it("clears the previous window's estimate and holds Start until the new one settles", async () => {
+    // A box, not a bare `let`: TS's control-flow narrowing otherwise loses
+    // the function type across the callback boundary that assigns it.
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      [PREVIEW_ROUTE]: (body) => {
+        if ((body as { window: string }).window === "12m") {
+          return new Promise((resolve) => {
+            deferred.resolve = resolve;
+          });
+        }
+        return previewOf({ estimated_messages: 100 });
+      },
+    });
+    render({ state: "none" });
+
+    await screen.findByText("About 100 messages in that window.");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Connect and read" }),
+      ).not.toBeDisabled(),
+    );
+
+    await userEvent.click(screen.getByRole("radio", { name: /12 months/ }));
+
+    expect(
+      screen.queryByText("About 100 messages in that window."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Connect and read" }),
+    ).toBeDisabled();
+
+    deferred.resolve?.(previewOf({ estimated_messages: 900 }));
+    expect(
+      await screen.findByText("About 900 messages in that window."),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Connect and read" }),
+      ).not.toBeDisabled(),
+    );
+  });
+
   it("qualifies an estimate the server only guessed at", async () => {
     installFetchStub({
       [PREVIEW_ROUTE]: () => previewOf({ estimate_quality: "heuristic" }),
@@ -153,6 +201,28 @@ describe("the scope preview", () => {
     expect(start).toBeEnabled();
     await userEvent.click(start);
     await waitFor(() => expect(starts).toEqual([{ window: "6m" }]));
+  });
+
+  // A transport failure never reaches `throwProblem` (there is no server
+  // body to wrap), so its raw `Error` message is not reader-safe — only a
+  // `ProblemError`'s message is server-composed and safe to show verbatim.
+  it("hides a raw transport failure behind a safe sentence, and logs it instead", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    installFetchStub({
+      [PREVIEW_ROUTE]: () => {
+        throw new Error("ECONNRESET: socket hang up");
+      },
+    });
+    render({ state: "none" });
+
+    expect(
+      await screen.findByText(
+        "I could not estimate that window: Something unexpected went wrong. You can still start, or pick another.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ECONNRESET/)).not.toBeInTheDocument();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
 
@@ -375,8 +445,27 @@ describe("outcomes", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Stop reading" }));
     expect(
-      await screen.findByText("There is no read to stop."),
+      await screen.findByText(
+        "I could not stop the read: There is no read to stop. Try again — it keeps running meanwhile.",
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("distinguishes a partial cancel from an untouched one", async () => {
+    installFetchStub({});
+    render({
+      state: "cancelled",
+      counts: { messages_scanned: 40, captured: 12 },
+    });
+
+    expect(
+      await screen.findByText(
+        "I stopped reading. What was already captured stays — it is waiting for you in the inbox.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("I stopped reading. Nothing was written."),
+    ).not.toBeInTheDocument();
   });
 
   it("says the status could not be read, and still offers the exit", async () => {

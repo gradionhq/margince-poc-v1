@@ -120,16 +120,18 @@ function narrationLegal(
 // The first open question is asked while the run is still active, so its
 // readId must match. Every later one — the server's proposal can hand back
 // several — is asked only once the machine has already retired the run into
-// co.review, promoting them one at a time as each prior one resolves. No
-// OTHER read's readId can be live in that phase (URL_SUBMITTED is not legal
-// from co.review), so a question the server still considers open always has
-// exactly one phase, and one decision surface, willing to ask it — an id
-// match is not needed to rule out a stale cross-run leak there.
+// co.review, promoting them one at a time as each prior one resolves; that
+// run's id survives its own retirement in concludedReadId for exactly this
+// check, so a clarify from a DIFFERENT, superseded run (queued behind a slow
+// poll, say) still cannot land on a review it does not belong to.
 function clarifyLegal(
   state: ConversationState,
   event: Extract<ConversationEvent, { type: "CLARIFY" }>,
 ): boolean {
-  return event.readId === state.activeReadId || state.phase === "co.review";
+  if (event.readId === state.activeReadId) {
+    return true;
+  }
+  return state.phase === "co.review" && event.readId === state.concludedReadId;
 }
 
 function eventGuards(

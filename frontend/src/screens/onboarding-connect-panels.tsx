@@ -6,7 +6,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -195,6 +195,12 @@ export function OAuthConnectPanel({
         <button
           type="button"
           className="ob-connect-dialog-notnow"
+          // Dismissal is a decision NOT to connect, so it must not be
+          // available while the credential POST it would abandon is still
+          // in flight: a success landing after the reader already backed out
+          // would leave a mailbox connected against a "no" the panel already
+          // promised.
+          disabled={connect.isPending}
           onClick={onDismiss}
         >
           {t("ob.s4.notNow")}
@@ -213,11 +219,21 @@ export function OAuthReturnPanel({
   outcome,
   provider,
   onComplete,
+  onConfirmedChange,
 }: Readonly<{
   outcome?: string;
   /** The provider the consent returned for, from the deep-link route. */
   provider?: string;
   onComplete: (skipped: boolean) => Promise<void>;
+  /**
+   * Told whenever this trip's confirmation settles: true only once a live
+   * mailbox for the returning provider is verified in the roster, false for
+   * every other state (still loading, denied, unresolved, or verified
+   * absent). The caller uses it to keep the honest skip/retry exit open
+   * until a mailbox is actually confirmed — an unconfirmed return is not a
+   * finished one, whatever this panel's own "enter" fallback offers.
+   */
+  onConfirmedChange?: (confirmed: boolean) => void;
 }>) {
   const t = useT();
   const connections = useQuery({
@@ -239,6 +255,21 @@ export function OAuthReturnPanel({
   // different fact — a landing URL minted before the provider rode the route —
   // and the roster's first live OAuth mailbox is the best answer there.
   const unresolvedProvider = provider !== undefined && returning === null;
+  // Computed unconditionally (ahead of every early return below) because the
+  // confirmation callback is a hook and every hook here has to run on every
+  // render. Every outcome besides a resolved "ok" is `undefined` roster data
+  // away from ever finding a live row, so `live` stays safely undefined for
+  // them rather than throwing.
+  const live = connections.data?.data.find((c) =>
+    returning === null
+      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
+      : c.provider === returning && c.status === "connected",
+  );
+  const confirmed =
+    outcome === "ok" && !unresolvedProvider && live !== undefined;
+  useEffect(() => {
+    onConfirmedChange?.(confirmed);
+  }, [confirmed, onConfirmedChange]);
 
   if (outcome === "denied") {
     return (
@@ -275,13 +306,6 @@ export function OAuthReturnPanel({
       />
     );
   }
-  // Past the guard above, a null `returning` can only be the absent segment, so
-  // this is the deploy-skew fallback and nothing else.
-  const live = connections.data?.data.find((c) =>
-    returning === null
-      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
-      : c.provider === returning && c.status === "connected",
-  );
   return (
     <div className="connect-result">
       <div className="cr-h">
@@ -317,7 +341,7 @@ export function OAuthReturnPanel({
           body={t("ob.s4.connectRetry")}
         />
       )}
-      {live === undefined && (
+      {!connections.isPending && live === undefined && (
         <Button
           variant="primary"
           style={{ marginTop: "var(--space-4)" }}
@@ -523,6 +547,9 @@ export function ImapConnectPanel({
         <button
           type="button"
           className="ob-connect-dialog-notnow"
+          // See `OAuthConnectPanel`'s own `onDismiss` for why the in-flight
+          // POST has to finish before this becomes a real choice again.
+          disabled={connect.isPending}
           onClick={onDismiss}
         >
           {t("ob.s4.notNow")}

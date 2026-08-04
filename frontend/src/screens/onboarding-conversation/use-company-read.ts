@@ -32,6 +32,30 @@ type ReadTerminal = Readonly<{
   status: "ready" | "partial";
 }>;
 
+// The one failure `startRead`'s mutationFn may report verbatim: an RFC 7807
+// detail/title already run through problemMessage. A network TypeError (the
+// fetch itself never reached the server) throws unclassified and is never
+// wrapped in this — safeStartError below is what keeps that distinction
+// alive for every reader of `startRead.error`.
+class ReadStartError extends Error {}
+
+/**
+ * `startRead.error` narrowed to what is safe to show: the server's own
+ * guidance when the failure is a classified `ReadStartError`, and nothing —
+ * logged instead — for anything else. `ob.gate.startFailed` already reads
+ * correctly with an empty `{detail}`, so an unclassified failure still gets
+ * an honest, catalog-only sentence rather than a raw exception message.
+ */
+export function safeStartError(error: unknown): string {
+  if (error instanceof ReadStartError) {
+    return error.message;
+  }
+  if (error !== null && error !== undefined) {
+    console.error("company site-read start failed unexpectedly", error);
+  }
+  return "";
+}
+
 type UseCompanyReadArgs = Readonly<{
   dispatch: Dispatch<ConversationEvent>;
   /** Live view of the machine, for the deferred-resume re-arm. */
@@ -192,7 +216,7 @@ export function useCompanyRead({
         body: { url },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new ReadStartError(problemMessage(error));
       }
       return data;
     },

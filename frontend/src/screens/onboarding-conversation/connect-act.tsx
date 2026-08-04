@@ -2,7 +2,6 @@ import type { Dispatch } from "react";
 import { useEffect, useState } from "react";
 import { navigate } from "../../app/router";
 import { useT } from "../../i18n";
-import { BackfillPanel } from "../backfill";
 import { EMPTY_DRAFT } from "../onboarding";
 import { BuildScene } from "../onboarding-build-scene";
 import {
@@ -103,6 +102,11 @@ export function ConnectAct({
   const [finishing, setFinishing] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
   const [entering, setEntering] = useState(false);
+  // Whether a returning OAuth trip has an actually-confirmed live mailbox,
+  // told to us by `OAuthReturnPanel` itself (see `showSkip` below): false
+  // for every unconfirmed state, including one this panel's own "enter"
+  // fallback would otherwise let a reader click past.
+  const [mailConfirmed, setMailConfirmed] = useState(false);
   const linkedin = useSaveLinkedInAccount();
 
   // Spends the mark once this mount has read it, so reloading the same
@@ -172,14 +176,6 @@ export function ConnectAct({
     m: stops.length,
     label: t("ob.rail.connect"),
   });
-  // The connector the backfill window applies to. Only the two the deep link
-  // can return for are named; anything else leaves the window unoffered
-  // rather than guessing which mailbox was connected.
-  const backfillProvider =
-    returningProvider === "gmail" || returningProvider === "graph"
-      ? returningProvider
-      : null;
-
   return (
     <ConversationWorkbench
       core={presenceFor(state).core}
@@ -197,11 +193,14 @@ export function ConnectAct({
           dialogShowsResult={provider !== null && provider === resultFor}
           onSkip={() => void finish(true)}
           skipDisabled={finishing}
-          // Once consent has returned, "skip connecting" is no longer a true
-          // option — a mailbox is connected (or its confirmation failed and a
-          // provider card is the retry), and recording the step as skipped
-          // would persist a fact that is not so.
-          showSkip={outcome !== "ok"}
+          // Once a mailbox is actually CONFIRMED live, "skip connecting" is
+          // no longer a true option and recording the step as skipped would
+          // persist a fact that is not so. Short of that confirmation —
+          // still verifying, denied, unresolved, or verified absent — the
+          // honest exit stays open: `OAuthReturnPanel`'s own "enter" button
+          // in those states is a fallback the reader can also reach, but it
+          // must never be the ONLY way out of an unconfirmed return.
+          showSkip={outcome !== "ok" || !mailConfirmed}
           linkedinStatus={state.linkedinStatus}
           onLinkedinConnect={connectLinkedin}
           onLinkedinSkip={() => dispatch({ type: "LINKEDIN_SKIPPED" })}
@@ -236,19 +235,16 @@ export function ConnectAct({
           // is real information but not a return this tab can vouch for).
           returnPanel={
             outcome !== undefined ? (
-              <>
-                <OAuthReturnPanel
-                  outcome={outcome}
-                  provider={returningProvider}
-                  onComplete={finish}
-                />
-                {/* How far back the first import reaches, on the real
-                    contract (3m/6m/12m) rather than a decorative dial —
-                    the same panel the connectors screen uses. */}
-                {outcome === "ok" && backfillProvider !== null && (
-                  <BackfillPanel provider={backfillProvider} />
-                )}
-              </>
+              // How far back the first import reaches is `OnboardingBackread`'s
+              // own question, rendered inside this panel once a mailbox is
+              // confirmed live — the one history-read decision on this
+              // surface, not a second one stacked beside it.
+              <OAuthReturnPanel
+                outcome={outcome}
+                provider={returningProvider}
+                onComplete={finish}
+                onConfirmedChange={setMailConfirmed}
+              />
             ) : null
           }
         />

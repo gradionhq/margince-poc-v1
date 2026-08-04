@@ -1,161 +1,11 @@
-/* The onboarding live panel: a sourced dossier that assembles itself in the
-   right-hand pane. Structure and rhythm only — every colour reads a token.
+/* The coverage card: what a company site read covered and what it could not,
+   folded into the triage review's grouped surface. Structure and rhythm
+   only — every colour reads a token. */
 
-   The panel does NOT scroll itself. Its host pane is the scroller, and the head
-   sticks against that: an `overflow-y` here would make the panel the nearest
-   scrollport without ever overflowing (its height is content-driven inside an
-   auto-height pane), so `position: sticky` would resolve against a box that
-   never scrolls and the head would simply travel away with the content. One
-   scroller per column, and it is the pane. */
-.ob-live {
-  --ob-live-pad: var(--space-4);
-  /* How far the head reaches to touch the edges of the pane it sits in: this
-     panel's own padding, plus whatever the host adds (see .mw-artifact below).
-     A head that stops short of the edges lets content scroll past beside it. */
-  --ob-live-bleed: var(--ob-live-pad);
-  /* No top padding: the sticky head occupies that band itself, and a top pad
-     makes the sticky resting offset ambiguous across engines — the head would
-     sink by one pad the moment it stuck. */
-  padding: 0 var(--ob-live-pad) var(--ob-live-pad);
-  background: var(--bgCard);
+.ob-live-card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-}
-
-/* ---- the sticky head ---------------------------------------------------- */
-
-/* Bleeds to the pane edges (the panel's own padding, negated) so the surface
-   reads as a header band rather than a card floating at the top, and casts a
-   shadow so content passes convincingly beneath it. */
-.ob-live-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  margin: 0 calc(var(--ob-live-bleed) * -1);
-  padding: var(--space-4) var(--ob-live-bleed);
-  background: var(--bgElevated);
-  border-bottom: 1px solid var(--borderSubtle);
-  box-shadow: var(--shadow-card);
-}
-
-.ob-live-head-line {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.ob-live-head-title {
-  font-family: var(--f-display);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.012em;
-  color: var(--textPrimary);
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-/* The working indicator. Decorative: the head line already says "Reading
-   {host}" in words, so nothing here carries state on its own. */
-.ob-live-working {
-  display: inline-flex;
-  gap: 3px;
-  flex: none;
-}
-
-.ob-live-working span {
-  width: 4px;
-  height: 4px;
-  border-radius: var(--r-full);
-  background: var(--ai);
-  animation: ob-live-pulse 1.1s ease-in-out infinite;
-}
-
-.ob-live-working span:nth-child(2) {
-  animation-delay: 0.18s;
-}
-
-.ob-live-working span:nth-child(3) {
-  animation-delay: 0.36s;
-}
-
-@keyframes ob-live-pulse {
-  0%,
-  100% {
-    opacity: 0.28;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* The answers are set large enough that a four-pixel gap would read as one
-   wrapped paragraph rather than three separate answers. */
-.ob-live-summary {
-  margin-top: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.ob-live-summary-heading {
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--textTertiary);
-  margin: 0 0 var(--space-1);
-}
-
-/* The three understanding rows stagger in: the record stating itself, one
-   line at a time. Nothing is gated on the animation finishing.
-
-   The answers are the largest text in the panel: they are the reader's own
-   words handed back, and every card title and field value below them is
-   support for them. Baseline alignment, not a nudged label, keeps the two
-   sizes sitting on one line. */
-.ob-live-summary-row {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  gap: var(--space-2);
-  align-items: baseline;
-  margin: 0;
-  font-size: 14.5px;
-  line-height: 1.4;
-  animation: ob-live-rise 0.42s cubic-bezier(0.23, 1, 0.32, 1) both;
-}
-
-.ob-live-summary-row:nth-child(3) {
-  animation-delay: 0.09s;
-}
-
-.ob-live-summary-row:nth-child(4) {
-  animation-delay: 0.18s;
-}
-
-/* The labels only name which question each answer belongs to, so they whisper:
-   sentence case in the body face, because a mono uppercase label competes with
-   the answer beside it for the same attention. */
-.ob-live-summary-label {
-  font-size: 11.5px;
-  color: var(--textMeta);
-}
-
-.ob-live-summary-value {
-  color: var(--textPrimary);
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-
-.ob-live-summary-volume {
-  margin: var(--space-2) 0 0;
-  font-family: var(--f-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--textMeta);
-  animation: ob-live-rise 0.42s cubic-bezier(0.23, 1, 0.32, 1) 0.27s both;
+  animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
 @keyframes ob-live-rise {
@@ -167,141 +17,6 @@
     opacity: 1;
     transform: none;
   }
-}
-
-/* ---- while the read runs ------------------------------------------------ */
-
-.ob-live-notice {
-  margin: 0;
-  padding: var(--space-4);
-  border: 1px dashed var(--borderStrong);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-  color: var(--textContent);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-/* ---- step blocks -------------------------------------------------------- */
-
-.ob-live-step {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.ob-live-step-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.ob-live-step-n {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  border-radius: var(--r-full);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 600;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  color: var(--textMeta);
-}
-
-.ob-live-step[data-state="done"] .ob-live-step-n {
-  background: var(--accentLight);
-  border-color: var(--accentMed);
-  color: var(--accent);
-}
-
-/* The step being worked on right now. The ring around the numeral is what
-   separates it from a finished one: done fills, now haloes. Without these rules
-   an in-progress step is pixel-identical to no state at all. */
-.ob-live-step[data-state="now"] .ob-live-step-n {
-  border-color: var(--accentMed);
-  color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
-}
-
-.ob-live-step[data-state="now"] .ob-live-step-state {
-  color: var(--accent);
-}
-
-.ob-live-step-title {
-  font-family: var(--f-display);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--textPrimary);
-  margin: 0;
-  flex: 1 1 auto;
-}
-
-.ob-live-step-state {
-  font-family: var(--f-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--textMeta);
-  flex: none;
-}
-
-/* ---- the card stack ----------------------------------------------------- */
-
-/* The cards read as one list: shared hairlines, corners only at the ends. */
-.ob-live-cards {
-  display: flex;
-  flex-direction: column;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
-}
-
-.ob-live-cards > * + * {
-  border-top: 1px solid var(--borderSubtle);
-}
-
-.ob-live-card {
-  display: flex;
-  flex-direction: column;
-  animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
-}
-
-/* The stack assembles top-down rather than appearing at once: each card rises
-   one beat after the one above it, which is what makes the dossier read as
-   something being written for the reader. The delays start after the head's own
-   summary has settled, and stop climbing at the fifth card — beyond that the
-   wait would cost more than the choreography buys. Written as delays only
-   (never a fresh `animation` shorthand), so the reduced-motion rule at the
-   bottom of this file still wins by dropping the animation name. */
-.ob-live-cards > .ob-live-card:nth-of-type(1) {
-  animation-delay: 0.34s;
-}
-
-.ob-live-cards > .ob-live-card:nth-of-type(2) {
-  animation-delay: 0.42s;
-}
-
-.ob-live-cards > .ob-live-card:nth-of-type(3) {
-  animation-delay: 0.5s;
-}
-
-.ob-live-cards > .ob-live-card:nth-of-type(4) {
-  animation-delay: 0.58s;
-}
-
-.ob-live-cards > .ob-live-card:nth-of-type(5) {
-  animation-delay: 0.66s;
-}
-
-.ob-live-cards > .ob-live-card:nth-of-type(n + 6) {
-  animation-delay: 0.74s;
 }
 
 .ob-live-card-head {
@@ -317,14 +32,11 @@
   font-size: 13px;
   text-align: left;
   color: var(--textPrimary);
-}
-
-button.ob-live-card-head {
   cursor: pointer;
   transition: background 0.14s ease;
 }
 
-button.ob-live-card-head:hover {
+.ob-live-card-head:hover {
   background: var(--bgHover);
 }
 
@@ -368,7 +80,7 @@ button.ob-live-card-head:hover {
   transition: transform 0.16s ease;
 }
 
-button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
+.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   transform: rotate(180deg);
 }
 
@@ -377,125 +89,6 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-}
-
-/* The needs-a-human card reads the warn family — the ONE semantic for "a
-   person must decide" — and never folds. */
-.ob-live-card[data-decision="true"] {
-  background: var(--warnSurface);
-  box-shadow: inset 3px 0 0 var(--warnBorder);
-}
-
-.ob-live-card[data-decision="true"] .ob-live-card-glyph,
-.ob-live-card[data-decision="true"] .ob-live-card-title {
-  color: var(--warn);
-}
-
-/* The shared evidence chip is sized for full-width screens and breaks nothing
-   on its own. In this narrow pane an unbroken source URL would then be wider
-   than the column and make the whole panel scroll sideways, so the panel asks
-   the chip to wrap here rather than changing it for every other screen.
-   (The chip is shared with the audit log and the record History timelines —
-   everything it needs differently HERE is asked for here.)
-
-   The quote is corroboration for the value above it, not the row's content: at
-   full length every row in the dossier carries a paragraph and the stack can no
-   longer be scanned. Two lines is enough to recognise the sentence and decide
-   to read it — and the clamp is visual only, so the whole quote stays in the
-   DOM, selectable, copyable, and read out in full by a screen reader. Evidence
-   that becomes unreadable is indistinguishable from a value with no source. */
-.ob-live .evidence-chip {
-  overflow-wrap: anywhere;
-  max-width: 100%;
-  display: -webkit-inline-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  font-size: 10.5px;
-  line-height: 1.5;
-}
-
-/* ---- field rows --------------------------------------------------------- */
-
-/* A field row is a key/value pair, not a label stacked on a value: one fixed
-   key column gives every value in the card the same left edge, so the card
-   reads as an auditable list that can be scanned straight down the value
-   column. The hairline is what keeps a pair together once a value wraps — with
-   only whitespace between rows, a three-line value reads as belonging to the
-   label under it as much as the one above it. */
-.ob-live-field {
-  display: grid;
-  grid-template-columns: 132px 1fr;
-  gap: 2px var(--space-3);
-  align-items: baseline;
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--borderSubtle);
-}
-
-/* The last row's hairline would draw a line just above the card's own edge. */
-.ob-live-field:last-child {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-/* Field rows carry their own rhythm — padding plus the hairline — so a gap
-   between them would leave every hairline floating in the middle of a gutter.
-   Other card bodies (people, coverage) keep the gap. */
-.ob-live-card-body:has(> .ob-live-field) {
-  gap: 0;
-}
-
-/* The confidence number sits at the end of the key column, beside the glyph it
-   quantifies. The column wraps rather than clipping: the meter states its level
-   in words as well as colour, and a long field label is allowed to take the
-   second line instead of squeezing the number off the row. */
-.ob-live-field-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px var(--space-1);
-  min-width: 0;
-}
-
-/* Meta-scale inside the key column: the meter is shared with wide screens where
-   it labels a row of its own, and at its own size it would spend the key column
-   on the word "high". */
-.ob-live-field-head .confidence {
-  font-size: 10.5px;
-  gap: var(--space-1);
-}
-
-.ob-live-field-label {
-  font-size: 11px;
-  color: var(--textTertiary);
-  overflow-wrap: anywhere;
-}
-
-.ob-live-field-pct {
-  margin-left: auto;
-  font-family: var(--f-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 10.5px;
-  color: var(--textMeta);
-}
-
-/* Evidence corroborates the value, so it belongs under the value — column two,
-   not back under the label. */
-.ob-live-field > .evidence-chip {
-  grid-column: 2;
-}
-
-.ob-live-field-value {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--textPrimary);
-  overflow-wrap: anywhere;
-}
-
-.ob-live-field-value[data-empty="true"] {
-  color: var(--textTertiary);
 }
 
 /* ---- list bodies -------------------------------------------------------- */
@@ -516,29 +109,10 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   color: var(--textContent);
 }
 
-.ob-live-person,
 .ob-live-coverage {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.ob-live-person-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--textPrimary);
-}
-
-.ob-live-person-role {
-  font-size: 12px;
-  color: var(--textContent);
-}
-
-.ob-live-person-meta {
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-  color: var(--textMeta);
-  overflow-wrap: anywhere;
 }
 
 .ob-live-coverage-label {
@@ -588,116 +162,15 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   color: var(--textContent);
 }
 
-/* ---- the entity decision ------------------------------------------------ */
-
-.ob-live-decide-sub {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--textContent);
-}
-
-.ob-live-entities {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.ob-live-entity {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  min-height: 44px;
-  padding: var(--space-2);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  background: var(--bgElevated);
-  cursor: pointer;
-}
-
-.ob-live-entity:has(input:checked) {
-  border-color: var(--accent);
-  background: var(--accentLight);
-}
-
-.ob-live-entity input {
-  margin-top: 3px;
-  flex: none;
-}
-
-.ob-live-entity-body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.ob-live-entity-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--textPrimary);
-}
-
-.ob-live-entity-meta {
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-  color: var(--textMeta);
-  overflow-wrap: anywhere;
-}
-
-.ob-live-decide-acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-/* ---- a step with nothing to show yet ------------------------------------ */
-
-.ob-live-pending {
-  margin: 0;
-  padding: var(--space-3);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-}
-
-.ob-live-pending-title {
-  font-size: 13px;
-  color: var(--textContent);
-}
-
-.ob-live-pending-state {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--textTertiary);
-}
-
-/* Reduced motion jumps to the end state: everything is already in place, and
-   nothing in the panel waits on an animation to become reachable. */
+/* Reduced motion jumps to the end state: the card is already in place, and
+   nothing here waits on an animation to become reachable. */
 @media (prefers-reduced-motion: reduce) {
-  .ob-live-summary-row,
-  .ob-live-summary-volume,
   .ob-live-card {
     animation: none;
   }
 
-  .ob-live-working span {
-    animation: none;
-    opacity: 1;
-  }
-
   .ob-live-card-chev,
-  button.ob-live-card-head {
+  .ob-live-card-head {
     transition: none;
   }
 }

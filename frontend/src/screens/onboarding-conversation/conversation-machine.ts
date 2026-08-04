@@ -45,6 +45,7 @@ export const initialConversationState: ConversationState = {
   seq: 0,
   activeReadId: null,
   readCompleted: false,
+  concludedReadId: null,
   activeBuildId: null,
   lastBuildStage: null,
   lastBuildStatus: null,
@@ -153,7 +154,11 @@ function applyReadTerminal(
     // Neither terminal status appends a word — the review it leads straight
     // into already says "ready," and whatever it skipped along the way is
     // the review's own coverage detail to show, not the rail's to repeat.
-    return withEntries(state, { activeReadId: null, readCompleted: true });
+    return withEntries(state, {
+      activeReadId: null,
+      readCompleted: true,
+      concludedReadId: event.readId,
+    });
   }
   // A failed or deferred read moots its clarify question and waits in
   // co.reading for a new URL or the manual path.
@@ -164,6 +169,7 @@ function applyReadTerminal(
       pendingQuestion: null,
       activeReadId: null,
       readCompleted: false,
+      concludedReadId: null,
     },
     [
       {

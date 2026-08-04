@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -96,7 +97,13 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		// point is that a future edit here must not be able to.
 		defer func() {
 			if panicked := recover(); panicked != nil {
-				slog.Error("password-reset send panicked", "panic", panicked)
+				// The stack, not just the panic value: this runs off the
+				// request goroutine, so there is no request log, trace, or
+				// stack frame anywhere else an operator could use to find the
+				// failing call site. Never returned to a client — this
+				// handler already left with its 202 before this goroutine
+				// started.
+				slog.Error("password-reset send panicked", "panic", panicked, "stack", string(debug.Stack()))
 			}
 		}()
 		rawToken, err := h.svc.CreatePasswordReset(workCtx, email.String())

@@ -113,6 +113,13 @@ export function ResultsAct({
   // the reader is in the middle of, and a sentence that rewrites itself while
   // they read it is worse than one that ages by a minute.
   const nowMs = useNow(0);
+  // Only restore.ts stamps a colon-suffixed "recap:*" narration id; the bare
+  // "recap" id above is the live, never-restored transition into this act.
+  // The distinction is what lets payoffLeadKey stop trusting the device
+  // clock the moment two separately-clocked visits are actually in play.
+  const resumedSession = state.thread.some(
+    (entry) => entry.kind === "narration" && entry.id.startsWith("recap:"),
+  );
   return (
     <ConversationWorkbench
       core={presenceFor(state).core}
@@ -187,6 +194,7 @@ export function ResultsAct({
             locale={locale}
             startedAt={startedAt}
             nowMs={nowMs}
+            resumedSession={resumedSession}
           />
         </ConversationThread>
       </div>

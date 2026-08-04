@@ -2434,6 +2434,7 @@ export const de = {
   "ob.scan.transparency": "Transparenz",
   "ob.scan.costLine": "{calls} Aufrufe · {tokens} Tokens · {cost}",
   "ob.scan.costPending": "noch keine Modellaufrufe berechnet",
+  "ob.scan.costUnpriced": " · nicht bepreiste Nutzung vorhanden",
 
   // --- das Live-Panel: der belegte Datensatz baut sich selbst ------------
   "ob.live.headReading": "Ich lese {host}",
@@ -2569,6 +2570,11 @@ export const de = {
     "Das Zurücklesen wurde gestoppt: {detail} Deine Verbindung ist in Ordnung — du kannst es in den Einstellungen erneut starten.",
   "ob.backread.cancelled":
     "Ich habe das Lesen gestoppt. Es wurde nichts geschrieben.",
+  "ob.backread.cancelledPartial":
+    "Ich habe das Lesen gestoppt. Was schon erfasst wurde, bleibt erhalten — es wartet im Eingang auf dich.",
+  "ob.backread.cancelFailed":
+    "Ich konnte das Lesen nicht stoppen: {detail} Versuch es erneut — es läuft in der Zwischenzeit weiter.",
+  "ob.backread.detailUnavailable": "Etwas ist unerwartet schiefgelaufen.",
   "ob.backread.cancel": "Lesen stoppen",
   "ob.backread.explore": "In der Zeit Margince erkunden",
   "ob.backread.skip": "Verlauf jetzt nicht lesen",

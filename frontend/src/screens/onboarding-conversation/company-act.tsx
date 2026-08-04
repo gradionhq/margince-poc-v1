@@ -44,7 +44,7 @@ import { presenceFor } from "./presence";
 import { railStops } from "./rail";
 import { ConversationThread, selectionFor } from "./thread";
 import { useClarifyAnswers } from "./use-clarify-answers";
-import { useCompanyRead } from "./use-company-read";
+import { safeStartError, useCompanyRead } from "./use-company-read";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench, useConfiguredModel } from "./workbench";
 
@@ -128,6 +128,16 @@ export function CompanyAct({
   const [confirmNotice, setConfirmNotice] = useState<
     "skew" | "notReady" | null
   >(null);
+  // The proposal hash each confirm attempt actually submitted (set inside
+  // the mutation itself, not re-derived afterward — see the mutationFn's own
+  // comment), and the one a version-skew rejection was sent with. The
+  // latter lets `awaitingFreshProposal` below recognize when the refetch a
+  // rejection triggers has actually landed a NEW proposal, as opposed to
+  // still being in flight (react-query holds the old data steady while
+  // refetching): a retry before that lands would resubmit the exact draft
+  // the server just rejected.
+  const submittedProposalHash = useRef<string | undefined>(undefined);
+  const staleProposalHash = useRef<string | undefined>(undefined);
   // A run the machine already owns at mount was persisted when it started
   // (that is how restore found it), so its wizard-state join is already in
   // place; a fresh session joins when its own read starts.
@@ -275,6 +285,12 @@ export function CompanyAct({
       // version pair, so the staged-confirm contract still holds.
       const proposalData =
         proposal.data ?? (read !== null ? proposalFromRead(read) : undefined);
+      // Recorded from what is ACTUALLY going out, not re-derived from
+      // `proposal.data` later in onError: the proposal query can still be
+      // in flight when this fires (the required fields alone gate Continue,
+      // never proposal readiness), and re-reading it there would compare
+      // against a hash this request never claimed to be sending.
+      submittedProposalHash.current = proposalData?.proposal_hash;
       const result =
         read !== null &&
         (read.status === "ready" || read.status === "partial") &&
@@ -326,23 +342,53 @@ export function CompanyAct({
     onError: (error) => {
       const code = problemCodeOf(error);
       if (code === "version_skew") {
+        // The proposal is cached separately from the read snapshot: refetching
+        // only the read (as before) leaves this hash unchanged, so an
+        // immediate retry would resubmit the very draft the server just
+        // rejected. Refreshing the proposal itself — and remembering what
+        // this attempt actually sent — lets `awaitingFreshProposal` below
+        // tell a same-hash refetch (still in flight, or unchanged) from an
+        // actually new one.
+        staleProposalHash.current = submittedProposalHash.current;
         setConfirmNotice("skew");
         void siteRead.refetch();
+        void proposal.refetch();
         return;
       }
       if (code !== "conflict") {
         return;
       }
-      void api.GET("/company").then(({ data }) => {
-        if (data) {
-          finishConfirm(data);
+      // A generic conflict can mean the read genuinely is not confirmable
+      // yet — the same "not ready" case, worded differently by the server.
+      // Whether THIS read's own confirmation already landed is a question
+      // only this read's own status answers: a member company already
+      // existing on GET /company proves nothing about this read in
+      // particular (the member path can carry one from before this attempt
+      // ever started), so the refetched read's `status` is checked first,
+      // and /company is only consulted once that status says "confirmed".
+      void siteRead.refetch().then((result) => {
+        if (result.data?.status === "confirmed") {
+          void api.GET("/company").then(({ data }) => {
+            if (data) {
+              finishConfirm(data);
+            }
+          });
           return;
         }
         setConfirmNotice("notReady");
-        void siteRead.refetch();
       });
     },
   });
+
+  // Continue must not resubmit the proposal the server just rejected for
+  // version skew: true from the moment that 409 lands until a refetch
+  // delivers a proposal with a DIFFERENT hash — react-query holds the old
+  // data (and its old hash) steady for the whole time the refetch is still
+  // in flight, so an unchanged hash means "not yet refreshed", not "already
+  // current".
+  const awaitingFreshProposal =
+    confirmNotice === "skew" &&
+    proposal.data?.proposal_hash === staleProposalHash.current;
 
   // The gate's own field is the ONE place a website address is typed — the
   // rail takes no free text, so there is no second entry point to keep in
@@ -370,7 +416,7 @@ export function CompanyAct({
   const gateNotice = gateNoticeFor({
     state,
     read,
-    startError: startRead.isError ? startRead.error.message : null,
+    startError: startRead.isError ? safeStartError(startRead.error) : null,
     translate: t,
     failedWithDetail: (detail) => t("ob.gate.startFailed", { detail }),
     pausedWithDetail: (detail) => t("ob.gate.readPaused", { detail }),
@@ -593,7 +639,7 @@ export function CompanyAct({
           }
           onAcceptAll={() => confirm.mutate()}
           pending={confirm.isPending}
-          authorizing={clarify.authorizing}
+          authorizing={clarify.authorizing || awaitingFreshProposal}
           error={confirmBannerMessage}
         />
       </div>
@@ -647,7 +693,10 @@ export function CompanyAct({
             // landing. `openReviewQuestions` is the rail's own attention
             // list, so the reason is never a bare disabled button.
             openReviewQuestions.length > 0 ||
-            !(state.phase === "co.review" || state.phase === "co.manual")
+            !(state.phase === "co.review" || state.phase === "co.manual") ||
+            // A version-skew retry must wait for the refetched proposal this
+            // driver already kicked off — see the confirm mutation's onError.
+            awaitingFreshProposal
           }
           saveError={confirmBannerMessage}
         />
@@ -760,7 +809,9 @@ export function CompanyAct({
           )}
           {startRead.isError && (
             <p className="mw-send-error" role="alert">
-              {startRead.error.message}
+              {t("ob.gate.startFailed", {
+                detail: safeStartError(startRead.error),
+              })}
             </p>
           )}
           {clarify.failure && (

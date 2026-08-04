@@ -98,7 +98,7 @@
   padding: 11px 15px;
   border-radius: var(--r-md) var(--r-lg) var(--space-1) var(--r-lg);
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   font: 500 0.875rem / 1.55 var(--f-body);
 }
 
@@ -666,7 +666,7 @@
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-full);
   background: var(--bgElevated);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 
 .ob-decision-card.is-picked .ob-decision-disc {
@@ -1054,12 +1054,20 @@
   height: 20px;
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-full);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 
 .ob-voice-speaker.is-picked .ob-voice-speaker-disc {
   border-color: var(--accent);
   background: var(--accent);
+}
+
+/* The input carries focus but is invisibly small, so the ring has to land on
+   the disc it sits beside — the same sibling-selector shape the decision
+   card's own radio uses. */
+.ob-voice-speaker input:focus-visible ~ .ob-voice-speaker-disc {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .ob-voice-speaker-disc svg {

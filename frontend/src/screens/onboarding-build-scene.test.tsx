@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { act, cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { BuildScene } from "./onboarding-build-scene";
@@ -137,6 +137,26 @@ describe("BuildScene", () => {
     // past it, so the callback has already run on the first commit.
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("completes once under reduced motion even when StrictMode replays the mount effect", () => {
+    // StrictMode (development only) mounts, cleans up, and remounts every
+    // effect once to surface exactly this class of bug: an effect with a
+    // side effect but no cleanup fires twice for one real mount. StrictMode
+    // has to be the outermost element render() sees — nested one level
+    // inside a provider, React does not replay the tree underneath it.
+    stubReducedMotion(true);
+    vi.useFakeTimers();
+    const onDone = vi.fn();
+    render(
+      <StrictMode>
+        <LocaleProvider initial="en">
+          <BuildScene onDone={onDone} durationMs={1200} />
+        </LocaleProvider>
+      </StrictMode>,
+    );
+
+    expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it("states what it is doing, and keeps the letter stagger out of the a11y tree", () => {

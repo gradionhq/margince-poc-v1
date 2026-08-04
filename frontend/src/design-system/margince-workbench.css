@@ -113,7 +113,7 @@
    AA role, so what separates done from still-to-come is the FILLED numeral
    below — a difference in shape, not one 2%-apart pair of greys. */
 .mw-step.is-done b {
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   border-color: transparent;
   background: var(--accent);
 }
@@ -621,6 +621,16 @@
   .mw-conversation {
     min-height: 100vh;
     padding: var(--space-4);
+    overflow: visible;
+  }
+
+  /* The transcript is the conversation's OWN scroller at desktop width
+     (thread.tsx relies on it for follow-the-latest), which is exactly what a
+     stacked phone layout must not keep: two independent scrollers on one
+     screen is the trap this breakpoint exists to avoid. Letting it grow with
+     its content hands the one scroll gesture back to the page. */
+  .mw-conversation .ob-conv-thread {
+    flex: none;
     overflow: visible;
   }
 

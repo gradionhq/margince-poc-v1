@@ -35,7 +35,7 @@
 }
 .btn-primary {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   box-shadow: 0 2px 8px var(--accentMed);
 }
 .btn-primary:hover {

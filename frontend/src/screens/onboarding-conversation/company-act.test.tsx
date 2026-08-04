@@ -1,7 +1,13 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
@@ -549,5 +555,157 @@ describe("arriving at the review scene", () => {
     // scroll target; the review board's rows are never among its targets.
     const scrolled: readonly unknown[] = scrollSpy.mock.instances;
     expect(scrolled.some((instance) => instance === row)).toBe(false);
+  });
+});
+
+// A confirm submits every required field filled and nothing else in the
+// server's way — the shape a version-skew or conflict rejection is actually
+// interesting to react to.
+const CONFIRM_FIELDS: readonly FieldFixture[] = [
+  proposedField("display_name", "Acme Inc", 0.95),
+  proposedField("offer_summary", "CRM software", 0.9),
+  proposedField("icp", "Mid-market B2B", 0.9),
+];
+
+const CONFIRM_PATH = `POST /company/site-reads/${REVIEW_READ_ID}/confirm`;
+
+describe("recovering from a rejected confirm", () => {
+  it("blocks a retry until the refetched proposal actually changed, never the one the server just rejected", async () => {
+    let proposalCalls = 0;
+    // The refetch this driver kicks off on a version-skew rejection is held
+    // open deliberately, so the still-disabled window is actually
+    // observable here rather than racing a mocked fetch that would
+    // otherwise settle before the assertion runs.
+    // Boxed rather than a bare `let`: TypeScript narrows a variable only
+    // assigned inside a nested closure to `never` at the call site.
+    const gate: { release: (() => void) | null } = { release: null };
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": async () => {
+        proposalCalls += 1;
+        if (proposalCalls > 1) {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        const hash = proposalCalls === 1 ? "proposal-1" : "proposal-2";
+        return jsonResponse({
+          ...reviewProposal(CONFIRM_FIELDS),
+          proposal_hash: hash,
+        });
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "version_skew" }, 409),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    expect(continueButton).toBeEnabled();
+
+    fireEvent.click(continueButton);
+
+    // The version-skew notice names what happened; the button disables
+    // while the refetch it triggered is still carrying the SAME hash the
+    // server just rejected (react-query holds prior data steady in flight).
+    await screen.findByText(
+      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+    );
+    expect(continueButton).toBeDisabled();
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    // The refetch is in flight but has not resolved: the button stays
+    // disabled on the still-stale hash, never re-armed just because a
+    // refetch was ATTEMPTED.
+    expect(continueButton).toBeDisabled();
+
+    // Once the refetch actually lands a NEW hash, the block lifts on its own
+    // — nothing else has to happen for Continue to become safe to press.
+    expect(gate.release).not.toBeNull();
+    gate.release?.();
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+  });
+
+  it("only treats a bare conflict as an already-confirmed race once THIS read's own status says confirmed", async () => {
+    let readCalls = 0;
+    let getCompanyCalls = 0;
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () => {
+        readCalls += 1;
+        // The confirm attempt races a read that has NOT actually confirmed
+        // (still "ready") — a bare conflict here means "not confirmable
+        // yet", never "already landed".
+        return jsonResponse({
+          ...REVIEW_READ,
+          status: "ready",
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        jsonResponse(reviewProposal(CONFIRM_FIELDS)),
+      "GET /company": () => {
+        // An existing member company from BEFORE this attempt — present
+        // regardless of whether this read's own confirmation landed, so it
+        // must never be read as proof that it did.
+        getCompanyCalls += 1;
+        return jsonResponse({
+          display_name: "Some Other Existing Co",
+          offer_summary: "unrelated",
+          icp: "unrelated",
+        });
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "conflict" }, 409),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+
+    // The "not ready" notice, from this read's own re-fetched status — never
+    // a silent forward-advance onto the other company's stale data.
+    await screen.findByText(
+      "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
+    );
+    expect(readCalls).toBeGreaterThan(1);
+    // GET /company is never even worth consulting once the read's own
+    // status already answers the question.
+    expect(getCompanyCalls).toBe(0);
   });
 });

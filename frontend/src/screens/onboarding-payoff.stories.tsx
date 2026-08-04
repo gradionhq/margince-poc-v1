@@ -49,6 +49,7 @@ function frame(counts: PayoffCounts, startedAt: string) {
           locale="en"
           startedAt={startedAt}
           nowMs={NOW_MS}
+          resumedSession={false}
         />
       </div>
     </StoryProviders>

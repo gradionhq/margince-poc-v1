@@ -125,7 +125,10 @@
   align-items: center;
   min-height: 52px;
   padding: 0 0 0 var(--space-4);
-  border: 1px solid var(--borderStrong);
+  /* This border is the only visible sign the field accepts typing, so it
+     needs the interactive-control ratio (WCAG 1.4.11, 3:1), not the divider
+     ratio --borderStrong gives (1.45:1 on --bgElevated). */
+  border: 1px solid var(--borderControl);
   border-radius: var(--r-md);
   background: var(--bgElevated);
   box-shadow: var(--shadow-card);
@@ -161,7 +164,7 @@
   border: 0;
   border-radius: var(--r-sm);
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   font-family: var(--f-body);
   font-size: 13.5px;
   font-weight: 600;
@@ -502,6 +505,14 @@
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
+/* Warn, not the line's own meta tone: the figure beside it is missing a call
+   the provider billed with no effective rate, so it reads as a caveat on the
+   number rather than more of the same disclosure. */
+.ob-scan-cost-unpriced {
+  font-family: var(--f-body);
+  font-variant-numeric: normal;
+  color: var(--warn);
+}
 .ob-scan-cost-model {
   margin: 0;
   color: var(--textMeta);
@@ -529,14 +540,19 @@
   padding: 4px var(--space-2);
   border-radius: var(--r-sm);
   list-style: none;
-  overflow: hidden;
 }
 
+/* Wraps rather than clips: at narrow phone widths or 200% zoom the path and
+   the status reason cannot both fit on one line, and a fixed one-line row
+   would have to cut one of them off. `min-height` (not `height`) already lets
+   the row grow when that happens, so wrapping costs nothing but the row's own
+   headroom. */
 .ob-scan-ticker-entry {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   min-width: 0;
-  gap: var(--space-3);
+  gap: var(--space-1) var(--space-3);
   animation: ob-scan-ticker-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
@@ -556,8 +572,14 @@
   text-decoration: line-through;
 }
 
+/* Shrinks and wraps rather than sitting fixed-width beside the path: a long
+   skip or failure reason is prose, not a label, and clipping it silently
+   would hide the one thing a reader needs from a page that did not come
+   back clean. */
 .ob-scan-ticker-kind {
-  flex: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: var(--textMeta);
   font-size: 10.5px;
 }

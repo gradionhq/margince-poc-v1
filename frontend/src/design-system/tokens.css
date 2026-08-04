@@ -25,6 +25,11 @@
   --textTertiary: #9aa6a0;
   --textMuted: #cbd2cd;
   --textOnAccent: #fff;
+  /* The ink for a control filled with --accent SPECIFICALLY (a primary
+   * button, a filled step numeral) — split from --textOnAccent because dark
+   * mode lightens --accent and not every --textOnAccent consumer's fill.
+   * Unthemed here; the dark palette below is what makes it diverge. */
+  --textOnAccentControl: #fff;
 
   --borderSubtle: #e5e9e7;
   --borderStrong: #d2d8d4;
@@ -152,16 +157,24 @@
   --bgHover: #1f332c;
 
   --accent: #16a34a;
-  /* DARK ink on the accent, not white — and the accent itself is untouched
-     because #16a34a is the ADR-0040 mandate. The dark palette lightens the
-     accent, which flips which ink can sit on it: white measured 3.30:1 against
-     it at 13.5px/600, under the 4.5:1 AA needs (600 weight is not bold, and
-     13.5px is not large text), and that text is the primary action on every
-     surface — "Sign in", "Send reset link", "Set new password". This ink gives
-     5.04:1. Light theme keeps white at 5.35:1. */
-  --textOnAccent: #04240f;
+  /* --textOnAccent stays light in dark mode: it is the shared ink for every
+     fill that ISN'T --accent (the rail toast on --bgRail, the AI FAB on
+     --ai, the voice orb over the Core's own glass, --online/--success/
+     --danger discs) — dark ink there is a control-boundary failure, not a
+     contrast fix, on backgrounds this palette never lightens. */
   --accentLight: rgba(22, 163, 74, 0.14);
   --accentMed: rgba(22, 163, 74, 0.26);
+  /* DARK ink on the accent, not white — the accent itself is untouched
+     because #16a34a is the ADR-0040 mandate, but lightening it flips which
+     ink can sit on it: white measured 3.30:1 against it at 13.5px/600, under
+     the 4.5:1 AA needs (600 weight is not bold, and 13.5px is not large
+     text), and that text is the primary action on every surface — "Sign
+     in", "Send reset link", "Set new password". This ink gives 5.04:1.
+     Light theme keeps white at 5.35:1. Scoped to --textOnAccentControl, not
+     --textOnAccent: the latter also inks fills this palette never lightens
+     (--bgRail, --ai, --online, --success, --danger), where this same ink
+     would fail rather than fix contrast. */
+  --textOnAccentControl: #04240f;
   /* Dark: the fills lift and the text tones brighten, so a monogram keeps the
    * same identity and the same contrast floor on the dark surface. */
   --mono0Fill: rgba(22, 163, 74, 0.22);

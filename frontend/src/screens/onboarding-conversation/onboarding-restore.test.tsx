@@ -126,6 +126,9 @@ type StubOptions = {
   voiceProfiles?: { id: string }[];
   voiceVersions?: { profile_version: number; status: string }[];
   corpusWords?: number;
+  /** Words a live paste ingest (POST .../sources) adds on top of
+   * `corpusWords`; every GET afterward reports the grown total. */
+  pasteWords?: number;
   /** Mutable: set to make PUT /onboarding/state fail with this status. */
   putStatus?: number;
   /** GET /company/site-reads/{id} snapshots, served in order (last one
@@ -145,6 +148,7 @@ function stubApi(options: StubOptions = {}) {
   const calls: Request[] = [];
   let version = options.state?.version ?? 0;
   let readPoll = 0;
+  let wordsNow = options.corpusWords ?? 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -243,15 +247,34 @@ function stubApi(options: StubOptions = {}) {
       if (path.includes("/voice-profiles/") && path.endsWith("/versions")) {
         return jsonResponse({ data: options.voiceVersions ?? [], page: {} });
       }
+      if (
+        path.includes("/voice-profiles/") &&
+        path.endsWith("/sources") &&
+        request.method === "POST"
+      ) {
+        const added = options.pasteWords ?? 0;
+        wordsNow += added;
+        return jsonResponse({
+          ingest_stats: { kept_words: added, input_words: added },
+          summary: {
+            total_words: wordsNow,
+            target_words: 30000,
+            maturity: "collecting",
+            quality_band: "thin",
+            source_count: 1,
+            register_words: {},
+          },
+        });
+      }
       if (path.includes("/voice-profiles/") && path.endsWith("/sources")) {
         return jsonResponse({
           data: [],
           summary: {
-            total_words: options.corpusWords ?? 0,
+            total_words: wordsNow,
             target_words: 30000,
             maturity: "collecting",
             quality_band: "thin",
-            source_count: options.corpusWords ? 1 : 0,
+            source_count: wordsNow > 0 ? 1 : 0,
             register_words: {},
           },
           page: {},
@@ -349,6 +372,43 @@ describe("restore into the conversational shell", () => {
     expect(await screen.findByText(/Send me things you wrote\./)).toBeTruthy();
   });
 
+  it("carries a live source added mid-voice-act into the results recap, not the restore probe's stale total", async () => {
+    stubApi({
+      state: stateRow({ step: "voice" }),
+      company: savedProfile,
+      voiceProfiles: [{ id: "018f3a1b-0000-7000-8000-0000000000f1" }],
+      corpusWords: 0,
+      pasteWords: 400,
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Paste text instead" }),
+    );
+    await userEvent.type(
+      screen.getByLabelText("Paste the text you wrote here"),
+      "A paragraph I actually wrote in my own words.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Yes, add it to my corpus." }),
+    );
+    // The ingest landed: the collect scene's own meter already reads the
+    // grown total, entirely from useVoiceCorpus's local state.
+    expect(await screen.findByText(/400 of/)).toBeTruthy();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skip voice for now." }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Continue" }),
+    );
+
+    // The results recap reads the restore probe's query again, refreshed by
+    // leaving the voice act — not the 0-word snapshot it was mounted with.
+    expect(await screen.findByText("400")).toBeTruthy();
+    expect(screen.getByText("words in your voice")).toBeTruthy();
+  });
+
   it("the member path comes from the state row and skips voice and results entirely", async () => {
     const calls = stubApi({
       state: stateRow({ path: "member", step: "connect" }),
@@ -361,9 +421,11 @@ describe("restore into the conversational shell", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: /Google/ })).toBeTruthy();
     // Microsoft is a live OAuth path now — the chip opens the same connect
-    // panel Google does, no "Soon" placeholder, and is never disabled.
+    // panel Google does, no "Soon" placeholder. It starts disabled until the
+    // roster fetch verifies nothing is connected yet, same as every mail
+    // provider card.
     const microsoft = screen.getByRole("button", { name: /Microsoft/ });
-    expect(microsoft).not.toBeDisabled();
+    await waitFor(() => expect(microsoft).not.toBeDisabled());
     // A member restore never probes the voice surface.
     expect(requestsTo(calls, "/voice-profiles", "GET").length).toBe(0);
   });

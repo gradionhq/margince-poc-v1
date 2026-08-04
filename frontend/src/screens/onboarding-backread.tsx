@@ -9,7 +9,7 @@ import { Button, Skeleton } from "../design-system/atoms";
 import { formatMoney, formatNumber } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { ProblemError, throwProblem } from "./common";
 import { errorClassKey } from "./connector-status";
 import "./onboarding-backread.css";
 
@@ -82,6 +82,35 @@ function isLive(state: BackfillStatus["state"] | undefined): boolean {
 // The one spelling of the run-row cache key, shared with the Settings panel so
 // a read started here lands there too rather than on a second cache entry.
 const statusQueryKey = (provider: Provider) => ["backfill-status", provider];
+
+// Only a `ProblemError`'s message is server-composed and already reader-safe
+// (`problemMessage` in common.tsx turns the RFC 7807 body into it); anything
+// else — a network failure, a thrown non-problem exception — is a raw
+// exception whose own message can leak internals, so it never reaches the
+// reader. It is logged here instead, and the caller falls back to the fixed
+// catalog sentence.
+function readerDetail(error: unknown): string | null {
+  if (error instanceof ProblemError) {
+    return error.message;
+  }
+  console.error(error);
+  return null;
+}
+
+// The template-ready `{detail}` value for a mutation that may or may not
+// have failed — `null` while it hasn't, `readerDetail`'s safe text (or the
+// catalog fallback) once it has. Pulled out of the component itself so each
+// of the three mutations' error handling reads as one call, not a ternary.
+function safeDetail(
+  isError: boolean,
+  error: unknown,
+  t: (key: MessageKey) => string,
+): string | null {
+  if (!isError) {
+    return null;
+  }
+  return readerDetail(error) ?? t("ob.backread.detailUnavailable");
+}
 
 export type OnboardingBackreadProps = Readonly<{
   provider: Provider;
@@ -186,6 +215,17 @@ export function OnboardingBackread({
     preview.mutate(selected);
   }, [isSetup, selected, previewedWindow, preview]);
 
+  // `preview.data`/`preview.error` are the mutation's LAST result, which
+  // survives past the render where `selected` changes to a window nobody has
+  // previewed yet. `preview.variables` is the window that result actually
+  // belongs to, so it gates both what scope is shown and whether Start may
+  // fire: a stale estimate for the old window is withheld rather than shown
+  // as though it answered the new pick, and Start waits for THIS selection's
+  // preview to settle — successfully or not (an estimate that failed is still
+  // a settled answer; see `BackreadScope`).
+  const previewForSelection = preview.variables === selected;
+  const previewSettled = previewForSelection && !preview.isPending;
+
   if (status.data === undefined) {
     // A failed status read must not trap anyone in the wizard: capture itself
     // is unaffected, so the honest answer is the missing view plus the exit.
@@ -213,10 +253,15 @@ export function OnboardingBackread({
       <BackreadSetup
         selected={selected}
         onSelect={setSelected}
-        preview={preview.data}
-        previewProblem={preview.isError ? preview.error.message : null}
+        preview={previewForSelection ? preview.data : undefined}
+        previewProblem={
+          previewForSelection
+            ? safeDetail(preview.isError, preview.error, t)
+            : null
+        }
+        previewReady={previewSettled}
         starting={start.isPending}
-        startProblem={start.isError ? start.error.message : null}
+        startProblem={safeDetail(start.isError, start.error, t)}
         onStart={() => start.mutate(selected)}
         onFinish={onFinish}
       />
@@ -227,7 +272,7 @@ export function OnboardingBackread({
     <BackreadRun
       run={status.data}
       cancelling={cancel.isPending}
-      cancelProblem={cancel.isError ? cancel.error.message : null}
+      cancelProblem={safeDetail(cancel.isError, cancel.error, t)}
       onCancel={() => cancel.mutate()}
       onFinish={onFinish}
     />
@@ -242,6 +287,7 @@ function BackreadSetup({
   onSelect,
   preview,
   previewProblem,
+  previewReady,
   starting,
   startProblem,
   onStart,
@@ -251,6 +297,10 @@ function BackreadSetup({
   onSelect: (pick: BackreadWindow) => void;
   preview: BackfillPreview | undefined;
   previewProblem: string | null;
+  /** True once THIS selection's own preview has settled (found or failed).
+   *  Start waits for it so a read can never fire against a scope the reader
+   *  has not actually seen. */
+  previewReady: boolean;
   starting: boolean;
   startProblem: string | null;
   onStart: () => void;
@@ -279,7 +329,11 @@ function BackreadSetup({
       <BackreadScope preview={preview} problem={previewProblem} />
       <p className="ob-backread-note">{t("ob.backread.note")}</p>
       <div className="ob-backread-acts">
-        <Button variant="primary" disabled={starting} onClick={onStart}>
+        <Button
+          variant="primary"
+          disabled={starting || !previewReady}
+          onClick={onStart}
+        >
           {t("ob.backread.start")}
         </Button>
         <Button onClick={() => onFinish(false)}>{t("ob.backread.skip")}</Button>
@@ -374,7 +428,7 @@ function BackreadRun({
       <BackreadOutcome run={run} />
       {cancelProblem !== null && (
         <p className="ob-backread-problem" role="alert">
-          {cancelProblem}
+          {t("ob.backread.cancelFailed", { detail: cancelProblem })}
         </p>
       )}
       <div className="ob-backread-acts">
@@ -485,8 +539,23 @@ function BackreadOutcome({ run }: Readonly<{ run: BackfillStatus }>) {
           })}
         </p>
       );
-    case "cancelled":
-      return <p className="ob-backread-note">{t("ob.backread.cancelled")}</p>;
+    case "cancelled": {
+      // "Nothing was written" is only true of a cancel that landed before any
+      // page finished. Once at least one row is `captured`, the read is
+      // partial, not empty, and saying otherwise would be a false statement
+      // about the reader's own data — the captured rows are already sitting
+      // in the inbox, waiting on review, whether or not the run kept going.
+      const captured = run.counts?.captured ?? 0;
+      return (
+        <p className="ob-backread-note">
+          {t(
+            captured > 0
+              ? "ob.backread.cancelledPartial"
+              : "ob.backread.cancelled",
+          )}
+        </p>
+      );
+    }
     default:
       // `none` belongs to the setup view, which owns it before this renders. A
       // state a later server adds and this build cannot name says nothing,

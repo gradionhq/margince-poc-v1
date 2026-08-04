@@ -253,6 +253,54 @@ describe("ImapConnectPanel", () => {
     expect(onComplete).not.toHaveBeenCalled();
     expect(calls.length).toBe(0);
   });
+
+  // A successful connect that lands after the reader already backed out
+  // would leave a mailbox connected against a "no" the panel already
+  // promised — so dismissal has to wait for the in-flight POST to settle.
+  it("cannot be dismissed while the connect POST is still in flight", async () => {
+    // A box, not a bare `let`: TS's control-flow narrowing otherwise loses
+    // the function type across the callback boundary that assigns it.
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "POST /connectors/imap/connect": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    const onDismiss = vi.fn();
+    render(
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={onDismiss}
+      />,
+    );
+    await fillValidForm();
+    await userEvent.click(
+      screen.getByRole("button", { name: /test and connect/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Not now" })).toBeDisabled(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    // A success that lands after the (blocked) dismiss attempt replaces the
+    // form with the connected result — "Not now" has nothing left to dismiss.
+    deferred.resolve?.(
+      jsonResponse({
+        connection: {
+          id: "c1",
+          provider: "imap",
+          status: "connected",
+          scopes: [],
+        },
+      }),
+    );
+    await screen.findByText(/mailbox connected/i);
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
 });
 
 // The confirmed OAuth connection hands to the backread step: the grant is not
@@ -330,5 +378,74 @@ describe("OAuthReturnPanel handing off to the backread", () => {
       screen.getByRole("button", { name: /enter your crm/i }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/How far back should I read/)).toBeNull();
+  });
+
+  // Without this gate the escape reads on `live === undefined`, which is also
+  // true of the roster's very first render — a reader could click straight
+  // through before the OAuth connection was ever confirmed live.
+  it("withholds the Enter CRM escape while the roster is still verifying", async () => {
+    // A box, not a bare `let`: TS's control-flow narrowing otherwise loses
+    // the function type across the callback boundary that assigns it.
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "GET /connectors": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);
+
+    await screen.findByText("Confirming the connection…");
+    expect(
+      screen.queryByRole("button", { name: /enter your crm/i }),
+    ).not.toBeInTheDocument();
+
+    deferred.resolve?.(jsonResponse({ data: [] }));
+    expect(
+      await screen.findByRole("button", { name: /enter your crm/i }),
+    ).toBeInTheDocument();
+  });
+
+  // The confirmation callback is how the act above knows whether the honest
+  // skip/retry exit still has to stay open — it must never fire `true` before
+  // a live mailbox for THIS returning provider is actually found.
+  it("tells the caller only once a live mailbox is confirmed, never while unresolved", async () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    const onConfirmedChange = vi.fn();
+    render(
+      <OAuthReturnPanel
+        outcome="ok"
+        onComplete={vi.fn()}
+        onConfirmedChange={onConfirmedChange}
+      />,
+    );
+
+    await screen.findByText("We couldn't confirm the connection.");
+    expect(onConfirmedChange).toHaveBeenCalledWith(false);
+    expect(onConfirmedChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it("tells the caller true once the roster confirms a live mailbox", async () => {
+    installFetchStub({
+      "GET /connectors": rosterWith({ state: "none" }),
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse({
+          window: "6m",
+          estimated_messages: 10,
+          computed_at: "2026-07-31T09:00:00Z",
+        }),
+    });
+    const onConfirmedChange = vi.fn();
+    render(
+      <OAuthReturnPanel
+        outcome="ok"
+        onComplete={vi.fn()}
+        onConfirmedChange={onConfirmedChange}
+      />,
+    );
+
+    await waitFor(() => expect(onConfirmedChange).toHaveBeenCalledWith(true));
   });
 });

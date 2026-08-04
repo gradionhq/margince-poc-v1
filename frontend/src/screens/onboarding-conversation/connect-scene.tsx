@@ -88,6 +88,16 @@ const ROSTER_PROVIDER: Readonly<Record<MailProvider, string>> = {
   imap: "imap",
 };
 
+/** The connected roster and whether it has actually been verified. `verified`
+ *  is false both while the fetch is in flight and after it fails — the two
+ *  states the scene's "pick one" rule cannot tell apart from "nothing is
+ *  connected" without this flag, and both must withhold provider actions
+ *  rather than treat an unread roster as an empty one. */
+type ConnectedMailRoster = Readonly<{
+  providers: ReadonlySet<string>;
+  verified: boolean;
+}>;
+
 /**
  * Which mailboxes are already live, read fresh here rather than assumed from
  * the pre-consent `provider` selection: a reload can land on this step with a
@@ -96,7 +106,7 @@ const ROSTER_PROVIDER: Readonly<Record<MailProvider, string>> = {
  * query key with `OAuthReturnPanel` — react-query dedupes the two into one
  * request, so this costs nothing extra on the common path.
  */
-function useConnectedMailProviders(): ReadonlySet<string> {
+function useConnectedMailProviders(): ConnectedMailRoster {
   const roster = useQuery({
     queryKey: ["connectors"],
     queryFn: async () => {
@@ -108,7 +118,10 @@ function useConnectedMailProviders(): ReadonlySet<string> {
     },
   });
   const connected = roster.data?.data.filter((c) => c.status === "connected");
-  return new Set((connected ?? []).map((c) => c.provider));
+  return {
+    providers: new Set((connected ?? []).map((c) => c.provider)),
+    verified: roster.isSuccess,
+  };
 }
 
 export function ConnectScene({
@@ -171,9 +184,9 @@ export function ConnectScene({
   onEnter?: () => void;
 }>) {
   const t = useT();
-  const connectedProviders = useConnectedMailProviders();
+  const mailRoster = useConnectedMailProviders();
   const anyMailConnected = MAIL_PROVIDERS.some((key) =>
-    connectedProviders.has(ROSTER_PROVIDER[key]),
+    mailRoster.providers.has(ROSTER_PROVIDER[key]),
   );
   const openCopy = provider ? PROVIDER_COPY[provider] : null;
 
@@ -200,7 +213,7 @@ export function ConnectScene({
       <div className="ob-connect-grid">
         {MAIL_PROVIDERS.map((key) => {
           const copy = PROVIDER_COPY[key];
-          const connected = connectedProviders.has(ROSTER_PROVIDER[key]);
+          const connected = mailRoster.providers.has(ROSTER_PROVIDER[key]);
           const blocked = !connected && anyMailConnected;
           return (
             <ConnectorCard
@@ -212,6 +225,12 @@ export function ConnectScene({
               }
               auth={t(copy.auth)}
               state={connected ? "connected" : blocked ? "blocked" : "idle"}
+              // A card the roster hasn't verified yet is neither "connected"
+              // nor "blocked" — it still reads and speaks as idle — but it
+              // must not be clickable: opening it could connect a second
+              // mailbox the still-loading (or failed) fetch just hasn't
+              // reported yet.
+              disabled={connected || blocked || !mailRoster.verified}
               onOpen={() => onPick(key)}
             />
           );
@@ -350,9 +369,12 @@ type CardState = "idle" | "connected" | "blocked";
  * provider and what connecting it grants, so a reader never has to open it to
  * find out.
  *
- * Only "idle" is clickable: a connected or blocked tile offers no further
- * action here — disconnecting a mailbox is Settings' job, and a blocked tile
- * names the mailbox already chosen instead of inviting a second one.
+ * `disabled` is the caller's own call, separate from `state`: a "connected"
+ * or "blocked" tile is always disabled (there is no further action here —
+ * disconnecting a mailbox is Settings' job, and a blocked tile names the
+ * mailbox already chosen instead of inviting a second one), but an "idle"
+ * tile can ALSO be disabled while its own connected/blocked status is not yet
+ * verified, without that unverified moment being mislabelled as blocked.
  */
 function ConnectorCard({
   markKey,
@@ -360,6 +382,7 @@ function ConnectorCard({
   brings,
   auth,
   state,
+  disabled,
   onOpen,
 }: Readonly<{
   markKey: string;
@@ -367,10 +390,10 @@ function ConnectorCard({
   brings: string;
   auth: string;
   state: CardState;
+  disabled: boolean;
   onOpen: () => void;
 }>) {
   const t = useT();
-  const disabled = state !== "idle";
   return (
     <button
       type="button"
@@ -447,6 +470,7 @@ function LinkedinCard({
               ? "blocked"
               : "idle"
         }
+        disabled={status !== "pending"}
         onOpen={() => setOpen(true)}
       />
 
@@ -460,10 +484,12 @@ function LinkedinCard({
           })}
         >
           <LinkedinPanel
-            onConnect={(url) => {
-              onConnect(url);
-              setOpen(false);
-            }}
+            // No `setOpen(false)` here: a failed authorization has to stay
+            // on screen so `error` (below) is actually seen and retried, and
+            // a successful one already unmounts this dialog on its own —
+            // `status` flips to "connected" and the guard above stops
+            // rendering it.
+            onConnect={onConnect}
             onSkip={() => {
               onSkip();
               setOpen(false);

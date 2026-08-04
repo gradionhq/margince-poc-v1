@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { usePrefersReducedMotion } from "../design-system/motion";
 import { useT } from "../i18n";
 import { Wordmark } from "./auth";
@@ -97,9 +103,25 @@ export function BuildScene({
     done.current = onDone;
   }, [onDone]);
 
+  // The reduced-motion arm below fires done.current() directly rather than
+  // through a cancellable timer, so it has nothing to clean up between
+  // StrictMode's mount-cleanup-remount replay of this effect in
+  // development — without this guard that replay calls it a second time.
+  const completed = useRef(false);
+  // Stable across renders (both refs it reads are themselves stable), so
+  // listing it as an effect dependency below cannot restart the timers —
+  // only `reduced`/`durationMs` changing does that.
+  const complete = useCallback(() => {
+    if (completed.current) {
+      return;
+    }
+    completed.current = true;
+    done.current();
+  }, []);
+
   useEffect(() => {
     if (reduced) {
-      done.current();
+      complete();
       return;
     }
     // The handoff is the clock's, never the exit animation's. Hanging it off
@@ -111,14 +133,14 @@ export function BuildScene({
       () => setLeaving(true),
       Math.round(durationMs * (1 - EXIT_FRACTION)),
     );
-    const handoff = setTimeout(() => done.current(), durationMs);
+    const handoff = setTimeout(complete, durationMs);
     // Cleared on unmount, or the callback navigates out from under whoever
     // took over the screen in the meantime.
     return () => {
       clearTimeout(dissolve);
       clearTimeout(handoff);
     };
-  }, [reduced, durationMs]);
+  }, [reduced, durationMs, complete]);
 
   if (reduced) {
     return null;

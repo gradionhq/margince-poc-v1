@@ -61,8 +61,13 @@ type View =
   | { kind: "reset"; token: string }
   | { kind: "reset-done" };
 
-/** The hash route the emailed reset link lands on. Minted by identity/reset.go. */
-const RESET_ROUTE = "reset-password";
+/**
+ * The hash route the emailed reset link lands on. Minted by identity/reset.go.
+ * Exported so App.tsx can route this entry through the unauthenticated auth
+ * flow even when a session cookie is already live — an existing session must
+ * not hide the reset form behind the authenticated shell.
+ */
+export const RESET_ROUTE = "reset-password";
 
 // resetTokenFromLocation reads the emailed deep link
 // (/#/reset-password?token=…): the unauthenticated gate renders this screen
@@ -111,6 +116,28 @@ function resetTokenFromLocation(): string | null {
     );
   }
   return token;
+}
+
+// clearResetHash drops a lingering `#/reset-password` from the address bar
+// once the reset entry is done with — the token itself is already scrubbed
+// by resetTokenFromLocation, but the bare route survives until this runs.
+// Left in place, it would make LoginForm's "restore the originally requested
+// route" check see a non-empty hash and skip the post-login redirect to
+// home, stranding a completed reset on a screen this app never routes to.
+// Guarded on the route so it is safe to call from every "back to login" exit,
+// including the ones that never touched the reset flow.
+function clearResetHash(): void {
+  if (typeof globalThis.location === "undefined") {
+    return;
+  }
+  const hash = globalThis.location.hash.replace(/^#\/?/, "").split("?")[0];
+  if (hash === RESET_ROUTE) {
+    globalThis.history?.replaceState?.(
+      null,
+      "",
+      `${globalThis.location.pathname}${globalThis.location.search}`,
+    );
+  }
 }
 
 export function AuthScreen({
@@ -166,6 +193,7 @@ export function AuthScreen({
   const setLoginView = () => {
     setAuthPhase("idle");
     setView({ kind: "login" });
+    clearResetHash();
   };
 
   return (

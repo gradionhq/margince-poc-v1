@@ -351,10 +351,13 @@ function AiRuntimeChip({
         // promises is always visible was the one a screen reader never heard.
         aria-label={`${labels.chip}: ${spend}`}
         onClick={() => {
-          // The press acts on what the reader SEES, not on the pin flag: a
-          // popover already open by hover or focus closes, a closed one pins.
-          setPinned(!open);
-          setDismissed(open);
+          // The press toggles the PIN, not the visible state: hover or focus
+          // can already have the popover open, and a click that reads `open`
+          // there sees `true` and closes what the reader just asked to keep
+          // open. Pinning is what makes a click stick once the pointer moves
+          // away; unpinning is the one honest "close" a second click means.
+          setPinned(!pinned);
+          setDismissed(pinned);
         }}
         onFocus={() => setFocused(true)}
         onBlur={() => {

@@ -531,7 +531,7 @@
 }
 .src.added .si {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 .src .si svg {
   width: 17px;
@@ -714,7 +714,7 @@
 }
 .dropzone:hover .dz-ic {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 .dz-ic svg {
   width: 19px;
@@ -1841,6 +1841,21 @@
   gap: var(--space-4);
   overflow: hidden;
 }
+/* Below 900px margince-workbench.css turns the page itself into the scroller
+   (`.mw-shell`/`.mw-body` grow with content) and hands ConversationThread's
+   own root back to document flow (`.mw-conversation .ob-conv-thread`). This
+   wrapper sits between the two: unchanged, its `flex: 1; min-height: 0;
+   overflow: hidden` still fences the thread to whatever bounded height the
+   old fixed-viewport layout gave it, so the transcript scrolls inside that
+   fence instead of the page scrolling past it — the same inner-scroll trap
+   the sibling rule exists to avoid, one level up. */
+@media (max-width: 900px) {
+  .mw-thread {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+}
 /* The one column body with no ConversationThread inside it, so here the body
    itself has to be the scroller. */
 .ob-read-thread {
@@ -1895,7 +1910,7 @@
   max-width: 82%;
   align-self: flex-end;
   padding: var(--space-3) var(--space-4);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   border-radius: var(--r-md) 4px var(--r-md) var(--r-md);
   background: var(--accent);
   font-size: 13px;

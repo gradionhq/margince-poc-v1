@@ -424,7 +424,7 @@
   height: 18px;
   border-radius: var(--r-full);
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   font-size: 10.5px;
   font-weight: 600;
   display: grid;
@@ -840,7 +840,7 @@
   cursor: pointer;
   display: grid;
   place-items: center;
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   background: var(--accent);
   flex: none;
   font-family: var(--f-body);

@@ -87,7 +87,9 @@ it("offers Microsoft as a live card and opens its dialog", async () => {
   // The card names the provider AND what connecting it grants, so the
   // accessible name is the whole card, not the brand alone.
   const ms = screen.getByRole("button", { name: /Microsoft/ });
-  expect(ms).not.toBeDisabled();
+  // Idle until the roster confirms nothing is connected yet — the fetch
+  // above resolves asynchronously, so the card starts disabled.
+  await waitFor(() => expect(ms).not.toBeDisabled(), { timeout: 3000 });
   await userEvent.click(ms);
   // The ask opens as its OWN dialog on the surface, never an inline panel
   // growing under the card.
@@ -97,6 +99,49 @@ it("offers Microsoft as a live card and opens its dialog", async () => {
       name: "Allow access to my Microsoft",
     }),
   ).toBeTruthy();
+});
+
+// A card left clickable while the roster is unread would let a reader connect
+// a second mailbox before the fetch ever reports the first — the scene's own
+// "pick one" rule depends on the roster actually being verified first.
+it("withholds every mail provider card until the roster load settles", async () => {
+  // A box, not a bare `let`: TS's control-flow narrowing otherwise loses the
+  // function type across the callback boundary that assigns it.
+  const deferred: { resolve: ((r: Response) => void) | null } = {
+    resolve: null,
+  };
+  installFetchStub({
+    "GET /connectors": () =>
+      new Promise((resolve) => {
+        deferred.resolve = resolve;
+      }),
+  });
+  renderConnectAct();
+
+  for (const name of [/Google/, /Microsoft/, /Any inbox/]) {
+    expect(screen.getByRole("button", { name })).toBeDisabled();
+  }
+
+  deferred.resolve?.(jsonResponse({ data: [] }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Google/ })).not.toBeDisabled(),
+  );
+});
+
+// A roster fetch that failed reports the same "nothing confirmed yet" fact as
+// one still loading — actionable cards here would offer to connect a second
+// mailbox the failed read simply never got to report.
+it("withholds every mail provider card when the roster fetch fails", async () => {
+  installFetchStub({
+    "GET /connectors": () => jsonResponse({ code: "internal" }, 500),
+  });
+  renderConnectAct();
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Google/ })).toBeDisabled(),
+  );
+  expect(screen.getByRole("button", { name: /Microsoft/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Any inbox/ })).toBeDisabled();
 });
 
 // The mark is what tells a genuine return apart from a stale or bookmarked
@@ -229,6 +274,12 @@ it("asks how far back to read once the mailbox is confirmed", async () => {
       name: "How far back should I read?",
     }),
   ).toBeTruthy();
+  // Exactly one history-read decision on the surface — the standalone
+  // Settings-style backfill panel is not a second one stacked beside it.
+  expect(screen.queryByText("Import your mail history")).toBeNull();
+  expect(
+    screen.getAllByRole("heading", { name: "How far back should I read?" }),
+  ).toHaveLength(1);
 });
 
 it("finishes the step once, leaving a running backread to the server", async () => {
@@ -298,6 +349,20 @@ it("stops offering to skip connecting once consent has returned", async () => {
   expect(
     screen.queryByRole("button", { name: "Skip connecting for now" }),
   ).toBeNull();
+});
+
+// A returning "ok" whose provider the roster never confirms is NOT a
+// completed connection — the panel's own "Enter Margince" fallback would
+// otherwise be the only way out of a mailbox that is not actually connected.
+// The honest exit (skip, recorded truthfully) has to stay reachable until a
+// live mailbox is confirmed.
+it("keeps the skip exit open when consent returned but no mailbox could be confirmed", async () => {
+  installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+  renderConnectAct("ok");
+  await screen.findByText("We couldn't confirm the connection.");
+  expect(
+    screen.getByRole("button", { name: "Skip connecting for now" }),
+  ).toBeInTheDocument();
 });
 
 // LinkedIn lives beside mail on the same screen now: connecting or skipping
@@ -399,6 +464,33 @@ describe("the LinkedIn card", () => {
     renderConnectAct(undefined, "connected");
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(screen.getByRole("button", { name: /LinkedIn/ })).toBeDisabled();
+  });
+
+  // A failed authorization must stay visible and retryable, not vanish
+  // behind a dialog that already closed on the click that failed.
+  it("keeps the dialog open and shows the failure when authorization fails", async () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+      "PUT /me/linkedin-account": () =>
+        jsonResponse({ detail: "LinkedIn refused the profile." }, 422),
+    });
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
+    await userEvent.type(
+      screen.getByLabelText("Your LinkedIn profile URL"),
+      "https://www.linkedin.com/in/lars",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Authorize with LinkedIn" }),
+    );
+
+    expect(
+      await screen.findByText("LinkedIn refused the profile."),
+    ).toBeInTheDocument();
+    // Still open and retryable — not silently dismissed on the failed click.
+    expect(
+      screen.getByRole("button", { name: "Authorize with LinkedIn" }),
+    ).toBeInTheDocument();
   });
 });
 

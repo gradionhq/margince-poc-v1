@@ -111,6 +111,12 @@ export type ConversationState = {
   /** A ready/partial terminal was recorded; answering the last clarify (or
    * REVIEW_READY) may proceed to review without waiting on a re-read. */
   readCompleted: boolean;
+  /** The read that concluded readCompleted, retained past activeReadId's
+   * null-out so a clarify promoted later, from co.review itself, can still
+   * be checked against the run it actually belongs to — never just any run
+   * that happens to have finished. Cleared whenever a run resumes with no
+   * completion recorded (a failed/deferred terminal), alongside readCompleted. */
+  concludedReadId: string | null;
   /** The build run whose events are current; stale runs are ignored. */
   activeBuildId: string | null;
   /** Last narrated build stage, so a repeated stage poll appends nothing. */

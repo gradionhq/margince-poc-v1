@@ -780,7 +780,10 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
         } else {
           await expect(region).toBeHidden();
           await expect(page.locator("[data-core-state]")).toHaveCount(1);
-          await expect(page.locator("main.auth-task")).toBeVisible();
+          // The class, not the tag: `RaillessFrame` already wraps every
+          // rail-less screen in a `<main>`, so the task region is a `<div>` —
+          // a second `<main>` here would be an invalid, duplicate landmark.
+          await expect(page.locator(".auth-task")).toBeVisible();
           await expect(phoneLine).toBeVisible();
           await expect(phoneLine).not.toBeEmpty();
         }
@@ -798,7 +801,9 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
     ).toBeVisible();
-    const task = await page.locator("main.auth-task").boundingBox();
+    // The class, not the tag: see the note beside the other `.auth-task`
+    // locator above — one `<main>` per screen, and it belongs to the frame.
+    const task = await page.locator(".auth-task").boundingBox();
     const identity = await page.locator("aside.auth-identity").boundingBox();
     expect(task).not.toBeNull();
     expect(identity).not.toBeNull();

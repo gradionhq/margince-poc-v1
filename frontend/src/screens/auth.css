@@ -49,6 +49,24 @@
   }
 }
 
+/* Fade only, no rise: `auth-rise`'s `from` state is the layout for the whole
+   0.1s animation-delay, and that is also what a page load, not just a slow
+   one, actually paints first — a load event can fire before the delay
+   elapses. `translateY(16px)` is paint-only, but paint-only still moves
+   `getBoundingClientRect()`, so for that window the primary action sits 16px
+   lower than its resting place. At the narrowest supported viewport (200%
+   zoom, 640×400, §6.1) that is the difference between the submit button
+   inside the frame and clipped by it — a control that is reachable a moment
+   later has still been unreachable for one. */
+@keyframes auth-rise-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* ===== the task region ================================================== */
 /* First child in the DOM; second column on screen. */
 /* Two rows rather than a centred flex column: the card centres in the 1fr, the
@@ -85,7 +103,11 @@
   display: flex;
   flex-direction: column;
   gap: 22px;
-  animation: auth-rise 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
+  /* `auth-rise-fade`, not the shared `auth-rise`: this wrapper holds the
+     primary action, and the shared keyframe's `from` state displaces its
+     content 16px down for the length of the delay — see the keyframe's own
+     comment. */
+  animation: auth-rise-fade 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
 .auth-wordmark {
@@ -979,6 +1001,13 @@
     display: inline;
   }
   .auth-social {
+    /* The task measure is 280px at the 320px floor (see .auth-legal-links'
+       own comment on that number): two buttons at the base 140px basis plus
+       this row's 7px gap need 287px and wrap into two rows even though
+       "Google"/"Microsoft" fit side by side at this width. A smaller basis
+       keeps two providers on one line here while still leaving room for
+       `.auth-sso`'s wrap to catch a future third. */
+    flex-basis: 128px;
     gap: 7px;
     padding-inline: 10px;
   }

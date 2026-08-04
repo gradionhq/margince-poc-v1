@@ -2399,6 +2399,7 @@ export const en = {
   "ob.scan.transparency": "Transparency",
   "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
   "ob.scan.costPending": "no model calls billed yet",
+  "ob.scan.costUnpriced": " · unpriced usage exists",
 
   // --- the live panel: the sourced record building itself ----------------
   "ob.live.headReading": "Reading {host}",
@@ -2535,6 +2536,11 @@ export const en = {
   "ob.backread.failed":
     "The backread stopped: {detail} Your connection is fine — you can start it again in Settings.",
   "ob.backread.cancelled": "I stopped reading. Nothing was written.",
+  "ob.backread.cancelledPartial":
+    "I stopped reading. What was already captured stays — it is waiting for you in the inbox.",
+  "ob.backread.cancelFailed":
+    "I could not stop the read: {detail} Try again — it keeps running meanwhile.",
+  "ob.backread.detailUnavailable": "Something unexpected went wrong.",
   "ob.backread.cancel": "Stop reading",
   "ob.backread.explore": "Explore Margince meanwhile",
   "ob.backread.skip": "Do not read history now",

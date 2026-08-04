@@ -152,17 +152,36 @@ export const PAYOFF_FRESH_WINDOW_MS = 30 * 60_000;
  * the sentence is a pure function of two instants and a test decides both
  * (the app's one clock is `format/now.ts#useNow`).
  *
- * Every case it cannot verify falls to the neutral lead, which is true
- * regardless of when the setup ran: no start instant on the wire, an instant
- * that will not parse, and an instant in the future — a browser clock behind
- * the server's turns a genuinely fresh setup negative, and answering that with
- * the timeless sentence costs a little colour instead of telling a lie.
+ * `resumedSession` is checked FIRST and, once true, ends the question: a
+ * restored session's `startedAt` is a server instant, but `nowMs` is the
+ * reader's own device clock, which the wire never corroborates — a device
+ * clock that reads behind reality (wrong timezone, a machine that has been
+ * asleep for days, no NTP) can shrink an old setup's elapsed time into the
+ * fresh window and claim "this was an empty install minutes ago" about
+ * something built long before this visit. A restore is never that: whatever
+ * the clock says, the reader already left once, so the timeless sentence is
+ * both the honest answer and the one the wire can prove without trusting a
+ * clock this component does not own.
+ *
+ * A live, never-restored session still earns the fresh lead from the elapsed
+ * check below, because both instants there come from the SAME clock reading
+ * (the device that has been open the whole time) — the failure mode above
+ * needs two independently-clocked visits to appear, which a restore is and a
+ * live session is not.
+ *
+ * Every case the elapsed check itself cannot verify falls to the neutral
+ * lead, which is true regardless of when the setup ran: no start instant on
+ * the wire, an instant that will not parse, and an instant in the future — a
+ * browser clock behind the server's turns a genuinely fresh setup negative,
+ * and answering that with the timeless sentence costs a little colour
+ * instead of telling a lie.
  */
 export function payoffLeadKey(
   startedAt: string | null,
   nowMs: number,
+  resumedSession: boolean,
 ): MessageKey {
-  if (startedAt === null) {
+  if (resumedSession || startedAt === null) {
     return "ob.payoff.leadResumed";
   }
   const startedMs = Date.parse(startedAt);
@@ -186,6 +205,10 @@ export type PayoffMessageProps = Readonly<{
   startedAt: string | null;
   /** Epoch ms, injected: nothing here reads a clock of its own. */
   nowMs: number;
+  /** True once this conversation has been restored at least once (a reload,
+   * or a return visit) — see payoffLeadKey for why this outranks the elapsed
+   * check. */
+  resumedSession: boolean;
 }>;
 
 /**
@@ -207,14 +230,21 @@ export function PayoffMessage({
   locale,
   startedAt,
   nowMs,
+  resumedSession,
 }: PayoffMessageProps) {
   const t = useT();
   return (
     <section className="ob-payoff">
-      <p className="ob-payoff-lead">{t(payoffLeadKey(startedAt, nowMs))}</p>
+      <p className="ob-payoff-lead">
+        {t(payoffLeadKey(startedAt, nowMs, resumedSession))}
+      </p>
       <PayoffGrid counts={counts} locale={locale} />
       <p className="ob-payoff-body">{t("ob.payoff.body")}</p>
-      <ul className="ob-payoff-next">
+      {/* list-style: none (onboarding-payoff.css) drops the implicit list
+          role in Safari/VoiceOver along with the marker; role="list" keeps
+          the two deferrals announced as a list rather than unrelated text. */}
+      {/* biome-ignore lint/a11y/noRedundantRoles: the role is what keeps the list a list in Safari/VoiceOver once the marker is styled off. */}
+      <ul className="ob-payoff-next" role="list">
         <li>{t("ob.payoff.defaults")}</li>
         <li>{t("ob.payoff.seats")}</li>
       </ul>

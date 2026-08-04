@@ -152,12 +152,18 @@ export function rowFor(
     };
   }
   // Grounding precedence: the draft's CURRENT grounding (an entity pick
-  // re-grounds the legal block), then the proposal's own evidence.
+  // re-grounds the legal block), then the proposal's own evidence — but the
+  // proposal's evidence supports the value IT proposed, never whatever value
+  // happens to be sitting in the draft. A row still showing the existing
+  // profile value (the proposal disagreed, or nobody has resolved which one
+  // wins yet) must not borrow the new claim's confidence and snippet as if
+  // they backed the old value.
   const grounding = groundingOf(draft, field);
   const proposed = byName.get(field);
-  const confidence = grounding?.confidence ?? proposed?.confidence;
-  const snippet = grounding?.evidence_snippet ?? proposed?.evidence_snippet;
-  const source = grounding?.source_url ?? proposed?.source_url;
+  const provenance = proposed?.value === value ? proposed : undefined;
+  const confidence = grounding?.confidence ?? provenance?.confidence;
+  const snippet = grounding?.evidence_snippet ?? provenance?.evidence_snippet;
+  const source = grounding?.source_url ?? provenance?.source_url;
   if (confidence === undefined || snippet === undefined) {
     return {
       ...base,

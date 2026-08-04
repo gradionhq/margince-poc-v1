@@ -20,6 +20,7 @@ import {
   type AuthNotice,
   AuthScreen,
   AvailabilityScreen,
+  RESET_ROUTE,
 } from "./screens/auth";
 import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
@@ -188,6 +189,19 @@ export function App() {
       <Shell onOpenSearch={() => undefined}>
         <ScreenView screen={route.screen} id={route.id} id2={route.id2} />
       </Shell>
+    );
+  }
+  // The emailed reset link is a bearer credential, not a session check: it
+  // must reach the reset form whether or not this browser already carries a
+  // live cookie, so it is routed here, ahead of AuthedApp's session gate,
+  // rather than left for AuthedApp to reach only when unauthenticated (where
+  // an existing session instead rendered the authenticated shell's fallback
+  // for an unrecognised route).
+  if (route.screen === RESET_ROUTE) {
+    return (
+      <RaillessFrame>
+        <AuthScreen onAuthed={() => undefined} />
+      </RaillessFrame>
     );
   }
   return <AuthedApp route={route} />;

@@ -1,5 +1,5 @@
 import type { UseQueryResult } from "@tanstack/react-query";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { useEffect, useReducer, useRef } from "react";
 import { api } from "../../api/client";
@@ -262,6 +262,7 @@ function useRestore(
 
 export function OnboardingConversationScreen() {
   const route = useRoute();
+  const queryClient = useQueryClient();
   const [state, dispatch] = useReducer(
     conversationReducer,
     initialConversationState,
@@ -272,6 +273,23 @@ export function OnboardingConversationScreen() {
     dispatch,
     route.id === "connect",
   );
+
+  // The voice act's own word count lives in useVoiceCorpus's local state and
+  // dies with that component when the act changes; `voice` above is the
+  // restore probe that ran once at mount, before this session ingested
+  // anything. Refetching it the moment the voice act ends is what lets the
+  // results recap (and a returning creator who adds sources) read the
+  // server's current total instead of that stale mount-time snapshot.
+  const prevAct = useRef<ConversationState["act"] | null>(null);
+  useEffect(() => {
+    const prev = prevAct.current;
+    prevAct.current = state.act;
+    if (prev === "voice" && state.act !== "voice") {
+      void queryClient.invalidateQueries({
+        queryKey: ["onboarding-conv-voice"],
+      });
+    }
+  }, [state.act, queryClient]);
 
   // Act-transition checkpoints: the server remembers where the journey is,
   // so a mid-onboarding reload restores to the right act with recap. Only

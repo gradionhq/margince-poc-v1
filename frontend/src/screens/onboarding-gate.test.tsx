@@ -541,6 +541,66 @@ describe("ReadTheatre page ticker", () => {
     expect(screen.getByText("3 pages read")).toBeInTheDocument();
   });
 
+  it("does not let an earlier skip outlive a fetch that arrives after it", () => {
+    // The wire always lists every fetched page before any skipped one, so a
+    // skip sits last in the array on every poll it survives — even once a
+    // brand new fetch has landed. Trusting array position here would pin the
+    // ticker on the old skip forever; the fix is to track which URL is
+    // actually new since the last render.
+    const { rerender } = render(
+      <ReadTheatre
+        read={siteRead({
+          pages: [
+            { url: "https://gradion.com", status: "fetched", kind: "home" },
+            {
+              url: "https://gradion.com/careers",
+              status: "skipped",
+              kind: "other",
+              reason: "not company context",
+            },
+          ],
+          pages_read: 1,
+        })}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+    expect(screen.getByText("/careers")).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <ReadTheatre
+          read={siteRead({
+            pages: [
+              { url: "https://gradion.com", status: "fetched", kind: "home" },
+              {
+                url: "https://gradion.com/team",
+                status: "fetched",
+                kind: "about",
+              },
+              {
+                url: "https://gradion.com/careers",
+                status: "skipped",
+                kind: "other",
+                reason: "not company context",
+              },
+            ],
+            pages_read: 2,
+          })}
+          host="gradion.com"
+          locale="en"
+          configuredModel={MODEL}
+        />
+      </LocaleProvider>,
+    );
+
+    // /team is the page that just arrived; the skip is old news even though
+    // it is still the array's last entry.
+    expect(screen.getByText("/team")).toBeInTheDocument();
+    expect(screen.queryByText("/careers")).toBeNull();
+  });
+
   it("shows the page once — the status word beside the path, never the url again", () => {
     render(
       <ReadTheatre
@@ -588,6 +648,57 @@ describe("ReadTheatre cost strip", () => {
     expect(
       screen.getByText("6 calls · 15,500 tokens · $0.0042"),
     ).toBeInTheDocument();
+  });
+
+  it("marks the figure as incomplete when a call came back with no rate", () => {
+    // A call the provider billed with no effective rate is missing from the
+    // total, not folded into it as a silent zero — the reader must not read
+    // the figure as the full cost.
+    render(
+      <ReadTheatre
+        read={siteRead({
+          ai_runtime: {
+            currency: "USD",
+            call_attempts: 6,
+            tokens_in: 12_400,
+            tokens_out: 3_100,
+            latency_ms: 8_200,
+            estimated_cost_microusd: 4_200,
+            unpriced_calls: 1,
+            models: [],
+          },
+        })}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+
+    expect(screen.getByText(/unpriced usage exists/)).toBeInTheDocument();
+  });
+
+  it("says nothing about unpriced usage when every call was priced", () => {
+    render(
+      <ReadTheatre
+        read={siteRead({
+          ai_runtime: {
+            currency: "USD",
+            call_attempts: 6,
+            tokens_in: 12_400,
+            tokens_out: 3_100,
+            latency_ms: 8_200,
+            estimated_cost_microusd: 4_200,
+            unpriced_calls: 0,
+            models: [],
+          },
+        })}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+
+    expect(screen.queryByText(/unpriced usage exists/)).toBeNull();
   });
 
   it("says nothing has been billed yet rather than printing a zero", () => {

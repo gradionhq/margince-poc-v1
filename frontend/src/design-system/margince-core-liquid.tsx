@@ -532,13 +532,21 @@ export function CoreLiquid({
     // resolution it now deserves instead of the one it mounted with. Read here
     // rather than every frame because `clientWidth` forces layout.
     let bufferSize = coreBufferSize(canvas.clientWidth);
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width !== undefined) {
-        bufferSize = coreBufferSize(width);
-      }
-    });
-    observer.observe(canvas);
+    // Some WebGL-capable hosts (older embedded webviews) have no
+    // ResizeObserver; the `.off` class is already cleared above, so a
+    // constructor throw here would leave the canvas transparent instead of
+    // painting the shader. Render continues at the size the canvas mounted
+    // with rather than losing the frame entirely.
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            const width = entries[0]?.contentRect.width;
+            if (width !== undefined) {
+              bufferSize = coreBufferSize(width);
+            }
+          });
+    observer?.observe(canvas);
 
     // A non-zero seed: at t=0 all three masses sit on top of each other, and
     // the first frame would be a plain blob.
@@ -595,7 +603,7 @@ export function CoreLiquid({
 
     return () => {
       cancelAnimationFrame(frame);
-      observer.disconnect();
+      observer?.disconnect();
       gl.deleteProgram(program);
       gl.deleteBuffer(buffer);
     };

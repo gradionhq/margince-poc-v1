@@ -160,6 +160,11 @@ type StubOptions = {
   /** GET /company's answer while a confirmProblem is staged: whether the
    * confirmation this 409 blocked had, in fact, already landed. */
   companyAlreadyExists?: boolean;
+  /** What the read/proposal GETs answer once a confirm attempt has actually
+   * gone out — the real backend's own state moving on, for a version_skew
+   * scenario: the retry a rejection triggers must see a genuinely NEW draft,
+   * not the very one the confirm attempt was rejected for. */
+  afterConfirmAttempt?: { read: CompanySiteRead; proposal: Proposal };
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -227,6 +232,9 @@ function stubApi(options: StubOptions = {}) {
             options.proposalStatus,
           );
         }
+        if (confirmAttempted && options.afterConfirmAttempt) {
+          return jsonResponse(options.afterConfirmAttempt.proposal);
+        }
         return jsonResponse(options.proposal ?? proposalFor(readyRead));
       }
       if (
@@ -251,6 +259,20 @@ function stubApi(options: StubOptions = {}) {
             { detail: "read fetch failed" },
             options.pollStatus,
           );
+        }
+        // A conflict this driver resolves as "already confirmed" is only
+        // ever trusted from THIS read's own status: the real backend moves
+        // the read itself to "confirmed" the moment its confirmation lands,
+        // so the fixture mirrors that transition once a confirm attempt has
+        // actually gone out, exactly as the recovery's own refetch expects.
+        if (confirmAttempted && options.companyAlreadyExists) {
+          return jsonResponse({
+            ...(options.read ?? readyRead),
+            status: "confirmed",
+          });
+        }
+        if (confirmAttempted && options.afterConfirmAttempt) {
+          return jsonResponse(options.afterConfirmAttempt.read);
         }
         return jsonResponse(options.read ?? readyRead);
       }
@@ -661,10 +683,20 @@ describe("the conversational company act", () => {
 
   // The invariant the double-confirm dead end violated: a 409 always leaves
   // the reader with something they can do, never a live button whose next
-  // press can only fail the same way again.
-  it("a stale-draft 409 leaves the reader able to succeed on retry", async () => {
+  // press can only fail the same way again — but never a button that
+  // resubmits the very draft the server just rejected, either.
+  it("a stale-draft 409 blocks a retry until the refetched draft is actually new, then lets it succeed", async () => {
+    const evolvedRead = {
+      ...readyRead,
+      draft_version: 3,
+      proposal_hash: "proposal-3",
+    };
     const calls = stubApi({
       confirmProblem: { code: "version_skew", detail: "draft changed" },
+      afterConfirmAttempt: {
+        read: evolvedRead,
+        proposal: proposalFor(evolvedRead),
+      },
     });
     render(<OnboardingScreen />);
 
@@ -681,16 +713,21 @@ describe("the conversational company act", () => {
     // generic "I could not save" sentence.
     expect(await screen.findByText(/Your review just updated/)).toBeTruthy();
     expect(screen.queryByText(/draft changed/)).toBeNull();
-    // The read is re-fetched so the NEXT retry sends the current draft
-    // rather than the same stale one forever — the honest fix for skew,
-    // since the poll that would otherwise catch this already stopped once
-    // the read went terminal.
+    // The read AND the proposal are both re-fetched so the NEXT retry sends
+    // the current draft rather than the same stale one forever — the honest
+    // fix for skew, since the poll that would otherwise catch this already
+    // stopped once the read went terminal. Until that refetch actually
+    // lands a NEW draft, the button stays disabled: retrying blind would
+    // only resubmit exactly what was just rejected.
     await waitFor(() => {
       expect(requestsTo(calls, "/company/site-reads/", "GET").length).toBe(2);
+      expect(
+        requestsTo(calls, "/onboarding/company/proposal", "GET").length,
+      ).toBe(2);
     });
-    // Nothing about the button itself is disabled: the reader can press it
-    // again right away.
-    expect(accept.disabled).toBe(false);
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
   });
 
   // The other half: a state that is not retryable at all must not be
