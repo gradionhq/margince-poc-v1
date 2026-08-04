@@ -161,23 +161,6 @@ func inlineRelayLane(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, log
 	return []compose.Option{busReady}, stop, nil
 }
 
-// aiSurfaceOptions is the ONE model resolution this role performs, plus
-// everything bound to it: the AI surfaces it serves itself and the api-side half
-// of the work it hands to cmd/worker. They travel together because both bind to
-// the same *compose.ModelPath, and a second resolution here would give the
-// process two routers, two caches and two budgets.
-func aiSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger) ([]compose.Option, error) {
-	opts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
-	if err != nil {
-		return nil, err
-	}
-	handoffOpts, err := workerHandoffOptions(pool, logger, modelPath)
-	if err != nil {
-		return nil, err
-	}
-	return append(opts, handoffOpts...), nil
-}
-
 // modelSurfaceOptions resolves this role's model path and wires every AI
 // surface over it, returning the path so the job-handoff lanes bind to the
 // same one.
@@ -237,9 +220,9 @@ func workerHandoffOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *co
 // serveUntilSignal serves the composed handler with explicit operational
 // limits — a server without timeouts leaks connections under slow clients —
 // until the listener fails or ctx is cancelled. Shutdown drains in-flight
-// requests inside a bounded window; run() then stops the relay lane on its
-// deferred join, which is after this returns, so late-committing requests
-// usually ship before exit.
+// requests inside a bounded window of its own: the ctx that ended the serve is
+// already cancelled, and reusing it would abandon those requests rather than
+// give them time to finish.
 func serveUntilSignal(ctx context.Context, cfg apiConfig, handler http.Handler, stdout io.Writer) error {
 	srv := &http.Server{
 		Addr:              cfg.addr,
