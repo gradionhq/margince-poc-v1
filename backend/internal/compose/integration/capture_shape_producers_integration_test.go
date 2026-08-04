@@ -228,3 +228,84 @@ func TestTheGhostedRuleIsSharedAndQuotesNothing(t *testing.T) {
 			"open; cite the message instead", snippet)
 	}
 }
+
+// A conversation nobody else may read, whose reader cannot be named, is not
+// read at all.
+//
+// The visibility decision has two answers and a gap between them. "Shared" and
+// "private to this person" are both actionable; "private to nobody in
+// particular" is not — and because a signal that names no owner IS a shared
+// signal, letting the gap fall through resolves it to the widest audience
+// available. That is the one direction this must never fail in.
+func TestAConversationWithNoNameableReaderIsRefusedRatherThanShared(t *testing.T) {
+	e := Setup(t)
+	// An owner-private ACCOUNT with no owner recorded: the message reaches it
+	// directly, so no contact is involved to supply one.
+	org := e.SeedOrg(t, "Unattributable Co", &e.Rep1)
+	e.WsExec(t, `UPDATE organization SET visibility = 'owner', owner_id = NULL,
+		 lifecycle = 'opportunity' WHERE id = $1`, org)
+	notice := seedUnlinkedMessage(t, e, "thread-nameless", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", captureShapeClock.Add(-48*time.Hour))
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	extractor := compose.NewSignalExtractor(e.Pool, brain,
+		func() time.Time { return captureShapeClock }, slog.Default())
+	pass, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
+	if err != nil {
+		t.Fatalf("signal extract: %v", err)
+	}
+	if pass.Due != 0 {
+		t.Fatalf("the queue offered %d conversations it cannot say the readership of", pass.Due)
+	}
+	if brain.calls != 0 {
+		t.Errorf("the model was asked about %d conversations whose finding would "+
+			"have had no owner to answer to", brain.calls)
+	}
+	if kinds := openSignalKinds(t, e, org); len(kinds) != 0 {
+		t.Fatalf("the account carries %v, want nothing — a finding with no owner is "+
+			"a shared finding, which is the widest possible answer to a question "+
+			"the producer could not answer at all", kinds)
+	}
+}
+
+// The owner comes from whichever record is private, not from contacts alone.
+//
+// An account can be capture-private too, and a message filed straight against
+// one is exactly as unshareable as a message filed against a private contact.
+// Reading the owner only off the person left this case answering to nobody,
+// which the row then rendered as shared.
+func TestAPrivateAccountSuppliesTheReaderItsOwnMailAnswersTo(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Private Co", &e.Rep1)
+	e.WsExec(t, `UPDATE organization SET visibility = 'owner', owner_id = $2,
+		 lifecycle = 'opportunity' WHERE id = $1`, org, e.Rep1)
+	notice := seedUnlinkedMessage(t, e, "thread-private-account", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", captureShapeClock.Add(-48*time.Hour))
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	extractor := compose.NewSignalExtractor(e.Pool, brain,
+		func() time.Time { return captureShapeClock }, slog.Default())
+	if _, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS)); err != nil {
+		t.Fatalf("signal extract: %v", err)
+	}
+
+	var visibility string
+	var owner ids.UUID
+	ctx := e.Admin()
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT visibility, owner_id FROM signal
+			 WHERE resolved_org_id = $1 AND kind = 'contract_ended'`, org).Scan(&visibility, &owner)
+	}); err != nil {
+		t.Fatalf("read the signal's visibility: %v", err)
+	}
+	if visibility != "owner" || owner != e.Rep1 {
+		t.Fatalf("a finding from a private account's own mail is %q owned by %s, "+
+			"want owner-private to %s", visibility, owner, e.Rep1)
+	}
+}

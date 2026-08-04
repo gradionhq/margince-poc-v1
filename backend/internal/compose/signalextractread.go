@@ -145,7 +145,14 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			       -- Shared only when EVERY message is: the model is shown the
 			       -- whole conversation, so what it writes is as private as the
 			       -- most private thing it read.
-			       bool_and(coalesce(vis.shared, false)) AS shared,
+			       --
+			       -- A message with no links at all counts as shared, which is
+			       -- the link-less note rule auth.ActivityScopeClause already
+			       -- applies — its empty link set reads as visible. Calling it
+			       -- private here would disagree with the gate the reader
+			       -- actually faces, and withhold a finding about mail anyone
+			       -- may open.
+			       bool_and(coalesce(vis.shared, true)) AS shared,
 			       min(vis.private_owner::text) AS private_owner
 			  FROM activity a
 			  LEFT JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
@@ -156,7 +163,9 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			  -- belongs to one person, and then that person is its owner.
 			  LEFT JOIN LATERAL (
 			    SELECT bool_or(coalesce(vp.visibility, vo.visibility, 'workspace') <> 'owner') AS shared,
-			           min(vp.owner_id::text) FILTER (WHERE vp.visibility = 'owner') AS private_owner
+			           min(coalesce(vp.owner_id, vo.owner_id)::text)
+			             FILTER (WHERE coalesce(vp.visibility, vo.visibility) = 'owner')
+			             AS private_owner
 			      FROM activity_link vl
 			      LEFT JOIN person vp ON vp.id = vl.person_id
 			      LEFT JOIN organization vo ON vo.id = vl.organization_id
@@ -171,6 +180,13 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		  FROM conversation c
 		  LEFT JOIN signal_thread_scan s ON s.thread_key = c.thread_key
 		 WHERE c.org_count = 1
+		   -- A conversation nobody else may read, whose reader cannot be named,
+		   -- is not offered at all. Reading it would produce a finding with no
+		   -- owner to answer to, and a signal that names no owner is a shared
+		   -- one — so the unattributable case would resolve, silently, to the
+		   -- widest possible audience. Refusing it is the only answer that
+		   -- fails the safe way.
+		   AND (c.shared OR c.private_owner IS NOT NULL)
 		   AND c.newest <= $1
 		   -- Parked: this exact conversation state has been refused as often as
 		   -- it may be, recently. Two things release it. A message added to the
