@@ -73,8 +73,8 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 
 // fuseRankedResults merges the two already-filtered lanes by reciprocal
 // rank fusion: each lane contributes 1/(k+rank) to an entity's score, so
-// an entity both lanes rank beats either lane's solo favorite. The Score
-// answered is the FUSED score, not the lane score the hit arrived with.
+// an entity both lanes rank beats either lane's solo favorite. Each returned
+// Hit.Score is the FUSED score, not the lane score the hit arrived with.
 func fuseRankedResults(lexical []Hit, vector []VectorHit, limit int) []Hit {
 	type fused struct {
 		hit   Hit
