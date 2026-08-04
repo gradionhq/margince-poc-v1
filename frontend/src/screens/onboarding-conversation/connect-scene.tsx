@@ -16,12 +16,11 @@ export type MailProvider = "google" | "microsoft" | "imap";
 
 export type LinkedinStatus = "pending" | "connected" | "skipped";
 
-// The logo key each provider card carries. `imap` has no brand of its own —
-// it is the "any other server" path — so it takes the neutral mark the
-// design system already renders for a provider it has no logo for. LinkedIn
-// gets the same honest fallback: this frontend draws no brand logos beyond
-// Google and Microsoft (provider-mark.tsx), and a borrowed shape would be a
-// wrong mark, not a missing one.
+// The logo key each mail-provider card carries. `imap` has no brand of its
+// own — it is the "any other server" path — so it takes the neutral mark
+// the design system already renders for a provider it has no logo for; a
+// borrowed shape would be a wrong mark, not a missing one. LinkedIn is not a
+// mail provider and carries its own literal key at its own card, below.
 const PROVIDER_MARKS: Readonly<Record<MailProvider, string>> = {
   google: "google",
   microsoft: "microsoft",
@@ -69,6 +68,7 @@ export function ConnectScene({
   onLinkedinSkip,
   linkedinPending,
   linkedinError,
+  onEnter,
 }: Readonly<{
   eyebrow: string;
   /** The provider whose panel is open; null while none is chosen. */
@@ -86,6 +86,14 @@ export function ConnectScene({
   onLinkedinSkip: () => void;
   linkedinPending: boolean;
   linkedinError: string | null;
+  /**
+   * Present once the act itself has reached `cn.done` — mail is connected
+   * (or its skip recorded) and there is nothing left to gate on. Absent
+   * otherwise, so the pinned bar below has nothing to render while the
+   * scene's real work (picking a provider, resolving LinkedIn) is still
+   * open.
+   */
+  onEnter?: () => void;
 }>) {
   const t = useT();
   return (
@@ -152,6 +160,19 @@ export function ConnectScene({
           </Button>
         )}
       </div>
+
+      {/* The finish gate, pinned to the surface's own foot rather than a chip
+          in the thread below: the reader is done choosing on THIS panel, so
+          the action that leaves it belongs here too. Nothing left to gate on
+          once mail is connected, so the bar carries the action alone. */}
+      {onEnter && (
+        <div className="ob-triage-continue">
+          <p className="ob-triage-continue-status" role="status" />
+          <Button variant="primary" onClick={onEnter}>
+            {t("ob.enter.cta")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

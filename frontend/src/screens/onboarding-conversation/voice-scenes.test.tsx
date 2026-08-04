@@ -6,8 +6,23 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode, RefObject } from "react";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
+import { VOICE_MIN_WORDS } from "../onboarding";
 import { VoiceBuildScene, VoiceCollectScene } from "./voice-scenes";
+
+type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
+
+function summaryOf(totalWords: number): CorpusSummary {
+  return {
+    total_words: totalWords,
+    target_words: 30000,
+    maturity: "collecting",
+    quality_band: totalWords >= 800 ? "good" : "thin",
+    source_count: 1,
+    register_words: { general: totalWords },
+  };
+}
 
 // VoiceCollectScene owns every way a source enters the corpus (browse, the
 // window-wide drop, and now the pasted text this suite pins), so nothing
@@ -43,18 +58,20 @@ afterEach(() => {
 function collectScene(overrides: {
   onAddPaste?: (text: string) => void;
   fileRef?: RefObject<HTMLInputElement | null>;
+  summary?: CorpusSummary | null;
+  canBuild?: boolean;
 }) {
   return withLocale(
     <VoiceCollectScene
       eyebrow="Step 3 of 5: Voice"
-      summary={null}
+      summary={overrides.summary ?? null}
       manifest={[]}
       fileRef={overrides.fileRef ?? createRef<HTMLInputElement>()}
       onFiles={() => undefined}
       onAddPaste={overrides.onAddPaste ?? (() => undefined)}
       onBuild={() => undefined}
       onSkip={() => undefined}
-      canBuild={false}
+      canBuild={overrides.canBuild ?? false}
       startPending={false}
       startError={null}
     />,
@@ -126,6 +143,79 @@ describe("VoiceCollectScene", () => {
     await userEvent.click(screen.getByRole("button", { name: "Browse files" }));
 
     expect(click).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the collect scene's corpus floor meter", () => {
+  it("reflects the real corpus count, never a derived or estimated one", () => {
+    collectScene({ summary: summaryOf(342) });
+
+    const bar = document.querySelector(
+      ".ob-voice-meter-bar",
+    ) as HTMLProgressElement;
+    expect(bar.value).toBe(342);
+    expect(bar.max).toBe(VOICE_MIN_WORDS);
+    expect(document.querySelector(".ob-voice-meter-line")?.textContent).toBe(
+      `342 of ${VOICE_MIN_WORDS} words`,
+    );
+  });
+
+  it("shows the same floor the Build action gates on, below and at it", () => {
+    // Below the floor: the scene's own canBuild (computed from the same
+    // VOICE_MIN_WORDS) disables Build, and the meter still reads "not yet".
+    collectScene({ summary: summaryOf(200), canBuild: false });
+    expect(
+      screen.getByRole("button", { name: "Build my voice profile" }),
+    ).toBeDisabled();
+    expect(
+      document.querySelector(".ob-voice-meter-line")?.textContent,
+    ).toContain(`of ${VOICE_MIN_WORDS} words`);
+    cleanup();
+
+    // At the floor: Build enables, and the meter switches to the ready
+    // wording — the two can never disagree, because both read the same
+    // VOICE_MIN_WORDS constant.
+    collectScene({ summary: summaryOf(VOICE_MIN_WORDS), canBuild: true });
+    expect(
+      screen.getByRole("button", { name: "Build my voice profile" }),
+    ).toBeEnabled();
+    expect(
+      document.querySelector(".ob-voice-meter-line")?.textContent,
+    ).toContain("enough to build");
+  });
+
+  it("changes what it says, and announces once, the moment the count crosses the floor", () => {
+    const { rerender } = collectScene({ summary: summaryOf(500) });
+    expect(document.querySelector(".ob-voice-meter-line")?.textContent).toBe(
+      `500 of ${VOICE_MIN_WORDS} words`,
+    );
+    expect(document.querySelector('[role="status"]')?.textContent).toBe("");
+
+    rerender(
+      <LocaleProvider initial="en">
+        <VoiceCollectScene
+          eyebrow="Step 3 of 5: Voice"
+          summary={summaryOf(VOICE_MIN_WORDS)}
+          manifest={[]}
+          fileRef={createRef<HTMLInputElement>()}
+          onFiles={() => undefined}
+          onAddPaste={() => undefined}
+          onBuild={() => undefined}
+          onSkip={() => undefined}
+          canBuild
+          startPending={false}
+          startError={null}
+        />
+      </LocaleProvider>,
+    );
+
+    const ready = `${VOICE_MIN_WORDS} words — enough to build. More still sharpens it.`;
+    expect(document.querySelector(".ob-voice-meter-line")?.textContent).toBe(
+      ready,
+    );
+    // The floor-reached announcement fires exactly once, in the visually
+    // hidden status region — not on every word the corpus already had.
+    expect(document.querySelector('[role="status"]')?.textContent).toBe(ready);
   });
 });
 

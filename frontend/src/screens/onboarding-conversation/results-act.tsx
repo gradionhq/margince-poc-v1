@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { Button } from "../../design-system/atoms";
 import { useNow } from "../../format/now";
 import { useLocale, useT } from "../../i18n";
 import { problemMessage } from "../common";
@@ -129,6 +130,19 @@ export function ResultsAct({
             profileSaved={profile !== null}
             profile={profile ?? undefined}
           />
+          {/* Pinned to the surface's own foot, not the thread: the recap is
+              read on this panel, so the one action that leaves it belongs
+              here too, with nothing to gate on — the recap has no unmet
+              condition, so the bar carries the action alone. */}
+          <div className="ob-triage-continue">
+            <p className="ob-triage-continue-status" role="status" />
+            <Button
+              variant="primary"
+              onClick={() => dispatch({ type: "RESULTS_CONTINUE" })}
+            >
+              {t("ob.payoff.understood")}
+            </Button>
+          </div>
         </div>
       }
     >
@@ -165,14 +179,14 @@ export function ResultsAct({
                 : "ob.conv.results.voiceSkipped",
             }}
           />
-          {/* The payoff carries its own primary action, so the bare Continue
-              chip would be a second button for the same step. */}
+          {/* Narration only — the recap counts are read in the thread, but
+              the "Understood" action that leaves this step sits on the
+              artifact surface, in its own pinned foot. */}
           <PayoffMessage
             counts={counts}
             locale={locale}
             startedAt={startedAt}
             nowMs={nowMs}
-            onContinue={() => dispatch({ type: "RESULTS_CONTINUE" })}
           />
         </ConversationThread>
       </div>

@@ -2,9 +2,8 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
   PAYOFF_FRESH_WINDOW_MS,
@@ -134,7 +133,6 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(4 * MINUTE_MS)}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
@@ -159,7 +157,6 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS - MINUTE_MS)}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
@@ -175,7 +172,6 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(2 * 24 * 60 * MINUTE_MS)}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
@@ -194,7 +190,6 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS)}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
@@ -212,7 +207,6 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={null}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
@@ -229,29 +223,11 @@ describe("PayoffMessage", () => {
         locale="en"
         startedAt={startedAgo(-MINUTE_MS)}
         nowMs={NOW_MS}
-        onContinue={vi.fn()}
       />,
     );
 
     expect(
       screen.getByText("This started as an empty install."),
     ).toBeInTheDocument();
-  });
-
-  it("hands control back through onContinue", async () => {
-    const onContinue = vi.fn();
-    withLocale(
-      <PayoffMessage
-        counts={full}
-        locale="en"
-        startedAt={startedAgo(4 * MINUTE_MS)}
-        nowMs={NOW_MS}
-        onContinue={onContinue}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Understood" }));
-
-    expect(onContinue).toHaveBeenCalledTimes(1);
   });
 });

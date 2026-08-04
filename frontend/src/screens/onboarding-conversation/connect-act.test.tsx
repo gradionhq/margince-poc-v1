@@ -22,11 +22,12 @@ import { initialConversationState } from "./conversation-machine";
 function renderConnectAct(
   outcome?: string,
   linkedinStatus: ConversationState["linkedinStatus"] = "pending",
+  phase: ConversationState["phase"] = "cn.consent",
 ) {
   const state: ConversationState = {
     ...initialConversationState,
     act: "connect",
-    phase: "cn.consent",
+    phase,
     linkedinStatus,
   };
   const dispatch = vi.fn();
@@ -267,5 +268,16 @@ describe("the LinkedIn card", () => {
     renderConnectAct(undefined, "connected");
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
+});
+
+// The finish gate is read and acted on in the same place: the work surface
+// the reader has been looking at, not a chip surfaced beside the transcript.
+describe("the cn.done finish action", () => {
+  it("renders on the connect surface, in its own pinned foot — never as a thread chip", () => {
+    renderConnectAct(undefined, "pending", "cn.done");
+    const enter = screen.getByRole("button", { name: "Enter Margince" });
+    expect(enter.closest(".ob-triage-continue")).toBeTruthy();
+    expect(enter.closest(".mw-thread")).toBeNull();
   });
 });

@@ -127,6 +127,63 @@ function VoiceHeroBand() {
   );
 }
 
+// Fires the floor-reached announcement exactly once, on the transition from
+// below the floor to at/above it — not on every word the server adds, which
+// would talk over the reader every time a source lands. `ready` is the same
+// boolean the Build button's own `disabled` reads, so the announcement can
+// never fire at a moment the button disagrees with.
+function useFloorReachedAnnouncement(ready: boolean, words: number): string {
+  const t = useT();
+  const [message, setMessage] = useState("");
+  const wasReady = useRef(ready);
+  useEffect(() => {
+    if (ready && !wasReady.current) {
+      setMessage(t("ob.conv.voice.meterReady", { words }));
+    }
+    wasReady.current = ready;
+  }, [ready, words, t]);
+  return message;
+}
+
+/**
+ * The floor meter: a real `<progress>` plus the numbers behind it, reading
+ * the same corpus total the sources list and the build gate already read —
+ * never a second count, and never a size estimate. The bar caps at the
+ * floor rather than growing past it: more words keep helping the build, but
+ * the floor itself has nothing further to fill toward, so a full bar past
+ * that point would misreport progress that does not exist. `ready` decides
+ * only the WORDING (still short of the floor vs. cleared it); it is never
+ * presented as a finished task, because more material still sharpens it.
+ */
+function VoiceCorpusFloorMeter({
+  words,
+  ready,
+}: Readonly<{ words: number; ready: boolean }>) {
+  const t = useT();
+  const announcement = useFloorReachedAnnouncement(ready, words);
+  return (
+    <div className="ob-voice-meter">
+      <progress
+        className="ob-voice-meter-bar"
+        value={Math.min(words, VOICE_MIN_WORDS)}
+        max={VOICE_MIN_WORDS}
+        aria-label={t("ob.conv.voice.meterLabel", { min: VOICE_MIN_WORDS })}
+      />
+      <p className="ob-voice-meter-line">
+        {ready
+          ? t("ob.conv.voice.meterReady", { words })
+          : t("ob.conv.voice.meterProgress", { words, min: VOICE_MIN_WORDS })}
+      </p>
+      {/* Visually hidden: the visible line above already carries this exact
+          sentence once the floor clears, so this only exists to say it out
+          loud the one time that happens. */}
+      <p className="sr-only" role="status">
+        {announcement}
+      </p>
+    </div>
+  );
+}
+
 /**
  * The collect scene: the drop target, the sources the server has ingested,
  * and the one action that starts the build. Every number is the server's —
@@ -161,6 +218,10 @@ export function VoiceCollectScene({
 }>) {
   const t = useT();
   const words = summary?.total_words ?? 0;
+  // The floor alone — never `canBuild`, which also folds in a request in
+  // flight. A meter that dims for a busy corpus it has already cleared
+  // would tell the reader they lost ground they never lost.
+  const floorCleared = words >= VOICE_MIN_WORDS;
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
   return (
@@ -230,16 +291,12 @@ export function VoiceCollectScene({
         )}
       </div>
 
+      <VoiceCorpusFloorMeter words={words} ready={floorCleared} />
+
       {manifest.length > 0 && (
         <section className="ob-voice-sources">
           <p className="ob-voice-sources-head">
             <span>{t("ob.conv.voice.sourcesTitle")}</span>
-            <b>
-              {t("ob.conv.voice.sourcesMeter", {
-                words,
-                min: VOICE_MIN_WORDS,
-              })}
-            </b>
           </p>
           <ul>
             {manifest.map((entry) => (
@@ -439,12 +496,12 @@ export function VoiceBuildScene({
 }
 
 /**
- * The result scene: what a succeeded build learned, with Continue pinned to
- * its own foot in the `.ob-triage-continue` bar every scene's primary action
- * now sits in — the rail narrates the build finishing, but acting on that is
- * this surface's alone. `version` is the built profile once it has arrived;
- * a candidate version's review note lives IN the bar, next to the action it
- * actually gates, instead of repeating itself above the insights too.
+ * The result scene: what a succeeded build learned, as the two-column board
+ * the reference lays out — the sample it would send on the left, the reading
+ * behind it on the right. Continue stays in the pinned `.ob-triage-continue`
+ * bar every other scene's primary action already sits in, worded for what it
+ * confirms here rather than the generic label; the reference's own action
+ * row under the sample would otherwise say the same thing twice.
  */
 export function VoiceResultScene({
   eyebrow,
@@ -476,7 +533,7 @@ export function VoiceResultScene({
         </p>
       )}
       {version !== null && (
-        <VoiceResultInsights data={parseVoiceInsights(version)} />
+        <VoiceResultBoard data={parseVoiceInsights(version)} />
       )}
       <div className="ob-triage-continue">
         <p className="ob-triage-continue-status" role="status">
@@ -484,7 +541,7 @@ export function VoiceResultScene({
         </p>
         <div className="ob-voice-continue-acts">
           <Button small variant="primary" onClick={onContinue}>
-            {t("ob.conv.results.continue")}
+            {t("ob.conv.voice.resultContinue")}
           </Button>
         </div>
       </div>
@@ -492,97 +549,182 @@ export function VoiceResultScene({
   );
 }
 
-// A dimension bar's fill is decorative scale, not a measured percentage the
-// server returns — the number beside it is the real, honest count; the bar
-// only gives it a shape to compare at a glance. References are generous
-// (rarely full) rather than tight, so filling the bar is the exception that
-// tells the reader something, not the common case.
-const WORDS_REFERENCE = 8000;
-const SENTENCE_REFERENCE = 30;
-const SOURCES_REFERENCE = 8;
-
-function VoiceDimension({
-  label,
-  value,
-  reference,
-}: Readonly<{ label: string; value: number; reference: number }>) {
-  const fill = Math.max(0, Math.min(1, value / reference));
-  return (
-    <div className="ob-voice-dimension">
-      <span className="ob-voice-dimension-label">{label}</span>
-      <span className="ob-voice-dimension-track" aria-hidden>
-        <span
-          className="ob-voice-dimension-fill"
-          style={{ width: `${fill * 100}%` }}
-        />
-      </span>
-    </div>
-  );
-}
-
-// The sample: a real draft in a card of its own, with the reading that
-// explains why it lands the way it does directly underneath it. `identity`
-// is already claimed for this card once one is passed — the caller decides
-// that, so this component never has to guess whether it is also showing
-// up in the thinking card below.
+// The sample: a real draft in a card of its own. `drafts` is every sample
+// the build kept; "Another scenario" cycles them locally (no server round
+// trip — they are all already in hand), and disappears once there is only
+// one to show, rather than offering a control with nothing to switch to.
+// The header block shows only Subject: `VoiceSampleDraft` carries no To/From,
+// and inventing either would be exactly the fabricated data this redesign
+// keeps refusing to show.
 function VoiceSampleCard({
-  sample,
+  drafts,
   why,
 }: Readonly<{
-  sample: { subject: string; body: string };
+  drafts: VoiceInsightsData["sampleDrafts"];
   why: string;
 }>) {
   const t = useT();
+  const [index, setIndex] = useState(0);
+  const sample = drafts[index % drafts.length];
   return (
     <div className="ob-voice-result-card ob-voice-sample">
-      <p className="ob-voice-result-label">
-        {t("voice.insights.samplesLabel")}
+      <div className="ob-voice-sample-head">
+        <p className="ob-voice-result-label">
+          {t("ob.conv.voice.sampleEyebrow")}
+        </p>
+        {drafts.length > 1 && (
+          <Button
+            small
+            variant="ghost"
+            onClick={() => setIndex((prev) => (prev + 1) % drafts.length)}
+          >
+            {t("ob.conv.voice.sampleAnother")}
+          </Button>
+        )}
+      </div>
+      <p className="ob-voice-sample-subject">
+        <span className="ob-voice-sample-field">
+          {t("ob.conv.voice.sampleSubjectLabel")}
+        </span>
+        <b>{sample.subject}</b>
       </p>
-      <p className="ob-voice-sample-subject">{sample.subject}</p>
       <p className="ob-voice-sample-body">{sample.body}</p>
-      <p className="ob-voice-sample-why">{why}</p>
+      <p className="ob-voice-sample-why">
+        <span className="ob-voice-sample-why-tag">
+          {t("ob.conv.voice.sampleWhyTag")}
+        </span>
+        {why}
+      </p>
     </div>
   );
 }
 
-// The measured dimensions, one bar per number the server actually returned.
+type MeasuredDimension = Readonly<{
+  key: string;
+  name: string;
+  value: string;
+  poleLow: string;
+  poleHigh: string;
+  /** A decorative marker position, 0..1 — never itself the measurement;
+   * `value` and `evidence` carry every number a reader can trust. */
+  fraction: number;
+  evidence: string;
+}>;
+
+// The bucket edges and the marker's comparison bounds are both plain,
+// documented arithmetic on the real mean-sentence-length number — never an
+// invented confidence score. Generous bounds (6..30) keep the common case
+// away from either end, the same rule the earlier reference bars used.
+const SENTENCE_TERSE_MAX = 12;
+const SENTENCE_ELABORATE_MIN = 20;
+const SENTENCE_LOW_BOUND = 6;
+const SENTENCE_HIGH_BOUND = 30;
+
+function sentenceDimension(
+  meanSentence: number,
+  t: ReturnType<typeof useT>,
+): MeasuredDimension {
+  const value =
+    meanSentence < SENTENCE_TERSE_MAX
+      ? t("ob.conv.voice.dimSentencePoleLow")
+      : meanSentence > SENTENCE_ELABORATE_MIN
+        ? t("ob.conv.voice.dimSentencePoleHigh")
+        : t("ob.conv.voice.dimSentenceMeasured");
+  const fraction = Math.max(
+    0,
+    Math.min(
+      1,
+      (meanSentence - SENTENCE_LOW_BOUND) /
+        (SENTENCE_HIGH_BOUND - SENTENCE_LOW_BOUND),
+    ),
+  );
+  return {
+    key: "sentence",
+    name: t("ob.conv.voice.dimSentenceName"),
+    value,
+    poleLow: t("ob.conv.voice.dimSentencePoleLow"),
+    poleHigh: t("ob.conv.voice.dimSentencePoleHigh"),
+    fraction,
+    evidence: t("ob.conv.voice.dimSentenceEvidence", { count: meanSentence }),
+  };
+}
+
+// `parseVoiceInsights` is the only axis this shape currently carries; the
+// reference shows five (formality, sentence length, warmth, directness,
+// vocabulary), and the other four have no server-measured equivalent — so
+// they are absent here rather than rendered with an invented marker.
+function measuredDimensions(
+  data: VoiceInsightsData,
+  t: ReturnType<typeof useT>,
+): readonly MeasuredDimension[] {
+  return data.meanSentence === null
+    ? []
+    : [sentenceDimension(data.meanSentence, t)];
+}
+
+// A readout, not a control: no input, no drag handle, nothing focusable — a
+// slider-shaped element a reader could not move must not look movable.
+function VoiceDimensionGauge({ dim }: Readonly<{ dim: MeasuredDimension }>) {
+  return (
+    <div className="ob-voice-dim">
+      <div className="ob-voice-dim-head">
+        <span className="ob-voice-dim-name">{dim.name}</span>
+        <span className="ob-voice-dim-value">{dim.value}</span>
+      </div>
+      <div className="ob-voice-dim-track" aria-hidden>
+        <span
+          className="ob-voice-dim-marker"
+          style={{ left: `${dim.fraction * 100}%` }}
+        />
+      </div>
+      <div className="ob-voice-dim-poles" aria-hidden>
+        <span>{dim.poleLow}</span>
+        <span>{dim.poleHigh}</span>
+      </div>
+      <p className="ob-voice-dim-evidence">{dim.evidence}</p>
+    </div>
+  );
+}
+
 function VoiceDimensionsCard({
-  data,
+  dimensions,
+  words,
+  sources,
 }: Readonly<{
-  data: Pick<VoiceInsightsData, "words" | "sources" | "meanSentence">;
+  dimensions: readonly MeasuredDimension[];
+  words: number | null;
+  sources: number | null;
 }>) {
   const t = useT();
   return (
-    <div className="ob-voice-result-card ob-voice-dimensions">
-      {data.words !== null && (
-        <VoiceDimension
-          label={t("voice.insights.statWords", { count: data.words })}
-          value={data.words}
-          reference={WORDS_REFERENCE}
-        />
+    <div className="ob-voice-result-card">
+      <div className="ob-voice-dims-head">
+        <span className="ob-voice-result-label">
+          {t("ob.conv.voice.dimensionsTitle")}
+        </span>
+        <span className="ob-voice-dims-count">
+          {t("ob.conv.voice.dimensionsCount", { count: dimensions.length })}
+        </span>
+      </div>
+      {(words !== null || sources !== null) && (
+        <p className="ob-voice-dims-meta">
+          {words !== null && t("voice.insights.statWords", { count: words })}
+          {words !== null && sources !== null ? " · " : ""}
+          {sources !== null &&
+            t("voice.insights.statSources", { count: sources })}
+        </p>
       )}
-      {data.sources !== null && (
-        <VoiceDimension
-          label={t("voice.insights.statSources", { count: data.sources })}
-          value={data.sources}
-          reference={SOURCES_REFERENCE}
-        />
-      )}
-      {data.meanSentence !== null && (
-        <VoiceDimension
-          label={t("voice.insights.statSentence", {
-            count: data.meanSentence,
-          })}
-          value={data.meanSentence}
-          reference={SENTENCE_REFERENCE}
-        />
-      )}
+      <div className="ob-voice-dims-list">
+        {dimensions.map((dim) => (
+          <VoiceDimensionGauge key={dim.key} dim={dim} />
+        ))}
+      </div>
     </div>
   );
 }
 
-// The reading: the thinking pattern where the build found one, the identity
-// summary where it has not already introduced the sample above it.
+// The reading: the identity summary as the lead line, the thinking pattern
+// underneath where the build found one.
 function VoiceThinkingCard({
   thinking,
   identity,
@@ -590,6 +732,9 @@ function VoiceThinkingCard({
   const t = useT();
   return (
     <div className="ob-voice-result-card">
+      {identity !== null && (
+        <p className="ob-voice-result-identity">{identity}</p>
+      )}
       {thinking !== null && (
         <>
           <p className="ob-voice-result-label">
@@ -597,9 +742,6 @@ function VoiceThinkingCard({
           </p>
           <p>{thinking}</p>
         </>
-      )}
-      {identity !== null && (
-        <p className="ob-voice-result-identity">{identity}</p>
       )}
     </div>
   );
@@ -639,51 +781,55 @@ function VoiceAvoidCard({ avoid }: Readonly<{ avoid: readonly string[] }>) {
 }
 
 /**
- * What a succeeded build learned, as cards with a clear hierarchy — this
- * step's own reading of `VoiceInsightsData`, not the flat stacked text the
- * Settings screen's shared component renders. Every fact still comes from
- * `parseVoiceInsights`; this is a second RENDERING of that data, never a
- * second parser, so the two surfaces can never disagree about what a build
- * actually produced. A section that has nothing to show renders nothing —
- * a build that skipped a stage never gets an empty card pretending it ran.
+ * What a succeeded build learned, as the two-column board: the sample on the
+ * left, everything measured or observed about the reading on the right. Every
+ * fact still comes from `parseVoiceInsights`; this is a second RENDERING of
+ * that data, never a second parser. A section with nothing to show renders
+ * nothing — a build that skipped a stage never gets an empty card pretending
+ * it ran, and a dimension this shape does not carry never gets an invented
+ * marker standing in for it.
  */
-function VoiceResultInsights({ data }: Readonly<{ data: VoiceInsightsData }>) {
+function VoiceResultBoard({ data }: Readonly<{ data: VoiceInsightsData }>) {
   const t = useT();
-  const sample = data.sampleDrafts[0] ?? null;
-  // The identity summary reads as the reason a sample landed the way it did
-  // when there is one to sit under; with no sample it is the lead line of
-  // what the build learned instead — never both, or the same sentence would
-  // print twice.
-  const identityInSample = sample !== null && data.identity !== null;
-  const hasDimensions =
-    data.words !== null || data.sources !== null || data.meanSentence !== null;
   const hasThinking = data.thinking !== null || data.identity !== null;
+  const dimensions = measuredDimensions(data, t);
+  // The sample's own "why" line borrows the same signature-move names the
+  // moves card lists in full below, at the reference's own granularity — a
+  // short joined phrase, not the identity summary (which now leads the
+  // thinking card instead, never repeated here).
+  const why =
+    data.moves.length > 0
+      ? data.moves.map((move) => move.move).join(", ")
+      : t("voice.insights.draftOnly");
   return (
-    <div className="ob-voice-result">
-      {sample !== null && (
-        <VoiceSampleCard
-          sample={sample}
-          why={
-            identityInSample
-              ? (data.identity ?? "")
-              : t("voice.insights.draftOnly")
-          }
-        />
-      )}
-      {hasDimensions && <VoiceDimensionsCard data={data} />}
-      {hasThinking && (
-        <VoiceThinkingCard
-          thinking={data.thinking}
-          identity={identityInSample ? null : data.identity}
-        />
-      )}
-      {data.moves.length > 0 && <VoiceMovesCard moves={data.moves} />}
-      {data.avoid.length > 0 && <VoiceAvoidCard avoid={data.avoid} />}
-      {data.nextBest !== null && (
-        <p className="ob-voice-result-next">
-          <b>{t("voice.insights.nextBestLabel")}</b> {data.nextBest}
-        </p>
-      )}
+    <div className="ob-voice-board">
+      <div className="ob-voice-board-col">
+        {data.sampleDrafts.length > 0 && (
+          <VoiceSampleCard drafts={data.sampleDrafts} why={why} />
+        )}
+      </div>
+      <div className="ob-voice-board-col">
+        {dimensions.length > 0 && (
+          <VoiceDimensionsCard
+            dimensions={dimensions}
+            words={data.words}
+            sources={data.sources}
+          />
+        )}
+        {hasThinking && (
+          <VoiceThinkingCard
+            thinking={data.thinking}
+            identity={data.identity}
+          />
+        )}
+        {data.moves.length > 0 && <VoiceMovesCard moves={data.moves} />}
+        {data.avoid.length > 0 && <VoiceAvoidCard avoid={data.avoid} />}
+        {data.nextBest !== null && (
+          <p className="ob-voice-result-next">
+            <b>{t("voice.insights.nextBestLabel")}</b> {data.nextBest}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

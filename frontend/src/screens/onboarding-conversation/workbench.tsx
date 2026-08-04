@@ -10,7 +10,10 @@ import {
 } from "../../design-system/margince-workbench";
 import { useLocale, useT } from "../../i18n";
 import { problemMessage, useMe } from "../common";
-import { configuredModelLabel } from "../onboarding-read";
+import {
+  configuredModelLabel,
+  configuredModelSummary,
+} from "../onboarding-read";
 import type { ConversationState } from "./conversation-types";
 import { isDetour, railStops, stopState } from "./rail";
 
@@ -39,6 +42,25 @@ export function useConfiguredModel(): string {
     staleTime: Number.POSITIVE_INFINITY,
   });
   return configuredModelLabel(profile.data, t("ob.ai.runtimeUnavailable"), t);
+}
+
+// The plain-language sibling of useConfiguredModel(): same cached
+// ["ai-profile"] entry, so the exact ids and the count-and-place summary
+// can never name a different configuration.
+function useConfiguredModelSummary(): string {
+  const t = useT();
+  const profile = useQuery({
+    queryKey: ["ai-profile"],
+    queryFn: async (): Promise<AiProfile> => {
+      const { data, error } = await api.GET("/ai/profile");
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  return configuredModelSummary(profile.data, t("ob.ai.runtimeUnavailable"), t);
 }
 
 /**
@@ -97,6 +119,7 @@ export function ConversationWorkbench({
   const t = useT();
   const { locale } = useLocale();
   const configured = useConfiguredModel();
+  const configuredSummary = useConfiguredModelSummary();
   const first = useFirstWorkbench();
   const me = useMe();
   // Built here rather than per act, so four acts cannot drift into four
@@ -139,6 +162,7 @@ export function ConversationWorkbench({
         title={t("ob.ai.role")}
         status={status}
         configured={configured}
+        configuredSummary={configuredSummary}
         locale={locale}
         runtime={runtime}
         runtimeLabels={{

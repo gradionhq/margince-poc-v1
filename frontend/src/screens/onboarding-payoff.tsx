@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMemo } from "react";
-import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import "./onboarding-payoff.css";
@@ -187,11 +186,13 @@ export type PayoffMessageProps = Readonly<{
   startedAt: string | null;
   /** Epoch ms, injected: nothing here reads a clock of its own. */
   nowMs: number;
-  onContinue: () => void;
 }>;
 
 /**
- * The grid plus the copy that frames it, and the one action that leaves it.
+ * The grid plus the copy that frames it — narration, not the exit. The
+ * conversational results act renders this in the thread and puts the actual
+ * "Understood" action in the artifact's own pinned foot instead: the primary
+ * action for a step belongs on its work surface, not beside the recap turns.
  *
  * The lead is a paragraph rather than a heading: the screen's `<h1>` belongs
  * to the step that owns it, and this sentence is prose however large it is set
@@ -206,7 +207,6 @@ export function PayoffMessage({
   locale,
   startedAt,
   nowMs,
-  onContinue,
 }: PayoffMessageProps) {
   const t = useT();
   return (
@@ -218,11 +218,6 @@ export function PayoffMessage({
         <li>{t("ob.payoff.defaults")}</li>
         <li>{t("ob.payoff.seats")}</li>
       </ul>
-      <div className="ob-payoff-actions">
-        <Button variant="primary" onClick={onContinue}>
-          {t("ob.payoff.understood")}
-        </Button>
-      </div>
     </section>
   );
 }

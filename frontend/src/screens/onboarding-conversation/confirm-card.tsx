@@ -441,13 +441,12 @@ function outstandingSplit(
 // taller than the section it navigates, which defeats the point of a nav.
 const NAV_NAMED_LIMIT = 5;
 
-// A section's badge over its jump button: two compact digits at most, never
-// words — a narrow column has no room for "worth a check" beside a section
-// name, and the nav's own layout should not depend on how long that phrase
-// happens to be in a given locale. Colour still carries only one claim: red
-// is the blocking count, because that is the one number that actually stops
-// confirm; the advisory count is the same shape, quiet instead. Each digit's
-// sr-only text still says which it is, so the distinction survives sight.
+// A section's badge over its jump button: one number, never two — a reader
+// asking "what do I have to do here" wants the count that actually gates
+// confirm, not that count plus a second, unrelated tally to add it to. An
+// advisory-only section carries no badge at all; the named list below it
+// already says what those fields are, so a grey pill would be a count of
+// a list the reader can already see.
 function SectionBadge({
   blocking,
   advisory,
@@ -465,85 +464,29 @@ function SectionBadge({
       </span>
     );
   }
+  if (blocking.length === 0) {
+    return null;
+  }
   return (
-    <span className="ob-triage-nav-badges">
-      {blocking.length > 0 && (
-        <span className="ob-triage-nav-badge" data-blocking="true">
-          <b aria-hidden>{blocking.length}</b>
-          <span className="sr-only">
-            {t("ob.conv.triage.sectionBlocking", { count: blocking.length })}
-          </span>
-        </span>
-      )}
-      {advisory.length > 0 && (
-        <span className="ob-triage-nav-badge">
-          <b aria-hidden>{advisory.length}</b>
-          <span className="sr-only">
-            {t("ob.conv.triage.sectionAdvisory", { count: advisory.length })}
-          </span>
-        </span>
-      )}
+    <span className="ob-triage-nav-badge" data-blocking="true">
+      <b aria-hidden>{blocking.length}</b>
+      <span className="sr-only">
+        {t("ob.conv.triage.sectionBlocking", { count: blocking.length })}
+      </span>
     </span>
   );
 }
 
-// One labelled cluster of the named to-do list: a heading that says in
-// words what the rest of the row marks only say in shape, then the fields
-// themselves, each a jump straight to its row through the same jump
-// machinery the rest of the board uses (the pulse and its reduced-motion
-// opt-out come along for free).
-function NavFieldCluster({
-  headingKey,
-  rows,
-  icon,
-  blocking,
-  t,
-}: Readonly<{
-  headingKey: MessageKey;
-  rows: readonly ReviewRow[];
-  icon: typeof AlertTriangle;
-  blocking: boolean;
-  t: ReturnType<typeof useT>;
-}>) {
-  if (rows.length === 0) {
-    return null;
-  }
-  const Icon = icon;
-  const named = rows.slice(0, NAV_NAMED_LIMIT);
-  const overflow = rows.length - named.length;
-  return (
-    <>
-      <li className="ob-triage-nav-subhead">{t(headingKey)}</li>
-      {named.map((row) => (
-        <li key={row.field}>
-          <button
-            type="button"
-            className="ob-triage-nav-item"
-            data-blocking={blocking ? "true" : undefined}
-            onClick={() => jumpToFindings([row.field])}
-          >
-            <Icon aria-hidden />
-            <span>{row.label}</span>
-            {/* The tier rides in the accessible name, not on the visible
-                row — the group heading above already says it once in
-                words; repeating it per field is what broke the column. */}
-            <span className="sr-only">{t(headingKey)}</span>
-          </button>
-        </li>
-      ))}
-      {overflow > 0 && (
-        <li className="ob-triage-nav-more">
-          {t("ob.conv.triage.sectionMore", { count: overflow })}
-        </li>
-      )}
-    </>
-  );
-}
-
-// The named to-do list under a section, in its two clusters: the fields the
-// server actually gates confirm on, then the fields that are merely worth a
-// look. The count above and the names below are the same split read twice,
-// never a second tally of "outstanding" that blurs the two back together.
+// The named to-do list under a section: one flat list, blocking fields
+// first (the more actionable of the two, and the one the badge above
+// already leads with), each a jump straight to its row through the same
+// jump machinery the rest of the board uses (the pulse and its
+// reduced-motion opt-out come along for free). Blocking and advisory are
+// told apart by shape, not by a heading over each: a warning triangle
+// marks the field that actually gates confirm, and an advisory field
+// carries no icon at all — a hollow ring beside "worth a look" read as an
+// unticked checkbox, the wrong claim for something optional. The tier
+// still reaches a screen reader, in words, on every row's own name.
 function NavOutstandingList({
   blocking,
   advisory,
@@ -553,25 +496,42 @@ function NavOutstandingList({
   advisory: readonly ReviewRow[];
   t: ReturnType<typeof useT>;
 }>) {
-  if (blocking.length === 0 && advisory.length === 0) {
+  const rows = [
+    ...blocking.map((row) => ({ row, isBlocking: true as const })),
+    ...advisory.map((row) => ({ row, isBlocking: false as const })),
+  ];
+  if (rows.length === 0) {
     return null;
   }
+  const named = rows.slice(0, NAV_NAMED_LIMIT);
+  const overflow = rows.length - named.length;
   return (
     <ul className="ob-triage-nav-sublist">
-      <NavFieldCluster
-        headingKey="ob.conv.triage.blockingHead"
-        rows={blocking}
-        icon={AlertTriangle}
-        blocking
-        t={t}
-      />
-      <NavFieldCluster
-        headingKey="ob.conv.triage.advisoryHead"
-        rows={advisory}
-        icon={Circle}
-        blocking={false}
-        t={t}
-      />
+      {named.map(({ row, isBlocking }) => (
+        <li key={row.field}>
+          <button
+            type="button"
+            className="ob-triage-nav-item"
+            data-blocking={isBlocking ? "true" : undefined}
+            onClick={() => jumpToFindings([row.field])}
+          >
+            {isBlocking && <AlertTriangle aria-hidden />}
+            <span>{row.label}</span>
+            <span className="sr-only">
+              {t(
+                isBlocking
+                  ? "ob.conv.triage.blockingHead"
+                  : "ob.conv.triage.advisoryHead",
+              )}
+            </span>
+          </button>
+        </li>
+      ))}
+      {overflow > 0 && (
+        <li className="ob-triage-nav-more">
+          {t("ob.conv.triage.sectionMore", { count: overflow })}
+        </li>
+      )}
     </ul>
   );
 }
@@ -609,11 +569,11 @@ function SectionQuantity({
 }
 
 // The map replaced: a plain list of section names, each a jump link, each
-// naming the fields still open under it in two labelled clusters — a real
-// to-do list, not a count to decode, and one that never lets a merely
-// advisory field read as an obstacle. A section with nothing outstanding
-// says so quietly (a settled mark) rather than rendering nothing, so "done"
-// and "not built" can never look alike.
+// naming the fields still open under it — a real to-do list, not a count to
+// decode, and one that never lets a merely advisory field read as an
+// obstacle. A section with nothing outstanding says so quietly (a settled
+// mark) rather than rendering nothing, so "done" and "not built" can never
+// look alike.
 function SectionNav({
   groups,
   activeKey,

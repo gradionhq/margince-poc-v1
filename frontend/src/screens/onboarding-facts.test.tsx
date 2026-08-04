@@ -957,16 +957,25 @@ describe("CompanyConfirmCard as a triage surface", () => {
 
     // None of buying_intents, common_objections or sales_motion is in
     // REQUIRED_FIELDS — sales can never present as blocking, however many
-    // of its own fields are still empty.
+    // of its own fields are still empty. An advisory-only section carries
+    // no badge at all: the named list under it already says what these
+    // fields are, so a count here would be homework, not new information.
     const salesLink = within(nav).getByRole("button", {
       name: /Positioning and sales/,
     });
     expect(salesLink.querySelector('[data-blocking="true"]')).toBeNull();
-    // The badge is a bare digit — a narrow column has no room for a
-    // phrase — but the tier still reaches a screen reader.
-    expect(within(salesLink).getByText("3")).toBeInTheDocument();
+    expect(salesLink.querySelector(".ob-triage-nav-badge")).toBeNull();
+    const salesItem = salesLink.parentElement as HTMLElement;
+    const buyingIntents = within(salesItem).getByRole("button", {
+      name: /Buying intents/,
+    });
+    expect(buyingIntents.querySelector("svg")).toBeNull();
+    // No triangle glyph on an advisory row — only its own name — but the
+    // tier still reaches a screen reader on the row itself.
     expect(
-      within(salesLink).getByText("3 worth a check", { selector: ".sr-only" }),
+      within(buyingIntents).getByText("Worth a check", {
+        selector: ".sr-only",
+      }),
     ).toBeInTheDocument();
   });
 
@@ -1140,9 +1149,10 @@ describe("CompanyConfirmCard as a triage surface", () => {
   });
 
   // The map is gone: the nav is a plain list of section names, each a jump
-  // link, with only a non-zero unresolved count as its status — no per-field
-  // squares, no legend explaining a colour vocabulary.
-  it("navigates by section name, splitting what blocks from what's merely worth a look, not a grid of squares", () => {
+  // link, with only a single blocking count as its status — no per-field
+  // squares, no legend explaining a colour vocabulary, and no second count
+  // for the merely-advisory fields the named list already speaks for.
+  it("navigates by section name, badging only what blocks, not a grid of squares", () => {
     renderTriage(["icp"]);
 
     const nav = screen.getByRole("navigation", { name: "Jump to a section" });
@@ -1150,17 +1160,12 @@ describe("CompanyConfirmCard as a triage surface", () => {
       name: /Legal organization/,
     });
     // display_name is required and empty — the one field that actually
-    // blocks confirm. registered_address, register_vat, industry and
-    // history are merely empty-and-optional (legal_name alone is settled) —
-    // worth a look, never an obstacle, and never counted alongside the
-    // blocking one as if they were the same kind of gap.
+    // blocks confirm, and the only count this section's badge carries.
+    // registered_address, register_vat, industry and history are merely
+    // empty-and-optional (legal_name alone is settled) — worth a look,
+    // never an obstacle, and never given a count of their own to add to it.
     expect(within(identityLink).getByText("1")).toBeInTheDocument();
-    expect(within(identityLink).getByText("4")).toBeInTheDocument();
-    expect(
-      within(identityLink).getByText("4 worth a check", {
-        selector: ".sr-only",
-      }),
-    ).toBeInTheDocument();
+    expect(within(identityLink).queryByText("4")).toBeNull();
     expect(screen.queryByText("What the squares mean")).not.toBeInTheDocument();
   });
 
@@ -1565,8 +1570,11 @@ describe("CompanyConfirmCard as a triage surface", () => {
     const identityLink = within(nav).getByRole("button", {
       name: /Legal organization/,
     });
+    const section = identityLink.closest("li") as HTMLElement;
+    const advisoryItems = () =>
+      section.querySelectorAll(".ob-triage-nav-item:not([data-blocking])");
     expect(within(identityLink).getByText("1")).toBeInTheDocument();
-    expect(within(identityLink).getByText("4")).toBeInTheDocument();
+    expect(advisoryItems()).toHaveLength(4);
     const row = document.getElementById("ob-triage-row-display_name");
     if (row === null) {
       throw new Error("expected the row to exist");
@@ -1578,12 +1586,12 @@ describe("CompanyConfirmCard as a triage surface", () => {
       "Gradion",
     );
 
-    // The blocking count and the row's own mark are the same predicate read
+    // The blocking badge and the row's own mark are the same predicate read
     // twice: filling the one required field can only drop both together.
-    // The advisory count is a different predicate entirely — untouched by
-    // this edit — and must not move just because the blocking count did.
+    // The advisory list is a different predicate entirely — untouched by
+    // this edit — and must not move just because the blocking badge did.
     expect(within(identityLink).queryByText("1")).not.toBeInTheDocument();
-    expect(within(identityLink).getByText("4")).toBeInTheDocument();
+    expect(advisoryItems()).toHaveLength(4);
     expect(
       within(row).queryByText("required, still empty"),
     ).not.toBeInTheDocument();

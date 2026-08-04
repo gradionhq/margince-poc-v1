@@ -29,8 +29,6 @@ const complete: PayoffCounts = {
   voiceWords: 30512,
 };
 
-const noAction = () => undefined;
-
 // The story's own clock: the elapsed time is what decides the lead, so each
 // story states the age of the setup it is showing rather than inheriting one.
 const NOW_MS = Date.parse("2026-07-31T12:00:00Z");
@@ -51,7 +49,6 @@ function frame(counts: PayoffCounts, startedAt: string) {
           locale="en"
           startedAt={startedAt}
           nowMs={NOW_MS}
-          onContinue={noAction}
         />
       </div>
     </StoryProviders>

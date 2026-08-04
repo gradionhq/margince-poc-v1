@@ -538,12 +538,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The active model under the spend, one quiet line that never wraps — the
-   full routing is one hover (title) or one chip-press away. */
+/* Plain language under the spend, one quiet line that never wraps — the
+   exact identifiers are one hover (title) or one chip-press away, so this
+   line never has to carry them. Prose, not an id, so body rather than mono. */
 .mw-shell.is-rail .mw-aifooter-model {
   overflow: hidden;
   color: var(--textMeta);
-  font-family: var(--f-mono);
+  font-family: var(--f-body);
   font-size: 9.5px;
   text-overflow: ellipsis;
   white-space: nowrap;

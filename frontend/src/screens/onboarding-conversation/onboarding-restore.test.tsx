@@ -375,7 +375,11 @@ describe("restore into the conversational shell", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText(/You skipped the voice profile\./)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Understood" })).toBeTruthy();
+    // The action that leaves the recap sits in the artifact surface's own
+    // pinned foot, never as a chip beside the transcript it recaps.
+    const understood = screen.getByRole("button", { name: "Understood" });
+    expect(understood.closest(".ob-triage-continue")).toBeTruthy();
+    expect(understood.closest(".mw-thread")).toBeNull();
   });
 
   // Continuing out of the recap lands directly on the merged connect screen —

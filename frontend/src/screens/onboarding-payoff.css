@@ -146,24 +146,6 @@
   color: var(--textContent);
 }
 
-.ob-payoff-actions {
-  display: flex;
-}
-.ob-payoff-actions .btn {
-  min-height: 44px;
-}
-/* The one button that leaves this flow, so keyboard focus on it reads the same
-   accent-token ring the conversation's chips carry rather than the browser's
-   off-palette outline. The primary variant's lift shadow is restated: a bare
-   ring would drop it and make focus look like a press. */
-.ob-payoff-actions .btn:focus-visible {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
-  box-shadow:
-    0 0 0 3px var(--accentLight),
-    0 2px 8px var(--accentMed);
-}
-
 /* Six cells stay six cells: two columns rather than a dropped row. The width
    is the COLUMN's (see the container note at the top of the file) — below
    ~460px the uppercase labels start taking a third line in German. */
@@ -173,8 +155,8 @@
   }
 }
 
-/* Phone width: the column IS the screen, so the lead and the action take the
-   treatment they need there. */
+/* Phone width: the column IS the screen, so the lead takes the treatment it
+   needs there. */
 @container (max-width: 380px) {
   .ob-payoff-lead {
     font-size: 19px;
@@ -188,11 +170,6 @@
   .ob-payoff-cell.is-argument .ob-payoff-value {
     /* The same lead-to-support step, one notch down the scale. */
     font-size: 25px;
-  }
-  .ob-payoff-actions .btn {
-    /* A finger's target spans the column at this width. */
-    flex: 1;
-    justify-content: center;
   }
 }
 
@@ -213,11 +190,5 @@
      as a real border for the grid to keep its structure. */
   .ob-payoff-cell {
     border: 1px solid CanvasText;
-  }
-  /* Same reason, and here it is the focus indicator at stake: the accent ring
-     is a shadow, so the outline it deliberately hides has to become the real
-     one under a forced palette. */
-  .ob-payoff-actions .btn:focus-visible {
-    outline: 2px solid Highlight;
   }
 }

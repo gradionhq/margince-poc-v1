@@ -902,6 +902,27 @@
   resize: vertical;
 }
 
+/* The floor meter: a real progress element plus the numbers behind it, so
+   the fill is never the only place the count lives. */
+.ob-voice-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.ob-voice-meter-bar {
+  inline-size: 100%;
+  block-size: 6px;
+  accent-color: var(--accent);
+}
+
+.ob-voice-meter-line {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
 /* What the server actually kept, one row per source. */
 .ob-voice-sources-head {
   display: flex;
@@ -1076,14 +1097,29 @@
   margin-left: auto;
 }
 
-/* The result scene: what a build learned, as bordered cards with a clear
-   hierarchy — the sample first (it is the payoff), then the measured
-   dimensions, then the reading that explains them. */
-.ob-voice-result {
+/* The result scene: the sample on the left, the reading on the right — two
+   columns of bordered cards, each column its own vertical stack. Narrow
+   folds to one column, sample first (it is the payoff), same breakpoint the
+   triage board already collapses at. */
+.ob-voice-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  align-items: start;
+}
+
+.ob-voice-board-col {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  margin-top: var(--space-2);
+  min-width: 0;
+}
+
+@media (max-width: 56rem) {
+  .ob-voice-board {
+    grid-template-columns: 1fr;
+  }
 }
 
 .ob-voice-result-card {
@@ -1111,13 +1147,39 @@
   height: 13px;
 }
 
-/* The sample: a real draft in a card of its own, with the reading that
-   explains why it lands the way it does directly underneath it. */
+/* The sample: a real draft in a card of its own — the header names it as a
+   sample and offers the one honest regenerate action (cycling drafts already
+   in hand), the body is the draft, and the footer says what it borrowed. */
+.ob-voice-sample-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.ob-voice-sample-head .ob-voice-result-label {
+  margin: 0;
+}
+
 .ob-voice-sample-subject {
-  margin: 0 0 var(--space-2);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--borderSubtle);
   color: var(--textPrimary);
   font-size: 0.9375rem;
-  font-weight: 560;
+}
+
+.ob-voice-sample-field {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .ob-voice-sample-body {
@@ -1129,6 +1191,8 @@
 }
 
 .ob-voice-sample-why {
+  display: flex;
+  gap: 6px;
   margin: var(--space-3) 0 0;
   padding-top: var(--space-2);
   border-top: 1px solid var(--borderSubtle);
@@ -1136,39 +1200,98 @@
   font-size: 0.8125rem;
 }
 
-/* The measured dimensions: a labelled track per number, the fill a decorative
-   comparison against a generous reference — the count beside it is the only
-   number a reader should trust. */
-.ob-voice-dimensions {
+.ob-voice-sample-why-tag {
+  flex: none;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The measured dimensions: a readout per axis the build actually scored —
+   never a control. Everything a reader could act on lives in real text (the
+   value word, the poles, the evidence sentence); the track and its marker
+   are aria-hidden decoration on top of that text, not a second source of it. */
+.ob-voice-dims-head {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  justify-content: space-between;
   gap: var(--space-3);
 }
 
-.ob-voice-dimension {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.ob-voice-dims-count {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
-.ob-voice-dimension-label {
+.ob-voice-dims-meta {
+  margin: 0 0 var(--space-3);
   color: var(--textSecondary);
   font-size: 0.8125rem;
 }
 
-.ob-voice-dimension-track {
-  display: block;
-  height: 6px;
-  border-radius: var(--r-full);
-  background: var(--borderSubtle);
-  overflow: hidden;
+.ob-voice-dims-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
-.ob-voice-dimension-fill {
-  display: block;
-  height: 100%;
+.ob-voice-dim-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 6px;
+}
+
+.ob-voice-dim-name {
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  font-weight: 560;
+}
+
+.ob-voice-dim-value {
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-dim-track {
+  position: relative;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--borderSubtle);
+}
+
+/* A dot, not a filled bar: a fill reads as "this much of something", the
+   scale here has no "more" — only a position between two named poles. */
+.ob-voice-dim-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
   border-radius: var(--r-full);
   background: var(--accent);
+  transform: translate(-50%, -50%);
+}
+
+.ob-voice-dim-poles {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--textMeta);
+  font-size: 0.6875rem;
+}
+
+.ob-voice-dim-evidence {
+  margin: 6px 0 0;
+  color: var(--textMeta);
+  font-size: 0.75rem;
 }
 
 .ob-voice-result-identity {
@@ -1897,37 +2020,23 @@
   scroll-margin-top: var(--space-3);
 }
 
-/* Two digits at most, never words: a narrow column has no room for a
-   phrase beside a section name, in either language. The pair sits flush
-   right of the name; sr-only text on each carries what the other only
-   showed in visible words before. */
-.ob-triage-nav-badges {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  flex: none;
-}
-
-/* Neutral by default — an advisory count is a quantity, not a warning.
-   `[data-blocking="true"]` is the one case red is for: the number that
-   actually stops confirm. */
+/* One digit at most, never words: a narrow column has no room for a phrase
+   beside a section name, in either language. This is the blocking count —
+   the only number that stops confirm — so it is always the danger tint;
+   there is no neutral variant to tell apart from it any more. */
 .ob-triage-nav-badge {
   display: inline-flex;
   align-items: center;
+  flex: none;
   min-width: 16px;
   padding: 0 5px;
   border-radius: var(--r-full);
-  background: var(--bgCard);
-  color: var(--textMeta);
+  background: var(--dangerBg);
+  color: var(--danger);
   font-family: var(--f-mono);
   font-size: 0.625rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-}
-
-.ob-triage-nav-badge[data-blocking="true"] {
-  background: var(--dangerBg);
-  color: var(--danger);
 }
 
 /* The settled mark: a section with nothing outstanding still says so,
@@ -1970,23 +2079,6 @@
      other side. */
   padding-inline: calc(var(--space-2) + var(--space-4)) var(--space-2);
   list-style: none;
-}
-
-/* The cluster heading: the words that say what the fields under it have in
-   common — "needed to continue" or "worth a check" — carrying the
-   distinction the icons only reinforce. Not a jump target itself. */
-.ob-triage-nav-subhead {
-  margin-top: 2px;
-  color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.ob-triage-nav-subhead:first-child {
-  margin-top: 0;
 }
 
 .ob-triage-nav-item {

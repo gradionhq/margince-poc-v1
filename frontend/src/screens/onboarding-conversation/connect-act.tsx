@@ -2,7 +2,6 @@ import { Check } from "lucide-react";
 import type { Dispatch } from "react";
 import { useState } from "react";
 import { navigate } from "../../app/router";
-import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
 import { BackfillPanel } from "../backfill";
@@ -151,6 +150,9 @@ export function ConnectAct({
           onLinkedinSkip={() => dispatch({ type: "LINKEDIN_SKIPPED" })}
           linkedinPending={linkedin.isPending}
           linkedinError={linkedin.isError ? linkedin.error.message : null}
+          onEnter={
+            state.phase === "cn.done" ? () => setEntering(true) : undefined
+          }
           panel={
             outcome !== undefined ? (
               <>
@@ -226,13 +228,6 @@ export function ConnectAct({
                 </div>
               )}
             </>
-          )}
-          {state.phase === "cn.done" && (
-            <div className="ob-conv-chips">
-              <Button small variant="primary" onClick={() => setEntering(true)}>
-                {t("ob.enter.cta")}
-              </Button>
-            </div>
           )}
         </ConversationThread>
       </div>

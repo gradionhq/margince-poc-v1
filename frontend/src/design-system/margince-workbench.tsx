@@ -39,6 +39,7 @@ export function MarginceWorkbench({
   title,
   status,
   configured,
+  configuredSummary,
   locale,
   runtime,
   runtimeLabels,
@@ -56,6 +57,13 @@ export function MarginceWorkbench({
   title: string;
   status: string;
   configured: string;
+  /**
+   * Rail only: the plain-language line the footer shows in place of
+   * `configured` (raw provider/model ids truncate mid-identifier for a
+   * reader who cannot parse them anyway). Falls back to `configured` when a
+   * caller has no summary to offer.
+   */
+  configuredSummary?: string;
   locale: string;
   runtime?: AiRunSummary;
   runtimeLabels: WorkbenchRuntimeLabels;
@@ -141,9 +149,13 @@ export function MarginceWorkbench({
                   locale={locale}
                   showTokens
                 />
-                {/* The model doing the answering, named right under its bill. */}
+                {/* Plain-language by default — how many models, and where
+                    they run — because the raw ids above are jargon to the
+                    reader this line is for. The exact identifiers are the
+                    chip's own "Configured AI" row, one press above; the
+                    title attribute repeats them for a reader who hovers. */}
                 <small className="mw-aifooter-model" title={configured}>
-                  {configured}
+                  {configuredSummary ?? configured}
                 </small>
               </div>
               {stepRail}

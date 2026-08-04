@@ -455,12 +455,11 @@ describe("the conversational company act", () => {
       name: /Continue/,
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(true);
-    // The nav's "Needed to continue" cluster is the surface that names the
-    // blocking fields (the bottom bar only states the count); it renders
-    // each one from the same `remaining_required_fields` this stub sets. A
-    // section can share its own label with the one field inside it (the
-    // customer section is itself titled "Ideal customer"), so the check
-    // reads the blocking field rows specifically, not any text match.
+    // The nav's own to-do list is the surface that names the blocking
+    // fields (the bottom bar only states the count); it renders each one
+    // from the same `remaining_required_fields` this stub sets. Reading the
+    // blocking rows specifically, not any text match, keeps this from also
+    // catching a section's own jump-link name.
     const nav = await screen.findByRole("navigation", {
       name: "Jump to a section",
     });

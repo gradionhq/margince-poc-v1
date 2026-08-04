@@ -313,22 +313,13 @@ describe("the rail's review to-do list", () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
 
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
-    // The board's own nav counts blocking and advisory separately too (a
-    // bare digit inside `.ob-triage-nav-badge b` for blocking, a "{count}
-    // worth a check" phrase inside `.ob-triage-nav-advisory` for advisory) —
-    // the same two-tier split the rail's list makes, so their sum is the
-    // one number both surfaces must agree on.
+    // The board's own nav names every outstanding field as its own
+    // `.ob-triage-nav-item`, blocking and advisory alike (only the badge
+    // above them is blocking-only now) — the same two-tier split the rail's
+    // list makes, so the count of named fields is the one number both
+    // surfaces must agree on.
     const nav = document.querySelector(".ob-triage-nav") as HTMLElement;
-    const blockingTotal = [
-      ...nav.querySelectorAll(".ob-triage-nav-badge b"),
-    ].reduce((sum, badge) => sum + Number(badge.textContent), 0);
-    const advisoryTotal = [
-      ...nav.querySelectorAll(".ob-triage-nav-advisory"),
-    ].reduce(
-      (sum, node) => sum + Number.parseInt(node.textContent ?? "0", 10),
-      0,
-    );
-    const boardTotal = blockingTotal + advisoryTotal;
+    const boardTotal = nav.querySelectorAll(".ob-triage-nav-item").length;
 
     const items = document.querySelectorAll(".ob-conv-attention li");
     expect(items).toHaveLength(boardTotal);
