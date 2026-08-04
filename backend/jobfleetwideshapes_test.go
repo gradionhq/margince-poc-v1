@@ -34,7 +34,41 @@ func parseFleetWideSource(t *testing.T, src string) (*token.FileSet, []*ast.File
 // be fixed by weakening it, and the weakening is what the next sweep loop walks
 // back in through — so every shape the tree actually uses is a test.
 func TestTheFleetWideGateAcceptsEveryDispatchShapeInTheTree(t *testing.T) {
-	for name, work := range fleetWideShapesInTheTree() {
+	eachShape(t, fleetWideShapesInTheTree(), fleetWideShapeFloor, func(t *testing.T, d fleetWideDispatcher) {
+		if !d.fansOut {
+			t.Errorf("the gate does not recognize this dispatch shape as a fan-out; it is in the tree and must be in the allowlist")
+		}
+		if len(d.writes) != 0 {
+			t.Errorf("the gate reads a tenant write into a dispatcher that makes none: %v", d.writes)
+		}
+	})
+}
+
+// fleetWideShapeFloor and fleetWidePlantFloor guard the tables below against a
+// vacuous pass. Every test here RANGES a table, and ranging an empty map runs
+// no subtest and reports green — a gate that passes because it found nothing
+// to check, which is the defect this whole file exists to catch, in the file
+// that catches it.
+//
+// The accepted table holds six shapes today and its floor sits one below, so a
+// shape the tree stops using can be retired without editing the gate. The two
+// rejection tables hold exactly two named plants each and their floor is that
+// count: a falsification suite that falsifies one thing fewer is worse than
+// none at all, because it still reads as coverage.
+const (
+	fleetWideShapeFloor = 5
+	fleetWidePlantFloor = 2
+)
+
+// eachShape resolves one synthetic dispatcher per table entry and hands it to
+// assert, after refusing a table too thin to falsify anything.
+func eachShape(t *testing.T, shapes map[string]string, floor int, assert func(*testing.T, fleetWideDispatcher)) {
+	t.Helper()
+	if len(shapes) < floor {
+		t.Fatalf("the table holds %d shape(s), expected at least %d — the assertions below run once per entry, so a thinner table proves proportionally less and an empty one proves nothing while reporting green",
+			len(shapes), floor)
+	}
+	for name, work := range shapes {
 		t.Run(name, func(t *testing.T) {
 			fset, files := parseFleetWideSource(t, fleetWideFixture(work))
 			dispatchers, orphans := analyzeFleetWide(fset, files)
@@ -44,12 +78,7 @@ func TestTheFleetWideGateAcceptsEveryDispatchShapeInTheTree(t *testing.T) {
 			if len(dispatchers) != 1 {
 				t.Fatalf("resolved %d dispatchers, want exactly 1", len(dispatchers))
 			}
-			if !dispatchers[0].fansOut {
-				t.Errorf("the gate does not recognize this dispatch shape as a fan-out; it is in the tree and must be in the allowlist")
-			}
-			if len(dispatchers[0].writes) != 0 {
-				t.Errorf("the gate reads a tenant write into a dispatcher that makes none: %v", dispatchers[0].writes)
-			}
+			assert(t, dispatchers[0])
 		})
 	}
 }
@@ -78,21 +107,14 @@ func TestTheFleetWideGateRejectsADispatcherThatDoesTenantWork(t *testing.T) {
 				return err
 			}`,
 	}
-	for name, work := range plants {
-		t.Run(name, func(t *testing.T) {
-			fset, files := parseFleetWideSource(t, fleetWideFixture(work))
-			dispatchers, _ := analyzeFleetWide(fset, files)
-			if len(dispatchers) != 1 {
-				t.Fatalf("resolved %d dispatchers, want exactly 1", len(dispatchers))
-			}
-			if len(dispatchers[0].writes) == 0 {
-				t.Errorf("the gate sees no tenant write in a dispatcher that issues one — it would let this shape back into the tree")
-			}
-			if dispatchers[0].fansOut {
-				t.Errorf("the gate reads a fan-out into a dispatcher that enqueues nothing")
-			}
-		})
-	}
+	eachShape(t, plants, fleetWidePlantFloor, func(t *testing.T, d fleetWideDispatcher) {
+		if len(d.writes) == 0 {
+			t.Errorf("the gate sees no tenant write in a dispatcher that issues one — it would let this shape back into the tree")
+		}
+		if d.fansOut {
+			t.Errorf("the gate reads a fan-out into a dispatcher that enqueues nothing")
+		}
+	})
 }
 
 // TestTheFleetWideGateRejectsAFanOutThatGoesAroundTheChokepoints — both plants
@@ -130,19 +152,12 @@ func TestTheFleetWideGateRejectsAFanOutThatGoesAroundTheChokepoints(t *testing.T
 				return jobs.FaultContext(ctx, enumErr)
 			}`,
 	}
-	for name, work := range plants {
-		t.Run(name, func(t *testing.T) {
-			fset, files := parseFleetWideSource(t, fleetWideFixture(work))
-			dispatchers, _ := analyzeFleetWide(fset, files)
-			if len(dispatchers) != 1 {
-				t.Fatalf("resolved %d dispatchers, want exactly 1", len(dispatchers))
-			}
-			if dispatchers[0].fansOut {
-				t.Errorf("the gate accepts a fan-out built around the chokepoints; an untagged child " +
-					"would be enqueued with numbers the contract does not govern, and nothing would say so")
-			}
-		})
-	}
+	eachShape(t, plants, fleetWidePlantFloor, func(t *testing.T, d fleetWideDispatcher) {
+		if d.fansOut {
+			t.Errorf("the gate accepts a fan-out built around the chokepoints; an untagged child " +
+				"would be enqueued with numbers the contract does not govern, and nothing would say so")
+		}
+	})
 }
 
 // fleetWideFixture wraps one Work method in the smallest file that declares a

@@ -220,13 +220,10 @@ func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 // sweep gauges cannot tell a fleet pass from a hand-triggered workspace job
 // by kind alone, because they are the same kind. The tag is the difference.
 //
-// This covers the dispatchWith choke point ONLY. The five dispatchers that
-// loop single client.Insert calls (jobs_capture.go x2, telegrampoll.go,
-// voicebuild.go, jobs_overlay.go) are not reachable from here — they resolve
-// a River client from context — so a regression in any of them would still
-// pass. Their tagging is held by markedAsFleetPass' own registry comment and
-// by review, which is why a fitness test over fan-out SITES is carried as
-// the highest-value follow-up in STATUS.md rather than claimed here.
+// This covers the dispatchWith builder. The other one, fanOutChildOpts, is
+// covered by the posture tests above — between them every fan-out child's
+// opts are built here or there, and TestEveryFleetWideJobOnlyDispatches is
+// what proves no dispatcher reaches River by a third spelling.
 func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
 	var got []river.InsertManyParams
 	insert := func(_ context.Context, params []river.InsertManyParams) error {

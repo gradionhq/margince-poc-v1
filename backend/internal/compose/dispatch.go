@@ -283,7 +283,7 @@ func fanOutChildOpts(childKind string, callerOpts *river.InsertOpts) *river.Inse
 // row. Tags are validated for format only and take no part in River's
 // unique key, so this changes no scheduling behaviour.
 //
-// Every caller is in this file. A fan-out child's opts are built by
+// Every production caller is in this file. A fan-out child's opts are built by
 // workspaceSweepOpts (a fleet insert) or fanOutChildOpts (a single one) and
 // nowhere else, and both stamp the tag — so a dispatcher cannot forget it,
 // which is what an untagged child costs: silent absence from the sweep
