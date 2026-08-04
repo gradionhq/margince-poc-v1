@@ -116,6 +116,8 @@ func runSitePageFactsCase(t *testing.T, fixture json.RawMessage, want map[string
 	return prepared.Evaluate(trace), trace
 }
 
+// gatekit:fixture the fact value this case's reply is graded against — expected
+// data the case owns, not a waived exception.
 var sitePageFactsWantAudit = map[string]string{people.FactService: "Cloud Cost Audit"}
 
 // sitePageFactsReplyCase is one reply and the outcome this site owes it. Each

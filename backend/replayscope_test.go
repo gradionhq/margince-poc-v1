@@ -251,6 +251,8 @@ func mappedReplayScope(t *testing.T) map[string]expectedTarget {
 
 // replayScopeConsts holds the file's string consts, so a reason written once
 // and referenced by name reads the same to this gate as an inline literal.
+// gatekit:fixture state this file's own walk writes as it parses, read back to
+// resolve a name — a cache, so nothing here is ratified or goes stale.
 var replayScopeConsts = map[string]string{}
 
 // stringLiteral flattens a string literal, a concatenation of them (the

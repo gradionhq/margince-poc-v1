@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -82,7 +83,7 @@ func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 // nobody has. The gate can only see membership in approvals.versionTables, so
 // whether a column is live is a claim these rationales make and a reader must be
 // able to check.
-var unpinnableConfirmFirstTypes = map[string]string{
+var unpinnableConfirmFirstTypes = gatekit.Waive(map[agentRecordType]string{
 	"custom_field": "custom_field HAS a version column (migrations/core/0063) but nothing maintains it: " +
 		"the catalog's own writers (customfields' rename, options and retire paths) issue bare UPDATEs " +
 		"rather than storekit's guarded patch, so the column never leaves 1 and never takes an If-Match. " +
@@ -98,7 +99,7 @@ var unpinnableConfirmFirstTypes = map[string]string{
 		"`incumbent_connection` (migrations/custom/20260716120000_overlay), under a different name and " +
 		"with no version column, so approvals.targetVersion cannot even resolve a table for this target " +
 		"type. connect/disconnect are whole-row transitions the diff_hash binds.",
-}
+})
 
 // Every confirm-first operation that names a concrete record type must have
 // a type the approvals engine can PIN — or sit in the ratified list above
@@ -108,13 +109,8 @@ var unpinnableConfirmFirstTypes = map[string]string{
 // confirm-first routes carried a pin the agent could simply decline to
 // supply, and nothing said so.
 func TestConfirmFirstTargetsArePinnable(t *testing.T) {
-	for recordType, rationale := range unpinnableConfirmFirstTypes {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("unpinnableConfirmFirstTypes[%s] has no rationale — a waiver must say why no pin is possible", recordType)
-		}
-	}
+	defer unpinnableConfirmFirstTypes.AssertAllMatched(t)
 
-	used := map[string]bool{}
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
@@ -124,8 +120,7 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 		if approvals.TargetVersionCheckable(string(pol.RecordType)) {
 			continue
 		}
-		if _, ratified := unpinnableConfirmFirstTypes[string(pol.RecordType)]; ratified {
-			used[string(pol.RecordType)] = true
+		if unpinnableConfirmFirstTypes.Waived(t, pol.RecordType) {
 			continue
 		}
 		t.Errorf("%s (%s) stages against %q, which carries no version pin — either give the table a version column "+
@@ -133,11 +128,6 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no confirm-first record-typed routes in the generated policy — the pin no longer covers anything")
-	}
-	for recordType := range unpinnableConfirmFirstTypes {
-		if !used[recordType] {
-			t.Errorf("unpinnableConfirmFirstTypes[%s] matches no confirm-first route — stale waiver, remove it", recordType)
-		}
 	}
 }
 
@@ -216,7 +206,7 @@ func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 // surface or a passport's REST call can stage today. It is written down so the
 // class is enumerated rather than invisible, and so it can only shrink — a NEW
 // confirm-first record type joins it deliberately or fails the gate below.
-var undecidableConfirmFirstTypes = map[string]string{
+var undecidableConfirmFirstTypes = gatekit.Waive(map[agentRecordType]string{
 	"record_grant": "createRecordGrant/revokeRecordGrant, undecidable on BOTH halves of the " +
 		"claim, and neither is fixable here. AUTHORITY: share_record resolves its decision grant " +
 		"from the target's entity type, so deciding one demands `record_grant.update` — and " +
@@ -229,7 +219,7 @@ var undecidableConfirmFirstTypes = map[string]string{
 		"minting `record_grant` as one, is a product decision about whether an agent may propose " +
 		"sharing at all; making the row merely decidable would leave an operation that still never " +
 		"lands, which is worse than an honest dead end.",
-}
+})
 
 // stagedRowDecidable answers the gate's WHOLE claim about one route's staged
 // row: that a human can see it, and that the grants deciding it derives are ones
@@ -280,13 +270,8 @@ func stagedRowDecidable(pol agentPolicy, hasTargetID bool) (bool, string) {
 // its type with a NULL id — a different decidability question from the same
 // type's, and one a type-only walk answers green over.
 func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
-	for recordType, cost := range undecidableConfirmFirstTypes {
-		if strings.TrimSpace(cost) == "" {
-			t.Errorf("undecidableConfirmFirstTypes[%s] has no reason — a waiver must say what it costs", recordType)
-		}
-	}
+	defer undecidableConfirmFirstTypes.AssertAllMatched(t)
 
-	used := map[string]bool{}
 	checked := 0
 	for route, pol := range agentPolicies {
 		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
@@ -306,8 +291,7 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 		if decidable {
 			continue
 		}
-		if _, ratified := undecidableConfirmFirstTypes[string(pol.RecordType)]; ratified {
-			used[string(pol.RecordType)] = true
+		if undecidableConfirmFirstTypes.Waived(t, pol.RecordType) {
 			continue
 		}
 		t.Errorf("%s (%s) stages against %q, which %s. No human could ever release or reject that row. "+
@@ -316,12 +300,6 @@ func TestEveryConfirmFirstTargetTypeIsDecidable(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("no confirm-first record-typed routes in the generated policy — the gate no longer covers anything")
-	}
-	for recordType := range undecidableConfirmFirstTypes {
-		if !used[recordType] {
-			t.Errorf("undecidableConfirmFirstTypes[%s] matches no confirm-first route, or the type gained a "+
-				"visibility rule — stale waiver, remove it", recordType)
-		}
 	}
 }
 
