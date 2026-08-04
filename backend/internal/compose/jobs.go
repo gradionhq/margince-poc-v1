@@ -76,9 +76,16 @@ type JobRunnerConfig struct {
 	// left for a role that can actually resolve a mailbox.
 	SendRegistry *capture.Registry
 
+	// CloseDateInterval is the deals close-date hygiene sweep's cadence — the
+	// operator-facing --close-date-interval. No worker is gated on it: the
+	// pass is database-only, so it registers on every role that runs jobs.
 	CloseDateInterval time.Duration
+	// ReconcileInterval is the overnight follow-up reconciliation's cadence
+	// (--reconcile-interval), on the same footing.
 	ReconcileInterval time.Duration
-	TimeScanInterval  time.Duration
+	// TimeScanInterval is the automation clock-trigger scan's cadence
+	// (--time-scan-interval), on the same footing.
+	TimeScanInterval time.Duration
 	// PrivacyRetention carries the GDPR retention dispatcher's cadence
 	// (jobs_privacyretention.go).
 	PrivacyRetention PrivacyRetentionConfig
@@ -88,8 +95,18 @@ type JobRunnerConfig struct {
 	// AgentScheduler carries the Surface-B dispatcher's cadence and the runner
 	// one workspace's pass ticks (jobs_agentscheduler.go).
 	AgentScheduler AgentSchedulerConfig
-	GmailRegistry  *capture.Registry
-	GmailWatch     GmailWatchConfig
+	// GmailRegistry is the connector registry every capture pass resolves a
+	// connection and its credentials through. Nil is a deployment with no
+	// Google OAuth app configured: the sync dispatcher, the per-connection
+	// sync, the backfill pager and the morning digest all register nothing,
+	// because not one of them can reach a mailbox without it.
+	GmailRegistry *capture.Registry
+	// GmailWatch carries the push-watch maintenance pass's cadence and the
+	// Pub/Sub topic a watch is registered against. An empty Topic is a
+	// deployment that never opted into push: the watch pass registers nothing
+	// and capture stays on the poll. It is the SECOND field of that pass's
+	// conjunction — a registry alone does not wire it.
+	GmailWatch GmailWatchConfig
 	// ChannelVault is the custodian of a channel connection's sealed bot token.
 	// Nil means this role registers no Telegram poller at all: a poll cannot
 	// authenticate without the token, so a dispatcher wired without a vault
@@ -119,8 +136,17 @@ type JobRunnerConfig struct {
 	// configured, and the consequence is deliberate: deferred senders stay
 	// deferred rather than being created on sight. An installation without a
 	// model keeps the old junk OUT, it does not fall back to letting it in.
-	VerdictBrain    completer
-	OverlayVault    keyvault.Vault
+	VerdictBrain completer
+	// OverlayVault is the custodian of an incumbent connection's sealed token.
+	// Nil is a role with no way to unseal one, so the reconcile poller and the
+	// webhook-as-signal re-fetch worker register nothing rather than queue
+	// sweeps that could only fail at their first credential read.
+	OverlayVault keyvault.Vault
+	// OverlayInterval is the reconcile poller's cadence — the operator-facing
+	// --overlay-reconcile-interval. It paces the due-SCAN and not one tenant's
+	// sweep: the per-workspace pacing lives in overlay_sync_state.next_sweep_at,
+	// which the scan is gated on, so a frequent poll does not mean frequent
+	// incumbent calls.
 	OverlayInterval time.Duration
 	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
 	// SAME Redis the api's force-fresh meter uses, so both lanes share one
@@ -155,12 +181,17 @@ type JobRunnerConfig struct {
 	// run and still land their facts, and every company keeps the monogram
 	// the render layer draws when no logo is on file.
 	Blobstore blobstore.Store
-	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
-	// embed-reindex workspace worker re-embeds under. The workers register
-	// regardless of whether this is nil: a picked-up reindex job on a
-	// brainless worker role fails clearly (jobs_embedreindex.go)
-	// rather than sitting queued forever behind a job no one can work —
-	// the same posture as DeepReadBrain.
+	// Embedder is the retrieval embed lane (ModelPath.Embedder) both embed
+	// passes re-embed under, and it is the one field whose two kinds take
+	// OPPOSITE postures — for a reason that is about who enqueues them.
+	//
+	// The REINDEX workers register even with a nil embedder, DeepReadBrain's
+	// posture: a human's confirm at the transport is what enqueues a reindex,
+	// so a row can already be waiting, and it should fail clearly
+	// (jobs_embedreindex.go) rather than sit queued behind a job no one works.
+	// The DRIFT sweep registers nothing, because nothing but its own tick ever
+	// enqueues it: there is no queued row to fail loudly on, and a tick that
+	// could only ever enqueue failures is noise rather than a signal.
 	Embedder search.Embedder
 	// VoiceBrain is the voice-build model lane (the worker's
 	// modelPath.VoiceBuild). May be nil: the build worker still registers,

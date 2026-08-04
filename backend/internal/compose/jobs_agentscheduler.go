@@ -55,7 +55,7 @@ type AgentSchedulerConfig struct {
 	// promptly a due occurrence is noticed and how often a claimable backlog is
 	// drained.
 	//
-	// Non-positive schedules no agent dispatch (periodicWhenPositive).
+	// Non-positive schedules no agent dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 	// Service is the assembled Surface-B runner one workspace's pass ticks —
 	// the SAME instance the role's cg:overnight-agent consumer resumes parked

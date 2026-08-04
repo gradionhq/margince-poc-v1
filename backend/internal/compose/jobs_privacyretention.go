@@ -63,7 +63,7 @@ var privacyRetentionPassTimeout = privacy.MaxPassDuration + 5*time.Minute
 type PrivacyRetentionConfig struct {
 	// Interval is the dispatcher's cadence — the operator-facing
 	// --retention-interval, which stays the schedule source it always was.
-	// Non-positive schedules no retention dispatch (periodicWhenPositive).
+	// Non-positive schedules no retention dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 }
 

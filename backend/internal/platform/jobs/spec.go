@@ -104,9 +104,9 @@ func (p TimeoutPolicy) Duration(supplied time.Duration) time.Duration {
 // otherwise, and every consumer reads the compiled table rather than the YAML.
 //
 // ScheduleWhenPositive names the JobRunnerConfig field whose non-positive
-// value means "workers registered, SCHEDULE absent" (periodicWhenPositive).
-// It is a third posture, not a variant of registration: the capability stays
-// wired and only the tick goes away.
+// value means "workers registered, SCHEDULE absent". It is a third posture,
+// not a variant of registration: the capability stays wired and only the tick
+// goes away.
 type Cadence struct {
 	Fixed                time.Duration
 	OperatorField        string
