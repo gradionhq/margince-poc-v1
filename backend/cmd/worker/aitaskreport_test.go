@@ -222,3 +222,18 @@ func TestIsNumberedPassageMatchesOnlyTheNumbering(t *testing.T) {
 		}
 	}
 }
+
+// Page content that merely STARTS like a marker is not one; counting it would
+// inflate the number the report exists to make trustworthy.
+func TestIsNumberedPassageRequiresTheMarkerToEnd(t *testing.T) {
+	for line, want := range map[string]bool{
+		"[s12] real":      true,
+		"[s12]":           true,
+		"[s12]not-marker": false,
+		"[s12]x":          false,
+	} {
+		if got := isNumberedPassage(line); got != want {
+			t.Errorf("isNumberedPassage(%q) = %v, want %v", line, got, want)
+		}
+	}
+}

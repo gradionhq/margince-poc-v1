@@ -337,3 +337,20 @@ func TestCountPassagesAgreesWithTheNumbering(t *testing.T) {
 		}
 	}
 }
+
+// A vendor listing the same model twice must not make the count reach the
+// number of bound models while a different one is missing — the caller reads
+// that count to decide whether every binding was found.
+func TestCatalogPassagesCountDistinctModelsNotEntries(t *testing.T) {
+	body := `{"data":[{"id":"vendor/a","n":1},{"id":"vendor/a","n":2},{"id":"vendor/c"}]}`
+	reduced, kept, ok := catalogPassages(body, map[string]bool{"vendor/a": true, "vendor/b": true})
+	if !ok {
+		t.Fatal("a well-formed catalog must be recognised")
+	}
+	if kept != 1 {
+		t.Errorf("kept = %d, want 1 — vendor/a twice is still one model, and vendor/b is absent", kept)
+	}
+	if strings.Count(reduced, "vendor/a") != 1 {
+		t.Errorf("one passage per model, however often the vendor lists it:\n%s", reduced)
+	}
+}

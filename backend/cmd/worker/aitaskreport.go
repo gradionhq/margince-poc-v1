@@ -119,16 +119,24 @@ func payloadPassages(req model.Request) int {
 }
 
 // isNumberedPassage matches the `[sN] ` prefix numberPassages emits.
+//
+// The marker has to END, not merely appear: `[s12]not-a-marker` is page content
+// that happens to start like one, and counting it would inflate the very number
+// the report exists to make trustworthy.
 func isNumberedPassage(line string) bool {
 	rest, ok := strings.CutPrefix(line, "[s")
 	if !ok {
 		return false
 	}
-	digits, _, ok := strings.Cut(rest, "]")
+	digits, after, ok := strings.Cut(rest, "]")
 	if !ok || digits == "" {
 		return false
 	}
-	return strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) < 0
+	if strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return false
+	}
+	// numberPassages writes "[sN] text"; a bare "[sN]" ends the line.
+	return after == "" || strings.HasPrefix(after, " ")
 }
 
 func responseLine(call probeCall) string {

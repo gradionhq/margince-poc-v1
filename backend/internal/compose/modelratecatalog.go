@@ -59,24 +59,35 @@ func catalogPassages(body string, bound map[string]bool) (string, int, bool) {
 		return "", 0, false
 	}
 	var b strings.Builder
-	kept := 0
+	// Counted as DISTINCT ids, not entries: a catalog that lists the same model
+	// twice would otherwise make the count reach len(bound) while a different
+	// bound model is missing, and the caller reads that count to decide whether
+	// every binding was found.
+	seen := make(map[string]bool, len(bound))
 	for _, entry := range catalog.Data {
 		var identity struct {
 			ID string `json:"id"`
 		}
-		if err := json.Unmarshal(entry, &identity); err != nil || strings.TrimSpace(identity.ID) == "" {
+		if err := json.Unmarshal(entry, &identity); err != nil {
+			continue
+		}
+		id := strings.TrimSpace(identity.ID)
+		if id == "" {
 			continue // an entry naming no model cannot be matched to a rate row
 		}
-		if len(bound) > 0 && !bound[identity.ID] {
+		if len(bound) > 0 && !bound[id] {
 			continue
+		}
+		if seen[id] {
+			continue // one passage per model, however often the vendor lists it
 		}
 		var compact bytes.Buffer
 		if err := json.Compact(&compact, entry); err != nil {
 			continue
 		}
+		seen[id] = true
 		b.Write(compact.Bytes())
 		b.WriteByte('\n')
-		kept++
 	}
-	return b.String(), kept, true
+	return b.String(), len(seen), true
 }

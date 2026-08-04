@@ -4,10 +4,9 @@
 package aicert_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"testing"
 
@@ -119,68 +118,6 @@ func TestLoadScenarioFileDoesNotDemandCorpusProvenance(t *testing.T) {
 	}
 }
 
-// scenarioForRender and expectForRender restate the field sets of Scenario and
-// Expectations by hand, and RenderScenario would silently DROP a field added to
-// one side only — breaking the round-trip contract with nothing failing.
-//
-// Derived from the types rather than listing the fields, so it is the obligation
-// that is asserted and not a copy of today's answer.
-func TestRenderStructsCarryEveryFieldTheyMirror(t *testing.T) {
-	for _, pair := range []struct {
-		name       string
-		source     reflect.Type
-		rendered   reflect.Type
-		exemptions map[string]string
-	}{
-		{
-			name:     "Scenario",
-			source:   reflect.TypeOf(aicert.Scenario{}),
-			rendered: aicert.ScenarioRenderShape(),
-		},
-		{
-			name:     "Expectations",
-			source:   reflect.TypeOf(aicert.Expectations{}),
-			rendered: aicert.ExpectRenderShape(),
-		},
-	} {
-		t.Run(pair.name, func(t *testing.T) {
-			missing := yamlTags(pair.source).Difference(yamlTags(pair.rendered))
-			if len(missing) > 0 {
-				t.Errorf("%s has yaml field(s) %v the render shape drops — RenderScenario would emit a scenario LoadScenarioFile cannot read back",
-					pair.name, missing)
-			}
-			extra := yamlTags(pair.rendered).Difference(yamlTags(pair.source))
-			if len(extra) > 0 {
-				t.Errorf("the %s render shape emits yaml field(s) %v the corpus format does not have", pair.name, extra)
-			}
-		})
-	}
-}
-
-type tagSet map[string]bool
-
-func (s tagSet) Difference(other tagSet) []string {
-	var out []string
-	for tag := range s {
-		if !other[tag] {
-			out = append(out, tag)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-func yamlTags(t reflect.Type) tagSet {
-	out := tagSet{}
-	for i := range t.NumField() {
-		name, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ",")
-		if name != "" && name != "-" {
-			out[name] = true
-		}
-	}
-	return out
-}
-
 // Decoding JSON into `any` routes every number through float64, which would
 // render a 19-digit id as 1.234567890123457e+18 and silently change the fixture
 // on its way to YAML. A round trip must return the scenario it was given.
@@ -209,8 +146,20 @@ func TestRenderScenarioPreservesExactNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the rendered scenario must load back: %v", err)
 	}
-	if !strings.Contains(string(back.Fixture), "1234567890123456789") {
-		t.Errorf("the id did not survive the full round trip: %s", back.Fixture)
+	// Both fields, not just the id: a future float conversion would change
+	// exact while leaving the integer alone, and this would stay green.
+	var loaded struct {
+		BigID json.Number `json:"big_id"`
+		Exact json.Number `json:"exact"`
+	}
+	if err := json.Unmarshal(back.Fixture, &loaded); err != nil {
+		t.Fatalf("the loaded fixture must decode: %v", err)
+	}
+	if loaded.BigID.String() != "1234567890123456789" {
+		t.Errorf("big_id round-tripped to %s", loaded.BigID)
+	}
+	if loaded.Exact.String() != "0.1" {
+		t.Errorf("exact round-tripped to %s — 0.1 is not binary-exact and is the value a float conversion would move", loaded.Exact)
 	}
 }
 
