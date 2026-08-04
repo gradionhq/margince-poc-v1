@@ -441,9 +441,9 @@ jobs:
   # deploy tooling — no other job builds them, so without this gate a FROM
   # bump (Renovate's dockerfile manager auto-merges when green) or a stage
   # restructure would ship untested: the change matches no other classifier
-  # scope, every meaningful job skips, and the PR looks green. Each leg is a
-  # required check; a build the deploy pipeline would reject fails the merge
-  # here instead.
+  # scope, every meaningful job skips, and the PR looks green. The
+  # `docker-images` fan-in below is the required check; a build the deploy
+  # pipeline would reject fails the merge here instead.
   docker-image:
     name: docker image (${{ matrix.role }})
     needs: [changes]
@@ -465,6 +465,30 @@ jobs:
           persist-credentials: false
       - name: Build the image
         run: docker build -f Dockerfile.${{ matrix.role }} .
+
+  # The fan-in — the single required "docker images" context. Static-named
+  # because a path-skipped matrix job reports ONE check run under its
+  # unexpanded name ("docker image (${{ matrix.role }})"), so the expanded
+  # leg names can never be required contexts. Same shape as the integration
+  # fan-in: it must RUN and FAIL when a leg fails — `needs` alone would leave
+  # it skipped, and a skipped required check counts as passing.
+  docker-images:
+    name: docker images (api + web + worker)
+    needs: [changes, docker-image]
+    if: >-
+      !cancelled()
+      && needs.changes.outputs.docker == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Every image built
+        env:
+          BUILD_RESULT: ${{ needs.docker-image.result }}
+        run: |
+          [ "$BUILD_RESULT" = "success" ] || { echo "docker image builds: $BUILD_RESULT"; exit 1; }
 
   vuln:
     name: govulncheck
