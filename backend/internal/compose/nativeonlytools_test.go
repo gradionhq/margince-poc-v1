@@ -256,7 +256,7 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 // not — which drives the real SQL.
 func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 	wsID := ids.NewV7()
-	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	d, calls := cachedModeDispatcher(wsID, modeNative)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 
 	ranNative := false
