@@ -29,10 +29,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // ungatedEntryPoints are the ratified auth-free store/service methods.
-var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
+var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
 	// Reached only from worker sweeps, approvals effect executors, or a
 	// service that owns the gate above them. Each entry states which.
 	"internal/modules/ai:CostReport":                         "aggregates the workspace's OWN ai_call rows under RLS and returns totals, never a record; the cost surface above it takes the grant",
@@ -209,7 +211,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/comms:RecordDeferral":  "worker-loop pacing transition, system principal, same posture as Load: it notes which rule is holding a delivery back and gives back the attempt that dispatch counted, because a deferral reached no provider. It discloses nothing and can only ever leave a pending delivery pending",
 	"internal/modules/comms:MarkInFlight":    "worker-loop at-most-once transition, system principal, same posture as Load: it stamps one timestamp on a pending delivery before the provider call so a crashed attempt is visible to the next one. It reads nothing back and discloses nothing",
 	"internal/modules/comms:ClearInFlight":   "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
-}
+})
 
 // gateFnInfo is what the gate needs to know about one function name in a
 // package: whether any body under that name references auth, and every
@@ -309,30 +311,19 @@ func reachesAuthGate(fns map[string]*gateFnInfo, name string, seen map[string]bo
 }
 
 func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
-	for fn, rationale := range ungatedEntryPoints {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("ungatedEntryPoints[%s] has no rationale — a waiver must say why no gate is needed", fn)
-		}
-	}
+	defer ungatedEntryPoints.AssertAllMatched(t)
 
 	pkgs, entries := collectStoreEntryPoints(t)
 
-	used := map[string]bool{}
 	for _, e := range entries {
 		if reachesAuthGate(pkgs[e.dir], e.name, map[string]bool{}) {
 			continue
 		}
 		key := e.dir + ":" + e.name
-		if _, ratified := ungatedEntryPoints[key]; ratified {
-			used[key] = true
+		if ungatedEntryPoints.Waived(t, key) {
 			continue
 		}
 		t.Errorf("%s: exported %s reaches no auth gate (directly or via same-package helpers) — every store entry point is RBAC-gated, or the exception is ratified in ungatedEntryPoints", e.dir, e.name)
-	}
-	for key := range ungatedEntryPoints {
-		if !used[key] {
-			t.Errorf("ungatedEntryPoints[%s] matches no ungated entry point — stale waiver, remove it", key)
-		}
 	}
 }
 
