@@ -1,0 +1,13 @@
+-- Deliberately a no-op, diverging from the destructive downs of the earlier
+-- *_rbac backfills (0072, 0154, …).
+--
+-- Reversing the SCHEMA does not remove relationship from the application's RBAC
+-- vocabulary — policy.coreObjects has carried it since long before this
+-- migration. So deleting the grant on rollback cannot restore an earlier
+-- correct state; it can only recreate the permanent 403 this migration exists
+-- to fix, and it would do so on every workspace that legitimately held the
+-- grant already (where the up's only-if-absent guard wrote nothing, and left
+-- no trace distinguishing those rows from the ones it did write).
+--
+-- A forward-only data repair has no meaningful inverse. The migration still
+-- reverses cleanly (B-EP02.1b) — it simply has nothing to undo.
