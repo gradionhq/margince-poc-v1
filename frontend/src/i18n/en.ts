@@ -2345,13 +2345,20 @@ export const en = {
   "auth.email": "Email",
   // A placeholder is an EXAMPLE, never an instruction and never the label
   // again. "Enter your email" in a placeholder is a label that disappears.
-  "auth.emailPlaceholder": "you@company.com",
+  // The address is the login spec §7.2's, and the reserved example domain
+  // rather than a plausible one: `company.com` belongs to somebody.
+  "auth.emailPlaceholder": "name@example.com",
   "auth.password": "Password",
   "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
   "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // NOT the label of a served provider button. A real installation's button text
+  // is `oidc_providers[].label` off the wire, server-owned, and the client never
+  // composes it. This is what the ui-preview fixture uses to stand in for that
+  // server in the reader's own language — see app/ui-preview.ts.
+  "auth.continueWith": "Continue with {brand}",
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
   "auth.orWithEmail": "or with email",

@@ -555,6 +555,69 @@ describe("AuthScreen forgot password", () => {
   });
 });
 
+// Every password field on this surface, DERIVED from the rendered form rather
+// than named one by one: the autocomplete token is what makes a field a password
+// field to a browser and to a password manager, and it survives the reveal (the
+// `type` does not). A field this surface grows later is therefore covered by the
+// obligation without anyone extending a list — which is the whole point, because
+// a missing reveal looks exactly like a field nobody got round to.
+async function expectEveryPasswordFieldRevealable() {
+  const fields = [
+    ...document.querySelectorAll<HTMLInputElement>(
+      'input[autocomplete$="-password"]',
+    ),
+  ];
+  expect(fields.length).toBeGreaterThan(0);
+  for (const input of fields) {
+    const field = input.closest(".auth-field");
+    expect(field, input.name).toBeTruthy();
+    const reveal = field?.querySelector<HTMLButtonElement>(".auth-reveal");
+    expect(reveal, input.name).toBeTruthy();
+    expect(input.type, input.name).toBe("password");
+    expect(reveal?.getAttribute("aria-label")).toBe("Show password");
+    expect(reveal?.getAttribute("aria-pressed")).toBe("false");
+
+    if (reveal) {
+      await userEvent.click(reveal);
+    }
+    expect(input.type, input.name).toBe("text");
+    expect(reveal?.getAttribute("aria-label")).toBe("Hide password");
+    expect(reveal?.getAttribute("aria-pressed")).toBe("true");
+
+    if (reveal) {
+      await userEvent.click(reveal);
+    }
+    expect(input.type, input.name).toBe("password");
+  }
+}
+
+describe("password reveal", () => {
+  it("covers the sign-in password", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Password");
+
+    await expectEveryPasswordFieldRevealable();
+  });
+
+  // The one that was missing, and the worse of the two to get wrong: a mistyped
+  // sign-in password is refused by the server, while a mistyped NEW password just
+  // becomes the password — there is no confirm field to disagree with it.
+  it("covers the new password behind the emailed link", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(204));
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=reveal-probe-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("New password");
+
+    await expectEveryPasswordFieldRevealable();
+  });
+});
+
 describe("AuthScreen reset deep link", () => {
   it("redeems the emailed token and lands back at sign-in", async () => {
     const calls = stubApi({ password: true, password_reset: true }, () =>

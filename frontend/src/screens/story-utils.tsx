@@ -3,7 +3,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { LocaleProvider } from "../i18n";
+import { type Locale, LocaleProvider } from "../i18n";
 
 // Shared Storybook rendering harness for the screens/* modules (fe-uat
 // render gate, frontend/scripts/fe-uat.mjs): every screen component reads
@@ -68,15 +68,22 @@ export function installFetchStub(
 // A fresh QueryClient (retry:false — a mocked 4xx/5xx settles immediately
 // instead of react-query's default backoff, which would blow past fe-uat's
 // render timeout) + LocaleProvider, the two contexts every screen needs.
+//
+// `locale` is PINNED rather than detected — a catalog that renders in whatever
+// language the reviewer's browser asks for compares against nothing. English is
+// the default because that is what every existing story was written against;
+// passing "de" is how a story reviews the German copy, whose length is the thing
+// worth looking at (it runs 20-35% longer, and the layouts are built for that).
 export function StoryProviders({
   children,
-}: Readonly<{ children: ReactNode }>) {
+  locale = "en",
+}: Readonly<{ children: ReactNode; locale?: Locale }>) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return (
     <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{children}</LocaleProvider>
+      <LocaleProvider initial={locale}>{children}</LocaleProvider>
     </QueryClientProvider>
   );
 }

@@ -648,9 +648,17 @@
   animation-delay: 520ms;
 }
 /* (a) identity: the system's presence and name. Mono, small, unmissable. */
+/*
+ * `flex-start`, not `center`, and the dot is centred on the FIRST LINE by hand —
+ * see `.auth-limit-icon` below for the rule this shares. One line is the only
+ * case where the two agree, and this line is one line only in English at full
+ * width: "MARGINCE · KI-SYSTEM" in a 440px tablet column, or either language at
+ * 200% text zoom, wraps — and `center` then parks the dot in the gutter between
+ * the two lines, beside neither of them.
+ */
 .auth-kicker {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   font-family: var(--f-mono);
   font-size: 11px;
@@ -660,8 +668,14 @@
   color: var(--accent);
 }
 .auth-kicker-dot {
-  width: 7px;
-  height: 7px;
+  --dotSize: 7px;
+  /* Every fixed decoration in a flex row on this surface needs this: a flex item
+     is shrinkable by default, and a circle that may shrink on one axis is an
+     ellipse. */
+  flex: none;
+  width: var(--dotSize);
+  height: var(--dotSize);
+  margin-top: calc((1lh - var(--dotSize)) / 2);
   border-radius: var(--r-full);
   background: var(--accent);
 }
@@ -736,12 +750,19 @@
   font-size: 11px;
   color: var(--textMeta);
 }
+/* --borderControl, and for the same reason `.auth-shell` reads it: this chip's
+   fill is one step off the pane it sits on (--bgCard over --bgElevated measures
+   1.10:1 in both themes), so the border is the only thing that makes it a chip at
+   all. --borderSubtle cannot carry that — it measures 1.24:1 against the pane and
+   1.13:1 against this fill, invisible in all three postures the line can report.
+   A boundary nobody can see is not one; 1.4.11 asks 3:1, and this token measures
+   3.33:1 light / 3.32:1 dark here. */
 .auth-runtime-state {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   padding: 5px 9px;
-  border: 1px solid var(--borderSubtle);
+  border: 1px solid var(--borderControl);
   border-radius: var(--r-full);
   background: var(--bgCard);
   color: var(--textContent);
@@ -782,12 +803,25 @@
   line-height: 1.4;
   color: var(--textContent);
 }
+/*
+ * Centred on the FIRST LINE of the text, not on the block — the badge belongs
+ * beside the words it opens.
+ *
+ * Neither flex keyword can do it. `flex-start` aligns the two boxes' TOPS, and a
+ * 22px badge against a 16.8px line box then sits 2.6px low. `center` is right for
+ * a one-line limit and wrong for a wrapped one — German runs these to two and
+ * three lines, and there it puts the badge in the middle of the paragraph. Half
+ * the difference between the line box and the badge is the offset that holds in
+ * both, so it is spelled as that subtraction rather than as a magic -2.6px.
+ */
 .auth-limit-icon {
+  --limitIcon: 22px;
   flex: none;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: var(--limitIcon);
+  height: var(--limitIcon);
+  margin-top: calc((1lh - var(--limitIcon)) / 2);
   border-radius: var(--r-sm);
   color: var(--accent);
   background: var(--accentSurface);
@@ -969,7 +1003,16 @@
      into the form rather than anchoring a region of its own, and at 32px it
      would outweigh the h1 naming the task. */
   .auth-phone-disclosure {
-    display: block;
+    /* Flex, so the sentence sits in the MIDDLE of the lane rather than at the top
+       of it. This is the one place on the surface where centring on the block is
+       the correct answer instead of the wrong one: the thing to align with is a
+       68px sphere, not a line of type, and two lines pinned to the top of a 68px
+       lane read as text that has come loose from the orb beside it. A longer
+       translation outgrows the lane, and then min-height stops binding and this
+       is a no-op — which is also right, because the orb is no longer the taller
+       of the two. */
+    display: flex;
+    align-items: center;
     margin: 0;
     font-family: var(--f-body);
     font-size: 14px;

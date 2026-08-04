@@ -193,9 +193,17 @@ export function AuthScreen({
             /* The server's answer, passed through the ONE ui-preview override
                site. Off by default, in which case this is the identity
                function and the capability's real value reaches the form
-               verbatim. */
+               verbatim — the label callback included, which is never consulted
+               on a served provider. */
             providers={previewedOidcProviders(
               capabilities.data?.oidc_providers ?? [],
+              (providerKey) =>
+                t("auth.continueWith", {
+                  /* The key itself if we have no brand word for it: a preview
+                     that invents a company's name is worse than one that shows
+                     the operator's own identifier. */
+                  brand: providerBrandName(providerKey) ?? providerKey,
+                }),
             )}
             /* Empty in the product, always: the capability carries no
                availability field, so only the preview layer can mark a provider
@@ -650,20 +658,10 @@ function LoginForm({
           }
           hint={capsLock ? t("auth.capsLock") : undefined}
           trailing={
-            <button
-              type="button"
-              className="auth-reveal"
-              aria-pressed={showPassword}
-              aria-label={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              title={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-            </button>
+            <PasswordReveal
+              shown={showPassword}
+              onToggle={() => setShowPassword((shown) => !shown)}
+            />
           }
         >
           <input
@@ -698,6 +696,38 @@ function LoginForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The reveal control. EVERY password field on this surface carries one, and the
+ * new-password field has the stronger claim on it: a mistyped credential on
+ * sign-in is refused by the server in one round trip, while a mistyped NEW
+ * password simply becomes the password — a 12-character minimum with no confirm
+ * field to disagree with it. Reading back what you are about to be locked out by
+ * is the point.
+ *
+ * One button with `aria-pressed` rather than two: the name says which way it will
+ * go, the state says where it is. `title` as well as `aria-label` because the
+ * control is an icon and a sighted mouse user gets no name otherwise.
+ */
+function PasswordReveal({
+  shown,
+  onToggle,
+}: Readonly<{ shown: boolean; onToggle: () => void }>) {
+  const t = useT();
+  const label = t(shown ? "auth.hidePassword" : "auth.showPassword");
+  return (
+    <button
+      type="button"
+      className="auth-reveal"
+      aria-pressed={shown}
+      aria-label={label}
+      title={label}
+      onClick={onToggle}
+    >
+      {shown ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+    </button>
   );
 }
 
@@ -835,6 +865,7 @@ function ResetForm({
   const t = useT();
   const passwordId = useId();
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const reset = useMutation({
     mutationFn: async () => {
@@ -877,11 +908,17 @@ function ResetForm({
           label={t("auth.newPassword")}
           icon={<Lock aria-hidden />}
           hint={t("auth.passwordHint")}
+          trailing={
+            <PasswordReveal
+              shown={showPassword}
+              onToggle={() => setShowPassword((shown) => !shown)}
+            />
+          }
         >
           <input
             id={passwordId}
             className="auth-input"
-            type="password"
+            type={showPassword ? "text" : "password"}
             required
             minLength={MIN_PASSWORD}
             name="new-password"

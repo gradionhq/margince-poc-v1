@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
+import type { Locale } from "../i18n";
 import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 import { type AssistantProfile, AuthExperience } from "./auth-core";
 import {
@@ -73,11 +74,13 @@ function AuthStory({
   // `VITE_UI_PREVIEW_OIDC` preview switch (`app/ui-preview.ts`), which overrides
   // at the render boundary and leaves the wire alone.
   oidcProviders = [],
+  locale = "en",
 }: Readonly<{
   profile: AssistantProfile;
   profileStatus?: number;
   notice?: "session-expired" | "signed-out";
   oidcProviders?: ReadonlyArray<{ key: string; label: string }>;
+  locale?: Locale;
 }>) {
   installFetchStub({
     "GET /assistant/profile": () =>
@@ -93,7 +96,7 @@ function AuthStory({
       }),
   });
   return (
-    <StoryProviders>
+    <StoryProviders locale={locale}>
       <AuthScreen onAuthed={() => undefined} notice={notice} />
     </StoryProviders>
   );
@@ -307,6 +310,38 @@ export const TaskOnlyPhone: Story = {
 export const DarkTheme: Story = {
   globals: { theme: "dark" },
   render: () => <AuthStory profile={configured} />,
+};
+
+/**
+ * The surface in German — the A24 default locale, and the language every layout
+ * rule on this screen was actually built for.
+ *
+ * It is a story rather than a toolbar switch because the German copy is what the
+ * hard cases are made of, and none of them are visible in English: the limits
+ * wrap where "Ich markiere jeden Wert, den ich geschrieben habe." is nearly twice
+ * its English length, the legal line stacks because "Nutzungsbedingungen" alone is
+ * 19 characters, and the typed statement's speed is derived from the string so
+ * that the longer sentence still lands inside the 2000 ms budget. Reviewing only
+ * the English page is reviewing the easy half.
+ *
+ * The provider buttons read German here for a reason that is NOT translation:
+ * `oidc_providers[].label` is server-owned copy off the wire, and the client never
+ * composes it. What speaks German is the ui-preview fixture standing in for a
+ * German installation's server — a real installation's buttons say whatever its
+ * operator configured, which is why `UnknownProvider` below keeps its own wording
+ * in a story with an English catalog.
+ */
+export const GermanCopy: Story = {
+  render: () => (
+    <AuthStory
+      profile={configured}
+      locale="de"
+      oidcProviders={[
+        { key: "google", label: "Weiter mit Google" },
+        { key: "microsoft", label: "Weiter mit Microsoft" },
+      ]}
+    />
+  ),
 };
 
 // The emailed deep link, in the FRAGMENT: a fragment is never sent to a server,
