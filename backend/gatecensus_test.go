@@ -315,6 +315,94 @@ func reasonMapOrWaiverSet(spec *ast.ValueSpec, gatekitLocal string) (mapped, wai
 	return false, false
 }
 
+// Every spelling the classifier admits is pinned here, because rules 1 and 2
+// derive their whole population from it: a shape it stops recognising drops those
+// declarations out of the census silently, and the census then reads green over
+// the maps it was written to govern. The typed spelling is the one that needs
+// this most — nothing in the tree declares a waiver that way today, so only a
+// probe can prove the arm still classifies it.
+func TestTheCensusClassifiesEveryWaiverAndReasonMapSpelling(t *testing.T) {
+	for _, probe := range []struct {
+		name        string
+		declaration string
+		mapped      bool
+		waived      bool
+	}{
+		{
+			name:        "a waiver built from an inline literal is a waiver",
+			declaration: `var x = gatekit.Waive(map[string]string{"a": "why a is ratified"})`,
+			waived:      true,
+		},
+		{
+			name:        "a waiver a helper assembles is ratified exactly as much",
+			declaration: `var x = gatekit.Waive(buildWaivers())`,
+			waived:      true,
+		},
+		{
+			name:        "the typed declaration names a waiver however the value reaches it",
+			declaration: `var x *gatekit.Waivers[string] = build()`,
+			waived:      true,
+		},
+		{
+			name:        "a bare reason map is the shape rule 1 requires classified",
+			declaration: `var x = map[string]string{"a": "the reason a is listed"}`,
+			mapped:      true,
+		},
+		{
+			name:        "a reason map keyed by a domain type is one too",
+			declaration: `var x = map[datasource.RecordType]string{}`,
+			mapped:      true,
+		},
+		{
+			name:        "a reason map the test's own walk fills declares only its type",
+			declaration: `var x map[string]string`,
+			mapped:      true,
+		},
+		{
+			name:        "a map that holds no reasons is neither",
+			declaration: `var x = map[string]bool{"a": true}`,
+		},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			spec, gatekitLocal := probeDeclaration(t, probe.declaration)
+			mapped, waived := reasonMapOrWaiverSet(spec, gatekitLocal)
+			if mapped != probe.mapped || waived != probe.waived {
+				t.Errorf("reasonMapOrWaiverSet(%s) = mapped %t, waived %t; want mapped %t, waived %t",
+					probe.declaration, mapped, waived, probe.mapped, probe.waived)
+			}
+		})
+	}
+}
+
+// probeDeclaration parses one package-level var declaration and returns its spec
+// alongside the local name gatekit is imported under, so a probe exercises the
+// same name resolution a file in the tree does.
+//
+// The source is a string rather than a file: a probe package on disk would be
+// walked by this census and by every other gate that reads the tree, and the
+// declarations here are deliberately the shapes those gates report on.
+func probeDeclaration(t *testing.T, declaration string) (*ast.ValueSpec, string) {
+	t.Helper()
+	source := "package probe\n\nimport \"" + gatekitImportPath + "\"\n\n" + declaration + "\n"
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "probe.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing the probe declaration %q: %v", declaration, err)
+	}
+	pf := parsedFile{path: "probe.go", file: file}
+	for _, decl := range file.Decls {
+		gen, isGen := decl.(*ast.GenDecl)
+		if !isGen || gen.Tok != token.VAR {
+			continue
+		}
+		if spec, isValue := gen.Specs[0].(*ast.ValueSpec); isValue {
+			return spec, gatekitName(t, pf)
+		}
+	}
+	t.Fatalf("the probe declaration %q holds no package-level var for the census to classify", declaration)
+	return nil, ""
+}
+
 // isStringValuedMapType reports whether the expression is a map type whose
 // values are strings — the reason side of a subject-to-reason map.
 func isStringValuedMapType(expr ast.Expr) bool {
