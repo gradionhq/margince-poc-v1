@@ -369,14 +369,26 @@ What landed, in build order:
   lane). S1+S3 shipped: the `websearch` seam and LinkedIn-URL discovery are in
   and dormant until `BRAVE_SEARCH_API_KEY` is bound.
 
-### Before this can be pushed
+### Gates
 
-- **7 frontend test files go red under a full parallel `make check-fe` run and
-  pass in isolation** — deals, inbox, onboarding ×2, overlay, telegram,
-  onboarding-conversation. None is touched by this branch. It reads as load
-  flake on a machine also running the dev stack, and it needs one clean run on
-  a quiet machine before anyone calls the gate green.
-- `make test-integration` has not been run on this branch.
+`make check-backend` green (build, vet, lint, arch-lint, unit tests, contract
+drift, the 500-LOC cap, composition reproducibility). `make check-fe` green —
+125 files, 1,299 tests. `craft static` diff-scoped: **PASS, 0 blocker**, 8
+advisory long-func majors, every one of them a pre-existing function in a file
+this branch touched.
+
+`make test-integration` needed three attempts to produce a trustworthy answer,
+and the reason is worth knowing: **a parallel agent session was running the
+same lane against the shared `margince_test` template**, which produced 1,235
+deadlocks (40P01) and a half-migrated schema underneath them. Neither the
+parallel nor the serial lane means anything in that state. On a quiet machine
+27 of 28 packages passed and the 28th carried one real finding, now fixed:
+`activity_participant_replay.activity_id` needed a row-scope classification in
+`TestFK_rowScopedTargetsHaveVisibilityDecision`.
+
+The same contention explains the 7 frontend files that first went red — deals,
+inbox, onboarding ×2, overlay, telegram, onboarding-conversation. All pass on
+a quiet machine.
 
 ### Two things worth carrying forward
 
