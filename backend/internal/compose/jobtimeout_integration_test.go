@@ -11,10 +11,14 @@ package compose_test
 // needs only the same wrapper production registers, over a fixture kind and a
 // real River client.
 //
-// The fixture kind, timeout_probe, cannot live in api/jobs.yaml (Task 9's
-// census would then demand a production Go type for it) and cannot register
-// through addDeclaredWorker either (nothing outside the contract can reach
-// that path). The escape hatch is the forbidigo exclusion for _test.go files:
+// The fixture kind, timeout_probe, cannot live in api/jobs.yaml: adding it
+// there (say, `timeout_probe: {go_type: TimeoutProbeArgs}`) would fail to
+// COMPILE with `undefined: TimeoutProbeArgs` — declaredJobArgs
+// (internal/compose/jobkinds_gen.go) is a closed union naming every
+// declared kind's Go type by name, generated from the contract, and no
+// production type answers for this fixture. It also cannot register
+// through addDeclaredWorker (nothing outside the contract can reach that
+// path). The escape hatch is the forbidigo exclusion for _test.go files:
 // this registers directly through river.AddWorker + jobs.Govern with a
 // hand-built Spec, which is legitimate because everything downstream of
 // Govern — governedWorker, the Timeout() River calls, the Work() it wraps —
@@ -32,6 +36,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
+
+// deadlinePickupMargin is the ONLY slack TestTheDeclaredTimeoutIsTheDeadlineRiverApplies
+// grants, and it is absolute rather than a fraction of the declared value:
+// a multiplicative window (e.g. declared/2..declared*10) pins the order of
+// magnitude, not the value, and would admit a deadline that drifted from
+// what was declared by a fixed offset or a small scaling error just as
+// happily as it admits the right one. This margin instead covers only
+// River's own pickup latency between Enqueue returning and Work reading
+// ctx.Deadline() -- LISTEN/NOTIFY dispatch, the insert round trip, goroutine
+// scheduling -- which the GREEN runs recorded during development placed at
+// well under 100ms even with database setup folded in. 200ms is generous
+// slack for a loaded CI runner while still rejecting anything that is
+// wrong rather than merely late.
+const deadlinePickupMargin = 200 * time.Millisecond
 
 type timeoutProbeArgs struct{}
 
@@ -124,8 +142,13 @@ func TestTheDeclaredTimeoutIsTheDeadlineRiverApplies(t *testing.T) {
 			t.Fatal("Work ran with NO deadline — the declared timeout did not reach River")
 		}
 		got := deadline.Sub(started)
-		if got < declared/2 || got > declared*10 {
-			t.Errorf("deadline %v is not the declared %v — Govern's value is not what River applied", got, declared)
+		off := got - declared
+		if off < 0 {
+			off = -off
+		}
+		if off > deadlinePickupMargin {
+			t.Errorf("deadline arrived %v after enqueue, want %v ± %v (declared %v) — Govern's value is not what River applied",
+				got, declared, deadlinePickupMargin, declared)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("Work never started; the probe job was not picked up")
