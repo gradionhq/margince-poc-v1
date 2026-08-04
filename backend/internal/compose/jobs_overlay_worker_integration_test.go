@@ -15,6 +15,12 @@ package compose
 // connections is exactly what this proves. A live-fetch success path
 // would need a real HubSpot account (or a product-code seam this task
 // does not add) and is out of scope here.
+//
+// The disconnect race has its own file
+// (jobs_overlay_disconnectfence_integration_test.go): what the sweep, a
+// straddling reconnect and a stale-mode request each do once the connection is
+// gone. The refetch happy path stays here, where
+// jobs_overlay_refetch_failures_integration_test.go's header already points.
 
 import (
 	"context"

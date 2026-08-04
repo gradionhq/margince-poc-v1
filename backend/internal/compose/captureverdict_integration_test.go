@@ -9,6 +9,13 @@ package compose
 // three dispositions actually does to the database. The asymmetry is the thing
 // under test — `real` creates, `noise` hides then later redacts, and `unsure`
 // touches nothing at all while it waits for a human.
+//
+// Two lanes are proved in their own files: how far a `noise` verdict reaches
+// and what it may destroy (captureverdictnoise_integration_test.go), and the
+// human-review lane every path out of `unsure` takes
+// (captureverdictreview_integration_test.go). The shared fixtures all three
+// use — seedCapturedMail, seedPendingDisposition, scriptedVerdictBrain and the
+// row-count readers — live here, so this file is where a reader starts.
 
 import (
 	"context"

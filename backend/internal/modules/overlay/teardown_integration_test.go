@@ -167,7 +167,7 @@ func readConnectionCreateAudit(ctx context.Context, t *testing.T, pool *pgxpool.
 	return row
 }
 
-// assertConnectionRowRevokedNotDeleted: the connection row itself is revoked,
+// assertConnectionRowRevokedNotDeleted proves the connection row itself is revoked,
 // not deleted.
 func assertConnectionRowRevokedNotDeleted(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
 	t.Helper()
@@ -180,7 +180,7 @@ func assertConnectionRowRevokedNotDeleted(ctx context.Context, t *testing.T, poo
 	}
 }
 
-// assertWorkspaceFlippedBackToNative: the workspace flip reverses — back to
+// assertWorkspaceFlippedBackToNative proves the workspace flip reverses — back to
 // native, incumbent cleared.
 func assertWorkspaceFlippedBackToNative(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
 	t.Helper()
@@ -193,7 +193,7 @@ func assertWorkspaceFlippedBackToNative(ctx context.Context, t *testing.T, pool 
 	}
 }
 
-// assertCredentialSecretDeleted: the vault secret is gone — resolving the
+// assertCredentialSecretDeleted proves the vault secret is gone — resolving the
 // connection's own credential_ref now answers ErrNotFound.
 func assertCredentialSecretDeleted(ctx context.Context, t *testing.T, pool *pgxpool.Pool, vault keyvault.Vault, ws ids.UUID) {
 	t.Helper()
@@ -205,7 +205,7 @@ func assertCredentialSecretDeleted(ctx context.Context, t *testing.T, pool *pgxp
 	}
 }
 
-// assertEveryIncumbentDerivedTablePurged: EVERY workspace-scoped table the
+// assertEveryIncumbentDerivedTablePurged proves EVERY workspace-scoped table the
 // overlay migrations own is empty for this workspace — the table list is
 // DERIVED from the live catalog (overlayWorkspaceTables), not hand-enumerated,
 // so a future overlay migration cannot add an incumbent-derived table that
@@ -243,7 +243,7 @@ func assertEveryIncumbentDerivedTablePurged(ctx context.Context, t *testing.T, p
 	}
 }
 
-// assertTombstoneWrittenForThePurgedRow: a tombstone was written for the purged
+// assertTombstoneWrittenForThePurgedRow proves a tombstone was written for the purged
 // mirror row — a later sweep can never resurrect it.
 func assertTombstoneWrittenForThePurgedRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID, objectClass, externalID string) {
 	t.Helper()
@@ -256,7 +256,7 @@ func assertTombstoneWrittenForThePurgedRow(ctx context.Context, t *testing.T, po
 	}
 }
 
-// assertAuditTrailRetained: the audit trail teardown must leave alone — the
+// assertAuditTrailRetained proves the audit trail teardown must leave alone — the
 // unrelated row byte-for-byte, the connection's own lifecycle row byte-for-byte,
 // and this disconnect's own row written and retained.
 func assertAuditTrailRetained(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID, unrelated, connectAudit auditImage) {
