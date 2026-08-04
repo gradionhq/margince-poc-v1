@@ -167,6 +167,15 @@ func outOfTime(ctx context.Context) bool {
 // or neither does, so a budget stop or a crash costs at most the thread in
 // flight, and that one is read again next pass.
 func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID) (ExtractPass, error) {
+	// Before the queue is even read. The deadline belongs to the whole scan
+	// job, and the deterministic half has already spent some of it, so there is
+	// a real case where nothing is left by the time this pass begins. Asking
+	// for the queue anyway would fail the transaction on the deadline and fault
+	// a pass whose only news is that it had no time — the exact fault this
+	// stop exists to prevent, moved one query earlier.
+	if outOfTime(ctx) {
+		return ExtractPass{OutOfTime: true}, nil
+	}
 	now := x.now()
 	var due []settledThread
 	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {

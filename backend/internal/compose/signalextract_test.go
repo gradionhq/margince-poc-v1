@@ -8,8 +8,10 @@ package compose
 // surface: it is what stands between a correspondent's prose and a card.
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
@@ -198,5 +200,59 @@ func TestDirectionIsNamedOrLeftUnclaimed(t *testing.T) {
 		if got := directionWord(direction); got != want {
 			t.Errorf("directionWord(%q) = %q, want %q", direction, got, want)
 		}
+	}
+}
+
+// Both stop points — the one before the queue is read and the one between two
+// conversations — ask outOfTime, so the rule they share is proved here once
+// rather than inferred twice from wall-clock timing.
+//
+// The margin is the point: a pass with three seconds left must stop rather
+// than start a conversation it cannot finish. Being cut off mid-read costs the
+// job, its two retries and a discard, all describing nothing wrong.
+func TestAPassStopsWhileThereIsStillTimeToFinishTheOneInFlight(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  func(t *testing.T) context.Context
+		want bool
+	}{
+		{
+			name: "no deadline at all keeps going",
+			ctx:  func(*testing.T) context.Context { return context.Background() },
+		},
+		{
+			name: "room to read another conversation",
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(),
+					time.Now().Add(extractStopMargin+time.Minute))
+				t.Cleanup(cancel)
+				return ctx
+			},
+		},
+		{
+			name: "inside the margin stops before starting one it cannot finish",
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithDeadline(context.Background(),
+					time.Now().Add(extractStopMargin/2))
+				t.Cleanup(cancel)
+				return ctx
+			},
+			want: true,
+		},
+		{
+			name: "already cancelled stops",
+			ctx: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx
+			},
+			want: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outOfTime(tc.ctx(t)); got != tc.want {
+				t.Errorf("outOfTime = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

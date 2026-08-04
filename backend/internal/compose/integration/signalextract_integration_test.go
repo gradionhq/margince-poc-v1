@@ -381,8 +381,10 @@ func TestAPassThatRunsOutOfTimeStopsAndLeavesTheRestDue(t *testing.T) {
 	brain := &scriptedBrain{reply: `{"events": []}`}
 	extractor := compose.NewSignalExtractor(e.Pool, brain,
 		func() time.Time { return extractClock }, slog.Default())
-	// A deadline already inside the stop margin: the pass must not start a
-	// single conversation, rather than starting one and being cut off.
+	// A deadline already inside the stop margin. The pass must stop before it
+	// reads the queue, let alone a conversation — so this asserts an answer the
+	// database is never consulted for, and no amount of scheduling can make it
+	// flaky.
 	ctx, cancel := context.WithDeadline(e.Admin(), time.Now().Add(time.Second))
 	defer cancel()
 
