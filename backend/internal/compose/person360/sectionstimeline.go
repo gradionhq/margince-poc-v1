@@ -230,7 +230,9 @@ func (s *Service) profileFieldsSection(ctx context.Context, tx pgx.Tx, personID 
 // readProfileFields is shared with the standalone profile-fields endpoint.
 func readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT field, value, evidence_snippet, source_ref, confidence, source, captured_by, captured_at
+		-- updated_at, not created_at: this is when the value took its CURRENT
+		-- form, which is the date the receipt should show after a human edit.
+		SELECT field, value, evidence_snippet, source_ref, confidence, source, captured_by, updated_at
 		FROM person_profile_field
 		WHERE person_id = $1
 		ORDER BY field`, personID)

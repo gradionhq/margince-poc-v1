@@ -108,10 +108,10 @@ func (s *Service) dealRolesSection(ctx context.Context, tx pgx.Tx, personID ids.
 		dealScope = "true"
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT r.id, r.deal_id, r.role, d.title, s.name
+		SELECT r.id, r.deal_id, r.role, d.name, s.name
 		FROM relationship r
 		JOIN deal d ON d.id = r.deal_id AND d.archived_at IS NULL
-		LEFT JOIN pipeline_stage s ON s.id = d.stage_id
+		LEFT JOIN stage s ON s.id = d.stage_id
 		WHERE r.kind = 'deal_stakeholder' AND r.person_id = $%d
 		  AND r.archived_at IS NULL AND (%s)
 		ORDER BY r.id
