@@ -133,8 +133,9 @@ func newFetcher(transport http.RoundTripper) *Fetcher {
 }
 
 // Fetch retrieves one page as model-ready text, negotiating markdown: when the
-// server serves text/markdown the body is returned verbatim (StripTags would
-// corrupt it); otherwise it is whitespace-normalized. The
+// server serves a structured document — text/markdown or JSON — the body is
+// returned verbatim (StripTags would corrupt it); otherwise it is
+// whitespace-normalized. The
 // returned Doc carries the media type so callers can log which they got, and
 // the fetch refuses what the site's robots.txt disallows for this bot.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
@@ -143,7 +144,9 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
 		return Doc{}, err
 	}
 	doc := Doc{MediaType: mediaType}
-	if doc.IsMarkdown() {
+	// Markdown and JSON are structured documents StripTags would corrupt —
+	// both reach the caller verbatim; only HTML is reduced.
+	if doc.IsMarkdown() || doc.IsJSON() {
 		doc.Text = body
 	} else {
 		doc.Text = StripTags(body)

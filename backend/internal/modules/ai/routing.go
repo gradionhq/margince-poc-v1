@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -67,6 +68,27 @@ type RoutingConfig struct {
 	// bytes. Zero value "" on a config built by struct literal (FakeRoutingConfig,
 	// most unit-test configs) rather than parsed from yaml.
 	sourceHash string
+}
+
+// BoundModelIDs is every model this deployment actually calls: each bound
+// tier's model plus the embeddings model. It is what lets a cost refresh
+// narrow a provider catalog of hundreds to the handful whose rate rows anyone
+// reads — and the identity is the model id AS THE VENDOR SPELLS IT, which is
+// the same string a catalog entry names itself by.
+//
+// Returns an empty (non-nil) set when nothing is bound, so a caller can tell
+// "this deployment binds nothing" from a nil it forgot to build.
+func (c RoutingConfig) BoundModelIDs() map[string]bool {
+	bound := make(map[string]bool, len(c.Tiers)+1)
+	for _, tier := range c.Tiers {
+		if id := strings.TrimSpace(tier.Model); id != "" {
+			bound[id] = true
+		}
+	}
+	if id := strings.TrimSpace(c.Embeddings.Model); id != "" {
+		bound[id] = true
+	}
+	return bound
 }
 
 // RoutingVersion identifies the model binding this config expresses — the

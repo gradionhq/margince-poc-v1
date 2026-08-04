@@ -191,6 +191,10 @@ type JobRunnerConfig struct {
 	// ModelPricingSources binds provider names to pricing-page URLs the
 	// model-cost refresh crawls; empty = no-op.
 	ModelPricingSources []pricingSource
+	// BoundModelIDs narrows a structured provider catalog to the models this
+	// deployment's routing actually binds. Empty keeps every model, which is
+	// the honest reading of "nothing to filter by".
+	BoundModelIDs map[string]bool
 }
 
 // NewJobRunner wires the deals correctors, the automation time-scan and the
@@ -255,7 +259,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).
 	river.AddWorker(workers, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
-	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
+	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, cfg.BoundModelIDs, log))
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
 	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
