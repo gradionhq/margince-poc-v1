@@ -347,11 +347,14 @@ var validationFieldsOutsideTheContract = gatekit.Waive(map[string]string{
 // (`privateAppToken`) and header parameters (`If-Match`) sit beside snake_case body ones, so
 // the shape rule serving the walk above would refuse fields the contract has.
 //
-// Coverage rests on a convention: 109 of the 142 calls lead with a string literal, spelling
-// 62 distinct paths, and a concatenation counts as literal-leading — its literal prefix is
-// judged, its computed tail is not. The other 33 pass a computed value (`bad.field`,
-// `pred.Field`, `param`) no static reading resolves; several are package-level constants,
-// which a reading that resolved identifiers within a package could judge too.
+// Coverage rests on a convention: the calls judged are the ones leading with a string
+// literal, and a concatenation counts as literal-leading — its literal prefix is judged, its
+// computed tail is not. The residue is real rather than implied away: a call whose field
+// argument is a computed value (`bad.field`, `pred.Field`, `param`) is past what a static
+// reading resolves, and several of those values are package-level constants, which a reading
+// that resolved identifiers within a package could judge too. What keeps the convention from
+// certifying nothing is asserted rather than counted — a walk that judged no literal at all
+// fails below, as does a vocabulary too small to be the contract's.
 func TestEveryValidationFieldLiteralNamesAContractField(t *testing.T) {
 	vocabulary := contractFieldNames(t)
 	checked := 0
