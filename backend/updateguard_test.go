@@ -133,6 +133,8 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/capture:AdvanceChannelPollOffsetTx": "single-statement monotone cursor: the `poll_offset < $2` predicate IS the CAS, so a writer holding a lower offset than the row already carries matches zero rows and its advance is correctly dropped. A version guard would be wrong here — the poll cursor is not optimistically concurrent state an operator edits, and bumping version on it would fire the send path's binding fence on every inbound message (0151's trigger comment)",
 	"internal/modules/privacy:anonymizeSubjectRows":       "terminal absolute write: the erasure overwrites the PII columns regardless of concurrent state, by design",
 	"internal/modules/privacy:apply":                      "terminal absolute writes: the retention sweep archives/anonymizes regardless of concurrent state, by design",
+	"internal/modules/privacy:eraseActivityContent":       "terminal absolute write: the sweep's activity/erase action empties the body and stamps the tombstone subject regardless of concurrent state, by design",
+	"internal/modules/privacy:anonymizePersonRecord":      "terminal absolute write: the sweep's person/anonymize action overwrites the PII columns regardless of concurrent state, by design",
 }
 
 // guardMarkers are the identifiers whose presence in the same function

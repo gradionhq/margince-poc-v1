@@ -62,6 +62,18 @@ func scanVoiceBuild(row pgx.Row) (VoiceBuild, error) {
 	return build, err
 }
 
+// activeVoiceBuild returns the profile's newest build that has not reached a
+// terminal status — the one a repeated request must be handed instead of
+// queueing a second build over the same corpus. pgx.ErrNoRows means there is
+// none, which is the caller's signal to snapshot and queue.
+func activeVoiceBuild(ctx context.Context, tx pgx.Tx, profileID ids.UUID) (VoiceBuild, error) {
+	return scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
+		SELECT %s FROM voice_build
+		WHERE voice_profile_id = $1 AND status IN ('queued','deferred','running')
+		  AND archived_at IS NULL
+		ORDER BY created_at DESC, id DESC LIMIT 1`, voiceBuildColumns), profileID))
+}
+
 // CreateBuild returns an already-active build for retry safety; otherwise it
 // snapshots the current included corpus into one durable queued request.
 func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in CreateVoiceBuildInput) (VoiceBuild, error) {
@@ -84,11 +96,7 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 			return err
 		}
 		var err error
-		build, err = scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
-			SELECT %s FROM voice_build
-			WHERE voice_profile_id = $1 AND status IN ('queued','deferred','running')
-			  AND archived_at IS NULL
-			ORDER BY created_at DESC, id DESC LIMIT 1`, voiceBuildColumns), profileID))
+		build, err = activeVoiceBuild(ctx, tx, profileID)
 		if err == nil {
 			return nil
 		}
@@ -120,11 +128,7 @@ func (s *VoiceStore) CreateBuild(ctx context.Context, profileID ids.UUID, in Cre
 			RETURNING %s`, voiceBuildColumns), profileID, actor.UserID, in.Reason,
 			sourceHash, sourceCount, s.now().UTC()))
 		if errors.Is(err, pgx.ErrNoRows) {
-			build, err = scanVoiceBuild(tx.QueryRow(ctx, storekit.SQLf(`
-				SELECT %s FROM voice_build
-				WHERE voice_profile_id = $1 AND status IN ('queued','deferred','running')
-				  AND archived_at IS NULL
-				ORDER BY created_at DESC, id DESC LIMIT 1`, voiceBuildColumns), profileID))
+			build, err = activeVoiceBuild(ctx, tx, profileID)
 			return err
 		}
 		if err != nil {
