@@ -1,5 +1,17 @@
 version: "2"
 
+run:
+  # The tagged lanes are linted here too. Without this the baseline compiles
+  # only untagged files, so the integration and livesmoke harnesses
+  # (internal/compose/integration, platform/testdb, budgettest, …) were the one
+  # part of the tree NO pass covered once forbidigo moved out of the strict
+  # config — and harness code is exactly where an http.Error or a stray
+  # fmt.Print slips in unnoticed. The tagged test files themselves are already
+  # exempted from the taste-adjacent rules below by path.
+  build-tags:
+    - integration
+    - livesmoke
+
 linters:
   default: standard
   enable:

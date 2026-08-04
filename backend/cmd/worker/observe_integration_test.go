@@ -10,89 +10,125 @@ package main
 // those dependencies answer: a stubbed pool and bus would prove the stub, and
 // a readiness check that cannot fail is indistinguishable from one that always
 // passes.
+//
+// So every check the probe declares is driven BOTH ways below — ready, and
+// then broken one dependency at a time. A check nobody can break is one that
+// could be deleted with every test still green, which is the same as not
+// having it.
 
 import (
-	"net"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 )
+
+// startProbeListener brings the surface up on a kernel-chosen port against the
+// dependencies given, and answers its base URL.
+func startProbeListener(t *testing.T, pool *pgxpool.Pool, rdb *redis.Client, boot *bootGate) string {
+	t.Helper()
+	observe, err := startObserveListener(t.Context(),
+		workerConfig{observeAddr: "127.0.0.1:0"}, pool, rdb, boot, quietLog())
+	if err != nil {
+		t.Fatalf("startObserveListener: %v", err)
+	}
+	t.Cleanup(observe.Stop)
+	return "http://" + observe.Addr
+}
+
+// bootedGate is a gate already marked complete — the state a replica is in
+// once run() has started its lanes and its job runner.
+func bootedGate() *bootGate {
+	var boot bootGate
+	boot.complete()
+	return &boot
+}
 
 // TestTheWorkerReadinessProbeAnswersFromItsRealDependencies — an orchestrator
 // reads /readyz to decide whether this replica should be left in service, and
 // the answer has to come from the database and the bus this process actually
-// holds. Both are named in the 200 body's checks by passing, and the pool
-// section of /metrics is asserted alongside because a pool wired here and not
-// there would mean the two surfaces disagree about the same process.
+// holds. The pool section of /metrics is asserted alongside, because a pool
+// wired into one surface and not the other would mean the two disagree about
+// the same process.
 func TestTheWorkerReadinessProbeAnswersFromItsRealDependencies(t *testing.T) {
-	pool := workerTestPool(t)
-	rdb := budgettest.Client(t)
+	base := startProbeListener(t, workerTestPool(t), budgettest.Client(t), bootedGate())
 
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
-	}
-	addr := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatalf("releasing the reserved port: %v", err)
-	}
-
-	stop, err := startObserveListener(t.Context(), workerConfig{observeAddr: addr}, pool, rdb, quietLog())
-	if err != nil {
-		t.Fatalf("startObserveListener: %v", err)
-	}
-	t.Cleanup(stop)
-
-	status, body := get(t, "http://"+addr+"/readyz")
+	status, body := get(t, base+"/readyz")
 	if status != http.StatusOK {
-		t.Fatalf("GET /readyz = %d (%s), want 200 with a live pool and bus", status, strings.TrimSpace(body))
+		t.Fatalf("GET /readyz = %d (%s), want 200 with a booted replica, a live pool and a live bus", status, strings.TrimSpace(body))
 	}
 	if !strings.HasPrefix(body, "ready") {
 		t.Errorf("GET /readyz body = %q, want it to start with %q", body, "ready")
 	}
 
-	_, metrics := get(t, "http://"+addr+"/metrics")
+	_, metrics := get(t, base+"/metrics")
 	if !strings.Contains(metrics, "margince_pgxpool_conns") {
 		t.Errorf("the worker published no pool gauges for a pool it holds; /readyz and /metrics "+
 			"would then disagree about the same process\ngot:\n%s", metrics)
 	}
 }
 
-// TestAnUnreachableDependencyMakesTheWorkerUnready is the other half, and the
-// one that makes the probe worth serving: a closed pool must produce a 503
-// naming the dependency, not a 200. A check that only ever passes tells an
-// orchestrator nothing it did not already assume.
-func TestAnUnreachableDependencyMakesTheWorkerUnready(t *testing.T) {
-	pool := workerTestPool(t)
-	rdb := budgettest.Client(t)
+// TestEachDeclaredReadinessCheckCanActuallyFail drives all three the other
+// way. Each arm breaks exactly ONE dependency and asserts the 503 names that
+// one: an arm that passed because a different check failed would prove nothing
+// about the check it is named for.
+func TestEachDeclaredReadinessCheckCanActuallyFail(t *testing.T) {
+	t.Run("boot", func(t *testing.T) {
+		// A gate never marked complete is the state during boot. The listener
+		// comes up before the lanes and the runner on purpose, so this is the
+		// window a rollout must not read as ready.
+		base := startProbeListener(t, workerTestPool(t), budgettest.Client(t), &bootGate{})
 
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
-	}
-	addr := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatalf("releasing the reserved port: %v", err)
-	}
+		status, body := get(t, base+"/readyz")
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("GET /readyz = %d, want 503 while the lanes and the job runner are still starting", status)
+		}
+		if !strings.Contains(body, "boot") {
+			t.Errorf("the 503 body does not name the boot check: %q", body)
+		}
+	})
 
-	stop, err := startObserveListener(t.Context(), workerConfig{observeAddr: addr}, pool, rdb, quietLog())
-	if err != nil {
-		t.Fatalf("startObserveListener: %v", err)
-	}
-	t.Cleanup(stop)
+	t.Run("postgres", func(t *testing.T) {
+		// Closing the pool is what a database outage looks like from inside
+		// this process: every acquire fails from here on. The pool is this
+		// subtest's own, so nothing else is reading it.
+		pool := workerTestPool(t)
+		base := startProbeListener(t, pool, budgettest.Client(t), bootedGate())
+		pool.Close()
 
-	// Closing the pool is what a database outage looks like from inside this
-	// process: every acquire fails from here on. The pool is this test's own —
-	// workerTestPool opens one per test — so nothing else is reading it.
-	pool.Close()
+		status, body := get(t, base+"/readyz")
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("GET /readyz = %d, want 503 with the database gone", status)
+		}
+		if !strings.Contains(body, "postgres") {
+			t.Errorf("the 503 body does not name the failed dependency: %q", body)
+		}
+	})
 
-	status, body := get(t, "http://"+addr+"/readyz")
-	if status != http.StatusServiceUnavailable {
-		t.Fatalf("GET /readyz = %d, want 503 with the database gone", status)
-	}
-	if !strings.Contains(body, "postgres") {
-		t.Errorf("the 503 body does not name the failed dependency: %q", body)
-	}
+	t.Run("redis", func(t *testing.T) {
+		// Same shape for the bus, pointed at an address nothing listens on:
+		// that is what a bus outage looks like from inside this process, and
+		// unlike closing the shared test client it leaves no other test's
+		// dependency broken. Without this arm the redis check could be deleted
+		// outright and every other test here would stay green.
+		unreachable := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+		t.Cleanup(func() {
+			if err := unreachable.Close(); err != nil {
+				t.Errorf("closing the unreachable bus client: %v", err)
+			}
+		})
+		base := startProbeListener(t, workerTestPool(t), unreachable, bootedGate())
+
+		status, body := get(t, base+"/readyz")
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("GET /readyz = %d, want 503 with the bus gone", status)
+		}
+		if !strings.Contains(body, "redis") {
+			t.Errorf("the 503 body does not name the failed dependency: %q", body)
+		}
+	})
 }

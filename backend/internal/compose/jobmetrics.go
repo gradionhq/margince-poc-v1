@@ -4,12 +4,14 @@
 package compose
 
 // The job-runtime section of /metrics: OPS-MET-2's queue depth and the
-// gauges beside it, plus the sweep pair. Every number here is read from
-// river_job at scrape time rather than counted in process, because the
-// dispatchers run in cmd/worker and cmd/worker serves no exposition
-// endpoint at all — an in-process counter incremented there would be
-// invisible to every scrape while the api's own copy read a truthful
-// looking zero.
+// gauges beside it, plus the two sweep pairs. Every number here is read from
+// river_job at scrape time rather than counted in process, because the work
+// itself happens in cmd/worker: an in-process counter incremented there is
+// one replica's tally, so a fleet-wide number kept that way would report
+// whatever the scraped process happened to have done. cmd/worker does serve
+// its own /metrics (--observe-addr), and deliberately carries only what IS
+// process-local — its runtime, its pool, its relay counter — leaving every
+// reading of this shared table to the one reader here.
 //
 // The two families in jobdeclared.go beside it are the exception, and the
 // reason they exist: a table scan can only ever name a kind that HAS rows,

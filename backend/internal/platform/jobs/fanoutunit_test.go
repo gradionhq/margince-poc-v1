@@ -8,17 +8,33 @@ import (
 	"testing"
 )
 
-// TestEveryFanOutUnitNamesAnArgsKey — ArgsKey is what the sweep-unit gauges
-// group on, and a unit answering the empty string silently drops every kind
-// declared with it out of the count. The set is closed and small enough to
-// state, which is the point: a fourth unit added to the enum without a key
-// fails here rather than at 3am on a dashboard reading zero.
-func TestEveryFanOutUnitNamesAnArgsKey(t *testing.T) {
+// TestEveryDeclaredFanOutUnitNamesAnArgsKey — ArgsKey is what the sweep-unit
+// gauges group on, and a unit answering the empty string is SKIPPED by
+// subWorkspaceFanOuts, so every kind declared with it drops silently out of the
+// count. Go's switch gives no exhaustiveness against that; this gate does.
+//
+// The units come from the COMPILED CONTRACT rather than from a list here.
+// Enumerating the enum by hand is the failure mode this replaces: a fourth
+// constant, or a fourth `fan_out_unit:` in api/jobs.yaml, would not enter a
+// hand-written loop, and the gate would stay green about exactly the change it
+// claims to catch. Reading what the file declares means the declaration itself
+// enrols the new unit.
+func TestEveryDeclaredFanOutUnitNamesAnArgsKey(t *testing.T) {
+	declaredUnits := map[FanOutUnit]string{}
+	for kind, spec := range specs {
+		if spec.FanOutTo != "" {
+			declaredUnits[spec.FanOutUnit] = kind
+		}
+	}
+	if len(declaredUnits) < 2 {
+		t.Fatalf("only %d distinct fan-out unit(s) are declared; this gate would pass on a single grain and prove nothing about a second", len(declaredUnits))
+	}
+
 	keys := map[string]FanOutUnit{}
-	for _, unit := range []FanOutUnit{FanOutWorkspace, FanOutConnection, FanOutBuild} {
+	for unit, declaringKind := range declaredUnits {
 		key := unit.ArgsKey()
 		if key == "" {
-			t.Errorf("fan-out unit %d names no args key, so a kind declared with it would be grouped on nothing", unit)
+			t.Errorf("%s declares fan-out unit %d, which names no args key — every child of it would be grouped on nothing and vanish from the unit gauges", declaringKind, unit)
 			continue
 		}
 		if other, taken := keys[key]; taken {
@@ -62,11 +78,16 @@ func TestFanOutUnitsReadsTheEdgeBackwards(t *testing.T) {
 	}
 }
 
-// TestSubWorkspaceFanOutsSelectsExactlyTheFinerGrains is the partition the two
-// sweep pairs rest on: a kind read by BOTH would publish one number twice, and
-// an operator summing the pairs would double-count a fleet. The selection is
-// what enforces it — a finer-unit child's rows carry workspace_id as well, so
-// nothing about the data would stop it appearing in both.
+// TestSubWorkspaceFanOutsSelectsExactlyTheFinerGrains — the unit pair reports a
+// kind only where its grain differs from the workspace pair's. A
+// workspace-grained kind read here would restate margince_sweep_workspaces_*
+// value for value, which is one number published twice; a finer-grained kind
+// NOT read here stays masked by a healthy sibling, which is the whole defect
+// the pair exists to remove.
+//
+// The two families still overlap — a per-connection kind's rows carry a
+// workspace id too, so it is reported by both, at two grains. That is
+// deliberate and is why the selection is asserted rather than assumed.
 func TestSubWorkspaceFanOutsSelectsExactlyTheFinerGrains(t *testing.T) {
 	kinds, argsKeys := subWorkspaceFanOuts()
 	if len(kinds) != len(argsKeys) {

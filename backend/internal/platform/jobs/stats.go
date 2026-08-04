@@ -98,9 +98,15 @@ type SweepPass struct {
 // reports nothing. Counting at the declared unit is what makes that visible.
 //
 // Only the kinds whose unit is NOT the workspace are reported. For the other
-// twenty-one the two readings are the same measurement — the unit key IS
-// workspace_id — and publishing both would be two series for one number, which
-// is a worse operator surface than one series and a documented pairing.
+// twenty the unit key IS workspace_id, so this pair would restate
+// SweepPass value for value; publishing both would be one number twice.
+//
+// The two families therefore OVERLAP rather than partition: a per-connection
+// kind is reported by both, at two grains, because its rows carry a workspace
+// id as well as a connection id. That is the point — the coarse reading
+// answers fleet coverage and the fine one answers whether every unit ran —
+// but it means the two must never be summed, and an alert reads whichever
+// grain it means rather than adding them together.
 type SweepUnit struct {
 	Kind string
 	Unit FanOutUnit
@@ -123,12 +129,13 @@ type Snapshot struct {
 
 // Stats reads the live job table for the metric surface.
 //
-// TWO statements, not one. They read different populations — the runtime
+// THREE statements, not one. They read different populations — the runtime
 // gauges must exclude completed rows (a finished job is history, not depth)
-// while the sweep pair must include them (a pass whose workspaces all
-// succeeded is the healthy case, and it is completed rows that say so).
-// Folding them together needs a UNION with a discriminator and two nullable
-// halves; two legible grouped scans inside one budget is the better trade.
+// while both sweep reads must include them (a pass whose units all succeeded
+// is the healthy case, and it is completed rows that say so) — and the two
+// sweep reads group at different grains besides. Folding them together needs
+// a UNION with a discriminator and several nullable halves; three legible
+// grouped scans inside one budget is the better trade.
 //
 // A caller that could not complete the read gets the error, never a partial
 // or empty Snapshot: an unmeasured fleet renders identically to an idle one,

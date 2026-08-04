@@ -185,6 +185,10 @@ type forbidRule struct {
 // golangciConfig is the sliver of .golangci.yml this gate reads. The keys are
 // golangci-lint's own, so they are spelled as it spells them.
 type golangciConfig struct {
+	Run struct {
+		//nolint:tagliatelle // golangci-lint's key, not ours to case.
+		BuildTags []string `yaml:"build-tags"`
+	} `yaml:"run"`
 	Linters struct {
 		Enable   []string `yaml:"enable"`
 		Settings struct {
@@ -219,8 +223,8 @@ var lintConfigs = []string{".golangci.yml", ".golangci.strict.yml"}
 // TestForbidigoIsEnabledInExactlyOneConfig keeps the in-source waiver usable.
 //
 // Both passes run over the same files, and the strict one also runs nolintlint.
-// With forbidigo enabled in both under different `forbid:` sets, a
-// //nolint:forbidigo written against one set suppresses nothing under the other,
+// With forbidigo enabled in both under different `forbid:` sets, an in-source
+// forbidigo waiver written against one set suppresses nothing under the other,
 // and nolintlint fails the build for an unused directive — reported by a linter
 // unrelated to the rule being waived, on a line that looks correct. The only
 // waiver left is then exempting a whole FILE by path, which is coarser than
@@ -242,8 +246,32 @@ func TestForbidigoIsEnabledInExactlyOneConfig(t *testing.T) {
 	case 0:
 		t.Error("no lint config enables forbidigo — the River registration and schedule bans are unenforced, and every check in this file passes by having nothing to check")
 	default:
-		t.Errorf("forbidigo is enabled in %s. Two passes with two pattern sets make //nolint:forbidigo unusable tree-wide: whichever set a directive was written for, the other reports it as an unused directive through nolintlint. Enable it in one config and let the other inherit nothing.",
+		t.Errorf("forbidigo is enabled in %s. Two passes with two pattern sets make an in-source forbidigo waiver unusable tree-wide: whichever set a directive was written for, the other reports it as an unused directive through nolintlint. Enable it in one config and let the other inherit nothing.",
 			strings.Join(enabling, " and "))
+	}
+}
+
+// TestTheOwningConfigLintsTheTaggedLanes — forbidigo now lives in one config,
+// and that config must see the same files the other one did. The strict pass
+// declares the integration and livesmoke tags, so before the move it was the
+// only thing linting the tagged harnesses; a baseline that compiled untagged
+// files only would leave them covered by NOTHING, which is where an http.Error
+// or a stray fmt.Print goes unnoticed for longest.
+func TestTheOwningConfigLintsTheTaggedLanes(t *testing.T) {
+	tagged := map[string][]string{}
+	for _, name := range lintConfigs {
+		tagged[name] = readGolangciConfig(t, name).Run.BuildTags
+	}
+	for _, tag := range []string{"integration", "livesmoke"} {
+		var covered []string
+		for name, tags := range tagged {
+			if slices.Contains(tags, tag) {
+				covered = append(covered, name)
+			}
+		}
+		if !slices.Contains(covered, ".golangci.yml") {
+			t.Errorf("no repo-wide pass declares the %q build tag, so the %s-only files are linted by nothing that runs tree-wide", tag, tag)
+		}
 	}
 }
 

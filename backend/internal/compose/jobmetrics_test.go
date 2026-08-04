@@ -212,6 +212,8 @@ func TestAnEmptySnapshotWritesEveryFamilyHeaderAndNoSeries(t *testing.T) {
 		"margince_job_oldest_queued_age_seconds",
 		"margince_sweep_workspaces_total",
 		"margince_sweep_workspaces_failed",
+		"margince_sweep_units_total",
+		"margince_sweep_units_failed",
 	} {
 		if !strings.Contains(buf.String(), "# TYPE "+family+" gauge") {
 			t.Errorf("family header for %s missing from an empty snapshot\ngot:\n%s", family, buf.String())
@@ -234,6 +236,7 @@ func TestARefusedWriteSurfacesRatherThanBeingRenderedPast(t *testing.T) {
 	snap := jobs.Snapshot{
 		Rows:   []jobs.StateRow{{Queue: "default", Kind: "k", Untenanted: true, State: "available", Count: 1}},
 		Sweeps: []jobs.SweepPass{{Kind: "s", Workspaces: 1}},
+		Units:  []jobs.SweepUnit{{Kind: "u", Unit: jobs.FanOutConnection, Units: 1}},
 	}
 
 	// Fail at each write in turn, so no single family's writes are the only

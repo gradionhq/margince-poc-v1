@@ -46,11 +46,17 @@ const (
 // dispatcher actually ran it at: two children of one workspace differ in this
 // key and in nothing else the job table carries.
 //
-// The mapping is a switch over the closed unit set rather than a table beside
-// it, so a fourth unit does not compile until it says which key names it, and
-// the census holds every declared child to actually carrying the key its
-// dispatcher's unit names. The zero FanOutUnit — a kind that fans out to
-// nothing — answers the empty string, which is not a key any row has.
+// A unit with no key answers the empty string, and subWorkspaceFanOuts then
+// SKIPS it — so a fourth unit added without a key would quietly drop every
+// kind declared with it out of the unit gauges. Go's switch offers no
+// exhaustiveness for that, and this comment does not pretend otherwise: what
+// catches it is a gate, TestEveryDeclaredFanOutUnitNamesAnArgsKey, which reads
+// the units the CONTRACT actually declares rather than a list kept here. The
+// census then holds every declared child to writing the key its dispatcher's
+// unit names.
+//
+// The zero FanOutUnit — a kind that fans out to nothing — answers the empty
+// string on purpose: it has no unit, and no row of it has a key to group on.
 func (u FanOutUnit) ArgsKey() string {
 	switch u {
 	case FanOutWorkspace:

@@ -103,11 +103,17 @@ not the fleet.
 
 The last two exist because the workspace pair counts each workspace once, and
 four dispatchers fan out below that grain. They report **only** the kinds whose
-declared `fan_out_unit` is finer than a workspace — for the other twenty-one the
-unit *is* the workspace, so the two pairs would carry the same numbers. Together
-they partition the fan-out kinds: every kind appears in exactly one, so an alert
-covers the fleet with `margince_sweep_workspaces_failed > 0 or
-margince_sweep_units_failed > 0` and never double-counts.
+declared `fan_out_unit` is finer than a workspace — for the other twenty the
+unit *is* the workspace, so the two pairs would carry the same numbers.
+
+The two families **overlap rather than partition**: a per-connection kind is
+reported by both, at two grains, because its rows carry a workspace id as well
+as a connection id. That is the point — the coarse reading answers *is every
+tenant covered*, the fine one answers *did every unit of the pass run* — but it
+means **never sum them**. `margince_sweep_units_failed{sweep="telegram_poll"}`
+and `margince_sweep_workspaces_failed{sweep="telegram_poll"}` can both be
+non-zero for one dead connection. Alert on whichever grain you mean; use
+`... > 0 or ... > 0` if you want either to page you, never `+`.
 
 A tenth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
 appears **only when it has something to report**: work sitting in a state
@@ -204,6 +210,15 @@ Four things worth knowing before you build an alert on these:
   because the fleet shrank: the cleaner deletes finalized rows on its own
   schedule. An absent series is the honest answer — a fabricated zero would
   be indistinguishable from "the fleet is empty".
+- **Both `_failed` halves see only what River sees.** They count rows that ended
+  `discarded` or `cancelled`. A kind whose worker deliberately records its own
+  failure and returns `nil` — declared as `fault.nil_after_logging` in
+  `backend/api/jobs.yaml`, and true of `capture_sync` and `voice_build`, whose
+  retry cadence belongs to their own sidecar rather than to River — completes
+  green, so a handled failure of one of those does not reach either pair. For
+  those kinds a zero here means "River saw no dead rows", not "nothing failed";
+  their own domain state is the authority. This is a property of the sweep
+  reading as a whole, not of the per-unit half.
 - **The per-workspace pair reads one grain too coarse for four dispatchers,**
   and that is what `margince_sweep_units_*` is for. Gmail sync, Gmail watch and
   the Telegram poll fan out per **connection**; the voice-build retry fans out
@@ -316,12 +331,19 @@ and Redis — and answers `503` naming the one that failed. `/healthz` stays a
 dumb liveness answer, so a database outage stops traffic being routed here
 without restart-looping a process the outage did not break.
 
-**Off is the default, and it is not a convenience default.** This surface
-carries workspace ids and has no authentication of its own, exactly like the
-api's `/metrics`: exposing it is an operator decision, and so is the interface
-it binds. Bind it to a loopback or a private interface, never a public one. An
-address that cannot be bound is a **boot error** naming it — a worker that
-could not serve its probes must not carry on looking healthy.
+`/readyz` also reports **`boot`** — this replica has finished starting its
+event lanes and job runner. The listener comes up before those on purpose, so a
+probe answers during a slow boot; without the boot check that ordering would let
+a rollout retire the last working replica in favour of one that had not yet
+picked up a job.
+
+**Off is the default, and it is not a convenience default.** Unlike the api's
+`/metrics` this surface carries no workspace id and no tenant data at all — but
+it is still an unauthenticated operator surface that discloses dependency health
+and process capacity, so exposing it is an operator decision, and so is the
+interface it binds. Bind it to a loopback or a private interface, never a public
+one. An address that cannot be bound is a **boot error** naming it — a worker
+that could not serve its probes must not carry on looking healthy.
 
 ### `worker siteread` — the deep-read debug loop (no DB)
 

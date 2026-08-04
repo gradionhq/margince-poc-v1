@@ -17,32 +17,29 @@ import (
 // under test is what it SERVES, not what it says about itself.
 func quietLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
-// startForTest brings the listener up on a kernel-chosen port and answers its
-// base URL. A fixed port would make two packages' tests collide on a busy
-// machine, which reads as a flake in whichever ran second.
+// startForTest brings the listener up on a port the KERNEL chooses and answers
+// its base URL, read back from the listener itself. Asking for :0 and reading
+// Addr leaves no window: reserving a port, closing it and re-binding would let
+// another process take it in between, which reads as a flake rather than as
+// the race it is.
 func startForTest(t *testing.T) string {
 	t.Helper()
-
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserving a port: %v", err)
-	}
-	addr := probe.Addr().String()
-	if err := probe.Close(); err != nil {
-		t.Fatalf("releasing the reserved port: %v", err)
-	}
 
 	// A nil pool and bus are enough for the two endpoints asserted below:
 	// /healthz reads nothing, and the metrics handler omits the pool section
 	// when it was handed none. /readyz is the one endpoint that would call
 	// into them, and it is the integration lane's to prove against real
 	// dependencies rather than against a stub that would only restate itself.
-	stop, err := startObserveListener(t.Context(), workerConfig{observeAddr: addr}, nil, nil, quietLog())
+	observe, err := startObserveListener(t.Context(), workerConfig{observeAddr: "127.0.0.1:0"},
+		nil, nil, &bootGate{}, quietLog())
 	if err != nil {
 		t.Fatalf("startObserveListener: %v", err)
 	}
-	t.Cleanup(stop)
-	return "http://" + addr
+	t.Cleanup(observe.Stop)
+	if observe.Addr == "" {
+		t.Fatal("a configured address bound nothing")
+	}
+	return "http://" + observe.Addr
 }
 
 // get fetches one path and answers its status and body.
@@ -68,20 +65,27 @@ func get(t *testing.T, url string) (int, string) {
 	return resp.StatusCode, string(body)
 }
 
-// TestAnUnconfiguredObserveAddressServesNothing — off is the default, and off
+// TestAnUnconfiguredObserveAddressBindsNothing — off is the default, and off
 // has to mean no listener rather than one bound somewhere the operator did not
-// choose. The stop function must still be callable, because the caller defers
-// it unconditionally and a nil there would panic every worker that never
-// enabled the surface.
-func TestAnUnconfiguredObserveAddressServesNothing(t *testing.T) {
-	stop, err := startObserveListener(t.Context(), workerConfig{}, nil, nil, quietLog())
+// choose. The bound address is what proves it: a listener opened anywhere would
+// report the address it took, so the empty string is the absence itself rather
+// than an absence inferred from a call that did not error.
+//
+// The stop function must still be callable, because the caller defers it
+// unconditionally and a nil there would panic every worker that never enabled
+// the surface.
+func TestAnUnconfiguredObserveAddressBindsNothing(t *testing.T) {
+	observe, err := startObserveListener(t.Context(), workerConfig{}, nil, nil, &bootGate{}, quietLog())
 	if err != nil {
 		t.Fatalf("an empty --observe-addr must be a legitimate configuration, got: %v", err)
 	}
-	if stop == nil {
+	if observe.Addr != "" {
+		t.Errorf("an empty --observe-addr bound %s; off must mean no listener at all", observe.Addr)
+	}
+	if observe.Stop == nil {
 		t.Fatal("no stop function returned; run() defers it unconditionally and would panic")
 	}
-	stop()
+	observe.Stop()
 }
 
 // TestAnUnusableObserveAddressFailsTheBoot — the listen happens during boot
@@ -99,10 +103,10 @@ func TestAnUnusableObserveAddressFailsTheBoot(t *testing.T) {
 		}
 	})
 
-	stop, err := startObserveListener(t.Context(),
-		workerConfig{observeAddr: held.Addr().String()}, nil, nil, quietLog())
+	observe, err := startObserveListener(t.Context(),
+		workerConfig{observeAddr: held.Addr().String()}, nil, nil, &bootGate{}, quietLog())
 	if err == nil {
-		stop()
+		observe.Stop()
 		t.Fatal("binding a port already in use succeeded; a worker that could not serve its probes must fail its boot")
 	}
 	if !strings.Contains(err.Error(), held.Addr().String()) {

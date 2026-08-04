@@ -323,14 +323,18 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 // against it would drop the freshly-imported history off the morning screen
 // until the nightly pass.
 //
-// The Safely variant is deliberate: a unit test may drive Work directly with
-// no River client in context, and the plain ClientFromContext PANICS there —
-// a best-effort enqueue must degrade to a no-op, never crash the pager. A
-// failed enqueue never fails the backfill either; the nightly pass still
-// covers the workspace.
+// The Safely variant is deliberate: the plain ClientFromContext PANICS when
+// there is no client, and a best-effort enqueue must degrade rather than crash
+// the pager. River puts the client in every Work context, so its absence means
+// this method was reached from somewhere that is not a running job — which is
+// worth a line, because silently returning is indistinguishable from having
+// enqueued. Neither branch fails the backfill: the nightly pass still covers
+// the workspace, and a completed import is not undone by a missing digest.
 func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, args CaptureBackfillArgs) {
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
+		w.log.WarnContext(ctx, "capture backfill: no River client in context, so the same-day digest was not enqueued",
+			"backfill", args.BackfillID, "err", err)
 		return
 	}
 	child := CaptureDigestWorkspaceArgs{Workspace: args.Workspace}
