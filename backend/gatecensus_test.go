@@ -53,14 +53,15 @@ const (
 	wantFixtureAnnotations = 9
 )
 
-// reasonMap is one package-level declaration mapping subjects to strings — the
-// population rules 1 and 2 are derived over.
-type reasonMap struct {
+// censusDecl is one package-level declaration this census governs — a map from
+// subjects to reason strings, or a gatekit waiver set: the population rules 1
+// and 2 are derived over.
+type censusDecl struct {
 	path   string
 	pkg    string
 	line   int
 	name   string
-	waived bool // constructed through gatekit.Waive
+	waived bool // a gatekit waiver set, so already held to gatekit's standard
 }
 
 // A package-level map from subject to reason is a waiver or a declared fixture.
@@ -77,7 +78,7 @@ func TestEveryPackageLevelReasonMapIsAWaiverOrADeclaredFixture(t *testing.T) {
 	for _, pf := range files {
 		markers, commented := fixtureMarkers(pf, fset)
 		written += len(markers)
-		for _, decl := range reasonMaps(t, pf, fset) {
+		for _, decl := range censusDecls(t, pf, fset) {
 			declared++
 			reason, marked := fixtureReason(markers, commented, decl.line)
 			switch {
@@ -126,6 +127,10 @@ func TestEveryPackageLevelReasonMapIsAWaiverOrADeclaredFixture(t *testing.T) {
 // better than zero — matched accumulates across every test in the package, so
 // whichever runs first sees the other's subjects unreached and reports staleness
 // that is not there.
+//
+// The population is every declaration that IS a waiver set, however it was
+// constructed: a set a helper assembles grants exactly what an inline literal
+// grants, so reading the entries would decide the obligation on a spelling.
 func TestEveryWaiversDeclarationIsSweptForStalenessExactlyOnce(t *testing.T) {
 	files, fset := censusFiles(t, "Go source", func(string) bool { return true })
 
@@ -133,7 +138,7 @@ func TestEveryWaiversDeclarationIsSweptForStalenessExactlyOnce(t *testing.T) {
 	// package that declares it can name it in a sweep.
 	type pkgKey struct{ dir, pkg string }
 	sweeps := map[pkgKey]map[string]int{}
-	var declared []reasonMap
+	var declared []censusDecl
 	for _, pf := range files {
 		key := pkgKey{dir: path.Dir(pf.path), pkg: pf.file.Name.Name}
 		if sweeps[key] == nil {
@@ -142,7 +147,7 @@ func TestEveryWaiversDeclarationIsSweptForStalenessExactlyOnce(t *testing.T) {
 		for receiver, count := range assertAllMatchedSites(pf) {
 			sweeps[key][receiver] += count
 		}
-		for _, decl := range reasonMaps(t, pf, fset) {
+		for _, decl := range censusDecls(t, pf, fset) {
 			if decl.waived {
 				declared = append(declared, decl)
 			}
@@ -236,8 +241,8 @@ func censusFiles(t *testing.T, what string, keep func(path string) bool) ([]pars
 // waiver machinery belongs to.
 func isTestSource(path string) bool { return strings.HasSuffix(path, "_test.go") }
 
-// reasonMaps returns every package-level declaration in the file whose value
-// type is string, keyed by any type at all.
+// censusDecls returns every package-level declaration in the file that is a map
+// with string values, keyed by any type at all, or a gatekit waiver set.
 //
 // The walk is over the file's declarations, not over its text: a declaration
 // inside a `var ( … )` group is invisible to a pattern anchored on `var`. The
@@ -245,10 +250,10 @@ func isTestSource(path string) bool { return strings.HasSuffix(path, "_test.go")
 // gate draws subjects from, a record type or a table name as readily as a
 // string, and a rule that only saw map[string]string would sail past the typed
 // ones while typed keys are the direction gatekit pushes.
-func reasonMaps(t *testing.T, pf parsedFile, fset *token.FileSet) []reasonMap {
+func censusDecls(t *testing.T, pf parsedFile, fset *token.FileSet) []censusDecl {
 	t.Helper()
-	waive := gatekitName(t, pf)
-	var out []reasonMap
+	gatekitLocal := gatekitName(t, pf)
+	var out []censusDecl
 	for _, decl := range pf.file.Decls {
 		gen, isGen := decl.(*ast.GenDecl)
 		if !isGen || gen.Tok != token.VAR {
@@ -259,12 +264,12 @@ func reasonMaps(t *testing.T, pf parsedFile, fset *token.FileSet) []reasonMap {
 			if !isValue {
 				continue
 			}
-			mapped, waived := stringValuedMap(value, waive)
-			if !mapped {
+			mapped, waived := reasonMapOrWaiverSet(value, gatekitLocal)
+			if !mapped && !waived {
 				continue
 			}
 			for _, name := range value.Names {
-				out = append(out, reasonMap{
+				out = append(out, censusDecl{
 					path:   pf.path,
 					pkg:    pf.file.Name.Name,
 					line:   fset.Position(value.Pos()).Line,
@@ -277,30 +282,34 @@ func reasonMaps(t *testing.T, pf parsedFile, fset *token.FileSet) []reasonMap {
 	return out
 }
 
-// stringValuedMap reports whether the spec declares a map with string values,
-// and whether gatekit.Waive constructs it. The three shapes such a declaration
-// takes are the bare literal, the type with no value, and the literal handed to
-// Waive.
-func stringValuedMap(spec *ast.ValueSpec, waive string) (mapped, waived bool) {
+// reasonMapOrWaiverSet reports what the spec is to this census: mapped when it
+// declares a map with string values — the shape rule 1 requires classified — and
+// waived when it declares a waiver set, which rule 1 has nothing left to ask of
+// and rule 2 requires one sweep of.
+//
+// A reason map takes two shapes, the bare literal and the type with no value —
+// the second being a map the test's own walk fills. A waiver set takes two as
+// well, and neither reads the entries: gatekit.Waive is the signal wherever its
+// argument came from, because a set a helper assembles is ratified exactly as
+// much as one written inline; and the *gatekit.Waivers[…] type names a waiver set
+// however the value reaches the name.
+func reasonMapOrWaiverSet(spec *ast.ValueSpec, gatekitLocal string) (mapped, waived bool) {
+	if isWaiversType(spec.Type, gatekitLocal) {
+		return false, true
+	}
+	for _, value := range spec.Values {
+		call, isCall := value.(*ast.CallExpr)
+		if isCall && namesGatekitMember(call.Fun, gatekitLocal, "Waive") {
+			return false, true
+		}
+	}
 	if isStringValuedMapType(spec.Type) {
 		return true, false
 	}
 	for _, value := range spec.Values {
-		switch expr := value.(type) {
-		case *ast.CompositeLit:
-			if isStringValuedMapType(expr.Type) {
-				return true, false
-			}
-		case *ast.CallExpr:
-			if !isWaiveCall(expr.Fun, waive) {
-				continue
-			}
-			for _, arg := range expr.Args {
-				literal, isLiteral := arg.(*ast.CompositeLit)
-				if isLiteral && isStringValuedMapType(literal.Type) {
-					return true, true
-				}
-			}
+		literal, isLiteral := value.(*ast.CompositeLit)
+		if isLiteral && isStringValuedMapType(literal.Type) {
+			return true, false
 		}
 	}
 	return false, false
@@ -317,26 +326,38 @@ func isStringValuedMapType(expr ast.Expr) bool {
 	return isIdent && value.Name == "string"
 }
 
-// isWaiveCall reports whether the callee is gatekit.Waive, named through the
-// local name the file imports gatekit under, or unqualified inside gatekit's own
-// package.
-func isWaiveCall(callee ast.Expr, waive string) bool {
-	if waive == "" {
+// isWaiversType reports whether the expression names gatekit's waiver-set type,
+// instantiated as a generic type must be: `*gatekit.Waivers[string]`, or
+// `Waivers[K]` inside gatekit itself. A pointer is stripped first — what the
+// declaration holds is a waiver set either way.
+func isWaiversType(expr ast.Expr, gatekitLocal string) bool {
+	if pointer, isPointer := expr.(*ast.StarExpr); isPointer {
+		expr = pointer.X
+	}
+	instantiated, isInstantiated := expr.(*ast.IndexExpr)
+	return isInstantiated && namesGatekitMember(instantiated.X, gatekitLocal, "Waivers")
+}
+
+// namesGatekitMember reports whether the expression names the given gatekit
+// identifier, through the local name the file imports gatekit under, or
+// unqualified inside gatekit's own package.
+func namesGatekitMember(expr ast.Expr, gatekitLocal, member string) bool {
+	if gatekitLocal == "" {
 		return false
 	}
-	if bare, isIdent := callee.(*ast.Ident); isIdent {
-		return waive == "." && bare.Name == "Waive"
+	if bare, isIdent := expr.(*ast.Ident); isIdent {
+		return gatekitLocal == "." && bare.Name == member
 	}
-	selector, isSelector := callee.(*ast.SelectorExpr)
-	if !isSelector || selector.Sel.Name != "Waive" {
+	selector, isSelector := expr.(*ast.SelectorExpr)
+	if !isSelector || selector.Sel.Name != member {
 		return false
 	}
 	qualifier, isIdent := selector.X.(*ast.Ident)
-	return isIdent && qualifier.Name == waive
+	return isIdent && qualifier.Name == gatekitLocal
 }
 
 // gatekitName is the local name the file imports gatekit under, "." inside
-// gatekit's own package, and "" when the file cannot name Waive at all.
+// gatekit's own package, and "" when the file cannot name gatekit at all.
 // Resolving the name keeps an aliased import inside the rule instead of
 // silently reclassifying its waivers as bare maps.
 func gatekitName(t *testing.T, pf parsedFile) string {
