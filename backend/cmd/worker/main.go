@@ -87,6 +87,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Registered before the lanes' join below, so LIFO closes the pool after it.
 	defer pool.Close()
 
 	// Record the composed extension set when it changed since the last
@@ -100,6 +101,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// Same ordering obligation as pool.Close above: the lanes read this client.
 	defer closeBus(rdb, logger)
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
@@ -109,7 +111,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 
 	// Deferred BEFORE the error is checked: a failure here still leaves earlier
-	// lanes running on the bus and the pool this function closes above.
+	// lanes running on the bus and the pool whose closes are deferred above, and
+	// LIFO is what puts this join ahead of them.
 	lanes, err := startEventLanes(ctx, cfg, pool, rdb, modelPath, logger, stdout)
 	defer lanes.join()
 	if err != nil {
@@ -122,10 +125,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer stopJobs()
-
-	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
-	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
-	lanes.background.Go(func() { runSubscriber(lanes.ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 
 	relayUntilSignal(ctx, cfg, pool, rdb, logger, stdout)
 	return nil

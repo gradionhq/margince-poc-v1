@@ -94,9 +94,8 @@ type workerLanes struct {
 	// group; a bare goroutine would be killed mid-handler when the relay
 	// returns.
 	background *sync.WaitGroup
-	// ctx is what every lane goroutine runs under and stop is what ends them,
-	// so the lanes own their own lifetime: one place cancels, one place joins.
-	ctx       context.Context
+	// stop ends every lane goroutine. It pairs with background: join() is the
+	// only thing that should call either, so the lanes have one shutdown.
 	stop      context.CancelFunc
 	runner    *compose.RunnerService
 	deliverer *webhooks.Deliverer
@@ -104,8 +103,8 @@ type workerLanes struct {
 }
 
 // join ends the lanes and waits for the handler each is in. It is what makes the
-// bus and the pool safe to close: both are deferred before the lanes start, so
-// they close after this returns, never under a live subscriber.
+// bus and the pool safe to close: run() defers both closes before the lanes
+// start, so LIFO runs them after this returns, never under a live subscriber.
 func (l workerLanes) join() {
 	l.stop()
 	l.background.Wait()
@@ -115,13 +114,14 @@ func (l workerLanes) join() {
 // and resolves what the runner then needs from them, in the order an operator
 // reads at boot.
 //
-// A failure returns the lanes started SO FAR alongside the error, never a zero
-// value: goroutines are already running on that WaitGroup, and handing back a
-// struct whose WaitGroup is nil would leave a caller no way to join them before
-// it closes the bus and the pool they are still using.
+// It returns a JOINABLE value on every path, error included: background and stop
+// are both set before the first possible return, because goroutines the earlier
+// lanes started are already reading the bus and the pool, and a zero value would
+// make join() a nil dereference in a deferred call during a failing boot — a
+// stack trace where the boot error belongs.
 func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, logger *slog.Logger, stdout io.Writer) (workerLanes, error) {
 	laneCtx, stopLanes := context.WithCancel(ctx)
-	lanes := workerLanes{background: &sync.WaitGroup{}, ctx: laneCtx, stop: stopLanes}
+	lanes := workerLanes{background: &sync.WaitGroup{}, stop: stopLanes}
 
 	if err := startRunnerLane(laneCtx, cfg, pool, rdb, modelPath, &lanes, logger, stdout); err != nil {
 		return lanes, err
@@ -143,7 +143,16 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	if err := startWebhookLane(laneCtx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
 		return lanes, err
 	}
+	startWorkflowLane(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
 	return lanes, nil
+}
+
+// startWorkflowLane starts the cg:workflows dispatcher. It needs nothing the job
+// runner builds, so it belongs with the other event lanes rather than after it.
+func startWorkflowLane(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger, stdout io.Writer) {
+	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
+	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
+	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 }
 
 // startRunnerLane builds the Surface-B runner and starts the subscriber that
@@ -225,8 +234,7 @@ func startWebhookLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool,
 
 // relayUntilSignal ships outbox rows until the process is signalled. Unshipped
 // rows wait durably in the outbox for the next boot — shutdown loses no events.
-// Joining the lanes is run()'s deferred job, so every return path joins them and
-// not just this one.
+// Lane shutdown is not this function's job: run() defers the one join.
 func relayUntilSignal(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger, stdout io.Writer) {
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	events.NewRelay(pool, rdb, logger).Run(ctx)
