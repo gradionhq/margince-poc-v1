@@ -232,10 +232,42 @@ func fieldDecodeRefusal(cause error) (detail string, causeWithheld bool) {
 	if errors.As(cause, &ourKeyRefusal) {
 		return boundFaultText(ourKeyRefusal.Error()) + fieldDecodeAdvice, false
 	}
+	// The seam's other own refusal: the key was right and its VALUE was not.
+	// It carries the field name, which is the half every branch below is
+	// missing — the generated per-field unmarshalers decode through a fresh
+	// json.Unmarshal, so the decoder's own error names no path.
+	var ourShapeRefusal *datasource.FieldShapeError
+	if errors.As(cause, &ourShapeRefusal) {
+		return fieldShapeDetail(ourShapeRefusal)
+	}
 	if restated := RestateDecodeError(cause); restated != nil {
 		return restated.Error() + fieldDecodeAdvice, false
 	}
 	return genericDecodeDetail, true
+}
+
+// fieldShapeDetail renders the seam's field-shape refusal, and reports whether
+// it WITHHELD the cause's own words.
+//
+// A shape mismatch is self-sufficient: it names the field, the shape that field
+// takes and the shape that arrived, which is the whole of what the generic
+// advice would send a caller to look up. It takes no advice tail.
+//
+// A value refused for a reason OTHER than its shape is the interesting case. The
+// branches in decodeDetail already say those well — a malformed timestamp is
+// quoted back with the format it needed — but they say it about an unnamed
+// value, because the decoder lost the path. Pairing the two gives the caller
+// both halves of one mistake. What nothing can name still gets the field name,
+// which is the actionable half on its own, and its cause goes to a log: the
+// third-party unmarshaler's `invalid UUID length: 6` describes this program.
+func fieldShapeDetail(refusal *datasource.FieldShapeError) (detail string, causeWithheld bool) {
+	if refusal.Got != "" {
+		return boundFaultText(refusal.Error()), false
+	}
+	if restated := RestateDecodeError(refusal.Unwrap()); restated != nil {
+		return "`" + boundFaultText(refusal.Field) + "` " + restated.Error() + fieldDecodeAdvice, false
+	}
+	return boundFaultText(refusal.Error()), true
 }
 
 // fieldDecodeAdvice closes a field-decode refusal with what to DO about it, which
@@ -253,8 +285,17 @@ func withheldFieldDecodeCause(err error) error {
 	if !errors.As(err, &badFields) {
 		return nil
 	}
-	if _, causeWithheld := fieldDecodeRefusal(badFields.Cause); causeWithheld {
-		return badFields.Cause
+	if _, causeWithheld := fieldDecodeRefusal(badFields.Cause); !causeWithheld {
+		return nil
 	}
-	return nil
+	// A localized refusal is a sentence WE wrote over the decoder's, so logging
+	// it back would record our own words as the withheld ones and leave the
+	// operator with no trace of what the library actually refused — the exact
+	// loss this function exists to prevent, dressed as a log line that looks
+	// like it worked.
+	var shaped *datasource.FieldShapeError
+	if errors.As(badFields.Cause, &shaped) {
+		return shaped.Unwrap()
+	}
+	return badFields.Cause
 }
