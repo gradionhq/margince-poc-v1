@@ -184,6 +184,43 @@ function AutomationForm({
 
 // One instance row, rendered from the Automation wire schema alone — no
 // origin field exists on the wire, so authorship cannot change the render.
+// The two inspector toggles, lifted out of the row so the row stays under the
+// cognitive-complexity gate. They travel together: both are reads of the same
+// automation, admitted by the same grant.
+function InspectorToggles({
+  runsOpen,
+  previewOpen,
+  onToggleRuns,
+  onTogglePreview,
+}: Readonly<{
+  runsOpen: boolean;
+  previewOpen: boolean;
+  onToggleRuns: () => void;
+  onTogglePreview: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <Button
+        small
+        variant={runsOpen ? "primary" : "ghost"}
+        aria-expanded={runsOpen}
+        onClick={onToggleRuns}
+      >
+        {t("auto.runs.open")}
+      </Button>
+      <Button
+        small
+        variant={previewOpen ? "primary" : "ghost"}
+        aria-expanded={previewOpen}
+        onClick={onTogglePreview}
+      >
+        {t("auto.preview.open")}
+      </Button>
+    </>
+  );
+}
+
 // Four affordances over three grants. The runs and preview inspectors are
 // READS — automations_runs.go gates on automation:read, and Preview resolves
 // the instance through Get (read) before carrying the target table's own read
@@ -305,24 +342,12 @@ export function AutomationRow({
           </>
         )}
         {canViewRuns && (
-          <>
-            <Button
-              small
-              variant={runsOpen ? "primary" : "ghost"}
-              aria-expanded={runsOpen}
-              onClick={() => setRunsOpen((open) => !open)}
-            >
-              {t("auto.runs.open")}
-            </Button>
-            <Button
-              small
-              variant={previewOpen ? "primary" : "ghost"}
-              aria-expanded={previewOpen}
-              onClick={() => setPreviewOpen((open) => !open)}
-            >
-              {t("auto.preview.open")}
-            </Button>
-          </>
+          <InspectorToggles
+            runsOpen={runsOpen}
+            previewOpen={previewOpen}
+            onToggleRuns={() => setRunsOpen((open) => !open)}
+            onTogglePreview={() => setPreviewOpen((open) => !open)}
+          />
         )}
         {canDelete && (
           <Button
