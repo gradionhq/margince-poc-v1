@@ -85,6 +85,12 @@
 # workspace on the next pass, so River's ladder is only there to ride out a
 # transient blip inside one tick window. A kind departing from three says why.
 
+# queues: is the pool set. Every kind's queue: has to name an entry here, and
+# the entries are held to compose's jobQueues() by the census in both
+# directions — names and bounds. A bound moved in one place only would make the
+# number operators read here a number no client runs at, and a queue declared
+# but never built is one a fan-out child is inserted onto (workspaceSweepOpts
+# reads the DECLARED queue) with no client to work it.
 queues:
   default: {max_workers: 5}
   deep_read:
@@ -451,7 +457,13 @@ kinds:
     reason: >-
       An empty pass is six indexed NOT-EXISTS probes per workspace, so a short
       cadence is cheap; fifteen minutes is how long a lost embed event may keep
-      a record out of semantic search.
+      a record out of semantic search. The when: above is the weaker of the two
+      conditions addEmbedDriftSweepJob actually applies, and deliberately so:
+      the lane must also be BOUND (a non-empty EmbedIdentity), which is a
+      runtime method rather than a JobRunnerConfig field and so cannot be
+      declared here. A configured-but-unbound lane — what --ai-fake leaves —
+      seeds no binding marker for the sweep to compare a row against, and
+      registers neither embed_drift kind.
 
   embed_drift_workspace:
     role: workspace
@@ -467,6 +479,12 @@ kinds:
     registration: {when: [Embedder], absent: registers_nothing}
     args:
       Workspace: id
+    reason: >-
+      Registered by addEmbedDriftSweepJob beside its dispatcher, under the same
+      second condition the when: above cannot express: the embed lane must also
+      be BOUND (a non-empty EmbedIdentity, a runtime method rather than a
+      JobRunnerConfig field), because an unbound lane seeds no binding marker
+      and there is nothing to heal a row against.
 
   embed_reindex:
     role: dispatcher

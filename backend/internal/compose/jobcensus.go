@@ -78,6 +78,8 @@ func (c *JobCensus) Validate() error {
 		c.exactlyTheOperatorKindsSupplyTheirTimeout(),
 		c.everyArgsFieldIsDeclaredAndBack(),
 		c.everyArgsOwnedKindInsertsOnItsDeclaredQueue(),
+		c.noArgsTypeAnswersToASecondKind(),
+		c.everyDeclaredQueueIsBuiltWithItsDeclaredBound(),
 	)
 	if len(findings) == 0 {
 		return nil
@@ -371,19 +373,98 @@ func (c *JobCensus) everyArgsOwnedKindInsertsOnItsDeclaredQueue() []string {
 	return findings
 }
 
-// argsFieldNames is the declared field names of an args struct, in declaration
-// order. River marshals args to a JSON object, so a non-struct carries no
-// fields at all and answers none.
+// noArgsTypeAnswersToASecondKind closes River's rename door. AddWorker
+// registers a work unit under Kind() AND under every value KindAliases()
+// returns, so a type that grew an alias would satisfy the closed union, pass
+// Govern, compile — and have River working rows under a kind api/jobs.yaml
+// never named. The contract cannot declare that alias either: go_type is
+// unique per kind, so one args struct is one kind here by construction.
+//
+// The registration records the aliases too, which is what makes MustBeTotal
+// refuse such a boot; this arm is the same finding at build time, where the
+// rename is being written rather than deployed.
+func (c *JobCensus) noArgsTypeAnswersToASecondKind() []string {
+	var findings []string
+	inspected := 0
+	for _, kind := range slices.Sorted(maps.Keys(c.wired)) {
+		inspected++
+		aliased, answers := c.wired[kind].args.(river.JobArgsWithKindAliases)
+		if !answers {
+			continue
+		}
+		findings = append(findings, fmt.Sprintf(
+			"%s also answers to %s through KindAliases — River registers a worker under every one of them, and api/jobs.yaml cannot declare a second kind for one args struct; rename by adding the new kind with its own args type and draining the old one",
+			kind, strings.Join(aliased.KindAliases(), ", ")))
+	}
+	if inspected < declaredJobKindFloor {
+		findings = append(findings, fmt.Sprintf(
+			"only %d registered args types were inspected for kind aliases, expected at least %d — the walk matched almost nothing and this check would pass by asking nobody", inspected, declaredJobKindFloor))
+	}
+	return findings
+}
+
+// argsFieldNames is the fields an args struct puts in river_job.args, in
+// declaration order and under the Go names the declaration spells them with.
+// River marshals args to a JSON object, so a non-struct carries no fields at
+// all and answers none.
+//
+// An EMBEDDED struct is walked THROUGH rather than counted as one field,
+// because flattening is what actually reaches the column: encoding/json lifts
+// an anonymous field's own fields into the enclosing object unless a tag names
+// it. Reported as its type name, a Body sitting one level down would satisfy
+// every check here while landing in the args verbatim, which is the one thing
+// the args declaration exists to prevent.
 func argsFieldNames(args river.JobArgs) []string {
-	t := reflect.TypeOf(args)
-	if t == nil || t.Kind() != reflect.Struct {
+	return structFieldNames(reflect.TypeOf(args), nil)
+}
+
+// structFieldNames walks one struct type, inlining what JSON would inline.
+// enclosing carries the types already on the path: a struct may embed a
+// pointer to itself, which is legal Go and would otherwise recur forever.
+func structFieldNames(t reflect.Type, enclosing []reflect.Type) []string {
+	if t == nil || t.Kind() != reflect.Struct || slices.Contains(enclosing, t) {
 		return nil
 	}
 	names := make([]string, 0, t.NumField())
 	for i := range t.NumField() {
-		names = append(names, t.Field(i).Name)
+		field := t.Field(i)
+		if inner, inlined := inlinedStruct(field); inlined {
+			names = append(names, structFieldNames(inner, append(enclosing, t))...)
+			continue
+		}
+		names = append(names, field.Name)
 	}
 	return names
+}
+
+// inlinedStruct reports the struct an anonymous field contributes its own
+// fields to the enclosing object, and whether the field is such an embedding at
+// all. A tag that names the field is what stops the inlining: JSON then writes
+// a nested object under that name, and the embedding is one field like any
+// other.
+func inlinedStruct(field reflect.StructField) (reflect.Type, bool) {
+	if !field.Anonymous || jsonName(field) != "" {
+		return nil, false
+	}
+	t := field.Type
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil, false
+	}
+	return t, true
+}
+
+// jsonName is the name a field's json tag gives it, which is the part before
+// the first option and is empty when the tag only carries options.
+func jsonName(field reflect.StructField) string {
+	tag, tagged := field.Tag.Lookup("json")
+	if !tagged {
+		return ""
+	}
+	name, _, _ := strings.Cut(tag, ",")
+	return name
 }
 
 // workerTypeName is the Go type name of a registered worker, which is what a

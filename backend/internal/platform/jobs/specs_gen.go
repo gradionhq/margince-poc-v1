@@ -11,7 +11,7 @@ import "time"
 // would believe. It says nothing about the file on disk — a pair
 // regenerated TOGETHER from a stale contract matches here, and the drift
 // gate is what catches that.
-const JobContractHash = "14a2ee5d6ec466a3286637bba4c017e90c9b829122b5fc0b3fca5a9dde99328d"
+const JobContractHash = "3b2e71ba1c9a26a7172d9ae43178ff8e5e560714fe61fbff77c2b89390a98406"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -615,4 +615,19 @@ var specs = map[string]Spec{
 		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
 		Args:         []ArgField{{Name: "Workspace"}},
 	},
+}
+
+// queues is every declared queue and the worker bound stated for it. The
+// queue set is still composition's to BUILD — River takes a QueueConfig,
+// which this package has no business knowing — and this table is what the
+// census holds that construction to, in both directions.
+var queues = map[string]int{
+	"agent_scheduler":   2,
+	"ai_capture":        2,
+	"deep_read":         2,
+	"default":           5,
+	"overlay_reconcile": 1,
+	"privacy_retention": 2,
+	"rate_refresh":      2,
+	"webhook_retry":     3,
 }

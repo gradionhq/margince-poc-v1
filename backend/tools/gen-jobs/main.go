@@ -14,10 +14,11 @@
 // does not exist, a dispatcher with no schedule, or an attempt cap on a kind
 // whose options the file does not actually govern.
 //
-// The queues: block is validated and emitted NOWHERE on purpose. Its job is
-// to make every `queue:` reference checkable here, at generation time; the
-// queue set itself is still composition's to build (compose/jobqueues.go), so
-// a generated copy of it would be a second spelling nobody reads.
+// The queues: block is emitted as names and bounds only. Building the queue
+// set stays composition's (compose/jobqueues.go) — River takes a QueueConfig,
+// and a generated copy of one would be a second spelling of the wiring — but
+// the declared bounds are what the census compares that construction against,
+// in both directions, so they have to reach the running module as data.
 package main
 
 import (

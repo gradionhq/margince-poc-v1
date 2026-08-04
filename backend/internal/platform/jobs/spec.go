@@ -174,10 +174,13 @@ type ArgField struct {
 type Spec struct {
 	Kind string
 	// GoType is the name of the args struct in the composition layer that
-	// returns this Kind. It is the only compose identifier the table carries,
-	// and it is carried as data rather than as an import: it is what lets a
-	// gate assert that the kind↔type pairing still holds without re-parsing
-	// the contract, which is the pairing a renamed struct silently breaks.
+	// returns this Kind. It is one of the three species of compose identifier
+	// this table carries — beside the JobRunnerConfig field paths in
+	// Registration and Cadence, and the Go constant names in
+	// Timeout.DerivedFrom — and like them it is carried as data rather than as
+	// an import: it is what lets a gate assert that the kind↔type pairing still
+	// holds without re-parsing the contract, which is the pairing a renamed
+	// struct silently breaks.
 	GoType       string
 	Role         Role
 	Queue        string
@@ -214,6 +217,19 @@ func Declared() iter.Seq2[string, Spec] {
 			}
 		}
 	}
+}
+
+// DeclaredQueues is every declared queue and the number of workers the
+// contract states for it, copied so a reader cannot edit the table underneath
+// the next one.
+//
+// A declared bound is not a bound River applies: composition builds the queue
+// set, and this is the number the file publishes for the same pool. The two
+// are held equal by the census, because a bound that moved in one place only
+// makes the file operators read a lie, and a queue declared but never built is
+// one a dispatcher inserts children into that no client works.
+func DeclaredQueues() map[string]int {
+	return maps.Clone(queues)
 }
 
 // MustBeTotal reports the kinds a caller intends to work that the contract

@@ -127,6 +127,54 @@ func takesWorkersFirst(fn *ast.FuncDecl) bool {
 	return ok && ident.Name == "Workers"
 }
 
+// riverPeriodicBundleMutators returns every exported method on
+// *river.PeriodicJobBundle: the complete set of ways a running process could
+// change its own schedule after the client was built.
+//
+// Derived from the receiver rather than from the four Add spellings the review
+// found, for the reason the registration set is: the bundle exists to be
+// mutated, so every exported method on it is a way past the declared cadence,
+// and a fifth in a future upgrade enrols itself.
+func riverPeriodicBundleMutators(t *testing.T) []string {
+	t.Helper()
+	dir := moduleDir(t, riverModulePath)
+	paths, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	if err != nil {
+		t.Fatalf("listing %s: %v", dir, err)
+	}
+
+	var found []string
+	fset := token.NewFileSet()
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		if file.Name.Name != "river" {
+			continue
+		}
+		for _, decl := range file.Decls {
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.IsExported() && receiverTypeName(fn) == "PeriodicJobBundle" {
+				found = append(found, fn.Name.Name)
+			}
+		}
+	}
+	slices.Sort(found)
+
+	if len(found) == 0 {
+		t.Fatalf("found no exported PeriodicJobBundle methods in %s — the type moved or the parse matched nothing, and a gate over an empty set passes by having nothing to check", dir)
+	}
+	// Add is the method the bundle's own documentation is written around, so a
+	// walk that misses it is not seeing the type however many names it found.
+	if !slices.Contains(found, "Add") {
+		t.Fatalf("derived %v, which does not include Add — the derivation is not seeing the bundle it thinks it is", found)
+	}
+	return found
+}
+
 // forbidRule is one entry of the repo-wide forbidigo blocklist.
 type forbidRule struct {
 	Pattern string `yaml:"pattern"`
@@ -220,6 +268,25 @@ func TestTheRegistrationBanCoversEveryRiverEntryPoint(t *testing.T) {
 		expr := "river." + name
 		if !banCovers(t, rules, expr) {
 			t.Errorf("river.%s registers a worker but no forbidigo rule forbids it. A call to it compiles with an unconstrained type parameter, skips jobs.Govern, and records no kind for jobs.MustBeTotal — widen the pattern in backend/.golangci.yml to cover it.", name)
+		}
+	}
+}
+
+// TestTheScheduleBanCoversEveryPeriodicBundleMutator holds the other half of
+// the same door. The closed type set governs which kinds may be REGISTERED;
+// the cadence in api/jobs.yaml governs when they TICK, and periodicFor is the
+// only thing that reads it. A client resolved inside a worker exposes the
+// periodic-job bundle, and a tick added or dropped through that bundle is one
+// the file never declared and the census cannot see — so every exported method
+// on it has to be forbidden, not just the ones that exist today.
+func TestTheScheduleBanCoversEveryPeriodicBundleMutator(t *testing.T) {
+	mutators := riverPeriodicBundleMutators(t)
+	rules := riverForbidRules(t)
+
+	for _, name := range mutators {
+		expr := "river.PeriodicJobBundle." + name
+		if !banCovers(t, rules, expr) {
+			t.Errorf("(*river.PeriodicJobBundle).%s changes the running schedule but no forbidigo rule forbids it. A call to it compiles with an unconstrained args type and an interval api/jobs.yaml never stated — widen the pattern in backend/.golangci.yml to cover it.", name)
 		}
 	}
 }

@@ -13,8 +13,8 @@ package compose
 // is constrained to the declared set, so a kind api/jobs.yaml has never heard
 // of cannot be named at a call site at all.
 //
-// Two ways past that constraint remain, and each has its own gate, because
-// neither is something the compiler can refuse:
+// Three ways around that constraint remain, and each has its own gate,
+// because none of them is something the compiler can refuse:
 //
 //   - Going to River directly. All three of its registration spellings —
 //     AddWorker, AddWorkerArgs, AddWorkerSafely — take an unconstrained type
@@ -24,6 +24,10 @@ package compose
 //   - Calling addGovernedWorker below, which is constrained only to
 //     river.JobArgs. That is what fixtures do, and it is deliberate; the kind
 //     it records is what jobs.MustBeTotal refuses to boot on.
+//   - Growing a KIND ALIAS on a type that is already declared. River registers
+//     the work unit under Kind() and under every alias besides, so the union
+//     is satisfied while River works a kind the file never named. The kinds
+//     recorded below are therefore all of them, not just the primary.
 //
 // So the compiler holds the sanctioned path, forbidigo holds the way around
 // it, and MustBeTotal holds what is left — including a hand-edited generated
@@ -94,7 +98,17 @@ func (r *jobRegistry) markOperatorSupplied(kind string) {
 func addGovernedWorker[T river.JobArgs](reg *jobRegistry, w jobs.WorkOnly[T], supplied time.Duration) {
 	var zero T
 	kind := zero.Kind()
+	// Every kind THIS registration makes workable, which is Kind() plus every
+	// alias the args type answers to: River registers the work unit under all
+	// of them (worker.go's AddWorker), so recording only the primary would
+	// leave MustBeTotal blind to exactly the kind nobody declared. The
+	// contract has no way to declare an alias — go_type is unique per kind, so
+	// one args struct is one kind here — which makes any alias a boot refusal,
+	// and the census says so at build time.
 	reg.kinds = append(reg.kinds, kind)
+	if aliased, answers := river.JobArgs(zero).(river.JobArgsWithKindAliases); answers {
+		reg.kinds = append(reg.kinds, aliased.KindAliases()...)
+	}
 	reg.wired[kind] = wiredWorker{args: zero, worker: w}
 	// An undeclared kind is recorded and registered under the zero Spec rather
 	// than rejected on the spot: MustBeTotal names every missing kind at once

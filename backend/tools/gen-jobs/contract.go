@@ -217,6 +217,17 @@ type contract struct {
 	Kinds  map[string]kindDef  `yaml:"kinds"`
 }
 
+// sortedQueues is the queue set in the same deterministic order, for the same
+// reason.
+func (c contract) sortedQueues() []string {
+	names := make([]string, 0, len(c.Queues))
+	for name := range c.Queues {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // sortedKinds is the one deterministic order every emitted table walks.
 func (c contract) sortedKinds() []string {
 	names := make([]string, 0, len(c.Kinds))

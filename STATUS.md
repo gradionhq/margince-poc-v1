@@ -333,26 +333,46 @@ What the declaration now decides, rather than each site deciding for itself:
 - **Registration.** `addDeclaredWorker`'s type parameter is a generated union
   of the declared args types, so a kind the file has never heard of does not
   compile; `forbidigo` bans River's three direct registration spellings outside
-  one file, and `jobs.MustBeTotal` refuses the boot on anything left.
+  one file, and `jobs.MustBeTotal` refuses the boot on anything left. What that
+  boot check reads is every kind River will WORK — `Kind()` plus any
+  `KindAliases()`, which River registers a worker under just the same — so a
+  rename cannot answer to a kind the file never named.
 - **The fan-out.** `workspaceSweepOpts` and `dispatchOne` are the only two
   paths, both read the child's declared queue and attempt cap, and both stamp
   the sweep tag — so a dispatcher cannot forget it.
 - **The schedule.** `periodicFor` resolves cadence and registration posture per
   kind from the file, so moving a wiring site cannot quietly move a schedule.
+  River's RUNTIME periodic-job bundle is the door beside it — a client resolved
+  inside a `Work` body hands one out, and its `Add`/`Remove` take any args at
+  any interval — so `forbidigo` closes the whole type, derived from River's own
+  method set rather than from today's four names.
 - **The fleet surfaces** enumerate what is DECLARED rather than what happens to
   have rows, which is what tells an idle kind apart from one nobody wired.
 
 **`compose.NewJobCensus` is what holds the two ends together.** It assembles a
 maximally-configured runner — every vault, registry and model seam supplied,
-because which kinds are wired is deployment-dependent — and asserts six things
-no compiler can: that the two generated halves came from one revision of the
-file, declared-vs-registered totality both ways, that each `{derived: …}`
+because which kinds are wired is deployment-dependent — and asserts eight
+things no compiler can: that the two generated halves came from one revision of
+the file, declared-vs-registered totality both ways, that each `{derived: …}`
 timeout still equals the Go constant it names, that exactly the `{operator: …}`
 kinds pass a value at registration, that the declared args fields and the
-compiled struct's fields are the same set, and that an args-owned kind's own
-`InsertOpts()` inserts on its declared queue. It refuses to build at all when
-its own configuration has fallen behind a declared dependency, so it cannot
-quietly measure less than it claims.
+compiled struct's fields are the same set, that an args-owned kind's own
+`InsertOpts()` inserts on its declared queue, that no args type answers to a
+second kind through River's `KindAliases`, and that the declared `queues:`
+block and compose's `jobQueues()` agree on names and bounds both ways. It
+refuses to build at all when its own configuration has fallen behind a declared
+dependency, so it cannot quietly measure less than it claims.
+
+**What the file governs and what it only records, stated rather than implied.**
+The queue SET is bound — the census compares every name and `max_workers`
+against `jobQueues()`, so a bound that moved in one place makes the number
+operators read a lie, and a queue declared but never built (rows inserted onto a
+pool no client works) fails the gate. Which queue a ROW lands on is bound only
+where the file supplies the options: `fan_out` kinds take theirs from the
+declaration and `args` kinds are compared against their own `InsertOpts()`,
+while an `opts_owner: caller` kind's `queue` is documentation for the readers —
+its enqueue sites decide. `max_attempts` is likewise declared only for `fan_out`
+kinds, because that is the only case anything reads it.
 
 **Two hand-maintained lists were retired into the file.** The
 nil-after-logging waivers are now `fault:` declarations keyed by kind, joined

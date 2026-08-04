@@ -11,9 +11,12 @@ import (
 )
 
 // emitSpecs renders internal/platform/jobs/specs_gen.go: the kind-keyed Spec
-// table SpecFor, Declared and MustBeTotal are built on. It carries no compose
-// identifier — platform never learns what a kind's worker does, only what the
-// contract says about it.
+// table SpecFor, Declared and MustBeTotal are built on. Compose identifiers do
+// reach it — the args type name, the JobRunnerConfig field paths a
+// registration or cadence names, the Go constant a derived timeout tracks —
+// but only ever as STRINGS a gate joins back up, never as imports: platform
+// carries what the contract says about a kind and never learns what its worker
+// does.
 //
 // Kinds arrive already sorted, so the map literal is byte-stable across runs.
 func emitSpecs(c contract, contractHash string) (string, error) {
@@ -38,6 +41,16 @@ func emitSpecs(c contract, contractHash string) (string, error) {
 	b.WriteString("var specs = map[string]Spec{\n")
 	for _, name := range c.sortedKinds() {
 		writeSpec(&b, name, c.Kinds[name])
+	}
+	b.WriteString("}\n\n")
+
+	b.WriteString("// queues is every declared queue and the worker bound stated for it. The\n")
+	b.WriteString("// queue set is still composition's to BUILD — River takes a QueueConfig,\n")
+	b.WriteString("// which this package has no business knowing — and this table is what the\n")
+	b.WriteString("// census holds that construction to, in both directions.\n")
+	b.WriteString("var queues = map[string]int{\n")
+	for _, name := range c.sortedQueues() {
+		fmt.Fprintf(&b, "\t%q: %d,\n", name, c.Queues[name].MaxWorkers)
 	}
 	b.WriteString("}\n")
 
