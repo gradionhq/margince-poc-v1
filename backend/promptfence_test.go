@@ -131,6 +131,7 @@ func TestNoPromptDeclaresAFixedDataBoundary(t *testing.T) {
 // every instance found so far has taken.
 func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 	var offenders []string
+	claimants := 0
 	goFilesUnderTree(t, func(path, body string) {
 		if strings.HasPrefix(path, promptfencePackage) {
 			return
@@ -138,6 +139,7 @@ func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 		if !boundaryClaim.MatchString(body) {
 			return
 		}
+		claimants++
 		if buildsAFence.MatchString(body) {
 			return
 		}
@@ -146,6 +148,11 @@ func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 		}
 		offenders = append(offenders, path)
 	})
+	if claimants == 0 {
+		t.Fatal("boundaryClaim matched no file outside promptfence, so this rule judged nothing: the pattern " +
+			"derives the subjects, and a derivation that finds none reads green over every prompt in the tree " +
+			"— widen boundaryClaim to the sentences the prompts now use")
+	}
 	if len(offenders) > 0 {
 		t.Errorf("these files tell a model that some region of a prompt is data rather than instructions, without minting the boundary that makes it true — fence the region with promptfence and let Fence.Rule write the sentence:\n  %s",
 			strings.Join(offenders, "\n  "))
@@ -153,9 +160,9 @@ func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 }
 
 // An entry naming a file that no longer claims a data boundary reads stale
-// here: this is the sweep that reaches every file in the tree unconditionally,
-// so it is the one that owns AssertAllMatched. It holds that each entry still
-// names a claim, not that the claim still needs waiving — a file that now
+// here: this is the sweep that reaches every non-test Go file with no further
+// filter, so it is the one that owns AssertAllMatched. It holds that each entry
+// still names a claim, not that the claim still needs waiving — a file that now
 // mints its fence as well still matches, and stays matched.
 func TestEveryBoundaryClaimWaiverIsStillReachable(t *testing.T) {
 	defer claimWithoutFence.AssertAllMatched(t)
