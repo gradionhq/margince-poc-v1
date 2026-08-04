@@ -68,7 +68,14 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	if err != nil {
 		return nil, err
 	}
+	return fuseRankedResults(lexical.Hits, vector, limit), nil
+}
 
+// fuseRankedResults merges the two already-filtered lanes by reciprocal
+// rank fusion: each lane contributes 1/(k+rank) to an entity's score, so
+// an entity both lanes rank beats either lane's solo favorite. The Score
+// answered is the FUSED score, not the lane score the hit arrived with.
+func fuseRankedResults(lexical []Hit, vector []VectorHit, limit int) []Hit {
 	type fused struct {
 		hit   Hit
 		score float64
@@ -76,7 +83,7 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 	byKey := map[string]*fused{}
 	key := func(entityType, id string) string { return entityType + ":" + id }
 
-	for rank, hit := range lexical.Hits {
+	for rank, hit := range lexical {
 		byKey[key(hit.Type, hit.ID.String())] = &fused{hit: hit, score: 1.0 / float64(rrfK+rank+1)}
 	}
 	for rank, vh := range vector {
@@ -114,5 +121,5 @@ func (s *Store) HybridSearch(ctx context.Context, query string, embedder Embedde
 		hits[i] = f.hit
 		hits[i].Score = f.score
 	}
-	return hits, nil
+	return hits
 }

@@ -108,17 +108,19 @@ type preparedSource struct {
 	Stats      CorpusIngestStats
 }
 
-// prepareSource runs the pure half of the §B1 pipeline: field
-// validation, per-kind register defaulting, format normalization with
-// the speaker filter, word counting, and the content-hash fallback ref.
-func prepareSource(in IngestSourceInput) (preparedSource, error) {
+// validateDeclaredSource enforces the declared-field contract of one ingest
+// request and returns the two fields that carry a default: the register
+// (per-kind default when the caller named none) and the weight (1.0 when
+// unset, capped at the §B1 range so no single source can dominate the
+// corpus).
+func validateDeclaredSource(in IngestSourceInput) (register string, weight float64, err error) {
 	switch in.Kind {
 	case voiceSourceKindEmail, voiceSourceKindLinkedIn, voiceSourceKindProposal,
 		voiceSourceKindTranscript, voiceSourceKindDocument, voiceSourceKindOther:
 	default:
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeyKind, Reason: "must be one of email, linkedin, proposal, transcript, document, other"}
+		return "", 0, &CorpusIngestError{Field: voiceKeyKind, Reason: "must be one of email, linkedin, proposal, transcript, document, other"}
 	}
-	register := in.Register
+	register = in.Register
 	if register == "" {
 		register = DefaultRegister(in.Kind)
 	}
@@ -126,23 +128,34 @@ func prepareSource(in IngestSourceInput) (preparedSource, error) {
 	case voiceRegisterEmail, voiceRegisterSocial, voiceRegisterLongForm,
 		voiceRegisterSpoken, voiceRegisterGeneral:
 	default:
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeyRegister, Reason: "must be one of email, social, long_form, spoken, general"}
+		return "", 0, &CorpusIngestError{Field: voiceKeyRegister, Reason: "must be one of email, social, long_form, spoken, general"}
 	}
-	weight := in.Weight
+	weight = in.Weight
 	if weight == 0 {
 		weight = 1.0
 	}
 	if weight < 0 || weight > 2.0 {
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeyWeight, Reason: "must be between 0 and 2"}
+		return "", 0, &CorpusIngestError{Field: voiceKeyWeight, Reason: "must be between 0 and 2"}
 	}
 	if strings.TrimSpace(in.SourceLabel) == "" {
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeySourceLabel, Reason: voiceValidationNotEmpty}
+		return "", 0, &CorpusIngestError{Field: voiceKeySourceLabel, Reason: voiceValidationNotEmpty}
 	}
 	if strings.TrimSpace(in.Content) == "" {
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeyContent, Reason: voiceValidationNotEmpty}
+		return "", 0, &CorpusIngestError{Field: voiceKeyContent, Reason: voiceValidationNotEmpty}
 	}
 	if len(in.Content) > maxCorpusSourceBytes {
-		return preparedSource{}, &CorpusIngestError{Field: voiceKeyContent, Reason: "one source is capped at 1 MiB of text — split the upload"}
+		return "", 0, &CorpusIngestError{Field: voiceKeyContent, Reason: "one source is capped at 1 MiB of text — split the upload"}
+	}
+	return register, weight, nil
+}
+
+// prepareSource runs the pure half of the §B1 pipeline: field
+// validation, per-kind register defaulting, format normalization with
+// the speaker filter, word counting, and the content-hash fallback ref.
+func prepareSource(in IngestSourceInput) (preparedSource, error) {
+	register, weight, err := validateDeclaredSource(in)
+	if err != nil {
+		return preparedSource{}, err
 	}
 	format := in.Format
 	switch format {

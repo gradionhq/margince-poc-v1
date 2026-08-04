@@ -229,39 +229,9 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		}
 		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 
-		// Validate the domain replace-set up front (bad request fails before
-		// the version bump). The reconcile itself rides the org row's version
-		// bump (updated_at below), so If-Match still guards it and the audit
-		// row records the transition — the same shape as UpdatePerson/social.
-		var by string
-		if in.RelationshipTypes != nil {
-			if by, err = storekit.CapturedBy(ctx); err != nil {
-				return err
-			}
-			deduped, err := dedupeRelationshipTypes(*in.RelationshipTypes)
-			if err != nil {
-				return err
-			}
-			*in.RelationshipTypes = deduped
-			// The reconcile rides the org row's version bump, exactly as the
-			// domain replace-set does, so If-Match still guards it and the
-			// audit row records the transition.
-			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
-		}
-		if in.Domains != nil {
-			if by, err = storekit.CapturedBy(ctx); err != nil {
-				return err
-			}
-			if err := parseOrgDomains(*in.Domains); err != nil {
-				return err
-			}
-			// Collapse hosts that normalize to the same domain so the probe,
-			// reconcile, and audit-after all see one row per host.
-			*in.Domains = dedupeDomains(*in.Domains)
-			if err := ensureOrgDomainsUnclaimedExcept(ctx, tx, id, *in.Domains); err != nil {
-				return err
-			}
-			p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+		by, err := stageOrgReplaceSets(ctx, tx, id, current, in, p)
+		if err != nil {
+			return err
 		}
 		if p.Empty() {
 			out = current
@@ -285,21 +255,8 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		if err := recheckRenamedOrganization(ctx, tx, id, after); err != nil {
 			return err
 		}
-		if in.Domains != nil {
-			domainsBefore, err := reconcileOrgDomains(ctx, tx, workspaceID(ctx), id, by, *in.Domains)
-			if err != nil {
-				return err
-			}
-			before["domains"] = domainsBefore
-			after["domains"] = domainSummaries(*in.Domains)
-		}
-		if in.RelationshipTypes != nil {
-			typesBefore, err := reconcileOrgRelationshipTypes(ctx, tx, workspaceID(ctx), id, "manual", by, *in.RelationshipTypes)
-			if err != nil {
-				return err
-			}
-			before["relationship_types"] = typesBefore
-			after["relationship_types"] = *in.RelationshipTypes
+		if err := reconcileOrgReplaceSets(ctx, tx, id, by, in, before, after); err != nil {
+			return err
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, before, after)
@@ -315,6 +272,70 @@ func (s *Store) UpdateOrganization(ctx context.Context, id ids.OrganizationID, i
 		return nil
 	})
 	return out, err
+}
+
+// stageOrgReplaceSets validates the domain and relationship-type replace-sets
+// up front, so a bad request fails before the version bump, and folds the
+// updated_at bump each of them rides into the patch: the reconciles happen
+// against the org row's own guarded write, so If-Match still guards them and
+// the audit row records the transition — the same shape as UpdatePerson/social.
+// It answers with the captured-by principal those reconciles stamp, empty when
+// the edit touches neither set.
+func stageOrgReplaceSets(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
+	current crmcontracts.Organization, in UpdateOrganizationInput, p *storekit.Patch,
+) (string, error) {
+	if in.RelationshipTypes == nil && in.Domains == nil {
+		return "", nil
+	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return "", err
+	}
+	if in.RelationshipTypes != nil {
+		deduped, err := dedupeRelationshipTypes(*in.RelationshipTypes)
+		if err != nil {
+			return "", err
+		}
+		*in.RelationshipTypes = deduped
+		p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+	}
+	if in.Domains != nil {
+		if err := parseOrgDomains(*in.Domains); err != nil {
+			return "", err
+		}
+		// Collapse hosts that normalize to the same domain so the probe,
+		// reconcile, and audit-after all see one row per host.
+		*in.Domains = dedupeDomains(*in.Domains)
+		if err := ensureOrgDomainsUnclaimedExcept(ctx, tx, id, *in.Domains); err != nil {
+			return "", err
+		}
+		p.Set("updated_at", current.UpdatedAt, time.Now().UTC())
+	}
+	return by, nil
+}
+
+// reconcileOrgReplaceSets lands the two replace-sets on the row the patch just
+// wrote and records each transition in the audit images the caller commits.
+func reconcileOrgReplaceSets(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, by string,
+	in UpdateOrganizationInput, before, after map[string]any,
+) error {
+	if in.Domains != nil {
+		domainsBefore, err := reconcileOrgDomains(ctx, tx, workspaceID(ctx), id, by, *in.Domains)
+		if err != nil {
+			return err
+		}
+		before["domains"] = domainsBefore
+		after["domains"] = domainSummaries(*in.Domains)
+	}
+	if in.RelationshipTypes != nil {
+		typesBefore, err := reconcileOrgRelationshipTypes(ctx, tx, workspaceID(ctx), id, "manual", by, *in.RelationshipTypes)
+		if err != nil {
+			return err
+		}
+		before["relationship_types"] = typesBefore
+		after["relationship_types"] = *in.RelationshipTypes
+	}
+	return nil
 }
 
 // recheckRenamedOrganization asks whether an edited organization now resembles
