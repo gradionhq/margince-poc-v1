@@ -113,10 +113,16 @@ export function AuthExperience({
 }>) {
   return (
     <div className="auth-surface" data-auth-phase={phase}>
-      <main className="auth-task">
+      {/* A div, NOT a <main>. The frame that hosts this surface already opens a
+          <main> (App.tsx's RaillessFrame), and a nested main is invalid HTML that
+          puts two "main" entries in a screen reader's landmark rotor — so the
+          user is asked to choose between two things claiming to be the one main
+          region. The task region's own identity comes from being the first thing
+          in the DOM (see the order note above), not from the tag. */}
+      <div className="auth-task">
         <div className="auth-task-in">{children}</div>
         <LegalFooter />
-      </main>
+      </div>
       <IdentityRegion profile={profile} phase={phase} />
     </div>
   );

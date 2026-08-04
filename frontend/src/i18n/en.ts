@@ -1225,8 +1225,35 @@ export const en = {
     "an agent acts as you, never above you — every call re-checks your RBAC",
   "passport.select": "Passport",
   "passport.noneOption": "No passport",
+  "settings.passportsLendHint":
+    "These are yours to lend. Connect an MCP client and it asks which one to hand over — the connection then carries exactly that passport's scopes.",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
+  "agents.connected": "Connected agents",
+  "agents.connectedSub":
+    "MCP clients holding their own credential, derived from a passport you lent",
+  "agents.noneConnected": "No agent is connected yet.",
+  "agents.connectedOn": "connected {date}",
+  "agents.lentFrom": "lent from “{label}”",
+  "agents.disconnect": "Disconnect",
+  "agents.disconnectNamed": "Disconnect {client}",
+  "agents.disconnected": "disconnected",
+  "agents.lapsed": "credential expired",
+  "agents.renewing": "renewing",
+  "agents.renewsBy": "credential renews by {date}",
+  "agents.expiredOn": "credential expired {date}",
+  "agents.revokeGrant": "End connection",
+  "agents.revokeGrantNamed": "End the connection to {client}",
+  "agents.disconnectConfirm":
+    "This ends the whole connection, not just one credential: the agent loses access on its next call and cannot renew. Reconnecting means lending a passport again.",
+  "agents.connectHow": "Connect an agent",
+  "agents.connectSteps":
+    "Mint a passport above, then run one of these. The client registers itself and brings you back here to choose which passport to lend.",
+  "agents.connectAntigravityPath":
+    "Antigravity has no add command — put that block in ~/.gemini/config/mcp_config.json.",
+  "agents.connectorOff": "The MCP connector is off for this installation.",
+  "agents.connectorOffDetail":
+    "No agent can connect until an operator enables it. Your passports still work as REST credentials.",
   "settings.tokenOnce": "Copy it now — you'll only see this token once.",
   "settings.token": "token",
   "settings.autonomy": "Autonomy tiers",
@@ -1247,6 +1274,17 @@ export const en = {
   "settings.automationsSub":
     "the bounded starter catalog — enable, parameterize, pause",
   "settings.openAutomations": "Open the automations editor",
+  "settings.dangerZone": "Danger zone",
+  "settings.dangerZoneSub":
+    "non-production only — irreversible on this installation",
+  "settings.resetDataDesc":
+    "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
+  "settings.resetDataButton": "Reset data…",
+  "settings.resetDataConfirmTitle": "Reset all data?",
+  "settings.resetDataConfirmBody":
+    "Type your organization's name to confirm. This cannot be undone.",
+  "settings.resetDataConfirmName": "Type this organization name:",
+  "settings.resetDataConfirmLabel": "Confirm organization name",
   "settings.audit": "Audit log",
   "audit.you": "You",
   "audit.teammate": "A teammate",
@@ -2394,13 +2432,20 @@ export const en = {
   "auth.email": "Email",
   // A placeholder is an EXAMPLE, never an instruction and never the label
   // again. "Enter your email" in a placeholder is a label that disappears.
-  "auth.emailPlaceholder": "you@company.com",
+  // The address is the login spec §7.2's, and the reserved example domain
+  // rather than a plausible one: `company.com` belongs to somebody.
+  "auth.emailPlaceholder": "name@example.com",
   "auth.password": "Password",
   "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
   "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // NOT the label of a served provider button. A real installation's button text
+  // is `oidc_providers[].label` off the wire, server-owned, and the client never
+  // composes it. This is what the ui-preview fixture uses to stand in for that
+  // server in the reader's own language — see app/ui-preview.ts.
+  "auth.continueWith": "Continue with {brand}",
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
   "auth.orWithEmail": "or with email",
@@ -2448,6 +2493,19 @@ export const en = {
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",
+  // The password was refused, not the link — so the link is still good and the
+  // user must not be sent to replace it.
+  "auth.resetRejectedPassword":
+    "That password was refused. Choose a different one and try again.",
+  // Neither the link's fault nor the user's: the token is untouched, so retrying
+  // the same one is the right advice. Two sentences, no dash (VOICE-RULE-5).
+  "auth.resetServerFailed":
+    "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
+  // Its own key rather than auth.errRateLimited, which says "sign-in attempts":
+  // this user is setting a password, not signing in, and copy that names the
+  // wrong action reads as the wrong error.
+  "auth.resetRateLimited":
+    "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":
@@ -3159,7 +3217,7 @@ export const en = {
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
-  "embedreindex.reembeddingSince": "Reindexing since {duration}",
+  "embedreindex.lastProgress": "Last progress {duration} ago",
   "embedreindex.entitiesPending": "{count} entities pending",
   "embedreindex.workspacePending": "{count} pending",
   "embedreindex.reviewCta": "Review & reindex",

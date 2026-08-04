@@ -737,6 +737,7 @@ const (
 	AuditLogEntryActionRecordShare     AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare   AuditLogEntryAction = "record_unshare"
 	AuditLogEntryActionReject          AuditLogEntryAction = "reject"
+	AuditLogEntryActionResetData       AuditLogEntryAction = "reset_data"
 	AuditLogEntryActionRestore         AuditLogEntryAction = "restore"
 	AuditLogEntryActionSendEmail       AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate          AuditLogEntryAction = "update"
@@ -786,6 +787,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionRecordUnshare:
 		return true
 	case AuditLogEntryActionReject:
+		return true
+	case AuditLogEntryActionResetData:
 		return true
 	case AuditLogEntryActionRestore:
 		return true
@@ -3210,6 +3213,27 @@ func (e IssuePassportRequestScopes) Valid() bool {
 	case IssuePassportRequestScopesSend:
 		return true
 	case IssuePassportRequestScopesWrite:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobFailureState.
+const (
+	Cancelled JobFailureState = "cancelled"
+	Discarded JobFailureState = "discarded"
+	Retryable JobFailureState = "retryable"
+)
+
+// Valid indicates whether the value is a known member of the JobFailureState enum.
+func (e JobFailureState) Valid() bool {
+	switch e {
+	case Cancelled:
+		return true
+	case Discarded:
+		return true
+	case Retryable:
 		return true
 	default:
 		return false
@@ -9813,7 +9837,7 @@ type EmbedReindexStatus struct {
 		WorkspaceId     openapi_types.UUID `json:"workspace_id"`
 	} `json:"per_workspace"`
 
-	// PopulatedIdentity What the store's embeddings were last completed under (embed_store_binding.populated_identity).
+	// PopulatedIdentity The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference.
 	PopulatedIdentity string `json:"populated_identity"`
 
 	// ReindexNeeded Derived fresh on every read (never a stored flag): true when configured_identity != populated_identity, or entities_pending > 0.
@@ -10007,6 +10031,59 @@ type IssuePassportResponse struct {
 	Token string `json:"token"`
 }
 
+// JobFailure defines model for JobFailure.
+type JobFailure struct {
+	Attempt     int       `json:"attempt"`
+	FailedAt    time.Time `json:"failed_at"`
+	Kind        string    `json:"kind"`
+	MaxAttempts int       `json:"max_attempts"`
+
+	// Reason The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here.
+	Reason string          `json:"reason"`
+	State  JobFailureState `json:"state"`
+
+	// WorkspaceId Null for a dispatcher.
+	WorkspaceId *openapi_types.UUID `json:"workspace_id"`
+}
+
+// JobFailureState defines model for JobFailure.State.
+type JobFailureState string
+
+// JobHealth defines model for JobHealth.
+type JobHealth struct {
+	GeneratedAt time.Time       `json:"generated_at"`
+	Kinds       []JobKindHealth `json:"kinds"`
+
+	// RecentFailures Most recent first, capped at 50. A bounded list, not a log.
+	RecentFailures []JobFailure `json:"recent_failures"`
+
+	// WorkspaceId The workspace these counts are scoped to — the caller's own.
+	WorkspaceId openapi_types.UUID `json:"workspace_id"`
+}
+
+// JobKindHealth defines model for JobKindHealth.
+type JobKindHealth struct {
+	// Dead Discarded or cancelled: this work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately.
+	Dead int `json:"dead"`
+
+	// FleetWide True for a dispatcher — a job that fans work out and does no tenant work of its own. Its rows carry no workspace.
+	FleetWide bool `json:"fleet_wide"`
+
+	// Kind The stable job identifier River persists in river_job.kind.
+	Kind string `json:"kind"`
+
+	// OldestWaitingAgeSeconds How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late.
+	OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds"`
+	Queue                   string `json:"queue"`
+
+	// Retrying Failed at least once and backing off toward another attempt.
+	Retrying int `json:"retrying"`
+	Running  int `json:"running"`
+
+	// Waiting Available, scheduled or pending: queued and not yet started.
+	Waiting int `json:"waiting"`
+}
+
 // Lead A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
 type Lead struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -10187,6 +10264,9 @@ type LoginRequest struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
+	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
+	NonProduction bool `json:"non_production"`
+
 	// Passport Present when the principal is an agent acting under an Agent Seat Passport.
 	Passport *struct {
 		OnBehalfOf *openapi_types.UUID         `json:"on_behalf_of,omitempty"`
@@ -10213,6 +10293,9 @@ type MeResponse struct {
 
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
+
+	// WorkspaceName The installation's organization name (workspace.name). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	WorkspaceName string `json:"workspace_name"`
 }
 
 // MeResponsePassportScopes defines model for MeResponse.Passport.Scopes.
@@ -11664,13 +11747,53 @@ type PartnerPartnerRole string
 // PartnerRelationshipStage defines model for Partner.RelationshipStage.
 type PartnerRelationshipStage string
 
+// PassportConnection The connection a grant-bound passport belongs to, so Settings can name it by the client the
+// human actually approved instead of the raw DCR client id its label carries.
+type PassportConnection struct {
+	// ClientId The registered OAuth client id (the DCR identifier).
+	ClientId string `json:"client_id"`
+
+	// ClientName The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+	// registration is gone, so a connection is never nameless.
+	ClientName string `json:"client_name"`
+
+	// ConnectedAt When the connection was established — the GRANT's age, not the current passport's. Token
+	// rotation replaces the passport every renewal; a date that moved with it would report a
+	// connection as newer than the consent that authorized it.
+	ConnectedAt time.Time `json:"connected_at"`
+
+	// LentPassportId The passport the human lent to create this connection. Null for a connection established
+	// before that provenance was recorded, and null once the lent passport is deleted outright.
+	// It is never re-checked: a lend survives the lent passport's revocation by design, so this
+	// answers "where did this come from", never "may this still connect".
+	LentPassportId *openapi_types.UUID `json:"lent_passport_id,omitempty"`
+
+	// LentPassportLabel The lent passport's label at read time, for display beside `lent_passport_id`.
+	LentPassportLabel *string `json:"lent_passport_label,omitempty"`
+
+	// Renewable Whether this connection may mint itself a replacement credential — the grant's
+	// `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+	// passport's own `expires_at` mean two different things: a renewable connection is simply
+	// between credentials once that moment passes, while a non-renewable one has ENDED, with
+	// nothing recording that it did. A reader that treats every expiry as the end reports live
+	// connections as dead.
+	Renewable bool `json:"renewable"`
+}
+
 // PassportSummary Agent Seat Passport metadata for the Settings list (feedback/13). Never carries the token.
 type PassportSummary struct {
 	// AgentId The agent this passport is bound to, if any.
-	AgentId   *string            `json:"agent_id,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
-	ExpiresAt *time.Time         `json:"expires_at,omitempty"`
-	Id        openapi_types.UUID `json:"id"`
+	AgentId *string `json:"agent_id,omitempty"`
+
+	// Connection Present when this passport IS a connection's credential — issued to an MCP client by the
+	// token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+	// not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+	// `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+	// can also type.
+	Connection *PassportConnection `json:"connection,omitempty"`
+	CreatedAt  time.Time           `json:"created_at"`
+	ExpiresAt  *time.Time          `json:"expires_at,omitempty"`
+	Id         openapi_types.UUID  `json:"id"`
 
 	// Label Human-given name for the passport (e.g. "Marcus's Claude").
 	Label      string     `json:"label"`
@@ -13795,6 +13918,12 @@ type SendMessageParams struct {
 	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
 	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
 	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// ResetDataJSONBody defines parameters for ResetData.
+type ResetDataJSONBody struct {
+	// Confirmation Must equal the organization name exactly.
+	Confirmation string `json:"confirmation"`
 }
 
 // ListAiModelRatesParams defines parameters for ListAiModelRates.
@@ -16576,6 +16705,9 @@ type SendEmailJSONRequestBody = SendEmailRequest
 
 // SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
 type SendMessageJSONRequestBody = SendMessageRequest
+
+// ResetDataJSONRequestBody defines body for ResetData for application/json ContentType.
+type ResetDataJSONRequestBody ResetDataJSONBody
 
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
@@ -22561,6 +22693,12 @@ type ServerInterface interface {
 	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-message)
 	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
+	// What the background system is holding, and whose work failed.
+	// (GET /admin/job-health)
+	GetJobHealth(w http.ResponseWriter, r *http.Request)
+	// Reset a non-production installation to its first-boot state.
+	// (POST /admin/reset-data)
+	ResetData(w http.ResponseWriter, r *http.Request)
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
@@ -23479,6 +23617,18 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 // Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
 // (POST /activities/{id}/send-message)
 func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What the background system is holding, and whose work failed.
+// (GET /admin/job-health)
+func (_ Unimplemented) GetJobHealth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Reset a non-production installation to its first-boot state.
+// (POST /admin/reset-data)
+func (_ Unimplemented) ResetData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25789,6 +25939,46 @@ func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetJobHealth operation middleware
+func (siw *ServerInterfaceWrapper) GetJobHealth(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetJobHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResetData operation middleware
+func (siw *ServerInterfaceWrapper) ResetData(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResetData(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39285,6 +39475,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/admin/job-health", wrapper.GetJobHealth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/admin/reset-data", wrapper.ResetData)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -91,8 +92,20 @@ type relinkCounts struct {
 	ActivityLinks int64 `json:"activity_links"`
 }
 
+// targetIDField names the wire path the merge bodies use for the SURVIVOR. Named
+// once because both merge verbs refuse on it, and a field slot holds a wire
+// field path, never prose.
+const targetIDField = "target_id"
+
 // MergePerson merges person source→target and returns the survivor.
 func (s *Store) MergePerson(ctx context.Context, sourceID, targetID ids.PersonID) (crmcontracts.Person, error) {
+	// target_id is required by the contract, which is true only if checked. An
+	// absent key decodes to the zero UUID, and the self-merge guard below does
+	// not catch it (a real source id never equals the zero one), so it reaches
+	// the pair lock and answers not-found for a survivor nobody named.
+	if err := httperr.RequireBodyID(targetIDField, targetID.UUID); err != nil {
+		return crmcontracts.Person{}, err
+	}
 	// authz.go maps the merge verb to update: rewriting where records
 	// point is curation of both rows, not deletion of one.
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {

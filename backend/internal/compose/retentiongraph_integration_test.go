@@ -107,7 +107,7 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})
-	if err := svc.Evaluate(e.Admin()); err != nil {
+	if err := svc.EvaluateWorkspace(retentionPassProvenance(e.Admin())); err != nil {
 		t.Fatalf("running the retention sweep: %v", err)
 	}
 

@@ -157,6 +157,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/reset-data": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset a non-production installation to its first-boot state.
+         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         */
+        post: operations["resetData"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/job-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the background system is holding, and whose work failed.
+         * @description Admin-only. Reports the caller's own workspace's background jobs by kind — waiting, running, retrying, and dead — plus the untenanted dispatcher rows that fan work out to every workspace. Another workspace's jobs are never included: river_job carries no workspace column and therefore no RLS, so this endpoint imposes the scope itself. Failure text is the job layer's own vetted sentence, never a worker's raw cause (that column is fleet-visible and has no redaction path). Human session only (x-agent-access: human-only).
+         */
+        get: operations["getJobHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/passports": {
         parameters: {
             query?: never;
@@ -169,6 +209,13 @@ export interface paths {
          * @description Enumerates the Agent Seat Passports the caller has minted, so Settings can show them and offer
          *     revoke (feedback/13). **Never re-discloses a token** — the plaintext is shown once at mint time
          *     only. Pairs with the mint (`POST`) and revoke (`DELETE /passports/{id}`) below.
+         *
+         *     Two kinds of row arrive together and `connection` is what tells them apart: a passport the
+         *     human minted (`connection: null`) is a template they may lend on the consent screen, while a
+         *     connection's credential (`connection` present) is what an MCP client received *after* a lend.
+         *     A connection is listed **once**, not once per token rotation: every refresh revokes that
+         *     connection's passport and mints a replacement under the same grant, so only the newest
+         *     passport per grant is returned and its `connection.connected_at` is the grant's own age.
          */
         get: operations["listPassports"];
         put?: never;
@@ -2255,7 +2302,9 @@ export interface paths {
          * The embed-store binding marker + the derived reindex-needed signal.
          * @description The deployment-level `embed_store_binding` marker (ADR-0068 design §5.6) plus a live
          *     per-workspace scan: `configured_identity` is the live embed binding's provider/model@dims
-         *     (Task 9); `populated_identity` is what the store's embeddings were last completed under.
+         *     (Task 9); `populated_identity` is the identity the last reindex run was RELEASED under —
+         *     a run releases once no workspace of it has an outcome left to reach, exhausted attempts
+         *     included, so it is not a claim that every workspace was re-embedded under it.
          *     `reindex_needed` is DERIVED fresh on every read, never a stored flag (search/binding.go) —
          *     true when the two identities differ or any live entity still lacks a current-identity
          *     embedding row. Read and the confirm route below are both admin/ops-only (the
@@ -5755,7 +5804,7 @@ export interface components {
         EmbedReindexStatus: {
             /** @description The live embed binding's provider/model@dims (Task 9). */
             configured_identity: string;
-            /** @description What the store's embeddings were last completed under (embed_store_binding.populated_identity). */
+            /** @description The identity the last reindex run was RELEASED under (embed_store_binding.populated_identity) — a run releases when no workspace of it has an outcome left to reach, exhausted attempts included, so this is not a claim that every workspace was re-embedded under it. entities_pending is what tells you the difference. */
             populated_identity: string;
             /**
              * @description The marker's own job-lifecycle state (embed_store_binding.status).
@@ -8743,6 +8792,10 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
+            /** @description The installation's organization name (workspace.name). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
+            workspace_name: string;
+            /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
+            non_production: boolean;
             /** @description Effective role keys for this principal. */
             roles: string[];
             teams: string[];
@@ -8770,6 +8823,50 @@ export interface components {
                 scopes?: ("read_only" | "draft_only" | "act_with_approval" | "auto_execute_low_risk")[];
             } | null;
         };
+        JobHealth: {
+            /**
+             * Format: uuid
+             * @description The workspace these counts are scoped to — the caller's own.
+             */
+            workspace_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            kinds: components["schemas"]["JobKindHealth"][];
+            /** @description Most recent first, capped at 50. A bounded list, not a log. */
+            recent_failures: components["schemas"]["JobFailure"][];
+        };
+        JobKindHealth: {
+            /** @description The stable job identifier River persists in river_job.kind. */
+            kind: string;
+            queue: string;
+            /** @description True for a dispatcher — a job that fans work out and does no tenant work of its own. Its rows carry no workspace. */
+            fleet_wide: boolean;
+            /** @description Available, scheduled or pending: queued and not yet started. */
+            waiting: number;
+            running: number;
+            /** @description Failed at least once and backing off toward another attempt. */
+            retrying: number;
+            /** @description Discarded or cancelled: this work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately. */
+            dead: number;
+            /** @description How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late. */
+            oldest_waiting_age_seconds: number | null;
+        };
+        JobFailure: {
+            kind: string;
+            /**
+             * Format: uuid
+             * @description Null for a dispatcher.
+             */
+            workspace_id: string | null;
+            /** @enum {string} */
+            state: "retryable" | "discarded" | "cancelled";
+            attempt: number;
+            max_attempts: number;
+            /** Format: date-time */
+            failed_at: string;
+            /** @description The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here. */
+            reason: string;
+        };
         /** @description An append-only audit row. Mirrors the `audit_log` table. */
         AuditLogEntry: {
             /** Format: uuid */
@@ -8791,7 +8888,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data";
             entity_type: string;
             /**
              * Format: uuid
@@ -11041,6 +11138,14 @@ export interface components {
             scopes: string[];
             /** @description The agent this passport is bound to, if any. */
             agent_id?: string | null;
+            /**
+             * @description Present when this passport IS a connection's credential — issued to an MCP client by the
+             *     token exchange, not minted by a human. **Omitted entirely** on a human-minted passport —
+             *     not sent as `null` — so a client tests presence, not nullness. Its presence, never the
+             *     `oauth:` label prefix, is what tells the two kinds apart: a label is display text a human
+             *     can also type.
+             */
+            connection?: components["schemas"]["PassportConnection"];
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -11049,6 +11154,45 @@ export interface components {
             last_used_at?: string | null;
             /** Format: date-time */
             revoked_at?: string | null;
+        };
+        /**
+         * @description The connection a grant-bound passport belongs to, so Settings can name it by the client the
+         *     human actually approved instead of the raw DCR client id its label carries.
+         */
+        PassportConnection: {
+            /** @description The registered OAuth client id (the DCR identifier). */
+            client_id: string;
+            /**
+             * @description Whether this connection may mint itself a replacement credential — the grant's
+             *     `refresh_allowed`, set when the client asked for `offline_access`. It is what makes the
+             *     passport's own `expires_at` mean two different things: a renewable connection is simply
+             *     between credentials once that moment passes, while a non-renewable one has ENDED, with
+             *     nothing recording that it did. A reader that treats every expiry as the end reports live
+             *     connections as dead.
+             */
+            renewable: boolean;
+            /**
+             * @description The client's registered name ("Claude Code"). Falls back to `client_id` when the client
+             *     registration is gone, so a connection is never nameless.
+             */
+            client_name: string;
+            /**
+             * Format: date-time
+             * @description When the connection was established — the GRANT's age, not the current passport's. Token
+             *     rotation replaces the passport every renewal; a date that moved with it would report a
+             *     connection as newer than the consent that authorized it.
+             */
+            connected_at: string;
+            /**
+             * Format: uuid
+             * @description The passport the human lent to create this connection. Null for a connection established
+             *     before that provenance was recorded, and null once the lent passport is deleted outright.
+             *     It is never re-checked: a lend survives the lent passport's revocation by design, so this
+             *     answers "where did this come from", never "may this still connect".
+             */
+            lent_passport_id?: string | null;
+            /** @description The lent passport's label at read time, for display beside `lent_passport_id`. */
+            lent_passport_label?: string | null;
         };
         /**
          * @description One persisted Morning-Brief run for the acting rep (data-model §12.5 `brief_run` +
@@ -11708,6 +11852,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetData: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Must equal the organization name exactly. */
+                    confirmation: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Installation reset to first-boot state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @example reset */
+                        status: string;
+                        tables_cleared: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Refused: the caller is an agent/passport principal (this endpoint is human-only) or a human without the admin role. Not an object/action RBAC grant denial. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The endpoint is unavailable in this environment — production, or an unset/unknown MARGINCE_ENV. It is served only under a non-production posture; the body is the standard problem document. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getJobHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's background-job health. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobHealth"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Refused: the caller is an agent/passport principal (this endpoint is human-only) or a human without the admin role. Not an object/action RBAC grant denial. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
                 };
             };
         };

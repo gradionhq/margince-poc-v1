@@ -138,6 +138,29 @@ func TestRateObjectsAreAdminOnly(t *testing.T) {
 	}
 }
 
+// Every seeded role that may WRITE an object may also READ it. The grant
+// booleans are independent — Parse accepts a write-without-read document and
+// Merge unions the four flags separately — so this is a property of the seeds,
+// not of the shape, and it is the property the surfaces downstream lean on: a
+// record read, a list, and the approvals inbox all gate on <object>.read before
+// they show anything, so a seeded role holding create/update/delete without read
+// could act on rows it can never be shown. Derived from the seeds themselves, so
+// a role edited or added later is held to it without extending a list.
+func TestNoSeededRoleGrantsAWriteWithoutRead(t *testing.T) {
+	for roleKey, doc := range defaults {
+		for _, object := range coreObjects {
+			g := doc.Objects[object]
+			writes := g.Create || g.Update || g.Delete
+			if g.Read || !writes {
+				continue
+			}
+			t.Errorf("role %q grants %q create=%v update=%v delete=%v with read=false — a write it can never "+
+				"see the result of, and a staged change to it that no inbox may disclose",
+				roleKey, object, g.Create, g.Update, g.Delete)
+		}
+	}
+}
+
 func TestZeroRolesDenyEverything(t *testing.T) {
 	merged := Merge(nil)
 	for _, object := range coreObjects {

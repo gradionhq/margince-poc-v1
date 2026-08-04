@@ -113,8 +113,11 @@ func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
 			wants: "deal is not served here",
 		},
 		{
+			// The seam's own typed key refusal, which is what StrictDecode
+			// raises: an untyped cause is indistinguishable from a library's
+			// message and is masked, which is the point of the type.
 			name:  "a write payload the seam could not decode",
-			err:   &datasource.FieldDecodeError{Cause: errors.New(`unknown field "naem"`)},
+			err:   &datasource.FieldDecodeError{Cause: &datasource.UnknownFieldError{Fields: []string{"naem"}}},
 			field: "fields",
 			code:  "invalid_field",
 			wants: "naem",

@@ -5,21 +5,22 @@ package compose
 
 // The embed-reindex transport (ADR-0068 design §5.6-swap, Task 15): the
 // three /embeddings/reindex* ops discharge the rbacgate_test.go waiver
-// on search.Store's six binding-marker methods — every one of them is
-// reached ONLY through a handler below that gates first
+// on search.Store's binding-marker READS and its claim — every one of
+// them is reached ONLY through a handler below that gates first
 // (auth.Require(ctx, "embedding_reindex", <action>)), which is the whole
 // premise those store methods were allowed to skip their own object
-// RBAC check.
+// RBAC check. The rest of the marker's lifecycle belongs to the run the
+// claim starts (jobs_embedreindex.go), where there is no human principal
+// to admit and the claim is the authority.
 //
 // Confirm is the CAS+enqueue-in-one-tx shape (mirrors
 // deepreadtransport.go's start): search.Store.ClaimAndEnqueueReembedding
-// owns the transaction, the callback enqueues the River job inside it —
-// a rolled-back enqueue always undoes the claim. The enqueue's OWN
-// unique-skip outcome (jobs.Runner.EnqueueTxUnique, Task 11), never the
-// CAS's row count, is what tells a fresh claim (202) apart from an
-// already-running job (409 reindex_running) — the CAS alone cannot tell
-// "moved from idle" from "was already reembedding" (binding.go's own
-// doc).
+// owns the transaction, the callback enqueues the River dispatcher inside
+// it — a rolled-back enqueue always undoes the claim. The CAS itself is
+// what tells a fresh claim (202) apart from a run already holding the
+// marker (409 reindex_running): the run id minted here IS the claim, and
+// it outlives every job row the run produces — the dispatcher completes as
+// soon as it has fanned the fleet out (jobs_embedreindex.go).
 
 import (
 	"context"
@@ -49,39 +50,96 @@ import (
 // carries while a fleet-wide re-embed is in flight (binding.go's own CAS).
 const reembeddingStatus = "reembedding"
 
-// embedReindexArgs is the River job the confirm handler enqueues: the
-// identity in force at enqueue time, so a mid-flight config change is
-// detectable as drift downstream (search.ErrIdentityDrift) rather than
-// the worker silently completing under whatever it now reports.
-type embedReindexArgs struct {
-	Identity string `json:"identity"`
+// reembedStaleAfter is how long this deployment lets a run leave its marker
+// unmoved before a FORCED confirm may take it back. What that measures, why
+// anything has to, and why taking it is safe are all one explanation, and it
+// lives on search.ReembedClaim.StealAfter rather than being restated here.
+//
+// What the number has to clear is the most a working PASS leaves the marker
+// unmoved — the longer of one entity-table scan and
+// search.ReembedProgressStaleness plus one embedding upsert, neither enforceable
+// from anywhere, since both wait on pool acquisition and row locks first — PLUS
+// the run-level legs no pass is running for: fan-out, queue wait, and the
+// attempt-to-attempt backoff, which embedReindexMaxAttempts' ladder stretches
+// into minutes. An hour is fifty-five minutes clear of the reporting interval
+// and ample for every leg a healthy run plausibly has; a run whose legs exceed
+// it is blocked on a database that is not answering, and dispossessing it is the
+// right outcome, because it is not making progress either.
+const reembedStaleAfter = time.Hour
+
+// humanStaleWindow renders the steal window for the operator-facing 409.
+// Duration.String spells an hour "1h0m0s", which is exact and unreadable; whole
+// hours get words instead. Anything else falls back to the exact form on
+// purpose: a clumsy-looking string is better than a rounded one that no longer
+// names the window actually enforced.
+func humanStaleWindow(d time.Duration) string {
+	switch {
+	case d == time.Hour:
+		return "an hour"
+	case d%time.Hour == 0:
+		return fmt.Sprintf("%d hours", d/time.Hour)
+	default:
+		return d.String()
+	}
 }
 
-// Kind is the stable job identifier River persists in river_job.
-func (embedReindexArgs) Kind() string { return "embed_reindex" }
+// humanProgressAge renders how long ago a run last reported, for the operator
+// reading a refusal. Rounded to the second, the marker's own resolution; under
+// that it reads as words, since "0s ago" looks like a broken clock rather than
+// like a run that reported a moment before the refusal.
+func humanProgressAge(d time.Duration) string {
+	if d < time.Second {
+		return "less than a second"
+	}
+	return d.Round(time.Second).String()
+}
 
-// FleetWide marks this fleet-wide and single-flight (jobs.FleetWide) — and
-// this kind is that marker's ONE named exception rather than a dispatcher: it
-// re-embeds every workspace's corpus inside a single row, binding each
-// workspace before it writes, so the writes are scoped even though there is no
-// row per workspace to fail as. Do not read it as precedent — a new fleet-wide
-// worker that writes is the shape jobs.FleetWide exists to name, and belongs
-// behind a per-workspace fan-out.
-func (embedReindexArgs) FleetWide() {}
+// embedReindexRunningDetail is the 409's what-to-do, and the two callers of it
+// can change different things. An unforced confirm is told about force. A FORCED
+// confirm was already refused BY force's own predicate — the run it tried to
+// take over reported progress too recently — so telling it to pass force names
+// the one thing that will not help; what it can act on is the age it was
+// measured against, and the choice to wait or let the run finish.
+//
+// Both spellings render the window from the constant that enforces it: a message
+// naming its own duration is a message that lies the day reembedStaleAfter
+// moves.
+func embedReindexRunningDetail(force bool, lastProgress time.Duration) string {
+	if !force {
+		return "a fleet-wide reindex is already running; pass force to take over one that has made no progress for " + humanStaleWindow(reembedStaleAfter)
+	}
+	return fmt.Sprintf(
+		"a fleet-wide reindex is already running and last reported progress %s ago; a forced takeover needs %s without progress, so let it finish or retry once it has stopped moving",
+		humanProgressAge(lastProgress), humanStaleWindow(reembedStaleAfter))
+}
 
-// errReindexAlreadyRunning signals the confirm callback's own unique-skip
-// outcome (EnqueueTxUnique inserted=false, Task 11) up through the store-
-// owned ClaimAndEnqueueReembedding transaction, so the handler answers
-// 409 reindex_running instead of committing a claim over a job that was
-// never actually queued.
-var errReindexAlreadyRunning = errors.New("compose: a fleet-wide reindex is already running")
+// reembedClaimFor mints the claim one confirm makes, and decides whether that
+// confirm may take the marker off somebody.
+//
+// force carries a SECOND meaning here, deliberately and not by accident: as well
+// as rebuilding a store that is already current, it takes the marker off a run
+// that has stopped moving. The contract has one flag and adding a field is a
+// contract change this work is scoped out of, so the two travel together — and
+// what makes carrying both tolerable is a judgement, not a guarantee. A working
+// pass reports around every leg of its own work (search.ReembedWorkspace), so
+// reembedStaleAfter sits far above what a healthy run plausibly leaves the
+// marker unmoved. It is not a proof — search.ReembedClaim.StealAfter names what
+// is and is not bounded — so an operator forcing a routine rebuild CAN in
+// principle dispossess a run wedged on a database that is not answering, a run
+// making no progress either.
+func reembedClaimFor(force bool, configured string) search.ReembedClaim {
+	claim := search.ReembedClaim{Run: ids.NewV7(), TargetIdentity: configured}
+	if force {
+		claim.StealAfter = reembedStaleAfter
+	}
+	return claim
+}
 
 // embedReindexEnqueuer is the slice of *jobs.Runner the confirm handler
-// needs — EnqueueTxUnique's dedupe outcome is what tells 202 apart from
-// 409 (Task 11); a test fakes it to drive both outcomes without a live
-// worker.
+// needs: the insert rides the claim's own transaction, so a claim that
+// could not queue its dispatcher rolls back whole.
 type embedReindexEnqueuer interface {
-	EnqueueTxUnique(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) (bool, error)
+	EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs, opts *river.InsertOpts) error
 }
 
 // embedReindexEstimator is costestimate.EmbedReindexEstimator's narrow
@@ -219,7 +277,11 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	_, jobStatus, _, err := e.store.PopulatedIdentity(ctx)
+	// lastProgress is the age THIS READ saw, not the age the CAS below evaluates:
+	// they are separate transactions, and the run in flight may note progress
+	// between them. It is read here anyway, so a refusal costs no second
+	// round-trip, and it is never anything but a figure in a message.
+	_, jobStatus, lastProgress, err := e.store.PopulatedIdentity(ctx)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -229,27 +291,21 @@ func (e *embedReindexEngine) confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A config change while a prior job is still reembedding can make
-	// EnqueueTxUnique (ByArgs:true) enqueue a second, differently-identitied
-	// job here instead of 409-ing — self-healing: that job's argsIdentity
-	// != the worker's live EmbedIdentity() cancels it on pickup
-	// (reembed.go's ErrIdentityDrift → river.JobCancel).
-	err = e.store.ClaimAndEnqueueReembedding(ctx, func(tx pgx.Tx) error {
-		inserted, enqErr := e.enqueue.EnqueueTxUnique(ctx, tx, embedReindexArgs{Identity: configured},
-			&river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}})
-		if enqErr != nil {
-			return enqErr
-		}
-		if !inserted {
-			return errReindexAlreadyRunning
-		}
-		return nil
+	// A config change while a prior run still holds the marker is refused
+	// here rather than queueing a second, differently-identitied run over
+	// the first. It still heals without a human: the in-flight run's own
+	// children cancel on the drift they now see (search.ErrIdentityDrift →
+	// river.JobCancel), which releases the marker for this confirm to retake.
+	claim := reembedClaimFor(force, configured)
+	err = e.store.ClaimAndEnqueueReembedding(ctx, claim, func(tx pgx.Tx) error {
+		return e.enqueue.EnqueueTx(ctx, tx, EmbedReindexArgs{Run: claim.Run, Identity: configured},
+			&river.InsertOpts{MaxAttempts: embedReindexMaxAttempts})
 	})
-	if errors.Is(err, errReindexAlreadyRunning) {
+	if errors.Is(err, search.ErrReembeddingInFlight) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
 			Code:   "reindex_running",
-			Detail: "a fleet-wide reindex is already running",
+			Detail: embedReindexRunningDetail(force, e.clock.Now().Sub(lastProgress)),
 		})
 		return
 	}
@@ -436,42 +492,4 @@ func WithEmbedReindex(router *ai.Router, inserter *jobs.Runner) Option {
 			clock:     systemClock{},
 		}}
 	}
-}
-
-// embedReindexWorker delegates a River job to the search module's fleet-
-// wide re-embed (search.Store.ReembedCorpus). An identity drift — the
-// operator changed the embed binding after this job was enqueued —
-// cancels rather than retries: retrying would burn attempts against an
-// identity nothing serves anymore, when what the fleet needs is a NEW
-// confirm under the current config.
-type embedReindexWorker struct {
-	river.WorkerDefaults[embedReindexArgs]
-	store    *search.Store
-	embedder search.Embedder
-}
-
-// Timeout disables River's 1-minute default: a fleet-wide re-embed is a
-// resumable batch bounded by corpus size, not by a wall-clock budget, so a
-// large corpus (or a slow embed provider) must not be cancelled mid-pass and
-// forced to burn its retries re-walking work the skip-compare would anyway
-// make free. It still stops on ctx cancellation at shutdown, cancels itself
-// on identity drift, and each individual embed is bounded by the model
-// lane's own per-call timeout — this only removes the whole-job wall.
-func (w *embedReindexWorker) Timeout(*river.Job[embedReindexArgs]) time.Duration {
-	return -1
-}
-
-func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[embedReindexArgs]) error {
-	if w.embedder == nil {
-		// This worker role has no embed lane configured (JobRunnerConfig.
-		// Embedder is nil) — registered regardless (jobs.go's own doc), so
-		// a picked-up job fails clearly here rather than sitting queued
-		// forever behind a job no worker role can ever complete.
-		return jobs.FaultContext(ctx, fmt.Errorf("embed_reindex: no embed lane configured on this worker role"))
-	}
-	err := w.store.ReembedCorpus(ctx, w.embedder, job.Args.Identity)
-	if errors.Is(err, search.ErrIdentityDrift) {
-		return river.JobCancel(err)
-	}
-	return jobs.FaultContext(ctx, err)
 }

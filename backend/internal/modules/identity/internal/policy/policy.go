@@ -23,6 +23,14 @@ import (
 // role, not the document.
 var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run"}
 
+// IsCoreObject reports whether an RBAC object is in the closed set a role
+// document may grant. Parse enforces it on stored documents; it is also the
+// answer to "could ANY principal ever hold a grant on this object", which a
+// caller deriving an authority requirement needs before trusting it.
+func IsCoreObject(object string) bool {
+	return slices.Contains(coreObjects, object)
+}
+
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
 //
@@ -225,7 +233,7 @@ func Parse(raw []byte) (Document, error) {
 		return Document{}, fmt.Errorf("policy: malformed permissions document: %w", err)
 	}
 	for object := range doc.Objects {
-		if !slices.Contains(coreObjects, object) {
+		if !IsCoreObject(object) {
 			return Document{}, fmt.Errorf("policy: unknown object %q in permissions document", object)
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -138,6 +139,11 @@ type taggableRow struct {
 }
 
 func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string, entityID ids.UUID) (taggableRow, error) {
+	// Required by the contract, true only if checked: the zero UUID would reach
+	// the row-scope link gate and answer not-found for a record nobody named.
+	if err := httperr.RequireBodyID(entityIDField, entityID); err != nil {
+		return taggableRow{}, err
+	}
 	if err := auth.Require(ctx, "tag", principal.ActionUpdate); err != nil {
 		return taggableRow{}, err
 	}

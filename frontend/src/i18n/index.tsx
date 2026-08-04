@@ -2,6 +2,7 @@ import {
   createContext,
   type ReactNode,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -72,6 +73,20 @@ export function LocaleProvider({
   // An explicit initial (a server-provided locale, once /v1/me carries one)
   // is authoritative; otherwise fall to the browser's own preference.
   const [locale, setLocale] = useState<Locale>(() => initial ?? detectLocale());
+  /*
+   * The document's own language follows the catalog. index.html can only ship a
+   * static `lang`, so without this every German reader gets German text inside a
+   * document declared English — a screen reader then applies English phonemes to
+   * German words, which is the difference between a page that can be listened to
+   * and one that cannot. WCAG 3.1.1.
+   *
+   * It fails on FIRST LOAD, not only after the switcher is used, because
+   * `detectLocale` reads the browser's own preference — so the reader most likely
+   * to need it is the one who never touches the switch.
+   */
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
   const value = useMemo(() => ({ locale, setLocale }), [locale]);
   return (
     <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>

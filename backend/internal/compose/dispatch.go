@@ -13,11 +13,14 @@ package compose
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -33,11 +36,15 @@ func enumerateWorkspaces(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, e
 }
 
 // enumerateEveryWorkspace reads EVERY workspace, archived ones included —
-// unlike the passes that work on behalf of a live tenant. Archiving a
-// workspace does not un-store the snapshots inside it: skipping those rows
-// would keep subject data forever in exactly the workspaces nobody looks at
-// any more, and idempotency_key.workspace_id is ON DELETE RESTRICT, so the
-// leftovers would also refuse the eventual hard delete.
+// unlike the passes that work on behalf of a live tenant. Archiving a workspace
+// does not un-store the data inside it, and both retention passes fan out over
+// this enumeration for that reason.
+//
+// GDPR storage limitation does not pause because a tenant stopped logging in:
+// skipping archived rows would hold personal data past its retention floor in
+// exactly the workspaces nobody looks at any more. Idempotency claim retention
+// needs them for a second reason — idempotency_key.workspace_id is ON DELETE
+// RESTRICT, so leftover claims also refuse the eventual hard delete.
 func enumerateEveryWorkspace(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUID, error) {
 	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; retention reads every tenant, archived included, before any per-workspace tx exists.
 	rows, err := pool.Query(ctx, `SELECT id FROM workspace ORDER BY created_at`)
@@ -74,6 +81,32 @@ const (
 // because retryable is one of activeSweepStates, a backing-off job would
 // suppress the tick's own re-enqueue of that workspace until it discarded.
 const sweepWorkspaceMaxAttempts = 3
+
+// periodicWhenPositive is a dispatcher's schedule when interval is a cadence,
+// and NO entry at all when it is not. Every addXJobs helper that takes an
+// operator-set interval routes through it, so the reasoning below is stated
+// here rather than once per pass.
+//
+// A non-positive interval leaves the WORKERS registered and omits only the
+// SCHEDULE. The split is the point: the workers are a capability (a row an
+// earlier boot queued still gets worked, the posture the deep-read and
+// embed-reindex workers take) while the periodic entry is a cadence, and River
+// has no cadence to offer for a zero duration. It does not refuse one either —
+// PeriodicInterval(0) yields Next(t) == t, so the enqueuer re-derives a run time
+// that never advances and dispatches as fast as Postgres accepts an insert.
+// Absent by omission is the only honest reading of "no cadence given".
+//
+// Absent by omission is NOT allowed to reach a deployment that meant to run the
+// pass: every one of these flags carries a positive default and cmd/worker's
+// validateSchedulerIntervals refuses a non-positive one at boot. The omission
+// serves the callers that wire a runner for a few named passes and never meant
+// to run this one at all.
+func periodicWhenPositive(interval time.Duration, args func() (river.JobArgs, *river.InsertOpts), opts *river.PeriodicJobOpts) []*river.PeriodicJob {
+	if interval <= 0 {
+		return nil
+	}
+	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(interval), args, opts)}
+}
 
 // workspaceSweepOpts is the enqueue policy for one fanned-out workspace job.
 // A kind whose tick is slower than the ladder would run may take a larger
@@ -149,10 +182,50 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 	}
 	params := make([]river.InsertManyParams, 0, len(workspaces))
 	for _, ws := range workspaces {
-		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: opts})
+		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: markedAsFleetPass(opts)})
 	}
 	if err := insert(ctx, params); err != nil {
 		return fmt.Errorf("compose: dispatching %d workspace jobs: %w", len(params), err)
 	}
 	return nil
+}
+
+// markedAsFleetPass copies opts with the sweep tag added, so a reader can
+// tell one workspace's share of a fleet pass from the same kind enqueued by
+// hand — they are the same kind, and the tag is the only difference in the
+// row. Tags are validated for format only and take no part in River's
+// unique key, so this changes no scheduling behaviour.
+//
+// EVERY fan-out site calls it, not only dispatchWith. Five dispatchers fan
+// out with a loop of single inserts instead, and each one calls it
+// directly: gmailSyncWorker and gmailWatchWorker (jobs_capture.go),
+// telegramPollSweepWorker (telegrampoll.go), voiceBuildRetryWorker
+// (voicebuild.go) and overlayReconcileWorker (jobs_overlay.go). A site that
+// forgets the tag is silently absent from the sweep gauges while the
+// gauge's own HELP text blames River's retention for the gap. Nothing
+// derives that obligation yet — this list is the registry, so it has to be
+// right.
+//
+// It COPIES because a single dispatch shares ONE opts value across every
+// workspace in its loop, and voiceBuildInsertOpts' value is shared with the
+// user-initiated build path besides. Appending in place would grow one tag
+// per workspace and hand the caller back a mutated struct.
+//
+// A nil opts yields a tag-ONLY value on purpose. For the fields that matter
+// here — queue, max attempts, priority, tags and the uniqueness window —
+// River falls back to the args' own InsertOpts whenever the explicit value
+// leaves that field at its zero, so a caller that passes nil to let its
+// args declare the uniqueness window (the telegram poll's per-bot rule)
+// keeps that fallback intact. It is NOT a blanket rule over every field:
+// metadata, for one, is defaulted rather than inherited.
+func markedAsFleetPass(opts *river.InsertOpts) *river.InsertOpts {
+	marked := river.InsertOpts{}
+	if opts != nil {
+		marked = *opts
+	}
+	if slices.Contains(marked.Tags, jobs.SweepTag) {
+		return &marked
+	}
+	marked.Tags = append(slices.Clone(marked.Tags), jobs.SweepTag)
+	return &marked
 }

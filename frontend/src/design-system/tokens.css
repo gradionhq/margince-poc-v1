@@ -28,6 +28,16 @@
 
   --borderSubtle: #e5e9e7;
   --borderStrong: #d2d8d4;
+  /* The boundary of an INTERACTIVE control — a text input, a button that carries
+     no fill — and it is a separate token from --borderStrong because it answers
+     to a different rule. --borderStrong divides content, where any visible
+     hairline does the job; this one is often the ONLY thing telling a user that
+     a rectangle accepts typing, and WCAG 1.4.11 therefore asks it for 3:1
+     against its background. --borderStrong measures 1.45:1 on white and cannot
+     be raised to 3:1 without turning every content divider into a hard rule.
+     Chosen to clear 3:1 against BOTH --bgElevated and --bgPage (3.33 / 3.24),
+     since controls sit on both. */
+  --borderControl: #868f89;
 
   --online: #22c55e;
   --teal: #0e7490;
@@ -142,6 +152,14 @@
   --bgHover: #1f332c;
 
   --accent: #16a34a;
+  /* DARK ink on the accent, not white — and the accent itself is untouched
+     because #16a34a is the ADR-0040 mandate. The dark palette lightens the
+     accent, which flips which ink can sit on it: white measured 3.30:1 against
+     it at 13.5px/600, under the 4.5:1 AA needs (600 weight is not bold, and
+     13.5px is not large text), and that text is the primary action on every
+     surface — "Sign in", "Send reset link", "Set new password". This ink gives
+     5.04:1. Light theme keeps white at 5.35:1. */
+  --textOnAccent: #04240f;
   --accentLight: rgba(22, 163, 74, 0.14);
   --accentMed: rgba(22, 163, 74, 0.26);
   /* Dark: the fills lift and the text tones brighten, so a monogram keeps the
@@ -167,6 +185,18 @@
 
   --borderSubtle: #22352e;
   --borderStrong: #31463d;
+  /* 3.45:1 on --bgElevated, 3.79:1 on --bgPage — the dark counterpart of the
+     control boundary, held to the same 1.4.11 floor. */
+  --borderControl: #5f7a6e;
+
+  /* Themed, because the light values are a 4-5% WARM BLACK — invisible on
+     #0e1b16. Any card whose separation depends on its shadow simply lost its
+     edge in dark, and the login surface's brand pane is exactly that case: its
+     fill sits within a couple of ΔE of the pane behind it, so with no shadow the
+     two-pane split had no visible boundary at all. Pure black at a much higher
+     alpha is what reads on a dark surface. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.36);
+  --shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.55);
 
   /* higher alpha so the teal read-pill fill stays legible on the darker card
    * surface (same light→dark bump --accentLight makes). --teal is unthemed. */

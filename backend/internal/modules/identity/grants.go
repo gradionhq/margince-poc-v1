@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -128,6 +129,18 @@ type CreateGrantInput struct {
 }
 
 func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (grantRow, error) {
+	// Both ids, and both before anything else: a grant is a triple of record,
+	// subject and access, and each id is required by the contract — a claim only
+	// this check makes true. Unguarded, a zero record_id reaches the row-scope
+	// probe and a zero subject_id reaches the subject lookup, and each answers
+	// not-found for something the caller never named. The record refusal comes
+	// first because it is what the grant is ABOUT.
+	if err := httperr.RequireBodyID("record_id", in.RecordID); err != nil {
+		return grantRow{}, err
+	}
+	if err := httperr.RequireBodyID("subject_id", in.SubjectID); err != nil {
+		return grantRow{}, err
+	}
 	if !shareableRecordTypes[in.RecordType] {
 		return grantRow{}, &InvalidScopeError{Scope: "record_type " + in.RecordType}
 	}

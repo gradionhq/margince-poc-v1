@@ -69,9 +69,9 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 				Workspace:    d.Workspace.UUID,
 				ConnectionID: d.ID.String(),
 				Provider:     desc.Name,
-			}, &river.InsertOpts{
+			}, markedAsFleetPass(&river.InsertOpts{
 				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-			}); err != nil {
+			})); err != nil {
 				// A refused enqueue means this connection is never synced, so
 				// it fails the DISPATCHER — the same posture as the watch
 				// dispatcher below, which this one is the mirror of.
@@ -163,10 +163,10 @@ func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs
 		if _, err := client.Insert(ctx, GmailWatchRenewArgs{
 			Workspace:    d.Workspace.UUID,
 			ConnectionID: d.ID.String(),
-		}, &river.InsertOpts{
+		}, markedAsFleetPass(&river.InsertOpts{
 			MaxAttempts: sweepWorkspaceMaxAttempts,
 			UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-		}); err != nil {
+		})); err != nil {
 			// A refused enqueue means this connection's watch is never renewed,
 			// so it fails the DISPATCHER rather than being logged past.
 			enumErr = errors.Join(enumErr, fmt.Errorf("enqueueing the watch renewal for connection %s: %w", d.ID, err))

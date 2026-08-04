@@ -136,11 +136,10 @@ func (r nativeOnlyRetriever) AssembleContext(ctx context.Context, anchor datasou
 	return r.inner.AssembleContext(ctx, anchor, opts)
 }
 
-// nativeOnlyIntroPath and nativeOnlyAtRisk guard the two relationship-graph
-// tools. Both ground on the interaction projection and the native employment
-// and deal tables, none of which the incumbent mirror holds — so in overlay
-// mode they would answer "nobody can get you in" and "nothing is at risk",
-// which are believable answers rather than visible failures.
+// nativeOnlyIntroPath guards intro_path_to. It grounds on the interaction
+// projection and the native employment table, neither of which the incumbent
+// mirror holds — so in overlay mode it would answer "nobody here can get you in",
+// which is a believable answer rather than a visible failure.
 func nativeOnlyIntroPath(mode overlayModeChecker, list agents.IntroPathLister) agents.IntroPathLister {
 	return func(ctx context.Context, orgID ids.UUID) ([]agents.IntroRoute, bool, error) {
 		overlay, err := mode.isOverlayUncached(ctx)
@@ -154,6 +153,9 @@ func nativeOnlyIntroPath(mode overlayModeChecker, list agents.IntroPathLister) a
 	}
 }
 
+// nativeOnlyAtRisk guards at_risk_relationships, over the caller's own native
+// deal rows and the same interaction projection. Unguarded it would answer
+// "nothing is at risk" for a workspace whose deals it cannot see.
 func nativeOnlyAtRisk(mode overlayModeChecker, list agents.AtRiskLister) agents.AtRiskLister {
 	return func(ctx context.Context) (agents.AtRiskReport, error) {
 		overlay, err := mode.isOverlayUncached(ctx)
@@ -167,9 +169,30 @@ func nativeOnlyAtRisk(mode overlayModeChecker, list agents.AtRiskLister) agents.
 	}
 }
 
-// nativeOnlySlippingLister guards whats_slipping_this_week, whose candidate
-// set is the native deals store. The mirror serves no stage or pipeline
-// dial, so there is no overlay query to fall back to.
+// nativeOnlyPipelines guards list_pipelines. The mirror holds no pipeline
+// projection — an incumbent's pipelines and stages are never mirrored — so the
+// native tables hold none of an overlay workspace's configuration and the
+// unguarded answer would be "this workspace has no pipelines". A caller
+// believing that concludes the deal verbs are unusable, when what is true is
+// that this capability is not served in overlay mode.
+func nativeOnlyPipelines(mode overlayModeChecker, list agents.PipelineLister) agents.PipelineLister {
+	return func(ctx context.Context) ([]agents.Pipeline, error) {
+		overlay, err := mode.isOverlayUncached(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if overlay {
+			return nil, apperrors.ErrUnsupportedBySoR
+		}
+		return list(ctx)
+	}
+}
+
+// nativeOnlySlippingLister guards whats_slipping_this_week AND
+// draft_follow_ups_for — both, because RegisterSlippingTools hands this one
+// lister to each of them, so the drafter's candidate set is the same guarded
+// read. The candidates come from the native deals store, and the mirror serves no
+// stage or pipeline dial, so there is no overlay query to fall back to.
 func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingLister) agents.SlippingLister {
 	return func(ctx context.Context) ([]agents.SlippingDeal, error) {
 		overlay, err := mode.isOverlayUncached(ctx)

@@ -63,7 +63,13 @@ export function ConfirmModal({
       </h2>
       {children}
       {error && (
-        <p className="t-caption" style={{ color: "var(--danger)" }}>
+        // role="alert" (assertive live region) so a screen reader announces the
+        // mutation failure when it appears — e.g. a rejected reset confirmation.
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--danger)" }}
+        >
           {error}
         </p>
       )}

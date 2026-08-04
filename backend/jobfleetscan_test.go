@@ -60,14 +60,26 @@ type ratifiedFleetScan struct {
 // repo-relative path. A site missing here is a finding; an entry matching no
 // remaining site is stale; a count that no longer matches is either a new scan
 // to justify or a removed one to un-ratify.
+//
+// A reason must name which of exactly four things the site is:
+//
+//  1. a DISPATCHER's own enumeration — it reads the fleet only to enqueue one
+//     workspace-scoped job per tenant, and does no tenant work itself;
+//  2. a READ — the enumeration and everything it drives write nothing;
+//  3. a BOOT path — it runs once at startup, before any job exists to run it;
+//  4. TENANT RESOLUTION for an untenanted inbound request — a push or a webhook
+//     carries no tenant, so the scan finds the ONE workspace that owns it and
+//     the work then happens in that workspace alone.
+//
+// What a reason may NOT rest on is the site being outside the job layer. Every
+// fleet pass is a job now, so "not reachable from a Work method" describes
+// nothing durable: the next pass to want this enumeration reaches it from a
+// worker, and a waiver granted on that basis would already have waved it
+// through.
 var ratifiedFleetScans = map[string]ratifiedFleetScan{
 	"internal/compose/dispatch.go": {
 		2,
-		"the dispatch enumerations: all-live workspaces, and the archived-inclusive one retention needs because archiving does not un-store the claim snapshots inside a workspace. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
-	},
-	"internal/compose/runnerservice.go": {
-		1,
-		"the agent scheduler's own fleet pass, driven by a ticker rather than River — outside this phase's job layer",
+		"the dispatch enumerations: the live fleet every pass on behalf of an active tenant fans out over, and the archived-inclusive one BOTH retention passes need — GDPR retention and idempotency claim retention — because archiving a workspace does not un-store the data inside it. Both read the fleet only to enqueue one workspace-scoped job per tenant, and do no tenant work themselves",
 	},
 	"internal/modules/identity/installation.go": {
 		1,
@@ -83,7 +95,7 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 	},
 	"internal/modules/capture/push.go": {
 		1,
-		"the Pub/Sub push HTTP path: a push notification carries no tenant, so BumpDueByMailbox probes every workspace under its own GUC to find the mailbox. Not reachable from any Work method",
+		"tenant resolution: a Pub/Sub push notification names a mailbox and no tenant, so BumpDueByMailbox probes every workspace under its own GUC to find which one holds that mailbox — and bumps only the connections it found there",
 	},
 	"internal/modules/capture/credentialbackfill.go": {
 		1,
@@ -93,25 +105,17 @@ var ratifiedFleetScans = map[string]ratifiedFleetScan{
 		1,
 		"the voice_build_retry DISPATCHER's due-scan: enqueues one voice_build per due build, a finer fan-out than per-workspace",
 	},
-	"internal/modules/privacy/retention.go": {
-		1,
-		"the nightly retention evaluator, driven by a ticker in cmd/worker rather than River — outside this phase's job layer",
-	},
-	"internal/modules/webhooks/deliverystore.go": {
-		1,
-		"the webhook delivery retry sweeper's fleet pass, driven by a ticker (Deliverer.SweepOnce) rather than River — outside this phase's job layer",
-	},
 	"internal/modules/overlay/metrics.go": {
 		1,
 		"a metrics read: aggregates overlay sync lag across the fleet for /metrics exposition, writes nothing",
 	},
 	"internal/modules/overlay/connectionreads.go": {
 		2,
-		"DueOverlayConnections is the overlay_reconcile DISPATCHER's due-scan, whose next_sweep_at gate is the sweep backoff — the registry_connections shape; WorkspaceForPortal resolves which workspace a webhook portal belongs to (HTTP path)",
+		"DueOverlayConnections is the overlay_reconcile DISPATCHER's due-scan, whose next_sweep_at gate is the sweep backoff — the registry_connections shape; WorkspaceForPortal is tenant resolution, reading which single workspace an incoming webhook portal belongs to",
 	},
 	"internal/modules/search/binding.go": {
 		1,
-		"fleetWorkspaceIDs serves ReembedCorpus (embed_reindex is deliberately fleet-wide, deferred with a reason) and pendingStats",
+		"a read: fleetWorkspaceIDs drives pendingStats, the embed-backlog rollup, which visits every live tenant under that tenant's own GUC to count the entities carrying no embedding at the current identity and writes nothing",
 	},
 }
 

@@ -24,10 +24,10 @@ import (
 
 // workspaceArgFloor guards against a vacuous pass on the scoped side. This
 // gate only reports on the types it FINDS, so a walker that matched nothing
-// would read green. The tree holds 26 workspace-scoped kinds today; the floor
+// would read green. The tree holds 30 workspace-scoped kinds today; the floor
 // only has to be low enough never to false-alarm and high enough to catch a
-// walker that broke.
-const workspaceArgFloor = 20
+// walker that broke, so it keeps six kinds of headroom under the count.
+const workspaceArgFloor = 24
 
 // dispatcherArgFloor is workspaceArgFloor's other half. assertNoWorkspaceArg
 // only runs on types the walker routes to it as FleetWide; if a future
@@ -35,10 +35,9 @@ const workspaceArgFloor = 20
 // methodsByType from seeing FleetWide(), those types fall into "declares
 // neither role" and are skipped entirely — checked (the scoped count) stays
 // unaffected and reads plausible while the dispatcher half is inspected zero
-// times. The tree holds 20 FleetWide kinds today; same reasoning as
-// workspaceArgFloor: low enough never to false-alarm, high enough to catch a
-// broken walker.
-const dispatcherArgFloor = 15
+// times. The tree holds 23 FleetWide kinds today; same reasoning as
+// workspaceArgFloor, with five kinds of headroom under the count.
+const dispatcherArgFloor = 18
 
 // The ONE field name, type, and wire key every workspace-scoped args type
 // carries. The FIELD is `Workspace` because Go forbids a field and a method of

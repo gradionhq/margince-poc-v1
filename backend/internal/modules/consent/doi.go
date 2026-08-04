@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -34,6 +35,11 @@ type IssuedDOI struct {
 	ExpiresAt time.Time
 }
 
+// purposeIDField names the wire path every purpose refusal on this surface
+// points at. Named once because three refusals use it, and a field slot holds a
+// wire field path, never prose.
+const purposeIDField = "purpose_id"
+
 // IssueDoubleOptIn mints the single-use confirmation token a DOI grant
 // must later present. Only the sha256 lands in the database — the
 // session/passport secret discipline — so a stolen table cannot confirm
@@ -45,6 +51,12 @@ type IssuedDOI struct {
 // issuance intent stays attributable, and the plaintext never lands in
 // audit or outbox payloads.
 func (s *Store) IssueDoubleOptIn(ctx context.Context, personID ids.PersonID, purposeID ids.PurposeID, deliver bool) (IssuedDOI, error) {
+	// A token confirms consent FOR a purpose; without one there is nothing to
+	// confirm. Unguarded, the zero UUID reaches the purpose read and answers
+	// not-found for a purpose nobody named.
+	if err := httperr.RequireBodyID(purposeIDField, purposeID.UUID); err != nil {
+		return IssuedDOI{}, err
+	}
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return IssuedDOI{}, err
 	}
@@ -68,7 +80,7 @@ func (s *Store) IssueDoubleOptIn(ctx context.Context, personID ids.PersonID, pur
 			return err
 		}
 		if !requiresDOI {
-			return &ValidationError{Field: "purpose_id", Reason: "purpose does not require a double opt-in"}
+			return &ValidationError{Field: purposeIDField, Reason: "purpose does not require a double opt-in"}
 		}
 		issued := s.now().UTC()
 		if _, err := tx.Exec(ctx, `

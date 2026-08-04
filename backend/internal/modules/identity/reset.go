@@ -87,6 +87,18 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if done != nil {
 			defer done()
 		}
+		// This goroutine OUTLIVES the request, so the chassis's recovery
+		// middleware — which wraps the handler — cannot see a panic in here, and an
+		// unrecovered panic in any goroutine takes the whole process down. The
+		// endpoint is unauthenticated, which is what makes that unacceptable rather
+		// than merely untidy: it would be a one-request denial of service for
+		// anybody who could reach a panicking path. Nothing below panics today; the
+		// point is that a future edit here must not be able to.
+		defer func() {
+			if panicked := recover(); panicked != nil {
+				slog.Error("password-reset send panicked", "panic", panicked)
+			}
+		}()
 		rawToken, err := h.svc.CreatePasswordReset(workCtx, email.String())
 		if err != nil {
 			slog.Error("password-reset token mint failed", "err", err)
@@ -95,7 +107,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if rawToken == "" {
 			return
 		}
-		link := h.resetBaseURL + "/reset-password?token=" + rawToken
+		link := passwordLink(h.resetBaseURL, rawToken)
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."

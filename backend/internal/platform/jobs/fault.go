@@ -59,6 +59,35 @@ func FaultContext(ctx context.Context, err error) error {
 	return &fault{sentence: unrecognised, cause: err}
 }
 
+// VettedSentence reports whether s is a sentence Fault itself would have
+// written — one of the vocabulary's, or the unclassified fallback.
+//
+// It exists because river_job.errors is fleet-visible with no RLS and no
+// redaction path (see Fault), so a surface that shows a failure to a human
+// asks this rather than trusting the column. A worker that bypassed Fault
+// and returned its raw cause stored that cause here; the answer for it is
+// false, and the reader substitutes its own fixed text. River writes into
+// that column too — its rescuer's "Stuck job rescued by JobRescuer" is not
+// a Fault sentence and is correctly refused.
+//
+// The comparison is EXACT, never a prefix or a contains: a worker whose raw
+// cause merely embeds a vetted sentence would otherwise carry the rest of
+// its text through on the strength of the part that matched.
+//
+// The vocabulary stays unexported: a caller asks whether one string is
+// vetted, it does not get the list to render or to match against by hand.
+func VettedSentence(s string) bool {
+	if s == unrecognised {
+		return true
+	}
+	for _, known := range vocabulary {
+		if s == known.sentence {
+			return true
+		}
+	}
+	return false
+}
+
 // unrecognised is what an unclassified cause becomes on the wire. It says
 // where the diagnosis went, because an operator reading it in a job list
 // otherwise has no next step.

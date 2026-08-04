@@ -12,12 +12,9 @@ package agents
 // provenance any more than a browser can.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -70,101 +67,6 @@ func RegisterCoreTools(r *Registry, p datasource.SystemOfRecordProvider, stages 
 // this module never reads storage directly.
 type FieldOwnership interface {
 	HumanOwnedConflicts(ctx context.Context, entityType string, id ids.UUID, patch json.RawMessage) ([]string, error)
-}
-
-// decodeArgs is the surface's input validation: strict JSON (unknown
-// argument names are errors, not silent drops).
-//
-// It does NOT settle whether a required uuid argument was supplied: `ids.UUID`
-// zero-values an absent key without erroring, so that claim is made once for the
-// whole surface at Registry.Invoke (requireDeclaredIDs) rather than in each
-// handler — which is how thirteen handlers came to miss it.
-func decodeArgs[T any](in json.RawMessage, into *T) error {
-	dec := json.NewDecoder(bytes.NewReader(in))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil {
-		return &BadArgsError{Cause: err}
-	}
-	return nil
-}
-
-// maxBadArgsDetail bounds what a rejected tool call may say back. The
-// decoder quotes the caller's own JSON key verbatim (DisallowUnknownFields),
-// the refusal becomes an observation, and an agent run's transcript is
-// cumulative — so an unbounded message is an unbounded write into every
-// later prompt of that run, by the one author that has already been shown
-// the fence marker. The tool NAME is bounded for exactly this reason
-// (runner.maxToolNameLen); this is the other field a model chooses freely.
-// Long enough to name the offending key and what was wanted, short enough
-// that the field cannot carry prose.
-const maxBadArgsDetail = 200
-
-// BadArgsError maps to a tool-call validation failure.
-//
-// The two members have opposite provenance, and that is the whole reason they
-// are separate. Cause quotes the CALLER — the decoder echoes the JSON key it
-// refused — so it is bounded and escaped. Guidance is OURS: a fixed vocabulary
-// reflected off the contract, chosen by no caller.
-type BadArgsError struct {
-	Cause error
-	// Guidance is server-authored text appended after the echo, and it is NOT
-	// bounded. Bounding it with the echo is what made the accepted-field list
-	// truncate mid-word on a long unknown key — cutting away the list the
-	// message exists to teach, exactly when the caller most needed it. The
-	// bound guards against an unbounded write into a run's transcript by the
-	// model being prompted; our own strings were never that.
-	Guidance string
-}
-
-func (e *BadArgsError) Error() string {
-	msg := "arguments: " + echoSafe(e.Cause.Error(), maxBadArgsDetail)
-	if e.Guidance == "" {
-		return msg
-	}
-	return msg + "; " + e.Guidance
-}
-func (e *BadArgsError) Unwrap() error { return e.Cause }
-
-// boundDetail caps a message at n bytes, cutting on a rune boundary so the
-// result stays valid UTF-8 rather than ending mid-sequence.
-func boundDetail(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
-}
-
-// echoSafe prepares caller-authored text for a tool result: bounded, and with
-// every control character rendered as a visible escape.
-//
-// Bounding alone is not enough. A tool result lands in a transcript that later
-// prompts of the same run read, and the author of these strings is the model
-// being prompted — so a newline in a field name can open what reads as a new
-// line of conversation, and an escape byte can move a terminal's cursor.
-// Rendering them keeps what the caller actually wrote while taking away its
-// ability to forge the frame around it.
-func echoSafe(s string, n int) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		switch {
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			fmt.Fprintf(&b, `\x%02x`, r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return boundDetail(b.String(), n)
 }
 
 func schema(s string) json.RawMessage { return json.RawMessage(s) }
@@ -296,9 +198,9 @@ func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Title: "Create a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
+		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
 			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -390,7 +292,7 @@ func (t advanceDeal) Spec() mcp.ToolSpec {
 		OpenAPIOp:     "advanceDeal",
 		InputSchema: schema(`{"type":"object","required":["deal_id","to_stage_id"],"properties":{
 			"deal_id":{"type":"string","format":"uuid"},
-			"to_stage_id":{"type":"string","format":"uuid"},
+			"to_stage_id":{"type":"string","format":"uuid"` + stageIDNote + `},
 			"lost_reason":{"type":"string","description":"Required when the target stage closes the deal as lost"},
 			"if_version":{"type":"integer"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved a won/lost move"}},

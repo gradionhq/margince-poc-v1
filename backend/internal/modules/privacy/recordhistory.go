@@ -68,6 +68,7 @@ var recordHistoryVerbs = map[string]string{
 	"disqualify":       "disqualified",
 	"anonymize":        "anonymized",
 	"send_email":       "sent an email for",
+	"reset_data":       "reset",
 }
 
 // RecordHistoryFilter carries the validated query surface of

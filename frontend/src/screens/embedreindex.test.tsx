@@ -217,7 +217,7 @@ it("Rebuild index stays available even when no reindex is needed, and posts forc
   });
 });
 
-it("F2: a stuck reembedding marker shows 'reindexing since' and keeps Rebuild enabled", () => {
+it("F2: a stuck reembedding marker shows the age of the last progress and keeps Rebuild enabled", () => {
   // A drift-cancelled/retry-discarded job can leave the marker stuck at
   // reembedding with no live worker behind it — the SPA must still let an
   // operator judge "stuck" and re-kick it, not just show a spinner forever.
@@ -252,8 +252,11 @@ it("F2: a stuck reembedding marker shows 'reindexing since' and keeps Rebuild en
 
     expect(screen.getByText("Reindexing…")).toBeTruthy();
     // updated_at is 2026-07-20T00:00:00Z, system time is 2026-07-22T00:00:00Z
-    // — a 2-day-old marker, formatDuration's absolute-day rendering.
-    expect(screen.getByText("Reindexing since 2d")).toBeTruthy();
+    // — the run last reported progress 2 days ago, formatDuration's
+    // absolute-day rendering. A running pass refreshes that stamp as it
+    // embeds, so two days of it is a run nothing is working, which is exactly
+    // the judgment the Rebuild action below is for.
+    expect(screen.getByText("Last progress 2d ago")).toBeTruthy();
 
     // The Rebuild action stays enabled (not disabled) while reembedding —
     // that's the re-kick affordance (force:true), not blocked by isRunning.

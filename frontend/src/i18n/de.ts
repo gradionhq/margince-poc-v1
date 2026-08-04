@@ -1246,8 +1246,35 @@ export const de = {
     "ein Agent handelt als du, nie über dir — jeder Aufruf prüft deine Rechte neu",
   "passport.select": "Passport",
   "passport.noneOption": "Kein Passport",
+  "settings.passportsLendHint":
+    "Diese kannst du verleihen. Verbindet sich ein MCP-Client, fragt er, welchen du übergibst — die Verbindung trägt danach genau die Scopes dieses Passports.",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
+  "agents.connected": "Verbundene Agenten",
+  "agents.connectedSub":
+    "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",
+  "agents.noneConnected": "Noch ist kein Agent verbunden.",
+  "agents.connectedOn": "verbunden {date}",
+  "agents.lentFrom": "verliehen aus „{label}“",
+  "agents.disconnect": "Trennen",
+  "agents.disconnectNamed": "{client} trennen",
+  "agents.disconnected": "getrennt",
+  "agents.lapsed": "Credential abgelaufen",
+  "agents.renewing": "wird erneuert",
+  "agents.renewsBy": "Credential erneuert bis {date}",
+  "agents.expiredOn": "Credential abgelaufen {date}",
+  "agents.revokeGrant": "Verbindung beenden",
+  "agents.revokeGrantNamed": "Verbindung zu {client} beenden",
+  "agents.disconnectConfirm":
+    "Das beendet die ganze Verbindung, nicht nur ein Credential: der Agent verliert den Zugriff beim nächsten Aufruf und kann nicht erneuern. Für eine neue Verbindung verleihst du wieder einen Passport.",
+  "agents.connectHow": "Agent verbinden",
+  "agents.connectSteps":
+    "Stelle oben einen Passport aus und führe dann einen dieser Befehle aus. Der Client registriert sich selbst und bringt dich hierher zurück, um zu wählen, welchen Passport du verleihst.",
+  "agents.connectAntigravityPath":
+    "Antigravity hat keinen Add-Befehl — trage den Block in ~/.gemini/config/mcp_config.json ein.",
+  "agents.connectorOff": "Der MCP-Connector ist für diese Installation aus.",
+  "agents.connectorOffDetail":
+    "Bis ein Betreiber ihn einschaltet, kann sich kein Agent verbinden. Deine Passports funktionieren weiterhin als REST-Credentials.",
   "settings.tokenOnce": "Jetzt kopieren — dieses Token siehst du nur einmal.",
   "settings.token": "Token",
   "settings.autonomy": "Autonomie-Stufen",
@@ -1269,6 +1296,17 @@ export const de = {
   "settings.automationsSub":
     "der geschlossene Starter-Katalog — aktivieren, parametrisieren, pausieren",
   "settings.openAutomations": "Automatisierungs-Editor öffnen",
+  "settings.dangerZone": "Gefahrenzone",
+  "settings.dangerZoneSub":
+    "nur nicht-produktiv — auf dieser Installation nicht rückgängig zu machen",
+  "settings.resetDataDesc":
+    "Setzt diese Installation auf den Zustand nach der Ersteinrichtung zurück. Fach- und Workspace-Konfigurationsdaten werden gelöscht; die Organisation und ihre Nutzer bleiben erhalten und angemeldet.",
+  "settings.resetDataButton": "Daten zurücksetzen…",
+  "settings.resetDataConfirmTitle": "Alle Daten zurücksetzen?",
+  "settings.resetDataConfirmBody":
+    "Gib zur Bestätigung den Namen deiner Organisation ein. Dies kann nicht rückgängig gemacht werden.",
+  "settings.resetDataConfirmName": "Gib diesen Organisationsnamen ein:",
+  "settings.resetDataConfirmLabel": "Organisationsname bestätigen",
   "settings.audit": "Audit-Log",
   "audit.you": "Du",
   "audit.teammate": "Ein Teammitglied",
@@ -2384,29 +2422,40 @@ export const de = {
   "ob.backread.skip": "Verlauf jetzt nicht lesen",
 
   "auth.title": "Margince",
-  "auth.checking": "Sitzung wird geprüft…",
+  "auth.checking": "Deine Sitzung wird geprüft…",
   "auth.pageTitle": "Anmelden · Margince",
   "auth.loginTitle": "Bei Margince anmelden",
+  // "eine Admin-Person", nicht "deine Administration": eine Administration ist
+  // im Deutschen eine Stelle oder eine Tätigkeit, keine Person — der Rest des
+  // Katalogs sagt durchgehend "Admin-Person". Und der zweite Satz nennt das Verb
+  // statt des Nominalstils ("Eine Selbstregistrierung gibt es nicht").
   "auth.loginSub":
-    "Konten legt deine Administration an. Eine Selbstregistrierung gibt es nicht.",
+    "Konten legt eine Admin-Person an. Selbst registrieren kannst du dich nicht.",
   "auth.coreDisclosure": "Margince · KI-System",
   "auth.coreBoundary":
     "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",
+  // "Postfach", nicht "Mailbox": eine Mailbox ist im Deutschen der
+  // Anrufbeantworter. Auf einer Zeile, die den Umfang des Zugriffs offenlegt,
+  // benennt das eine andere Datenquelle als die englische Fassung.
   "auth.coreScope":
-    "Dieser Kontext ist deine Mailbox, dein Kalender und was ich im offenen Web lesen kann. Nichts anderes, und nichts ohne deine Freigabe.",
+    "Dieser Kontext ist dein Postfach, dein Kalender und was ich öffentlich im Web lesen kann. Nichts anderes und nichts ohne deine Freigabe.",
   "auth.corePermission": "Ich nutze deine Berechtigungen.",
   "auth.coreCites": "Ich belege, was ich finde.",
   "auth.coreWaits": "Vor externen Aktionen warte ich auf deine Freigabe.",
   "auth.coreMarks": "Ich markiere jeden Wert, den ich geschrieben habe.",
   "auth.coreConfigured": "Konfiguriert",
   "auth.coreUnconfigured": "KI nicht konfiguriert",
-  "auth.coreStillWorks": "Das CRM funktioniert weiterhin.",
+  // "auch ohne", nicht "weiterhin": "weiterhin" ist zeitlich und liest sich neben
+  // dem Hinweis "KI nicht konfiguriert" wie "noch, aber nicht mehr lange".
+  "auth.coreStillWorks": "Das CRM funktioniert auch ohne.",
   "auth.coreDevelopment": "Entwicklungs-KI",
   "auth.coreModeCloud": "Cloud-Routing",
   "auth.coreModeLocal": "lokales Routing",
   "auth.coreModeHybrid": "hybrides Routing",
   "auth.coreModeNone": "kein Modell-Routing",
-  "auth.coreModeDevelopment": "Offline-Entwicklungspfad",
+  // Die Nachbarwerte sind alle Betriebsarten; "Modus" ist dafür das deutsche
+  // Wort, "Pfad" die Übersetzung von "path".
+  "auth.coreModeDevelopment": "Offline-Entwicklungsmodus",
   "auth.coreProviderAnthropic": "Anthropic",
   "auth.coreProviderGemini": "Gemini",
   "auth.coreProviderOllama": "Ollama",
@@ -2414,13 +2463,17 @@ export const de = {
   "auth.coreProviderCompatible": "kompatibler Anbieter",
   "auth.coreProviderVllm": "vLLM",
   "auth.email": "E-Mail",
-  "auth.emailPlaceholder": "du@firma.de",
+  // Der lokale Teil einer Adresse ist nie ein Pronomen — "du@" ist "you@"
+  // Zeichen für Zeichen. "beispiel.de" ist im Deutschen, was "example.com" im
+  // Englischen ist, und genau das pinnt die Login-Spec §7.2.
+  "auth.emailPlaceholder": "name@beispiel.de",
   "auth.password": "Passwort",
   "auth.passwordPlaceholder": "Passwort",
   "auth.passwordHint": "mindestens 12 Zeichen",
   "auth.showPassword": "Passwort anzeigen",
   "auth.hidePassword": "Passwort ausblenden",
   "auth.capsLock": "Feststelltaste ist an",
+  "auth.continueWith": "Weiter mit {brand}",
   "auth.orWithEmail": "oder per E-Mail",
   "auth.legalProtected": "Der Zugang zu dieser Organisation ist beschränkt.",
   "auth.legalTerms": "Nutzungsbedingungen",
@@ -2442,25 +2495,50 @@ export const de = {
   "auth.connectionBody":
     "Prüfe deine Verbindung und versuche es erneut. Besteht das Problem weiter, startet der Server womöglich gerade neu.",
   "auth.unavailableTitle": "Installation nicht bereit",
+  // "Betreiber", nicht "Operator": ein Operator ist im Deutschen ein
+  // mathematisches Zeichen oder eine Telefonvermittlung. Und eine Einrichtung
+  // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
-    "Diese Margince-Installation kann dich noch nicht anmelden. Ein Operator muss die Einrichtung abschließen oder reparieren.",
+    "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
   "auth.forgotLink": "Passwort vergessen?",
   "auth.forgotTitle": "Passwort zurücksetzen",
+  // "gibt", nicht "existiert" (Amtsdeutsch), und das Feld will eine Adresse, keine
+  // E-Mail — die E-Mail ist die Nachricht. Was unterwegs ist, ist ebenfalls die
+  // Nachricht, nicht der Link. Die Existenz des Kontos bleibt offen.
   "auth.forgotSub":
-    "Gib deine E-Mail ein. Wenn dazu ein Konto existiert, ist ein Link unterwegs.",
+    "Gib deine E-Mail-Adresse ein. Wenn es dazu ein Konto gibt, schicken wir dir einen Link.",
   "auth.sendResetLink": "Link senden",
   "auth.forgotSentTitle": "Prüfe dein Postfach",
   "auth.forgotSentBody":
-    "Wenn zu dieser Adresse ein Konto existiert, ist ein Link unterwegs. Er läuft in einer Stunde ab.",
+    "Wenn es zu dieser Adresse ein Konto gibt, ist die E-Mail unterwegs. Der Link läuft in einer Stunde ab.",
   "auth.resetTitle": "Neues Passwort wählen",
   "auth.resetSub": "Dein Link ist gültig. Wähle ein neues Passwort.",
   "auth.newPassword": "Neues Passwort",
   "auth.setNewPassword": "Neues Passwort speichern",
-  "auth.resetFailed": "Dieser Link ist ungültig, verbraucht oder abgelaufen.",
+  // "bereits verwendet", nicht "verbraucht": ein Link wird verwendet, nicht
+  // verbraucht wie Kraftstoff.
+  "auth.resetFailed":
+    "Dieser Link ist ungültig, bereits verwendet oder abgelaufen.",
+  // "nicht akzeptiert": abgelehnt werden Anträge und Angebote, nicht Passwörter.
+  // Ein anderes zu wählen IST der neue Versuch, also entfällt der Nachsatz.
+  "auth.resetRejectedPassword":
+    "Dieses Passwort wurde nicht akzeptiert. Wähle ein anderes.",
+  // "speichern", nicht "setzen": gesetzt wird eine Variable, und "speichern" ist
+  // genau das Verb, das auf dem Button darunter steht. Drei Sätze statt eines
+  // Komma-Spleißes zwischen Aussage und Aufforderung.
+  "auth.resetServerFailed":
+    "Wir konnten dein neues Passwort gerade nicht speichern. Dein Link bleibt gültig. Versuche es gleich noch einmal.",
+  // Nicht "setze … erneut": das liest sich als "zurücksetzen", und dieser Schritt
+  // liegt hinter dem Zurücksetzen.
+  "auth.resetRateLimited":
+    "Zu viele Versuche. Warte einen Moment und speichere dein Passwort dann erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
-  "auth.resetDoneTitle": "Passwort aktualisiert",
+  // "geändert", wie im Satz darunter: aktualisiert werden Daten, die veralten.
+  "auth.resetDoneTitle": "Passwort geändert",
+  // "beendet", nicht "abgemeldet": abmelden tut sich eine Person, eine Sitzung
+  // wird beendet.
   "auth.resetDoneBody":
-    "Dein Passwort ist geändert und alle anderen Sitzungen sind abgemeldet. Melde dich mit dem neuen Passwort an.",
+    "Dein Passwort ist geändert und alle anderen Sitzungen sind beendet. Melde dich mit dem neuen Passwort an.",
   "auth.backToLogin": "Zurück zur Anmeldung",
   "auth.langDeutsch": "Deutsch",
   "auth.langEnglish": "English",
@@ -3185,7 +3263,7 @@ export const de = {
   "embedreindex.statusIdle": "Aktuell",
   "embedreindex.statusNeeded": "Neuindizierung erforderlich",
   "embedreindex.statusReembedding": "Neuindizierung läuft…",
-  "embedreindex.reembeddingSince": "Neuindizierung läuft seit {duration}",
+  "embedreindex.lastProgress": "Letzter Fortschritt vor {duration}",
   "embedreindex.entitiesPending": "{count} Einträge ausstehend",
   "embedreindex.workspacePending": "{count} ausstehend",
   "embedreindex.reviewCta": "Prüfen & neu indizieren",

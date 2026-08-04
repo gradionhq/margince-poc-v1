@@ -6,6 +6,8 @@ package compose
 import (
 	"context"
 	"errors"
+	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/riverqueue/river"
@@ -105,4 +107,156 @@ func TestWorkspaceSweepOptsCapsTheLadderAndDedupesOnActiveStates(t *testing.T) {
 
 func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 	return CloseDateWorkspaceArgs{Workspace: ws}
+}
+
+// TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass — the
+// sweep gauges cannot tell a fleet pass from a hand-triggered workspace job
+// by kind alone, because they are the same kind. The tag is the difference.
+//
+// This covers the dispatchWith choke point ONLY. The five dispatchers that
+// loop single client.Insert calls (jobs_capture.go x2, telegrampoll.go,
+// voicebuild.go, jobs_overlay.go) are not reachable from here — they resolve
+// a River client from context — so a regression in any of them would still
+// pass. Their tagging is held by markedAsFleetPass' own registry comment and
+// by review, which is why a fitness test over fan-out SITES is carried as
+// the highest-value follow-up in STATUS.md rather than claimed here.
+func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
+	var got []river.InsertManyParams
+	insert := func(_ context.Context, params []river.InsertManyParams) error {
+		got = params
+		return nil
+	}
+	fleet := []ids.UUID{ids.NewV7(), ids.NewV7()}
+
+	if err := dispatchWith(context.Background(), fleet, insert,
+		workspaceSweepOpts("", sweepWorkspaceMaxAttempts), closeDateWorkspaceArgsFor); err != nil {
+		t.Fatalf("dispatchWith: %v", err)
+	}
+
+	if len(got) != len(fleet) {
+		t.Fatalf("inserted %d params, want %d", len(got), len(fleet))
+	}
+	for i, p := range got {
+		if p.InsertOpts == nil {
+			t.Fatalf("param %d carries no InsertOpts at all", i)
+		}
+		if !slices.Contains(p.InsertOpts.Tags, jobs.SweepTag) {
+			t.Errorf("param %d tags = %v, want it to contain %q", i, p.InsertOpts.Tags, jobs.SweepTag)
+		}
+	}
+}
+
+// TestTheFanOutTagDoesNotMutateTheCallersInsertOpts — one dispatch shares
+// ONE opts value across every workspace in its loop, and voiceBuildInsertOpts'
+// value is shared with the user-initiated build path besides. Appending to
+// it in place would accumulate one tag per workspace on a struct the caller
+// still owns.
+func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
+	opts := workspaceSweepOpts("default", sweepWorkspaceMaxAttempts)
+	// Spare CAPACITY is the case a length check cannot see: append would
+	// write into the caller's own backing array and leave len unchanged, so
+	// the aliasing this test exists to catch would go unnoticed.
+	opts.Tags = append(make([]string, 0, 4), "caller-owned")
+	backing := opts.Tags[:cap(opts.Tags)]
+	before := len(opts.Tags)
+	insert := func(context.Context, []river.InsertManyParams) error { return nil }
+
+	for range 3 {
+		if err := dispatchWith(context.Background(), []ids.UUID{ids.NewV7()}, insert, opts,
+			closeDateWorkspaceArgsFor); err != nil {
+			t.Fatalf("dispatchWith: %v", err)
+		}
+	}
+	if len(opts.Tags) != before {
+		t.Errorf("the caller's opts grew to %d tags over three passes; the tag must be "+
+			"applied to a copy", len(opts.Tags))
+	}
+	if opts.Tags[0] != "caller-owned" {
+		t.Errorf("the caller's own tag was overwritten: %v", opts.Tags)
+	}
+	for i, tag := range backing[before:] {
+		if tag != "" {
+			t.Errorf("the fan-out wrote %q into the caller's spare capacity at index %d; "+
+				"the copy must not alias the caller's backing array", tag, before+i)
+		}
+	}
+}
+
+// TestTheFanOutTagCarriesTheCallersEnqueuePolicyThrough — the tag is
+// additive. A copy that dropped the queue, the attempt cap or the
+// uniqueness window would change how the fleet is enqueued in order to
+// describe it, which is the one thing an observability change may not do.
+func TestTheFanOutTagCarriesTheCallersEnqueuePolicyThrough(t *testing.T) {
+	opts := workspaceSweepOpts("ai_capture", sweepWorkspaceMaxAttempts)
+	marked := markedAsFleetPass(opts)
+
+	if marked.Queue != opts.Queue {
+		t.Errorf("Queue = %q, want %q", marked.Queue, opts.Queue)
+	}
+	if marked.MaxAttempts != opts.MaxAttempts {
+		t.Errorf("MaxAttempts = %d, want %d", marked.MaxAttempts, opts.MaxAttempts)
+	}
+	if !marked.UniqueOpts.ByArgs {
+		t.Error("the uniqueness window was dropped by the copy")
+	}
+	if !slices.Equal(marked.UniqueOpts.ByState, opts.UniqueOpts.ByState) {
+		t.Errorf("ByState = %v, want %v", marked.UniqueOpts.ByState, opts.UniqueOpts.ByState)
+	}
+}
+
+// TestTheFanOutTagIsStampedOnceEvenIfTheCallerAlreadySetIt — the five
+// dispatchers that loop single inserts call markedAsFleetPass directly, and
+// a caller that had already tagged its opts must not end up with the tag
+// twice: River validates tags but does not deduplicate them, and a
+// duplicated tag is noise in a column an operator reads.
+func TestTheFanOutTagIsStampedOnceEvenIfTheCallerAlreadySetIt(t *testing.T) {
+	marked := markedAsFleetPass(&river.InsertOpts{Tags: []string{jobs.SweepTag}})
+
+	var seen int
+	for _, tag := range marked.Tags {
+		if tag == jobs.SweepTag {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Errorf("the sweep tag appears %d times, want exactly 1: %v", seen, marked.Tags)
+	}
+}
+
+// TestTheFanOutTagLeavesNilOptsUsable — the telegram dispatcher passes nil
+// opts on purpose, because TelegramPollArgs declares its own InsertOpts so
+// no inserter can forget the per-bot uniqueness by omission. River merges
+// the two field by field, and UniqueOpts falls back to the args' own
+// whenever the explicit opts leave it empty — so a tag-only opts value
+// preserves that property rather than silently replacing it.
+func TestTheFanOutTagLeavesNilOptsUsable(t *testing.T) {
+	marked := markedAsFleetPass(nil)
+
+	if marked == nil {
+		t.Fatal("markedAsFleetPass(nil) returned nil; a dispatcher would then insert untagged")
+	}
+	if !slices.Contains(marked.Tags, jobs.SweepTag) {
+		t.Errorf("tags = %v, want the sweep tag", marked.Tags)
+	}
+	// River's own isEmpty is unexported, so the fields it reads are checked
+	// here directly: any one of them set makes River stop consulting the
+	// args' own InsertOpts for uniqueness.
+	u := marked.UniqueOpts
+	if u.ByArgs || u.ByQueue || u.ExcludeKind || u.ByPeriod != 0 || len(u.ByState) != 0 {
+		t.Errorf("a tag-only opts value declared a uniqueness window of its own (%+v); River "+
+			"would then stop falling back to the one the args declare", u)
+	}
+}
+
+// TestTheFanOutTagIsAcceptedByRiversOwnTagValidation — the tag reaches a
+// column River validates on insert. A value River refuses would fail every
+// fan-out in the fleet at once, and no test below the insert would notice.
+func TestTheFanOutTagIsAcceptedByRiversOwnTagValidation(t *testing.T) {
+	if len(jobs.SweepTag) > 255 {
+		t.Fatalf("the sweep tag is %d characters; River refuses a tag over 255", len(jobs.SweepTag))
+	}
+	if !regexp.MustCompile(`\A[\w][\w\-]+[\w]\z`).MatchString(jobs.SweepTag) {
+		t.Errorf("the sweep tag %q does not match the format River validates tags against",
+			jobs.SweepTag)
+	}
 }

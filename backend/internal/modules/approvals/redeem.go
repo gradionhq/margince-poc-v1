@@ -132,15 +132,24 @@ func validateRedemptionTarget(ctx context.Context, tx pgx.Tx, a row) error {
 }
 
 // versionTables whitelists the tables a target_version re-check may read:
-// every versioned entity type a staging can target under its own table
-// name. A type outside this set (e.g. the partner extension, which
-// audits on its organization row) cannot be version-pinned — stagers
-// must leave TargetVersion nil for it rather than mint a pin redemption
-// could never verify.
+// every entity type a staging can target whose own table both carries a
+// version column and BUMPS it on every write (storekit's guarded patch),
+// under its own table name. A type outside this set (e.g. the partner
+// extension, which audits on its organization row) cannot be
+// version-pinned — stagers must leave TargetVersion nil for it rather
+// than mint a pin redemption could never verify.
+//
+// Membership is what makes the whole binding real for a type, in both
+// directions: resolveTargetVersion reads the row's version into the staged
+// approval, validateRedemptionTarget re-checks it at redemption, and the
+// gate forwards it as the released call's own If-Match. A type missing
+// here stages with a NULL pin, and every one of those three steps
+// short-circuits silently — the human approves a row that anyone may then
+// change before the authorized call lands.
 var versionTables = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
-	targetOffer: true, targetProduct: true, "list": true, "tag": true, "relationship": true,
-	"project": true,
+	tablePerson: true, tableOrganization: true, tableDeal: true, tableLead: true, objectActivity: true,
+	targetOffer: true, targetProduct: true, tableList: true, targetTag: true, targetRelationship: true,
+	tableProject: true, targetSavedView: true, targetOfferTemplate: true, targetWebhookSubscription: true,
 }
 
 // contextTargetKinds are the staging kinds whose target_entity names what the
