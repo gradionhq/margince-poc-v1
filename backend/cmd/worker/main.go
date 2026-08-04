@@ -34,6 +34,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
@@ -193,6 +194,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		matcher := compose.NewLinkedInMatchGen(pool, people.NewStore(pool), identity.NewService(pool), logger)
 		_, _ = fmt.Fprintln(stdout, "worker matching LinkedIn connections as contacts appear")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:linkedin-match", matcher.HandleEvent, logger, 0) })
+	}
+
+	// Filling a person from what their employer's site already published. Same
+	// reasoning as the matcher above and the same trigger: a contact who
+	// arrives after the read would otherwise never be matched against what
+	// that site said about them.
+	{
+		enricher := compose.NewPersonAutoEnrich(pool, people.NewStore(pool), approvals.NewService(pool), logger)
+		_, _ = fmt.Fprintln(stdout, "worker filling contacts from their employer's published pages")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:person-auto-enrich", enricher.HandleEvent, logger, 0) })
 	}
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)

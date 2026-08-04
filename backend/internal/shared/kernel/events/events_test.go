@@ -127,14 +127,15 @@ func TestGroupStreamSetsMatchSpecTable(t *testing.T) {
 		// The LinkedIn ghost matcher (ADR-0078 §8b): a contact appearing is a
 		// chance to attach a ghost, and so is an account appearing — employer
 		// resolution is what most unmatched ghosts are waiting on.
-		"cg:linkedin-match":  {"gw:events:crm:organization", "gw:events:crm:person"},
-		"cg:overnight-agent": {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
-		"cg:workflows":       all,
-		"cg:capture":         {"gw:events:crm:capture"},
-		"cg:flow-bridge":     {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:person"},
-		"cg:read-model":      all,
-		"cg:audit-stream":    all,
-		"cg:webhooks":        all,
+		"cg:linkedin-match":     {"gw:events:crm:organization", "gw:events:crm:person"},
+		"cg:person-auto-enrich": {"gw:events:crm:person"},
+		"cg:overnight-agent":    {"gw:events:crm:activity", "gw:events:crm:approval", "gw:events:crm:deal", "gw:events:crm:lead"},
+		"cg:workflows":          all,
+		"cg:capture":            {"gw:events:crm:capture"},
+		"cg:flow-bridge":        {"gw:events:crm:activity", "gw:events:crm:deal", "gw:events:crm:person"},
+		"cg:read-model":         all,
+		"cg:audit-stream":       all,
+		"cg:webhooks":           all,
 	}
 
 	groups := Groups()
