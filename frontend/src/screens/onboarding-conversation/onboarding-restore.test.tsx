@@ -257,6 +257,12 @@ function stubApi(options: StubOptions = {}) {
           page: {},
         });
       }
+      // The connect scene's own cards read the roster fresh, so a reload
+      // that lands on that step always fires this — none of these fixtures
+      // arrive with a mailbox already connected.
+      if (path.endsWith("/connectors") && request.method === "GET") {
+        return jsonResponse({ data: [] });
+      }
       throw new Error(`unstubbed request: ${request.method} ${request.url}`);
     }),
   );
@@ -425,7 +431,7 @@ describe("restore into the conversational shell", () => {
       expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(1);
     });
 
-    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
     );

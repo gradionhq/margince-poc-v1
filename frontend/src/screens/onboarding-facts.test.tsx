@@ -957,14 +957,17 @@ describe("CompanyConfirmCard as a triage surface", () => {
 
     // None of buying_intents, common_objections or sales_motion is in
     // REQUIRED_FIELDS — sales can never present as blocking, however many
-    // of its own fields are still empty. An advisory-only section carries
-    // no badge at all: the named list under it already says what these
-    // fields are, so a count here would be homework, not new information.
+    // of its own fields are still empty. It still marks itself at the
+    // section level (every section with outstanding work does, so the nav
+    // alone tells settled, advisory and blocking apart) — but with the
+    // neutral count, never the danger pill reserved for a field that
+    // actually gates confirm.
     const salesLink = within(nav).getByRole("button", {
       name: /Positioning and sales/,
     });
     expect(salesLink.querySelector('[data-blocking="true"]')).toBeNull();
     expect(salesLink.querySelector(".ob-triage-nav-badge")).toBeNull();
+    expect(salesLink.querySelector(".ob-triage-nav-advisory")).not.toBeNull();
     const salesItem = salesLink.parentElement as HTMLElement;
     const buyingIntents = within(salesItem).getByRole("button", {
       name: /Buying intents/,

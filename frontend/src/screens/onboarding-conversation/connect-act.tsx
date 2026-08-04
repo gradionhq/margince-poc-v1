@@ -1,9 +1,7 @@
-import { Check } from "lucide-react";
 import type { Dispatch } from "react";
 import { useState } from "react";
 import { navigate } from "../../app/router";
 import { useT } from "../../i18n";
-import type { MessageKey } from "../../i18n/en";
 import { BackfillPanel } from "../backfill";
 import { EMPTY_DRAFT } from "../onboarding";
 import { BuildScene } from "../onboarding-build-scene";
@@ -27,17 +25,17 @@ import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
 
 // The connect act: per-purpose consent as a conversation turn, provider
-// chips that open the EXISTING connect panels in the artifact panel, and the
-// finish gate. Finishing is a server fact before it is a UI fact: the
-// completion checkpoint (step complete, connect skipped or not) must land
-// before any navigation; a failed write is said out loud and retryable.
-
-const scopes: { lead: MessageKey; rest: MessageKey }[] = [
-  { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
-  { lead: "ob.s4.scope2Lead", rest: "ob.s4.scope2Rest" },
-  { lead: "ob.s4.scope3Lead", rest: "ob.s4.scope3Rest" },
-  { lead: "ob.s4.scope4Lead", rest: "ob.s4.scope4Rest" },
-];
+// cards that open their OWN dialog on the artifact surface (never an inline
+// panel growing under the card, never a chip in the rail), and the finish
+// gate. Finishing is a server fact before it is a UI fact: the completion
+// checkpoint (step complete, connect skipped or not) must land before any
+// navigation; a failed write is said out loud and retryable.
+//
+// The four step-level consent guarantees, and each provider's own
+// disclosure, live entirely on `ConnectScene` and inside its dialogs now —
+// the rail keeps only the two lines that are genuinely its own: what this
+// step is for, and that connecting is optional per-provider even though a
+// mailbox is required.
 
 type ConnectActProps = Readonly<{
   state: ConversationState;
@@ -133,11 +131,7 @@ export function ConnectAct({
           eyebrow={eyebrow}
           provider={provider}
           onPick={setProvider}
-          footNote={t(
-            outcome === "ok"
-              ? "ob.conv.connect.footConnected"
-              : "ob.conv.connect.footPick",
-          )}
+          onDialogClose={() => setProvider(null)}
           onSkip={() => void finish(true)}
           skipDisabled={finishing}
           // Once consent has returned, "skip connecting" is no longer a true
@@ -153,7 +147,38 @@ export function ConnectAct({
           onEnter={
             state.phase === "cn.done" ? () => setEntering(true) : undefined
           }
-          panel={
+          // The ask, still open: rendered INSIDE the dialog ConnectScene
+          // wraps around `provider`. A real OAuth "allow" leaves the page
+          // entirely (`location.assign`), so the dialog does not try to
+          // stay open across that redirect — it simply closes on `onDismiss`
+          // if the reader backs out first.
+          dialogPanel={
+            <>
+              {provider === "google" && (
+                <OAuthConnectPanel
+                  provider="gmail"
+                  onDismiss={() => setProvider(null)}
+                />
+              )}
+              {provider === "microsoft" && (
+                <OAuthConnectPanel
+                  provider="graph"
+                  onDismiss={() => setProvider(null)}
+                />
+              )}
+              {provider === "imap" && (
+                <ImapConnectPanel
+                  onComplete={finish}
+                  onDismiss={() => setProvider(null)}
+                />
+              )}
+            </>
+          }
+          // The ask is settled: a redirect already returned. This is a
+          // finding plus one more real decision (the backfill window), not a
+          // fresh consent round, so it renders inline on the surface rather
+          // than inside a dialog.
+          returnPanel={
             outcome !== undefined ? (
               <>
                 <OAuthReturnPanel
@@ -168,19 +193,7 @@ export function ConnectAct({
                   <BackfillPanel provider={backfillProvider} />
                 )}
               </>
-            ) : (
-              <>
-                {provider === "google" && (
-                  <OAuthConnectPanel provider="gmail" onComplete={finish} />
-                )}
-                {provider === "microsoft" && (
-                  <OAuthConnectPanel provider="graph" onComplete={finish} />
-                )}
-                {provider === "imap" && (
-                  <ImapConnectPanel onComplete={finish} />
-                )}
-              </>
-            )
+            ) : null
           }
         />
       }
@@ -202,13 +215,17 @@ export function ConnectAct({
                   i18nKey: "ob.conv.consent",
                 }}
               />
-              <div className="ob-conv-scopes">
-                {scopes.map((scope) => (
-                  <p key={scope.lead}>
-                    <Check aria-hidden /> <b>{t(scope.lead)}</b> {t(scope.rest)}
-                  </p>
-                ))}
-              </div>
+              {/* The substance of what connecting means lives on the
+                  artifact surface now (the guarantees grid, each provider's
+                  own disclosure inside its dialog) — the rail keeps only
+                  this one honest sentence about the whole step. */}
+              <NarrationBubble
+                entry={{
+                  kind: "narration",
+                  id: "connect:promise",
+                  i18nKey: "ob.conv.connect.railPromise",
+                }}
+              />
               <NarrationBubble
                 entry={{
                   kind: "narration",

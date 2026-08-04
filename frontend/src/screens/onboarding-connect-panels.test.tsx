@@ -67,10 +67,10 @@ describe("ImapConnectPanel", () => {
       },
     });
     const onComplete = vi.fn().mockResolvedValue(undefined);
-    render(<ImapConnectPanel onComplete={onComplete} />);
+    render(<ImapConnectPanel onComplete={onComplete} onDismiss={() => {}} />);
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     await waitFor(() => expect(calls.length).toBe(1));
     expect(calls[0].body).toMatchObject({
@@ -105,10 +105,10 @@ describe("ImapConnectPanel", () => {
         }),
     });
     const onComplete = vi.fn().mockResolvedValue(undefined);
-    render(<ImapConnectPanel onComplete={onComplete} />);
+    render(<ImapConnectPanel onComplete={onComplete} onDismiss={() => {}} />);
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     await screen.findByText(/mailbox connected/i);
     await userEvent.click(
@@ -129,11 +129,14 @@ describe("ImapConnectPanel", () => {
         ),
     });
     render(
-      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={() => {}}
+      />,
     );
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     expect(
       await screen.findByText(/rejected these credentials/i),
@@ -147,11 +150,14 @@ describe("ImapConnectPanel", () => {
         jsonResponse({ code: "imap_unreachable", detail: "unreachable" }, 502),
     });
     render(
-      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={() => {}}
+      />,
     );
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     await screen.findByText(/could not be reached/i);
     expect(screen.getByLabelText("App password")).toHaveValue("");
@@ -174,12 +180,15 @@ describe("ImapConnectPanel", () => {
     });
     const invalidateSpy = vi.spyOn(client, "invalidateQueries");
     render(
-      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={() => {}}
+      />,
       client,
     );
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     await screen.findByText(/mailbox connected/i);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["connectors"] });
@@ -203,18 +212,25 @@ describe("ImapConnectPanel", () => {
       },
     });
     render(
-      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={() => {}}
+      />,
     );
     await fillValidForm();
     await userEvent.click(
-      screen.getByRole("button", { name: /connect mailbox/i }),
+      screen.getByRole("button", { name: /test and connect/i }),
     );
     await screen.findByText(/mailbox connected/i);
     expect(screen.queryByText(/How far back should I read/)).toBeNull();
     expect(backreadCalls).toEqual([]);
   });
 
-  it("skips the step without ever contacting the server", async () => {
+  // "Not now" closes THIS dialog without deciding anything — it never
+  // contacts the server and never claims the whole required step as
+  // skipped, which is a separate, more deliberate action the surface offers
+  // beside the provider choice.
+  it("dismisses without ever contacting the server or claiming the step skipped", async () => {
     const calls: unknown[] = [];
     installFetchStub({
       "POST /connectors/imap/connect": (body) => {
@@ -230,11 +246,11 @@ describe("ImapConnectPanel", () => {
       },
     });
     const onComplete = vi.fn().mockResolvedValue(undefined);
-    render(<ImapConnectPanel onComplete={onComplete} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: /skip for now/i }),
-    );
-    expect(onComplete).toHaveBeenCalledWith(true);
+    const onDismiss = vi.fn();
+    render(<ImapConnectPanel onComplete={onComplete} onDismiss={onDismiss} />);
+    await userEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
     expect(calls.length).toBe(0);
   });
 });

@@ -1646,7 +1646,7 @@ export const en = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
-  "ob.s4.microsoftBtn": "Connect Microsoft",
+  "ob.s4.microsoftBtn": "Allow access to my Microsoft",
   "ob.s4.microsoftHint":
     "Read-only mail access. You can disconnect any time from Settings.",
   "ob.s4.microsoftUnverified":
@@ -1661,7 +1661,7 @@ export const en = {
   "ob.s4.connectRetry":
     "Head to Settings → Integrations to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
-  "ob.s4.googleBtn": "Continue with Google",
+  "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
@@ -1873,13 +1873,14 @@ export const en = {
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapPort": "Port",
   "ob.s4.imapEmail": "Email",
   "ob.s4.imapPassword": "App password",
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
     "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
-  "ob.s4.imapConnect": "Connect mailbox",
+  "ob.s4.imapConnect": "Test and connect",
   "ob.s4.connecting": "Connecting securely…",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
@@ -1895,7 +1896,7 @@ export const en = {
     "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
-  "ob.s4.skipLater": "Skip for now — I'll connect later",
+  "ob.s4.notNow": "Not now",
 
   "ob.conv.threadLabel": "Onboarding conversation",
   "ob.conv.welcome":
@@ -2041,6 +2042,7 @@ export const en = {
     "I did not find a legal or imprint page on your site to check. Yours to add.",
   "ob.conv.triage.mapLabel": "Jump to a section",
   "ob.conv.triage.sectionBlocking": "{count} needed to continue",
+  "ob.conv.triage.sectionAdvisory": "{count} worth a check",
   "ob.conv.triage.blockingHead": "Needed to continue",
   "ob.conv.triage.advisoryHead": "Worth a check",
   "ob.conv.triage.sectionSettled": "Nothing outstanding here",
@@ -2065,22 +2067,37 @@ export const en = {
   "ob.conv.connect.sceneTitle": "Connect your accounts.",
   "ob.conv.connect.sceneSub":
     "I build your contacts, companies and history out of what already exists in your inbox. No manual data entry, no CSV template.",
-  "ob.conv.connect.mailSection": "Email and calendar",
+  "ob.conv.connect.mailboxTitle": "Your mailbox",
+  "ob.conv.connect.mailboxHint":
+    "Pick one. This is where your contacts, companies and history come from.",
+  "ob.conv.connect.networkTitle": "Your network",
+  "ob.conv.connect.networkHint":
+    "Optional but worth it. Turns who you know into accounts and watches them for triggers.",
   "ob.conv.connect.required": "required",
+  "ob.conv.connect.recommended": "recommended",
+  "ob.conv.connect.gmailBrings": "Mail, contacts and calendar from Google",
+  "ob.conv.connect.microsoftBrings":
+    "Mail, contacts and calendar over the Graph API",
+  "ob.conv.connect.imapBrings": "Any other mail host, with an app password",
+  "ob.conv.connect.linkedinAuth": "Profile link, read only",
   "ob.conv.connect.scopeGoogle": "OAuth, read and send scopes",
   "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
   "ob.conv.connect.scopeImap": "Any other provider, app password",
-  "ob.conv.connect.linkedinSection": "LinkedIn",
-  "ob.conv.connect.recommended": "recommended",
+  "ob.conv.connect.connectCta": "connect →",
+  "ob.conv.connect.connectedCta": "connected",
+  "ob.conv.connect.blockedCard":
+    "You already picked a mailbox. Disconnect it in Settings to switch.",
+  "ob.conv.connect.guaranteesHeading": "What connecting actually does",
+  "ob.conv.connect.railPromise":
+    "We only read, and nothing sends without your approval.",
+  "ob.conv.connect.dialogHeadlineAccess": "{name} access needed",
+  "ob.conv.connect.dialogHeadlineImap": "Connect your mail host",
+  "ob.conv.connect.dialogIntro":
+    "{brings}. I read it once to build your contacts and history, then keep it in sync.",
+  "ob.conv.connect.dialogClose": "Close",
   "ob.conv.connect.linkedinName": "LinkedIn",
-  "ob.conv.connect.linkedinConnect": "Connect",
   "ob.conv.connect.linkedinConnected": "Connected",
   "ob.conv.connect.linkedinSkippedNote": "Skipped: add it later in Settings",
-  "ob.conv.connect.linkedinFoot":
-    "LinkedIn is optional: connect it now, or add it later in Settings.",
-  "ob.conv.connect.footPick": "Connect a mailbox to continue.",
-  "ob.conv.connect.footConnected":
-    "Choose how far back the first import should reach.",
   "ob.conv.voice.sceneTitle": "Teach me how you write.",
   "ob.conv.voice.sceneSub":
     "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",

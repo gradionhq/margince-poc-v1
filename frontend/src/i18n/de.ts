@@ -1673,7 +1673,7 @@ export const de = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
-  "ob.s4.microsoftBtn": "Microsoft verbinden",
+  "ob.s4.microsoftBtn": "Zugriff auf mein Microsoft erlauben",
   "ob.s4.microsoftHint":
     "Nur-Lese-Zugriff auf E-Mails. Du kannst die Verbindung jederzeit in den Einstellungen trennen.",
   "ob.s4.microsoftUnverified":
@@ -1690,7 +1690,7 @@ export const de = {
     "Öffne Einstellungen → Integrationen, um es erneut zu versuchen.",
   "ob.s4.connectDenied":
     "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
-  "ob.s4.googleBtn": "Mit Google fortfahren",
+  "ob.s4.googleBtn": "Zugriff auf mein Gmail erlauben",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
     "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
@@ -1900,13 +1900,14 @@ export const de = {
     "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapPort": "Port",
   "ob.s4.imapEmail": "E-Mail",
   "ob.s4.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
   "ob.s4.imapMailbox": "Postfach",
   "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s4.imapHint":
     "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir versiegeln es im Credential-Vault und lesen weiter neue Post, bis du die Verbindung trennst — beim Trennen wird es gelöscht.",
-  "ob.s4.imapConnect": "Postfach verbinden",
+  "ob.s4.imapConnect": "Testen und verbinden",
   "ob.s4.connecting": "Sichere Verbindung…",
   "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s4.scope1Rest":
@@ -1923,7 +1924,7 @@ export const de = {
     "Lehn dich zurück — dein CRM baut sich von selbst auf. Neue Post trifft hier ein, sobald der erste Durchlauf läuft, meist innerhalb weniger Minuten.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
-  "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
+  "ob.s4.notNow": "Nicht jetzt",
 
   "ob.conv.threadLabel": "Einrichtungsgespräch",
   "ob.conv.welcome":
@@ -2076,6 +2077,7 @@ export const de = {
     "Ich habe kein Impressum auf deiner Website gefunden, das ich prüfen könnte. Trag es selbst ein.",
   "ob.conv.triage.mapLabel": "Zu einem Abschnitt springen",
   "ob.conv.triage.sectionBlocking": "{count} nötig, um fortzufahren",
+  "ob.conv.triage.sectionAdvisory": "{count} prüfenswert",
   "ob.conv.triage.blockingHead": "Nötig, um fortzufahren",
   "ob.conv.triage.advisoryHead": "Prüfenswert",
   "ob.conv.triage.sectionSettled": "Hier ist nichts offen",
@@ -2100,23 +2102,38 @@ export const de = {
   "ob.conv.connect.sceneTitle": "Verbinde deine Konten.",
   "ob.conv.connect.sceneSub":
     "Ich baue deine Kontakte, Firmen und Historie aus dem, was schon in deinem Postfach liegt. Keine Handeingabe, keine CSV-Vorlage.",
-  "ob.conv.connect.mailSection": "E-Mail und Kalender",
+  "ob.conv.connect.mailboxTitle": "Dein Postfach",
+  "ob.conv.connect.mailboxHint":
+    "Wähle eins. Von hier kommen deine Kontakte, Firmen und Historie.",
+  "ob.conv.connect.networkTitle": "Dein Netzwerk",
+  "ob.conv.connect.networkHint":
+    "Optional, aber lohnend. Macht aus Bekannten Accounts und beobachtet sie auf Trigger.",
   "ob.conv.connect.required": "erforderlich",
+  "ob.conv.connect.recommended": "empfohlen",
+  "ob.conv.connect.gmailBrings": "Mail, Kontakte und Kalender von Google",
+  "ob.conv.connect.microsoftBrings":
+    "Mail, Kontakte und Kalender über die Graph-API",
+  "ob.conv.connect.imapBrings": "Jeder andere Mail-Host, mit App-Passwort",
+  "ob.conv.connect.linkedinAuth": "Profillink, nur lesend",
   "ob.conv.connect.scopeGoogle": "OAuth, Lese- und Sendeberechtigung",
   "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
   "ob.conv.connect.scopeImap": "Jeder andere Anbieter, App-Passwort",
-  "ob.conv.connect.linkedinSection": "LinkedIn",
-  "ob.conv.connect.recommended": "empfohlen",
+  "ob.conv.connect.connectCta": "verbinden →",
+  "ob.conv.connect.connectedCta": "verbunden",
+  "ob.conv.connect.blockedCard":
+    "Du hast schon ein Postfach gewählt. Trenne es in den Einstellungen, um zu wechseln.",
+  "ob.conv.connect.guaranteesHeading": "Was Verbinden tatsächlich bedeutet",
+  "ob.conv.connect.railPromise":
+    "Wir lesen nur, und nichts wird ohne deine Freigabe gesendet.",
+  "ob.conv.connect.dialogHeadlineAccess": "Zugriff auf {name} nötig",
+  "ob.conv.connect.dialogHeadlineImap": "Verbinde deinen Mail-Host",
+  "ob.conv.connect.dialogIntro":
+    "{brings}. Ich lese es einmal, um deine Kontakte und Historie aufzubauen, und halte es danach synchron.",
+  "ob.conv.connect.dialogClose": "Schließen",
   "ob.conv.connect.linkedinName": "LinkedIn",
-  "ob.conv.connect.linkedinConnect": "Verbinden",
   "ob.conv.connect.linkedinConnected": "Verbunden",
   "ob.conv.connect.linkedinSkippedNote":
     "Übersprungen: später in den Einstellungen nachholbar",
-  "ob.conv.connect.linkedinFoot":
-    "LinkedIn ist optional: verbinde es jetzt oder später in den Einstellungen.",
-  "ob.conv.connect.footPick": "Verbinde ein Postfach, um fortzufahren.",
-  "ob.conv.connect.footConnected":
-    "Wähle, wie weit der erste Import zurückreichen soll.",
   "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
   "ob.conv.voice.sceneSub":
     "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",

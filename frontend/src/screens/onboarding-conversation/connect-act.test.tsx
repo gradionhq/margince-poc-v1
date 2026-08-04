@@ -75,7 +75,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("offers Microsoft as a live chip and opens its connect panel", async () => {
+it("offers Microsoft as a live card and opens its dialog", async () => {
   installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
   renderConnectAct();
   // The card names the provider AND what connecting it grants, so the
@@ -83,8 +83,13 @@ it("offers Microsoft as a live chip and opens its connect panel", async () => {
   const ms = screen.getByRole("button", { name: /Microsoft/ });
   expect(ms).not.toBeDisabled();
   await userEvent.click(ms);
+  // The ask opens as its OWN dialog on the surface, never an inline panel
+  // growing under the card.
+  expect(await screen.findByRole("dialog")).toBeTruthy();
   expect(
-    await screen.findByRole("button", { name: "Connect Microsoft" }),
+    await screen.findByRole("button", {
+      name: "Allow access to my Microsoft",
+    }),
   ).toBeTruthy();
 });
 
@@ -206,7 +211,7 @@ describe("the LinkedIn card", () => {
     });
   });
 
-  it("keeps the authorization form closed until Connect is clicked", () => {
+  it("keeps the authorization form closed until its card is clicked", () => {
     renderConnectAct();
     expect(
       screen.queryByRole("button", { name: "Authorize with LinkedIn" }),
@@ -215,8 +220,10 @@ describe("the LinkedIn card", () => {
 
   it("will not authorize until the profile it attributes the network to is given", async () => {
     const { dispatch } = renderConnectAct();
-    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
 
+    // The ask opens as its own dialog, same as a mail provider's.
+    expect(await screen.findByRole("dialog")).toBeTruthy();
     const button = screen.getByRole("button", {
       name: "Authorize with LinkedIn",
     });
@@ -243,31 +250,31 @@ describe("the LinkedIn card", () => {
     );
   });
 
-  it("can be declined from the open panel, without a profile", async () => {
+  it("can be declined from the open dialog, without a profile", async () => {
     const { dispatch } = renderConnectAct();
-    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
     await userEvent.click(
       screen.getByRole("button", { name: "Skip LinkedIn for now" }),
     );
     expect(dispatch).toHaveBeenCalledWith({ type: "LINKEDIN_SKIPPED" });
   });
 
-  it("admits that nothing syncs yet once the panel is open", async () => {
+  it("admits that nothing syncs yet once the dialog is open", async () => {
     renderConnectAct();
-    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
     expect(screen.getByText(/awaiting approval/i)).toBeTruthy();
   });
 
   it("shows the resolved state and offers no further action once skipped", () => {
     renderConnectAct(undefined, "skipped");
     expect(screen.getByText("Skipped: add it later in Settings")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    expect(screen.getByRole("button", { name: /LinkedIn/ })).toBeDisabled();
   });
 
   it("shows the resolved state and offers no further action once connected", () => {
     renderConnectAct(undefined, "connected");
     expect(screen.getByText("Connected")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    expect(screen.getByRole("button", { name: /LinkedIn/ })).toBeDisabled();
   });
 });
 
@@ -275,9 +282,67 @@ describe("the LinkedIn card", () => {
 // the reader has been looking at, not a chip surfaced beside the transcript.
 describe("the cn.done finish action", () => {
   it("renders on the connect surface, in its own pinned foot — never as a thread chip", () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
     renderConnectAct(undefined, "pending", "cn.done");
     const enter = screen.getByRole("button", { name: "Enter Margince" });
     expect(enter.closest(".ob-triage-continue")).toBeTruthy();
     expect(enter.closest(".mw-thread")).toBeNull();
+  });
+});
+
+// The four step-level consent guarantees used to be a two-column table
+// squeezed into the rail's ~250px column, wrapping into broken-looking text.
+// They now render on the artifact surface, where the reader actually passes
+// through them before authorizing anything.
+describe("the consent guarantees", () => {
+  it("render on the surface before any provider dialog opens, not in the rail", () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    renderConnectAct();
+
+    for (const text of [
+      /we read — we don't clutter/i,
+      /never send anything without your approval/i,
+      /data stays in your workspace/i,
+      /disconnect in one click/i,
+    ]) {
+      const found = screen.getByText(text);
+      expect(found.closest(".ob-connect-guarantees")).toBeTruthy();
+      expect(found.closest(".mw-thread")).toBeNull();
+    }
+  });
+});
+
+describe("the IMAP dialog", () => {
+  it("carries only the real contract's fields — no invented SMTP host, port or TLS toggle", async () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
+
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByLabelText("IMAP host")).toBeTruthy();
+    expect(screen.getByLabelText("Port")).toBeTruthy();
+    expect(screen.getByLabelText("Email")).toBeTruthy();
+    expect(screen.getByLabelText("App password")).toBeTruthy();
+    expect(screen.getByLabelText("Mailbox")).toBeTruthy();
+    // The prototype this dialog adapts shows SMTP host/port and a "Require
+    // TLS" checkbox; the real connector contract has neither, so this form
+    // does not invent widgets that would submit nothing.
+    expect(screen.queryByLabelText(/smtp/i)).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("closes on 'Not now' without touching the required-step skip", async () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    const { dispatch, persist } = renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Not now" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Backing out of ONE provider's ask is not the same decision as skipping
+    // the whole required mailbox step — neither fires here.
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+    // The card grid is still there, ready for a different pick.
+    expect(screen.getByRole("button", { name: /Microsoft/ })).toBeTruthy();
   });
 });

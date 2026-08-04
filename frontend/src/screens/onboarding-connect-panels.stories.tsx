@@ -30,7 +30,7 @@ async function fillAndSubmit(canvasElement: HTMLElement) {
   await userEvent.type(canvas.getByLabelText("Email"), "lars@example.org");
   await userEvent.type(canvas.getByLabelText("App password"), "app-password");
   await userEvent.click(
-    canvas.getByRole("button", { name: /connect mailbox/i }),
+    canvas.getByRole("button", { name: /test and connect/i }),
   );
 }
 
@@ -39,7 +39,7 @@ export const ImapIdle: Story = {
     installFetchStub({});
     return (
       <StoryProviders>
-        <ImapConnectPanel onComplete={async () => {}} />
+        <ImapConnectPanel onComplete={async () => {}} onDismiss={() => {}} />
       </StoryProviders>
     );
   },
@@ -60,7 +60,7 @@ export const ImapConnected: Story = {
     });
     return (
       <StoryProviders>
-        <ImapConnectPanel onComplete={async () => {}} />
+        <ImapConnectPanel onComplete={async () => {}} onDismiss={() => {}} />
       </StoryProviders>
     );
   },
@@ -84,7 +84,7 @@ export const ImapLoginRejected: Story = {
     });
     return (
       <StoryProviders>
-        <ImapConnectPanel onComplete={async () => {}} />
+        <ImapConnectPanel onComplete={async () => {}} onDismiss={() => {}} />
       </StoryProviders>
     );
   },
@@ -99,7 +99,7 @@ export const GoogleIdle: Story = {
     installFetchStub({});
     return (
       <StoryProviders>
-        <OAuthConnectPanel provider="gmail" onComplete={async () => {}} />
+        <OAuthConnectPanel provider="gmail" onDismiss={() => {}} />
       </StoryProviders>
     );
   },
@@ -110,7 +110,7 @@ export const MicrosoftIdle: Story = {
     installFetchStub({});
     return (
       <StoryProviders>
-        <OAuthConnectPanel provider="graph" onComplete={async () => {}} />
+        <OAuthConnectPanel provider="graph" onDismiss={() => {}} />
       </StoryProviders>
     );
   },

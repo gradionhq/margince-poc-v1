@@ -442,11 +442,14 @@ function outstandingSplit(
 const NAV_NAMED_LIMIT = 5;
 
 // A section's badge over its jump button: one number, never two — a reader
-// asking "what do I have to do here" wants the count that actually gates
-// confirm, not that count plus a second, unrelated tally to add it to. An
-// advisory-only section carries no badge at all; the named list below it
-// already says what those fields are, so a grey pill would be a count of
-// a list the reader can already see.
+// asking "what do I have to do here" wants the single count that describes
+// this section's own state. A section with outstanding work always shows
+// something here, blocking or not, so scanning the nav alone (without
+// reading a single named list) already tells settled from advisory from
+// blocking apart. Only the shape differs by tier: the blocking count keeps
+// the danger pill (the one count that actually gates confirm), the
+// advisory count is the same quiet mono numeral the People/Facts counts
+// use — never the danger tone, since none of these fields stop anything.
 function SectionBadge({
   blocking,
   advisory,
@@ -465,7 +468,14 @@ function SectionBadge({
     );
   }
   if (blocking.length === 0) {
-    return null;
+    return (
+      <span className="ob-triage-nav-advisory">
+        <b aria-hidden>{advisory.length}</b>
+        <span className="sr-only">
+          {t("ob.conv.triage.sectionAdvisory", { count: advisory.length })}
+        </span>
+      </span>
+    );
   }
   return (
     <span className="ob-triage-nav-badge" data-blocking="true">

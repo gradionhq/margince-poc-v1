@@ -5,7 +5,6 @@ import {
   Circle,
   Mail,
   ShieldCheck,
-  SkipForward,
 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
@@ -87,12 +86,21 @@ const OAUTH_COPY: Record<
 // Pre-consent: the server mints the consent URL (and the signed state + CSRF
 // cookie that guard the callback); the browser just goes. One panel serves
 // every OAuth provider — only the copy and the POST path vary.
+//
+// This panel never signals completion itself: a real "allow" click leaves
+// the page for the provider's own consent screen, and the connection is
+// confirmed only once the redirect returns, by `OAuthReturnPanel`. `onDismiss`
+// closes whatever is showing this panel WITHOUT deciding anything — the
+// reader changed their mind about this one provider, not about connecting at
+// all. Skipping the whole required step is a separate, more deliberate
+// action the surface offers beside the provider choice, not a button buried
+// inside one provider's own ask.
 export function OAuthConnectPanel({
   provider,
-  onComplete,
+  onDismiss,
 }: Readonly<{
   provider: OAuthProvider;
-  onComplete: (skipped: boolean) => Promise<void>;
+  onDismiss: () => void;
 }>) {
   const t = useT();
   const copy = OAUTH_COPY[provider];
@@ -125,7 +133,7 @@ export function OAuthConnectPanel({
         <ShieldCheck aria-hidden /> {t(copy.hint)}
       </p>
       <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
-      <div className="connect-acts">
+      <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
           disabled={connect.isPending}
@@ -141,9 +149,13 @@ export function OAuthConnectPanel({
             </>
           )}
         </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+        <button
+          type="button"
+          className="ob-connect-dialog-notnow"
+          onClick={onDismiss}
+        >
+          {t("ob.s4.notNow")}
+        </button>
       </div>
     </>
   );
@@ -282,18 +294,28 @@ export function OAuthReturnPanel({
 // provider. The connect call returns BEFORE any mail is read: there is no
 // capture count to show here, honestly — only a live row (last_synced_at)
 // that fills in a few minutes later, once the sweep runs.
-const IMAP_DEFAULT_PORT = 993;
+const IMAP_DEFAULT_PORT = "993";
 
+// `onDismiss` closes the dialog without connecting — see `OAuthConnectPanel`
+// for why that is a distinct action from skipping the whole required step.
 export function ImapConnectPanel({
   onComplete,
-}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
+  onDismiss,
+}: Readonly<{
+  onComplete: (skipped: boolean) => Promise<void>;
+  onDismiss: () => void;
+}>) {
   const t = useT();
   const qc = useQueryClient();
   const [host, setHostVal] = useState("imap.gmail.com");
+  const [port, setPort] = useState(IMAP_DEFAULT_PORT);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mailbox, setMailbox] = useState("INBOX");
   const [max, setMax] = useState("30");
+
+  const parsedPort =
+    port.trim() === "" ? Number(IMAP_DEFAULT_PORT) : Number(port);
 
   const connect = useMutation({
     mutationFn: async () => {
@@ -302,7 +324,7 @@ export function ImapConnectPanel({
         body: {
           imap: {
             host: host.trim(),
-            port: IMAP_DEFAULT_PORT,
+            port: parsedPort,
             username: email.trim(),
             secret: password,
             mailbox: mailbox.trim() || "INBOX",
@@ -332,6 +354,9 @@ export function ImapConnectPanel({
   const parsedMax = max.trim() === "" ? 30 : Number(max);
   const ready =
     host.trim() !== "" &&
+    Number.isInteger(parsedPort) &&
+    parsedPort >= 1 &&
+    parsedPort <= 65535 &&
     email.trim() !== "" &&
     password !== "" &&
     Number.isInteger(parsedMax) &&
@@ -361,13 +386,24 @@ export function ImapConnectPanel({
   return (
     <>
       <div className="imap-form">
-        <label className="field full">
+        <label className="field">
           {t("ob.s4.imapHost")}
           <input
             className="input"
             value={host}
             placeholder={t("ob.s4.imapHostPlaceholder")}
             onChange={(e) => setHostVal(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapPort")}
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={65535}
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
           />
         </label>
         <label className="field full">
@@ -425,7 +461,7 @@ export function ImapConnectPanel({
         />
       )}
 
-      <div className="connect-acts">
+      <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
           disabled={!ready || connect.isPending}
@@ -441,9 +477,13 @@ export function ImapConnectPanel({
             </>
           )}
         </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+        <button
+          type="button"
+          className="ob-connect-dialog-notnow"
+          onClick={onDismiss}
+        >
+          {t("ob.s4.notNow")}
+        </button>
       </div>
     </>
   );
