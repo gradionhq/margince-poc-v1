@@ -31,9 +31,11 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 func main() {
@@ -55,33 +57,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	cfg, err := parseWorkerFlags(args)
+	boot, err := configureWorker(args, stdout)
 	if err != nil {
 		return err
 	}
-
-	// Register the composed extension set before anything runs; a
-	// failing registration aborts the boot (ADR-0069 EXT-P4). ONE
-	// snapshot serves registration and the boot inventory below, so both
-	// observe the same declarations.
-	extensions := composition.Extensions()
-	if err := compose.RegisterExtensions(extensions); err != nil {
-		return err
-	}
-
-	deployCfg, err := loadDeployment(&cfg)
-	if err != nil {
-		return err
-	}
-
-	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
-	if err != nil {
-		return err
-	}
-	logger := slog.New(httpserver.WithCorrelation(handler))
-	// Set after the logger exists: the capture config carries it to the Sink's
-	// post-commit steps, where a fault is reported rather than returned.
-	cfg.captureConfig = compose.CaptureConfigFromDeploy(deployCfg.Capture, logger)
+	cfg, deployCfg, logger := boot.cfg, boot.deploy, boot.log
 
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {
@@ -90,10 +70,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// Registered before the lanes' join below, so LIFO closes the pool after it.
 	defer pool.Close()
 
-	// Record the composed extension set when it changed since the last
-	// boot (ADR-0069 §5); pre-bootstrap it skips — the api records the
-	// first observation once it has bootstrapped the installation.
-	if err := compose.ObserveExtensionInventory(ctx, pool, logger, extensions); err != nil {
+	// Record the composed extension set when it changed since the last boot
+	// (ADR-0069 §5); pre-bootstrap it skips — the api records the first
+	// observation once it has bootstrapped the installation.
+	if err := compose.ObserveExtensionInventory(ctx, pool, logger, boot.extensions); err != nil {
 		return err
 	}
 
@@ -103,6 +83,17 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	// Same ordering obligation as pool.Close above: the lanes read this client.
 	defer closeBus(rdb, logger)
+
+	// Before the lanes and the runner: a listener started after them reports
+	// nothing during exactly the window a slow boot needs explaining. /readyz
+	// answers "still starting" until started.complete below, so coming up
+	// early never makes this replica look ready before it can work.
+	started := &bootGate{}
+	observe, err := startObserveListener(ctx, cfg, pool, rdb, started, logger)
+	if err != nil {
+		return err
+	}
+	defer observe.Stop()
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
 	modelPath, boundModels, err := selectModelPath(workerModelPathSpec(cfg, deployCfg), pool, logger)
@@ -125,9 +116,84 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	defer stopJobs()
+	// Every phase a replica needs to do work has returned; /readyz may say so.
+	started.complete()
+	// Deferred AFTER complete, so LIFO runs it FIRST: readiness goes false at
+	// the top of the shutdown, before the runner and the lanes are put down.
+	// The listener outlives both — it is stopped last — so a draining replica
+	// keeps answering, and what it answers is "stop sending me work".
+	defer started.draining()
 
 	relayUntilSignal(ctx, cfg, pool, rdb, logger, stdout)
 	return nil
+}
+
+// registerComposedExtensions registers the composed extension set before
+// anything else runs; a failing registration aborts the boot (ADR-0069 EXT-P4).
+//
+// It returns the SAME snapshot it registered, because run hands that value on
+// to the boot inventory: taking a second snapshot there would let the two
+// observe different declarations, and the inventory's whole job is to record
+// what this process is actually running.
+func registerComposedExtensions() ([]extension.Extension, error) {
+	extensions := composition.Extensions()
+	if err := compose.RegisterExtensions(extensions); err != nil {
+		return nil, err
+	}
+	return extensions, nil
+}
+
+// workerBoot is everything decided before this process touches a network: the
+// parsed flags, the deployment file, the composed extension set, and the
+// logger the phases after it report through.
+type workerBoot struct {
+	cfg        workerConfig
+	deploy     deployconfig.Config
+	extensions []extension.Extension
+	log        *slog.Logger
+}
+
+// configureWorker runs the phases that can fail on configuration alone, in the
+// order they depend on each other: flags, then extensions (a failing
+// registration aborts the boot before anything is opened), then the deployment
+// file, then the logger — and the capture posture last, because it carries the
+// logger into the Sink's post-commit steps, where a fault is reported rather
+// than returned.
+//
+// Grouped because they share one property the phases after them do not: none
+// of them opens a connection, so a deployment misconfigured in any of these
+// ways fails before a pool, a bus client or a listener exists to clean up.
+func configureWorker(args []string, stdout io.Writer) (workerBoot, error) {
+	cfg, err := parseWorkerFlags(args)
+	if err != nil {
+		return workerBoot{}, err
+	}
+	extensions, err := registerComposedExtensions()
+	if err != nil {
+		return workerBoot{}, err
+	}
+	deployCfg, err := loadDeployment(&cfg)
+	if err != nil {
+		return workerBoot{}, err
+	}
+	log, err := newWorkerLogger(cfg, stdout)
+	if err != nil {
+		return workerBoot{}, err
+	}
+	cfg.captureConfig = compose.CaptureConfigFromDeploy(deployCfg.Capture, log)
+	return workerBoot{cfg: cfg, deploy: deployCfg, extensions: extensions, log: log}, nil
+}
+
+// newWorkerLogger builds this role's correlation-aware logger from the
+// operator's --log-level and --log-format. Every process role shares the one
+// level/format vocabulary, and a typo in either is a boot error rather than a
+// silent fallback to a level nobody asked for.
+func newWorkerLogger(cfg workerConfig, stdout io.Writer) (*slog.Logger, error) {
+	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
+	if err != nil {
+		return nil, err
+	}
+	return slog.New(httpserver.WithCorrelation(handler)), nil
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions

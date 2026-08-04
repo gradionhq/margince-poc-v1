@@ -185,7 +185,12 @@ type forbidRule struct {
 // golangciConfig is the sliver of .golangci.yml this gate reads. The keys are
 // golangci-lint's own, so they are spelled as it spells them.
 type golangciConfig struct {
+	Run struct {
+		//nolint:tagliatelle // golangci-lint's key, not ours to case.
+		BuildTags []string `yaml:"build-tags"`
+	} `yaml:"run"`
 	Linters struct {
+		Enable   []string `yaml:"enable"`
 		Settings struct {
 			Forbidigo struct {
 				//nolint:tagliatelle // golangci-lint's key, not ours to case.
@@ -196,12 +201,10 @@ type golangciConfig struct {
 	} `yaml:"linters"`
 }
 
-// riverForbidRules returns the blocklist entries that govern package river,
-// selected by their own pkg expression rather than by position, so reordering
-// or adding unrelated rules cannot silently change what is checked.
-func riverForbidRules(t *testing.T) []forbidRule {
+// readGolangciConfig parses one of the two lint configurations by file name.
+func readGolangciConfig(t *testing.T, name string) golangciConfig {
 	t.Helper()
-	path := filepath.Join(moduleDir(t, backendModulePath), ".golangci.yml")
+	path := filepath.Join(moduleDir(t, backendModulePath), name)
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
@@ -210,7 +213,81 @@ func riverForbidRules(t *testing.T) []forbidRule {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		t.Fatalf("parsing %s: %v", path, err)
 	}
-	forbidigo := cfg.Linters.Settings.Forbidigo
+	return cfg
+}
+
+// lintConfigs is every golangci-lint configuration `make lint` runs — the
+// repo-wide baseline and the new-code-only strict pass.
+var lintConfigs = []string{".golangci.yml", ".golangci.strict.yml"}
+
+// TestForbidigoIsEnabledInExactlyOneConfig keeps the in-source waiver usable.
+//
+// Both passes run over the same files, and the strict one also runs nolintlint.
+// With forbidigo enabled in both under different `forbid:` sets, an in-source
+// forbidigo waiver written against one set suppresses nothing under the other,
+// and nolintlint fails the build for an unused directive — reported by a linter
+// unrelated to the rule being waived, on a line that looks correct. The only
+// waiver left is then exempting a whole FILE by path, which is coarser than
+// anything it stands in for: a second, unsanctioned call added to that file
+// later goes unnoticed.
+//
+// So the rule is ownership, not pattern equality: exactly one config enables
+// forbidigo. Keeping the two sets identical by hand would restore the waiver
+// and reintroduce the duplicate nobody maintains.
+func TestForbidigoIsEnabledInExactlyOneConfig(t *testing.T) {
+	var enabling []string
+	for _, name := range lintConfigs {
+		if slices.Contains(readGolangciConfig(t, name).Linters.Enable, "forbidigo") {
+			enabling = append(enabling, name)
+		}
+	}
+	switch len(enabling) {
+	case 1:
+	case 0:
+		t.Error("no lint config enables forbidigo — the River registration and schedule bans are unenforced, and every check in this file passes by having nothing to check")
+	default:
+		t.Errorf("forbidigo is enabled in %s. Two passes with two pattern sets make an in-source forbidigo waiver unusable tree-wide: whichever set a directive was written for, the other reports it as an unused directive through nolintlint. Enable it in one config and let the other inherit nothing.",
+			strings.Join(enabling, " and "))
+	}
+}
+
+// TestTheOwningConfigLintsTheTaggedLanes — forbidigo now lives in one config,
+// and that config must see the same files the other one did. The strict pass
+// declares the integration and livesmoke tags, so before the move it was the
+// only thing linting the tagged harnesses; a baseline that compiled untagged
+// files only would leave them covered by NOTHING, which is where an http.Error
+// or a stray fmt.Print goes unnoticed for longest.
+func TestTheOwningConfigLintsTheTaggedLanes(t *testing.T) {
+	// The owner is DERIVED, not named: this holds whichever config enables
+	// forbidigo to the tags, so moving ownership moves the obligation with it
+	// rather than leaving this passing about a config that no longer runs the
+	// linter. TestForbidigoIsEnabledInExactlyOneConfig is what makes "the"
+	// owner well defined.
+	owner := ""
+	for _, name := range lintConfigs {
+		if slices.Contains(readGolangciConfig(t, name).Linters.Enable, "forbidigo") {
+			owner = name
+			break
+		}
+	}
+	if owner == "" {
+		t.Fatal("no config enables forbidigo, so there is no owner to hold to anything")
+	}
+	tags := readGolangciConfig(t, owner).Run.BuildTags
+	for _, tag := range []string{"integration", "livesmoke"} {
+		if !slices.Contains(tags, tag) {
+			t.Errorf("%s owns forbidigo but does not declare the %q build tag, so the %s-only files are linted by nothing", owner, tag, tag)
+		}
+	}
+}
+
+// riverForbidRules returns the blocklist entries that govern package river,
+// selected by their own pkg expression rather than by position, so reordering
+// or adding unrelated rules cannot silently change what is checked.
+func riverForbidRules(t *testing.T) []forbidRule {
+	t.Helper()
+	const path = ".golangci.yml"
+	forbidigo := readGolangciConfig(t, path).Linters.Settings.Forbidigo
 
 	// pkg is only consulted when forbidigo type-checks; without this the
 	// selection below would be reading a field the linter ignores.

@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-parity sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -359,10 +359,57 @@ sbom:
 	    -o cyclonedx-json=$(SBOM_DIR)/margince.cdx.json \
 	    -o spdx-json@2.2=$(SBOM_DIR)/margince.spdx221.json \
 	    -o spdx-json@3.0=$(SBOM_DIR)/margince.spdx300.json
+	@$(MAKE) sbom-normalize
+	@$(MAKE) sbom-parity
 	@echo "wrote $(SBOM_FILES)"
 
+## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
+## tree, the invariant the constellation dist gate enforces. syft scans the export
+## at /src/$(SBOM_SRC), and its writers then disagree: CycloneDX names every file
+## with that absolute scan-root prefix while SPDX names are repo-relative, and the
+## SPDX writers additionally emit a pseudo-entry per directory (lone zero SHA1) plus
+## one empty-name scan-root entry that CycloneDX omits. Strip the prefix and drop the
+## pseudo-entries so all three enumerate the same repo-relative regular files. Done on
+## the syft output before any signature, so the signed bytes are the normalized bytes.
+## Both filters are idempotent, so re-running (or a future syft that already emits
+## relative names / no directories) is a no-op. The zero SHA1 is syft's directory
+## placeholder; a real file always carries a non-zero SHA-256/512 alongside it. That
+## placeholder is the only signal syft gives — v1.50 labels every SPDX element,
+## directories included, software_fileKind == "file", so the kind field cannot single
+## a directory out; the empty name / lone zero SHA1 pair is what distinguishes them.
+sbom-normalize:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@set -e; prefix="/src/$(SBOM_SRC)/"; zero=0000000000000000000000000000000000000000; \
+	  cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; s30=$(SBOM_DIR)/margince.spdx300.json; \
+	  jq --arg p "$$prefix" '.components |= map(if .type == "file" and (.name | startswith($$p)) then .name |= sub("^" + $$p; "") else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
+	  jq --arg z "$$zero" '.files |= map(select((.fileName | length) > 0 and (.checksums | any(.checksumValue != $$z))))' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"; \
+	  jq --arg z "$$zero" '."@graph" |= map(select((.type != "software_File") or (((.name // "") | length) > 0 and ((.verifiedUsing // []) | any(.hashValue != $$z)))))' "$$s30" > "$$s30.tmp" && mv "$$s30.tmp" "$$s30"
+
+## sbom-parity — the dist gate's own comparison, run locally: the three SBOMs must
+## enumerate the identical set of repo-relative files. Fails the build on any diff, so
+## a future syft upgrade that reintroduces the scan-root prefix or directory entries
+## breaks here rather than silently at release validation. `make sbom` runs it after
+## normalization; CI runs `make sbom`, so this guards every SBOM CI run too.
+sbom-parity:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@set -e; d=$$(mktemp -d); trap 'rm -rf "$$d"' EXIT; \
+	  jq -r '.components[]|select(.type=="file")|.name' $(SBOM_DIR)/margince.cdx.json | sort -u > "$$d/cdx.set"; \
+	  jq -r '.files[].fileName|select(length>0)' $(SBOM_DIR)/margince.spdx221.json | sort -u > "$$d/s22.set"; \
+	  jq -r '[.["@graph"][]|select(.type=="software_File")|.name]|.[]' $(SBOM_DIR)/margince.spdx300.json | sort -u > "$$d/s30.set"; \
+	  if diff "$$d/cdx.set" "$$d/s22.set" && diff "$$d/s22.set" "$$d/s30.set"; then \
+	    echo "OK: three SBOMs list the same $$(wc -l < "$$d/cdx.set" | tr -d ' ') files"; \
+	  else \
+	    echo "FAIL: SBOM file sets differ — see the diff above"; exit 1; \
+	  fi
+
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
-sbom-sign:
+## Depends on sbom-parity, not sbom: the signature must cover normalized, mutually
+## agreeing bytes, but re-running generation here is wrong — in CI signing is a
+## separate job (holding id-token: write) that consumes the generation job's
+## artifact, and running the syft scan under that token is the isolation the SBOM
+## workflow forbids. Parity re-checks the existing files cheaply and refuses to sign
+## a stale or un-normalized set.
+sbom-sign: sbom-parity
 	@mkdir -p $(COSIGN_HOME)
 	@for f in $(SBOM_FILES); do \
 	  echo "signing $$f"; \
