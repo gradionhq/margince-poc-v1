@@ -107,6 +107,8 @@ func runSignatureEnrichCase(
 	return prepared.Evaluate(trace), trace
 }
 
+// gatekit:fixture the title this case's reply is graded against — expected data
+// the case owns, not a waived exception.
 var signatureEnrichWantTitle = map[string]string{"title": "CTO"}
 
 func TestSignatureEnrichCaseSeparatesTheFourThingsAReplyCanBe(t *testing.T) {

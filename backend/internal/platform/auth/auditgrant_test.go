@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -45,7 +46,7 @@ var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 // auditVerbNoGrant: verbs the audit_log_action_check CHECK admits that no
 // human- or agent-authored storekit.Audit call writes, so no CRUD grant
 // attributes them. Each carries the reason it needs none.
-var auditVerbNoGrant = map[string]string{
+var auditVerbNoGrant = gatekit.Waive(map[string]string{
 	"approve": "approvals writes its own decision row (approvals/service.go) without the authorization_rule column",
 	// Rule() renders the AUDITED entity, and this verb's only storekit writer
 	// audits voice_profile_version — not an RBAC policy object, so any rule it
@@ -60,9 +61,11 @@ var auditVerbNoGrant = map[string]string{
 	"disqualify":  "admitted by the contract vocabulary; no Go writer emits it yet",
 	"send_email":  "the agent tool of that name stages an approval; the send itself audits the activity as create",
 	"reset_data":  "audited on workspace, which is not an RBAC policy object; the governing check is auth.RequireAdmin (a role gate, not an object CRUD grant)",
-}
+})
 
 func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {
+	defer auditVerbNoGrant.AssertAllMatched(t)
+
 	verbs := auditActionVocabulary(t)
 
 	// A HUMAN principal: AuthzRule short-circuits to "system" for the system
@@ -73,16 +76,11 @@ func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {
 		Permissions: principal.Permissions{RoleKeys: []string{"rep"}, RowScope: principal.RowScopeTeam},
 	}
 
-	admitted := make(map[string]struct{}, len(verbs))
 	for _, verb := range verbs {
-		admitted[verb] = struct{}{}
-		reason, waived := auditVerbNoGrant[verb]
+		waived := auditVerbNoGrant.Waived(t, verb)
 		rule := AuthzRule(human, "project", verb)
 
 		if waived {
-			if reason == "" {
-				t.Errorf("audit verb %q: reasonless waiver in auditVerbNoGrant", verb)
-			}
 			if rule != "" {
 				t.Errorf("audit verb %q: stale waiver — it now renders %q; remove it from auditVerbNoGrant", verb, rule)
 			}
@@ -90,14 +88,6 @@ func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {
 		}
 		if rule == "" {
 			t.Errorf("audit verb %q: AuthzRule renders a BLANK authorization_rule — every write of this verb would record no governing grant. Add it to auditActionGrant naming the grant its write path actually requires, or record it in auditVerbNoGrant with a reason", verb)
-		}
-	}
-
-	// The ratchet in the other direction: a waived verb the vocabulary no
-	// longer admits is dead weight that hides the next drift.
-	for verb := range auditVerbNoGrant {
-		if _, ok := admitted[verb]; !ok {
-			t.Errorf("audit verb %q: stale waiver — no audit_log_action_check admits it; remove it from auditVerbNoGrant", verb)
 		}
 	}
 }

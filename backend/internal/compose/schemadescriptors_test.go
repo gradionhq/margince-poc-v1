@@ -5,10 +5,10 @@ package compose
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -28,9 +28,11 @@ import (
 // recordTypesWithoutDescriptor names the record types that legitimately have
 // no descriptor, each with the reason it cannot be served yet. Empty is the
 // correct state: an entry is a promise to come back, not a place to park one.
-var recordTypesWithoutDescriptor = map[datasource.RecordType]string{}
+var recordTypesWithoutDescriptor = gatekit.Waive(map[datasource.RecordType]string{})
 
 func TestEveryRecordTypeHasASchemaDescriptor(t *testing.T) {
+	defer recordTypesWithoutDescriptor.AssertAllMatched(t)
+
 	records := datasource.RecordTypes()
 	if len(records) == 0 {
 		t.Fatal("the record vocabulary is empty — this gate walked nothing, so it proves nothing")
@@ -40,11 +42,7 @@ func TestEveryRecordTypeHasASchemaDescriptor(t *testing.T) {
 		described[obj.Type] = obj.Fields
 	}
 	for _, record := range records {
-		if why, excluded := recordTypesWithoutDescriptor[record]; excluded {
-			if len(strings.TrimSpace(why)) < 40 {
-				t.Errorf("recordTypesWithoutDescriptor[%s] has no real rationale — a record type "+
-					"the schema surface refuses must say what is missing before it can be served", record)
-			}
+		if recordTypesWithoutDescriptor.Waived(t, record) {
 			continue
 		}
 		fields, ok := described[datasource.EntityType(record)]
@@ -59,7 +57,7 @@ func TestEveryRecordTypeHasASchemaDescriptor(t *testing.T) {
 				"introspection and compiles no report plan", record)
 		}
 	}
-	for record := range recordTypesWithoutDescriptor {
+	for _, record := range recordTypesWithoutDescriptor.Subjects() {
 		if _, ok := described[datasource.EntityType(record)]; ok {
 			t.Errorf("recordTypesWithoutDescriptor[%s] names a type that HAS a descriptor — stale "+
 				"waiver, remove it", record)

@@ -17,6 +17,8 @@ import (
 	"go/ast"
 	"path/filepath"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // workerFloor guards against a vacuous pass, as in the role gate.
@@ -26,17 +28,16 @@ const workerFloor = 20
 // That shape is EXACTLY the defect this phase removes — a tenant failure
 // becoming a green River row — so each entry states the durable retry policy
 // that makes it honest here. A worker not listed must return its failure.
-var nilAfterLogging = map[string]string{
+var nilAfterLogging = gatekit.Waive(map[string]string{
 	"captureSyncWorker":               "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'",
 	"captureBackfillWorker":           "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended",
 	"overlayReconcileWorkspaceWorker": "two nil paths, neither a swallowed sweep failure. The disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. And a failed RecordSweepSuccess, which leaves the previous backoff in place — the next due-scan is simply later than it needed to be, never earlier. A genuine sweep failure IS returned; the row fails and stays failed, because this kind takes a single attempt and its retry is the backoff the worker just recorded",
 	"voiceBuildWorker":                "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due",
-}
+})
 
 func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
 	workers := 0
-	usedNilWaiver := map[string]bool{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -74,9 +75,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 			// durable retry policy elsewhere makes the success honest.
 			recv := receiverTypeName(fn)
 			if errorLogsAndReturnsNil(fn) {
-				if _, waived := nilAfterLogging[recv]; waived {
-					usedNilWaiver[recv] = true
-				} else {
+				if !nilAfterLogging.Waived(t, recv) {
 					pos := fset.Position(fn.Pos())
 					t.Errorf("%s:%d: %s logs an error and returns nil — River will record this job as completed while the work failed. Return the failure, or ratify it in nilAfterLogging naming the retry policy that makes success honest.",
 						pos.Filename, pos.Line, recv)
@@ -87,14 +86,10 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	if workers < workerFloor {
 		t.Fatalf("found only %d Work methods, expected at least %d — the walker matched nothing", workers, workerFloor)
 	}
-	for recv, reason := range nilAfterLogging {
-		if reason == "" {
-			t.Errorf("%s: nil-after-logging waiver without a rationale", recv)
-		}
-		if !usedNilWaiver[recv] {
-			t.Errorf("%s: stale waiver — it no longer logs-and-returns-nil; delete it", recv)
-		}
-	}
+	// Staleness is only meaningful once the sweep above actually ran: on the
+	// vacuity Fatal every entry would report as unmatched, burying the one
+	// failure that explains all of them.
+	nilAfterLogging.AssertAllMatched(t)
 }
 
 // errorLogsAndReturnsNil reports whether fn both logs a failure and returns

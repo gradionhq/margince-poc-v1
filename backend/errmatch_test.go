@@ -21,14 +21,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // errTextMatchWaivers are the ratified error-text matches. The only
 // admissible ground is a protocol whose machine-readable error code IS
 // the message prefix, with no typed accessor in the client library.
-var errTextMatchWaivers = map[string]string{
+var errTextMatchWaivers = gatekit.Waive(map[string]string{
 	"internal/platform/events/subscriber.go:isBusyGroup": "RESP wire errors carry their machine code as the message's first token (BUSYGROUP); go-redis exposes no typed accessor, so the prefix match IS the code match",
-}
+})
 
 // errorTextCall reports whether expr is a niladic `<recv>.Error()` call —
 // the error-message extraction every string match here keys on.
@@ -74,12 +76,7 @@ func matchesErrorText(n ast.Node) (verb string, found bool) {
 }
 
 func TestNoErrorMessageStringMatching(t *testing.T) {
-	for key, rationale := range errTextMatchWaivers {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("errTextMatchWaivers[%s] has no rationale — a waiver must say why text is the only handle", key)
-		}
-	}
-	used := map[string]bool{}
+	defer errTextMatchWaivers.AssertAllMatched(t)
 	fset := token.NewFileSet()
 	err := filepath.WalkDir("internal", func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -107,8 +104,7 @@ func TestNoErrorMessageStringMatching(t *testing.T) {
 				if !found {
 					return true
 				}
-				if _, waived := errTextMatchWaivers[key]; waived {
-					used[key] = true
+				if errTextMatchWaivers.Waived(t, key) {
 					return true
 				}
 				t.Errorf("%s: %s over err.Error() — Postgres failures are classified by SQLSTATE/constraint name (storekit helpers), never by message text",
@@ -120,10 +116,5 @@ func TestNoErrorMessageStringMatching(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	for key := range errTextMatchWaivers {
-		if !used[key] {
-			t.Errorf("errTextMatchWaivers[%s] matches no error-text comparison — stale waiver, remove it", key)
-		}
 	}
 }

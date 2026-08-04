@@ -95,6 +95,8 @@ func runFieldExtractCase(t *testing.T, want map[string]string, reply string) (ai
 	return prepared.Evaluate(trace), trace
 }
 
+// gatekit:fixture the field value this case's reply is graded against —
+// expected data the case owns, not a waived exception.
 var fieldExtractWantLegalName = map[string]string{
 	string(crmcontracts.ColdStartFieldFieldLegalName): "Acme Robotics GmbH",
 }

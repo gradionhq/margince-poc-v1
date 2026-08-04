@@ -30,6 +30,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // The fixed marker no prompt may build a boundary from again.
@@ -54,7 +56,7 @@ var buildsAFence = regexp.MustCompile(`promptfence\.(New|FromMarker)\(`)
 // claimWithoutFence names the files allowed to promise a boundary without
 // minting one, with the reason. Keep this at zero if you can; every entry is a
 // prompt whose safety rests on something other than a nonce.
-var claimWithoutFence = map[string]string{}
+var claimWithoutFence = gatekit.Waive(map[string]string{})
 
 // sourceWithoutComments renders one file's CODE, comments discarded.
 //
@@ -129,34 +131,44 @@ func TestNoPromptDeclaresAFixedDataBoundary(t *testing.T) {
 // every instance found so far has taken.
 func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 	var offenders []string
+	claimants := 0
 	goFilesUnderTree(t, func(path, body string) {
-		if strings.HasPrefix(path, promptfencePackage) || claimWithoutFence[path] != "" {
+		if strings.HasPrefix(path, promptfencePackage) {
 			return
 		}
 		if !boundaryClaim.MatchString(body) {
 			return
 		}
-		if !buildsAFence.MatchString(body) {
-			offenders = append(offenders, path)
+		claimants++
+		if buildsAFence.MatchString(body) {
+			return
 		}
+		if claimWithoutFence.Waived(t, path) {
+			return
+		}
+		offenders = append(offenders, path)
 	})
+	if claimants == 0 {
+		t.Fatal("boundaryClaim matched no file outside promptfence, so this rule judged nothing: the pattern " +
+			"derives the subjects, and a derivation that finds none reads green over every prompt in the tree " +
+			"— widen boundaryClaim to the sentences the prompts now use")
+	}
 	if len(offenders) > 0 {
 		t.Errorf("these files tell a model that some region of a prompt is data rather than instructions, without minting the boundary that makes it true — fence the region with promptfence and let Fence.Rule write the sentence:\n  %s",
 			strings.Join(offenders, "\n  "))
 	}
 }
 
-// The waiver list is only honest if every entry still exists and still needs it.
+// An entry naming a file that no longer claims a data boundary reads stale
+// here: this is the sweep that reaches every non-test Go file with no further
+// filter, so it is the one that owns AssertAllMatched. It holds that each entry
+// still names a claim, not that the claim still needs waiving — a file that now
+// mints its fence as well still matches, and stays matched.
 func TestEveryBoundaryClaimWaiverIsStillReachable(t *testing.T) {
-	seen := map[string]bool{}
+	defer claimWithoutFence.AssertAllMatched(t)
 	goFilesUnderTree(t, func(path, body string) {
-		if claimWithoutFence[path] != "" && boundaryClaim.MatchString(body) {
-			seen[path] = true
+		if boundaryClaim.MatchString(body) {
+			claimWithoutFence.Waived(t, path)
 		}
 	})
-	for path := range claimWithoutFence {
-		if !seen[path] {
-			t.Errorf("%s is waived from the data-boundary rule but no longer makes the claim — delete the waiver", path)
-		}
-	}
 }

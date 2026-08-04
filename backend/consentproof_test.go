@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // consentStateWrite matches an INSERT into person_consent (every insert
@@ -38,15 +40,10 @@ var consentProofInsert = regexp.MustCompile(`(?is)INSERT\s+INTO\s+consent_event\
 
 // unprovenConsentWrites are the ratified proof-free state writes, keyed
 // by "package-dir:FuncName" with the rationale inline.
-var unprovenConsentWrites = map[string]string{}
+var unprovenConsentWrites = gatekit.Waive(map[string]string{})
 
 func TestEveryConsentStateWriteAppendsProof(t *testing.T) {
-	for fn, rationale := range unprovenConsentWrites {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("unprovenConsentWrites[%s] has no rationale — a waiver must say why the proof row is missing", fn)
-		}
-	}
-	used := map[string]bool{}
+	defer unprovenConsentWrites.AssertAllMatched(t)
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -84,8 +81,7 @@ func TestEveryConsentStateWriteAppendsProof(t *testing.T) {
 				})
 				if writesState && !appendsProof {
 					key := filepath.ToSlash(filepath.Dir(path)) + ":" + fn.Name.Name
-					if _, ratified := unprovenConsentWrites[key]; ratified {
-						used[key] = true
+					if unprovenConsentWrites.Waived(t, key) {
 						continue
 					}
 					t.Errorf("%s: %s writes a person_consent state without appending a consent_event — every state change carries its Art. 7(1) proof (data-model §3.4), or the exception is ratified in unprovenConsentWrites",
@@ -96,11 +92,6 @@ func TestEveryConsentStateWriteAppendsProof(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-	for key := range unprovenConsentWrites {
-		if !used[key] {
-			t.Errorf("unprovenConsentWrites[%s] matches no proof-free consent state write — stale waiver, remove it", key)
 		}
 	}
 }
