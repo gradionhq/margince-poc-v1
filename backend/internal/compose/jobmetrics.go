@@ -4,12 +4,17 @@
 package compose
 
 // The job-runtime section of /metrics: OPS-MET-2's queue depth and the
-// gauges beside it, plus the sweep pair. Every number is read from
+// gauges beside it, plus the sweep pair. Every number here is read from
 // river_job at scrape time rather than counted in process, because the
 // dispatchers run in cmd/worker and cmd/worker serves no exposition
 // endpoint at all — an in-process counter incremented there would be
 // invisible to every scrape while the api's own copy read a truthful
 // looking zero.
+//
+// The two families in jobdeclared.go beside it are the exception, and the
+// reason they exist: a table scan can only ever name a kind that HAS rows,
+// so it reads a declared-but-idle kind and a kind nobody wired identically.
+// Those two are read against the compiled declaration instead.
 
 import (
 	"cmp"
@@ -176,6 +181,11 @@ func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
 	discarded, cancelled := a.discarded, a.cancelled
 	oldest, unrecognised := a.oldest, a.unrecognised
 
+	// The catalogue leads: everything below it is a projection of whatever
+	// rows happen to exist, and this is the closed set they are read against.
+	if err := writeDeclaredInfo(w); err != nil {
+		return err
+	}
 	if err := writeQueueGauge(w, "margince_job_queue_depth",
 		"Jobs waiting to run (available + scheduled + retryable + pending) per queue and workspace. An empty workspace_id is a dispatcher, which does no tenant work.",
 		depth); err != nil {
@@ -202,7 +212,10 @@ func writeJobMetrics(w io.Writer, snap jobs.Snapshot) error {
 	if err := writeSweepGauges(w, snap.Sweeps); err != nil {
 		return err
 	}
-	return writeUnrecognisedStateGauge(w, unrecognised)
+	if err := writeUnrecognisedStateGauge(w, unrecognised); err != nil {
+		return err
+	}
+	return writeUnrecognisedKindGauge(w, snap.Rows)
 }
 
 func writeQueueGauge(w io.Writer, name, help string, series map[queueKey]int64) error {
