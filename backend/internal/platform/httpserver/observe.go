@@ -194,12 +194,24 @@ func Readyz(aiState string, embedState func(context.Context) string, checks ...R
 				return
 			}
 		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "ready")
+		// Each visibility line is written only by a role that wires the thing
+		// it reports. The worker wires neither, and an empty "ai: " line is
+		// noise an operator has to learn to ignore — worse than silence,
+		// because it reads as a role whose AI state could not be determined.
+		if aiState != "" {
+			_, _ = fmt.Fprintf(w, "ai: %s\n", aiState)
+		}
+		// The embed line is written unconditionally, unlike the AI one: a nil
+		// embedState and a marker-read that already failed into "unknown" are
+		// deliberately indistinguishable here, so omitting it would turn one
+		// of those two into an absence and the other into a value.
 		embed := "unknown"
 		if embedState != nil {
 			embed = embedState(ctx)
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, "ready\nai: %s\nembed: %s\n", aiState, embed)
+		_, _ = fmt.Fprintf(w, "embed: %s\n", embed)
 	}
 }
 

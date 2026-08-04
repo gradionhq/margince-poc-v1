@@ -3,15 +3,85 @@
 
 package main
 
-// The two boot phases run() delegates to. Both are one-liners around a
-// dependency, and both have exactly one failure the process must not survive:
-// a log level nobody meant, and an extension set that refused to register.
+// The configuration phases run() delegates to before it opens anything. What
+// they share is the property the grouping exists for: none of them touches a
+// network, so every way a deployment can be misconfigured is refused while
+// there is nothing built to clean up.
 
 import (
 	"bytes"
+	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// ONE test in this binary may drive configureWorker to completion.
+//
+// It registers the composed extension set into a PROCESS-GLOBAL registry, which
+// is a boot action and deliberately not idempotent: a second registration of
+// the same jurisdiction is refused, because in a running process that would
+// mean two packs claiming one jurisdiction. So the success path is exercised
+// once, below, and every other case here stops before that phase.
+
+// TestConfiguringTheWorkerFailsBeforeAnythingIsOpened is the property that
+// makes these phases one step: none of them opens a connection, so every way a
+// deployment can be misconfigured is refused while there is no pool, no bus
+// client and no listener to clean up. A phase that moved below the pool would
+// turn a typo into a half-built process.
+//
+// Both cases fail in the flag phase, ahead of the registration. The logger's
+// own refusal — the one phase after it — is driven directly by
+// TestAnUnknownLogLevelOrFormatFailsTheBoot instead.
+func TestConfiguringTheWorkerFailsBeforeAnythingIsOpened(t *testing.T) {
+	for _, tc := range []struct {
+		name, wantIn string
+		args         []string
+	}{
+		{"a missing dsn", "dsn", []string{}},
+		{"an interval no schedule can use", "runner-interval", []string{"--dsn", "postgres://localhost/x", "--runner-interval=0"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := configureWorker(tc.args, io.Discard)
+			if err == nil {
+				t.Fatalf("configureWorker(%v) succeeded; a misconfigured deployment must be refused here", tc.args)
+			}
+			if !strings.Contains(err.Error(), tc.wantIn) {
+				t.Errorf("the error does not name what was wrong (%q): %v", tc.wantIn, err)
+			}
+		})
+	}
+}
+
+// TestConfiguringTheWorkerCarriesTheDeploymentPostureOntoTheConfig is the
+// success path, and the only test here that reaches the extension registration.
+// A failing registration aborts the worker boot (ADR-0069 EXT-P4), so this also
+// asserts that the set THIS build composes is one the boot survives.
+//
+// The capture posture is resolved LAST, after the logger exists, because it
+// carries that logger into the Sink's post-commit steps where a fault is
+// reported rather than returned. Ordered the other way it would carry a nil.
+func TestConfiguringTheWorkerCarriesTheDeploymentPostureOntoTheConfig(t *testing.T) {
+	// A path with no file is a legitimate deployment: the docs say a missing
+	// config boots with defaults, so this exercises the whole chain rather
+	// than a fixture's contents.
+	boot, err := configureWorker([]string{
+		"--dsn", "postgres://localhost/x",
+		"--config", filepath.Join(t.TempDir(), "absent.yaml"),
+	}, io.Discard)
+	if err != nil {
+		t.Fatalf("configureWorker: %v — a composed extension set that refuses to register aborts the worker boot", err)
+	}
+	if boot.log == nil {
+		t.Error("no logger was built, so every phase after this one would report through nothing")
+	}
+	if boot.cfg.dsn != "postgres://localhost/x" {
+		t.Errorf("dsn = %q, want the one supplied", boot.cfg.dsn)
+	}
+	if boot.cfg.captureConfig.Logger == nil {
+		t.Error("the capture posture carries no logger; the Sink's post-commit steps report a fault through it, and a nil there is a panic on the one path that must not have one")
+	}
+}
 
 // TestTheLoggerHonoursTheOperatorsLevelAndFormat — the level and the format
 // are the operator's, and a typo in either is a boot error rather than a
@@ -47,20 +117,5 @@ func TestAnUnknownLogLevelOrFormatFailsTheBoot(t *testing.T) {
 				t.Errorf("an unknown %s was accepted; the operator would get a level or a format they did not ask for", tc.name)
 			}
 		})
-	}
-}
-
-// TestThisBuildsComposedExtensionSetRegisters — a failing registration aborts
-// the worker boot (ADR-0069 EXT-P4), so what this asserts is that the set THIS
-// build composes is one the boot survives. An extension whose declaration the
-// registry refuses fails here rather than at a customer's start-up.
-//
-// It does not compare the returned slice against composition.Extensions():
-// only a role's main may import the composition module, and TestCompositionWiredOnlyFromCmd
-// enforces that. The identity of the snapshot is a compile-time fact of run()
-// passing the returned value straight on to the boot inventory.
-func TestThisBuildsComposedExtensionSetRegisters(t *testing.T) {
-	if _, err := registerComposedExtensions(); err != nil {
-		t.Fatalf("this build's composed extension set refused to register, which aborts the worker boot: %v", err)
 	}
 }

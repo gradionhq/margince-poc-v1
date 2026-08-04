@@ -114,8 +114,14 @@ func startObserveListener(ctx context.Context, cfg workerConfig, pool *pgxpool.P
 	mux.HandleFunc("/metrics", httpserver.Metrics(pool, nil, events.PublishedTotal, nil, nil, nil))
 
 	srv := &http.Server{
-		Addr:              cfg.observeAddr,
-		Handler:           httpserver.RecoverPanics(log, mux),
+		Addr: cfg.observeAddr,
+		// The same headers the api's chassis sets. This port serves no HTML
+		// and is not meant for a browser, which is exactly why nosniff and
+		// the rest are cheap here and worth having: an operator surface
+		// reachable from a browser tab should not depend on nobody opening
+		// one. RecoverPanics stays outermost so a panicking handler answers
+		// rather than killing the connection.
+		Handler:           httpserver.RecoverPanics(log, httpserver.SecureHeaders(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       observeReadTimeout,
 		WriteTimeout:      observeWriteTimeout,

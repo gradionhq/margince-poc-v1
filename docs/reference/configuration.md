@@ -115,6 +115,15 @@ and `margince_sweep_workspaces_failed{sweep="telegram_poll"}` can both be
 non-zero for one dead connection. Alert on whichever grain you mean; use
 `... > 0 or ... > 0` if you want either to page you, never `+`.
 
+The `sweep` label on both pairs is the **child** kind, not the dispatcher's —
+`sweep="telegram_poll"`, not `telegram_poll_sweep` — because the child is what
+the rows hold, and mapping back to the dispatcher would be a hand-kept table.
+That matters for a dashboard: joining a sweep series to
+`margince_job_declared_info` on the kind lands on the CHILD's catalogue entry,
+which carries no `fan_out_unit` — that label is declared on the dispatcher. The
+unit pair carries its grain in its own `unit` label for exactly that reason, so
+no join is needed to read it.
+
 A tenth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
 appears **only when it has something to report**: work sitting in a state
 this exposition does not classify. It is a signal to investigate, not a
@@ -326,16 +335,17 @@ whichever process answered, which is exactly what makes it worth having on both.
 stay a **single** reading on the api: two roles answering one fleet number is a
 worse operator surface than one gap.
 
-`/readyz` probes the two dependencies this role cannot work without — Postgres
-and Redis — and answers `503` naming the one that failed. `/healthz` stays a
-dumb liveness answer, so a database outage stops traffic being routed here
-without restart-looping a process the outage did not break.
-
-`/readyz` also reports **`boot`** — this replica has finished starting its
-event lanes and job runner. The listener comes up before those on purpose, so a
-probe answers during a slow boot; without the boot check that ordering would let
-a rollout retire the last working replica in favour of one that had not yet
-picked up a job.
+`/readyz` probes the three things this replica needs before it can do any work
+— **`boot`**, **`postgres`** and **`redis`** — and answers `503` naming the one
+that failed. `boot` is this replica having finished starting its event lanes and
+job runner: the listener comes up before those on purpose, so a probe answers
+during a slow boot, and without that check the ordering would let a rollout
+retire the last working replica in favour of one that had not yet picked up a
+job. The body carries no AI line — unlike the api this role wires none, and an
+empty field reads as a state that could not be determined rather than as one
+that does not apply. `/healthz` stays a dumb liveness answer, so a database
+outage stops traffic being routed here without restart-looping a process the
+outage did not break.
 
 **Off is the default, and it is not a convenience default.** Unlike the api's
 `/metrics` this surface carries no workspace id and no tenant data at all — but
