@@ -87,6 +87,18 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if done != nil {
 			defer done()
 		}
+		// This goroutine OUTLIVES the request, so the chassis's recovery
+		// middleware — which wraps the handler — cannot see a panic in here, and an
+		// unrecovered panic in any goroutine takes the whole process down. The
+		// endpoint is unauthenticated, which is what makes that unacceptable rather
+		// than merely untidy: it would be a one-request denial of service for
+		// anybody who could reach a panicking path. Nothing below panics today; the
+		// point is that a future edit here must not be able to.
+		defer func() {
+			if panicked := recover(); panicked != nil {
+				slog.Error("password-reset send panicked", "panic", panicked)
+			}
+		}()
 		rawToken, err := h.svc.CreatePasswordReset(workCtx, email.String())
 		if err != nil {
 			slog.Error("password-reset token mint failed", "err", err)
@@ -95,19 +107,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if rawToken == "" {
 			return
 		}
-		// The token rides in the FRAGMENT, never in the server-visible query, and
-		// that is a security property rather than a style choice. A fragment is
-		// never sent to a server, so the live single-use credential cannot reach
-		// an access log, cannot be sent as a Referer on the same-origin /v1 calls
-		// the SPA makes before it has scrubbed the URL, and cannot become a Cache
-		// Storage key (which includes the query). All three defeated the
-		// front-end's own scrub, which ran too late to help.
-		//
-		// The shape is the app's own hash route rather than a bare `#token=`:
-		// `parseHash` (app/router.tsx) reads the first hash segment as the screen
-		// name and strips a hash-local query, so `#/reset-password?token=…` parses
-		// correctly while `#token=…` would make the token itself the screen name.
-		link := h.resetBaseURL + "/#/reset-password?token=" + rawToken
+		link := passwordLink(h.resetBaseURL, rawToken)
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
