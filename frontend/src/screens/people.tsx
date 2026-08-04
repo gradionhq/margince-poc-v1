@@ -42,10 +42,16 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
-import { PersonNetworkCard } from "./network";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
-import { StrengthCard } from "./strength";
+import {
+  IdentityRail,
+  RelationshipPulse,
+  ThinState,
+  WhoKnowsThem,
+  thinRecord,
+  usePerson360,
+} from "./person360";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -465,6 +471,8 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const timelineQuery = useTimeline("person", id);
+  const view360 = usePerson360(id);
+  const view = view360.data;
   const overlay = useSorMode() === "overlay";
   const viewerId = useViewerId();
 
@@ -610,6 +618,15 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 : []
             }
             timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
+            rail={view ? <IdentityRail view={view} /> : undefined}
+            aside={
+              view ? (
+                <>
+                  <RelationshipPulse view={view} />
+                  <WhoKnowsThem view={view} />
+                </>
+              ) : undefined
+            }
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl
@@ -623,10 +640,11 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             </div>
-            {tab === "overview" && (
+            {tab === "overview" && thinRecord(view) && view && (
+              <ThinState view={view} />
+            )}
+            {tab === "overview" && !thinRecord(view) && (
               <>
-                <StrengthCard kind="person" id={person.id} />
-                <PersonNetworkCard id={person.id} />
                 <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
                 <RecordContextPanel entityType="person" id={person.id} />
