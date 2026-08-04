@@ -80,10 +80,7 @@ const (
 // live phase and the pages fetched so far.
 func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtractor, seedURL string, onProgress func(phase string, pages []crawlPage), onDraft func(pageFactsResult)) (siteCrawl, siteExtraction, error) {
 	var out siteExtraction
-	var results []pageFactsResult
-	var published pageFactsResult
-	var failed []error
-	var mu sync.Mutex
+	collected := pageFactsCollector{onDraft: onDraft}
 	progress := func(phase string, pages []crawlPage) {
 		if onProgress != nil {
 			onProgress(phase, pages)
@@ -129,17 +126,7 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 			defer wg.Done()
 			defer func() { <-sem }()
 			res, err := safeExtractPageFacts(ctx, x, page)
-			mu.Lock()
-			if err != nil {
-				failed = append(failed, fmt.Errorf("page %s: %w", page.URL, err))
-				if page.Kind == crmcontracts.SiteReadPageKindImpressum {
-					out.legalCensusIncomplete = true
-				}
-			} else {
-				results = append(results, res)
-				published = publishDraft(onDraft, results, published)
-			}
-			mu.Unlock()
+			collected.record(page, res, err)
 		}()
 	})
 	out.crawlMs = time.Since(crawlStart).Milliseconds()
@@ -161,11 +148,44 @@ func crawlAndExtract(ctx context.Context, crawler *siteCrawler, x evidenceExtrac
 	profileWg.Wait()
 
 	if profileErr != nil {
-		failed = append(failed, fmt.Errorf("profile lane: %w", profileErr))
+		collected.failed = append(collected.failed, fmt.Errorf("profile lane: %w", profileErr))
 	}
-	out.merged = mergeInCommitOrder(crawl, results)
-	out.err = errors.Join(failed...)
+	out.legalCensusIncomplete = collected.legalCensusIncomplete
+	out.merged = mergeInCommitOrder(crawl, collected.results)
+	out.err = errors.Join(collected.failed...)
 	return crawl, out, nil
+}
+
+// pageFactsCollector accumulates the streamed fact lane's outcomes. Pages
+// complete from up to pageExtractConcurrency goroutines at once, so every
+// fold goes through its lock; once every lane has been waited on the fields
+// are read directly.
+type pageFactsCollector struct {
+	onDraft func(pageFactsResult)
+
+	mu                    sync.Mutex
+	results               []pageFactsResult
+	published             pageFactsResult
+	failed                []error
+	legalCensusIncomplete bool
+}
+
+// record folds one page's outcome in: a failure joins the collected errors
+// and costs only that page's findings, a success republishes the read so
+// far. A failed LEGAL page also undercounts the entity census, which the
+// legal gate must not trust.
+func (c *pageFactsCollector) record(page crawlPage, res pageFactsResult, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err != nil {
+		c.failed = append(c.failed, fmt.Errorf("page %s: %w", page.URL, err))
+		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+			c.legalCensusIncomplete = true
+		}
+		return
+	}
+	c.results = append(c.results, res)
+	c.published = publishDraft(c.onDraft, c.results, c.published)
 }
 
 // publishDraft hands the caller the read SO FAR whenever it changed, so

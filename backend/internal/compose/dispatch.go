@@ -65,7 +65,7 @@ const (
 	aiCaptureQueue      = "ai_capture"
 	aiCaptureMaxWorkers = 2
 
-	// overlayReconcileQueue is serial. See the queue table in NewJobRunner
+	// overlayReconcileQueue is serial. See the queue table in jobRunnerQueues
 	// for why per-workspace parallelism is not what this phase is after.
 	overlayReconcileQueue = "overlay_reconcile"
 )

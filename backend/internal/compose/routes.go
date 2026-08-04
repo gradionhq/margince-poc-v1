@@ -156,14 +156,19 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 		// the pointer alone.
 		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", authH.ProtectedResourceMetadata)
 	}
-	// Provider push webhooks: unauthenticated by nature (the provider is the
-	// caller), each verified by its own mechanism inside the handler; mounted
-	// only when configured — the route is absent otherwise.
+	mountProviderPushWebhooks(mux, srv, log)
+	return mux
+}
+
+// mountProviderPushWebhooks mounts the provider push receivers:
+// unauthenticated by nature (the provider is the caller), each verified by
+// its own mechanism inside the handler; mounted only when configured — the
+// route is absent otherwise.
+func mountProviderPushWebhooks(mux *http.ServeMux, srv Server, log *slog.Logger) {
 	if srv.gmailPush != nil {
 		mux.Handle("/webhooks/gmail", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
 	}
 	if srv.overlayWebhook != nil {
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
 	}
-	return mux
 }
