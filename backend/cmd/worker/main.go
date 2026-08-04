@@ -108,7 +108,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	// Deferred BEFORE the error is checked: a failure here still leaves earlier
+	// lanes running on the bus and the pool this function closes above.
 	lanes, err := startEventLanes(ctx, cfg, pool, rdb, modelPath, logger, stdout)
+	defer lanes.join()
 	if err != nil {
 		return err
 	}
@@ -122,9 +125,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
-	lanes.background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
+	lanes.background.Go(func() { runSubscriber(lanes.ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 
-	relayUntilSignal(ctx, cfg, pool, rdb, lanes, logger, stdout)
+	relayUntilSignal(ctx, cfg, pool, rdb, logger, stdout)
 	return nil
 }
 

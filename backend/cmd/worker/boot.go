@@ -94,9 +94,21 @@ type workerLanes struct {
 	// group; a bare goroutine would be killed mid-handler when the relay
 	// returns.
 	background *sync.WaitGroup
-	runner     *compose.RunnerService
-	deliverer  *webhooks.Deliverer
-	blob       blobstore.Store
+	// ctx is what every lane goroutine runs under and stop is what ends them,
+	// so the lanes own their own lifetime: one place cancels, one place joins.
+	ctx       context.Context
+	stop      context.CancelFunc
+	runner    *compose.RunnerService
+	deliverer *webhooks.Deliverer
+	blob      blobstore.Store
+}
+
+// join ends the lanes and waits for the handler each is in. It is what makes the
+// bus and the pool safe to close: both are deferred before the lanes start, so
+// they close after this returns, never under a live subscriber.
+func (l workerLanes) join() {
+	l.stop()
+	l.background.Wait()
 }
 
 // startEventLanes starts the lanes this role runs before the job runner exists
@@ -108,12 +120,13 @@ type workerLanes struct {
 // struct whose WaitGroup is nil would leave a caller no way to join them before
 // it closes the bus and the pool they are still using.
 func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, logger *slog.Logger, stdout io.Writer) (workerLanes, error) {
-	lanes := workerLanes{background: &sync.WaitGroup{}}
+	laneCtx, stopLanes := context.WithCancel(ctx)
+	lanes := workerLanes{background: &sync.WaitGroup{}, ctx: laneCtx, stop: stopLanes}
 
-	if err := startRunnerLane(ctx, cfg, pool, rdb, modelPath, &lanes, logger, stdout); err != nil {
+	if err := startRunnerLane(laneCtx, cfg, pool, rdb, modelPath, &lanes, logger, stdout); err != nil {
 		return lanes, err
 	}
-	startProjectionLanes(ctx, pool, rdb, modelPath, lanes.background, logger, stdout)
+	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
@@ -127,7 +140,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 
-	if err := startWebhookLane(ctx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
+	if err := startWebhookLane(laneCtx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
 		return lanes, err
 	}
 	return lanes, nil
@@ -210,13 +223,13 @@ func startWebhookLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool,
 	return nil
 }
 
-// relayUntilSignal ships outbox rows until the process is signalled, then waits
-// for every lane to finish the handler it is in. Unshipped rows wait durably in
-// the outbox for the next boot — shutdown loses no events.
-func relayUntilSignal(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, lanes workerLanes, logger *slog.Logger, stdout io.Writer) {
+// relayUntilSignal ships outbox rows until the process is signalled. Unshipped
+// rows wait durably in the outbox for the next boot — shutdown loses no events.
+// Joining the lanes is run()'s deferred job, so every return path joins them and
+// not just this one.
+func relayUntilSignal(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger, stdout io.Writer) {
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	events.NewRelay(pool, rdb, logger).Run(ctx)
-	lanes.background.Wait()
 }
 
 // backfillConnectorCredentials migrates any legacy capture_connection rows
