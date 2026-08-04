@@ -439,9 +439,10 @@ every REST verb the config surface (§1) and delivery-inspection surface (§4) e
 directly (`response.status === 503`) rather than the generic error channel, and the card renders the
 honest "not enabled on this deployment" empty state instead of a generic failure — the same "deliberate,
 documented feature-off state, never an error" posture §8 describes for the API. `WebhooksCard` also
-gates create/rotate/replay controls behind the same RBAC the API enforces (`canConfigureAutomations` /
-admin-ops posture), so a viewer with read-only access sees the list and deliveries but not the mutating
-affordances.
+gates create/rotate/replay controls behind the same RBAC the API enforces — each control asks for the
+specific `webhook_subscription` grant its endpoint checks (create for registration, update for edit,
+rotate and delivery replay, delete for archive), read from the `/me` authorization snapshot — so a
+viewer with read-only access sees the list and deliveries but not the mutating affordances.
 
 ## Rules of thumb
 

@@ -775,7 +775,7 @@ describe("the mirror user-map card", () => {
   it("withholds the surface, and the reads behind it, from a non-admin seat", async () => {
     const { calls } = renderCard({ allow: {} });
     expect(
-      await screen.findByText(/Ask an admin or ops teammate/i),
+      await screen.findByText(/You do not have permission/i),
     ).toBeInTheDocument();
     expect(requests(calls, "GET", "/overlay/user-map")).toHaveLength(0);
     expect(requests(calls, "GET", "/overlay/owners")).toHaveLength(0);

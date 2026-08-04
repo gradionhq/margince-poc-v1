@@ -663,12 +663,12 @@ describe("SettingsScreen overlay tab", () => {
     ).toBeTruthy();
     expect(
       await screen.findByText(
-        "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+        "You do not have permission to connect or disconnect HubSpot.",
       ),
     ).toBeTruthy();
     expect(
       await screen.findByText(
-        "Ask an admin or ops teammate to review who is mapped.",
+        "You do not have permission to review who is mapped.",
       ),
     ).toBeTruthy();
     // No mapping table, no grouping toggle, and — the point of the card's
@@ -748,6 +748,29 @@ describe("PipelinesCard", () => {
     await screen.findByText("Sales");
     expect(screen.queryByText("New pipeline")).toBeNull();
   });
+  // One grant at a time: create and update govern different controls, and a
+  // fixture holding both cannot tell a correct binding from a transposed one.
+  it("offers stage editing on update alone, without the create affordance", async () => {
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({ roles: ["admin"], allow: { pipeline: ["update"] } }),
+    );
+    render(<PipelinesCard />);
+    await screen.findByText("Sales");
+    expect(screen.getByTestId("new-stage-pl")).toBeTruthy();
+    expect(screen.queryByText("New pipeline")).toBeNull();
+  });
+
+  it("offers the create affordance on create alone, without stage editing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      settingsStub({ roles: ["admin"], allow: { pipeline: ["create"] } }),
+    );
+    render(<PipelinesCard />);
+    expect(await screen.findByText("New pipeline")).toBeTruthy();
+    expect(screen.queryByTestId("new-stage-pl")).toBeNull();
+  });
+
   it("create stage posts the pipeline_id + semantic + win_probability", async () => {
     const posts: unknown[] = [];
     vi.stubGlobal(

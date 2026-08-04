@@ -7262,16 +7262,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	Active  ListCustomFieldsParamsStatus = "active"
-	Retired ListCustomFieldsParamsStatus = "retired"
+	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
+	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case ListCustomFieldsParamsStatusActive:
 		return true
-	case Retired:
+	case ListCustomFieldsParamsStatusRetired:
 		return true
 	default:
 		return false

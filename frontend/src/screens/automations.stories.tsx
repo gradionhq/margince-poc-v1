@@ -69,6 +69,7 @@ export const Configurable: Story = {
           <AutomationRow
             automation={automation}
             entry={entry}
+            canViewRuns
             canEdit
             canDelete
           />
@@ -91,6 +92,7 @@ export const EditableButNotDeletable: Story = {
           <AutomationRow
             automation={automation}
             entry={entry}
+            canViewRuns
             canEdit
             canDelete={false}
           />
@@ -109,6 +111,7 @@ export const ReadOnly: Story = {
           <AutomationRow
             automation={automation}
             entry={entry}
+            canViewRuns
             canEdit={false}
             canDelete={false}
           />

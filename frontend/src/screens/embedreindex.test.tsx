@@ -269,6 +269,24 @@ it("F2: a stuck reembedding marker shows the age of the last progress and keeps 
   }
 });
 
+// read and update are separate grants: the card gates its status QUERY on the
+// read and its rebuild actions on the update, so a read↔update swap must fail.
+it("renders the status but no rebuild actions on the read grant alone", async () => {
+  mount(
+    { embedding_reindex: ["read"] },
+    {
+      "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
+      "GET /embeddings/reindex/preview": () => json(PREVIEW),
+    },
+  );
+  // The card itself renders — the read grant admits the status query — but
+  // every control that would start work is withheld.
+  await waitFor(() =>
+    expect(screen.queryByText("Review & reindex")).toBeNull(),
+  );
+  expect(screen.queryByRole("button", { name: /Rebuild/ })).toBeNull();
+});
+
 it("renders nothing for a role without the embedding_reindex read grant", async () => {
   const { requests } = mount(
     {},

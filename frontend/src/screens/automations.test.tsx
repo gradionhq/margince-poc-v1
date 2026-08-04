@@ -281,6 +281,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
+          canViewRuns
           canEdit
           canDelete
         />
@@ -293,6 +294,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
+          canViewRuns
           canEdit
           canDelete
         />
@@ -313,12 +315,70 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     );
     expect(
       screen.getByText(
-        "Read-only view — automation settings are managed by the admin and ops roles.",
+        "Read-only view — you do not have permission to change automations.",
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Enable" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+  });
+
+  // One grant at a time. A fixture holding create+update+delete together
+  // cannot tell a correct binding from a transposed one — swapping update and
+  // delete in the screen passes such a suite outright. These pin each verb to
+  // the control it actually governs.
+  it("shows only the affordances the specific grant covers", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read", "update"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    // update -> the pause/enable toggle is offered (its label follows status)
+    expect(screen.getAllByRole("button", { name: /Pause|Enable/ }).length).toBe(
+      1,
+    );
+    // no delete grant -> the destructive control is withheld
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    // no create grant -> the catalog cannot be instantiated
+    expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+  });
+
+  it("offers deletion only with the delete grant, and nothing else with it", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read", "delete"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(1);
+    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use template" })).toBeNull();
+  });
+
+  // The runs and preview inspectors are READS (automations_runs.go gates on
+  // automation:read; Preview resolves through Get). A read-only principal must
+  // still reach them.
+  it("offers the runs and preview inspectors on the read grant alone", async () => {
+    const automations = [instance({})];
+    vi.stubGlobal(
+      "fetch",
+      automationsBackend(automations, [], { automation: ["read"] }),
+    );
+    render(<AutomationsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
+    );
+    expect(screen.getAllByRole("button", { name: "Runs" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Preview" }).length).toBe(1);
+    expect(screen.queryByRole("button", { name: /Pause|Enable/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
@@ -331,7 +391,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     );
     expect(
       screen.queryByText(
-        "Read-only view — automation settings are managed by the admin and ops roles.",
+        "Read-only view — you do not have permission to change automations.",
       ),
     ).toBeNull();
     await waitFor(() =>
@@ -367,13 +427,14 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     });
   }
 
-  it("shows the Runs/Preview toggles only with the update grant", () => {
+  it("shows the Runs/Preview toggles on the READ grant, not the write one", () => {
     vi.stubGlobal("fetch", panelBackend());
     const view = render(
       <ul>
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
+          canViewRuns
           canEdit
           canDelete
         />
@@ -383,13 +444,33 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
     view.unmount();
 
+    // Read but no write: the inspectors stay, because the server gates them on
+    // automation:read. Hiding them behind the write grant — as the old role
+    // proxy did — withheld a surface a reader is entitled to.
+    const readOnly = render(
+      <ul>
+        <AutomationRow
+          automation={instance({})}
+          entry={catalog[0]}
+          canViewRuns
+          canEdit={false}
+          canDelete={false}
+        />
+      </ul>,
+    );
+    expect(screen.getByRole("button", { name: "Runs" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    readOnly.unmount();
+
+    // No read grant: gone.
     render(
       <ul>
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canEdit={false}
-          canDelete={false}
+          canViewRuns={false}
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -404,6 +485,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
+          canViewRuns
           canEdit
           canDelete
         />
@@ -422,6 +504,7 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
+          canViewRuns
           canEdit
           canDelete
         />

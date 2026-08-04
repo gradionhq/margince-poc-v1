@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -184,19 +184,21 @@ function AutomationForm({
 
 // One instance row, rendered from the Automation wire schema alone — no
 // origin field exists on the wire, so authorship cannot change the render.
-// Pausing, editing and deleting are three affordances over two grants, so the
-// row takes them separately rather than inferring both from one flag. The runs
-// and preview inspectors sit inside the canEdit group even though the server
-// gates them on automation:read — opening a read surface the role proxy has
-// always hidden is a product decision, not part of rebinding the writes.
+// Four affordances over three grants. The runs and preview inspectors are
+// READS — automations_runs.go gates on automation:read, and Preview resolves
+// the instance through Get (read) before carrying the target table's own read
+// gate — so they are not hidden behind the write grant that the old role proxy
+// happened to imply.
 export function AutomationRow({
   automation,
   entry,
+  canViewRuns,
   canEdit,
   canDelete,
 }: Readonly<{
   automation: Automation;
   entry?: CatalogEntry;
+  canViewRuns: boolean;
   canEdit: boolean;
   canDelete: boolean;
 }>) {
@@ -300,6 +302,10 @@ export function AutomationRow({
                 {t("trust.edit")}
               </Button>
             )}
+          </>
+        )}
+        {canViewRuns && (
+          <>
             <Button
               small
               variant={runsOpen ? "primary" : "ghost"}
@@ -333,7 +339,7 @@ export function AutomationRow({
         automationId={automation.id}
         runsOpen={runsOpen}
         previewOpen={previewOpen}
-        canConfigure={canEdit}
+        canConfigure={canViewRuns}
       />
       {editing && entry && (
         <AutomationForm
@@ -365,9 +371,10 @@ export function AutomationsScreen() {
   // Grants come from the session (/v1/me); until they arrive every predicate
   // is false, so the screen shows no mutation affordance until one is confirmed.
   const me = useMe();
-  const canCreate = useCan("automation", "create");
-  const canEdit = useCan("automation", "update");
-  const canDelete = useCan("automation", "delete");
+  const canViewRuns = useCan("automation", "read");
+  const canCreate = useCanWrite("automation", "create");
+  const canEdit = useCanWrite("automation", "update");
+  const canDelete = useCanWrite("automation", "delete");
 
   const catalog = useQuery({
     queryKey: ["automation-catalog"],
@@ -511,6 +518,7 @@ export function AutomationsScreen() {
                     key={automation.id}
                     automation={automation}
                     entry={entryFor(automation.key)}
+                    canViewRuns={canViewRuns}
                     canEdit={canEdit}
                     canDelete={canDelete}
                   />

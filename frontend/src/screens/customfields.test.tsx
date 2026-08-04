@@ -416,6 +416,41 @@ describe("CustomFieldsScreen", () => {
     expect(screen.getByText(/Admin role required/i)).toBeInTheDocument();
   });
 
+  // One grant at a time: the builder needs create, rename/retire need update.
+  // A fixture holding both cannot tell a correct binding from a transposed one.
+  it("offers rename and retire on update alone, without the builder", async () => {
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [],
+        [],
+        { custom_field: ["update"] },
+      ),
+    );
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
+    expect(
+      screen.getAllByRole("button", { name: /Archive field/i }).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("Add field to Deal")).toBeNull();
+  });
+
+  it("offers the builder on create alone, without rename or retire", async () => {
+    vi.stubGlobal(
+      "fetch",
+      customFieldsBackend(
+        [field({ id: "d1", label: "Renewal date" })],
+        [],
+        [],
+        { custom_field: ["create"] },
+      ),
+    );
+    renderScreen();
+    await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
+  });
+
   it("rolls back the optimistic staged row and toasts the error on create failure", async () => {
     const calls: Recorded[] = [];
     vi.stubGlobal(

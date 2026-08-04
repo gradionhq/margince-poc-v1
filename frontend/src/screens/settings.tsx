@@ -24,7 +24,7 @@ import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
@@ -202,12 +202,19 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
   const me = useMe();
   const capabilities = useCompanyContextCapabilities();
-  // Deliberately a ROLE check, not a capability one. This gates a whole tab
-  // group spanning pipelines, custom fields, rates, audit, users and the
-  // data-reset and job-health surfaces, several of which the server guards
-  // with RequireAdmin rather than any object grant. No single (object, action)
-  // pair describes it, and picking one would either hide a tab its holder may
-  // use or show one they may not. The server re-checks every tab regardless.
+  // Deliberately a ROLE check, and the one place in this screen that stays one.
+  //
+  // The group spans surfaces with no RBAC object at all — the audit log, user
+  // administration, data reset and job health, which the server guards with
+  // RequireAdmin — alongside ones that do have clean grants. No single
+  // (object, action) pair describes the group.
+  //
+  // The honest cost: a principal granted, say, pipeline writes by an edited
+  // role still cannot NAVIGATE to the Catalog tab, even though the card inside
+  // would now offer them the controls. Per-tab capability gating is the fix,
+  // but it changes what every role sees in the nav — pipeline:read is held by
+  // everyone, so Catalog would appear for reps — and that is a product
+  // decision, not part of rebinding write affordances. Tracked separately.
   const isOrgAdmin = (me.data?.roles ?? []).some(
     (role) => role === "admin" || role === "ops",
   );
@@ -217,8 +224,9 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
     // seat and points here, so hiding the tab would strand any non-admin
     // who follows it on the Account fallback. Hiding buys no security
     // either — the server 403s the privileged reads regardless, and both
-    // cards on the tab already gate themselves on canManageOverlay, so a
-    // rep gets the honest read-only view instead of a dead link.
+    // cards on the tab already gate themselves on the overlay_connection
+    // grants, so a viewer without them gets the honest read-only view
+    // instead of a dead link.
     if (entry.id === "overlay") {
       return true;
     }
@@ -1120,8 +1128,8 @@ export function PipelinesCard() {
   // pipeline, adding a stage, editing one, reordering — is pipeline:update,
   // including the stage CREATE affordance: a stage is not its own RBAC object,
   // so adding one is an update to the pipeline that owns it.
-  const canCreate = useCan("pipeline", "create");
-  const canEdit = useCan("pipeline", "update");
+  const canCreate = useCanWrite("pipeline", "create");
+  const canEdit = useCanWrite("pipeline", "update");
   const query = useQuery({
     queryKey: ["pipelines", "all"],
     queryFn: async () => {

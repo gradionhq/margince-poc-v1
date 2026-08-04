@@ -6,7 +6,7 @@ import { Plug } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCanWrite } from "../app/capability";
 import { isOption } from "../app/options";
 import {
   Badge,
@@ -252,9 +252,9 @@ export function OverlayCard() {
   // disconnecting purges it and flips the workspace back to native — create,
   // update and delete on the same object, and three different amounts of
   // damage.
-  const canConnect = useCan("overlay_connection", "create");
-  const canReconcile = useCan("overlay_connection", "update");
-  const canDisconnect = useCan("overlay_connection", "delete");
+  const canConnect = useCanWrite("overlay_connection", "create");
+  const canReconcile = useCanWrite("overlay_connection", "update");
+  const canDisconnect = useCanWrite("overlay_connection", "delete");
   const queryClient = useQueryClient();
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
   // Connect/reconnect is confirm-first (same posture as Disconnect below):

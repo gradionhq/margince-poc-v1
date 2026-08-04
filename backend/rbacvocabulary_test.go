@@ -52,6 +52,20 @@ func TestContractObjectEnumMatchesPolicyVocabulary(t *testing.T) {
 	if len(policy) == 0 {
 		t.Fatal("parsed no objects from policy.go; the declaration this gate compares against has moved")
 	}
+	// Set comparison alone would let a duplicated enum entry through, and a
+	// duplicate is how a hand-edited 29-item list quietly loses a member.
+	for _, list := range []struct {
+		name   string
+		values []string
+	}{{"crm.yaml's RbacObject enum", contract}, {"policy.coreObjects", policy}} {
+		seen := map[string]bool{}
+		for _, value := range list.values {
+			if seen[value] {
+				t.Errorf("%s declares %q more than once", list.name, value)
+			}
+			seen[value] = true
+		}
+	}
 
 	for _, object := range missing(policy, contract) {
 		t.Errorf("RBAC object %q is in policy.coreObjects but not in crm.yaml's RbacObject enum. "+
@@ -84,7 +98,19 @@ func TestContractActionEnumMatchesObjectGrant(t *testing.T) {
 		// missing key as a denial it was never told about.
 		declared := schema.Enum
 		if name == "RbacObjectGrant" {
+			// Both halves: `required` alone would pass a schema that requires
+			// an action it never declares a property for, and `properties`
+			// alone would pass one that declares every action optional — a
+			// grant the client would read as absent, which denies.
 			declared = schema.Required
+			properties := make([]string, 0, len(schema.Properties))
+			for property := range schema.Properties {
+				properties = append(properties, property)
+			}
+			if diff := append(missing(declared, properties), missing(properties, declared)...); len(diff) > 0 {
+				t.Errorf("crm.yaml's RbacObjectGrant lists %v under one of required/properties but not "+
+					"the other; an action declared optional reads as absent to a client, which denies", diff)
+			}
 		}
 		for _, action := range missing(fields, declared) {
 			t.Errorf("principal.ObjectGrant carries action %q but crm.yaml's %s does not declare it; "+
@@ -115,8 +141,9 @@ func missing(have, want []string) []string {
 // gates read. Decoding a narrow struct rather than a free-form map keeps a
 // malformed contract a parse failure instead of a silently empty enum.
 type contractSchemaFields struct {
-	Enum     []string `yaml:"enum"`
-	Required []string `yaml:"required"`
+	Enum       []string             `yaml:"enum"`
+	Required   []string             `yaml:"required"`
+	Properties map[string]yaml.Node `yaml:"properties"`
 }
 
 func contractSchema(t *testing.T, name string) contractSchemaFields {

@@ -11,7 +11,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -204,6 +204,11 @@ type DirectoryState = Readonly<{
 // one mapping write may be outstanding, so every affordance that starts one
 // goes inert until it settles.
 type MappingActions = Readonly<{
+  // The listing and the writes are different questions. A read seat may be
+  // entitled to SEE the map (the server gates that on the update grant because
+  // the rows carry the incumbent's directory) while the seat ceiling still
+  // refuses every PUT and DELETE — so the rows render and their controls do not.
+  canMap: boolean;
   picking: string | null;
   onStartPick: (userId: string) => void;
   onCancelPick: () => void;
@@ -360,25 +365,27 @@ function UserRow({
           />
         )}
       </div>
-      <div style={ACTIONS_STYLE}>
-        <Button
-          small
-          disabled={actions.busy}
-          onClick={() => actions.onStartPick(entry.user_id)}
-        >
-          {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
-        </Button>
-        {mapped && (
+      {actions.canMap && (
+        <div style={ACTIONS_STYLE}>
           <Button
             small
-            variant="danger"
             disabled={actions.busy}
-            onClick={() => actions.onUnmapRequest(entry)}
+            onClick={() => actions.onStartPick(entry.user_id)}
           >
-            {t("overlay.userMap.unmap")}
+            {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
           </Button>
-        )}
-      </div>
+          {mapped && (
+            <Button
+              small
+              variant="danger"
+              disabled={actions.busy}
+              onClick={() => actions.onUnmapRequest(entry)}
+            >
+              {t("overlay.userMap.unmap")}
+            </Button>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -605,6 +612,9 @@ export function MirrorUserMapCard() {
   // (overlay/usermapservice.go). Both queries below are gated on it for that
   // reason, not as a convenience.
   const canManage = useCan("overlay_connection", "update");
+  // Seeing the map is a read the server gates on the update grant; changing a
+  // mapping is a real write, so it also needs the seat.
+  const canMap = useCanWrite("overlay_connection", "update");
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("user");
   const [picking, setPicking] = useState<string | null>(null);
@@ -710,6 +720,7 @@ export function MirrorUserMapCard() {
   // next row's picker — or the confirm for a different person — opens already
   // showing a refusal that was never about them.
   const actions: MappingActions = {
+    canMap,
     picking,
     onStartPick: (userId) => {
       setMapping.reset();

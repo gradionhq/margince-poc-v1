@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCanWrite } from "../app/capability";
 import {
   Button,
   DataTable,
@@ -93,7 +93,7 @@ export function FxRatesCard() {
   // create, not update: setting a rate for a currency pair and day is a Set
   // upsert the server gates on fx_rate:create, and correcting the same day's
   // rate runs through that same path. No endpoint checks fx_rate:update.
-  const canManage = useCan("fx_rate", "create");
+  const canManage = useCanWrite("fx_rate", "create");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["fx-rates"],
@@ -259,7 +259,7 @@ function FxRateModal({ onClose }: Readonly<{ onClose: () => void }>) {
 export function ModelCostsCard() {
   const t = useT();
   // create, for the same reason as FxRatesCard above.
-  const canManage = useCan("ai_model_rate", "create");
+  const canManage = useCanWrite("ai_model_rate", "create");
   const [open, setOpen] = useState(false);
   const query = useQuery({
     queryKey: ["ai-model-rates"],

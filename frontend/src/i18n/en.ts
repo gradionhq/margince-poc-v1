@@ -325,7 +325,7 @@ export const en = {
   "overlay.empty":
     "No incumbent is connected. Connect HubSpot to read records from its mirror.",
   "overlay.adminOnly":
-    "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+    "You do not have permission to connect or disconnect HubSpot.",
   "overlay.region": "Region",
   "overlay.regionEu1": "EU",
   "overlay.regionUs": "United States",
@@ -378,7 +378,7 @@ export const en = {
   "overlay.userMap.loading": "Loading the user mapping…",
   "overlay.userMap.loadFailed": "Couldn't load the user mapping.",
   "overlay.userMap.adminOnly":
-    "Ask an admin or ops teammate to review who is mapped.",
+    "You do not have permission to review who is mapped.",
   "overlay.userMap.notOverlay":
     "This workspace reads from native tables, so there is nothing to map.",
   "overlay.userMap.notConfigured":
@@ -1438,7 +1438,7 @@ export const en = {
     "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
 
   "settings.pipelines": "Pipelines",
-  "settings.pipelinesSub": "Configure pipelines and their stages (admin/ops).",
+  "settings.pipelinesSub": "Configure pipelines and their stages.",
   "pipeline.new": "New pipeline",
   "pipeline.edit": "Edit pipeline",
   "pipeline.name": "Name",
@@ -1936,7 +1936,7 @@ export const en = {
   "consumerMail.add": "Add",
   "consumerMail.remove": "Remove",
   "consumerMail.none": "Nothing added. The shipped list decides every domain.",
-  "consumerMail.adminOnly": "Only an admin can change this list.",
+  "consumerMail.adminOnly": "You do not have permission to change this list.",
 
   "ob.s4.googleVerifying": "Verifying the connection…",
   "ob.s4.googleDenied": "You declined the Google consent",
@@ -2354,7 +2354,7 @@ export const en = {
 
   "auto.sub": "a closed catalog — pick a type, set its parameters, enable it",
   "auto.readOnly":
-    "Read-only view — automation settings are managed by the admin and ops roles.",
+    "Read-only view — you do not have permission to change automations.",
   "auto.catalog": "Starter library",
   "auto.catalogSub": "the closed set of automation types",
   "auto.instances": "Configured automations",

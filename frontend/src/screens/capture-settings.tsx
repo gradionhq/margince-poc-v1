@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../api/client";
-import { useCan } from "../app/capability";
+import { useCanWrite } from "../app/capability";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
@@ -44,7 +44,7 @@ function useUpdateCaptureSettings() {
 
 export function CaptureSettingsCard() {
   const t = useT();
-  const canManage = useCan("capture_settings", "update");
+  const canManage = useCanWrite("capture_settings", "update");
   const query = useCaptureSettings();
   const update = useUpdateCaptureSettings();
 

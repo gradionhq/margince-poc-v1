@@ -5531,7 +5531,16 @@ paths:
           description: Target core object (CUSTOM-FIELDS-PARAM-2).
         - name: status
           in: query
-          schema: { type: string, enum: [active, retired] }
+          schema:
+            type: string
+            enum: [active, retired]
+            # Pins the generated Go constant names. Left to itself the generator
+            # shortens this pair to a bare Active/Retired whenever the surrounding
+            # schema set shifts — two very generic identifiers squatted in the
+            # shared contracts package, and enum churn in diffs that never touched
+            # custom fields.
+            x-enum-varnames:
+              [ListCustomFieldsParamsStatusActive, ListCustomFieldsParamsStatusRetired]
           description: >-
             Filter to one lifecycle state. Omitted returns both active and retired — this
             admin list intentionally does not default-exclude retired rows.

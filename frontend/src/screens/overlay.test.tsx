@@ -170,9 +170,32 @@ describe("the overlay card", () => {
     expect(screen.queryByLabelText("Private-app token")).toBeNull();
     expect(
       await screen.findByText(
-        /Ask an admin or ops teammate to connect or disconnect HubSpot/,
+        /You do not have permission to connect or disconnect HubSpot/,
       ),
     ).toBeTruthy();
+  });
+
+  // One grant at a time. connect/reconcile/disconnect are create/update/delete
+  // on the same object; a fixture holding all three cannot catch a swap.
+  it("offers the connect form on the create grant alone", async () => {
+    stubApi({
+      "GET /me": meRoute({ overlay_connection: ["read", "create"] }),
+      "GET /overlay/connection": () =>
+        jsonResponse({ detail: "not found" }, 404),
+    });
+    render(<OverlayCard />);
+    expect(await screen.findByLabelText("Private-app token")).toBeTruthy();
+  });
+
+  it("withholds the connect form when only update and delete are granted", async () => {
+    stubApi({
+      "GET /me": meRoute({ overlay_connection: ["read", "update", "delete"] }),
+      "GET /overlay/connection": () =>
+        jsonResponse({ detail: "not found" }, 404),
+    });
+    render(<OverlayCard />);
+    await screen.findByText(/No incumbent is connected/);
+    expect(screen.queryByLabelText("Private-app token")).toBeNull();
   });
 
   it("shows per-object sync rows and the budget band", async () => {

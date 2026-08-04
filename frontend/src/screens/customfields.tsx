@@ -11,7 +11,7 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -531,8 +531,8 @@ export function CustomFieldsScreen() {
   const me = useMe();
   // Two grants, two affordances: the builder adds a column to a live table,
   // while rename and retire change one that already exists.
-  const canCreate = useCan("custom_field", "create");
-  const canEdit = useCan("custom_field", "update");
+  const canCreate = useCanWrite("custom_field", "create");
+  const canEdit = useCanWrite("custom_field", "update");
   const meUserId = me.data?.user?.id;
 
   const [object, setObject] = useState<CfObject>("deal");

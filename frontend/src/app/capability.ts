@@ -40,8 +40,36 @@ export type RbacAction = components["schemas"]["RbacAction"];
  */
 export function useCan(object: RbacObject, action: RbacAction): boolean {
   const me = useMe();
-  // objects is an index signature, so TypeScript types a miss as present. The
-  // optional chain is what actually makes an absent grant deny at runtime.
-  const grant = me.data?.authorization?.objects[object];
+  // Two optional steps, both load-bearing. `objects` is an index signature, so
+  // TypeScript types a miss as PRESENT — only the chain makes an absent grant
+  // deny at runtime; and the chain must cover `objects` itself, or a snapshot
+  // that arrived without it would throw in render rather than deny.
+  const grant = me.data?.authorization?.objects?.[object];
   return grant?.[action] ?? false;
+}
+
+/**
+ * Whether the licensing seat permits mutating at all (A62/ADR-0047).
+ *
+ * The server clamps this on the HTTP METHOD, before RBAC, so a read seat may
+ * read everything its roles grant and write none of it. Only an explicit
+ * `full` passes: an absent, unreadable or unrecognized seat denies, so a
+ * snapshot that lost the field cannot buy the ability to mutate.
+ */
+export function useCanMutate(): boolean {
+  return useMe().data?.authorization?.seat_type === "full";
+}
+
+/**
+ * Both axes, for a control that issues a MUTATING request — the common case.
+ *
+ * Use `useCan` alone only where the control issues a GET whose RBAC action
+ * happens to be a write verb (`GET /ai/usage` gates on `automation:update`;
+ * the overlay user-map listing gates on `overlay_connection:update`). Folding
+ * the seat into those would hide a page a read seat may genuinely see.
+ */
+export function useCanWrite(object: RbacObject, action: RbacAction): boolean {
+  const granted = useCan(object, action);
+  const mutable = useCanMutate();
+  return granted && mutable;
 }

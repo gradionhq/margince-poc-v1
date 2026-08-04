@@ -10,7 +10,7 @@ import { api } from "../api/client";
 import { subscribableEventTypeValues } from "../api/public-events";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { useCan } from "../app/capability";
+import { useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -808,9 +808,9 @@ export function WebhooksCard() {
   // three and every other role none, so today they move together — but they are
   // independent columns in role.permissions, and an operator who narrows one is
   // entitled to a UI that follows.
-  const canCreate = useCan("webhook_subscription", "create");
-  const canEdit = useCan("webhook_subscription", "update");
-  const canArchive = useCan("webhook_subscription", "delete");
+  const canCreate = useCanWrite("webhook_subscription", "create");
+  const canEdit = useCanWrite("webhook_subscription", "update");
+  const canArchive = useCanWrite("webhook_subscription", "delete");
   const query = useWebhookSubscriptions();
   const [creating, setCreating] = useState(false);
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);

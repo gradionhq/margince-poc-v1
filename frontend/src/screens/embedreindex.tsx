@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import { Badge, Button, SectionHeader } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
@@ -239,7 +239,7 @@ export function EmbedReindexCard() {
   // its actions on the update, so a role granted one without the other gets a
   // card that tells the truth rather than one that 403s on click.
   const canRead = useCan("embedding_reindex", "read");
-  const canWrite = useCan("embedding_reindex", "update");
+  const canWrite = useCanWrite("embedding_reindex", "update");
   const [mode, setMode] = useState<"reindex" | "rebuild" | null>(null);
   // The identity the operator is previewing against, snapshotted when the
   // dialog opens — NOT re-read from the live status query at confirm time. A

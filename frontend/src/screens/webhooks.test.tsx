@@ -16,7 +16,7 @@ import { WebhooksCard } from "./webhooks";
 
 // The Settings → Integrations subscription list: renders from the typed
 // listWebhookSubscriptions seam, gates the create/manage affordance on
-// canConfigureAutomations (the server stays the RBAC authority), and reads
+// the webhook_subscription grants (the server stays the RBAC authority), and reads
 // the deployment's 503 webhooks_not_configured as an honest "not enabled"
 // state rather than an error.
 
@@ -177,6 +177,42 @@ describe("WebhooksCard", () => {
     await waitFor(() =>
       expect(screen.getByTestId("new-webhook-subscription")).toBeTruthy(),
     );
+  });
+
+  // One grant at a time. A fixture holding create+update+delete together cannot
+  // distinguish a correct binding from a transposed one — swapping update and
+  // delete in the screen passes such a suite outright.
+  it("offers edit on the update grant while withholding archive and create", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({ webhook_subscription: ["read", "update"] }),
+    );
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("https://example.test/hooks/margince"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    expect(screen.queryByTestId("new-webhook-subscription")).toBeNull();
+  });
+
+  it("offers archive on the delete grant alone", async () => {
+    vi.stubGlobal(
+      "fetch",
+      backendFor({ webhook_subscription: ["read", "delete"] }),
+    );
+    render(<WebhooksCard />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("https://example.test/hooks/margince"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("renders an honest not-enabled state on 503 webhooks_not_configured", async () => {
@@ -477,7 +513,7 @@ describe("WebhooksCard — archive", () => {
 // LoadMoreButton (the backend contract only carries a `limit` — there is no
 // cursor query param on this endpoint, so "load more" honestly means
 // re-asking for a bigger page, never a fabricated next_cursor), and a
-// per-row replay action gated on canConfigureAutomations.
+// per-row replay action gated on webhook_subscription:update.
 describe("WebhooksCard — deliveries panel (Task 10)", () => {
   const DELIVERED_DELIVERY = {
     id: "del-2",
