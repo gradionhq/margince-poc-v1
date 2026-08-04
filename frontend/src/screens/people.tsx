@@ -50,6 +50,7 @@ import {
   usePerson360,
   WhoKnowsThem,
 } from "./person360";
+import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
 import { PersonMoments } from "./personmoments";
 import { RelationshipsTab } from "./relationships";
@@ -658,6 +659,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 but a guard — what you may send is a live fact whether or
                 not anyone has written to them yet. */}
             {tab === "overview" && <ConsentSection personId={person.id} />}
+            {tab === "overview" && view && (
+              <EnrichedFields personId={id} view={view} />
+            )}
             {tab === "overview" && !thinRecord(view) && (
               <>
                 <CustomFieldsCard object="person" record={person} />

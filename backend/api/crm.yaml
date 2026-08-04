@@ -11355,6 +11355,23 @@ components:
           type: string
           description: "`agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says \"corrected by you\"."
         captured_at: { type: string, format: date-time }
+        claim_key:
+          type: string
+          description: >-
+            The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as
+            `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict
+            survives the value being re-derived.
+        verdict:
+          type: string
+          description: >-
+            What a human has already decided about this field, absent when nobody has. A
+            `corrected` field shows their value in `value` and is never overwritten by a fresh
+            inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means
+            the claim is not shown again.
+          enum: [corrected, suppressed, confirmed]
+        verdict_note:
+          type: [string, 'null']
+          description: Why, in the human's own words, when they gave a reason.
 
     Person360Employment:
       type: object

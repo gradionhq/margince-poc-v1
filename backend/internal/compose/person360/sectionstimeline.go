@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -223,9 +224,42 @@ func (s *Service) profileFieldsSection(ctx context.Context, tx pgx.Tx, personID 
 	if err != nil {
 		return err
 	}
+	// What a human already decided about each field. Folded in HERE rather
+	// than left for the client to join: a corrected value the page rendered
+	// without its marker would read as the machine's assertion, which is
+	// exactly the claim the human overrode.
+	verdicts, err := s.feedback.VerdictsForTx(ctx, tx, "person", personID.UUID)
+	if err != nil {
+		return err
+	}
+	for i := range fields {
+		f := &fields[i]
+		claim := profileFieldClaimPath(string(f.Field))
+		f.ClaimKey = &claim
+		v, found := verdicts[ai.VerdictLookupKey(ai.ClaimProfileField, ai.ClaimKey(claim))]
+		if !found {
+			continue
+		}
+		verdict := crmcontracts.PersonProfileFieldVerdict(v.Verdict)
+		f.Verdict = &verdict
+		f.VerdictNote = v.Note
+		if v.Verdict == ai.VerdictCorrected && v.CorrectedValue != nil {
+			// The human's value stands. The captured snippet is left in place
+			// beneath it on purpose — what the machine read is still the
+			// evidence for why it got this wrong, and hiding it would leave the
+			// correction unexplainable.
+			f.Value = *v.CorrectedValue
+		}
+	}
 	out.ProfileFields = &fields
 	return nil
 }
+
+// profileFieldClaimPath names one enriched field as a claim. It is a function
+// rather than a format string at each call site so the page that RENDERS the
+// key and the ledger that stores it cannot spell it differently — a mismatch
+// would silently lose every correction.
+func profileFieldClaimPath(field string) string { return "profile_field:" + field }
 
 // readProfileFields is shared with the standalone profile-fields endpoint.
 func readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {

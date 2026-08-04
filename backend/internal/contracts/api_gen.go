@@ -5283,6 +5283,27 @@ func (e PersonProfileFieldField) Valid() bool {
 	}
 }
 
+// Defines values for PersonProfileFieldVerdict.
+const (
+	Confirmed  PersonProfileFieldVerdict = "confirmed"
+	Corrected  PersonProfileFieldVerdict = "corrected"
+	Suppressed PersonProfileFieldVerdict = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the PersonProfileFieldVerdict enum.
+func (e PersonProfileFieldVerdict) Valid() bool {
+	switch e {
+	case Confirmed:
+		return true
+	case Corrected:
+		return true
+	case Suppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonReachabilityProvider.
 const (
 	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
@@ -13355,7 +13376,10 @@ type PersonProfileField struct {
 	CapturedAt time.Time `json:"captured_at"`
 
 	// CapturedBy `agent:enrich` until a human edits the field, `human:<uuid>` after — this is how the page says "corrected by you".
-	CapturedBy string   `json:"captured_by"`
+	CapturedBy string `json:"captured_by"`
+
+	// ClaimKey The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict survives the value being re-derived.
+	ClaimKey   *string  `json:"claim_key,omitempty"`
 	Confidence *float32 `json:"confidence,omitempty"`
 
 	// EvidenceSnippet The verbatim source text the value was read from — the reader checks the claim against its own source.
@@ -13368,10 +13392,19 @@ type PersonProfileField struct {
 	// SourceRef What was read, as `activity:<uuid>` for a signature or `site_read:<url>` for a page.
 	SourceRef *string `json:"source_ref,omitempty"`
 	Value     string  `json:"value"`
+
+	// Verdict What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+	Verdict *PersonProfileFieldVerdict `json:"verdict,omitempty"`
+
+	// VerdictNote Why, in the human's own words, when they gave a reason.
+	VerdictNote *string `json:"verdict_note,omitempty"`
 }
 
 // PersonProfileFieldField defines model for PersonProfileField.Field.
 type PersonProfileFieldField string
+
+// PersonProfileFieldVerdict What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+type PersonProfileFieldVerdict string
 
 // PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
 // `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.

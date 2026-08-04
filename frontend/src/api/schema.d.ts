@@ -7436,6 +7436,15 @@ export interface components {
             captured_by: string;
             /** Format: date-time */
             captured_at: string;
+            /** @description The stable identity of this field as a claim. Pass it to `POST /ai/feedback` as `claim_path` to correct or confirm the value — keyed on WHICH field, so the verdict survives the value being re-derived. */
+            claim_key?: string;
+            /**
+             * @description What a human has already decided about this field, absent when nobody has. A `corrected` field shows their value in `value` and is never overwritten by a fresh inference without a 🟡 confirm; `confirmed` carries the marker; `suppressed` means the claim is not shown again.
+             * @enum {string}
+             */
+            verdict?: "corrected" | "suppressed" | "confirmed";
+            /** @description Why, in the human's own words, when they gave a reason. */
+            verdict_note?: string | null;
         };
         /** @description One employment edge, current primary first. */
         Person360Employment: {
