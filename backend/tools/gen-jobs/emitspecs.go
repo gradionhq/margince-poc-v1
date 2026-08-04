@@ -28,8 +28,9 @@ func emitSpecs(c contract, contractHash string) (string, error) {
 	fmt.Fprintf(&b, "const JobContractHash = %q\n\n", contractHash)
 
 	b.WriteString("// specs is every declared kind. A kind absent from this table is a kind\n")
-	b.WriteString("// nobody declared, which MustBeTotal refuses at boot rather than letting it\n")
-	b.WriteString("// run on River's one-minute default.\n")
+	b.WriteString("// nobody declared, and MustBeTotal is what names them — nothing calls it\n")
+	b.WriteString("// yet, so today that is a report a caller can ask for rather than a boot\n")
+	b.WriteString("// the runner refuses.\n")
 	b.WriteString("var specs = map[string]Spec{\n")
 	for _, name := range c.sortedKinds() {
 		writeSpec(&b, name, c.Kinds[name])
@@ -49,6 +50,7 @@ func emitSpecs(c contract, contractHash string) (string, error) {
 func writeSpec(b *strings.Builder, name string, def kindDef) {
 	fmt.Fprintf(b, "\t%q: {\n", name)
 	fmt.Fprintf(b, "\t\tKind: %q,\n", name)
+	fmt.Fprintf(b, "\t\tGoType: %q,\n", def.GoType)
 	fmt.Fprintf(b, "\t\tRole: %s,\n", roleConst(def.Role))
 	fmt.Fprintf(b, "\t\tQueue: %q,\n", def.Queue)
 	fmt.Fprintf(b, "\t\tTimeout: %s,\n", timeoutLiteral(*def.Timeout))
@@ -115,11 +117,17 @@ func timeoutLiteral(t timeoutDef) string {
 	}
 }
 
-// cadenceLiteral returns "" for a kind with no schedule — a workspace kind, or
-// the one dispatcher a human's confirm enqueues.
+// cadenceLiteral returns "" only for a kind that has no schedule to declare —
+// a workspace kind, which is enqueued by its dispatcher and never ticked. A
+// dispatcher a human's confirm enqueues renders {OnDemand: true} instead: the
+// compiled table is what every consumer reads, and a dropped field would make
+// a deliberate absence indistinguishable from a schedule someone lost.
 func cadenceLiteral(c *cadenceDef) string {
-	if c == nil || c.OnDemand {
+	if c == nil {
 		return ""
+	}
+	if c.OnDemand {
+		return "Cadence{OnDemand: true}"
 	}
 	fields := make([]string, 0, 2)
 	if c.Fixed != 0 {

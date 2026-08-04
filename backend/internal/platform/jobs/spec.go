@@ -93,11 +93,15 @@ func (p TimeoutPolicy) Duration(supplied time.Duration) time.Duration {
 	}
 }
 
-// Cadence is a dispatcher's schedule. Exactly one of Fixed and OperatorField
-// is set: a cadence is either this repo's number or an operator's dial, and
-// the file declares which rather than pretending to own a number it does not.
-// Both are empty for the one dispatcher a human's confirm enqueues instead of
-// a clock.
+// Cadence is a dispatcher's schedule, in exactly one of three forms: Fixed is
+// this repo's own number, OperatorField names the dial the number comes from,
+// and OnDemand says a human's confirm enqueues this dispatcher and no clock
+// ever does.
+//
+// OnDemand is a declaration and not an absence, which is the whole reason it
+// exists as a field rather than a zero Cadence: a dispatcher whose schedule
+// simply went missing and one that deliberately has none are the same bytes
+// otherwise, and every consumer reads the compiled table rather than the YAML.
 //
 // ScheduleWhenPositive names the JobRunnerConfig field whose non-positive
 // value means "workers registered, SCHEDULE absent" (periodicWhenPositive).
@@ -106,6 +110,7 @@ func (p TimeoutPolicy) Duration(supplied time.Duration) time.Duration {
 type Cadence struct {
 	Fixed                time.Duration
 	OperatorField        string
+	OnDemand             bool
 	ScheduleWhenPositive string
 }
 
@@ -131,7 +136,13 @@ type Registration struct {
 // the running system reads. It is data — the wiring stays composition's, and
 // this package never learns what a kind's worker actually does.
 type Spec struct {
-	Kind         string
+	Kind string
+	// GoType is the name of the args struct in the composition layer that
+	// returns this Kind. It is the only compose identifier the table carries,
+	// and it is carried as data rather than as an import: it is what lets a
+	// gate assert that the kind↔type pairing still holds without re-parsing
+	// the contract, which is the pairing a renamed struct silently breaks.
+	GoType       string
 	Role         Role
 	Queue        string
 	Timeout      TimeoutPolicy

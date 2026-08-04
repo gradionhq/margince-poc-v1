@@ -11,8 +11,12 @@
 // design: this package says what a kind IS, and the composition layer
 // still assembles the runner — it supplies the queue set, constructs the
 // workers, and schedules the periodic jobs. So platform never learns what
-// a worker does, and a worker can no longer disagree with the file about
-// what it costs.
+// a worker does.
+//
+// The declaration is not yet what the runtime OBEYS. Each worker still
+// answers River's option methods for itself, so the Spec table and a
+// worker can still disagree about what a kind costs; the adapter that
+// makes the file the sole authority arrives with Govern.
 //
 // It owns no domain either way. The boundary with the bus is deliberate:
 // an event announces that something happened (outbox); a job asks for

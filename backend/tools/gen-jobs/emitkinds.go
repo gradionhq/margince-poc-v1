@@ -47,10 +47,14 @@ func emitKinds(c contract, contractHash string) (string, error) {
 // of cannot be registered at all.
 func writeDeclaredSet(b *strings.Builder, c contract) {
 	b.WriteString("// declaredJobArgs is every args type api/jobs.yaml declares, and nothing\n")
-	b.WriteString("// else. A new job kind that is not in the file cannot satisfy it, so it\n")
-	b.WriteString("// cannot reach addDeclaredWorker and cannot be registered — the failure is\n")
-	b.WriteString("// a compile error at the registration site rather than a job silently\n")
-	b.WriteString("// running on River's default timeout.\n")
+	b.WriteString("// else. A job kind the file has never heard of cannot satisfy it, so it\n")
+	b.WriteString("// cannot be passed to addDeclaredWorker below.\n")
+	b.WriteString("//\n")
+	b.WriteString("// Registration does not route through that function yet — the runner still\n")
+	b.WriteString("// calls river.AddWorker directly — so what the set buys today is a closed\n")
+	b.WriteString("// list the compiler checks, not a gate every registration has to pass. The\n")
+	b.WriteString("// commit that routes registration through it is what makes an undeclared\n")
+	b.WriteString("// kind unbuildable.\n")
 	b.WriteString("type declaredJobArgs interface {\n")
 	b.WriteString("\triver.JobArgs\n\n")
 	for i, name := range c.sortedKinds() {
@@ -71,9 +75,14 @@ func writeDeclaredSet(b *strings.Builder, c contract) {
 // signature nothing can satisfy. What this commit already buys is the
 // constraint above — the set of types that may be registered is closed today.
 func writeAddDeclaredWorker(b *strings.Builder) {
-	b.WriteString("// addDeclaredWorker registers one worker for a DECLARED kind. Every worker\n")
-	b.WriteString("// the runner assembles goes through here, so the set of kinds this build\n")
-	b.WriteString("// can work is exactly the set api/jobs.yaml declares.\n")
+	b.WriteString("// addDeclaredWorker registers one worker for a DECLARED kind: its type\n")
+	b.WriteString("// parameter is constrained to the set above, so a kind api/jobs.yaml does\n")
+	b.WriteString("// not declare cannot be passed to it.\n")
+	b.WriteString("//\n")
+	b.WriteString("// It is not yet the only way in. The runner still calls river.AddWorker\n")
+	b.WriteString("// directly, so an undeclared kind can still be registered around this\n")
+	b.WriteString("// function; the commit that moves every registration onto it is what makes\n")
+	b.WriteString("// the declared set the set this build can actually work.\n")
 	b.WriteString("func addDeclaredWorker[T declaredJobArgs](workers *river.Workers, w river.Worker[T]) {\n")
 	b.WriteString("\triver.AddWorker(workers, w)\n")
 	b.WriteString("}\n\n")

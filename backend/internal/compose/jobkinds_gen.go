@@ -11,13 +11,17 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "daaff06fb1ad9a0927ad7b513bef40d174dbf7bb328f89b1bfe408e35c621f30"
+const jobContractHash = "ca4e15c4e69932ea9dadfefe5aadf6fad7c2b7ab0c2a65d510a1f9f99f6bc757"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
-// else. A new job kind that is not in the file cannot satisfy it, so it
-// cannot reach addDeclaredWorker and cannot be registered — the failure is
-// a compile error at the registration site rather than a job silently
-// running on River's default timeout.
+// else. A job kind the file has never heard of cannot satisfy it, so it
+// cannot be passed to addDeclaredWorker below.
+//
+// Registration does not route through that function yet — the runner still
+// calls river.AddWorker directly — so what the set buys today is a closed
+// list the compiler checks, not a gate every registration has to pass. The
+// commit that routes registration through it is what makes an undeclared
+// kind unbuildable.
 type declaredJobArgs interface {
 	river.JobArgs
 
@@ -76,9 +80,14 @@ type declaredJobArgs interface {
 		WebhookRetryWorkspaceArgs
 }
 
-// addDeclaredWorker registers one worker for a DECLARED kind. Every worker
-// the runner assembles goes through here, so the set of kinds this build
-// can work is exactly the set api/jobs.yaml declares.
+// addDeclaredWorker registers one worker for a DECLARED kind: its type
+// parameter is constrained to the set above, so a kind api/jobs.yaml does
+// not declare cannot be passed to it.
+//
+// It is not yet the only way in. The runner still calls river.AddWorker
+// directly, so an undeclared kind can still be registered around this
+// function; the commit that moves every registration onto it is what makes
+// the declared set the set this build can actually work.
 func addDeclaredWorker[T declaredJobArgs](workers *river.Workers, w river.Worker[T]) {
 	river.AddWorker(workers, w)
 }

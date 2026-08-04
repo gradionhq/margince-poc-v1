@@ -532,7 +532,15 @@ kinds:
     cadence: {operator: OverlayInterval}
     registration: {when: [OverlayVault], absent: registers_nothing}
     fans_out_to: overlay_reconcile_workspace
-    fan_out_unit: connection
+    fan_out_unit: workspace
+    reason: >-
+      The unit is what a child row STANDS FOR, and this one stands for a
+      workspace: the due-scan issues one query per overlay-mode tenant and so
+      yields at most one entry each, and the child carries a workspace id and
+      nothing else. The two genuinely per-connection kinds (capture_sync,
+      telegram_poll) both carry a ConnectionID; this one re-reads the
+      connection at work time on purpose, so a tenant that changed between the
+      scan and the sweep is swept under its CURRENT identity.
 
   overlay_reconcile_workspace:
     role: workspace
