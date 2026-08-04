@@ -167,14 +167,18 @@ func TestEveryNamedBackfillMigrationExists(t *testing.T) {
 	}
 }
 
-// readUpMigration returns the body of the .up.sql whose filename starts with
-// version. Matching the up specifically matters: a down-only match would let a
-// mapping name a migration that never grants anything.
+// readUpMigration returns the body of the .up.sql for exactly this version.
+//
+// The match is anchored on the `<version>_` separator, not a bare prefix: these
+// are numeric versions, so a bare prefix would let "0117" also match a
+// hypothetical "01170_…" and silently attribute the wrong migration to an
+// object. Matching the up specifically matters too — a down-only match would
+// let a mapping name a migration that never grants anything.
 func readUpMigration(t *testing.T, dir string, files []os.DirEntry, version string) (string, bool) {
 	t.Helper()
 	for _, f := range files {
 		name := f.Name()
-		if !strings.HasPrefix(name, version) || !strings.HasSuffix(name, ".up.sql") {
+		if !strings.HasPrefix(name, version+"_") || !strings.HasSuffix(name, ".up.sql") {
 			continue
 		}
 		body, err := os.ReadFile(filepath.Join(dir, name))
