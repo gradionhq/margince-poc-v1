@@ -66,8 +66,6 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	var out crmcontracts.Lead
 	created := true
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		wsID := workspaceID(ctx)
-
 		replay, err := replayedLead(ctx, tx, in, active)
 		if err != nil {
 			return err
@@ -89,35 +87,14 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 			return err
 		}
 
-		id := ids.New[ids.LeadKind]()
-		// The initial score is the §3 fit component — a fresh lead has no
-		// behavioral history yet; signal recompute moves it later.
-		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
-		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
 		if in.ProjectID != nil {
 			if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
 				return err
 			}
 		}
-		args := []any{
-			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
-		}
-		_, err = tx.Exec(ctx,
-			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-			                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
-			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
-			append(args, cfArgs...)...)
+		id, err := insertLeadRow(ctx, tx, in, active, by)
 		if err != nil {
-			// Race behind the pre-checks: the constraint name tells an
-			// email dedupe hit from a concurrent same-source import — the
-			// latter is a plain conflict, not a "duplicate email" (the
-			// email may not even be set). No re-read here: the failed
-			// INSERT aborted the transaction.
-			if mapped, ok := leadUniqueViolation(err, in.Email); ok {
-				return mapped
-			}
-			return fmt.Errorf("insert lead: %w", err)
+			return err
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, map[string]any{"email": in.Email, "company_name": in.CompanyName})
@@ -133,6 +110,36 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		return nil
 	})
 	return out, created, err
+}
+
+// insertLeadRow writes the lead row itself and answers with its id.
+func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []fieldcatalog.Column, by string) (ids.LeadID, error) {
+	id := ids.New[ids.LeadKind]()
+	// The initial score is the §3 fit component — a fresh lead has no
+	// behavioral history yet; signal recompute moves it later.
+	fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
+	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
+	args := []any{
+		id, workspaceID(ctx), in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
+		in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
+		                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
+		 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
+		append(args, cfArgs...)...)
+	if err != nil {
+		// Race behind the pre-checks: the constraint name tells an
+		// email dedupe hit from a concurrent same-source import — the
+		// latter is a plain conflict, not a "duplicate email" (the
+		// email may not even be set). No re-read here: the failed
+		// INSERT aborted the transaction.
+		if mapped, ok := leadUniqueViolation(err, in.Email); ok {
+			return ids.LeadID{}, mapped
+		}
+		return ids.LeadID{}, fmt.Errorf("insert lead: %w", err)
+	}
+	return id, nil
 }
 
 // normalizedCreateLeadInput is CreateLead's parse-don't-validate step:
@@ -298,35 +305,11 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 		where = append(where, scope)
 	}
 
-	if !in.IncludeArchived {
-		where = append(where, "archived_at IS NULL")
-	}
-	if in.Status != nil {
-		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
-	}
-	if in.OwnerID != nil {
-		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
-	}
-	kindClause, ok, err := capturedByKindClause(in.CapturedByKind, arg)
+	filters, err := leadFilterClauses(in, arg)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	if ok {
-		where = append(where, kindClause)
-	}
-	if ai := aiWrittenClause(in.AiWritten, "lead", arg); ai != "" {
-		where = append(where, ai)
-	}
-	if in.Query != nil && *in.Query != "" {
-		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))
-	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-	}
+	where = append(where, filters...)
 
 	var leads []crmcontracts.Lead
 	var page storekit.Page
@@ -360,6 +343,44 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 		leads = []crmcontracts.Lead{}
 	}
 	return leads, page, err
+}
+
+// leadFilterClauses renders the caller's requested narrowing — the archive
+// filter, the field filters, quick-find, and the keyset cursor. The row scope
+// is deliberately not here: it is the reader's own boundary and stays at the
+// list entry point, where it cannot be forgotten.
+func leadFilterClauses(in ListLeadsInput, arg func(any) int) ([]string, error) {
+	var where []string
+	if !in.IncludeArchived {
+		where = append(where, "archived_at IS NULL")
+	}
+	if in.Status != nil {
+		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
+	}
+	if in.OwnerID != nil {
+		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
+	}
+	kindClause, ok, err := capturedByKindClause(in.CapturedByKind, arg)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		where = append(where, kindClause)
+	}
+	if ai := aiWrittenClause(in.AiWritten, "lead", arg); ai != "" {
+		where = append(where, ai)
+	}
+	if in.Query != nil && *in.Query != "" {
+		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))
+	}
+	if in.Cursor != nil && *in.Cursor != "" {
+		c, err := storekit.DecodeCursor(*in.Cursor)
+		if err != nil {
+			return nil, err
+		}
+		where = append(where, storekit.SQLf("(created_at, id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
+	}
+	return where, nil
 }
 
 // leadUniqueViolation maps a lead write's unique-index violation to the
