@@ -299,7 +299,7 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 	case "sum", "avg", "min", "max":
 		expr, ok := spec.measures[agg.Field]
 		if !ok {
-			return "", "", &FieldNotAllowedError{Field: agg.Field, Slot: slotAggregates + " field", Allowed: allowedReportNames(spec.measures)}
+			return "", "", &FieldNotAllowedError{Field: agg.Field, Slot: slotAggregates, Allowed: allowedReportNames(spec.measures)}
 		}
 		return name, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)), nil
 	default:

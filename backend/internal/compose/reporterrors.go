@@ -24,7 +24,6 @@ const reportFieldNotAllowedCode = "report_field_not_allowed"
 // spelled differently in the two reads as two different things.
 const (
 	slotGroupBy    = "group_by"
-	slotFilter     = "filter"
 	slotFilters    = "filters"
 	slotAggregates = "aggregates"
 )
@@ -32,14 +31,17 @@ const (
 // FieldNotAllowedError maps to 422 report_field_not_allowed.
 type FieldNotAllowedError struct {
 	Field string
-	// Slot is which plan argument refused the name — "group_by", "filters",
-	// "aggregates". A report's three vocabularies are NOT the same set, and
-	// saying "outside this report's vocabulary" when only one of them refused
-	// is a claim the server itself disproves: `owner_id` is not a dimension of
+	// Slot is which plan argument refused the name, spelled EXACTLY as the
+	// argument is — `group_by`, `filters`, `aggregates` — so a client reads one
+	// token and not two for the same thing.
+	//
+	// It exists because a report's three vocabularies are NOT the same set, and
+	// saying "outside this report's vocabulary" when only one of them refused is
+	// a claim the server itself disproves: `owner_id` is not a dimension of
 	// deals-by-stage and IS a filter of it, so a caller who believed the
 	// unqualified sentence would abandon a query this engine would have run.
 	// Empty falls back to the unqualified wording, for the sites that refuse a
-	// name belonging to no slot in particular.
+	// name belonging to no argument in particular.
 	Slot string
 	// Allowed is the vocabulary the caller should have drawn from, when the
 	// site that refused had it in hand. Empty is honest silence, not a hole:
@@ -52,7 +54,7 @@ func (e *FieldNotAllowedError) Error() string {
 	if e.Slot == "" {
 		return fmt.Sprintf("report: field %q is outside this report's vocabulary", e.Field)
 	}
-	return fmt.Sprintf("report: %q is not a %s name for this report", e.Field, e.Slot)
+	return fmt.Sprintf("report: this report's `%s` does not accept %q", e.Slot, e.Field)
 }
 
 // MessageFault carries the 422 verdict on the error itself, so the ONE taxonomy
