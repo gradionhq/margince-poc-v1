@@ -2,11 +2,21 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package jobs owns the River client lifecycle — the durable
-// background-job substrate, the peer of platform/events for the outbox.
-// It owns no domain: the queue set, workers, and periodic jobs are
-// supplied by the composition layer. The boundary is deliberate: an event
-// announces that something happened (outbox); a job asks for work to be
-// done (here).
+// background-job substrate, the peer of platform/events for the outbox —
+// and the DECLARATION every job kind is built from: the Spec table
+// compiled from backend/api/jobs.yaml, which holds each kind's role,
+// queue, timeout, attempt cap, fan-out edge and registration posture.
+//
+// Declaration and wiring are split on purpose, and the split is the whole
+// design: this package says what a kind IS, and the composition layer
+// still assembles the runner — it supplies the queue set, constructs the
+// workers, and schedules the periodic jobs. So platform never learns what
+// a worker does, and a worker can no longer disagree with the file about
+// what it costs.
+//
+// It owns no domain either way. The boundary with the bus is deliberate:
+// an event announces that something happened (outbox); a job asks for
+// work to be done (here).
 package jobs
 
 import (

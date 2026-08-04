@@ -260,6 +260,9 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
 	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
+	$(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
+		-out-specs internal/platform/jobs/specs_gen.go \
+		-out-kinds internal/compose/jobkinds_gen.go
 	GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
