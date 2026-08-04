@@ -5,6 +5,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import {
   AuditRail,
@@ -168,7 +169,7 @@ describe("FieldTable", () => {
       <FieldTable
         object="deal"
         fields={[field()]}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={() => {}}
         onArchive={() => {}}
@@ -185,7 +186,7 @@ describe("FieldTable", () => {
       <FieldTable
         object="person"
         fields={[]}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={() => {}}
         onArchive={() => {}}
@@ -201,7 +202,7 @@ describe("FieldTable", () => {
       <FieldTable
         object="deal"
         fields={[field()]}
-        canManage={false}
+        canEdit={false}
         meUserId="u1"
         onRename={() => {}}
         onArchive={() => {}}
@@ -215,7 +216,7 @@ describe("FieldTable", () => {
       <FieldTable
         object="deal"
         fields={[field({ status: "retired" })]}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={() => {}}
         onArchive={() => {}}
@@ -240,11 +241,15 @@ type Recorded = { method: string; url: string; body: unknown };
 // route the screen touches is answered so QueryGate renders content, never its
 // error card. `opts.failCreate` makes POST /custom-fields reject with a 422 so
 // the optimistic-rollback path can be exercised.
+// The builder needs create; rename and retire need update. Retire is a
+// LIFECYCLE update, never a delete — no surface here offers one.
+const FIELD_MANAGER: GrantSpec = { custom_field: ["create", "update"] };
+
 function customFieldsBackend(
   dealFields: CustomField[],
   orgFields: CustomField[],
   calls: Recorded[],
-  roles: string[] = ["admin"],
+  allow: GrantSpec = FIELD_MANAGER,
   opts: { failCreate?: boolean } = {},
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -256,7 +261,7 @@ function customFieldsBackend(
         ? await request.json()
         : JSON.parse(String(init?.body))) as Record<string, unknown>;
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({ user: { id: "u1" }, roles, teams: [] });
+      return jsonResponse(meFixture({ allow }));
     }
     if (url.includes("/audit-log")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
@@ -397,7 +402,7 @@ describe("CustomFieldsScreen", () => {
         [field({ id: "d1", label: "Renewal date" })],
         [],
         [],
-        ["rep"],
+        {},
       ),
     );
     renderScreen();
@@ -419,7 +424,7 @@ describe("CustomFieldsScreen", () => {
         [field({ id: "d1", label: "Existing field" })],
         [],
         calls,
-        ["admin"],
+        FIELD_MANAGER,
         { failCreate: true },
       ),
     );

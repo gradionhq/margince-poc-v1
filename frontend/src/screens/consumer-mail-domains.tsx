@@ -4,12 +4,8 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import {
-  canConfigureAutomations,
-  problemMessage,
-  QueryGate,
-  useMe,
-} from "./common";
+import { useCan } from "../app/capability";
+import { problemMessage, QueryGate } from "./common";
 
 // The workspace's own consumer-mail list (CAP-PARAM-5). Mail from a consumer
 // domain still creates the person; what it never creates is a company. The
@@ -80,8 +76,10 @@ function useRemoveConsumerMailDomain() {
 
 export function ConsumerMailDomainsCard() {
   const t = useT();
-  const me = useMe();
-  const canManage = canConfigureAutomations(me.data?.roles);
+  // Both add and remove gate on capture_settings:update — there is no
+  // mail-domain object, and removing an entry is an update to the workspace's
+  // capture configuration rather than a delete of a record.
+  const canManage = useCan("capture_settings", "update");
   const query = useConsumerMailDomains();
   const add = useAddConsumerMailDomain();
   const remove = useRemoveConsumerMailDomain();

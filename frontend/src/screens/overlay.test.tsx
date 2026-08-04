@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { OverlayCard } from "./overlay";
 
@@ -101,9 +102,14 @@ function stubApi(routes: Record<string, RouteHandler>): Request[] {
   return calls;
 }
 
-function meRoute(roles: string[]): RouteHandler {
-  return () =>
-    jsonResponse({ user: { email: "ada@acme.test" }, roles, teams: [] });
+// Connect, reconcile and disconnect are create, update and delete on the same
+// object — three different amounts of damage, so three grants.
+const OVERLAY_OPERATOR: GrantSpec = {
+  overlay_connection: ["create", "update", "delete"],
+};
+
+function meRoute(allow: GrantSpec): RouteHandler {
+  return () => jsonResponse(meFixture({ allow }));
 }
 
 function render(ui: ReactNode) {
@@ -126,7 +132,7 @@ afterEach(() => {
 describe("the overlay card", () => {
   it("renders the not-connected empty state when the server has no connection", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
     });
@@ -137,7 +143,7 @@ describe("the overlay card", () => {
 
   it("says overlay is unconfigured when the server answers 501", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
         jsonResponse(
           { code: "not_implemented", detail: "overlay not wired" },
@@ -155,7 +161,7 @@ describe("the overlay card", () => {
 
   it("does not offer actions to a non-admin seat", async () => {
     stubApi({
-      "GET /me": meRoute(["rep"]),
+      "GET /me": meRoute({}),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
     });
@@ -171,7 +177,7 @@ describe("the overlay card", () => {
 
   it("shows per-object sync rows and the budget band", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(activeConnection),
       "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
       "GET /overlay/budget": () => jsonResponse(budgetFixture),
@@ -210,7 +216,7 @@ describe("the overlay card", () => {
       headroom: 995,
     };
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(activeConnection),
       "GET /overlay/sync-status": () => jsonResponse(unknownSyncStatus),
       "GET /overlay/budget": () => jsonResponse(unknownBandBudget),
@@ -224,7 +230,7 @@ describe("the overlay card", () => {
 
   it("keeps showing sync and budget when the connection is in error", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(errorConnection),
       "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
       "GET /overlay/budget": () => jsonResponse(budgetFixture),
@@ -237,7 +243,7 @@ describe("the overlay card", () => {
 
   it("does not connect until the confirmation is accepted", async () => {
     const calls = stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
       "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
@@ -275,7 +281,7 @@ describe("the overlay card", () => {
 
   it("offers Reconnect for a revoked connection, gated by the same confirm step", async () => {
     const calls = stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(revokedConnection),
       "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
     });
@@ -304,7 +310,7 @@ describe("the overlay card", () => {
 
   it("invalidates every query after a successful connect", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
       "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
@@ -331,7 +337,7 @@ describe("the overlay card", () => {
 
   it("surfaces a concurrent already-connected conflict instead of guessing", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () =>
         jsonResponse({ detail: "not found" }, 404),
       "POST /overlay/connection": () =>
@@ -362,7 +368,7 @@ describe("the overlay card", () => {
 
   it("does not offer reconcile/disconnect to a non-admin seat on a live connection", async () => {
     stubApi({
-      "GET /me": meRoute(["rep"]),
+      "GET /me": meRoute({}),
       "GET /overlay/connection": () => jsonResponse(activeConnection),
       "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
       "GET /overlay/budget": () => jsonResponse(budgetFixture),
@@ -377,7 +383,7 @@ describe("the overlay card", () => {
 
   it("reports a queued sweep rather than a finished one", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(activeConnection),
       "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
       "GET /overlay/budget": () => jsonResponse(budgetFixture),
@@ -393,7 +399,7 @@ describe("the overlay card", () => {
 
   it("names the purge in the disconnect confirm", async () => {
     stubApi({
-      "GET /me": meRoute(["admin"]),
+      "GET /me": meRoute(OVERLAY_OPERATOR),
       "GET /overlay/connection": () => jsonResponse(activeConnection),
       "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
       "GET /overlay/budget": () => jsonResponse(budgetFixture),

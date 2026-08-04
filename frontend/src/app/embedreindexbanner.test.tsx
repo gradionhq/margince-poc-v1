@@ -4,9 +4,15 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { EmbedReindexBanner } from "./embedreindexbanner";
+import { type GrantSpec, meFixture } from "./mefixture";
+
+// The banner's status read is embedding_reindex:read server-side, granted to
+// admin and ops alone — so the fixtures name that grant rather than the roles
+// that happen to hold it today.
+const REINDEX_READER: GrantSpec = { embedding_reindex: ["read"] };
 
 function mount(
-  roles: string[],
+  allow: GrantSpec,
   status: {
     configured_identity: string;
     populated_identity: string;
@@ -21,13 +27,9 @@ function mount(
       "https://test",
     ).pathname;
     if (path.endsWith("/me")) {
-      return new Response(
-        JSON.stringify({
-          user: { id: "u1", email: "a@example.test", display_name: "A" },
-          roles,
-        }),
-        { headers: { "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify(meFixture({ allow })), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
     return new Response(
       JSON.stringify({
@@ -58,7 +60,7 @@ afterEach(() => {
 });
 
 it('shows "Reindex needed" for an admin when the embed binding changed', async () => {
-  mount(["admin"], {
+  mount(REINDEX_READER, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
@@ -68,7 +70,7 @@ it('shows "Reindex needed" for an admin when the embed binding changed', async (
 });
 
 it('shows "Reindex needed" for ops too', async () => {
-  mount(["ops"], {
+  mount(REINDEX_READER, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
@@ -80,7 +82,7 @@ it('shows "Reindex needed" for ops too', async () => {
 it("renders nothing for a non-ops role even when the binding changed", async () => {
   // Gated the same as EconomyBanner: a rep has nothing actionable to do
   // with this surface, so the status read is never even probed.
-  const { fetchMock } = mount(["rep"], {
+  const { fetchMock } = mount({}, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
@@ -100,7 +102,7 @@ it("renders nothing for identity-matched drift, even with reindex_needed true an
   // ADR-0069 §3a: matched identities + pending entities means the bus lost
   // embed events and the worker drift sweep is healing them — nothing here
   // asks a human to act, so keying off reindex_needed would wrongly fire.
-  const { fetchMock } = mount(["admin"], {
+  const { fetchMock } = mount(REINDEX_READER, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-3@1024",
     reindex_needed: true,
@@ -116,7 +118,7 @@ it("keeps showing during status=reembedding — a stuck marker must stay visible
   // job leaves the marker at "reembedding" with no live worker, and
   // hiding the banner there would bury the one state that needs the
   // settings card's recovery affordance (SEARCH-AC-13: mismatch alone).
-  mount(["admin"], {
+  mount(REINDEX_READER, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-2@1024",
     reindex_needed: true,
@@ -127,7 +129,7 @@ it("keeps showing during status=reembedding — a stuck marker must stay visible
 });
 
 it("renders nothing when the store is current", async () => {
-  const { fetchMock } = mount(["admin"], {
+  const { fetchMock } = mount(REINDEX_READER, {
     configured_identity: "anthropic/voyage-3@1024",
     populated_identity: "anthropic/voyage-3@1024",
     reindex_needed: false,
@@ -145,13 +147,9 @@ it("renders nothing while the status probe is pending or errors", async () => {
       "https://test",
     ).pathname;
     if (path.endsWith("/me")) {
-      return new Response(
-        JSON.stringify({
-          user: { id: "u1", email: "a@example.test", display_name: "A" },
-          roles: ["admin"],
-        }),
-        { headers: { "Content-Type": "application/json" } },
-      );
+      return new Response(JSON.stringify(meFixture({ allow: REINDEX_READER })), {
+        headers: { "Content-Type": "application/json" },
+      });
     }
     return new Response(null, { status: 500 });
   });

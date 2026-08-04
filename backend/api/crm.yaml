@@ -12767,15 +12767,100 @@ components:
           required: [mode]
           properties:
             mode: { type: string, enum: [native, overlay] }
+        authorization:
+          $ref: '#/components/schemas/Authorization'
         passport:
           type: [object, 'null']
-          description: Present when the principal is an agent acting under an Agent Seat Passport.
+          deprecated: true
+          x-deprecated-reason: >
+            Always null — an agent cannot reach this endpoint, so the claim can never be
+            populated. Ask the MCP tools/list surface for a passport's scopes instead.
+          description: >
+            Always null. This endpoint is reachable only by a human session: a passport bearer
+            is admitted as an agent principal and never binds the session identity this
+            operation reads, so an agent receives 401 here rather than a passport claim. The
+            field is retained because removing a response property breaks published clients;
+            a client MUST NOT branch on it. An agent's own scopes are what the MCP surface
+            advertises in tools/list, which is the honest place to ask.
           properties:
             passport_id: { type: string, format: uuid }
             on_behalf_of: { type: string, format: uuid }
             scopes:
               type: array
               items: { type: string, enum: [read_only, draft_only, act_with_approval, auto_execute_low_risk] }
+
+    # ---- Authorization (the /me capability snapshot) ----
+
+    RbacObject:
+      type: string
+      description: >
+        The closed set of RBAC-governed object types (features/04 §1). This enum is the
+        vocabulary's single declaration: the Go policy package derives its object list from
+        these generated constants, and the web client types every capability check against the
+        generated union — so a misspelled object is a compile error on both sides rather than a
+        grant that silently matches nothing and reads as a bug in the role.
+      enum:
+        [person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner,
+         automation, voice_profile, product, offer, signal, saved_view, custom_field,
+         computed_field, quota, offer_template, overlay_connection, embedding_reindex,
+         webhook_subscription, fx_rate, ai_model_rate, capture_settings, project,
+         channel_connection, import_run]
+
+    RbacAction:
+      type: string
+      description: >
+        The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions,
+        not HTTP methods: the seat ceiling is clamped on the method independently, and the two
+        diverge in both directions — a read-seat GET that the object grants, and a mutating
+        route whose RBAC action is `read`.
+      enum: [create, read, update, delete]
+
+    RbacObjectGrant:
+      type: object
+      additionalProperties: false
+      required: [create, read, update, delete]
+      description: >
+        One object's effective CRUD grant, already merged across every role the principal holds
+        (any role allowing an action allows it).
+      properties:
+        create: { type: boolean }
+        read: { type: boolean }
+        update: { type: boolean }
+        delete: { type: boolean }
+
+    Authorization:
+      type: object
+      additionalProperties: false
+      required: [seat_type, objects]
+      description: >
+        What this principal may do, as the server itself computed it — never a client-side
+        re-derivation from role keys, which drifts the moment an installation's stored grants
+        differ from the compiled-in defaults.
+
+        Two independent axes, both of which must permit an action: the licensing seat ceiling
+        (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants.
+        A client that collapses them into one predicate will be wrong in both directions.
+
+        This is a snapshot, not an authority. A role change does not revoke live sessions, so a
+        client refetches on window focus and after any 403, and treats the server's answer as
+        the only one that counts. It does NOT express row scope, nor the human-principal and
+        admin-role gates some routes carry independently of any grant — a permitted grant here
+        is necessary, never sufficient.
+      properties:
+        seat_type:
+          type: string
+          enum: [full, read]
+          description: >
+            The licensing seat. A read seat may read but never mutate over REST, whatever its
+            role grants. A client that cannot read a recognized value MUST assume a read seat:
+            the ceiling fails closed, so an omission never buys the ability to mutate.
+        objects:
+          type: object
+          description: >
+            Effective grants keyed by RbacObject. An absent key denies — the server resolves an
+            unknown object to the zero grant, and a client must do the same rather than treat a
+            missing entry as unrestricted.
+          additionalProperties: { $ref: '#/components/schemas/RbacObjectGrant' }
 
     # ---- Admin (background-job health) ----
     JobHealth:

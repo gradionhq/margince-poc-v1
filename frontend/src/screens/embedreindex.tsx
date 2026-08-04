@@ -10,15 +10,16 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDuration, formatMoney, formatNumber } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import { bandTone } from "./aiusage";
-import { canConfigureAutomations, problemMessage, useMe } from "./common";
+import { useCan } from "../app/capability";
+import { problemMessage } from "./common";
 
 // The v6 B2 embedding-reindex surface (ADR-0068 design §5.6-swap). The
 // status read is admin/ops-only server-side now (migration 0114:
 // manager/rep/read_only hold no grant at all on embedding_reindex), so
-// this card's status query is itself gated on canConfigureAutomations —
+// this card's status query is itself gated on embedding_reindex:read —
 // a non-ops role would otherwise get a 403 rendered as "status
 // unavailable" for a card it can never act on anyway. The card returns
-// null outright for a non-ops viewer, the same predicate
+// null outright for a viewer without that grant, the same one
 // EmbedReindexBanner (app/embedreindexbanner.tsx) already gates its own
 // query on. The two WRITE actions — confirming a reindex and the
 // always-available force rebuild — are admin/ops-only server-side too
@@ -232,9 +233,13 @@ function EstimateBody({
 export function EmbedReindexCard() {
   const t = useT();
   const { locale } = useLocale();
-  const me = useMe();
   const qc = useQueryClient();
-  const canWrite = canConfigureAutomations(me.data?.roles);
+  // Reading the status and acting on it are separate grants. They move
+  // together in the seeded matrix, but the card gates its query on the read and
+  // its actions on the update, so a role granted one without the other gets a
+  // card that tells the truth rather than one that 403s on click.
+  const canRead = useCan("embedding_reindex", "read");
+  const canWrite = useCan("embedding_reindex", "update");
   const [mode, setMode] = useState<"reindex" | "rebuild" | null>(null);
   // The identity the operator is previewing against, snapshotted when the
   // dialog opens — NOT re-read from the live status query at confirm time. A
@@ -256,7 +261,7 @@ export function EmbedReindexCard() {
 
   const status = useQuery({
     queryKey: embedReindexStatusQueryKey,
-    enabled: canWrite,
+    enabled: canRead,
     queryFn: async (): Promise<ReindexStatus> => {
       const { data, error } = await api.GET("/embeddings/reindex/status");
       if (error) {
@@ -321,8 +326,8 @@ export function EmbedReindexCard() {
   // regardless — render nothing rather than a "status unavailable" card
   // for a 403 that was always expected. This runs after every hook call
   // above so the hooks-call-order stays unconditional; the query itself
-  // is `enabled: canWrite`, so no request even fires for this viewer.
-  if (!canWrite) {
+  // is `enabled: canRead`, so no request even fires for this viewer.
+  if (!canRead) {
     return null;
   }
 
@@ -359,48 +364,52 @@ export function EmbedReindexCard() {
         sub={t("embedreindex.sub")}
       />
       <StatusHeader data={data} isRunning={isRunning} locale={locale} t={t} />
-      {/* canWrite is always true past the !canWrite early return above —
-          this card renders ReindexActions unconditionally, not gated
-          again, since a non-ops viewer never reaches this far. */}
-      <ReindexActions
-        data={data}
-        isRunning={isRunning}
-        onReindex={() => openDialog("reindex", data.configured_identity)}
-        onRebuild={() => openDialog("rebuild", data.configured_identity)}
-        t={t}
-      />
-      <ConfirmModal
-        open={mode !== null}
-        onClose={closeDialog}
-        title={dialogTitle(mode ?? "reindex", t)}
-        confirmLabel={dialogConfirmLabel(
-          mode ?? "reindex",
-          confirm.isPending,
-          t,
-        )}
-        // Gate on a fully-loaded, non-errored, non-refetching estimate — a
-        // cached preview that is refetching (isFetching) or has errored must
-        // not leave Confirm live over stale scope/cost.
-        confirmDisabled={
-          preview.isPending ||
-          preview.isFetching ||
-          preview.isError ||
-          !preview.data
-        }
-        pending={confirm.isPending}
-        error={confirm.error?.message}
-        onConfirm={() => confirm.mutate(mode === "rebuild")}
-      >
-        {preview.isPending && (
-          <p className="t-small">{t("embedreindex.previewLoading")}</p>
-        )}
-        {preview.isError && (
-          <p className="t-small" style={{ color: "var(--danger)" }}>
-            {preview.error.message}
-          </p>
-        )}
-        <EstimateBody preview={preview.data} locale={locale} t={t} />
-      </ConfirmModal>
+      {/* Gated on the update grant, not on the read that got us past the
+          early return above: a viewer may be entitled to see the status
+          without being entitled to start a rebuild. */}
+      {canWrite && (
+        <>
+          <ReindexActions
+            data={data}
+            isRunning={isRunning}
+            onReindex={() => openDialog("reindex", data.configured_identity)}
+            onRebuild={() => openDialog("rebuild", data.configured_identity)}
+            t={t}
+          />
+          <ConfirmModal
+            open={mode !== null}
+            onClose={closeDialog}
+            title={dialogTitle(mode ?? "reindex", t)}
+            confirmLabel={dialogConfirmLabel(
+              mode ?? "reindex",
+              confirm.isPending,
+              t,
+            )}
+            // Gate on a fully-loaded, non-errored, non-refetching estimate — a
+            // cached preview that is refetching (isFetching) or has errored must
+            // not leave Confirm live over stale scope/cost.
+            confirmDisabled={
+              preview.isPending ||
+              preview.isFetching ||
+              preview.isError ||
+              !preview.data
+            }
+            pending={confirm.isPending}
+            error={confirm.error?.message}
+            onConfirm={() => confirm.mutate(mode === "rebuild")}
+          >
+            {preview.isPending && (
+              <p className="t-small">{t("embedreindex.previewLoading")}</p>
+            )}
+            {preview.isError && (
+              <p className="t-small" style={{ color: "var(--danger)" }}>
+                {preview.error.message}
+              </p>
+            )}
+            <EstimateBody preview={preview.data} locale={locale} t={t} />
+          </ConfirmModal>
+        </>
+      )}
     </section>
   );
 }

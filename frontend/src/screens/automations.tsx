@@ -11,12 +11,8 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
-import {
-  canConfigureAutomations,
-  problemMessage,
-  QueryGate,
-  useMe,
-} from "./common";
+import { useCan } from "../app/capability";
+import { problemMessage, QueryGate, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
 // catalog (E15/ADR-0035). The anti-DSL invariant of features/10 §1 holds by
@@ -188,17 +184,21 @@ function AutomationForm({
 
 // One instance row, rendered from the Automation wire schema alone — no
 // origin field exists on the wire, so authorship cannot change the render.
-// canConfigure gates the mutation affordances (pause/edit/delete): the seeded
-// policies make automation config admin/ops-owned, so other roles get the
-// honest read-only row instead of buttons that can only 403.
+// Pausing, editing and deleting are three affordances over two grants, so the
+// row takes them separately rather than inferring both from one flag. The runs
+// and preview inspectors sit inside the canEdit group even though the server
+// gates them on automation:read — opening a read surface the role proxy has
+// always hidden is a product decision, not part of rebinding the writes.
 export function AutomationRow({
   automation,
   entry,
-  canConfigure,
+  canEdit,
+  canDelete,
 }: Readonly<{
   automation: Automation;
   entry?: CatalogEntry;
-  canConfigure: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -284,7 +284,7 @@ export function AutomationRow({
             .join(" ")}
         </span>
         <span style={{ flexGrow: 1 }} />
-        {canConfigure && (
+        {canEdit && (
           <>
             <Button
               small
@@ -316,22 +316,24 @@ export function AutomationRow({
             >
               {t("auto.preview.open")}
             </Button>
-            <Button
-              small
-              variant="danger"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              {t("auto.delete")}
-            </Button>
           </>
+        )}
+        {canDelete && (
+          <Button
+            small
+            variant="danger"
+            disabled={remove.isPending}
+            onClick={() => remove.mutate()}
+          >
+            {t("auto.delete")}
+          </Button>
         )}
       </div>
       <AutomationInspectors
         automationId={automation.id}
         runsOpen={runsOpen}
         previewOpen={previewOpen}
-        canConfigure={canConfigure}
+        canConfigure={canEdit}
       />
       {editing && entry && (
         <AutomationForm
@@ -360,10 +362,12 @@ export function AutomationsScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const [template, setTemplate] = useState<CatalogEntry | null>(null);
-  // Roles come from the session (/v1/me); until they arrive the screen shows
-  // no mutation affordances — buttons appear when the grant is confirmed.
+  // Grants come from the session (/v1/me); until they arrive every predicate
+  // is false, so the screen shows no mutation affordance until one is confirmed.
   const me = useMe();
-  const canConfigure = canConfigureAutomations(me.data?.roles);
+  const canCreate = useCan("automation", "create");
+  const canEdit = useCan("automation", "update");
+  const canDelete = useCan("automation", "delete");
 
   const catalog = useQuery({
     queryKey: ["automation-catalog"],
@@ -415,7 +419,7 @@ export function AutomationsScreen() {
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
-      {me.isSuccess && !canConfigure && (
+      {me.isSuccess && !canEdit && (
         <p className="t-caption" style={{ marginBottom: 10 }}>
           {t("auto.readOnly")}
         </p>
@@ -451,7 +455,7 @@ export function AutomationsScreen() {
                         />
                       )}
                       <strong>{entry.name}</strong>
-                      {canConfigure && (
+                      {canCreate && (
                         <Button small onClick={() => setTemplate(entry)}>
                           {t("auto.use")}
                         </Button>
@@ -507,7 +511,8 @@ export function AutomationsScreen() {
                     key={automation.id}
                     automation={automation}
                     entry={entryFor(automation.key)}
-                    canConfigure={canConfigure}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
                   />
                 ))}
               </ul>

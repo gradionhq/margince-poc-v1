@@ -11,6 +11,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { AutomationRow, AutomationsScreen, paramFields } from "./automations";
 
@@ -95,17 +96,23 @@ type Recorded = {
   ifMatch: string | null;
 };
 
+// The screen asks three separate questions of the automation object, so the
+// default fixture answers all three and the read-only case answers none.
+const AUTOMATION_OPERATOR: GrantSpec = {
+  automation: ["create", "update", "delete"],
+};
+
 function automationsBackend(
   automations: Automation[],
   calls: Recorded[],
-  roles: string[] = ["admin"],
+  allow: GrantSpec = AUTOMATION_OPERATOR,
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
     const method = request ? request.method : (init?.method ?? "GET");
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({ user: {}, roles, teams: [] });
+      return jsonResponse(meFixture({ allow }));
     }
     if (url.includes("/automations/catalog")) {
       return jsonResponse({ data: catalog });
@@ -274,7 +281,8 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
-          canConfigure
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -285,7 +293,8 @@ describe("AutomationsScreen (B-EP09.15)", () => {
         <AutomationRow
           automation={{ ...fields }}
           entry={catalog[0]}
-          canConfigure
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -297,7 +306,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
     // screen still shows catalog + instances, but no affordance that could
     // only 403 — and it says WHY instead of silently thinning out.
     const automations = [instance({})];
-    vi.stubGlobal("fetch", automationsBackend(automations, [], ["rep"]));
+    vi.stubGlobal("fetch", automationsBackend(automations, [], {}));
     render(<AutomationsScreen />);
     await waitFor(() =>
       expect(screen.getByText("Nudge stalled fleet deals")).toBeTruthy(),
@@ -336,7 +345,7 @@ describe("AutomationsScreen (B-EP09.15)", () => {
 });
 
 // The two ops behind these toggles are human-only and gated on the same
-// canConfigure grant as pause/edit/delete; the panels mount lazily and
+// automation:update grant as pause and edit; the panels mount lazily and
 // independently (opening one never closes the other).
 describe("AutomationRow — Runs/Preview toggles", () => {
   // A benign stub for the lazily-mounted panels' first fetch: the toggle
@@ -358,14 +367,15 @@ describe("AutomationRow — Runs/Preview toggles", () => {
     });
   }
 
-  it("shows the Runs/Preview toggles only when canConfigure", () => {
+  it("shows the Runs/Preview toggles only with the update grant", () => {
     vi.stubGlobal("fetch", panelBackend());
     const view = render(
       <ul>
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -378,7 +388,8 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure={false}
+          canEdit={false}
+          canDelete={false}
         />
       </ul>,
     );
@@ -393,7 +404,8 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canEdit
+          canDelete
         />
       </ul>,
     );
@@ -410,7 +422,8 @@ describe("AutomationRow — Runs/Preview toggles", () => {
         <AutomationRow
           automation={instance({})}
           entry={catalog[0]}
-          canConfigure
+          canEdit
+          canDelete
         />
       </ul>,
     );

@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { MirrorUserMapCard } from "./overlay-usermap";
 
@@ -98,9 +99,14 @@ function stubApi(routes: Record<string, RouteHandler>): Request[] {
   return calls;
 }
 
+// The LISTING itself needs overlay_connection:update, not read: these rows
+// carry the incumbent's directory, so the server demands the write grant
+// merely to look.
+const USER_MAP_VIEWER: GrantSpec = { overlay_connection: ["update"] };
+
 type Fixture = {
   me?: string;
-  roles?: string[];
+  allow?: GrantSpec;
   incumbent?: string;
   entries?: Entry[];
   nextCursor?: string;
@@ -114,12 +120,13 @@ type Fixture = {
 function renderCard(fixture: Fixture = {}) {
   const incumbent = fixture.incumbent ?? "hubspot";
   const routes: Record<string, RouteHandler> = {
-    "GET /me": () =>
-      jsonResponse({
-        user: { id: fixture.me ?? "admin-1", email: "admin@acme.test" },
-        roles: fixture.roles ?? ["admin"],
-        teams: [],
-      }),
+    "GET /me": () => {
+      const me = meFixture({ allow: fixture.allow ?? USER_MAP_VIEWER });
+      return jsonResponse({
+        ...me,
+        user: { ...me.user, id: fixture.me ?? "admin-1" },
+      });
+    },
     "GET /overlay/user-map": (request) => {
       if (fixture.userMapProblem) {
         return jsonResponse(
@@ -766,7 +773,7 @@ describe("the mirror user-map card", () => {
   });
 
   it("withholds the surface, and the reads behind it, from a non-admin seat", async () => {
-    const { calls } = renderCard({ roles: ["rep"] });
+    const { calls } = renderCard({ allow: {} });
     expect(
       await screen.findByText(/Ask an admin or ops teammate/i),
     ).toBeInTheDocument();

@@ -48,10 +48,10 @@ import { formatDate, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
+import { useCan } from "../app/capability";
 import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
-  canConfigureAutomations,
   LoadMoreButton,
   problemMessage,
   QueryGate,
@@ -202,9 +202,15 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
   const me = useMe();
   const capabilities = useCompanyContextCapabilities();
-  // Org config is admin/ops-owned (same predicate the write affordances use);
-  // a rep/manager never sees the Organization group. The server re-checks.
-  const isOrgAdmin = canConfigureAutomations(me.data?.roles);
+  // Deliberately a ROLE check, not a capability one. This gates a whole tab
+  // group spanning pipelines, custom fields, rates, audit, users and the
+  // data-reset and job-health surfaces, several of which the server guards
+  // with RequireAdmin rather than any object grant. No single (object, action)
+  // pair describes it, and picking one would either hide a tab its holder may
+  // use or show one they may not. The server re-checks every tab regardless.
+  const isOrgAdmin = (me.data?.roles ?? []).some(
+    (role) => role === "admin" || role === "ops",
+  );
   const tabs = SETTINGS_TABS.filter((entry) => {
     // Overlay is exempt for the same reason, plus one of its own: the
     // system-of-record chip in the topbar is deliberately shown to EVERY
@@ -268,14 +274,13 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
 }
 
 // The AI & autonomy tab. AiUsageCard (GET /ai/usage) and AiCallsCard
-// (GET /ai/calls) require the automation Update grant server-side, so they
-// are rendered only for admin/ops — a rep/manager would otherwise hit a
-// 403 error box on a tab they can otherwise use. This mirrors the
-// EconomyBanner's canConfigureAutomations guard on the same /ai/usage seam;
-// the server stays the RBAC authority regardless.
+// (GET /ai/calls) are reads the server gates on automation:update — the AI
+// runtime's spend is treated as operator information, so seeing it takes the
+// automation write grant and not any AI-named object. Binding these to
+// something more intuitive would 403 the cards for exactly the roles meant to
+// read them. EconomyBanner gates the same seam the same way.
 function AiSettingsTab() {
-  const me = useMe();
-  const canSeeRuntime = canConfigureAutomations(me.data?.roles);
+  const canSeeRuntime = useCan("automation", "update");
   return (
     <>
       {canSeeRuntime && <AiUsageCard />}
@@ -980,11 +985,11 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
 
 function StageRow({
   stage,
-  canConfig,
+  canEdit,
   t,
 }: Readonly<{
   stage: Stage;
-  canConfig: boolean;
+  canEdit: boolean;
   t: ReturnType<typeof useT>;
 }>) {
   return (
@@ -1001,7 +1006,7 @@ function StageRow({
         {stageSemanticLabel(stage.semantic, t)}
       </Badge>
       <span className="t-mono t-small">{stage.win_probability}%</span>
-      {canConfig && (
+      {canEdit && (
         <EditAction
           label={t("stage.edit")}
           invalidate="pipelines"
@@ -1032,11 +1037,11 @@ function StageRow({
 
 function PipelineRow({
   pipeline,
-  canConfig,
+  canEdit,
   t,
 }: Readonly<{
   pipeline: Pipeline;
-  canConfig: boolean;
+  canEdit: boolean;
   t: ReturnType<typeof useT>;
 }>) {
   const stages = [...(pipeline.stages ?? [])].sort(
@@ -1058,7 +1063,7 @@ function PipelineRow({
             ? t("pipeline.default")
             : t("pipeline.notDefault")}
         </Badge>
-        {canConfig && (
+        {canEdit && (
           <>
             <EditAction
               label={t("pipeline.edit")}
@@ -1096,7 +1101,7 @@ function PipelineRow({
         }}
       >
         {stages.map((stage) => (
-          <StageRow key={stage.id} stage={stage} canConfig={canConfig} t={t} />
+          <StageRow key={stage.id} stage={stage} canEdit={canEdit} t={t} />
         ))}
       </ul>
     </div>
@@ -1107,12 +1112,16 @@ function PipelineRow({
 // key the deals screen's plural selector uses (an array shape, distinct
 // from DealScreen's single-pipeline ["pipelines"] cache entry) — any
 // mutation here invalidates the ["pipelines"] prefix, so both shapes stay
-// fresh. Write affordances are gated on canConfigureAutomations; the list
-// itself is read-only for everyone (the server stays the RBAC authority).
+// fresh. The list itself is readable by everyone; only the write affordances
+// are gated, and the server stays the RBAC authority.
 export function PipelinesCard() {
   const t = useT();
-  const me = useMe();
-  const canConfig = canConfigureAutomations(me.data?.roles);
+  // Adding a pipeline is pipeline:create. Everything else here — renaming a
+  // pipeline, adding a stage, editing one, reordering — is pipeline:update,
+  // including the stage CREATE affordance: a stage is not its own RBAC object,
+  // so adding one is an update to the pipeline that owns it.
+  const canCreate = useCan("pipeline", "create");
+  const canEdit = useCan("pipeline", "update");
   const query = useQuery({
     queryKey: ["pipelines", "all"],
     queryFn: async () => {
@@ -1131,7 +1140,7 @@ export function PipelinesCard() {
         title={t("settings.pipelines")}
         sub={t("settings.pipelinesSub")}
       />
-      {canConfig && (
+      {canCreate && (
         <div style={{ marginBottom: 10 }}>
           <CreateAction
             label={t("pipeline.new")}
@@ -1157,7 +1166,7 @@ export function PipelinesCard() {
               <PipelineRow
                 key={pipeline.id}
                 pipeline={pipeline}
-                canConfig={canConfig}
+                canEdit={canEdit}
                 t={t}
               />
             ))}

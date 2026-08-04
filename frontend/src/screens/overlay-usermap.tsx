@@ -26,8 +26,8 @@ import {
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { useCan } from "../app/capability";
 import {
-  canManageOverlay,
   LoadMoreButton,
   problemCodeOf,
   throwProblem,
@@ -604,7 +604,12 @@ export function MirrorUserMapCard() {
   const t = useT();
   const me = useMe();
   const meId = me.data?.user.id;
-  const canManage = canManageOverlay(me.data?.roles);
+  // The LISTING is gated on update, not read: a mirror user map exposes the
+  // incumbent's directory — names and addresses of people who never consented
+  // to appear here — so the server demands the write grant merely to look
+  // (overlay/usermapservice.go). Both queries below are gated on it for that
+  // reason, not as a convenience.
+  const canManage = useCan("overlay_connection", "update");
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>("user");
   const [picking, setPicking] = useState<string | null>(null);

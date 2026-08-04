@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { subscribableEventTypeValues } from "../api/public-events";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { WebhooksCard } from "./webhooks";
 
@@ -45,16 +46,18 @@ const SUBSCRIPTIONS = {
   delivery_enabled: true,
 };
 
-function backendFor(roles: string[], subscriptionsStatus = 200) {
+// Create, edit/rotate/replay and archive are three grants on one object. The
+// default fixture holds all three; the denied case holds none.
+const WEBHOOK_OPERATOR: GrantSpec = {
+  webhook_subscription: ["create", "update", "delete"],
+};
+
+function backendFor(allow: GrantSpec, subscriptionsStatus = 200) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req =
       input instanceof Request ? input : new Request(String(input), init);
     if (req.url.endsWith("/v1/me")) {
-      return jsonResponse({
-        user: { email: "person@acme.test" },
-        roles,
-        teams: [],
-      });
+      return jsonResponse(meFixture({ allow }));
     }
     if (req.url.includes("/webhook-subscriptions") && req.method === "GET") {
       if (subscriptionsStatus === 503) {
@@ -89,18 +92,14 @@ const render = (ui: ReactNode) => {
 // assertions with) and POST echoes the submitted body back as the created
 // subscription plus a fixed one-time signing secret, capturing the request
 // body so the test can assert the exact wire shape the create posts.
-function backendForCreate(roles: string[]) {
+function backendForCreate(allow: GrantSpec) {
   let capturedBody: unknown = null;
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const req =
         input instanceof Request ? input : new Request(String(input), init);
       if (req.url.endsWith("/v1/me")) {
-        return jsonResponse({
-          user: { email: "admin@acme.test" },
-          roles,
-          teams: [],
-        });
+        return jsonResponse(meFixture({ allow }));
       }
       if (req.url.includes("/webhook-subscriptions") && req.method === "GET") {
         return jsonResponse({
@@ -147,7 +146,7 @@ afterEach(() => {
 
 describe("WebhooksCard", () => {
   it("renders a subscription list from the typed seam", async () => {
-    vi.stubGlobal("fetch", backendFor(["admin"]));
+    vi.stubGlobal("fetch", backendFor(WEBHOOK_OPERATOR));
     render(<WebhooksCard />);
 
     await waitFor(() =>
@@ -160,7 +159,7 @@ describe("WebhooksCard", () => {
   });
 
   it("hides the create affordance for a non-admin/ops role", async () => {
-    vi.stubGlobal("fetch", backendFor(["rep"]));
+    vi.stubGlobal("fetch", backendFor({}));
     render(<WebhooksCard />);
 
     await waitFor(() =>
@@ -172,7 +171,7 @@ describe("WebhooksCard", () => {
   });
 
   it("shows the create affordance for an admin/ops role", async () => {
-    vi.stubGlobal("fetch", backendFor(["admin"]));
+    vi.stubGlobal("fetch", backendFor(WEBHOOK_OPERATOR));
     render(<WebhooksCard />);
 
     await waitFor(() =>
@@ -181,7 +180,7 @@ describe("WebhooksCard", () => {
   });
 
   it("renders an honest not-enabled state on 503 webhooks_not_configured", async () => {
-    vi.stubGlobal("fetch", backendFor(["admin"], 503));
+    vi.stubGlobal("fetch", backendFor(WEBHOOK_OPERATOR, 503));
     render(<WebhooksCard />);
 
     await waitFor(() =>
@@ -200,11 +199,7 @@ describe("WebhooksCard", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -237,11 +232,7 @@ describe("WebhooksCard", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -265,7 +256,7 @@ describe("WebhooksCard", () => {
 
   it("sources event-type options from the generated SubscribableEventType catalog, never a hardcoded list", async () => {
     const user = userEvent.setup();
-    const { fetchMock } = backendForCreate(["admin"]);
+    const { fetchMock } = backendForCreate(WEBHOOK_OPERATOR);
     vi.stubGlobal("fetch", fetchMock);
     render(<WebhooksCard />);
 
@@ -288,7 +279,7 @@ describe("WebhooksCard", () => {
 
   it("creates a subscription posting {target_url, event_types[]} and reveals the signing secret exactly once", async () => {
     const user = userEvent.setup();
-    const { fetchMock, getCapturedBody } = backendForCreate(["admin"]);
+    const { fetchMock, getCapturedBody } = backendForCreate(WEBHOOK_OPERATOR);
     vi.stubGlobal("fetch", fetchMock);
     render(<WebhooksCard />);
 
@@ -328,7 +319,7 @@ describe("WebhooksCard", () => {
   });
 
   it("hides the create trigger and reveal flow for a non-admin/ops role", async () => {
-    const { fetchMock } = backendForCreate(["rep"]);
+    const { fetchMock } = backendForCreate({});
     vi.stubGlobal("fetch", fetchMock);
     render(<WebhooksCard />);
 
@@ -339,7 +330,7 @@ describe("WebhooksCard", () => {
   });
 
   it("hides the manage row (edit/rotate/archive) for a non-admin/ops role", async () => {
-    vi.stubGlobal("fetch", backendFor(["rep"]));
+    vi.stubGlobal("fetch", backendFor({}));
     render(<WebhooksCard />);
 
     await waitFor(() =>
@@ -364,11 +355,7 @@ describe("WebhooksCard — pause/resume + re-target (EditAction)", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -456,11 +443,7 @@ describe("WebhooksCard — archive", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -538,11 +521,7 @@ describe("WebhooksCard — deliveries panel (Task 10)", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -671,11 +650,7 @@ describe("WebhooksCard — deliveries panel (Task 10)", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "rep@acme.test" },
-            roles: ["rep"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: {} }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&
@@ -711,11 +686,7 @@ describe("WebhooksCard — rotate secret", () => {
         const req =
           input instanceof Request ? input : new Request(String(input), init);
         if (req.url.endsWith("/v1/me")) {
-          return jsonResponse({
-            user: { email: "admin@acme.test" },
-            roles: ["admin"],
-            teams: [],
-          });
+          return jsonResponse(meFixture({ allow: WEBHOOK_OPERATOR }));
         }
         if (
           req.url.includes("/webhook-subscriptions") &&

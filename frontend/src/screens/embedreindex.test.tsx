@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { EmbedReindexCard, embedReindexStatusQueryKey } from "./embedreindex";
 
@@ -70,8 +71,13 @@ const PREVIEW = {
   ],
 };
 
+// The card gates its status QUERY on read and its rebuild actions on update —
+// two grants, because a viewer may be entitled to see the state without being
+// entitled to change it.
+const REINDEX_OPERATOR: GrantSpec = { embedding_reindex: ["read", "update"] };
+
 function mount(
-  roles: string[],
+  allow: GrantSpec,
   routes: Record<string, Handler>,
   requests: { method: string; url: string; body: unknown }[] = [],
 ) {
@@ -97,10 +103,7 @@ function mount(
       const path = url.pathname.replace(/^\/v1/, "");
       requests.push({ method, url: path, body });
       if (path.endsWith("/me")) {
-        return json({
-          user: { id: "u1", email: "a@example.test", display_name: "A" },
-          roles,
-        });
+        return json(meFixture({ allow }));
       }
       const key = `${method} ${path}`;
       const handler = routes[key];
@@ -131,7 +134,7 @@ it("shows the per-workspace estimate + utilization disclosure and disables confi
   const previewPromise = new Promise<Response>((resolve) => {
     resolvePreview = resolve;
   });
-  mount(["admin"], {
+  mount(REINDEX_OPERATOR, {
     "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
     "GET /embeddings/reindex/preview": () => previewPromise,
   });
@@ -154,7 +157,7 @@ it("shows the per-workspace estimate + utilization disclosure and disables confi
 });
 
 it("posts previewed_identity from the status read and force:false on a plain confirm", async () => {
-  const { requests } = mount(["ops"], {
+  const { requests } = mount(REINDEX_OPERATOR, {
     "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
     "GET /embeddings/reindex/preview": () => json(PREVIEW),
     "POST /embeddings/reindex": () =>
@@ -185,7 +188,7 @@ it("posts previewed_identity from the status read and force:false on a plain con
 });
 
 it("Rebuild index stays available even when no reindex is needed, and posts force:true", async () => {
-  const { requests } = mount(["admin"], {
+  const { requests } = mount(REINDEX_OPERATOR, {
     "GET /embeddings/reindex/status": () => json(STATUS_IDLE),
     "GET /embeddings/reindex/preview": () => json(PREVIEW),
     "POST /embeddings/reindex": () => json({ ...STATUS_IDLE }, 202),
@@ -232,10 +235,7 @@ it("F2: a stuck reembedding marker shows the age of the last progress and keeps 
         queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
       },
     });
-    client.setQueryData(["me"], {
-      user: { id: "u1", email: "a@example.test", display_name: "A" },
-      roles: ["ops"],
-    });
+    client.setQueryData(["me"], meFixture({ allow: REINDEX_OPERATOR }));
     client.setQueryData(embedReindexStatusQueryKey, STATUS_STUCK_REEMBEDDING);
     vi.stubGlobal(
       "fetch",
@@ -270,7 +270,7 @@ it("F2: a stuck reembedding marker shows the age of the last progress and keeps 
 });
 
 it("renders nothing for a role without the embedding_reindex read grant", async () => {
-  const { requests } = mount(["rep"], {
+  const { requests } = mount({}, {
     "GET /embeddings/reindex/status": () => json(STATUS_NEEDED),
   });
 

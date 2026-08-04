@@ -10,8 +10,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { AuditLogCard, PipelinesCard, SettingsScreen } from "./settings";
+
+// The Organization tab GROUP is still a role check — it spans objects with no
+// single grant in common, plus surfaces the server guards with RequireAdmin —
+// so these fixtures carry both a role and the grants the cards inside ask for.
+const PIPELINE_ADMIN: GrantSpec = { pipeline: ["create", "update"] };
 
 // The settings identity + passport surfaces through the RBAC primitives:
 // roles render as localized RoleBadges (a workspace-defined key stays raw),
@@ -43,10 +49,13 @@ function settingsBackend() {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({
-        user: { email: "ada@acme.test" },
+      const me = meFixture({
         roles: ["admin", "field_marketing"],
-        teams: [],
+        allow: PIPELINE_ADMIN,
+      });
+      return jsonResponse({
+        ...me,
+        user: { ...me.user, email: "ada@acme.test" },
       });
     }
     if (url.includes("/passports")) {
@@ -563,10 +572,10 @@ function overlaySettingsBackend(opts: {
       input instanceof Request ? input.method : (init?.method ?? "GET")
     ).toUpperCase();
     if (url.endsWith("/v1/me")) {
+      const me = meFixture({ roles: opts.roles });
       return jsonResponse({
-        user: { id: "u1", email: "ada@acme.test" },
-        roles: opts.roles,
-        teams: [],
+        ...me,
+        user: { ...me.user, email: "ada@acme.test" },
         system_of_record: { mode: opts.sorMode },
       });
     }
@@ -681,17 +690,16 @@ describe("SettingsScreen overlay tab", () => {
 // body shipped.
 function settingsStub(opts: {
   roles: string[];
+  allow?: GrantSpec;
   onStagePost?: (body: unknown) => void;
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input instanceof Request ? input.url : input);
     const method = input instanceof Request ? input.method : "GET";
     if (url.endsWith("/v1/me")) {
-      return jsonResponse({
-        user: { id: "u1", email: "a@acme.test", display_name: "A" },
-        roles: opts.roles,
-        teams: [],
-      });
+      return jsonResponse(
+        meFixture({ roles: opts.roles, allow: opts.allow ?? PIPELINE_ADMIN }),
+      );
     }
     if (url.includes("/pipelines")) {
       return jsonResponse({
@@ -735,7 +743,7 @@ describe("PipelinesCard", () => {
     expect(await screen.findByText("New pipeline")).toBeTruthy();
   });
   it("hides create controls for a rep", async () => {
-    vi.stubGlobal("fetch", settingsStub({ roles: ["rep"] }));
+    vi.stubGlobal("fetch", settingsStub({ roles: ["rep"], allow: {} }));
     render(<PipelinesCard />);
     await screen.findByText("Sales");
     expect(screen.queryByText("New pipeline")).toBeNull();

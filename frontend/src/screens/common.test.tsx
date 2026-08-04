@@ -11,7 +11,6 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider, translate } from "../i18n";
 import {
-  canManageCustomFields,
   isConsentNotGranted,
   problemExistingId,
   problemFieldErrors,
@@ -243,17 +242,6 @@ describe("isConsentNotGranted", () => {
     expect(isConsentNotGranted({ code: "version_skew" })).toBe(false);
     expect(isConsentNotGranted(null)).toBe(false);
     expect(isConsentNotGranted("nope")).toBe(false);
-  });
-});
-
-describe("canManageCustomFields", () => {
-  it("admits admin and ops, refuses everyone else", () => {
-    expect(canManageCustomFields(["admin"])).toBe(true);
-    expect(canManageCustomFields(["ops"])).toBe(true);
-    expect(canManageCustomFields(["manager"])).toBe(false);
-    expect(canManageCustomFields(["rep"])).toBe(false);
-    expect(canManageCustomFields([])).toBe(false);
-    expect(canManageCustomFields(undefined)).toBe(false);
   });
 });
 
