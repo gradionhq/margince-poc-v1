@@ -20,6 +20,12 @@ package backendarch
 //
 // Exceptions are explicit, keyed by "package-dir:FuncName", each with
 // the rationale that ratified it; a reasonless or stale waiver fails.
+//
+// The tree the gate reads is itself proven rather than assumed:
+// storeEntryPointScope sweeps the whole module for the same entry-point
+// shape and reports any that lies outside internal/modules, so a store
+// that grows in another tier fails this gate instead of falling out of
+// its reach unnoticed.
 
 import (
 	"go/ast"
@@ -213,6 +219,62 @@ var ungatedEntryPoints = gatekit.Waive(map[string]string{ // #nosec G101 -- waiv
 	"internal/modules/comms:ClearInFlight":   "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
 })
 
+// storeEntryPointScope proves the gate's single root: every file in the module
+// that declares an entry point of this shape lives under internal/modules, or is
+// ratified below.
+var storeEntryPointScope = gatekit.Scope{
+	Roots:   []string{modulesDir},
+	Subject: declaresStoreEntryPoint,
+	Exempt:  entryPointsOutsideModules,
+}
+
+// entryPointsOutsideModules ratifies the files that hold this entry-point shape
+// outside internal/modules. Each says what the methods are; none says they are
+// correctly gated, because this gate has not judged them — bringing a tier under
+// it is its own decision, taken with its own evidence, and ratifying the sweep is
+// not that decision. The entries are the ratchet: a file that stops holding the
+// shape is reported stale here, so the question cannot be forgotten.
+var entryPointsOutsideModules = gatekit.Waive(map[string]string{
+	"internal/compose/org360/assemble.go":     "org360.Service.Assemble — a compose read service assembling the record-360 view across domain tables; this package does reference the platform auth gate (auth.Require, EnsureVisible, the scope clauses), but whether the gate's transitive resolution proves that for each entry point is a judgement this change has not made",
+	"internal/compose/org360/graph.go":        "org360.Service.Graph — the same read service's relationship graph, in a package that reaches auth through its section helpers; enrolling compose in this gate is a separate decision from proving where the entry points are",
+	"internal/compose/org360/dismissal.go":    "org360.Service.DismissSuggestion — the suggestion-dismissal write; it opens with auth.RequireHuman and auth.Require, so it is not a suspected gap, but this gate has not been the thing that checked it",
+	"internal/compose/org360/viewbaseline.go": "org360.Service.Acknowledge — the record-view acknowledgement write, likewise opening with auth.RequireHuman and auth.Require; ratified here only as a subject the roots do not cover",
+	"internal/compose/orgbrief/service.go":    "orgbrief.Service.Get and .Ask — the organization brief read and its question surface, both opening with auth.RequireHuman; whether RequireHuman alone is the right admission for them is a question for the tier's own review, not for this sweep",
+	"internal/compose/runnerservice.go":       "RunnerService.TickWorkspace and .HandleEvent — the agent runner's worker-loop and event-bus seams, which carry no human principal at all; that posture is what the module-side waivers spell out for their sweep entry points, and applying the same reasoning to compose needs the tier brought under the gate first",
+	"internal/platform/blobstore/memory.go":   "memoryStore's Put/Get/Delete/Health — a blobstore.Store driver, matched only because the receiver type name ends in \"Store\". It moves opaque bytes under a caller-supplied key and holds no record and no workspace column, so there is no RBAC object for this gate's rule to name",
+	"internal/platform/blobstore/s3.go":       "s3Store's Put/Get/Delete/Health — the same driver interface over S3, matched by the same receiver-name suffix; the admission that matters for a blob is taken by the module surface that mints its key, not by an object-storage client",
+})
+
+// declaresStoreEntryPoint reports whether the file holds an entry point of the
+// shape this gate judges. Integration-tagged files are excluded for the same
+// reason the walk excludes them: the obligation binds production stores, and a
+// tagged file can never reach a shipped binary.
+func declaresStoreEntryPoint(path string, file *ast.File) bool {
+	if isIntegrationTagged(path) {
+		return false
+	}
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && isStoreEntryPoint(fn) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStoreEntryPoint is the three-part shape: exported, a pointer receiver on a
+// *Store or *Service type, and a context.Context parameter.
+func isStoreEntryPoint(fn *ast.FuncDecl) bool {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 || !fn.Name.IsExported() {
+		return false
+	}
+	star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
+	if !ok {
+		return false
+	}
+	receiver, ok := star.X.(*ast.Ident)
+	return ok && storeReceiver(receiver.Name) && takesContext(fn)
+}
+
 // gateFnInfo is what the gate needs to know about one function name in a
 // package: whether any body under that name references auth, and every
 // name it mentions (the transitive-resolution edges).
@@ -225,67 +287,79 @@ type gateFnInfo struct {
 // the gate must prove reaches auth.
 type gateEntry struct{ dir, name string }
 
-// collectStoreEntryPoints parses every non-test, non-integration module
-// source file and returns, per package dir, the function index (a name
-// shared across receivers merges optimistically — see the package
+// collectStoreEntryPoints returns, per package dir, the function index (a
+// name shared across receivers merges optimistically — see the package
 // comment) plus the list of exported *Store/*Service methods to check.
 func collectStoreEntryPoints(t *testing.T) (map[string]map[string]*gateFnInfo, []gateEntry) {
 	t.Helper()
-	pkgs := map[string]map[string]*gateFnInfo{}
 	var entries []gateEntry
-
-	fset := token.NewFileSet()
-	err := filepath.WalkDir("internal/modules", func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
-			isIntegrationTagged(path) {
-			return err
-		}
-		path = filepath.ToSlash(path)
-		dir := filepath.ToSlash(filepath.Dir(path))
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			return err
-		}
-		if pkgs[dir] == nil {
-			pkgs[dir] = map[string]*gateFnInfo{}
-		}
-		for _, decl := range file.Decls {
+	for _, src := range storeEntryPointScope.Files(t) {
+		dir := filepath.ToSlash(filepath.Dir(src.Path))
+		for _, decl := range src.File.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
+			if !ok || !isStoreEntryPoint(fn) {
 				continue
 			}
-			info := pkgs[dir][fn.Name.Name]
-			if info == nil {
-				info = &gateFnInfo{calls: map[string]bool{}}
-				pkgs[dir][fn.Name.Name] = info
-			}
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				if sel, ok := n.(*ast.SelectorExpr); ok {
-					if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "auth" {
-						info.auth = true
-					}
-					info.calls[sel.Sel.Name] = true
-				}
-				if id, ok := n.(*ast.Ident); ok {
-					info.calls[id.Name] = true
-				}
-				return true
-			})
-			if fn.Recv == nil || !fn.Name.IsExported() {
-				continue
-			}
-			if se, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
-				if id, ok := se.X.(*ast.Ident); ok && storeReceiver(id.Name) && takesContext(fn) {
-					entries = append(entries, gateEntry{dir, fn.Name.Name})
-				}
-			}
+			entries = append(entries, gateEntry{dir, fn.Name.Name})
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	return pkgs, entries
+	return packageFunctionIndex(t), entries
+}
+
+// packageFunctionIndex indexes every function in every package under the
+// scope's roots. It reads WHOLE packages, not only the files that hold an
+// entry point, because the auth call that gates a method routinely sits in
+// a same-package helper in another file — indexing only the entry-point
+// files would report those methods ungated.
+func packageFunctionIndex(t *testing.T) map[string]map[string]*gateFnInfo {
+	t.Helper()
+	pkgs := map[string]map[string]*gateFnInfo{}
+	fset := token.NewFileSet()
+	for _, root := range storeEntryPointScope.Roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				isIntegrationTagged(path) {
+				return err
+			}
+			path = filepath.ToSlash(path)
+			dir := filepath.ToSlash(filepath.Dir(path))
+			file, parseErr := parser.ParseFile(fset, path, nil, 0)
+			if parseErr != nil {
+				return parseErr
+			}
+			if pkgs[dir] == nil {
+				pkgs[dir] = map[string]*gateFnInfo{}
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				info := pkgs[dir][fn.Name.Name]
+				if info == nil {
+					info = &gateFnInfo{calls: map[string]bool{}}
+					pkgs[dir][fn.Name.Name] = info
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if sel, ok := n.(*ast.SelectorExpr); ok {
+						if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "auth" {
+							info.auth = true
+						}
+						info.calls[sel.Sel.Name] = true
+					}
+					if id, ok := n.(*ast.Ident); ok {
+						info.calls[id.Name] = true
+					}
+					return true
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return pkgs
 }
 
 // reachesAuthGate resolves gatedness transitively over same-package
@@ -312,6 +386,7 @@ func reachesAuthGate(fns map[string]*gateFnInfo, name string, seen map[string]bo
 
 func TestEveryStoreEntryPointIsAuthGated(t *testing.T) {
 	defer ungatedEntryPoints.AssertAllMatched(t)
+	defer entryPointsOutsideModules.AssertAllMatched(t)
 
 	pkgs, entries := collectStoreEntryPoints(t)
 
