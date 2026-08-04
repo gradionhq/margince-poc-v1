@@ -152,9 +152,11 @@ func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 	}
 }
 
-// The waiver list is only honest if every entry still exists and still needs
-// it: this is the sweep that reaches every file in the tree unconditionally,
-// so it is the one that owns AssertAllMatched.
+// An entry naming a file that no longer claims a data boundary reads stale
+// here: this is the sweep that reaches every file in the tree unconditionally,
+// so it is the one that owns AssertAllMatched. It holds that each entry still
+// names a claim, not that the claim still needs waiving — a file that now
+// mints its fence as well still matches, and stays matched.
 func TestEveryBoundaryClaimWaiverIsStillReachable(t *testing.T) {
 	defer claimWithoutFence.AssertAllMatched(t)
 	goFilesUnderTree(t, func(path, body string) {

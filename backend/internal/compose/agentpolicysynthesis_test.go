@@ -70,10 +70,11 @@ var deadEndVerbs = gatekit.Waive(map[string]string{
 
 func TestEverySynthesizedVerbIsPinned(t *testing.T) {
 	// This sweep visits every synthesized verb in the policy table, so it is the
-	// one place all three maps' staleness is owned. That is only sound because
-	// TestThePinsDescribeVerbsThatStillExist independently holds the other half:
-	// a pinned verb that left the table, or that gained a registered tool, is
-	// skipped by the loop below and would never be reported here.
+	// one place all three maps' staleness is owned. A pinned verb that left the
+	// table, or that gained a registered tool, is skipped by the loop below and
+	// so goes unmatched — this sweep reports it stale on its own.
+	// TestThePinsDescribeVerbsThatStillExist names WHICH of the two happened,
+	// sharpening the diagnosis rather than carrying the detection.
 	defer synthesizedVerbs.AssertAllMatched(t)
 	defer outboundHoles.AssertAllMatched(t)
 	defer deadEndVerbs.AssertAllMatched(t)
