@@ -5,6 +5,9 @@ package gatekit
 
 import (
 	"fmt"
+	"go/ast"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -128,5 +131,155 @@ func TestWaiveCopiesItsInputSoALaterMutationCannotWidenTheSet(t *testing.T) {
 	rec := &recorder{TB: t}
 	if w.Waived(rec, "b") {
 		t.Error("a post-construction mutation widened the waiver set")
+	}
+}
+
+// The probe trees below are written into t.TempDir() rather than testdata/,
+// because several of this repo's gates walk the whole tree for every *.go file
+// without excluding testdata — a probe package committed there would be
+// license-checked, purity-checked and import-parsed as though it were product.
+//
+// obligated marks a file the probe Scope must judge; plain marks one it must
+// not. The marker is a declaration rather than an import so the probe tree
+// needs no resolvable module.
+const (
+	obligatedSource = "package %s\n\nfunc ObligatedSite() {}\n"
+	plainSource     = "package %s\n\nfunc somethingElse() {}\n"
+)
+
+// writeProbeTree materializes rel-path → contents under a fresh temp dir and
+// returns it, for use as a Scope's Tree.
+func writeProbeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	tree := t.TempDir()
+	for rel, contents := range files {
+		path := filepath.Join(tree, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("creating %s: %v", filepath.Dir(rel), err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatalf("writing %s: %v", rel, err)
+		}
+	}
+	return tree
+}
+
+// declaresObligatedSite is the probe subject predicate.
+func declaresObligatedSite(_ string, file *ast.File) bool {
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "ObligatedSite" {
+			return true
+		}
+	}
+	return false
+}
+
+// paths flattens a sweep result for comparison.
+func paths(files []ParsedFile) string {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		out = append(out, f.Path)
+	}
+	return strings.Join(out, ",")
+}
+
+func TestFilesReturnsTheObligatedFilesUnderEveryRoot(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go":         fmt.Sprintf(obligatedSource, "inside"),
+		"inside/plain.go":             fmt.Sprintf(plainSource, "inside"),
+		"inside/obligated_test.go":    fmt.Sprintf(obligatedSource, "inside"),
+		"inside/obligated_gen.go":     fmt.Sprintf(obligatedSource, "inside"),
+		"inside/nested/obligated.go":  fmt.Sprintf(obligatedSource, "nested"),
+		"alsoinside/obligated.go":     fmt.Sprintf(obligatedSource, "alsoinside"),
+		"elsewhere/notevengo.txt":     "func ObligatedSite() {}\n",
+		"elsewhere/alsoobligated.txt": "ignored",
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside", "alsoinside"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	swept := scope.Files(rec)
+	want := "alsoinside/obligated.go,inside/nested/obligated.go,inside/obligated.go"
+	if got := paths(swept); got != want {
+		t.Errorf("Files() = %q, want %q — a test, a generated or a non-Go file is not a subject", got, want)
+	}
+	for _, f := range swept {
+		if f.File == nil {
+			t.Errorf("%s came back without its syntax: a caller has nothing left to judge", f.Path)
+		}
+	}
+	if len(rec.errs) != 0 {
+		t.Errorf("a scope whose roots hold every subject reported: %s", rec.joined())
+	}
+}
+
+// The vacuity floor: a root that yields nothing certifies nothing, and reads
+// exactly like a root that yields no violation.
+func TestFilesFailsWhenARootHoldsNoSubjectAtAll(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go": fmt.Sprintf(obligatedSource, "inside"),
+		"barren/plain.go":     fmt.Sprintf(plainSource, "barren"),
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside", "barren"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	scope.Files(rec)
+	if len(rec.errs) != 1 {
+		t.Fatalf("want exactly one vacuity report, got %d: %s", len(rec.errs), rec.joined())
+	}
+	if !strings.Contains(rec.errs[0], "barren") {
+		t.Errorf("the vacuity report names the wrong root: %s", rec.errs[0])
+	}
+}
+
+func TestFilesFailsWhenASubjectLivesOutsideEveryRoot(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go":  fmt.Sprintf(obligatedSource, "inside"),
+		"outside/obligated.go": fmt.Sprintf(obligatedSource, "outside"),
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	if got := paths(scope.Files(rec)); got != "inside/obligated.go" {
+		t.Errorf("Files() = %q, want only the in-root subject", got)
+	}
+	if len(rec.errs) != 1 {
+		t.Fatalf("want exactly one out-of-root report, got %d: %s", len(rec.errs), rec.joined())
+	}
+	if !strings.Contains(rec.errs[0], "outside/obligated.go") {
+		t.Errorf("the report names the wrong file: %s", rec.errs[0])
+	}
+}
+
+func TestAnExemptedOutsideSubjectIsAcceptedAndCountsAsMatched(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go":  fmt.Sprintf(obligatedSource, "inside"),
+		"outside/obligated.go": fmt.Sprintf(obligatedSource, "outside"),
+	})
+	exempt := Waive(map[string]string{
+		"outside/obligated.go": "holds the marker but answers to another gate, so this one must not judge it",
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside"},
+		Subject: declaresObligatedSite,
+		Exempt:  exempt,
+	}
+	rec := &recorder{TB: t}
+	scope.Files(rec)
+	if len(rec.errs) != 0 {
+		t.Errorf("a ratified out-of-root subject was reported anyway: %s", rec.joined())
+	}
+	exempt.AssertAllMatched(rec)
+	if len(rec.errs) != 0 {
+		t.Errorf("the sweep did not mark the exemption it relied on: %s", rec.joined())
 	}
 }
