@@ -37,6 +37,20 @@ globalThis.addEventListener("fetch", (event) => {
   if (url.origin !== globalThis.location.origin) {
     return;
   }
+  // NEVER cache a URL that carries a query. A Cache Storage key is the full
+  // request URL, query included, so caching one writes whatever the query holds
+  // to disk — where it survives until the cache name is bumped, and is then
+  // served cache-first. That is a credential store, not a shell cache: the
+  // password-reset link used to arrive as `?token=…`, and caching its navigation
+  // silently undid the front-end's own effort to scrub the token from history.
+  //
+  // The reset link is a hash route now and a fragment never reaches a service
+  // worker at all, so this is defence in depth rather than the only guard — but
+  // the rule is worth keeping absolute: nothing here needs a query cached, and
+  // the next query-bearing URL will not come with a security review attached.
+  if (url.search !== "") {
+    return;
+  }
 
   event.respondWith(
     caches.match(request).then(

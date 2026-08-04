@@ -61,22 +61,48 @@ type View =
   | { kind: "reset"; token: string }
   | { kind: "reset-done" };
 
+/** The hash route the emailed reset link lands on. Minted by identity/reset.go. */
+const RESET_ROUTE = "reset-password";
+
 // resetTokenFromLocation reads the emailed deep link
-// (/reset-password?token=…): the SPA serves every path, and the
-// unauthenticated gate renders this screen wherever the link lands. The
-// token is a live single-use credential, so it is scrubbed from the
-// address bar (and browser history) the moment it is read — it lives on
-// only in component state.
+// (/#/reset-password?token=…): the unauthenticated gate renders this screen
+// wherever the link lands, so no route table entry is needed. The token is a
+// live single-use credential, so it is scrubbed from the address bar (and
+// browser history) the moment it is read — it lives on only in component state.
 function resetTokenFromLocation(): string | null {
   if (typeof globalThis.location === "undefined") {
     return null;
   }
-  if (!globalThis.location.pathname.endsWith("/reset-password")) {
+  // The FRAGMENT, not the query string, and the whole point is that a fragment
+  // never leaves the browser: it is not sent to a server, so it cannot land in
+  // an access log or in a Referer header, and it is not part of a Cache Storage
+  // key, so the service worker cannot persist it to disk. The scrub below is
+  // still worth doing — it keeps the token out of the session's history entry —
+  // but it used to be the ONLY defence, and it ran after the first same-origin
+  // API call had already carried the token off the page.
+  //
+  // Parsed as the app's own hash route (`#/reset-password?token=…`) so the
+  // emailed link is a normal client route: `parseHash` strips a hash-local query
+  // before deriving the screen name, and any static host serves index.html for
+  // `/` without an SPA fallback.
+  const hash = globalThis.location.hash.replace(/^#\/?/, "");
+  const [route, query] = [
+    hash.split("?")[0],
+    hash.slice(hash.indexOf("?") + 1),
+  ];
+  if (route !== RESET_ROUTE || !hash.includes("?")) {
     return null;
   }
-  const token = new URLSearchParams(globalThis.location.search).get("token");
+  const token = new URLSearchParams(query).get("token");
   if (token) {
-    globalThis.history?.replaceState?.(null, "", globalThis.location.pathname);
+    // replaceState, not a hash assignment: assigning to location.hash fires
+    // hashchange and pushes an entry, which would put the token back in history
+    // — the exact thing this line exists to prevent.
+    globalThis.history?.replaceState?.(
+      null,
+      "",
+      `${globalThis.location.pathname}#/${RESET_ROUTE}`,
+    );
   }
   return token;
 }
@@ -587,7 +613,19 @@ function LoginForm({
             className="auth-input"
             type="email"
             required
+            /* A stable `name`, because `id` here cannot be one: useId() derives
+               its value from the component's position in the tree, and this
+               tree changes with the notice and the provider block. Chrome
+               autofills from the autocomplete token alone, but Firefox and
+               several password managers fall back to name/id to match a SAVED
+               credential to a rendered field — with neither stable, they have
+               nothing to match on. */
+            name="email"
             autoComplete="username"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -627,7 +665,10 @@ function LoginForm({
             className="auth-input"
             type={showPassword ? "text" : "password"}
             required
+            name="password"
             autoComplete="current-password"
+            autoCapitalize="none"
+            spellCheck={false}
             placeholder={t("auth.passwordPlaceholder")}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -695,7 +736,16 @@ function ForgotForm({
             id={emailId}
             className="auth-input"
             type="email"
-            autoComplete="username"
+            required
+            name="email"
+            /* "email", not "username": this form never accepts a password, and
+               labelling it username invites a manager to treat it as a sign-in
+               field and offer to fill a credential that has nowhere to go. */
+            autoComplete="email"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -727,6 +777,48 @@ function ForgotForm({
 
 const MIN_PASSWORD = 12;
 
+/*
+ * Why a reset failure has to be classified at all.
+ *
+ * Every failure used to render one string: "That reset link is invalid, used, or
+ * expired", above a "Request a new link" button. For a spent token that is
+ * exactly right. For anything else it is false, and the offered remedy is
+ * actively harmful — minting a new link SUPERSEDES the outstanding token
+ * (identity/reset.go), so a user whose request merely hit a network blip is told
+ * their good link is dead and then invited to destroy it.
+ *
+ * `token` is the only failure where a new link is the answer. A refused password
+ * belongs to the field, a budget refusal is a wait, and a server or transport
+ * fault is neither the link's fault nor the user's.
+ */
+type ResetFailure = "token" | "password" | "rate-limited" | "server";
+
+class ResetError extends Error {
+  readonly failure: ResetFailure;
+  constructor(failure: ResetFailure) {
+    super(failure);
+    this.name = "ResetError";
+    this.failure = failure;
+  }
+}
+
+function resetFailureOf(status: number | undefined): ResetFailure {
+  // 401 is the ONLY token verdict, and it is deliberately one verdict: the
+  // server refuses to distinguish unknown from used from expired so a token
+  // cannot be probed. That is why the copy names all three.
+  if (status === 401) return "token";
+  if (status === 422) return "password";
+  if (status === 429) return "rate-limited";
+  return "server";
+}
+
+function resetErrorKey(failure: ResetFailure): MessageKey {
+  if (failure === "token") return "auth.resetFailed";
+  if (failure === "password") return "auth.resetRejectedPassword";
+  if (failure === "rate-limited") return "auth.errRateLimited";
+  return "auth.resetServerFailed";
+}
+
 function ResetForm({
   token,
   onDone,
@@ -738,15 +830,26 @@ function ResetForm({
 
   const reset = useMutation({
     mutationFn: async () => {
-      const { error } = await api.POST("/auth/reset-password", {
-        body: { token, new_password: password },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
+      // `.catch(() => null)` for the same reason LoginForm does it: a rejected
+      // fetch (offline, DNS, CORS) is not an HTTP error and arrives as a thrown
+      // TypeError. Without this, a transport fault was indistinguishable from a
+      // dead token — and the remedy offered for a dead token destroys a live one.
+      const result = await api
+        .POST("/auth/reset-password", {
+          body: { token, new_password: password },
+        })
+        .catch(() => null);
+      if (!result) {
+        throw new ResetError("server");
+      }
+      if (result.error) {
+        throw new ResetError(resetFailureOf(result.response?.status));
       }
     },
     onSuccess: onDone,
   });
+  const failure =
+    reset.error instanceof ResetError ? reset.error.failure : "server";
 
   const ready = password.length >= MIN_PASSWORD;
   const submit = (event: FormEvent) => {
@@ -771,18 +874,29 @@ function ResetForm({
             id={passwordId}
             className="auth-input"
             type="password"
+            required
+            minLength={MIN_PASSWORD}
+            name="new-password"
             autoComplete="new-password"
+            autoCapitalize="none"
+            spellCheck={false}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
         </Field>
       </div>
       {reset.isError && (
-        <div className="auth-error">
-          <p className="ae-t">{t("auth.resetFailed")}</p>
-          <button type="button" className="auth-link" onClick={onRestart}>
-            {t("auth.requestNewLink")}
-          </button>
+        <div className="auth-error" role="alert">
+          <p className="ae-t">{t(resetErrorKey(failure))}</p>
+          {/* The new-link offer appears ONLY for a token verdict. Everywhere else
+              it is the one action that makes things worse: it invalidates the
+              token the user is still holding, which for a network blip or a
+              refused password is a working link thrown away. */}
+          {failure === "token" && (
+            <button type="button" className="auth-link" onClick={onRestart}>
+              {t("auth.requestNewLink")}
+            </button>
+          )}
         </div>
       )}
       <div className="auth-actions">

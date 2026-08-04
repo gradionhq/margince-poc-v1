@@ -2279,6 +2279,14 @@ export const en = {
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",
+  // The password was refused, not the link — so the link is still good and the
+  // user must not be sent to replace it.
+  "auth.resetRejectedPassword":
+    "That password was refused. Choose a different one and try again.",
+  // Neither the link's fault nor the user's: the token is untouched, so retrying
+  // the same one is the right advice.
+  "auth.resetServerFailed":
+    "We couldn't set your password just now. Your link is still valid — try again in a moment.",
   "auth.requestNewLink": "Request a new link",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":

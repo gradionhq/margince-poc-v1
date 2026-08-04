@@ -95,7 +95,19 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if rawToken == "" {
 			return
 		}
-		link := h.resetBaseURL + "/reset-password?token=" + rawToken
+		// The token rides in the FRAGMENT, never in the server-visible query, and
+		// that is a security property rather than a style choice. A fragment is
+		// never sent to a server, so the live single-use credential cannot reach
+		// an access log, cannot be sent as a Referer on the same-origin /v1 calls
+		// the SPA makes before it has scrubbed the URL, and cannot become a Cache
+		// Storage key (which includes the query). All three defeated the
+		// front-end's own scrub, which ran too late to help.
+		//
+		// The shape is the app's own hash route rather than a bare `#token=`:
+		// `parseHash` (app/router.tsx) reads the first hash segment as the screen
+		// name and strips a hash-local query, so `#/reset-password?token=…` parses
+		// correctly while `#token=…` would make the token itself the screen name.
+		link := h.resetBaseURL + "/#/reset-password?token=" + rawToken
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
