@@ -2,10 +2,12 @@
 # Diff-scoped code-craftsmanship gate (ADR-0045, `craft static`).
 #
 # Runs the deterministic craftsmanship linter on the backend Go files that
-# THIS push changes vs origin/main — not the whole tree. That gates *new*
-# code to the beauty bar without blocking on the pre-existing backlog. Only
-# BLOCKER findings fail the push; MAJOR/MINOR are advisory. A genuine false
-# positive is waived in-source with a reason: //craft:ignore <check> <reason>.
+# THIS push changes vs origin/main — not the whole tree, so a push pays only
+# for what it touches. BLOCKER and MAJOR findings both fail the push (--strict);
+# MINOR stays advisory. There is no pre-existing backlog to exempt: the tree was
+# cleared to zero before this bar was armed, and `make craft-static` is green.
+# A genuine false positive is waived in-source with a reason:
+# //craft:ignore <check> <reason>.
 #
 # Install once (or run `make hooks`):  git config core.hooksPath .githooks
 set -euo pipefail
@@ -34,7 +36,7 @@ while IFS= read -r f; do
 done <<< "$files"
 
 echo "craft static: checking ${#args[@]} changed backend file(s)…"
-if ! go run -C "$root/cli/craft" . static "${args[@]}"; then
+if ! go run -C "$root/cli/craft" . static --strict "${args[@]}"; then
 	echo ""
 	echo "craft static BLOCKED the push. Fix the findings above, or waive a"
 	echo "genuine false positive in-source:  //craft:ignore <check> <reason>"

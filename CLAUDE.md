@@ -175,8 +175,9 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
 3. **Local gates BEFORE pushing**: `make check` (the merge gate — build,
    vet, lint, arch-lint, unit tests, contract drift); add
    `make frontend-check` when `frontend/` changed. The pre-push hook
-   (installed once via `make hooks`) runs `craft static` diff-scoped on
-   top — a BLOCKER finding stops the push; fix it, never bypass the hook.
+   (installed once via `make hooks`) runs `craft static --strict` diff-scoped
+   on top — a BLOCKER or MAJOR finding stops the push; fix it, never bypass
+   the hook.
 4. **Push the branch and open a PR** (`gh pr create`).
 5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
    SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures
@@ -352,14 +353,21 @@ legibility is the product, not polish.
   surrounding file? do the errors say what-went-wrong *and* what-to-do? would a stranger
   find where this change lives without a guide? is this the smallest diff that does the job?
 
-**The gate runs before every push (diff-scoped).** `.githooks/pre-push` runs the
-deterministic arm — `craft static` (the repo's `cli/craft` tool, ADR-0045) — over the
-backend Go files **this push changes vs `origin/main`**. New/touched
-code must be clean; the pre-existing backlog is *not* gated. So write it right the first
-time — a swallowed error or a sleep in a test you add will block your push.
+**The gate runs before every push (diff-scoped), and it is STRICT.**
+`.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
+`cli/craft` tool, ADR-0045) — over the backend Go files **this push changes vs
+`origin/main`**. There is no pre-existing backlog to exempt: the whole tree was
+cleared to zero findings before this bar was armed, so the rule is simply that
+touched code is clean. Write it right the first time — a swallowed error, a sleep
+in a test, a bare `any` in a signature, or an 81-line function you add will block
+your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
-- Full manual sweep of the whole backend: **`make craft-static`** (still red on the backlog).
-- Only `BLOCKER` findings (`swallowed-errors`, `test-sleep`) block; `MAJOR`/`MINOR` are advisory.
+- Full manual sweep of the whole backend: **`make craft-static`** — green, and the
+  CI `craftsmanship` job runs the same bar as a required check.
+- `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings
+  are 80 body lines / 500 file lines for product code and 160 / 1000 for `*_test.go`
+  — a long scenario test that sets up, acts and asserts once is not the
+  god-function smell, but a suite still splits when it stops being navigable.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 
