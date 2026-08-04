@@ -4,13 +4,8 @@
 package compose
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -210,62 +205,44 @@ func TestAnIdleFleetMapsToEmptyListsNotNulls(t *testing.T) {
 	}
 }
 
-// TestEveryFleetWideArgsTypeIsDeclaredAsADispatcherKind derives the
-// expected membership from the tree instead of restating it.
+// TestTheUntenantedArmResolvesItsKindsFromTheDeclaredRole gates the FILTER,
+// and only the filter. Both sides here read jobs.Declared(), so this cannot
+// catch a kind whose role is wrong — it catches dispatcherKinds() growing a
+// hard-coded entry, dropping one, or answering by some predicate other than
+// the declared role, which is what would put a kind in the untenanted arm or
+// leave it out for a reason api/jobs.yaml never states.
 //
-// The untenanted arm of the job-health scope is a CLOSED set, which makes
-// forgetting a dispatcher silent in exactly the direction that hurts: its
-// rows are omitted, and an admin looking for "is the fleet being swept"
-// sees a surface that says nothing rather than one that says no. A new
-// FleetWide args type therefore fails here until it is declared.
-func TestEveryFleetWideArgsTypeIsDeclaredAsADispatcherKind(t *testing.T) {
-	declared := map[string]bool{}
-	for _, d := range fleetDispatchers {
-		declared[argsTypeName(d)] = true
+// What holds the ROLE itself to something outside the file is the generated
+// pair of interface assertions: a declared dispatcher must satisfy
+// jobs.FleetWide and a declared workspace kind jobs.WorkspaceScoped, so a role
+// that disagreed with the args struct it names fails to compile. That is the
+// independent binding; this is the filter in front of it.
+func TestTheUntenantedArmResolvesItsKindsFromTheDeclaredRole(t *testing.T) {
+	var want []string
+	for kind, spec := range jobs.Declared() {
+		if spec.Role == jobs.Dispatcher {
+			want = append(want, kind)
+		}
+	}
+	// A vacuous pass is the failure mode of any derived gate. The contract
+	// declares 24 dispatchers today; the floor sits below that so retiring a
+	// pass does not drag the gate along, while a filter that matched nothing
+	// still trips it.
+	if len(want) < 20 {
+		t.Fatalf("the contract declares only %d dispatchers; the filter is not resolving them", len(want))
 	}
 
-	sources, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatalf("listing the compose package's sources: %v", err)
-	}
-	fset := token.NewFileSet()
-	var inTree []string
-	for _, path := range sources {
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			t.Fatalf("parsing %s: %v", path, err)
-		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Name.Name != "FleetWide" || fn.Recv == nil {
-				continue
-			}
-			if name := receiverTypeIdent(fn); name != "" {
-				inTree = append(inTree, name)
-			}
-		}
-	}
-
-	// A vacuous pass is the failure mode of any AST gate: a walker that
-	// matched nothing reports green. The tree carries 23 dispatchers today.
-	if len(inTree) < 20 {
-		t.Fatalf("found only %d FleetWide args types; the walker is not resolving them", len(inTree))
-	}
-	for _, name := range inTree {
-		if !declared[name] {
-			t.Errorf("%s declares jobs.FleetWide but is missing from fleetDispatchers, so its "+
-				"rows are invisible on /admin/job-health — the surface an admin uses to notice "+
-				"a dispatcher is not running", name)
-		}
-	}
-	if len(declared) != len(inTree) {
-		t.Errorf("fleetDispatchers holds %d entries but the tree declares %d FleetWide types",
-			len(declared), len(inTree))
+	got := slices.Clone(dispatcherKinds())
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("the untenanted arm admits\n%v\nbut the contract declares\n%v", got, want)
 	}
 }
 
 // TestEveryDispatcherKindIsSpelledOnce — a duplicate would widen the
-// untenanted arm with a redundant bind and hide a copy-paste slip.
+// untenanted arm with a redundant bind, and an empty kind would widen it
+// with a bind that matches nothing while looking like one that does.
 func TestEveryDispatcherKindIsSpelledOnce(t *testing.T) {
 	kinds := dispatcherKinds()
 	sorted := slices.Clone(kinds)
@@ -280,32 +257,22 @@ func TestEveryDispatcherKindIsSpelledOnce(t *testing.T) {
 	}
 }
 
-// argsTypeName answers a FleetWide value's concrete type name, without the
-// package qualifier — the same spelling the AST walk above reads off a
-// method receiver.
-func argsTypeName(d jobs.FleetWide) string {
-	t := reflect.TypeOf(d)
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	return t.Name()
-}
-
-// receiverTypeIdent answers a method's receiver type name, dereferencing a
-// pointer receiver.
-func receiverTypeIdent(fn *ast.FuncDecl) string {
-	if fn.Recv == nil || len(fn.Recv.List) == 0 {
-		return ""
-	}
-	switch t := fn.Recv.List[0].Type.(type) {
-	case *ast.Ident:
-		return t.Name
-	case *ast.StarExpr:
-		if id, ok := t.X.(*ast.Ident); ok {
-			return id.Name
+// TestNoWorkspaceKindReachesTheUntenantedArm is the other direction, and
+// the one with a security shape: every row of a kind named here is admitted
+// without a workspace test, so a workspace kind on this list would hand one
+// tenant's rows to another's admin.
+func TestNoWorkspaceKindReachesTheUntenantedArm(t *testing.T) {
+	for _, kind := range dispatcherKinds() {
+		spec, ok := jobs.SpecFor(kind)
+		if !ok {
+			t.Errorf("%s is admitted untenanted but the contract declares no such kind", kind)
+			continue
+		}
+		if spec.Role != jobs.Dispatcher {
+			t.Errorf("%s carries one workspace's pass but is admitted as untenanted, so its "+
+				"rows reach an admin of a workspace that does not own them", kind)
 		}
 	}
-	return ""
 }
 
 // callJobHealth runs the handler under one principal and answers the

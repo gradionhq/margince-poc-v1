@@ -3,101 +3,126 @@
 
 package backendarch
 
-// Job args carry REFERENCES, never content. The erasure engine neutralizes
-// an in-flight job by scrubbing the row the job names — comms_outbound goes
-// to `parked` and the waking job finds nothing to send. That only works
-// while the job holds an id and not a copy: args carrying a body or an
-// address would be a second store of subject data that Art. 17 never
-// reaches, sitting in a table with no workspace column and no RLS.
+// Job args carry REFERENCES, never content. The erasure engine neutralizes an
+// in-flight job by scrubbing the row the job names — comms_outbound goes to
+// `parked` and the waking job finds nothing to send. That only works while the
+// job holds an id and not a copy: args carrying a body or an address would be a
+// second store of subject data that Art. 17 never reaches, sitting in a table
+// with no workspace column and no RLS.
 //
-// This gate is a HABIT GUARD, not a proof of that property. It matches field
-// NAMES against a word list, so it catches the shapes someone reaches for
-// without thinking (Body, RecipientEmail, Subject) and would miss a field
-// named Snippet, Note or Domain carrying the same thing. A positive assertion
-// — every args field is an id, or an explicitly waived scalar — would be the
-// proof; this is the cheap version that stops the common case.
+// TWO arms, and they answer different questions. Neither subsumes the other,
+// which is why the second was not dropped when the first was written.
+//
+// COVERAGE — every field of every COMPILED args struct this build registers
+// must be declared in api/jobs.yaml, as an id or as a scalar with the reason it
+// is safe. Nothing is inferred from a field's name here, so Snippet, Note and
+// Domain are under the same rule as Body, which is the gap a word list cannot
+// close. This is the positive assertion: it is total over the fields that
+// exist, not over the names somebody thought of.
+//
+// SUSPICION — a field whose NAME reads like content must carry a rationale even
+// when it is declared an id. Coverage alone would let `Body: id` through in
+// silence, and that is exactly the line a reviewer should have to argue for. A
+// word list is a poor detector and a fine prompt: it cannot decide whether a
+// field is safe, and it can insist that somebody said so.
+//
+// A declared rationale is a WAIVER — a ratified exception to "an args field is
+// an id" — so the reasons api/jobs.yaml carries are read as one, and held to
+// what gatekit holds every other gate's exceptions to: a reason that states a
+// cost, and an entry that still describes a field needing one.
+//
+// What holds the arms up underneath: gen-jobs refuses a declared field that is
+// neither an id nor an argued-for scalar and refuses an empty mapping, and the
+// census refuses a declaration and a struct that disagree.
 
 import (
-	"go/ast"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
-// contentWords name a payload rather than a pointer to one. Matched as a
-// case-insensitive substring of the field name, so `RecipientEmail` and
-// `Body` both trip.
+// contentWords name a payload rather than a pointer to one, matched as a
+// case-insensitive substring of the field name. A field they match is not
+// thereby wrong — RecipientEmail could genuinely hold an id — it is thereby
+// UNARGUED, and the declaration is where the argument goes.
 var contentWords = []string{
 	"address", "body", "content", "email", "message",
 	"name", "payload", "phone", "subject", "text",
 }
 
-// contentFieldWaivers are ratified exceptions, keyed "Type.Field". EMPTY is
-// the expected steady state — a job names a row and the worker reads it, so a
-// real exception should be rare enough to argue about. The waiver type holds
-// each entry to a stated rationale and reports one that outlives the field it
-// was written for, so when an exception does appear it cannot arrive bare.
-var contentFieldWaivers = gatekit.Waive(map[string]string{})
+func TestEveryJobArgsFieldIsAnIdOrAnArguedForScalar(t *testing.T) {
+	census, err := compose.NewJobCensus()
+	if err != nil {
+		t.Fatalf("building the job census: %v", err)
+	}
+	compiled, err := census.ArgsFields()
+	if err != nil {
+		t.Fatalf("reading the compiled args fields: %v", err)
+	}
+	argued := gatekit.Waive(declaredArgsRationales(compiled))
 
-func TestJobArgsCarryReferencesNotContent(t *testing.T) {
-	dir := filepath.Join("internal", "compose")
-	byType := methodsByType(t, dir)
-	fields := structFields(t, dir)
-	checked := 0
+	kinds := map[string]struct{}{}
+	for _, field := range compiled {
+		kinds[field.Kind] = struct{}{}
+		name := field.GoType + "." + field.Name
 
-	for typeName, methods := range byType {
-		if !methods["Kind"] {
+		if !field.Declared {
+			t.Errorf("%s is not declared in api/jobs.yaml — say what it carries: `%s: id`, or a scalar with the reason a value that is not an id is safe in a table Art. 17 erasure never reaches.",
+				name, field.Name)
 			continue
 		}
-		checked++
-		for _, field := range fields[typeName] {
-			key := typeName + "." + field
-			lower := strings.ToLower(field)
-			for _, word := range contentWords {
-				if !strings.Contains(lower, word) {
-					continue
-				}
-				if contentFieldWaivers.Waived(t, key) {
-					break
-				}
-				t.Errorf("%s looks like content, not a reference (matched %q). A job names a row; the worker reads it. If this really is a reference, waive it in contentFieldWaivers with a rationale.", key, word)
-				break
+		word, suspect := contentWordIn(field.Name)
+		switch {
+		case field.Scalar:
+			if !argued.Waived(t, name) {
+				t.Errorf("%s is declared a scalar with no rationale — generation refuses that, so the declared table has been hand-edited; regenerate with `make gen`.", name)
+			}
+		case suspect:
+			if !argued.Waived(t, name) {
+				t.Errorf("%s is declared an id but its name reads like content (it contains %q), and nothing says why. A job names a row and the worker reads it; a copy in the args is a second store of subject data Art. 17 erasure never reaches. Give the field a reason in api/jobs.yaml — `%s: {reason: …}` — or make it carry an id.",
+					name, word, field.Name)
 			}
 		}
 	}
-	if checked < jobArgsFloor {
-		t.Fatalf("found only %d job args types, expected at least %d — the walker matched nothing", checked, jobArgsFloor)
+
+	if len(kinds) < jobArgsFloor {
+		t.Fatalf("inspected the args of only %d job kinds, expected at least %d — the census matched almost nothing and this gate would pass vacuously", len(kinds), jobArgsFloor)
 	}
 	// Staleness is only meaningful once the sweep above actually ran: on the
 	// vacuity Fatal every entry would report as unmatched, burying the one
-	// failure that explains all of them.
-	contentFieldWaivers.AssertAllMatched(t)
+	// failure that explains all of them. An entry reported here is a rationale
+	// no arm asks for — an id whose name the word list does not flag — so it is
+	// prose nobody is holding to anything; delete it from api/jobs.yaml.
+	argued.AssertAllMatched(t)
 }
 
-// structFields returns the declared field names of every struct type in dir.
-func structFields(t *testing.T, dir string) map[string][]string {
-	t.Helper()
-	_, files := parseGoFilesUnder(t, dir)
-	byType := map[string][]string{}
-	for _, file := range files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			spec, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
-			}
-			st, ok := spec.Type.(*ast.StructType)
-			if !ok || st.Fields == nil {
-				return true
-			}
-			for _, f := range st.Fields.List {
-				for _, name := range f.Names {
-					byType[spec.Name.Name] = append(byType[spec.Name.Name], name.Name)
-				}
-			}
-			return true
-		})
+// declaredArgsRationales is every args field the contract argues for, keyed as
+// this gate names a field.
+//
+// It reads the same fields the gate does, so the waiver set and the subjects it
+// is consulted over have exactly one population: a rationale on a kind this
+// build does not register would otherwise report stale on a deployment that
+// merely does not run that kind.
+func declaredArgsRationales(compiled []compose.JobArgsField) map[string]string {
+	rationales := map[string]string{}
+	for _, field := range compiled {
+		if field.Reason != "" {
+			rationales[field.GoType+"."+field.Name] = field.Reason
+		}
 	}
-	return byType
+	return rationales
+}
+
+// contentWordIn reports the first content word a field name contains, and
+// whether it contains one at all.
+func contentWordIn(field string) (string, bool) {
+	lower := strings.ToLower(field)
+	for _, word := range contentWords {
+		if strings.Contains(lower, word) {
+			return word, true
+		}
+	}
+	return "", false
 }

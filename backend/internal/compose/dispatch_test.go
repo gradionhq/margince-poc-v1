@@ -36,7 +36,7 @@ func TestDispatchWithEnqueuesTheWholeFleetInOneInsert(t *testing.T) {
 		return nil
 	}
 
-	if err := dispatchWith(context.Background(), fleet, insert, workspaceSweepOpts("", sweepWorkspaceMaxAttempts), closeDateWorkspaceArgsFor); err != nil {
+	if err := dispatchWith(context.Background(), fleet, insert, workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()), closeDateWorkspaceArgsFor); err != nil {
 		t.Fatalf("dispatching a healthy fleet: %v", err)
 	}
 	if calls != 1 {
@@ -60,7 +60,7 @@ func TestDispatchWithFailsTheDispatcherWhenTheInsertIsRefused(t *testing.T) {
 	refused := errors.New("insert refused")
 	insert := func(context.Context, []river.InsertManyParams) error { return refused }
 
-	err := dispatchWith(context.Background(), fleet, insert, workspaceSweepOpts("", sweepWorkspaceMaxAttempts), closeDateWorkspaceArgsFor)
+	err := dispatchWith(context.Background(), fleet, insert, workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()), closeDateWorkspaceArgsFor)
 	if err == nil {
 		t.Fatal("a refused fan-out must surface, so the dispatcher row fails and the tick retries")
 	}
@@ -77,7 +77,7 @@ func TestDispatchWithEnqueuesNothingForAnEmptyFleet(t *testing.T) {
 		called = true
 		return nil
 	}
-	if err := dispatchWith(context.Background(), nil, insert, workspaceSweepOpts("", sweepWorkspaceMaxAttempts), closeDateWorkspaceArgsFor); err != nil {
+	if err := dispatchWith(context.Background(), nil, insert, workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()), closeDateWorkspaceArgsFor); err != nil {
 		t.Fatalf("an empty fleet is not a failure: %v", err)
 	}
 	if called {
@@ -85,24 +85,145 @@ func TestDispatchWithEnqueuesNothingForAnEmptyFleet(t *testing.T) {
 	}
 }
 
-// The ladder is capped on purpose: the dispatcher's tick owns the cadence.
-func TestWorkspaceSweepOptsCapsTheLadderAndDedupesOnActiveStates(t *testing.T) {
-	opts := workspaceSweepOpts("ai_capture", sweepWorkspaceMaxAttempts)
-	if opts.MaxAttempts != sweepWorkspaceMaxAttempts {
-		t.Fatalf("MaxAttempts = %d, want %d — unset, River's 25-rung ladder silently replaces the tick as the retry cadence",
-			opts.MaxAttempts, sweepWorkspaceMaxAttempts)
+// The queue and the ladder are the DECLARATION's, not the call site's: a
+// number typed at the call site can drift from the one api/jobs.yaml
+// publishes, and nothing would notice.
+func TestWorkspaceSweepOptsReadsTheDeclaredQueueAndAttempts(t *testing.T) {
+	opts := workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind())
+
+	if opts.Queue != "privacy_retention" {
+		t.Errorf("Queue = %q, want the declared privacy_retention", opts.Queue)
 	}
-	if opts.Queue != "ai_capture" {
-		t.Fatalf("Queue = %q, want the queue the caller named", opts.Queue)
+	if opts.MaxAttempts != 3 {
+		t.Errorf("MaxAttempts = %d, want the declared 3 — unset, River's 25-rung ladder silently replaces the tick as the retry cadence",
+			opts.MaxAttempts)
 	}
+}
+
+func TestWorkspaceSweepOptsTagsEveryFanOutChild(t *testing.T) {
+	opts := workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind())
+
+	if !slices.Contains(opts.Tags, jobs.SweepTag) {
+		t.Errorf("Tags = %v, want jobs.SweepTag — an untagged child is invisible to both sweep gauges", opts.Tags)
+	}
+}
+
+// Uniqueness stays the helper's, not the declaration's: it is the same window
+// for every fan-out child, and by ARGS because one workspace's job is
+// otherwise indistinguishable from another's.
+func TestWorkspaceSweepOptsDedupesByArgsOnActiveStates(t *testing.T) {
+	opts := workspaceSweepOpts(CaptureClassifyWorkspaceArgs{}.Kind())
+
 	if !opts.UniqueOpts.ByArgs {
-		t.Fatal("uniqueness must be by args, or one workspace's job is indistinguishable from another's")
+		t.Fatal("uniqueness must be by args, or one workspace's job is indistinguishable from another's — the whole fleet would collapse to one queued child")
 	}
 	for _, state := range opts.UniqueOpts.ByState {
 		if state == "completed" {
 			t.Fatal("completed must stay out of the uniqueness window, or a finished pass blocks the next tick")
 		}
 	}
+}
+
+// fans_out_to is the registry, and a registry that admits anything is not
+// one: a kind no dispatcher declares a fan-out to must not be dispatchable,
+// or the next untagged fan-out is one unreviewed call away.
+func TestWorkspaceSweepOptsRefusesAKindNoDispatcherFansOutTo(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a kind no declared dispatcher names in fans_out_to must not get fan-out opts")
+		}
+	}()
+	workspaceSweepOpts("site_deep_read") // enqueued by a human, fanned out to by nobody
+}
+
+// The helper supplies a queue and an attempt cap. Handing them to a kind
+// whose opts are owned elsewhere would publish numbers the contract does not
+// govern for it — and, for telegram_poll, would replace the per-bot
+// uniqueness its own args declare.
+func TestWorkspaceSweepOptsRefusesAKindWhoseOptsItDoesNotOwn(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a kind whose opts_owner is not fan_out must not silently get fan-out opts")
+		}
+	}()
+	workspaceSweepOpts(TelegramPollArgs{}.Kind()) // opts_owner: args
+}
+
+// The args-owned posture, which is the one a well-meaning conversion breaks:
+// River merges an explicit InsertOpts with the args' own field by field, and
+// consults the args for uniqueness only while the explicit value leaves it
+// empty. A populated opts here silently drops the per-bot rule.
+func TestFanOutChildOptsLeavesAnArgsOwnedKindItsOwnInsertOpts(t *testing.T) {
+	opts := fanOutChildOpts(TelegramPollArgs{}.Kind(), nil)
+
+	if !slices.Contains(opts.Tags, jobs.SweepTag) {
+		t.Errorf("Tags = %v, want jobs.SweepTag", opts.Tags)
+	}
+	if opts.Queue != "" || opts.MaxAttempts != 0 {
+		t.Errorf("queue %q / attempts %d were supplied for a kind whose args own its opts",
+			opts.Queue, opts.MaxAttempts)
+	}
+	// River's own isEmpty is unexported, so the fields it reads are checked
+	// here directly: any one of them set makes River stop consulting the
+	// args' own InsertOpts for uniqueness.
+	u := opts.UniqueOpts
+	if u.ByArgs || u.ByQueue || u.ExcludeKind || u.ByPeriod != 0 || len(u.ByState) != 0 {
+		t.Errorf("a uniqueness window of its own (%+v) was declared for a kind whose args declare "+
+			"one; River would then stop falling back, and one bot's poll could suppress another's", u)
+	}
+}
+
+// The caller-owned posture. voiceBuildInsertOpts is shared with the
+// user-initiated build path, so the tag goes on the retry dispatcher's call
+// and the shared value carries it through unchanged.
+func TestFanOutChildOptsCarriesACallerOwnedKindsOptsThrough(t *testing.T) {
+	callerOpts := voiceBuildInsertOpts()
+	opts := fanOutChildOpts(VoiceBuildArgs{}.Kind(), callerOpts)
+
+	if !slices.Contains(opts.Tags, jobs.SweepTag) {
+		t.Errorf("Tags = %v, want jobs.SweepTag", opts.Tags)
+	}
+	if !opts.UniqueOpts.ByArgs {
+		t.Error("the caller's uniqueness window was dropped; a deferred build could then be offered twice")
+	}
+	if !slices.Equal(opts.UniqueOpts.ByState, callerOpts.UniqueOpts.ByState) {
+		t.Errorf("ByState = %v, want the caller's %v", opts.UniqueOpts.ByState, callerOpts.UniqueOpts.ByState)
+	}
+}
+
+// The shared helper stays clean. A build a human asked for is not one
+// workspace's share of a fleet pass, and counting it as one is exactly what
+// the tag exists to prevent.
+func TestVoiceBuildInsertOptsCarriesNoSweepTag(t *testing.T) {
+	if tags := voiceBuildInsertOpts().Tags; slices.Contains(tags, jobs.SweepTag) {
+		t.Errorf("the shared build opts carry %v; the tag belongs on the retry dispatcher's call alone", tags)
+	}
+}
+
+// Opts for a kind that does not own them would be dropped by the switch
+// below, not merged — and a dropped uniqueness window reads, in the source,
+// exactly like an applied one.
+func TestFanOutChildOptsRefusesOptsForAKindThatDoesNotOwnThem(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("insert options for a kind whose opts_owner is not caller must be refused, not ignored")
+		}
+	}()
+	fanOutChildOpts(CaptureSyncArgs{}.Kind(), &river.InsertOpts{MaxAttempts: 2})
+}
+
+// The other direction, and the same defect: a caller-owned kind reaching here
+// with nothing would get the tag-only value, which is precisely the shape that
+// makes River fall back to the ARGS' opts — and a caller-owned kind carries
+// that owner because its args declare none. The window would be gone, and the
+// call site would still read as one that supplied it.
+func TestFanOutChildOptsRefusesACallerOwnedKindWithNoOpts(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a caller-owned kind with no opts must be refused, not degraded to a tag-only value")
+		}
+	}()
+	fanOutChildOpts(VoiceBuildArgs{}.Kind(), nil)
 }
 
 func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
@@ -113,13 +234,10 @@ func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 // sweep gauges cannot tell a fleet pass from a hand-triggered workspace job
 // by kind alone, because they are the same kind. The tag is the difference.
 //
-// This covers the dispatchWith choke point ONLY. The five dispatchers that
-// loop single client.Insert calls (jobs_capture.go x2, telegrampoll.go,
-// voicebuild.go, jobs_overlay.go) are not reachable from here — they resolve
-// a River client from context — so a regression in any of them would still
-// pass. Their tagging is held by markedAsFleetPass' own registry comment and
-// by review, which is why a fitness test over fan-out SITES is carried as
-// the highest-value follow-up in STATUS.md rather than claimed here.
+// This covers the dispatchWith builder. The other one, fanOutChildOpts, is
+// covered by the posture tests above — between them every fan-out child's
+// opts are built here or there, and TestEveryFleetWideJobOnlyDispatches is
+// what proves no dispatcher reaches River by a third spelling.
 func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
 	var got []river.InsertManyParams
 	insert := func(_ context.Context, params []river.InsertManyParams) error {
@@ -129,7 +247,7 @@ func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.
 	fleet := []ids.UUID{ids.NewV7(), ids.NewV7()}
 
 	if err := dispatchWith(context.Background(), fleet, insert,
-		workspaceSweepOpts("", sweepWorkspaceMaxAttempts), closeDateWorkspaceArgsFor); err != nil {
+		workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()), closeDateWorkspaceArgsFor); err != nil {
 		t.Fatalf("dispatchWith: %v", err)
 	}
 
@@ -152,7 +270,7 @@ func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.
 // it in place would accumulate one tag per workspace on a struct the caller
 // still owns.
 func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
-	opts := workspaceSweepOpts("default", sweepWorkspaceMaxAttempts)
+	opts := workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind())
 	// Spare CAPACITY is the case a length check cannot see: append would
 	// write into the caller's own backing array and leave len unchanged, so
 	// the aliasing this test exists to catch would go unnoticed.
@@ -187,7 +305,7 @@ func TestTheFanOutTagDoesNotMutateTheCallersInsertOpts(t *testing.T) {
 // uniqueness window would change how the fleet is enqueued in order to
 // describe it, which is the one thing an observability change may not do.
 func TestTheFanOutTagCarriesTheCallersEnqueuePolicyThrough(t *testing.T) {
-	opts := workspaceSweepOpts("ai_capture", sweepWorkspaceMaxAttempts)
+	opts := workspaceSweepOpts(CaptureClassifyWorkspaceArgs{}.Kind())
 	marked := markedAsFleetPass(opts)
 
 	if marked.Queue != opts.Queue {

@@ -58,21 +58,21 @@ const (
 	// with nothing to report. Long enough that a 30s dispatcher tick is
 	// effectively continuous; short enough to leave room inside the job timeout.
 	telegramPollTimeoutSeconds = 25
-	// telegramPollJobTimeout bounds one poll job. It must EXCEED the long poll
-	// plus the headroom the client adds around it: a poll cancelled by its own
-	// job timeout returns nothing, so its offset never advances and the
-	// connection retries forever without making progress. Asserted rather than
-	// assumed — telegrampoll_test.go.
+	// telegramPollJobTimeout is the reasoning behind telegram_poll's declared
+	// timeout. It must EXCEED the long poll plus the headroom the client adds
+	// around it: a poll cancelled by its own job timeout returns nothing, so its
+	// offset never advances and the connection retries forever without making
+	// progress. Asserted rather than assumed — telegrampoll_test.go.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and the job census keeps the two equal.
 	telegramPollJobTimeout = 2 * time.Minute
-	// telegramPollSweepInterval is the dispatcher's cadence. Paired with the
-	// long poll above it leaves at most a few seconds of every minute in which
-	// a connection is not waiting on Telegram.
-	telegramPollSweepInterval = 30 * time.Second
 )
 
 // registerTelegramPoll wires the pull-ingress half of the worker role: the
-// leader-elected dispatcher and the per-connection poll worker, plus the periodic
-// tick that drives them.
+// leader-elected dispatcher and the per-connection poll worker, plus the
+// periodic tick that drives them.
 //
 // Both halves are gated on the vault TOGETHER, and neither is registered without
 // it: a dispatcher with no poll worker would queue jobs nothing works, and a poll
@@ -80,20 +80,17 @@ const (
 // handed. A nil api takes the real Bot API client — the acceptance suites pass a
 // fake, because a poller left on the real client would reach api.telegram.org from
 // a test run.
-func registerTelegramPoll(workers *river.Workers, periodic []*river.PeriodicJob, pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) []*river.PeriodicJob {
-	if vault == nil {
-		return periodic
+func registerTelegramPoll(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
+	if cfg.ChannelVault == nil {
+		return nil
 	}
+	api := cfg.ChannelAPI
 	if api == nil {
 		api = telegram.NewAPI(nil, "")
 	}
-	river.AddWorker(workers, &telegramPollSweepWorker{pool: pool, log: log})
-	river.AddWorker(workers, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log))
-	return append(periodic, river.NewPeriodicJob(
-		river.PeriodicInterval(telegramPollSweepInterval),
-		func() (river.JobArgs, *river.InsertOpts) { return TelegramPollSweepArgs{}, sweepInsertOpts() },
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
+	addDeclaredWorker[TelegramPollSweepArgs](reg, &telegramPollSweepWorker{pool: pool, log: log})
+	addDeclaredWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, cfg.ChannelVault, api, ambientTelegramEnqueuer{}, log))
+	return periodicFor(cfg, TelegramPollSweepArgs{})
 }
 
 // TelegramPollSweepArgs schedules one DISPATCH pass: due-scan the fleet for live
@@ -142,25 +139,19 @@ func (TelegramPollArgs) InsertOpts() river.InsertOpts {
 // fleet-enumeration failure is returned, so River retries the tick rather than
 // the fleet silently going unpolled.
 type telegramPollSweepWorker struct {
-	river.WorkerDefaults[TelegramPollSweepArgs]
 	pool *pgxpool.Pool
 	log  *slog.Logger
 }
 
 func (w *telegramPollSweepWorker) Work(ctx context.Context, _ *river.Job[TelegramPollSweepArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := capture.DueChannelConnections(ctx, w.pool, capture.ProviderTelegram)
 	for _, d := range due {
-		// The opts carry the sweep tag and NOTHING else: TelegramPollArgs
-		// declares its own uniqueness, and River falls back to the args'
-		// InsertOpts for the scheduling and uniqueness fields an explicit
-		// value leaves unset — so a tag-only value still cannot forget the
-		// per-bot rule by omission, which is what passing nil here bought.
-		// The fallback is per-field, not universal: metadata, for one, is
-		// defaulted rather than inherited.
-		if _, err := client.Insert(ctx, TelegramPollArgs{
+		// telegram_poll declares opts_owner: args, so dispatchOne hands River
+		// the sweep tag and NOTHING else and the per-bot uniqueness below
+		// stands — no inserter can drop it by omission.
+		if err := dispatchOne(ctx, TelegramPollArgs{
 			Workspace: d.WorkspaceID, ConnectionID: d.ID.String(),
-		}, markedAsFleetPass(nil)); err != nil {
+		}, nil); err != nil {
 			w.log.WarnContext(ctx, "telegram poll enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}
@@ -199,7 +190,6 @@ func (ambientTelegramEnqueuer) EnqueueTx(ctx context.Context, tx pgx.Tx, args ri
 // the live Bot API, and inserter is the narrow enqueue slice (telegramEnqueuer)
 // so a test can fail the enqueue INSIDE the real transaction.
 type telegramPollWorker struct {
-	river.WorkerDefaults[TelegramPollArgs]
 	pool     *pgxpool.Pool
 	vault    keyvault.Vault
 	api      telegram.API
@@ -209,12 +199,6 @@ type telegramPollWorker struct {
 
 func newTelegramPollWorker(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, inserter telegramEnqueuer, log *slog.Logger) *telegramPollWorker {
 	return &telegramPollWorker{pool: pool, vault: vault, api: api, inserter: inserter, log: log}
-}
-
-// Timeout overrides River's one-minute default so a long poll is never cancelled
-// by the job that is running it. See telegramPollJobTimeout.
-func (*telegramPollWorker) Timeout(*river.Job[TelegramPollArgs]) time.Duration {
-	return telegramPollJobTimeout
 }
 
 // Work resolves the connection, long-polls it, and persists what came back.

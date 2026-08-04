@@ -149,7 +149,6 @@ func startDomainTriageRead(ctx context.Context, peopleStore *people.Store, domai
 			_, insErr := client.InsertTx(ctx, tx, SiteDeepReadArgs{
 				Workspace:   storekit.MustWorkspace(ctx),
 				SiteReadID:  read.ID,
-				SeedURL:     read.SeedURL,
 				RequestedBy: read.RequestedBy,
 				// Declared in the payload as well as enforced at the worker: a
 				// job carries what it was queued to cost, so an operator

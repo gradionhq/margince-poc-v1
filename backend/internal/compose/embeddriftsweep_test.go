@@ -7,8 +7,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/riverqueue/river"
-
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -25,20 +23,20 @@ func (e staticIdentityEmbedder) EmbedIdentity() (string, int) { return e.identit
 
 func TestAddEmbedDriftSweepJobRequiresABoundEmbedLane(t *testing.T) {
 	// No embedder at all: a role with no model path has no store to heal.
-	if jobs := addEmbedDriftSweepJob(river.NewWorkers(), nil, nil, nil); jobs != nil {
+	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, JobRunnerConfig{}, nil); jobs != nil {
 		t.Fatalf("nil embedder registered %d periodic jobs, want none", len(jobs))
 	}
 	// An embedder whose identity is empty (--ai-fake, or a routing config
 	// with no embeddings binding) seeds no marker either — same posture as
 	// WithEmbedReindex.
-	if jobs := addEmbedDriftSweepJob(river.NewWorkers(), nil, staticIdentityEmbedder{identity: ""}, nil); jobs != nil {
+	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, JobRunnerConfig{Embedder: staticIdentityEmbedder{identity: ""}}, nil); jobs != nil {
 		t.Fatalf("empty-identity embedder registered %d periodic jobs, want none", len(jobs))
 	}
 }
 
 func TestAddEmbedDriftSweepJobRegistersWorkerAndTick(t *testing.T) {
-	workers := river.NewWorkers()
-	jobs := addEmbedDriftSweepJob(workers, nil, staticIdentityEmbedder{identity: "fake/model@1024"}, nil)
+	reg := newJobRegistry()
+	jobs := addEmbedDriftSweepJob(reg, nil, JobRunnerConfig{Embedder: staticIdentityEmbedder{identity: "fake/model@1024"}}, nil)
 	if len(jobs) != 1 {
 		t.Fatalf("bound embed lane registered %d periodic jobs, want exactly 1", len(jobs))
 	}
@@ -51,16 +49,5 @@ func TestAddEmbedDriftSweepJobRegistersWorkerAndTick(t *testing.T) {
 			t.Fatalf("re-registering the sweep worker did not panic — the first registration never happened")
 		}
 	}()
-	river.AddWorker(workers, &embedDriftSweepWorker{})
-}
-
-func TestEmbedDriftWorkspaceWorkerHasNoWallClockTimeout(t *testing.T) {
-	// Same contract as embedReindexWorkspaceWorker: the pass is bounded by
-	// the pending backlog, not River's 1-minute default. It is the WORKSPACE
-	// worker that holds it — the dispatcher only enqueues, and giving that
-	// an unbounded clock would say the fan-out is the long part.
-	w := &embedDriftWorkspaceWorker{}
-	if d := w.Timeout(nil); d != -1 {
-		t.Fatalf("Timeout = %v, want -1 (no per-job wall clock)", d)
-	}
+	addGovernedWorker[EmbedDriftSweepArgs](reg, &embedDriftSweepWorker{}, 0)
 }

@@ -52,7 +52,6 @@ func (a OverlayRefetchArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // the reconcile sweep uses, so a webhook refresh and a poller sweep converge
 // on one mirror state. The poller still heals any gap a signal misses.
 type overlayRefetchWorker struct {
-	river.WorkerDefaults[OverlayRefetchArgs]
 	pool  *pgxpool.Pool
 	vault keyvault.Vault
 	ms    *overlay.MirrorStore
