@@ -275,91 +275,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 // nothing to do with a database.
 func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRegistry, []*river.PeriodicJob) {
 	reg := newJobRegistry()
-	// The deep read is not periodic — the api enqueues one job per started
-	// dossier; the worker role only needs the worker registered. It is also the
-	// one kind whose timeout the file cannot state, because the crawl wall it
-	// is built from is an operator's (deepReadTimeout).
-	addDeclaredWorkerWithTimeout[SiteDeepReadArgs](reg,
-		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
-		deepReadTimeout(cfg.DeepReadCaps))
-	// The voice build is not periodic — the api enqueues one job per created
-	// build; only the deferred-retry sweep ticks. Both register even with a
-	// nil brain so a queued build fails actionably instead of rotting.
-	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
-	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
-	// Each scheduled pass is a dispatcher plus a workspace worker. Only the
-	// dispatcher gets a periodic entry below; the workspace worker is enqueued,
-	// never ticked.
-	addDeclaredWorker[CloseDateSweepArgs](reg, &closeDateSweepWorker{pool: pool})
-	addDeclaredWorker[CloseDateWorkspaceArgs](reg, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
-	addDeclaredWorker[FollowUpReconcileArgs](reg, &followUpReconcileWorker{pool: pool})
-	addDeclaredWorker[FollowUpWorkspaceArgs](reg, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
-	addDeclaredWorker[TimeScanArgs](reg, &timeScanWorker{pool: pool})
-	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
-	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
-	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
-	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
-	// update in the same transaction as the raw capture row; the worker role only
-	// needs the worker registered,
-	// same posture as the deep-read and embed-reindex workers. Registered
-	// unconditionally: unlike Gmail/Graph, a channel connection carries its
-	// own per-connection credential (no deployment-wide OAuth app to gate
-	// on), so there is nothing to check for before wiring it up.
-	addDeclaredWorker[TelegramIngestArgs](reg, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
-	// The embed reindex registers itself the same way, workers only: it is not
-	// periodic, because the api enqueues its dispatcher once per confirmed
-	// reindex (jobs_embedreindex.go).
-	addEmbedReindexJobs(reg, pool, cfg.Embedder)
-	// The rate-refresh jobs are not periodic — the api enqueues one per admin
-	// "Refresh from sources" click; the worker registers regardless of whether
-	// a source is configured (a nil brain / empty url no-ops honestly).
-	addDeclaredWorker[FxRateRefreshArgs](reg, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
-	addDeclaredWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, cfg.BoundModelIDs, log))
-	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
-	// registered, it enqueues system deep reads the worker above applies.
-	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
-	addDeclaredWorker[CaptureAutoEnrichSweepArgs](reg, autoEnrich)
-	addDeclaredWorker[CaptureAutoEnrichWorkspaceArgs](reg, &captureAutoEnrichWorkspaceWorker{sweeper: autoEnrich})
-	// The outbound send is not periodic — the api stages one job per accepted
-	// message, in the same transaction as the activity; this role only needs
-	// the worker registered.
-	if cfg.SendRegistry != nil {
-		addDeclaredWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
-	}
-
-	if cfg.ClassifyBrain != nil {
-		addDeclaredWorker[CaptureClassifyArgs](reg, &captureClassifyWorker{pool: pool})
-		addDeclaredWorker[CaptureClassifyWorkspaceArgs](reg, &captureClassifyWorkspaceWorker{
-			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
-		})
-	}
-
-	if cfg.EnrichBrain != nil {
-		addDeclaredWorker[CaptureEnrichArgs](reg, &captureEnrichWorker{pool: pool})
-		addDeclaredWorker[CaptureEnrichWorkspaceArgs](reg, &captureEnrichWorkspaceWorker{
-			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
-		})
-	}
-
-	// Registered unconditionally: the org-name promotion weighs evidence rows
-	// the enrich pass already wrote, so it needs no model. Gating it on a brain
-	// would leave an AI-less deployment unable to act on signatures it had
-	// already collected.
-	addDeclaredWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool})
-	addDeclaredWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
-
-	// Registered unconditionally for a different reason: only the counterparty
-	// verdict's JUDGING stage needs a model, and the worker skips that stage
-	// when none is configured. Gating the whole worker on a brain would mean an
-	// AI-less deployment never staged a review for an existing unsure row and
-	// never redacted mail it had already hidden.
-	addDeclaredWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool})
-	addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{
-		engine: NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log),
-	})
-
+	// The workers, in the groups their gating and their concern make: each
+	// helper registers its own and states what an absent dependency costs
+	// them. The schedules that drive them are the list below, because a
+	// cadence is the declaration's and not the group's.
+	addModelLaneJobs(reg, pool, cfg, log)
+	addDatabaseOnlySweepJobs(reg, pool, log)
+	addCapturePipelineJobs(reg, pool, cfg, log)
 	addGmailCaptureJobs(reg, pool, cfg, log)
-
 	addOverlayJobs(reg, pool, cfg, log)
 
 	periodic := slices.Concat(
@@ -395,4 +318,58 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 	)
 
 	return reg, periodic
+}
+
+// addModelLaneJobs registers the kinds whose work is a model call: the site
+// deep read, the voice build, the embed reindex, and the two refreshes that
+// extract rates from a page. The deferred-build retry sweep rides with them
+// because it fans out to the voice build and to nothing else.
+//
+// Not one of them is gated on the lane it reads, and that shared posture is
+// what makes them a group. Something outside the runner enqueues every model
+// call here — an api call, a human's confirm, an admin's refresh click, the
+// retry sweep's own fan-out — so a row can already be waiting when a role with
+// no lane configured comes up, and registering anyway is what makes that row
+// fail with an actionable message instead of sitting queued behind a job
+// nothing works. The embed DRIFT sweep takes the opposite posture for the
+// opposite reason (embeddriftsweep.go): nothing but its own tick enqueues it,
+// so there is no waiting row for a worker to answer.
+func addModelLaneJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
+	// The deep read is the one kind whose timeout the file cannot state,
+	// because the crawl wall it is built from is an operator's (deepReadTimeout).
+	addDeclaredWorkerWithTimeout[SiteDeepReadArgs](reg,
+		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
+		deepReadTimeout(cfg.DeepReadCaps))
+	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
+	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
+	// The reindex is a dispatcher plus a workspace worker, and neither is
+	// ticked: the api enqueues the dispatcher once per confirmed reindex
+	// (jobs_embedreindex.go).
+	addEmbedReindexJobs(reg, pool, cfg.Embedder)
+	// Both refreshes read a source the deployment configures. An unconfigured
+	// one — a nil brain, an empty url, no pricing sources — leaves the worker
+	// registered and its producer proposing nothing, which is the honest
+	// answer to "refresh from sources" when there are none.
+	addDeclaredWorker[FxRateRefreshArgs](reg, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
+	addDeclaredWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, cfg.BoundModelIDs, log))
+}
+
+// addDatabaseOnlySweepJobs registers the periodic passes that need nothing but
+// the database: the deals close-date hygiene, the follow-up reconcile, the
+// automation clock scan, and the idempotency-key retention sweep.
+//
+// It takes no JobRunnerConfig, and that is the group rather than an economy of
+// arguments — there is no lane, credential or registry any of these could be
+// gated on, so every role that runs jobs runs all four. Each is a dispatcher
+// plus a workspace worker: only the dispatcher is ticked (the schedules in
+// wireJobs), and the workspace worker is enqueued by it, never scheduled.
+func addDatabaseOnlySweepJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Logger) {
+	addDeclaredWorker[CloseDateSweepArgs](reg, &closeDateSweepWorker{pool: pool})
+	addDeclaredWorker[CloseDateWorkspaceArgs](reg, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
+	addDeclaredWorker[FollowUpReconcileArgs](reg, &followUpReconcileWorker{pool: pool})
+	addDeclaredWorker[FollowUpWorkspaceArgs](reg, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	addDeclaredWorker[TimeScanArgs](reg, &timeScanWorker{pool: pool})
+	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
+	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
+	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 }

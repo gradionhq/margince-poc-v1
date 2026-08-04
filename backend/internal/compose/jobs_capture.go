@@ -3,9 +3,10 @@
 
 package compose
 
-// Capture's job surface: the Gmail dispatch pass, the per-connection sync it
-// fans out to, and the push-watch renewal that keeps Gmail notifying us at all.
-// These three are one concept — how captured mail gets pulled on a schedule.
+// Capture's job surface, in two halves. How mail gets pulled on a schedule —
+// the Gmail dispatch pass, the per-connection sync it fans out to, and the
+// push-watch renewal that keeps Gmail notifying us at all — and what then
+// happens to a captured message, which is the pipeline the second half wires.
 // jobs.go composes every job and is the home of none.
 
 import (
@@ -61,6 +62,67 @@ func addGmailCaptureJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConf
 	})
 	addDeclaredWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
 		registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
+	})
+}
+
+// addCapturePipelineJobs registers what surrounds the pull above: the Telegram
+// ingest that admits a message, the passes that read one already captured, and
+// the outbound send.
+//
+// Every gate here is on its own block, which is what tells this half from the
+// Gmail half: those workers share one dependency and so are one conditional,
+// while these depend on different things and several on nothing at all. The
+// two analysis passes that register without a model lane each say below why a
+// missing lane is not a reason to leave their work undone.
+func addCapturePipelineJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
+	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
+	// update in the same transaction as the raw capture row; the worker role only
+	// needs the worker registered. Registered unconditionally: unlike
+	// Gmail/Graph, a channel connection carries its own per-connection
+	// credential (no deployment-wide OAuth app to gate on), so there is nothing
+	// to check for before wiring it up.
+	addDeclaredWorker[TelegramIngestArgs](reg, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
+	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
+	// registered, it enqueues system deep reads the site worker applies.
+	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
+	addDeclaredWorker[CaptureAutoEnrichSweepArgs](reg, autoEnrich)
+	addDeclaredWorker[CaptureAutoEnrichWorkspaceArgs](reg, &captureAutoEnrichWorkspaceWorker{sweeper: autoEnrich})
+	// The outbound send is not periodic — the api stages one job per accepted
+	// message, in the same transaction as the activity; this role only needs
+	// the worker registered.
+	if cfg.SendRegistry != nil {
+		addDeclaredWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
+	}
+
+	if cfg.ClassifyBrain != nil {
+		addDeclaredWorker[CaptureClassifyArgs](reg, &captureClassifyWorker{pool: pool})
+		addDeclaredWorker[CaptureClassifyWorkspaceArgs](reg, &captureClassifyWorkspaceWorker{
+			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
+		})
+	}
+
+	if cfg.EnrichBrain != nil {
+		addDeclaredWorker[CaptureEnrichArgs](reg, &captureEnrichWorker{pool: pool})
+		addDeclaredWorker[CaptureEnrichWorkspaceArgs](reg, &captureEnrichWorkspaceWorker{
+			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
+		})
+	}
+
+	// Registered unconditionally: the org-name promotion weighs evidence rows
+	// the enrich pass already wrote, so it needs no model. Gating it on a brain
+	// would leave an AI-less deployment unable to act on signatures it had
+	// already collected.
+	addDeclaredWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool})
+	addDeclaredWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
+
+	// Registered unconditionally for a different reason: only the counterparty
+	// verdict's JUDGING stage needs a model, and the worker skips that stage
+	// when none is configured. Gating the whole worker on a brain would mean an
+	// AI-less deployment never staged a review for an existing unsure row and
+	// never redacted mail it had already hidden.
+	addDeclaredWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool})
+	addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{
+		engine: NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log),
 	})
 }
 

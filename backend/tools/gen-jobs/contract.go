@@ -29,7 +29,11 @@ import (
 // posture — and the whole point of this file is that nothing about a job is left
 // to be inferred. Re-encoding the node and reading it back through a strict
 // decoder is what restores the setting.
-func decodeMapping(node *yaml.Node, out any) error {
+//
+// The destination is a POINTER by signature rather than by convention: yaml
+// takes its own destination as an empty interface and reports a value passed
+// by mistake at run time, on a document that may not be the one under test.
+func decodeMapping[T any](node *yaml.Node, out *T) error {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	if err := enc.Encode(node); err != nil {

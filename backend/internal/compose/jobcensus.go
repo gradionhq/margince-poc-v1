@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -101,7 +102,7 @@ func (c *JobCensus) NilAfterLoggingWaivers() map[string]string {
 		if !wired || spec.Fault.NilAfterLogging == "" {
 			continue
 		}
-		waivers[goTypeName(entry.worker)] = spec.Fault.NilAfterLogging
+		waivers[goTypeName(reflect.TypeOf(entry.worker))] = spec.Fault.NilAfterLogging
 	}
 	return waivers
 }

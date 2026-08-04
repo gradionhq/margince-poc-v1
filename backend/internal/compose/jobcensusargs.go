@@ -207,14 +207,17 @@ func jsonName(field reflect.StructField) string {
 	return name
 }
 
-// goTypeName is the Go type name of a registered value: the worker behind a
-// kind, which is what a Work method's receiver is spelled as, or the args value
-// its type parameter named, which is what api/jobs.yaml's go_type states.
-// Workers are registered as pointers, so the pointer is followed; the name
-// alone is enough because every worker and args type in this fleet lives in
-// this one package.
-func goTypeName(v any) string {
-	t := reflect.TypeOf(v)
+// goTypeName is the Go type name a registration is read back under: the worker
+// behind a kind, which is what a Work method's receiver is spelled as, or the
+// args type api/jobs.yaml's go_type states. Workers are registered as pointers,
+// so the pointer is followed; the name alone is enough because every worker and
+// args type in this fleet lives in this one package.
+//
+// It takes the reflected type rather than the value because the two callers
+// hold different things — an args interface and the worker the registry keeps —
+// and the only thing this answers about either is its type. A nil type is the
+// nil interface a caller reflected, and answers the empty name.
+func goTypeName(t reflect.Type) string {
 	if t == nil {
 		return ""
 	}
