@@ -4,6 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
+import { meFixture } from "../app/mefixture";
 import { MirrorUserMapCard } from "./overlay-usermap";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
@@ -20,9 +21,8 @@ type Owner = components["schemas"]["OverlayOwner"];
 function admin() {
   return () =>
     jsonResponse({
-      user: { id: "me-1", email: "admin@acme.test" },
-      roles: ["admin"],
-      teams: [],
+      ...meFixture({ allow: { overlay_connection: ["read", "update"] } }),
+      user: { ...meFixture().user, id: "me-1", email: "admin@acme.test" },
     });
 }
 
@@ -267,8 +267,7 @@ export const NonAdminSeat: Story = {
     installFetchStub({
       "GET /me": () =>
         jsonResponse({
-          user: { id: "rep-1", email: "rep@acme.test" },
-          roles: ["rep"],
+          ...meFixture({ roles: ["rep"] }),
           teams: [],
         }),
     });

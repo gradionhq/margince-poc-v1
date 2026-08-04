@@ -8,9 +8,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -26,13 +27,7 @@ import {
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import {
-  canManageOverlay,
-  LoadMoreButton,
-  problemCodeOf,
-  throwProblem,
-  useMe,
-} from "./common";
+import { LoadMoreButton, problemCodeOf, throwProblem, useMe } from "./common";
 
 // The mirror user-map card (Settings → the overlay tab): who, in the
 // incumbent CRM, each workspace user IS. That mapping is the whole of a
@@ -209,6 +204,11 @@ type DirectoryState = Readonly<{
 // one mapping write may be outstanding, so every affordance that starts one
 // goes inert until it settles.
 type MappingActions = Readonly<{
+  // The listing and the writes are different questions. A read seat may be
+  // entitled to SEE the map (the server gates that on the update grant because
+  // the rows carry the incumbent's directory) while the seat ceiling still
+  // refuses every PUT and DELETE — so the rows render and their controls do not.
+  canMap: boolean;
   picking: string | null;
   onStartPick: (userId: string) => void;
   onCancelPick: () => void;
@@ -365,25 +365,27 @@ function UserRow({
           />
         )}
       </div>
-      <div style={ACTIONS_STYLE}>
-        <Button
-          small
-          disabled={actions.busy}
-          onClick={() => actions.onStartPick(entry.user_id)}
-        >
-          {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
-        </Button>
-        {mapped && (
+      {actions.canMap && (
+        <div style={ACTIONS_STYLE}>
           <Button
             small
-            variant="danger"
             disabled={actions.busy}
-            onClick={() => actions.onUnmapRequest(entry)}
+            onClick={() => actions.onStartPick(entry.user_id)}
           >
-            {t("overlay.userMap.unmap")}
+            {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
           </Button>
-        )}
-      </div>
+          {mapped && (
+            <Button
+              small
+              variant="danger"
+              disabled={actions.busy}
+              onClick={() => actions.onUnmapRequest(entry)}
+            >
+              {t("overlay.userMap.unmap")}
+            </Button>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -604,11 +606,43 @@ export function MirrorUserMapCard() {
   const t = useT();
   const me = useMe();
   const meId = me.data?.user.id;
-  const canManage = canManageOverlay(me.data?.roles);
+  // The LISTING is gated on update, not read: a mirror user map exposes the
+  // incumbent's directory — names and addresses of people who never consented
+  // to appear here — so the server demands the write grant merely to look
+  // (overlay/usermapservice.go). Both queries below are gated on it for that
+  // reason, not as a convenience.
+  const canManage = useCan("overlay_connection", "update");
+  // Losing the grant must EVICT the rows, not just stop refetching them: the
+  // query keeps its last successful data, and this card's data is PII the
+  // principal is no longer entitled to see. The render is gated on canManage
+  // above for the same reason — belt and braces, because one of the two is a
+  // cache-eviction race and the other is not.
+  // Seeing the map is a read the server gates on the update grant; changing a
+  // mapping is a real write, so it also needs the seat.
+  const canMap = useCanWrite("overlay_connection", "update");
   const queryClient = useQueryClient();
+  // Evicting, not merely hiding: react-query keeps the last successful page
+  // indefinitely, so a principal who loses the grant would otherwise be one
+  // re-render away from the directory again.
+  useEffect(() => {
+    if (!canManage) {
+      queryClient.removeQueries({ queryKey: ["overlay", "user-map"] });
+      queryClient.removeQueries({ queryKey: ["overlay", "owners"] });
+    }
+  }, [canManage, queryClient]);
   const [view, setView] = useState<View>("user");
   const [picking, setPicking] = useState<string | null>(null);
   const [unmapping, setUnmapping] = useState<Entry | null>(null);
+  // Evicting the queries is not enough on its own: `unmapping` holds a COPY of
+  // a row and `picking` drives the owner directory, so either could keep the
+  // incumbent's names and addresses on screen after the grant that admitted
+  // them was withdrawn. Clear both with the capability.
+  useEffect(() => {
+    if (!canMap) {
+      setPicking(null);
+      setUnmapping(null);
+    }
+  }, [canMap]);
 
   // Reads are admin/ops-only on the server (usermapservice.go's
   // requireUserMapAdmin): a rep's fetch could only 403, so it is never sent.
@@ -710,6 +744,7 @@ export function MirrorUserMapCard() {
   // next row's picker — or the confirm for a different person — opens already
   // showing a refusal that was never about them.
   const actions: MappingActions = {
+    canMap,
     picking,
     onStartPick: (userId) => {
       setMapping.reset();
@@ -719,8 +754,14 @@ export function MirrorUserMapCard() {
       setMapping.reset();
       setPicking(null);
     },
-    onPick: (userId, incumbentUserId) =>
-      setMapping.mutate({ userId, incumbentUserId }),
+    // Re-read at the write, not at the render that offered it: an open picker
+    // outlives a grant withdrawn by the next /me refetch.
+    onPick: (userId, incumbentUserId) => {
+      if (!canMap) {
+        return;
+      }
+      setMapping.mutate({ userId, incumbentUserId });
+    },
     onUnmapRequest: (entry) => {
       unmap.reset();
       setUnmapping(entry);
@@ -742,7 +783,7 @@ export function MirrorUserMapCard() {
         failed={page.isError}
         error={page.error}
       />
-      {page.isSuccess && (
+      {canManage && page.isSuccess && (
         <>
           <UserMapBody
             entries={page.data.pages.flatMap((one) => one.entries)}
@@ -757,7 +798,7 @@ export function MirrorUserMapCard() {
         </>
       )}
       <UnmapConfirm
-        entry={unmapping}
+        entry={canManage ? unmapping : null}
         self={unmapping?.user_id === meId}
         pending={busy}
         error={unmap.isError ? unmap.error.message : null}
@@ -765,7 +806,12 @@ export function MirrorUserMapCard() {
           unmap.reset();
           setUnmapping(null);
         }}
-        onConfirm={(userId) => unmap.mutate(userId)}
+        onConfirm={(userId) => {
+          if (!canMap) {
+            return;
+          }
+          unmap.mutate(userId);
+        }}
       />
     </Card>
   );

@@ -2,15 +2,15 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { meFixture } from "../app/mefixture";
 import { RatesScreen } from "./rates";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 function admin() {
   return () =>
-    jsonResponse({
-      user: { id: "u1", email: "admin@example.test", display_name: "Admin" },
-      roles: ["admin"],
-    });
+    jsonResponse(
+      meFixture({ allow: { fx_rate: ["create"], ai_model_rate: ["create"] } }),
+    );
 }
 
 const FX = {

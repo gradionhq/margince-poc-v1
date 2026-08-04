@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   render as rtlRender,
   screen,
@@ -11,6 +12,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
 import { MirrorUserMapCard } from "./overlay-usermap";
 
@@ -98,9 +100,14 @@ function stubApi(routes: Record<string, RouteHandler>): Request[] {
   return calls;
 }
 
+// The LISTING itself needs overlay_connection:update, not read: these rows
+// carry the incumbent's directory, so the server demands the write grant
+// merely to look.
+const USER_MAP_VIEWER: GrantSpec = { overlay_connection: ["update"] };
+
 type Fixture = {
   me?: string;
-  roles?: string[];
+  allow?: GrantSpec;
   incumbent?: string;
   entries?: Entry[];
   nextCursor?: string;
@@ -113,13 +120,18 @@ type Fixture = {
 
 function renderCard(fixture: Fixture = {}) {
   const incumbent = fixture.incumbent ?? "hubspot";
+  // Mutable so a test can revoke mid-run: the route is the single source the
+  // component re-reads, so flipping it and invalidating is deterministic —
+  // no racing a focus refetch.
+  let allow: GrantSpec = fixture.allow ?? USER_MAP_VIEWER;
   const routes: Record<string, RouteHandler> = {
-    "GET /me": () =>
-      jsonResponse({
-        user: { id: fixture.me ?? "admin-1", email: "admin@acme.test" },
-        roles: fixture.roles ?? ["admin"],
-        teams: [],
-      }),
+    "GET /me": () => {
+      const me = meFixture({ allow });
+      return jsonResponse({
+        ...me,
+        user: { ...me.user, id: fixture.me ?? "admin-1" },
+      });
+    },
     "GET /overlay/user-map": (request) => {
       if (fixture.userMapProblem) {
         return jsonResponse(
@@ -167,7 +179,11 @@ function renderCard(fixture: Fixture = {}) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
-  return { ...result, calls, client };
+  const revokeGrant = async () => {
+    allow = {};
+    await client.invalidateQueries({ queryKey: ["me"] });
+  };
+  return { ...result, calls, client, revokeGrant };
 }
 
 function requests(calls: Request[], method: string, suffix: string): Request[] {
@@ -182,6 +198,28 @@ afterEach(() => {
 });
 
 describe("the mirror user-map card", () => {
+  // Revoking the grant must take the incumbent's directory OFF SCREEN, not just
+  // stop refreshing it. The snapshot is replaced directly in the cache rather
+  // than by racing a refetch, so this asserts the behaviour deterministically.
+  it("withdraws the rows and any open confirmation when the grant is revoked", async () => {
+    const { revokeGrant } = renderCard({ entries: [mappedEntry] });
+    expect(await screen.findByText(/ada@acme.test/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Unmap" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await act(async () => {
+      await revokeGrant();
+    });
+
+    // The table, the addresses in it, and the confirmation holding a copy of a
+    // row all go together.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/ada@acme.test/)).not.toBeInTheDocument();
+  });
+
   it("lists unmapped users with the derived reason", async () => {
     renderCard({
       entries: [
@@ -765,10 +803,10 @@ describe("the mirror user-map card", () => {
     expect(screen.queryByText(/HubSpot/)).not.toBeInTheDocument();
   });
 
-  it("withholds the surface, and the reads behind it, from a non-admin seat", async () => {
-    const { calls } = renderCard({ roles: ["rep"] });
+  it("withholds the surface, and the reads behind it, without the grant", async () => {
+    const { calls } = renderCard({ allow: {} });
     expect(
-      await screen.findByText(/Ask an admin or ops teammate/i),
+      await screen.findByText(/You do not have permission/i),
     ).toBeInTheDocument();
     expect(requests(calls, "GET", "/overlay/user-map")).toHaveLength(0);
     expect(requests(calls, "GET", "/overlay/owners")).toHaveLength(0);

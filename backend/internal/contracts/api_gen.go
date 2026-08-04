@@ -849,6 +849,24 @@ func (e AuditLogEntryActorType) Valid() bool {
 	}
 }
 
+// Defines values for AuthorizationSeatType.
+const (
+	AuthorizationSeatTypeFull AuthorizationSeatType = "full"
+	AuthorizationSeatTypeRead AuthorizationSeatType = "read"
+)
+
+// Valid indicates whether the value is a known member of the AuthorizationSeatType enum.
+func (e AuthorizationSeatType) Valid() bool {
+	switch e {
+	case AuthorizationSeatTypeFull:
+		return true
+	case AuthorizationSeatTypeRead:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AutomationStatus.
 const (
 	AutomationStatusEnabled AutomationStatus = "enabled"
@@ -8649,6 +8667,20 @@ type AuthCapabilities struct {
 	PasswordReset bool `json:"password_reset"`
 }
 
+// Authorization What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
+// Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
+// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
+type Authorization struct {
+	// Objects Effective grants keyed by RbacObject. An absent key denies — the server resolves an unknown object to the zero grant, and a client must do the same rather than treat a missing entry as unrestricted.
+	Objects map[string]RbacObjectGrant `json:"objects"`
+
+	// SeatType The licensing seat. A read seat may read but never mutate over REST, whatever its role grants. A client that cannot read a recognized value MUST assume a read seat: the ceiling fails closed, so an omission never buys the ability to mutate.
+	SeatType AuthorizationSeatType `json:"seat_type"`
+}
+
+// AuthorizationSeatType The licensing seat. A read seat may read but never mutate over REST, whatever its role grants. A client that cannot read a recognized value MUST assume a read seat: the ceiling fails closed, so an omission never buys the ability to mutate.
+type AuthorizationSeatType string
+
 // Automation A configured automation instance (feedback/14).
 type Automation struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -10738,10 +10770,16 @@ type LoginRequest struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
+	// Authorization What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
+	// Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
+	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
+	Authorization *Authorization `json:"authorization,omitempty"`
+
 	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
 	NonProduction bool `json:"non_production"`
 
-	// Passport Present when the principal is an agent acting under an Agent Seat Passport.
+	// Passport Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.
+	// Deprecated: Always null — an agent cannot reach this endpoint, so the claim can never be populated. Ask the MCP tools/list surface for a passport's scopes instead.
 	Passport *struct {
 		OnBehalfOf *openapi_types.UUID         `json:"on_behalf_of,omitempty"`
 		PassportId *openapi_types.UUID         `json:"passport_id,omitempty"`
@@ -12939,6 +12977,14 @@ type QuotaAttainmentDeal struct {
 type QuotaListResponse struct {
 	Data []Quota  `json:"data"`
 	Page PageInfo `json:"page"`
+}
+
+// RbacObjectGrant One object's effective CRUD grant, already merged across every role the principal holds (any role allowing an action allows it).
+type RbacObjectGrant struct {
+	Create bool `json:"create"`
+	Delete bool `json:"delete"`
+	Read   bool `json:"read"`
+	Update bool `json:"update"`
 }
 
 // RecordConsentRequest defines model for RecordConsentRequest.

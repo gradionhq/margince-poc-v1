@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
+import { type GrantSpec, meFixture } from "../app/mefixture";
 import { Badge } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -39,12 +40,15 @@ const pausedSubscription = {
   archived_at: null,
 };
 
-function meRoute(roles: string[]) {
+const WEBHOOK_OPERATOR: GrantSpec = {
+  webhook_subscription: ["read", "create", "update", "delete"],
+};
+
+function meRoute(allow: GrantSpec) {
   return () =>
     jsonResponse({
-      user: { email: "person@acme.test" },
-      roles,
-      teams: [],
+      ...meFixture({ allow }),
+      user: { ...meFixture().user, email: "person@acme.test" },
     });
 }
 
@@ -66,10 +70,10 @@ function cardStory(routes: Record<string, () => Response>) {
 // list or the caller's roles (NonAdminReadOnly).
 function baseRoutes(
   subscriptions: unknown[] = [activeSubscription],
-  roles: string[] = ["admin"],
+  allow: GrantSpec = WEBHOOK_OPERATOR,
 ): Record<string, () => Response> {
   return {
-    "GET /me": meRoute(roles),
+    "GET /me": meRoute(allow),
     "GET /webhook-subscriptions": () =>
       jsonResponse({ data: subscriptions, page, delivery_enabled: true }),
   };
@@ -103,12 +107,12 @@ export const PausedSubscription: Story = {
 };
 
 export const NonAdminReadOnly: Story = {
-  render: cardStory(baseRoutes([activeSubscription], ["rep"])),
+  render: cardStory(baseRoutes([activeSubscription], {})),
 };
 
 export const NotConfigured: Story = {
   render: cardStory({
-    "GET /me": meRoute(["admin"]),
+    "GET /me": meRoute(WEBHOOK_OPERATOR),
     "GET /webhook-subscriptions": () =>
       jsonResponse(
         {
