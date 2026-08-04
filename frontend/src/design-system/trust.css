@@ -41,12 +41,17 @@ button.evidence-chip:hover {
 
 /* The collapsed form: the toggle keeps the chip's own look (it shares the
    .evidence-chip class), the wrapper only stacks it above the snippet once
-   the reader asks to see it. */
+   the reader asks to see it. `min-width: 0` matters here: without it a flex
+   child sizes to its content's intrinsic (unwrapped) width, and a snippet
+   is raw page text of arbitrary length — the exact string this wrapper must
+   never let escape its container. */
 .evidence-chip-collapsed {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .evidence-chip-toggle {
@@ -64,6 +69,8 @@ button.evidence-chip:hover {
 }
 
 .evidence-chip-snippet {
+  display: block;
+  max-width: 100%;
   font-family: var(--f-mono);
   font-size: 12px;
   color: var(--textMeta);

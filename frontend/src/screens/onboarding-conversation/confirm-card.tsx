@@ -441,10 +441,13 @@ function outstandingSplit(
 // taller than the section it navigates, which defeats the point of a nav.
 const NAV_NAMED_LIMIT = 5;
 
-// A section's badge over its jump button: a blocking count is coloured and
-// worded as what it is — the server will refuse to confirm until these are
-// filled — and an advisory count sits beside it as plain words, never a
-// second shade of the same pill. A section with neither reads as settled.
+// A section's badge over its jump button: two compact digits at most, never
+// words — a narrow column has no room for "worth a check" beside a section
+// name, and the nav's own layout should not depend on how long that phrase
+// happens to be in a given locale. Colour still carries only one claim: red
+// is the blocking count, because that is the one number that actually stops
+// confirm; the advisory count is the same shape, quiet instead. Each digit's
+// sr-only text still says which it is, so the distinction survives sight.
 function SectionBadge({
   blocking,
   advisory,
@@ -463,10 +466,9 @@ function SectionBadge({
     );
   }
   return (
-    <>
+    <span className="ob-triage-nav-badges">
       {blocking.length > 0 && (
         <span className="ob-triage-nav-badge" data-blocking="true">
-          <AlertTriangle aria-hidden />
           <b aria-hidden>{blocking.length}</b>
           <span className="sr-only">
             {t("ob.conv.triage.sectionBlocking", { count: blocking.length })}
@@ -474,11 +476,14 @@ function SectionBadge({
         </span>
       )}
       {advisory.length > 0 && (
-        <span className="ob-triage-nav-advisory">
-          {t("ob.conv.triage.sectionAdvisory", { count: advisory.length })}
+        <span className="ob-triage-nav-badge">
+          <b aria-hidden>{advisory.length}</b>
+          <span className="sr-only">
+            {t("ob.conv.triage.sectionAdvisory", { count: advisory.length })}
+          </span>
         </span>
       )}
-    </>
+    </span>
   );
 }
 
@@ -519,6 +524,10 @@ function NavFieldCluster({
           >
             <Icon aria-hidden />
             <span>{row.label}</span>
+            {/* The tier rides in the accessible name, not on the visible
+                row — the group heading above already says it once in
+                words; repeating it per field is what broke the column. */}
+            <span className="sr-only">{t(headingKey)}</span>
           </button>
         </li>
       ))}
@@ -567,6 +576,38 @@ function NavOutstandingList({
   );
 }
 
+// The count beside People or Facts means something else entirely from the
+// counts beside a field section: "this is what I found", never "this needs
+// you". Sharing SectionBadge's pill shape (or its red) would say the crawl
+// itself is an obstacle, which it is not — nothing under either section is
+// the human's to resolve. A find of zero still reads as settled, the same
+// quiet check every other settled section gets, so "nothing found" and
+// "nothing built" never look alike either.
+function SectionQuantity({
+  count,
+  labelKey,
+  t,
+}: Readonly<{
+  count: number;
+  labelKey: MessageKey;
+  t: ReturnType<typeof useT>;
+}>) {
+  if (count === 0) {
+    return (
+      <span className="ob-triage-nav-settled">
+        <Check aria-hidden />
+        <span className="sr-only">{t("ob.conv.triage.sectionSettled")}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="ob-triage-nav-quantity">
+      <b aria-hidden>{count}</b>
+      <span className="sr-only">{t(labelKey, { count })}</span>
+    </span>
+  );
+}
+
 // The map replaced: a plain list of section names, each a jump link, each
 // naming the fields still open under it in two labelled clusters — a real
 // to-do list, not a count to decode, and one that never lets a merely
@@ -577,32 +618,75 @@ function SectionNav({
   groups,
   activeKey,
   rowByField,
+  peopleCount,
+  factsCount,
   t,
 }: Readonly<{
   groups: readonly FrozenGroup[];
   activeKey: string | null;
   rowByField: ReadonlyMap<CompanyFieldName, ReviewRow>;
+  /** null when no read backs this proposal — the People section itself
+   * does not exist in that case either (see the `frozen` builder). */
+  peopleCount: number | null;
+  factsCount: number;
   t: ReturnType<typeof useT>;
 }>) {
   return (
     <nav className="ob-triage-nav" aria-label={t("ob.conv.triage.mapLabel")}>
       <ul className="ob-triage-nav-list">
         {groups.map((group) => {
+          const jumpTo = () => {
+            const node = document.getElementById(groupDomId(group.key));
+            // jsdom has no scrollIntoView; the browser always does.
+            node?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+          };
+          const current = group.key === activeKey ? "true" : undefined;
+          if (group.key === PEOPLE_KEY) {
+            return (
+              <li key={group.key}>
+                <button
+                  type="button"
+                  className="ob-triage-nav-link"
+                  aria-current={current}
+                  onClick={jumpTo}
+                >
+                  <span>{t(group.labelKey)}</span>
+                  <SectionQuantity
+                    count={peopleCount ?? 0}
+                    labelKey="ob.conv.triage.peopleCount"
+                    t={t}
+                  />
+                </button>
+              </li>
+            );
+          }
+          if (group.key === FACTS_KEY) {
+            return (
+              <li key={group.key}>
+                <button
+                  type="button"
+                  className="ob-triage-nav-link"
+                  aria-current={current}
+                  onClick={jumpTo}
+                >
+                  <span>{t(group.labelKey)}</span>
+                  <SectionQuantity
+                    count={factsCount}
+                    labelKey="ob.conv.triage.factsCount"
+                    t={t}
+                  />
+                </button>
+              </li>
+            );
+          }
           const { blocking, advisory } = outstandingSplit(group, rowByField);
           return (
             <li key={group.key}>
               <button
                 type="button"
                 className="ob-triage-nav-link"
-                aria-current={group.key === activeKey ? "true" : undefined}
-                onClick={() => {
-                  const node = document.getElementById(groupDomId(group.key));
-                  // jsdom has no scrollIntoView; the browser always does.
-                  node?.scrollIntoView?.({
-                    block: "start",
-                    behavior: "smooth",
-                  });
-                }}
+                aria-current={current}
+                onClick={jumpTo}
               >
                 <span>{t(group.labelKey)}</span>
                 <SectionBadge blocking={blocking} advisory={advisory} t={t} />
@@ -1066,6 +1150,7 @@ function ReviewContinueBar({
   filled,
   total,
   remaining,
+  blockedByQuestion,
   pending,
   authorizing,
   onContinue,
@@ -1074,12 +1159,30 @@ function ReviewContinueBar({
   filled: number;
   total: number;
   remaining: number;
+  /** An open clarify question with no matching answer yet — the same
+   * condition the live DecisionScene exists to resolve. Continue must gate
+   * on this itself rather than trust that the scene is always what is on
+   * screen instead of this card; that trust is exactly what left a one-
+   * render window where neither did. */
+  blockedByQuestion: boolean;
   pending: boolean;
   authorizing: boolean;
   onContinue: () => void;
   t: ReturnType<typeof useT>;
 }>) {
   const statusId = "ob-triage-continue-status";
+  // Required fields first: it is the more actionable of the two blockers
+  // (a value to type, right here) and the one this surface can always
+  // explain by name elsewhere on the board; the open question is the
+  // narrower, rarer case.
+  const statusKey =
+    remaining > 0
+      ? remaining === 1
+        ? "ob.conv.review.requiredRemaining.one"
+        : "ob.conv.review.requiredRemaining.other"
+      : blockedByQuestion
+        ? "ob.conv.review.confirmQuestionOpen"
+        : "ob.conv.review.requiredDone";
   return (
     <div className="ob-triage-continue">
       <progress
@@ -1088,24 +1191,17 @@ function ReviewContinueBar({
         max={total}
         aria-label={t("ob.conv.review.progressLabel")}
       />
-      {/* A live region, not merely visible text: the count named here is
+      {/* A live region, not merely visible text: the reason named here is
           exactly what the button below is disabled on, so a screen reader
           hears why the moment it changes rather than only if focus happens
           to land on this paragraph first. */}
       <p id={statusId} className="ob-triage-continue-status" role="status">
-        {remaining > 0
-          ? t(
-              remaining === 1
-                ? "ob.conv.review.requiredRemaining.one"
-                : "ob.conv.review.requiredRemaining.other",
-              { count: remaining },
-            )
-          : t("ob.conv.review.requiredDone")}
+        {t(statusKey, { count: remaining })}
       </p>
       <Button
         variant="primary"
         aria-describedby={statusId}
-        disabled={pending || authorizing || remaining > 0}
+        disabled={pending || authorizing || remaining > 0 || blockedByQuestion}
         onClick={onContinue}
       >
         {pending ? (
@@ -1208,14 +1304,6 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const missingLabels = props.missingRequired
     .map((field) => coldFieldLabel(field, t))
     .join(", ");
-  // "Fix these first" lands on the worst row anywhere on the board, not the
-  // first in reading order: a required gap in the last group outranks an
-  // amber row in the first.
-  const firstWork =
-    rows
-      .filter((row) => isWork(row.state))
-      .sort((a, b) => STATE_RANK[a.state] - STATE_RANK[b.state])[0]?.field ??
-    null;
   // What the bottom bar's progress and gate read: real completion toward
   // being ABLE to continue, not a count of every field the board carries —
   // an optional field left empty or lightly grounded must never subtract
@@ -1223,53 +1311,34 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const requiredTotal = REQUIRED_FIELDS.length;
   const requiredRemaining = props.missingRequired.length;
   const requiredFilled = requiredTotal - requiredRemaining;
-
-  // Focus lands once on the first blocking row when the card first appears;
-  // it must not jump the human back there every time filling one re-renders.
-  const card = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const control = card.current?.querySelector<
-      HTMLInputElement | HTMLTextAreaElement
-    >("li[data-state='required'] input, li[data-state='required'] textarea");
-    if (control == null) {
-      return;
-    }
-    // Never steal focus from someone typing: any focused text field wins,
-    // and a composer still holding a draft keeps its claim even unfocused.
-    const active = control.ownerDocument.activeElement;
-    if (
-      active instanceof HTMLTextAreaElement ||
-      active instanceof HTMLInputElement
-    ) {
-      return;
-    }
-    const composer = control
-      .closest(".ob-workbench-panel")
-      ?.querySelector<HTMLTextAreaElement>(".mw-composer textarea");
-    if (composer != null && composer.value !== "") {
-      return;
-    }
-    control.focus();
-  }, []);
+  // Confirm must not rely on the DecisionScene happening to occupy the
+  // surface instead of this card — that is a layout accident, not a gate.
+  // A question counts as unresolved exactly when the proposal still lists
+  // it AND no answer has landed for its id yet; once every open question
+  // has a matching answer (however it was answered), none of them block.
+  const hasUnresolvedQuestion = (props.proposal.open_questions ?? []).some(
+    (question) =>
+      !props.answers.some((answer) => answer.clarifyId === question.id),
+  );
 
   return (
-    <section className="ob-conv-confirm ob-triage" ref={card}>
+    <section className="ob-conv-confirm ob-triage">
       <header>
         <Sparkles aria-hidden />
         <h2>{t("ob.conv.review.title")}</h2>
       </header>
       <CompanyIdentityCard draft={props.draft} t={t} />
       {props.missingRequired.length > 0 && (
-        // The blocking gaps as a banner, not a chat line: a count, the
-        // sentence naming the fields, and the jump that starts fixing them.
+        // The blocking gaps as a banner, not a chat line: a count and the
+        // sentence naming the fields — the one place this reaches the
+        // reader above the fold, before any scrolling. No jump of its own
+        // any more: the required rows it names are already open by default
+        // right below it, and the nav's own "Needed to continue" cluster
+        // already jumps to each one by name, so a second control here
+        // would only repeat that click.
         <div className="ob-triage-blocker" role="status">
           <b>{props.missingRequired.length}</b>
           <p>{t("ob.conv.review.missing", { fields: missingLabels })}</p>
-          {firstWork !== null && (
-            <Button small variant="ghost" onClick={() => jumpToRow(firstWork)}>
-              {t("ob.conv.triage.fixFirst")}
-            </Button>
-          )}
         </div>
       )}
       <div className="ob-triage-body">
@@ -1277,6 +1346,8 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
           groups={frozen}
           activeKey={activeSection}
           rowByField={rowByField}
+          peopleCount={props.read?.people.length ?? null}
+          factsCount={facts.length}
           t={t}
         />
         <div className="ob-triage-groups">
@@ -1331,6 +1402,7 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         filled={requiredFilled}
         total={requiredTotal}
         remaining={requiredRemaining}
+        blockedByQuestion={hasUnresolvedQuestion}
         pending={props.pending}
         authorizing={props.authorizing}
         onContinue={props.onAcceptAll}

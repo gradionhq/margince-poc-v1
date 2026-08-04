@@ -2005,6 +2005,8 @@ export const en = {
   "ob.conv.review.requiredRemaining.other":
     "{count} fields needed before you can continue",
   "ob.conv.review.requiredDone": "Nothing more needed — you can continue.",
+  "ob.conv.review.confirmQuestionOpen":
+    "A decision is still open. Answer it to continue.",
   "ob.conv.triage.stateRequired": "required, still empty",
   "ob.conv.triage.stateEmpty": "empty",
   "ob.conv.triage.stateTyped": "typed by you",
@@ -2023,13 +2025,13 @@ export const en = {
   "ob.conv.triage.sectionMore": "+{count} more",
   "ob.conv.triage.restTitle": "Background, not work",
   "ob.conv.triage.looksSolid": "Looks solid · {count}",
-  "ob.conv.triage.fixFirst": "Fix these first",
   "ob.conv.triage.companyWebsite": "Website",
   "ob.conv.triage.sourceCount": "{count} src",
   "ob.conv.triage.peopleLabel": "People",
   "ob.conv.triage.peopleCount": "{count} found",
   "ob.conv.triage.peopleEmpty": "No people found on your site.",
   "ob.conv.triage.factsLabel": "Facts",
+  "ob.conv.triage.factsCount": "{count} found",
   "ob.rail.spend": "Tokens this setup",
   "ob.rail.tokensUnit": "tok",
   "ob.conv.scene.step": "Step {n} of {m} · {label}",
@@ -2107,6 +2109,10 @@ export const en = {
     "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
   "ob.conv.review.confirmFailed":
     "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.review.confirmVersionSkew":
+    "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+  "ob.conv.review.confirmNotReady":
+    "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",

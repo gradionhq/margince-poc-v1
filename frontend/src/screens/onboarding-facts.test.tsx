@@ -933,7 +933,12 @@ describe("CompanyConfirmCard as a triage surface", () => {
       name: /Positioning and sales/,
     });
     expect(salesLink.querySelector('[data-blocking="true"]')).toBeNull();
-    expect(within(salesLink).getByText("3 worth a check")).toBeInTheDocument();
+    // The badge is a bare digit — a narrow column has no room for a
+    // phrase — but the tier still reaches a screen reader.
+    expect(within(salesLink).getByText("3")).toBeInTheDocument();
+    expect(
+      within(salesLink).getByText("3 worth a check", { selector: ".sr-only" }),
+    ).toBeInTheDocument();
   });
 
   it("disables continue exactly while a required field remains empty, and enables it on the same render the last one is filled", async () => {
@@ -1121,8 +1126,11 @@ describe("CompanyConfirmCard as a triage surface", () => {
     // worth a look, never an obstacle, and never counted alongside the
     // blocking one as if they were the same kind of gap.
     expect(within(identityLink).getByText("1")).toBeInTheDocument();
+    expect(within(identityLink).getByText("4")).toBeInTheDocument();
     expect(
-      within(identityLink).getByText("4 worth a check"),
+      within(identityLink).getByText("4 worth a check", {
+        selector: ".sr-only",
+      }),
     ).toBeInTheDocument();
     expect(screen.queryByText("What the squares mean")).not.toBeInTheDocument();
   });
@@ -1140,11 +1148,13 @@ describe("CompanyConfirmCard as a triage surface", () => {
     }
     // Same 5 fields the badge counts (legal_name alone is settled and so
     // named nowhere here), same order the rows themselves use: the gap
-    // outranks the merely-empty fields that follow it.
+    // outranks the merely-empty fields that follow it. Only the visible
+    // label counts here — the tier rides along as sr-only text on the same
+    // button and is covered by its own test.
     const named = within(section)
       .getAllByRole("button")
       .filter((button) => button !== identityLink)
-      .map((button) => button.textContent);
+      .map((button) => button.querySelector("span:not(.sr-only)")?.textContent);
 
     expect(named).toEqual([
       "Company name",
@@ -1155,12 +1165,42 @@ describe("CompanyConfirmCard as a triage surface", () => {
     ]);
   });
 
+  // A field label plus a multi-word tier phrase on the same row is what
+  // broke the nav's layout; the tier still has to reach a screen reader.
+  it("names a field with no visible status phrase, while its accessible name still carries the tier", () => {
+    renderTriage(["icp"]);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    // The accessible name (both matchers below succeed) already proves the
+    // tier reaches assistive tech; the visible span is checked separately
+    // to prove it carries the field name ALONE.
+    const blockingItem = within(nav).getByRole("button", {
+      name: /Company name.*Needed to continue/,
+    });
+    expect(blockingItem.querySelector("span:not(.sr-only)")).toHaveTextContent(
+      "Company name",
+    );
+    expect(blockingItem.querySelector(".sr-only")).toHaveTextContent(
+      "Needed to continue",
+    );
+
+    const advisoryItem = within(nav).getByRole("button", {
+      name: /Industry.*Worth a check/,
+    });
+    expect(advisoryItem.querySelector("span:not(.sr-only)")).toHaveTextContent(
+      "Industry",
+    );
+    expect(advisoryItem.querySelector(".sr-only")).toHaveTextContent(
+      "Worth a check",
+    );
+  });
+
   it("lands focus inside the named field's row, ready to type", async () => {
     const user = userEvent.setup();
     renderTriage(["icp"]);
 
     const nav = screen.getByRole("navigation", { name: "Jump to a section" });
-    await user.click(within(nav).getByRole("button", { name: "Industry" }));
+    await user.click(within(nav).getByRole("button", { name: /^Industry/ }));
 
     // The jump exists so the reader can fill the field, so it lands on the
     // control rather than the row that holds it.
@@ -1296,6 +1336,62 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(within(peopleLink).queryByText(/^\d+$/)).not.toBeInTheDocument();
   });
 
+  // The count beside People or Facts means "this is what I found", never
+  // "this needs you" — it must equal the section's own content and must
+  // never be mistaken, sighted or not, for an outstanding-work count.
+  it("shows how many people the read found in the nav, as a found quantity rather than outstanding work", () => {
+    const found = [FOUNDER, { ...FOUNDER, name: "Alex Chen", role: "COO" }];
+    renderTriage([], { ...readWith([]), people: found });
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const peopleLink = within(nav).getByRole("button", {
+      name: /^People.*2 found/,
+    });
+    expect(within(peopleLink).getByText("2")).toBeInTheDocument();
+    // Never the blocking/advisory pill's own class — a find is not a gap.
+    expect(peopleLink.querySelector(".ob-triage-nav-badge")).toBeNull();
+
+    const heading = screen.getByRole("heading", { name: "People", level: 3 });
+    const section = heading.closest("section");
+    if (section === null) {
+      throw new Error("expected the People section to exist");
+    }
+    expect(within(section).getAllByRole("listitem")).toHaveLength(found.length);
+  });
+
+  it("shows how many facts the read produced in the nav, as a found quantity rather than outstanding work", () => {
+    const proposal: Proposal = {
+      ...triageProposal(),
+      facts: [FOUNDED, SERVICE, SUPPORT],
+    };
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const factsLink = within(nav).getByRole("button", {
+      name: /^Facts.*3 found/,
+    });
+    expect(within(factsLink).getByText("3")).toBeInTheDocument();
+    expect(factsLink.querySelector(".ob-triage-nav-badge")).toBeNull();
+
+    // The nav's number is the same 3 the section itself renders — one
+    // derivation, not a second tally kept in step by hand.
+    expect(document.querySelectorAll(".ob-triage-fact").length).toBe(3);
+  });
+
   it("keeps the read's coverage honesty in the tail, since it is provenance, not a company fact", () => {
     renderTriage([], readWith([]));
 
@@ -1414,9 +1510,7 @@ describe("CompanyConfirmCard as a triage surface", () => {
       name: /Legal organization/,
     });
     expect(within(identityLink).getByText("1")).toBeInTheDocument();
-    expect(
-      within(identityLink).getByText("4 worth a check"),
-    ).toBeInTheDocument();
+    expect(within(identityLink).getByText("4")).toBeInTheDocument();
     const row = document.getElementById("ob-triage-row-display_name");
     if (row === null) {
       throw new Error("expected the row to exist");
@@ -1433,9 +1527,7 @@ describe("CompanyConfirmCard as a triage surface", () => {
     // The advisory count is a different predicate entirely — untouched by
     // this edit — and must not move just because the blocking count did.
     expect(within(identityLink).queryByText("1")).not.toBeInTheDocument();
-    expect(
-      within(identityLink).getByText("4 worth a check"),
-    ).toBeInTheDocument();
+    expect(within(identityLink).getByText("4")).toBeInTheDocument();
     expect(
       within(row).queryByText("required, still empty"),
     ).not.toBeInTheDocument();
@@ -1488,8 +1580,77 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(
       screen.queryByRole("button", { name: "Musterstraße 1, Berlin" }),
     ).not.toBeInTheDocument();
-    // Nothing here re-asks the question, so nothing here gates Continue on
-    // an answer this surface cannot collect.
+    // Nothing here re-asks the question — but an unanswered one still gates
+    // Continue, and says so, rather than relying on the live DecisionScene
+    // being the only thing standing between an open question and confirm.
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
+    expect(
+      screen.getByText("A decision is still open. Answer it to continue."),
+    ).toBeInTheDocument();
+  });
+
+  // The guard is built from state (proposal.open_questions vs. answers),
+  // never from which scene happens to be on screen — constructed directly
+  // here rather than through a DecisionScene/company-act render, since
+  // trusting the scene swap is the assumption that let the gap through.
+  it("disables continue while an unresolved open question exists, even with every required field filled", () => {
+    const openQuestion = {
+      id: "clarify:registered_address:1",
+      question: "Which registered address belongs to your company?",
+      field: "registered_address",
+      options: [
+        { value: "Musterstraße 1, Berlin", label: "Musterstraße 1, Berlin" },
+      ],
+    };
+    const proposal: Proposal = {
+      ...triageProposal(),
+      open_questions: [openQuestion],
+    };
+
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeDisabled();
+
+    cleanup();
+
+    // The same proposal, but this time the answer already landed — the
+    // question is resolved and no longer blocks, on this same render.
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[
+          {
+            clarifyId: openQuestion.id,
+            field: "registered_address",
+            value: "Musterstraße 1, Berlin",
+          },
+        ]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
     expect(screen.getByRole("button", { name: /Continue/ })).toBeEnabled();
   });
 
@@ -1646,6 +1807,59 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(
       within(nav).getByRole("button", { name: /^Facts/ }),
     ).toBeInTheDocument();
+  });
+
+  // jsdom performs no layout, so it cannot assert a rendered pixel width —
+  // it CAN assert the guarantee the width constraint depends on: the meta
+  // column that holds the evidence chip renders inside the containing
+  // `.ob-triage-fact` (never widens it out of the DOM's own containment),
+  // the chip's own wrapper is present to carry the width cap
+  // (`.evidence-chip-collapsed`/`.evidence-chip-snippet` in trust.css add
+  // `min-width: 0` / `max-width: 100%` down the flex chain — a real browser
+  // check, not one jsdom can run), and evidence-or-omit still holds: the
+  // full, untruncated snippet is the text a reader gets once expanded, not
+  // a silently shortened stand-in.
+  it("keeps a very long evidence snippet inside the fact's own meta column rather than truncating it", async () => {
+    const user = userEvent.setup();
+    const longSnippet =
+      "77 High Street, #09-11 High Street Plaza, Singapore (179433) Contact: info@gradion.com Authorized: Lars Jankowfsky Business Profile: 201629357M Gradion Pte Ltd trading as Gradion Consulting Group since incorporation";
+    const proposal: Proposal = {
+      ...triageProposal(),
+      facts: [
+        {
+          category: "company",
+          field: "contact_email",
+          value: "info@gradion.com",
+          value_key: "company:contact_email:info",
+          evidence_snippet: longSnippet,
+          evidence_url: "https://gradion.com/legal",
+          confidence: 0.9,
+        },
+      ],
+    };
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Evidence from gradion.com/legal" }),
+    );
+
+    const snippet = screen.getByText(`"${longSnippet}"`);
+    expect(snippet).toHaveClass("evidence-chip-snippet");
+    expect(snippet.closest(".ob-triage-fact-meta")).not.toBeNull();
   });
 
   it("still lets a fact be ticked or unticked from the new inline shape", async () => {

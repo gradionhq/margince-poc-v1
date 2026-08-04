@@ -5,7 +5,7 @@ import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { useLocale, useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
-import { coldFieldLabel, problemMessage, useMe } from "../common";
+import { coldFieldLabel, problemCodeOf, throwProblem, useMe } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import {
   changeDraftField,
@@ -120,6 +120,15 @@ export function CompanyAct({
 
   const [selectedFactKeys, setSelectedFactKeys] = useState<string[]>([]);
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
+  // A confirm 409 that this driver has already resolved into a next step,
+  // rather than a bare failure: "skew" means the draft changed under the
+  // human (a re-fetch is already in flight, the retry becomes meaningful),
+  // "notReady" means the read itself is not confirmable yet. Neither is the
+  // generic confirmFailed banner — see confirmBannerMessage below — because
+  // neither is "fix your input and try the same thing again".
+  const [confirmNotice, setConfirmNotice] = useState<
+    "skew" | "notReady" | null
+  >(null);
   // A run the machine already owns at mount was persisted when it started
   // (that is how restore found it), so its wizard-state join is already in
   // place; a fresh session joins when its own read starts.
@@ -227,6 +236,28 @@ export function CompanyAct({
     [dispatch, clarify.dismissClarify],
   );
 
+  // The one route off the review, whether this attempt confirmed it or an
+  // earlier one already did (the recovered "already confirmed" 409 below
+  // reaches this too) — one place, so the checkpoint and the machine
+  // transition can never drift between the two callers.
+  const finishConfirm = useCallback(
+    (profileData: CompanyProfile) => {
+      // The shell's onboarding gate reads the same ["company"] cache entry.
+      queryClient.setQueryData(["company"], profileData);
+      // Checkpoint the confirmed company so the classic coordinator resumes
+      // at the right step and role if the user switches shells.
+      void persist({
+        nextStep: machine.current.memberPath ? 3 : 1,
+        mode: prevSnapshot.current !== null ? "website" : "manual",
+        readId: prevSnapshot.current?.id ?? null,
+        values: draftRef.current.values,
+        factKeys: selectedFactKeys,
+      });
+      dispatch({ type: "COMPANY_CONFIRMED" });
+    },
+    [dispatch, persist, prevSnapshot, queryClient, selectedFactKeys],
+  );
+
   const confirm = useMutation({
     mutationFn: async (): Promise<CompanyProfile> => {
       const values = draftRef.current.values;
@@ -269,23 +300,48 @@ export function CompanyAct({
           : await api.PUT("/company", { body: profileInput });
       const { data, error } = result;
       if (error) {
-        throw new Error(problemMessage(error));
+        throwProblem(error);
       }
       return data;
     },
-    onSuccess: (profileData) => {
-      // The shell's onboarding gate reads the same ["company"] cache entry.
-      queryClient.setQueryData(["company"], profileData);
-      // Checkpoint the confirmed company so the classic coordinator resumes
-      // at the right step and role if the user switches shells.
-      void persist({
-        nextStep: machine.current.memberPath ? 3 : 1,
-        mode: prevSnapshot.current !== null ? "website" : "manual",
-        readId: prevSnapshot.current?.id ?? null,
-        values: draftRef.current.values,
-        factKeys: selectedFactKeys,
+    // Every fresh attempt starts clean: a notice from a PREVIOUS 409 must
+    // not survive to describe THIS one, whether this click succeeds, fails
+    // the same way again, or fails differently.
+    onMutate: () => {
+      setConfirmNotice(null);
+    },
+    onSuccess: finishConfirm,
+    // A 409 always leaves the reader with something to do — never a dead
+    // Continue button and a raw server string. `version_skew` means the
+    // draft the human reviewed is stale: the read is re-fetched right away
+    // (`useCompanyRead`'s own poll already stopped once the read went
+    // terminal, so nothing else will), and the NEXT press of Continue sends
+    // whatever that fetch turns up. A plain `conflict` collapses two server
+    // states the client cannot tell apart from the code alone (already
+    // confirmed vs. not yet confirmable) — GET /company resolves which:
+    // if a company exists now, this read's confirmation already landed
+    // (by an earlier click, another tab, or a retry that won the race) and
+    // the reader is moved forward exactly as a fresh success would; if not,
+    // the read genuinely is not confirmable yet and the reader is told so,
+    // with a fresh read fetched under them for whenever it settles.
+    onError: (error) => {
+      const code = problemCodeOf(error);
+      if (code === "version_skew") {
+        setConfirmNotice("skew");
+        void siteRead.refetch();
+        return;
+      }
+      if (code !== "conflict") {
+        return;
+      }
+      void api.GET("/company").then(({ data }) => {
+        if (data) {
+          finishConfirm(data);
+          return;
+        }
+        setConfirmNotice("notReady");
+        void siteRead.refetch();
       });
-      dispatch({ type: "COMPANY_CONFIRMED" });
     },
   });
 
@@ -525,6 +581,13 @@ export function CompanyAct({
         }}
       />
     ) : null;
+  // The generic "I could not save that: {detail}" banner, but ONLY for a
+  // confirm failure this driver has not already turned into something more
+  // useful: `confirmNotice` covers version_skew (a fresh fetch is already
+  // in flight; the thread's own alert says so) and the recovered conflict
+  // cases, so this stays null for those rather than doubling the message.
+  const confirmBannerMessage =
+    confirm.isError && confirmNotice === null ? confirm.error.message : null;
   const reviewScene =
     state.phase === "co.review" && reviewProposal ? (
       <div className="ob-scene">
@@ -543,7 +606,7 @@ export function CompanyAct({
           onAcceptAll={() => confirm.mutate()}
           pending={confirm.isPending}
           authorizing={clarify.authorizing}
-          error={confirm.isError ? confirm.error.message : null}
+          error={confirmBannerMessage}
         />
       </div>
     ) : null;
@@ -598,7 +661,7 @@ export function CompanyAct({
             openReviewQuestions.length > 0 ||
             !(state.phase === "co.review" || state.phase === "co.manual")
           }
-          saveError={confirm.isError ? confirm.error.message : null}
+          saveError={confirmBannerMessage}
         />
       }
     >
@@ -729,6 +792,24 @@ export function CompanyAct({
                         i18nKey: "ob.conv.clarify.applyMissing",
                       }
                 }
+              />
+            </div>
+          )}
+          {/* A confirm 409 this driver already turned into a next step
+              rather than a bare failure — see the `confirm` mutation's
+              onError for which server state each one names, and why
+              neither is "fix your input and press the same button again". */}
+          {confirmNotice !== null && (
+            <div role="alert">
+              <NarrationBubble
+                entry={{
+                  kind: "narration",
+                  id: `confirm:${confirmNotice}`,
+                  i18nKey:
+                    confirmNotice === "skew"
+                      ? "ob.conv.review.confirmVersionSkew"
+                      : "ob.conv.review.confirmNotReady",
+                }}
               />
             </div>
           )}

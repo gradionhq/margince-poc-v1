@@ -2040,6 +2040,8 @@ export const de = {
   "ob.conv.review.requiredRemaining.other":
     "{count} Felder nötig, bevor du fortfahren kannst",
   "ob.conv.review.requiredDone": "Nichts weiter nötig — du kannst fortfahren.",
+  "ob.conv.review.confirmQuestionOpen":
+    "Eine Entscheidung ist noch offen. Beantworte sie, um fortzufahren.",
   "ob.conv.triage.stateRequired": "erforderlich, noch leer",
   "ob.conv.triage.stateEmpty": "leer",
   "ob.conv.triage.stateTyped": "von dir eingetragen",
@@ -2059,13 +2061,13 @@ export const de = {
   "ob.conv.triage.sectionMore": "+{count} weitere",
   "ob.conv.triage.restTitle": "Hintergrund, keine Aufgabe",
   "ob.conv.triage.looksSolid": "Sieht belegt aus · {count}",
-  "ob.conv.triage.fixFirst": "Zuerst beheben",
   "ob.conv.triage.companyWebsite": "Website",
   "ob.conv.triage.sourceCount": "{count} Quelle",
   "ob.conv.triage.peopleLabel": "Personen",
   "ob.conv.triage.peopleCount": "{count} gefunden",
   "ob.conv.triage.peopleEmpty": "Keine Personen auf deiner Website gefunden.",
   "ob.conv.triage.factsLabel": "Fakten",
+  "ob.conv.triage.factsCount": "{count} gefunden",
   "ob.rail.spend": "Tokens für dieses Setup",
   "ob.rail.tokensUnit": "Tok.",
   "ob.conv.scene.step": "Schritt {n} von {m} · {label}",
@@ -2144,6 +2146,10 @@ export const de = {
     "Ich konnte die vorbereitete Zuordnung nicht laden. Prüfe direkt, was ich gelesen habe. Jedes Feld behält seine Quelle.",
   "ob.conv.review.confirmFailed":
     "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
+  "ob.conv.review.confirmVersionSkew":
+    "Deine Prüfung wurde gerade mit neueren Informationen aus dem Read aktualisiert. Schau sie dir an und drücke dann erneut Weiter.",
+  "ob.conv.review.confirmNotReady":
+    "Dieser Read ist noch nicht bereit zur Bestätigung. Warte, bis er fertig ist, oder starte einen neuen.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",

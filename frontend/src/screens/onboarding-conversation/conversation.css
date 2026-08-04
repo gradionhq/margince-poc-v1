@@ -728,6 +728,7 @@
 
 .ob-decision-proof blockquote {
   margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
   color: var(--textContent);
   font-size: 0.8125rem;
   line-height: 1.5;
@@ -1376,6 +1377,13 @@
   background: var(--bgElevated);
 }
 
+/* `min-width: 0`: the avatar beside this is `flex: none`, so without this
+   the body would refuse to shrink below its own content's intrinsic width
+   — a registered address is read verbatim off the page and can run long. */
+.ob-company-card-body {
+  min-width: 0;
+}
+
 .ob-company-card-body h3 {
   margin: 0 0 var(--space-1);
   color: var(--textPrimary);
@@ -1409,6 +1417,7 @@
 
 .ob-company-card-facts dd {
   margin: 0;
+  overflow-wrap: anywhere;
   color: var(--textSecondary);
   font-family: var(--f-body);
   font-size: 0.8125rem;
@@ -1637,34 +1646,37 @@
   scroll-margin-top: var(--space-3);
 }
 
-/* The blocking count: the one number on this surface allowed to read as a
-   warning, because it is the one number that actually stops confirm — the
-   icon repeats the same claim the named list and the row mark make, so
-   colour is reinforcement here, not the only signal. */
-.ob-triage-nav-badge {
+/* Two digits at most, never words: a narrow column has no room for a
+   phrase beside a section name, in either language. The pair sits flush
+   right of the name; sr-only text on each carries what the other only
+   showed in visible words before. */
+.ob-triage-nav-badges {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  flex: none;
+}
+
+/* Neutral by default — an advisory count is a quantity, not a warning.
+   `[data-blocking="true"]` is the one case red is for: the number that
+   actually stops confirm. */
+.ob-triage-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 16px;
   padding: 0 5px;
   border-radius: var(--r-full);
-  background: var(--dangerBg);
-  color: var(--danger);
+  background: var(--bgCard);
+  color: var(--textMeta);
   font-family: var(--f-mono);
   font-size: 0.625rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-.ob-triage-nav-badge svg {
-  inline-size: 11px;
-  block-size: 11px;
-}
-
-/* The advisory count: plain words, not a pill — "worth a check" must never
-   look like a second shade of the blocking badge next to it. */
-.ob-triage-nav-advisory {
-  color: var(--textMeta);
-  font-size: 0.6875rem;
+.ob-triage-nav-badge[data-blocking="true"] {
+  background: var(--dangerBg);
+  color: var(--danger);
 }
 
 /* The settled mark: a section with nothing outstanding still says so,
@@ -1679,6 +1691,16 @@
 .ob-triage-nav-settled svg {
   inline-size: 14px;
   block-size: 14px;
+}
+
+/* What the crawl found (People, Facts), not what still needs the human —
+   no pill, no background: borrowing the blocking/advisory badge's shape
+   would say a find is an obstacle, which it never is. */
+.ob-triage-nav-quantity {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The to-do list itself: a section's outstanding fields, named, each its
@@ -1911,11 +1933,18 @@
   width: 100%;
 }
 
+/* `width: 100%` bounds this to the open row's own padded width — its
+   parent is a column flex with `align-items: flex-start`, which sizes an
+   unconstrained child to its CONTENT rather than the row, so the evidence
+   chip's snippet (raw page text) would otherwise widen past the card
+   instead of wrapping inside it. */
 .ob-triage-row-proof {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
 }
 
 /* The quiet rule between a group's work and its settled tail: a label and a
@@ -2106,10 +2135,18 @@
   white-space: nowrap;
 }
 
+/* `flex: 0 1 auto` plus `min-width: 0`, not `flex: none`: the meta column
+   holds the score AND an evidence chip whose expanded snippet is raw page
+   text of arbitrary length. `flex: none` refuses to shrink, so a flex
+   child sizes to that snippet's UNWRAPPED width and drags the whole row
+   past the card's edge with it — capping this column is what makes the
+   chip's own `overflow-wrap` have somewhere to apply. */
 .ob-triage-fact-meta {
   display: inline-flex;
-  flex: none;
-  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 65%;
+  align-items: flex-start;
   gap: var(--space-2);
 }
 

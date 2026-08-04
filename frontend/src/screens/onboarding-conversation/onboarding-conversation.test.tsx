@@ -153,6 +153,13 @@ type StubOptions = {
   /** Error status for the site-read poll GET (resilience tests). */
   pollStatus?: number;
   messageReply?: MessageReply;
+  /** A 409 the confirm POST returns instead of succeeding, RFC-7807-shaped
+   * so `problemCodeOf` reads the same `code` the real backend sentinels
+   * carry (version_skew / conflict). */
+  confirmProblem?: { code: string; detail: string };
+  /** GET /company's answer while a confirmProblem is staged: whether the
+   * confirmation this 409 blocked had, in fact, already landed. */
+  companyAlreadyExists?: boolean;
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -165,6 +172,11 @@ function jsonResponse(body: unknown, status = 200) {
 function stubApi(options: StubOptions = {}) {
   const calls: Request[] = [];
   let version = 0;
+  // GET /company must still answer "no company yet" for the shell's OWN
+  // startup restore probe — only the confirm attempt itself may have
+  // raced another one home, and only after this session's own POST to
+  // /confirm actually went out.
+  let confirmAttempted = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -227,6 +239,10 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(options.startRead ?? readingRead, 202);
       }
       if (path.includes("/company/site-reads/") && path.endsWith("/confirm")) {
+        confirmAttempted = true;
+        if (options.confirmProblem) {
+          return jsonResponse(options.confirmProblem, 409);
+        }
         return jsonResponse(savedProfile);
       }
       if (path.includes("/company/site-reads/") && request.method === "GET") {
@@ -239,6 +255,9 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(options.read ?? readyRead);
       }
       if (path.endsWith("/company") && request.method === "GET") {
+        if (confirmAttempted && options.companyAlreadyExists) {
+          return jsonResponse(savedProfile);
+        }
         return jsonResponse({ detail: "no company yet" }, 404);
       }
       if (path.endsWith("/company") && request.method === "PUT") {
@@ -621,6 +640,92 @@ describe("the conversational company act", () => {
     expect(await screen.findByText(/Company profile confirmed/)).toBeTruthy();
     // The machine advanced straight into the voice act's collect scene.
     expect(await screen.findByText(/Teach me how you write\./)).toBeTruthy();
+  });
+
+  // The invariant the double-confirm dead end violated: a 409 always leaves
+  // the reader with something they can do, never a live button whose next
+  // press can only fail the same way again.
+  it("a stale-draft 409 leaves the reader able to succeed on retry", async () => {
+    const calls = stubApi({
+      confirmProblem: { code: "version_skew", detail: "draft changed" },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    // The dedicated notice, not the raw server detail glued into the
+    // generic "I could not save" sentence.
+    expect(await screen.findByText(/Your review just updated/)).toBeTruthy();
+    expect(screen.queryByText(/draft changed/)).toBeNull();
+    // The read is re-fetched so the NEXT retry sends the current draft
+    // rather than the same stale one forever — the honest fix for skew,
+    // since the poll that would otherwise catch this already stopped once
+    // the read went terminal.
+    await waitFor(() => {
+      expect(requestsTo(calls, "/company/site-reads/", "GET").length).toBe(2);
+    });
+    // Nothing about the button itself is disabled: the reader can press it
+    // again right away.
+    expect(accept.disabled).toBe(false);
+  });
+
+  // The other half: a state that is not retryable at all must not be
+  // presented as if it were.
+  it("an already-confirmed 409 moves the reader forward instead of leaving them pressing a dead button", async () => {
+    stubApi({
+      confirmProblem: { code: "conflict", detail: "already confirmed" },
+      companyAlreadyExists: true,
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    // The confirmation this click was blocked from making had, in fact,
+    // already landed (a duplicate submit, or another tab) — the reader is
+    // moved on exactly as a fresh success would, not invited to press
+    // Continue again for a state that can never succeed that way.
+    expect(await screen.findByText(/Company profile confirmed/)).toBeTruthy();
+    expect(await screen.findByText(/Teach me how you write\./)).toBeTruthy();
+    expect(screen.queryByText(/already confirmed/)).toBeNull();
+  });
+
+  // The third server state (read not yet confirmable) shares the same
+  // generic 409 code as "already confirmed"; GET /company is how the two
+  // are told apart, and this is the branch where that check comes back
+  // empty — genuinely nothing to move forward to.
+  it("a not-yet-confirmable 409 says so plainly instead of implying a retry would work", async () => {
+    stubApi({
+      confirmProblem: { code: "conflict", detail: "read not ready" },
+      companyAlreadyExists: false,
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    expect(await screen.findByText(/not ready to confirm yet/)).toBeTruthy();
+    expect(screen.queryByText(/read not ready/)).toBeNull();
+    expect(screen.queryByText(/Company profile confirmed/)).toBeNull();
   });
 
   it("lets the workbench frame introduce itself once, not once per act", async () => {
