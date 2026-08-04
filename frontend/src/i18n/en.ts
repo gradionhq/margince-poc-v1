@@ -2404,9 +2404,14 @@ export const en = {
   "auth.resetRejectedPassword":
     "That password was refused. Choose a different one and try again.",
   // Neither the link's fault nor the user's: the token is untouched, so retrying
-  // the same one is the right advice.
+  // the same one is the right advice. Two sentences, no dash (VOICE-RULE-5).
   "auth.resetServerFailed":
-    "We couldn't set your password just now. Your link is still valid — try again in a moment.",
+    "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
+  // Its own key rather than auth.errRateLimited, which says "sign-in attempts":
+  // this user is setting a password, not signing in, and copy that names the
+  // wrong action reads as the wrong error.
+  "auth.resetRateLimited":
+    "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":

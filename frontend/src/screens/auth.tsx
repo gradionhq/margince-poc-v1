@@ -98,10 +98,16 @@ function resetTokenFromLocation(): string | null {
     // replaceState, not a hash assignment: assigning to location.hash fires
     // hashchange and pushes an entry, which would put the token back in history
     // — the exact thing this line exists to prevent.
+    // The QUERY is preserved. The token lives in the fragment, so nothing here
+    // needs the query gone — and rewriting it away threw out whatever else the
+    // URL was carrying. A reset link has no query of its own, so in the product
+    // this was invisible; in Storybook it silently discarded `?id=<story>` and a
+    // reload of the canvas landed on no story at all. A scrub should remove the
+    // one thing it is for.
     globalThis.history?.replaceState?.(
       null,
       "",
-      `${globalThis.location.pathname}#/${RESET_ROUTE}`,
+      `${globalThis.location.pathname}${globalThis.location.search}#/${RESET_ROUTE}`,
     );
   }
   return token;
@@ -815,7 +821,9 @@ function resetFailureOf(status: number | undefined): ResetFailure {
 function resetErrorKey(failure: ResetFailure): MessageKey {
   if (failure === "token") return "auth.resetFailed";
   if (failure === "password") return "auth.resetRejectedPassword";
-  if (failure === "rate-limited") return "auth.errRateLimited";
+  // NOT auth.errRateLimited: that one says "sign-in attempts", and this user is
+  // setting a password. Copy that names the wrong action reads as the wrong error.
+  if (failure === "rate-limited") return "auth.resetRateLimited";
   return "auth.resetServerFailed";
 }
 

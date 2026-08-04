@@ -211,7 +211,6 @@
   width: 16px;
   height: 16px;
   margin: 1px 0 0;
-  accent-color: var(--accent);
   cursor: pointer;
 }
 .ob-facts-pick input[type="checkbox"]:disabled {
@@ -456,7 +455,6 @@
 .ob-facts-table input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--accent);
   cursor: pointer;
 }
 .ob-facts-table input[type="checkbox"]:disabled {

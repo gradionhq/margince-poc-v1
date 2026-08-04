@@ -2412,7 +2412,9 @@ export const de = {
   "auth.resetRejectedPassword":
     "Dieses Passwort wurde abgelehnt. Wähle ein anderes und versuche es erneut.",
   "auth.resetServerFailed":
-    "Wir konnten dein Passwort gerade nicht setzen. Dein Link ist weiterhin gültig — versuche es in einem Moment erneut.",
+    "Wir konnten dein Passwort gerade nicht setzen. Dein Link ist weiterhin gültig, versuche es in einem Moment erneut.",
+  "auth.resetRateLimited":
+    "Zu viele Versuche. Warte einen Moment und setze dein Passwort dann erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
   "auth.resetDoneTitle": "Passwort aktualisiert",
   "auth.resetDoneBody":

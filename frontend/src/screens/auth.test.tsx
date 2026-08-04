@@ -607,6 +607,36 @@ describe("AuthScreen reset deep link", () => {
   // is still holding. So for anything that is not a token verdict, the old copy
   // was both wrong and destructive. What each failure must not do is as important
   // as what it says, hence the absence assertions.
+  it("names the action the user was actually taking when refused for rate", async () => {
+    // The 429 used to render auth.errRateLimited, which says "sign-in attempts"
+    // — on a form whose only job is setting a password. Copy that names the wrong
+    // action reads as the wrong error, so this branch has its own key and this
+    // test is what keeps the two from being collapsed back together.
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(429, { title: "rate_limited", detail: "budget exceeded" }),
+    );
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      hash: "#/reset-password?token=good-token",
+      origin: "http://localhost",
+    });
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+
+    expect(
+      await screen.findByText(
+        "Too many attempts. Wait a moment, then set your password again.",
+      ),
+    ).toBeTruthy();
+    // The link is untouched by a rate limit, so replacing it is still wrong.
+    expect(screen.queryByText("Request a new link")).toBeNull();
+  });
+
   it("blames the password, not the link, when the server refuses the password", async () => {
     stubApi({ password: true, password_reset: true }, () =>
       ok(422, { title: "validation_error", detail: "password too weak" }),
@@ -652,7 +682,7 @@ describe("AuthScreen reset deep link", () => {
 
     expect(
       await screen.findByText(
-        "We couldn't set your password just now. Your link is still valid — try again in a moment.",
+        "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText("Request a new link")).toBeNull();
