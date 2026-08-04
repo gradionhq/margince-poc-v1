@@ -95,7 +95,7 @@ func newCaptureAutoEnrichSweepWorker(pool *pgxpool.Pool, log *slog.Logger) *capt
 // workspace, and touches no tenant data itself.
 func (w *captureAutoEnrichSweepWorker) Work(ctx context.Context, _ *river.Job[CaptureAutoEnrichSweepArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureAutoEnrichWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureAutoEnrichWorkspaceArgs{Workspace: ws} }))
 }
 

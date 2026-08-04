@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -72,16 +71,8 @@ func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) contex
 // row, which is the visibility this phase is after.
 func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayReconcileArgs]) error {
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
-	if len(due) == 0 {
-		// Nothing to fan out. The client is resolved only past this point
-		// because ClientFromContext panics when there is none, and a tick with
-		// no due connection has no insert to make.
-		return jobs.FaultContext(ctx, enumErr)
-	}
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
-		if _, err := client.Insert(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID},
-			markedAsFleetPass(workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts))); err != nil {
+		if err := dispatchOne(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID}, nil); err != nil {
 			// A refused enqueue means this workspace gets no sweep at all, so
 			// it fails the DISPATCHER rather than being logged past: a green
 			// tick over a tenant nobody swept is the shape this phase removes.
@@ -90,14 +81,6 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	}
 	return jobs.FaultContext(ctx, enumErr)
 }
-
-// overlaySweepMaxAttempts is ONE: this kind's retry is the sweep backoff the
-// worker itself records (overlay_sync_state.next_sweep_at — at least minutes
-// out, and longer for a rate limit), and the dispatcher's due-scan is gated on
-// it. River's own ladder does not read that column, so a second rung would
-// re-sweep a throttled incumbent seconds after the worker deliberately paced
-// it. The failed row stays failed and visible; the next due tick is the retry.
-const overlaySweepMaxAttempts = 1
 
 // OverlayReconcileWorkspaceArgs reconciles ONE workspace's incumbent mirror.
 // It names the workspace and nothing else: the connection's incumbent, region,

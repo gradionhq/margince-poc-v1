@@ -42,7 +42,7 @@ type captureClassifyWorker struct {
 
 func (w *captureClassifyWorker) Work(ctx context.Context, _ *river.Job[CaptureClassifyArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureClassifyWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureClassifyWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -89,7 +89,7 @@ type captureEnrichWorker struct {
 
 func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnrichArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureEnrichWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureEnrichWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -136,7 +136,7 @@ type orgNamePromotionWorker struct {
 
 func (w *orgNamePromotionWorker) Work(ctx context.Context, _ *river.Job[OrgNamePromotionArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(OrgNamePromotionWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return OrgNamePromotionWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -196,7 +196,7 @@ type captureDigestWorker struct {
 // behind two model workers would delay it for no reason.
 func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureDigestWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureDigestWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -362,7 +362,7 @@ type counterpartyVerdictWorker struct {
 
 func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[CounterpartyVerdictArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CounterpartyVerdictWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CounterpartyVerdictWorkspaceArgs{Workspace: ws} }))
 }
 

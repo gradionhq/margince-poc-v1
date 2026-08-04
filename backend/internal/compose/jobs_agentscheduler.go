@@ -43,13 +43,6 @@ const (
 	// its derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant
 	// keeps the two equal.
 	agentSchedulerPassTimeout = claimBatch*RunWallClock + 5*time.Minute
-	// agentSchedulerMaxAttempts is ONE: this kind's retry is the dispatcher's
-	// own tick, which is tens of seconds while a single attempt may run for the
-	// timeout above. A second rung would spend a fresh batch of model budget on
-	// work the next tick re-enqueues anyway — and, because retryable is one of
-	// activeSweepStates, a backing-off row SUPPRESSES that tick's re-enqueue,
-	// so the ladder would delay the tenant's next pass rather than hasten it.
-	agentSchedulerMaxAttempts = 1
 )
 
 // AgentSchedulerConfig is the agent scheduler's slice of the runner's boot
@@ -121,7 +114,7 @@ type agentSchedulerWorker struct {
 
 func (w *agentSchedulerWorker) Work(ctx context.Context, _ *river.Job[AgentSchedulerArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(agentSchedulerQueue, agentSchedulerMaxAttempts),
+		workspaceSweepOpts(AgentSchedulerWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return AgentSchedulerWorkspaceArgs{Workspace: ws} }))
 }
 

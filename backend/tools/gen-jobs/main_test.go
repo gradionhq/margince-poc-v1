@@ -110,6 +110,23 @@ kinds:
 `, "max_attempts")
 }
 
+// The mirror, and the one that actually costs something: a fan-out child is
+// the ONLY kind whose attempt cap the running system reads from this file, so
+// omitting it does not fall back to a house default — it falls back to
+// River's 25-rung ladder, which replaces the dispatcher's tick as the retry
+// cadence without anything going red.
+func TestParseRejectsAFanOutChildWithNoMaxAttempts(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo_workspace:
+    role: workspace
+    go_type: FooWorkspaceArgs
+    queue: default
+    timeout: 2m
+    opts_owner: fan_out
+`, "max_attempts")
+}
+
 // The two pairing tests below assert on "are one declaration", the phrase only
 // the pairing rule uses. The bare substring "fan_out_unit" would NOT do: the
 // closed-set rule beside it ("fan_out_unit must be …") contains that substring

@@ -69,12 +69,6 @@ func (FollowUpWorkspaceArgs) Kind() string { return "follow_up_workspace" }
 // WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
 func (a FollowUpWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
-// dealsSweepMaxAttempts is larger than the shared default because both deals
-// passes tick DAILY: a workspace that failed a transient blip would otherwise
-// wait a full day for its next chance, and River's ladder spans minutes at
-// these rungs — comfortably inside one tick.
-const dealsSweepMaxAttempts = 5
-
 // closeDateSweepWorker is the dispatcher: it enumerates and enqueues, and
 // touches no tenant data itself.
 type closeDateSweepWorker struct {
@@ -83,7 +77,7 @@ type closeDateSweepWorker struct {
 
 func (w *closeDateSweepWorker) Work(ctx context.Context, _ *river.Job[CloseDateSweepArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, dealsSweepMaxAttempts),
+		workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CloseDateWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -109,7 +103,7 @@ type followUpReconcileWorker struct {
 
 func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowUpReconcileArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, dealsSweepMaxAttempts),
+		workspaceSweepOpts(FollowUpWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return FollowUpWorkspaceArgs{Workspace: ws} }))
 }
 

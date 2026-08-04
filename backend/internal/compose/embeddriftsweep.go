@@ -51,7 +51,7 @@ type embedDriftSweepWorker struct {
 
 func (w *embedDriftSweepWorker) Work(ctx context.Context, _ *river.Job[EmbedDriftSweepArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(EmbedDriftWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return EmbedDriftWorkspaceArgs{Workspace: ws} }))
 }
 

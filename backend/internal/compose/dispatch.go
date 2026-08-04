@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -70,18 +71,6 @@ const (
 	overlayReconcileQueue = "overlay_reconcile"
 )
 
-// sweepWorkspaceMaxAttempts is deliberately small. A fanned-out pass's real
-// retry cadence is the dispatcher's tick: a workspace that fails is
-// re-enqueued on the next pass. River's ladder is here only to ride out a
-// transient blip within one tick window.
-//
-// Leaving it unset would silently replace the tick with River's default
-// ladder of 25 attempts on attempt⁴ backoff, which retries far more
-// aggressively than the tick early on and far less often later — and,
-// because retryable is one of activeSweepStates, a backing-off job would
-// suppress the tick's own re-enqueue of that workspace until it discarded.
-const sweepWorkspaceMaxAttempts = 3
-
 // periodicWhenPositive is a dispatcher's schedule when interval is a cadence,
 // and NO entry at all when it is not. Every addXJobs helper that takes an
 // operator-set interval routes through it, so the reasoning below is stated
@@ -108,16 +97,59 @@ func periodicWhenPositive(interval time.Duration, args func() (river.JobArgs, *r
 	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(interval), args, opts)}
 }
 
-// workspaceSweepOpts is the enqueue policy for one fanned-out workspace job.
-// A kind whose tick is slower than the ladder would run may take a larger
-// attempt count, but the number is always chosen against that kind's tick
-// interval and the reason recorded where it is passed.
-func workspaceSweepOpts(queue string, maxAttempts int) *river.InsertOpts {
-	return &river.InsertOpts{
-		Queue:       queue,
-		MaxAttempts: maxAttempts,
-		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+// workspaceSweepOpts is the enqueue policy for one fanned-out child, read
+// from the child kind's own declaration. Taking the KIND rather than the
+// numbers is what makes the sweep tag unforgettable: a fan-out child's opts
+// are built here or in fanOutChildOpts and nowhere else, and both stamp it.
+//
+// The attempt cap is small on every fan-out kind because a fanned-out pass's
+// real retry cadence is the dispatcher's tick — a workspace that fails is
+// re-enqueued on the next pass — and River's ladder is there only to ride out
+// a transient blip inside one tick window. Left unset it would silently
+// become River's default ladder of 25 attempts on attempt⁴ backoff, which
+// retries far more aggressively than the tick early on and far less often
+// later; and because retryable is one of activeSweepStates, a backing-off job
+// suppresses the tick's own re-enqueue of that workspace until it discards.
+// api/jobs.yaml carries each kind's number and the reason for it.
+func workspaceSweepOpts(childKind string) *river.InsertOpts {
+	spec := fanOutChildSpec(childKind)
+	if spec.OptsOwner != jobs.OptsFanOut {
+		panic("compose: " + childKind + " declares an opts_owner other than fan_out, so its queue and attempt cap are not this helper's to set")
 	}
+	return markedAsFleetPass(&river.InsertOpts{
+		Queue:       spec.Queue,
+		MaxAttempts: spec.MaxAttempts,
+		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
+	})
+}
+
+// fanOutChildren is every kind some dispatcher DECLARES it fans out to —
+// api/jobs.yaml's fans_out_to, read as the registry it is. Computed once
+// because a per-connection dispatcher consults it once per insert.
+var fanOutChildren = sync.OnceValue(func() map[string]struct{} {
+	children := map[string]struct{}{}
+	for _, spec := range jobs.Declared() {
+		if spec.FanOutTo != "" {
+			children[spec.FanOutTo] = struct{}{}
+		}
+	}
+	return children
+})
+
+// fanOutChildSpec answers the declaration for a kind a dispatcher may fan out
+// to, and refuses one no dispatcher declares. Both refusals are programming
+// errors a boot-time tick surfaces immediately, not conditions a running
+// deployment can reach: what a kind is, and who fans out to it, are fixed at
+// compile time by the contract the generated table is built from.
+func fanOutChildSpec(childKind string) jobs.Spec {
+	spec, ok := jobs.SpecFor(childKind)
+	if !ok {
+		panic("compose: fanning out to " + childKind + ", which api/jobs.yaml does not declare")
+	}
+	if _, ok := fanOutChildren()[childKind]; !ok {
+		panic("compose: fanning out to " + childKind + ", which no declared kind names in fans_out_to — declare the dispatcher's fan-out in api/jobs.yaml")
+	}
+	return spec
 }
 
 // insertManyFunc is the slice of River's insert surface a dispatch needs.
@@ -190,21 +222,75 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 	return nil
 }
 
+// dispatchOne enqueues ONE fan-out child through the River client working the
+// current job. It serves the dispatchers that cannot use dispatchWith because
+// they fan out per CONNECTION or per BUILD rather than per workspace: their
+// unit is not the fleet, so there is no one enumeration to insert atomically
+// and they loop single inserts instead.
+//
+// The client is resolved per insert, and only inside the loop, for the reason
+// clientInsertMany states: river.ClientFromContext panics when there is none,
+// and a tick with nothing due must not turn "nothing to do" into a panic.
+func dispatchOne(ctx context.Context, args river.JobArgs, callerOpts *river.InsertOpts) error {
+	_, err := river.ClientFromContext[pgx.Tx](ctx).Insert(ctx, args, fanOutChildOpts(args.Kind(), callerOpts))
+	return err
+}
+
+// fanOutChildOpts is what dispatchOne hands River, decided by the child's
+// declared opts_owner. The three owners genuinely differ, and routing the
+// choice through the declaration is what keeps a dispatcher from flattening
+// them into one:
+//
+//   - fan_out — the queue and attempt cap come from the declaration, exactly
+//     as dispatchWith's children get them.
+//   - args — the child's own InsertOpts() owns them, so it gets a TAG-ONLY
+//     value and River's field-by-field merge leaves the args' rule standing.
+//     Handing telegram_poll a populated opts would drop its per-bot
+//     uniqueness, and two in-flight polls for one bot steal each other's
+//     batches.
+//   - caller — callerOpts, which is the caller's to build precisely because
+//     the same value serves a path that is NOT a fan-out: voiceBuildInsertOpts
+//     is shared with the user-initiated build. The tag goes on this call and
+//     never into that shared helper, because a build someone asked for is not
+//     one workspace's share of a fleet pass.
+//
+// callerOpts is read only for opts_owner: caller, and supplying one for any
+// other owner is refused rather than ignored — a uniqueness window that was
+// silently dropped reads, in the source, exactly like one that was applied.
+//
+// It is separate from dispatchOne so a unit test can assert all three
+// postures directly, without a River client or a database: the postures are
+// the whole content of the decision, and the insert below them is one line.
+func fanOutChildOpts(childKind string, callerOpts *river.InsertOpts) *river.InsertOpts {
+	spec := fanOutChildSpec(childKind)
+	if spec.OptsOwner != jobs.OptsCaller && callerOpts != nil {
+		panic("compose: insert options passed for " + childKind + ", whose opts_owner is not caller — they would be dropped, not merged")
+	}
+	switch spec.OptsOwner {
+	case jobs.OptsFanOut:
+		return workspaceSweepOpts(childKind)
+	case jobs.OptsArgs:
+		return markedAsFleetPass(nil)
+	case jobs.OptsCaller:
+		return markedAsFleetPass(callerOpts)
+	}
+	panic("compose: " + childKind + " declares no opts_owner; every kind the contract compiles has one")
+}
+
 // markedAsFleetPass copies opts with the sweep tag added, so a reader can
 // tell one workspace's share of a fleet pass from the same kind enqueued by
 // hand — they are the same kind, and the tag is the only difference in the
 // row. Tags are validated for format only and take no part in River's
 // unique key, so this changes no scheduling behaviour.
 //
-// EVERY fan-out site calls it, not only dispatchWith. Five dispatchers fan
-// out with a loop of single inserts instead, and each one calls it
-// directly: gmailSyncWorker and gmailWatchWorker (jobs_capture.go),
-// telegramPollSweepWorker (telegrampoll.go), voiceBuildRetryWorker
-// (voicebuild.go) and overlayReconcileWorker (jobs_overlay.go). A site that
-// forgets the tag is silently absent from the sweep gauges while the
-// gauge's own HELP text blames River's retention for the gap. Nothing
-// derives that obligation yet — this list is the registry, so it has to be
-// right.
+// Every caller is in this file. A fan-out child's opts are built by
+// workspaceSweepOpts (a fleet insert) or fanOutChildOpts (a single one) and
+// nowhere else, and both stamp the tag — so a dispatcher cannot forget it,
+// which is what an untagged child costs: silent absence from the sweep
+// gauges, while the gauge's own HELP text blames River's retention for the
+// gap. WHICH kinds may be fanned out to is the contract's to say and not this
+// comment's: fans_out_to in api/jobs.yaml is the registry, and both builders
+// refuse a kind no dispatcher declares there.
 //
 // It COPIES because a single dispatch shares ONE opts value across every
 // workspace in its loop, and voiceBuildInsertOpts' value is shared with the

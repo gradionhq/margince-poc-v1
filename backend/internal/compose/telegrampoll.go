@@ -151,19 +151,14 @@ type telegramPollSweepWorker struct {
 }
 
 func (w *telegramPollSweepWorker) Work(ctx context.Context, _ *river.Job[TelegramPollSweepArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	due, enumErr := capture.DueChannelConnections(ctx, w.pool, capture.ProviderTelegram)
 	for _, d := range due {
-		// The opts carry the sweep tag and NOTHING else: TelegramPollArgs
-		// declares its own uniqueness, and River falls back to the args'
-		// InsertOpts for the scheduling and uniqueness fields an explicit
-		// value leaves unset — so a tag-only value still cannot forget the
-		// per-bot rule by omission, which is what passing nil here bought.
-		// The fallback is per-field, not universal: metadata, for one, is
-		// defaulted rather than inherited.
-		if _, err := client.Insert(ctx, TelegramPollArgs{
+		// telegram_poll declares opts_owner: args, so dispatchOne hands River
+		// the sweep tag and NOTHING else and the per-bot uniqueness below
+		// stands — no inserter can drop it by omission.
+		if err := dispatchOne(ctx, TelegramPollArgs{
 			Workspace: d.WorkspaceID, ConnectionID: d.ID.String(),
-		}, markedAsFleetPass(nil)); err != nil {
+		}, nil); err != nil {
 			w.log.WarnContext(ctx, "telegram poll enqueue failed", "connection", d.ID.String(), "err", err)
 		}
 	}

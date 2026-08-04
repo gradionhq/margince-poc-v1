@@ -347,7 +347,6 @@ type voiceBuildRetryWorker struct {
 
 func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuildRetryArgs]) error {
 	due, enumErr := w.store.DueDeferredBuilds(ctx)
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, ref := range due {
 		if ref.RequestedBy == nil {
 			// The requester was deleted (ON DELETE SET NULL): nobody can own
@@ -356,16 +355,18 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			w.log.WarnContext(ctx, "voice build skipped: requester deleted", "build", ref.BuildID.String())
 			continue
 		}
-		if _, err := client.Insert(ctx, VoiceBuildArgs{
+		if err := dispatchOne(ctx, VoiceBuildArgs{
 			Workspace:   ref.Workspace,
 			ProfileID:   ref.ProfileID.String(),
 			BuildID:     ref.BuildID.String(),
 			RequestedBy: ref.RequestedBy.String(),
-			// Tagged HERE rather than inside voiceBuildInsertOpts, which the
-			// user-initiated build path shares: a build someone asked for is
-			// not one workspace's share of a fleet pass, and counting it as
-			// one is precisely what the tag exists to prevent.
-		}, markedAsFleetPass(voiceBuildInsertOpts())); err != nil {
+			// voice_build declares opts_owner: caller, so the opts are passed
+			// in and the tag is added to a COPY of them here. It never goes
+			// into voiceBuildInsertOpts, which the user-initiated build path
+			// shares: a build someone asked for is not one workspace's share
+			// of a fleet pass, and counting it as one is precisely what the
+			// tag exists to prevent.
+		}, voiceBuildInsertOpts()); err != nil {
 			w.log.WarnContext(ctx, "voice build retry enqueue failed", "build", ref.BuildID.String(), "err", err)
 		}
 	}

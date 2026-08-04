@@ -117,6 +117,9 @@ func (c contract) validateKind(name string, def kindDef) error {
 	if err := validateTimeout(name, def.Timeout); err != nil {
 		return err
 	}
+	if def.MaxAttempts == nil && def.OptsOwner == optsFanOut {
+		return fmt.Errorf("kind %q: opts_owner is fan_out but no max_attempts is declared — the fan-out helper reads this number and nothing else supplies it, so its absence is River's silent 25-rung ladder in place of the dispatcher's tick", name)
+	}
 	if def.MaxAttempts != nil {
 		if def.OptsOwner != optsFanOut {
 			return fmt.Errorf("kind %q: max_attempts is declared but opts_owner is %q — the file governs the attempt cap only for a fan-out child, and publishing one it does not enforce is the declared-vs-actual drift this contract exists to remove",

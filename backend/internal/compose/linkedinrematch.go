@@ -67,7 +67,7 @@ func newLinkedInRematchWorker(pool *pgxpool.Pool, store *people.Store, authority
 // a failure in one leaves the others swept.
 func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInRematchArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(LinkedInRematchWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return LinkedInRematchWorkspaceArgs{Workspace: ws} }))
 }
 

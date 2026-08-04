@@ -123,7 +123,7 @@ func (w *privacyRetentionWorker) Work(ctx context.Context, _ *river.Job[PrivacyR
 		return jobs.FaultContext(ctx, err)
 	}
 	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(privacyRetentionQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(PrivacyRetentionWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return PrivacyRetentionWorkspaceArgs{Workspace: ws} }))
 }
 

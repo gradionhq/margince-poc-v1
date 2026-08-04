@@ -67,7 +67,7 @@ func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdg
 // the whole installation.
 func (w *graphEdgeReconcileWorker) Work(ctx context.Context, _ *river.Job[GraphEdgeReconcileArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(GraphEdgeWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return GraphEdgeWorkspaceArgs{Workspace: ws} }))
 }
 

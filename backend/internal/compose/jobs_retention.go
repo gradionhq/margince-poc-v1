@@ -44,7 +44,7 @@ func (w *idempotencyRetentionWorker) Work(ctx context.Context, _ *river.Job[Idem
 		return jobs.FaultContext(ctx, err)
 	}
 	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx),
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(IdempotencyRetentionWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return IdempotencyRetentionWorkspaceArgs{Workspace: ws} }))
 }
 

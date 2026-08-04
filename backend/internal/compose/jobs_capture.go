@@ -15,7 +15,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -56,7 +55,6 @@ type gmailSyncWorker struct {
 }
 
 func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	var enumErr error
 	for _, desc := range w.registry.Connectors() {
 		due, err := w.registry.DueConnections(ctx, desc.Name)
@@ -64,13 +62,11 @@ func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs])
 			enumErr = errors.Join(enumErr, err)
 		}
 		for _, d := range due {
-			if _, err := client.Insert(ctx, CaptureSyncArgs{
+			if err := dispatchOne(ctx, CaptureSyncArgs{
 				Workspace:    d.Workspace.UUID,
 				ConnectionID: d.ID.String(),
 				Provider:     desc.Name,
-			}, markedAsFleetPass(&river.InsertOpts{
-				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-			})); err != nil {
+			}, nil); err != nil {
 				// A refused enqueue means this connection is never synced, so
 				// it fails the DISPATCHER — the same posture as the watch
 				// dispatcher below, which this one is the mirror of.
@@ -150,20 +146,11 @@ type gmailWatchWorker struct {
 
 func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs]) error {
 	due, enumErr := w.registry.DueWatches(ctx, "gmail", w.renewWithin)
-	if len(due) == 0 {
-		// As in the overlay dispatcher: ClientFromContext panics when there is
-		// none, and a tick with no due watch has no insert to make.
-		return jobs.FaultContext(ctx, enumErr)
-	}
-	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
-		if _, err := client.Insert(ctx, GmailWatchRenewArgs{
+		if err := dispatchOne(ctx, GmailWatchRenewArgs{
 			Workspace:    d.Workspace.UUID,
 			ConnectionID: d.ID.String(),
-		}, markedAsFleetPass(&river.InsertOpts{
-			MaxAttempts: sweepWorkspaceMaxAttempts,
-			UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-		})); err != nil {
+		}, nil); err != nil {
 			// A refused enqueue means this connection's watch is never renewed,
 			// so it fails the DISPATCHER rather than being logged past.
 			enumErr = errors.Join(enumErr, fmt.Errorf("enqueueing the watch renewal for connection %s: %w", d.ID, err))

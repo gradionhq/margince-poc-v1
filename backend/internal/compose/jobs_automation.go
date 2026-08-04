@@ -40,7 +40,7 @@ type timeScanWorker struct {
 
 func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(TimeScanWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return TimeScanWorkspaceArgs{Workspace: ws} }))
 }
 

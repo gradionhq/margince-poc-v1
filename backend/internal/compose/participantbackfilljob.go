@@ -74,7 +74,7 @@ func newParticipantBackfillWorker(pool *pgxpool.Pool, log *slog.Logger) *partici
 // pass carries no cursor to lose.
 func (w *participantBackfillWorker) Work(ctx context.Context, _ *river.Job[ParticipantBackfillArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(ParticipantBackfillWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return ParticipantBackfillWorkspaceArgs{Workspace: ws} }))
 }
 

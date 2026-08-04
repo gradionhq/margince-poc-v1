@@ -34,9 +34,16 @@
 #                                     a negative River timeout takes the row out
 #                                     of the rescuer on purpose
 #
-# max_attempts is declared ONLY for opts_owner: fan_out, because that is the
-# only case the file actually governs it. Declaring one elsewhere would publish
-# a number the runtime does not honour.
+# max_attempts is declared ONLY for opts_owner: fan_out, and REQUIRED there,
+# because that is the only case the file actually governs it: compose's
+# workspaceSweepOpts reads this number and no other. Declaring one elsewhere
+# would publish a number the runtime does not honour; omitting one here would
+# hand River its silent 25-rung ladder instead.
+#
+# Three is the house number, and it is small on purpose: a fanned-out pass's
+# real retry cadence is the dispatcher's tick, which re-enqueues a failed
+# workspace on the next pass, so River's ladder is only there to ride out a
+# transient blip inside one tick window. A kind departing from three says why.
 
 queues:
   default: {max_workers: 5}
@@ -115,6 +122,14 @@ kinds:
     max_attempts: 1
     opts_owner: fan_out
     registration: {when: [AgentScheduler.Service], absent: registers_nothing}
+    reason: >-
+      One attempt, not three: this kind's retry is the dispatcher's own tick,
+      which is tens of seconds while a single attempt may run for the timeout
+      above. A second rung would spend a fresh batch of model budget on work the
+      next tick re-enqueues anyway — and, because retryable is one of
+      compose's activeSweepStates, a backing-off row SUPPRESSES that tick's
+      re-enqueue, so the ladder would delay the tenant's next pass rather than
+      hasten it.
 
   ai_model_rate_refresh:
     role: workspace
@@ -298,7 +313,10 @@ kinds:
     opts_owner: fan_out
     reason: >-
       A database-only hygiene pass over one tenant's deals with past close
-      dates, each correction its own audited write.
+      dates, each correction its own audited write. Five attempts rather than
+      three because both deals passes tick DAILY: a workspace that failed a
+      transient blip would otherwise wait a full day for its next chance, and
+      River's ladder spans minutes at these rungs — comfortably inside one tick.
 
   comms_send_email:
     role: workspace
@@ -366,6 +384,13 @@ kinds:
     max_attempts: 5
     opts_owner: fan_out
     registration: {when: [Embedder], absent: registers_anyway}
+    reason: >-
+      Five attempts rather than three because this kind has NO tick to fall
+      back on: nothing re-enqueues a lost workspace until a human confirms a
+      reindex again, so three would quietly cost that tenant its pass. It is
+      the same budget the run's dispatcher half takes at its own enqueue site
+      (compose's embedReindexMaxAttempts, which states the arithmetic), because
+      the two halves are one decision.
 
   follow_up_reconcile:
     role: dispatcher
@@ -386,7 +411,9 @@ kinds:
     opts_owner: fan_out
     reason: >-
       A database-only overnight pass over one tenant's open follow-ups, staging
-      what it proposes rather than acting.
+      what it proposes rather than acting. Five attempts for the reason
+      close_date_workspace takes five: both deals passes tick DAILY, so three
+      would cost a workspace a full day over a transient blip.
 
   fx_rate_refresh:
     role: workspace
@@ -558,6 +585,14 @@ kinds:
       tenant's sweep. Being cut short costs at most one page: the backfill
       checkpoints overlay_backfill_cursor after every page and the incremental
       phase rides a per-class watermark, so the next due tick resumes.
+
+      One attempt, not three: this kind's retry is the sweep backoff the worker
+      itself records (overlay_sync_state.next_sweep_at — at least minutes out,
+      and longer for a rate limit), and the dispatcher's due-scan is gated on
+      it. River's own ladder does not read that column, so a second rung would
+      re-sweep a throttled incumbent seconds after the worker deliberately
+      paced it. The failed row stays failed and visible; the next due tick is
+      the retry.
 
   overlay_refetch:
     role: workspace

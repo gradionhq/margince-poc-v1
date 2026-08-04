@@ -114,7 +114,7 @@ func (w *webhookRetryWorker) Work(ctx context.Context, _ *river.Job[WebhookRetry
 		// The dispatcher's tick is the real retry cadence for a failed
 		// workspace — it re-enqueues the tenant on the next pass — so River's
 		// ladder is here only to ride out a transient blip inside one tick.
-		workspaceSweepOpts(webhookRetryQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(WebhookRetryWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return WebhookRetryWorkspaceArgs{Workspace: ws} }))
 }
 
