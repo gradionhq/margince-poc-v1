@@ -63,7 +63,12 @@ upstream reconciliation.
 point; update it at the end of every working session. Route findings as you work:
 implementation decisions are recorded in the commit and PR that makes the change
 (git history is the record); spec/ticket defects are reconciled upstream against
-the spec (contract-first, P3), never worked around in this source.
+the spec (contract-first, P3), never worked around in this source; anything found
+but **not** fixed in the current change — a bug, a gap, a follow-up task — becomes
+a GitHub issue in this repo. When to file is the engineer's call. This repo is
+public, so an issue carries no private spec paths, no local machine paths, no
+secrets; cite the spec by chapter/ADR/pin ID. How the team tracks issues beyond
+this repo is internal: see the spec repo's `tooling/delivery-board.md`.
 
 ## Build / test / seed
 
