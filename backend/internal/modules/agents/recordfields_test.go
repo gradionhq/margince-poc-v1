@@ -81,8 +81,8 @@ func TestContractFieldNamesReadsTheWireNames(t *testing.T) {
 // makes that lean safe instead of lucky.
 func TestDescriptionsCarryNoControlCharacters(t *testing.T) {
 	for name, desc := range map[string]string{
-		"create": describeRecordFields(createShapes),
-		"update": describeRecordFields(updateShapes),
+		"create": describeRecordFields(createShapes, createRecordShapes),
+		"update": describeRecordFields(updateShapes, updateRecordShapes),
 	} {
 		for i, r := range desc {
 			if r < 0x20 || r == 0x7f {
@@ -358,8 +358,8 @@ func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
 // maps carry that key — so the patch tool shipped the create tool's pairing rule
 // and the sentence written for the patch tool was unreachable.
 func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
-	create := describeRecordFields(createShapes)
-	patch := describeRecordFields(updateShapes)
+	create := describeRecordFields(createShapes, createRecordShapes)
+	patch := describeRecordFields(updateShapes, updateRecordShapes)
 
 	// The pairing rule is create-only: naming a pair is a thing only a create can
 	// do. Keyed on the stable CLAIM, not on the sentence — a reworded advisory is
@@ -403,8 +403,8 @@ func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
 // an agent following the description writes a key the strict decoder refuses.
 func TestTheCustomFieldSentenceNamesTheTypesThatTakeNone(t *testing.T) {
 	for name, description := range map[string]string{
-		"create": describeRecordFields(createShapes),
-		"update": describeRecordFields(updateShapes),
+		"create": describeRecordFields(createShapes, createRecordShapes),
+		"update": describeRecordFields(updateShapes, updateRecordShapes),
 	} {
 		if !strings.Contains(description, "cf_<slug>") {
 			t.Fatalf("%s: the description no longer mentions the custom-field key shape at all: %q",
