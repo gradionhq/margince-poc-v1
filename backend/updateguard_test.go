@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // byIDUpdate matches a single-row-by-primary-key UPDATE inside one SQL
@@ -90,7 +92,7 @@ func versionedTables(t *testing.T) map[string]bool {
 // by "package-dir:FuncName". Every entry carries its rationale inline;
 // an entry without one is a finding, and one matching no function is
 // stale and fails.
-var unguardedByIDUpdates = map[string]string{
+var unguardedByIDUpdates = gatekit.Waive(map[string]string{
 	// Archive is an absolute idempotent transition: the write sets
 	// archived_at unconditionally (no state derived from a pre-read),
 	// so concurrent archives converge on the same terminal row and the
@@ -133,7 +135,9 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/capture:AdvanceChannelPollOffsetTx": "single-statement monotone cursor: the `poll_offset < $2` predicate IS the CAS, so a writer holding a lower offset than the row already carries matches zero rows and its advance is correctly dropped. A version guard would be wrong here — the poll cursor is not optimistically concurrent state an operator edits, and bumping version on it would fire the send path's binding fence on every inbound message (0151's trigger comment)",
 	"internal/modules/privacy:anonymizeSubjectRows":       "terminal absolute write: the erasure overwrites the PII columns regardless of concurrent state, by design",
 	"internal/modules/privacy:apply":                      "terminal absolute writes: the retention sweep archives/anonymizes regardless of concurrent state, by design",
-}
+	"internal/modules/privacy:eraseActivityContent":       "terminal absolute write: the sweep's activity/erase action empties the body and stamps the tombstone subject regardless of concurrent state, by design",
+	"internal/modules/privacy:anonymizePersonRecord":      "terminal absolute write: the sweep's person/anonymize action overwrites the PII columns regardless of concurrent state, by design",
+})
 
 // guardMarkers are the identifiers whose presence in the same function
 // witnesses a concurrency guard: the storekit guarded-apply family, the
@@ -148,13 +152,8 @@ var guardMarkers = map[string]bool{
 }
 
 func TestEveryByIDUpdateCarriesAConcurrencyGuard(t *testing.T) {
-	for fn, rationale := range unguardedByIDUpdates {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("unguardedByIDUpdates[%s] has no rationale — a waiver must say why no guard is needed", fn)
-		}
-	}
+	defer unguardedByIDUpdates.AssertAllMatched(t)
 	versioned := versionedTables(t)
-	used := map[string]bool{}
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose", "internal/platform"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -198,8 +197,7 @@ func TestEveryByIDUpdateCarriesAConcurrencyGuard(t *testing.T) {
 				})
 				if updatesByID && !guarded {
 					key := filepath.ToSlash(filepath.Dir(path)) + ":" + fn.Name.Name
-					if _, ratified := unguardedByIDUpdates[key]; ratified {
-						used[key] = true
+					if unguardedByIDUpdates.Waived(t, key) {
 						continue
 					}
 					t.Errorf("%s: %s runs a by-id UPDATE with no concurrency guard — use storekit.ApplyGuarded/ApplyWithVersion, lock the row first (LockRow/LockPair/FOR UPDATE/advisory lock), or check RowsAffected as a CAS; a real exception is ratified in unguardedByIDUpdates",
@@ -210,11 +208,6 @@ func TestEveryByIDUpdateCarriesAConcurrencyGuard(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-	for key := range unguardedByIDUpdates {
-		if !used[key] {
-			t.Errorf("unguardedByIDUpdates[%s] matches no unguarded by-id update — stale waiver, remove it", key)
 		}
 	}
 }

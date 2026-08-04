@@ -83,25 +83,37 @@ type DayCost struct {
 // caller's "as of" anchor (typically the day the seed runs).
 func SeedModelRates(effective time.Time) []ModelRate {
 	day := effective.UTC().Truncate(24 * time.Hour)
-	rate := func(provider, model string, in, out, cacheRead, cacheWrite int64) ModelRate {
-		return ModelRate{
-			Provider: provider, ModelID: model,
-			InputPerMTokMicroUSD: in, OutputPerMTokMicroUSD: out,
-			CacheReadPerMTokMicroUSD: cacheRead, CacheWritePerMTokMicroUSD: cacheWrite,
-			EffectiveDate: day,
-		}
+	rates := vendorSheetRates(day)
+	rates = append(rates, brokerSheetRates(day)...)
+	return append(rates, localZeroRates(day)...)
+}
+
+// rateOn is one price line effective on day, in micro-USD per million
+// tokens for each of the four billed buckets.
+func rateOn(day time.Time, provider, model string, in, out, cacheRead, cacheWrite int64) ModelRate {
+	return ModelRate{
+		Provider: provider, ModelID: model,
+		InputPerMTokMicroUSD: in, OutputPerMTokMicroUSD: out,
+		CacheReadPerMTokMicroUSD: cacheRead, CacheWritePerMTokMicroUSD: cacheWrite,
+		EffectiveDate: day,
 	}
+}
+
+// vendorSheetRates are the cloud vendors' own published per-MTok sheet
+// prices, read from each vendor's native pricing page for the models
+// config/ai-routing.example.yaml binds directly on that vendor's API.
+func vendorSheetRates(day time.Time) []ModelRate {
 	return []ModelRate{
 		// Anthropic (native Messages API sheet prices, verified 2026-07-20):
 		// cache read = 0.1x input, cache write = 1.25x input, matching
 		// Anthropic's published prompt-caching multipliers across the family.
-		rate(providerAnthropic, "claude-opus-4-8", 5_000_000, 25_000_000, 500_000, 6_250_000),
-		rate(providerAnthropic, "claude-sonnet-4-6", 3_000_000, 15_000_000, 300_000, 3_750_000),
+		rateOn(day, providerAnthropic, "claude-opus-4-8", 5_000_000, 25_000_000, 500_000, 6_250_000),
+		rateOn(day, providerAnthropic, "claude-sonnet-4-6", 3_000_000, 15_000_000, 300_000, 3_750_000),
 		// claude-haiku-4-5-20251001 is the exact dated snapshot id
 		// config/ai-routing.example.yaml's commented cheap_cloud binding
 		// uses — Anthropic prices per model family regardless of snapshot
 		// date, so the undated family's sheet price applies verbatim.
-		rate(providerAnthropic, "claude-haiku-4-5-20251001", 1_000_000, 5_000_000, 100_000, 1_250_000),
+		rateOn(day, providerAnthropic, "claude-haiku-4-5-20251001", 1_000_000, 5_000_000, 100_000, 1_250_000),
 
 		// Gemini (verified 2026-07-20): cache read = 0.1x input; Gemini's
 		// implicit context caching carries no separate write charge. Prices
@@ -109,8 +121,8 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// (gemini-3.5-flash) and cheap_cloud (gemini-3.1-flash-lite). Both
 		// carry a >200k-token tier Gemini charges at a higher rate; the
 		// sub-200k sheet price is seeded here as the common case.
-		rate(providerGemini, "gemini-3.5-flash", 1_500_000, 9_000_000, 150_000, 0),
-		rate(providerGemini, "gemini-3.1-flash-lite", 250_000, 1_500_000, 25_000, 0),
+		rateOn(day, providerGemini, "gemini-3.5-flash", 1_500_000, 9_000_000, 150_000, 0),
+		rateOn(day, providerGemini, "gemini-3.1-flash-lite", 250_000, 1_500_000, 25_000, 0),
 
 		// OpenAI: config/ai-routing.example.yaml's commented cheap_cloud
 		// binding names "gpt-5-mini", which no longer appears on OpenAI's
@@ -122,7 +134,7 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// against https://developers.openai.com/api/docs/pricing and correct
 		// this row (or add the exact model id they bind) before relying on
 		// the reported cost.
-		rate(providerOpenAI, "gpt-5-mini", 750_000, 4_500_000, 75_000, 0),
+		rateOn(day, providerOpenAI, "gpt-5-mini", 750_000, 4_500_000, 75_000, 0),
 
 		// Gemini embeddings: config/ai-routing.example.yaml's default
 		// embeddings binding (`{ provider: gemini, model:
@@ -132,56 +144,64 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// 2026-07-20 against https://ai.google.dev/gemini-api/docs/pricing);
 		// an operator relying on this cost should reconfirm against the
 		// live sheet the same way the gpt-5-mini row above asks for.
-		rate(providerGemini, "gemini-embedding-001", 150_000, 0, 0, 0),
+		rateOn(day, providerGemini, "gemini-embedding-001", 150_000, 0, 0, 0),
+	}
+}
 
-		// OpenRouter, reached through the generic openai_compatible adapter
-		// (config/ai-routing.openrouter.example.yaml). Read from that broker's
-		// own catalog — https://openrouter.ai/api/v1/models, per-token prices
-		// scaled by 1e12 — on 2026-07-31. Every model the example names is
-		// here, the commented jurisdiction alternates included: the file
-		// presents them as one-line swaps, and a swap must not silently turn
-		// the cost report UNPRICED. No entry publishes a cache-WRITE price, so
-		// that column is 0 throughout.
-		//
-		// These rows are keyed on the GENERIC provider name, because that is
-		// what a call on this adapter reports. An operator who points
-		// openai_compatible at a different broker serving the same model id
-		// inherits OpenRouter's price and should correct the row the same
-		// fx_rate-style way they'd correct any other.
-		rate(providerOpenAICompatible, "mistralai/ministral-8b-2512", 150_000, 150_000, 15_000, 0),
-		rate(providerOpenAICompatible, "mistralai/ministral-14b-2512", 200_000, 200_000, 20_000, 0),
-		rate(providerOpenAICompatible, "mistralai/mistral-small-3.2-24b-instruct", 100_000, 300_000, 10_000, 0),
-		rate(providerOpenAICompatible, "mistralai/mistral-large-2512", 500_000, 1_500_000, 50_000, 0),
-		rate(providerOpenAICompatible, "deepseek/deepseek-v4-flash", 140_000, 280_000, 28_000, 0),
-		rate(providerOpenAICompatible, "z-ai/glm-5.2", 966_000, 3_036_000, 179_400, 0),
-		rate(providerOpenAICompatible, "nvidia/nemotron-3-ultra-550b-a55b", 600_000, 3_600_000, 200_000, 0),
-		rate(providerOpenAICompatible, "openai/gpt-oss-20b", 30_000, 130_000, 30_000, 0),
+// brokerSheetRates price the models reached through the generic
+// openai_compatible adapter (config/ai-routing.openrouter.example.yaml).
+// Read from OpenRouter's own catalog — https://openrouter.ai/api/v1/models,
+// per-token prices scaled by 1e12 — on 2026-07-31. Every model the example
+// names is here, the commented jurisdiction alternates included: the file
+// presents them as one-line swaps, and a swap must not silently turn the
+// cost report UNPRICED. No entry publishes a cache-WRITE price, so that
+// column is 0 throughout.
+//
+// These rows are keyed on the GENERIC provider name, because that is what a
+// call on this adapter reports. An operator who points openai_compatible at
+// a different broker serving the same model id inherits OpenRouter's price
+// and should correct the row the same fx_rate-style way they'd correct any
+// other.
+func brokerSheetRates(day time.Time) []ModelRate {
+	return []ModelRate{
+		rateOn(day, providerOpenAICompatible, "mistralai/ministral-8b-2512", 150_000, 150_000, 15_000, 0),
+		rateOn(day, providerOpenAICompatible, "mistralai/ministral-14b-2512", 200_000, 200_000, 20_000, 0),
+		rateOn(day, providerOpenAICompatible, "mistralai/mistral-small-3.2-24b-instruct", 100_000, 300_000, 10_000, 0),
+		rateOn(day, providerOpenAICompatible, "mistralai/mistral-large-2512", 500_000, 1_500_000, 50_000, 0),
+		rateOn(day, providerOpenAICompatible, "deepseek/deepseek-v4-flash", 140_000, 280_000, 28_000, 0),
+		rateOn(day, providerOpenAICompatible, "z-ai/glm-5.2", 966_000, 3_036_000, 179_400, 0),
+		rateOn(day, providerOpenAICompatible, "nvidia/nemotron-3-ultra-550b-a55b", 600_000, 3_600_000, 200_000, 0),
+		rateOn(day, providerOpenAICompatible, "openai/gpt-oss-20b", 30_000, 130_000, 30_000, 0),
 		// gpt-oss-120b publishes no cached-input price, unlike its 20b
 		// sibling; 0 here is "no cache discount", and the uncached input rate
 		// is what a call actually pays.
-		rate(providerOpenAICompatible, "openai/gpt-oss-120b", 37_000, 170_000, 0, 0),
+		rateOn(day, providerOpenAICompatible, "openai/gpt-oss-120b", 37_000, 170_000, 0, 0),
 		// Embedding lanes have no output and no cache — only input is nonzero.
-		rate(providerOpenAICompatible, "mistralai/mistral-embed-2312", 100_000, 0, 0, 0),
-		rate(providerOpenAICompatible, "baai/bge-m3", 10_000, 0, 0, 0),
-		rate(providerOpenAICompatible, "openai/text-embedding-3-small", 20_000, 0, 0, 0),
+		rateOn(day, providerOpenAICompatible, "mistralai/mistral-embed-2312", 100_000, 0, 0, 0),
+		rateOn(day, providerOpenAICompatible, "baai/bge-m3", 10_000, 0, 0, 0),
+		rateOn(day, providerOpenAICompatible, "openai/text-embedding-3-small", 20_000, 0, 0, 0),
+	}
+}
 
-		// Local/offline providers: explicit zero rows so a local deployment
-		// prices as an honest 0, never "unpriced". Keyed on each provider's
-		// own unbound-tier default model id (selectbrain.go) — an operator
-		// who binds a different local model adds their own zero row the
-		// same fx_rate-style way they'd correct any other price.
-		rate(providerOllama, defaultOllamaModel, 0, 0, 0, 0),
-		rate(providerVLLM, defaultVLLMModel, 0, 0, 0, 0),
+// localZeroRates are the local/offline providers' explicit zero rows, so a
+// local deployment prices as an honest 0, never "unpriced". Keyed on each
+// provider's own unbound-tier default model id (selectbrain.go) — an
+// operator who binds a different local model adds their own zero row the
+// same fx_rate-style way they'd correct any other price.
+func localZeroRates(day time.Time) []ModelRate {
+	return []ModelRate{
+		rateOn(day, providerOllama, defaultOllamaModel, 0, 0, 0, 0),
+		rateOn(day, providerVLLM, defaultVLLMModel, 0, 0, 0, 0),
 		// bge-m3 is the local embedding model config/ai-routing.example.yaml
 		// names for a fully-local embedder (`{ provider: ollama, model:
 		// bge-m3 }`, ADR-0012's local-embed alternative) — a distinct model
 		// id from defaultOllamaModel above (that one is the unbound CHAT
 		// tier's default, gemma3, which is not an embedding model), so it
 		// needs its own explicit zero row.
-		rate(providerOllama, "bge-m3", 0, 0, 0, 0),
+		rateOn(day, providerOllama, "bge-m3", 0, 0, 0, 0),
 		// The offline fake provider carries no model id of its own — a
 		// binding that omits `model:` (the common case: `{provider: fake}`)
 		// resolves to model_id "" (routeMeta.model = cfg.Model, unmodified).
-		rate(ProviderFake, "", 0, 0, 0, 0),
+		rateOn(day, ProviderFake, "", 0, 0, 0, 0),
 	}
 }

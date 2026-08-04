@@ -25,10 +25,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // storekitOwned marks the tables written ONLY through
@@ -40,6 +41,8 @@ const storekitOwned = "internal/platform/database/storekit"
 // owns its writes (module doc.go "Tables owned" declarations, kept in sync).
 // This map is the hand-maintained artifact: a new table gets an owner here
 // before its first write lands.
+// gatekit:fixture the owning module path each table's writes are compared
+// against — expected data, not a cost anyone is paying.
 var tableOwners = map[string]string{
 	// identity
 	"workspace":                "internal/modules/identity",
@@ -238,7 +241,7 @@ var tableOwners = map[string]string{
 // crossStoreWrites are the ratified writes outside the writer's own tables,
 // keyed "module-dir:table". Every entry carries its rationale inline so the
 // gate is self-contained on a clean checkout.
-var crossStoreWrites = map[string]string{
+var crossStoreWrites = gatekit.Waive(map[string]string{
 	// people's merge/promotion relink rows across aggregates inside their
 	// single transaction — the primary aggregate owns the single-tx
 	// cross-aggregate write, because a merge that could half-commit its
@@ -344,7 +347,7 @@ var crossStoreWrites = map[string]string{
 	// call, the same single-transaction rationale privacy's erasure
 	// entries above document.
 	"internal/modules/overlay:workspace": "flips its own fork-owned x_sor_mode/x_incumbent columns atomically with the connection row write, inside the same transaction (the x_overlay_iff_incumbent CHECK demands both change together)",
-}
+})
 
 // sqlWriteTargets extracts write-statement table names from one SQL (or
 // SQL-carrying format) string. UPDATE requires a SET clause so prose and
@@ -478,15 +481,10 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 }
 
 func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
-	for key, rationale := range crossStoreWrites {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("crossStoreWrites[%s] has no rationale — a cross-store write must say why it cannot go through the owning module", key)
-		}
-	}
+	defer crossStoreWrites.AssertAllMatched(t)
 
 	writes := collectTableWrites(t)
 
-	usedWaivers := map[string]bool{}
 	for owner, ws := range writes {
 		for _, w := range ws {
 			declared, known := tableOwners[w.table]
@@ -499,23 +497,11 @@ func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
 				continue
 			}
 			key := owner + ":" + w.table
-			if _, ratified := crossStoreWrites[key]; ratified {
-				usedWaivers[key] = true
+			if crossStoreWrites.Waived(t, key) {
 				continue
 			}
 			t.Errorf("%s: %s writes table %q owned by %s — move the write into the owning module, or ratify it in crossStoreWrites[%q] with a self-contained rationale",
 				w.pos, owner, w.table, declared, key)
 		}
-	}
-
-	var stale []string
-	for key := range crossStoreWrites {
-		if !usedWaivers[key] {
-			stale = append(stale, key)
-		}
-	}
-	sort.Strings(stale)
-	for _, key := range stale {
-		t.Errorf("crossStoreWrites[%s] matches no remaining write — stale waiver, remove it", key)
 	}
 }

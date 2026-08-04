@@ -111,15 +111,32 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	e := setupWithOptions(t, compose.WithKeyvault(vault))
 	e.bootstrapWorkspace(t)
 
-	// Sync-status/budget/reconcile are all mode-gated (ErrModeNotOverlay
-	// -> 404): asserted here, BEFORE connect, while the workspace is
-	// still in native mode — the one place in this test any of the three
-	// can be exercised without a live incumbent adapter reaching for a
-	// real HubSpot over the network (reconcile's on-demand sweep, once
-	// connected, always builds a REAL hubspot.Adapter from the
-	// connection's own vaulted region+token — see compose/jobs.go's
-	// reconcileConnection — so this suite never calls it against a
-	// connected workspace; T11 bars real-network reliance in a test).
+	assertOverlayOpsGatedInNativeMode(t, e)
+	adminID, wsID, wsIDStr := connectOverlayToTheFakeIncumbent(t, e)
+
+	pool := openAppPool(t)
+	adminCtx := backfillOneMirroredContact(t, pool, wsID, adminID)
+
+	assertSyncStatusReportsAConvergedBackfill(t, e)
+	assertBudgetAnswersOnceConnected(t, e)
+
+	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
+	assertDispatchedReadCarriesExternalTrust(adminCtx, t, dispatcher)
+	assertHumanRestSurfaceServesTheMirror(t, e)
+	assertUnmappedUserSeesZeroRows(t, e, dispatcher, wsID)
+	assertDisconnectPurgesTheMirrorAndRetainsTheAudit(t, e, wsIDStr)
+}
+
+// assertOverlayOpsGatedInNativeMode covers the mode-gated ops
+// (ErrModeNotOverlay -> 404) while the workspace is still in native mode —
+// the one place in this test any of the three can be exercised without a
+// live incumbent adapter reaching for a real HubSpot over the network
+// (reconcile's on-demand sweep, once connected, always builds a REAL
+// hubspot.Adapter from the connection's own vaulted region+token — see
+// compose/jobs.go's reconcileConnection — so this suite never calls it
+// against a connected workspace; T11 bars real-network reliance in a test).
+func assertOverlayOpsGatedInNativeMode(t *testing.T, e *env) {
+	t.Helper()
 	for _, path := range []string{"/v1/overlay/sync-status", "/v1/overlay/budget"} {
 		if code := e.call(t, "GET", path, nil, nil, nil); code != http.StatusNotFound {
 			t.Fatalf("GET %s in native mode = %d, want 404 mode_not_overlay", path, code)
@@ -135,11 +152,15 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if code := e.call(t, "GET", "/v1/people", nil, nil, nil); code != http.StatusOK {
 		t.Fatalf("native-mode GET /v1/people through the shadowed op = %d, want 200", code)
 	}
+}
 
-	// --- connect (branch 1's Connect only ever validates "hubspot" —
-	// the private-app token is never actually used to reach a real
-	// HubSpot in this test: every mirror row below lands through the
-	// fake incumbent's own Backfill call, never through hubspot.Adapter) ---
+// connectOverlayToTheFakeIncumbent connects the workspace (branch 1's Connect
+// only ever validates "hubspot" — the private-app token is never actually used
+// to reach a real HubSpot in this test: every mirror row lands through the fake
+// incumbent's own Backfill call, never through hubspot.Adapter) and resolves
+// the identities the rest of the scenario reads records as.
+func connectOverlayToTheFakeIncumbent(t *testing.T, e *env) (adminID, wsID ids.UUID, wsIDStr string) {
+	t.Helper()
 	var conn map[string]any
 	if status := e.call(t, "POST", "/v1/overlay/connection", anyMap{
 		"incumbent":       "hubspot",
@@ -157,21 +178,23 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsing admin user id: %v", err)
 	}
-	var wsIDStr string
 	if err := e.owner.QueryRow(context.Background(), `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsIDStr); err != nil {
 		t.Fatalf("looking up the workspace id: %v", err)
 	}
-	wsID, err := ids.Parse(wsIDStr)
+	wsID, err = ids.Parse(wsIDStr)
 	if err != nil {
 		t.Fatalf("parsing workspace id: %v", err)
 	}
+	return adminID, wsID, wsIDStr
+}
 
-	pool := openAppPool(t)
-
-	// --- map the admin to the fake incumbent's owner-1, then backfill
-	// ONE contacts record it owns, directly through the fake incumbent
-	// seam (Backfill, mirrorstore.go's Ingest — the same primitives the
-	// real poller/backfill worker drive) ---
+// backfillOneMirroredContact maps the admin to the fake incumbent's owner-1,
+// then backfills ONE contacts record it owns, directly through the fake
+// incumbent seam (Backfill, mirrorstore.go's Ingest — the same primitives the
+// real poller/backfill worker drive). The context it returns is the mapped
+// admin's, the actor every mirror-backed read below runs as.
+func backfillOneMirroredContact(t *testing.T, pool *pgxpool.Pool, wsID, adminID ids.UUID) context.Context {
+	t.Helper()
 	mirror := overlay.NewMirrorStore(pool, stubOwnerEmails{})
 	adminCtx := overlayActorCtx(wsID, adminID)
 	if err := mirror.UpsertUserMap(adminCtx, ids.From[ids.UserKind](adminID), "hubspot", "owner-1", "manual"); err != nil {
@@ -190,8 +213,13 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassContacts, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's contacts: %v", err)
 	}
+	return adminCtx
+}
 
-	// --- bullet 1: GET /v1/overlay/sync-status shows fresh + backfill complete ---
+// assertSyncStatusReportsAConvergedBackfill is bullet 1: GET
+// /v1/overlay/sync-status shows fresh + backfill complete.
+func assertSyncStatusReportsAConvergedBackfill(t *testing.T, e *env) {
+	t.Helper()
 	var status syncStatusWire
 	if code := e.call(t, "GET", "/v1/overlay/sync-status", nil, nil, &status); code != http.StatusOK {
 		t.Fatalf("sync-status = %d", code)
@@ -215,8 +243,12 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if !found {
 		t.Fatalf("sync-status has no person entry: %+v", status)
 	}
+}
 
-	// GetOverlayBudget also answers now that the workspace is connected.
+// assertBudgetAnswersOnceConnected pins that GetOverlayBudget also answers now
+// that the workspace is connected.
+func assertBudgetAnswersOnceConnected(t *testing.T, e *env) {
+	t.Helper()
 	var budget budgetWire
 	if code := e.call(t, "GET", "/v1/overlay/budget", nil, nil, &budget); code != http.StatusOK {
 		t.Fatalf("budget = %d", code)
@@ -224,12 +256,14 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if budget.Band == "" || budget.Window == "" {
 		t.Errorf("budget response incomplete: %+v", budget)
 	}
+}
 
-	// --- bullet 2: a native-API read of the mirrored person, through
-	// the REAL composed dispatcher path (compose.Dispatcher — the exact
-	// seam every native GET/read_record call rides in production),
-	// carries TrustTier=external + Authoritative=false ---
-	dispatcher := compose.NewDispatcher(compose.NewProvider(pool), compose.NewOverlayProvider(pool, overlaybudget.New(nil, nil), nil), pool)
+// assertDispatchedReadCarriesExternalTrust is bullet 2: a native-API read of
+// the mirrored person, through the REAL composed dispatcher path
+// (compose.Dispatcher — the exact seam every native GET/read_record call rides
+// in production), carries TrustTier=external + Authoritative=false.
+func assertDispatchedReadCarriesExternalTrust(adminCtx context.Context, t *testing.T, dispatcher *compose.Dispatcher) {
+	t.Helper()
 	searchRes, err := dispatcher.Search(adminCtx, datasource.SearchQuery{
 		EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10,
 	})
@@ -251,11 +285,14 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if readRec.Freshness.Authoritative {
 		t.Fatal("an overlay-mode workspace's dispatched Read must never claim Authoritative:true")
 	}
+}
 
-	// --- bullet 2b: the HUMAN REST surface serves the SAME mirror rows
-	// (design.md §4.1 "Overlay does not fork the data API"): list, get,
-	// and search answer through the real composed HTTP stack, typed,
-	// stamped source=overlay, and search-tagged trust_tier=external ---
+// assertHumanRestSurfaceServesTheMirror is bullet 2b: the HUMAN REST surface
+// serves the SAME mirror rows (design.md §4.1 "Overlay does not fork the data
+// API"): list, get, and search answer through the real composed HTTP stack,
+// typed, stamped source=overlay, and search-tagged trust_tier=external.
+func assertHumanRestSurfaceServesTheMirror(t *testing.T, e *env) {
+	t.Helper()
 	var peoplePage crmcontracts.PersonListResponse
 	if code := e.call(t, "GET", "/v1/people", nil, nil, &peoplePage); code != http.StatusOK {
 		t.Fatalf("overlay-mode GET /v1/people = %d", code)
@@ -321,12 +358,15 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 		}
 	}
 	assertReportOpsRefusedInOverlay(t, e)
+}
 
-	// --- bullet 3: an UNMAPPED user sees ZERO rows (fail-closed
-	// visibility — MirrorStore.List answers apperrors.ErrNotFound for a
-	// ctx principal with no mirror_user_map row at all, existence-hiding
-	// rather than an empty-but-successful page; see visibility.go's own
-	// doc on resolveActingMirrorUserID) ---
+// assertUnmappedUserSeesZeroRows is bullet 3: an UNMAPPED user sees ZERO rows
+// (fail-closed visibility — MirrorStore.List answers apperrors.ErrNotFound for
+// a ctx principal with no mirror_user_map row at all, existence-hiding rather
+// than an empty-but-successful page; see visibility.go's own doc on
+// resolveActingMirrorUserID).
+func assertUnmappedUserSeesZeroRows(t *testing.T, e *env, dispatcher *compose.Dispatcher, wsID ids.UUID) {
+	t.Helper()
 	unmappedID := seedSecondAppUser(t, e, wsID, "unmapped@overlay.test")
 	unmappedCtx := overlayActorCtx(wsID, unmappedID)
 	if _, err := dispatcher.Search(unmappedCtx, datasource.SearchQuery{
@@ -334,9 +374,13 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	}); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("unmapped user's Search = %v, want apperrors.ErrNotFound (existence-hiding, zero rows)", err)
 	}
+}
 
-	// --- bullet 4: DELETE /v1/overlay/connection → mirror empty,
-	// tombstone present, connection audit RETAINED + PII-scrubbed ---
+// assertDisconnectPurgesTheMirrorAndRetainsTheAudit is bullet 4: DELETE
+// /v1/overlay/connection → mirror empty, tombstone present, connection audit
+// RETAINED + PII-scrubbed.
+func assertDisconnectPurgesTheMirrorAndRetainsTheAudit(t *testing.T, e *env, wsIDStr string) {
+	t.Helper()
 	if code := e.call(t, "DELETE", "/v1/overlay/connection", nil, nil, nil); code != http.StatusAccepted {
 		t.Fatalf("disconnect overlay = %d, want 202", code)
 	}

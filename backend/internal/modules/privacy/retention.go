@@ -306,31 +306,7 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 				err = s.invalidateGraph(ctx, tx, id)
 			}
 		case "activity/erase":
-			// Transcript free-text is the special-category risk; the
-			// record of the meeting stays, its content goes — including any
-			// attached recording/transcript file (objects first, so the
-			// purge shares the person-erase durability guarantee).
-
-			_, err = tx.Exec(ctx,
-				`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
-				id, erasedActivitySubject)
-			if err == nil {
-				_, err = tx.Exec(ctx,
-					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
-			}
-			if err == nil {
-				err = s.invalidateGraph(ctx, tx, id)
-			}
-			if err == nil {
-				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
-			}
-			if err == nil {
-				// An outbound message ages out on the schedule of the activity
-				// it belongs to: the send log holds the same recipients,
-				// subject and body, and a policy that emptied one while the
-				// other kept serving them would age out nothing.
-				err = redactDeliveries(ctx, tx, []ids.UUID{id}, erasedActivitySubject)
-			}
+			err = s.eraseActivityContent(ctx, tx, id)
 		case "deal/archive":
 			_, err = tx.Exec(ctx, `UPDATE deal SET archived_at = now() WHERE id = $1`, id)
 		case "ai_call_payload/erase":
@@ -352,104 +328,7 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 					`DELETE FROM embedding WHERE entity_type = 'lead' AND entity_id = $1`, id)
 			}
 		case "person/anonymize":
-			// The subject's addresses, read BEFORE person_email is deleted
-			// below. The graph structures name them by raw address as well as
-			// by person id — that is what the address arm of a participant row
-			// IS — so a sweep that only matched person_id would leave the
-			// address behind, still readable and still re-matchable. Same trap
-			// the eraser hit with the subject's NAME, one column over.
-			subjectEmails, emailErr := collectStrings(ctx, tx,
-				`SELECT lower(email) FROM person_email WHERE person_id = $1`, id)
-			if emailErr != nil {
-				return emailErr
-			}
-			// The NAME too, and before the anonymization below overwrites it —
-			// the ghost sweep matches on it, and by then it is the tombstone.
-			var subjectName string
-			if nameErr := tx.QueryRow(ctx,
-				`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, id).Scan(&subjectName); nameErr != nil {
-				return nameErr
-			}
-			// Same in-place anonymization the eraser uses, minus the
-			// suppression list — the subject may lawfully return.
-			_, err = tx.Exec(ctx, `
-				UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
-				  title = NULL, raw = NULL,
-				  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
-				  address_region = NULL, address_postal_code = NULL, address_country = NULL,
-				  archived_at = coalesce(archived_at, now())
-				WHERE id = $1`, id, erasedName)
-			if err == nil {
-				_, err = tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, id)
-			}
-			if err == nil {
-				_, err = tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, id)
-			}
-			if err == nil {
-				_, err = tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, id)
-			}
-			if err == nil {
-				// The channel identity is a resolution key on the subject as
-				// much as their address: left behind, it would keep binding
-				// inbound messages to the row this sweep just anonymized.
-				_, err = tx.Exec(ctx,
-					`DELETE FROM person_channel_identity WHERE person_id = $1`, id)
-			}
-			if err == nil {
-				_, err = tx.Exec(ctx,
-					`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
-			}
-			// The relationship-graph structures (ADR-0078) hold the subject as
-			// surely as the columns above, and the time-based sweep reaches
-			// them for the same reason the request-driven eraser does: an
-			// anonymized person who is still named on a participant row, still
-			// counted in an interaction edge, or still listed in an imported
-			// address book is not anonymized. This sweep is the path nobody
-			// asks for, which is exactly why it must not be the thinner one.
-			if err == nil {
-				// Delete then null, in that order and for the reason the
-				// eraser documents: a participant row must name somebody, so a
-				// row whose only identity is the subject cannot be blanked,
-				// while one that also names a colleague is not the subject's
-				// to remove.
-				_, err = tx.Exec(ctx, `
-					DELETE FROM activity_participant
-					 WHERE user_id IS NULL
-					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-					id, subjectEmails)
-			}
-			if err == nil {
-				_, err = tx.Exec(ctx, `
-					UPDATE activity_participant SET person_id = NULL, address = NULL
-					 WHERE user_id IS NOT NULL
-					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
-					id, subjectEmails)
-			}
-			if err == nil {
-				_, err = tx.Exec(ctx,
-					`DELETE FROM graph_interaction_edge WHERE person_id = $1`, id)
-			}
-			if err == nil {
-				// The same reach the request-driven eraser uses, including the
-				// name-and-employer arm. Most exported rows carry no address,
-				// so a person-and-email-only sweep leaves the common case
-				// behind — and this is the path nobody asks for, which is
-				// exactly why it must not be the thinner one.
-				_, err = tx.Exec(ctx, `
-					DELETE FROM linkedin_connection g
-					 WHERE g.matched_person_id = $1
-					    OR (g.email IS NOT NULL AND g.email = ANY($2))
-					    OR (g.normalized_company IS NOT NULL
-					        AND g.normalized_name = lower(f_unaccent($3))
-					        AND EXISTS (
-					            SELECT 1 FROM relationship r
-					              JOIN organization o ON o.id = r.organization_id
-					             WHERE r.person_id = $1 AND r.kind = 'employment'
-					               AND r.archived_at IS NULL
-					               AND (r.organization_id = g.matched_org_id
-					                    OR lower(f_unaccent(o.display_name)) = g.normalized_company)))`,
-					id, subjectEmails, subjectName)
-			}
+			err = anonymizePersonRecord(ctx, tx, id)
 		default:
 			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)
 		}
@@ -475,4 +354,87 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		policyID := pol.ID
 		return storekit.EmitEventForEntity(ctx, tx, auditID, pol.ObjectType, id, retentionAppliedPayload(pol.Action, &policyID, nil))
 	})
+}
+
+// eraseActivityContent is the activity/erase action. Transcript free-text is
+// the special-category risk; the record of the meeting stays, its content goes
+// — including any attached recording/transcript file (objects first, so the
+// purge shares the person-erase durability guarantee).
+func (s *RetentionService) eraseActivityContent(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
+		id, erasedActivitySubject)
+	if err == nil {
+		_, err = tx.Exec(ctx,
+			`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
+	}
+	if err == nil {
+		err = s.invalidateGraph(ctx, tx, id)
+	}
+	if err == nil {
+		err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
+	}
+	if err == nil {
+		// An outbound message ages out on the schedule of the activity
+		// it belongs to: the send log holds the same recipients,
+		// subject and body, and a policy that emptied one while the
+		// other kept serving them would age out nothing.
+		err = redactDeliveries(ctx, tx, []ids.UUID{id}, erasedActivitySubject)
+	}
+	return err
+}
+
+// anonymizePersonRecord is the person/anonymize action: the same in-place
+// anonymization the eraser performs, minus the suppression list — the subject
+// may lawfully return.
+func anonymizePersonRecord(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	// The subject's addresses, read BEFORE person_email is deleted
+	// below. The graph structures name them by raw address as well as
+	// by person id — that is what the address arm of a participant row
+	// IS — so a sweep that only matched person_id would leave the
+	// address behind, still readable and still re-matchable. Same trap
+	// the eraser hit with the subject's NAME, one column over.
+	subjectEmails, err := collectStrings(ctx, tx,
+		`SELECT lower(email) FROM person_email WHERE person_id = $1`, id)
+	if err != nil {
+		return err
+	}
+	// The NAME too, and before the anonymization below overwrites it —
+	// the ghost sweep matches on it, and by then it is the tombstone.
+	var subjectName string
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, id).Scan(&subjectName); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE person SET first_name = NULL, last_name = NULL, full_name = $2,
+		  title = NULL, raw = NULL,
+		  address_line1 = NULL, address_line2 = NULL, address_city = NULL,
+		  address_region = NULL, address_postal_code = NULL, address_country = NULL,
+		  archived_at = coalesce(archived_at, now())
+		WHERE id = $1`, id, erasedName)
+	if err == nil {
+		_, err = tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, id)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, id)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, id)
+	}
+	if err == nil {
+		// The channel identity is a resolution key on the subject as
+		// much as their address: left behind, it would keep binding
+		// inbound messages to the row this sweep just anonymized.
+		_, err = tx.Exec(ctx,
+			`DELETE FROM person_channel_identity WHERE person_id = $1`, id)
+	}
+	if err == nil {
+		_, err = tx.Exec(ctx,
+			`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
+	}
+	if err == nil {
+		err = scrubPersonGraphTraces(ctx, tx, id, subjectEmails, subjectName)
+	}
+	return err
 }

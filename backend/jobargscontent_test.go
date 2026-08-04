@@ -26,6 +26,11 @@ package backendarch
 // word list is a poor detector and a fine prompt: it cannot decide whether a
 // field is safe, and it can insist that somebody said so.
 //
+// A declared rationale is a WAIVER — a ratified exception to "an args field is
+// an id" — so the reasons api/jobs.yaml carries are read as one, and held to
+// what gatekit holds every other gate's exceptions to: a reason that states a
+// cost, and an entry that still describes a field needing one.
+//
 // What holds the arms up underneath: gen-jobs refuses a declared field that is
 // neither an id nor an argued-for scalar and refuses an empty mapping, and the
 // census refuses a declaration and a struct that disagree.
@@ -35,6 +40,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // contentWords name a payload rather than a pointer to one, matched as a
@@ -51,6 +57,7 @@ func TestEveryJobArgsFieldIsAnIdOrAnArguedForScalar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the job census: %v", err)
 	}
+	argued := gatekit.Waive(declaredArgsRationales(census))
 
 	kinds := map[string]struct{}{}
 	for _, field := range census.ArgsFields() {
@@ -62,27 +69,46 @@ func TestEveryJobArgsFieldIsAnIdOrAnArguedForScalar(t *testing.T) {
 				name, field.Name)
 			continue
 		}
-		if field.Scalar && field.Reason == "" {
-			t.Errorf("%s is declared a scalar with no rationale — generation refuses that, so the declared table has been hand-edited; regenerate with `make gen`.", name)
-			continue
-		}
-
 		word, suspect := contentWordIn(field.Name)
 		switch {
-		case suspect && field.Reason == "":
-			t.Errorf("%s is declared an id but its name reads like content (it contains %q), and nothing says why. A job names a row and the worker reads it; a copy in the args is a second store of subject data Art. 17 erasure never reaches. Give the field a reason in api/jobs.yaml — `%s: {reason: …}` — or make it carry an id.",
-				name, word, field.Name)
-		case !suspect && !field.Scalar && field.Reason != "":
-			// The mirror of the old gate's stale-waiver rule: a rationale
-			// written for a name the word list no longer flags is prose nobody
-			// is holding to anything.
-			t.Errorf("%s is an id carrying a rationale, but nothing about its name calls for one — that argument is stale; delete it from api/jobs.yaml.", name)
+		case field.Scalar:
+			if !argued.Waived(t, name) {
+				t.Errorf("%s is declared a scalar with no rationale — generation refuses that, so the declared table has been hand-edited; regenerate with `make gen`.", name)
+			}
+		case suspect:
+			if !argued.Waived(t, name) {
+				t.Errorf("%s is declared an id but its name reads like content (it contains %q), and nothing says why. A job names a row and the worker reads it; a copy in the args is a second store of subject data Art. 17 erasure never reaches. Give the field a reason in api/jobs.yaml — `%s: {reason: …}` — or make it carry an id.",
+					name, word, field.Name)
+			}
 		}
 	}
 
 	if len(kinds) < jobArgsFloor {
 		t.Fatalf("inspected the args of only %d job kinds, expected at least %d — the census matched almost nothing and this gate would pass vacuously", len(kinds), jobArgsFloor)
 	}
+	// Staleness is only meaningful once the sweep above actually ran: on the
+	// vacuity Fatal every entry would report as unmatched, burying the one
+	// failure that explains all of them. An entry reported here is a rationale
+	// no arm asks for — an id whose name the word list does not flag — so it is
+	// prose nobody is holding to anything; delete it from api/jobs.yaml.
+	argued.AssertAllMatched(t)
+}
+
+// declaredArgsRationales is every args field the contract argues for, keyed as
+// this gate names a field.
+//
+// It reads the same walk the gate does, so the waiver set and the subjects it
+// is consulted over have exactly one population: a rationale on a kind this
+// build does not register would otherwise report stale on a deployment that
+// merely does not run that kind.
+func declaredArgsRationales(census *compose.JobCensus) map[string]string {
+	rationales := map[string]string{}
+	for _, field := range census.ArgsFields() {
+		if field.Reason != "" {
+			rationales[field.GoType+"."+field.Name] = field.Reason
+		}
+	}
+	return rationales
 }
 
 // contentWordIn reports the first content word a field name contains, and

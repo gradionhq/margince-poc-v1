@@ -49,6 +49,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 )
 
@@ -222,12 +223,13 @@ func TestSubscribableEventTypeEnumMatchesPayloadCatalog(t *testing.T) {
 // probe-reachable. An entry that names a non-dynamic or non-subscribable
 // event is stale and fails below; a dynamic event in neither set is a silent
 // default and also fails.
-var dynamicProbeResolved = map[string]string{
+var dynamicProbeResolved = gatekit.Waive(map[string]string{
 	"consent.changed":   "subject is person XOR lead (consent/store.go stamps sub.entityType) — both hit the row-scope probe branch",
 	"retention.applied": "subject is person/lead/deal/activity for policy-driven sweeps (all row-scope probed); its ownerless ai_call/ai_call_payload/voice_learning_signal telemetry subjects are the deferredDeliveryEntities half",
-}
+})
 
 func TestEverySubscribableEventIsDeliveryResolvable(t *testing.T) {
+	defer dynamicProbeResolved.AssertAllMatched(t)
 	entityByEvent := parseContractEntityTypes(t)
 	c := parseDeliveryClassification(t)
 
@@ -252,7 +254,7 @@ func TestEverySubscribableEventIsDeliveryResolvable(t *testing.T) {
 		}
 		if entity == "dynamic" {
 			_, deferred := c.deferredEvents[ev]
-			_, probed := dynamicProbeResolved[ev]
+			probed := dynamicProbeResolved.Waived(t, ev)
 			switch {
 			case deferred && probed:
 				t.Errorf("dynamic event %q is BOTH event-deferred and probe-resolved — ambiguous classification", ev)
@@ -266,27 +268,12 @@ func TestEverySubscribableEventIsDeliveryResolvable(t *testing.T) {
 		}
 	}
 
-	// No stale dynamicProbeResolved entry: each must name a real dynamic
-	// subscribable event.
+	// No stale deferredDeliveryEvents entry: every deferred event must be a
+	// real dynamic subscribable event (else the waiver is dead).
 	subscribable := map[string]bool{}
 	for _, ev := range subscribableTypes() {
 		subscribable[ev] = true
 	}
-	for ev, rationale := range dynamicProbeResolved {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("dynamicProbeResolved[%q] has no rationale — a ratified classification must say why it is probe-reachable", ev)
-		}
-		if !subscribable[ev] {
-			t.Errorf("dynamicProbeResolved[%q] is not a subscribable event — stale entry, remove it", ev)
-			continue
-		}
-		if entityByEvent[ev] != "dynamic" {
-			t.Errorf("dynamicProbeResolved[%q] is x-entity-type %q, not dynamic — stale entry, remove it", ev, entityByEvent[ev])
-		}
-	}
-
-	// No stale deferredDeliveryEvents entry either: every deferred event must
-	// be a real dynamic subscribable event (else the waiver is dead).
 	for ev := range c.deferredEvents {
 		if !subscribable[ev] {
 			t.Errorf("deferredDeliveryEvents has %q, which is not a subscribable event — stale waiver, remove it from deliveryvisibility.go", ev)

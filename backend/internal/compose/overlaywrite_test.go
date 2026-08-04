@@ -245,6 +245,8 @@ func serverDeclaredMethods(t *testing.T) map[string]bool {
 // overlayEntityTitles is the Go-identifier title-case for each mirrored
 // entity type, spelling the Update<Title>/Archive<Title> shadow method
 // names the same way the contract's own generated operation names do.
+// gatekit:fixture the expected spelling each shadow method name is built from —
+// naming-convention data, not a cost.
 var overlayEntityTitles = map[string]string{
 	string(datasource.EntityPerson):       "Person",
 	string(datasource.EntityOrganization): "Organization",

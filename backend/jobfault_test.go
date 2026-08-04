@@ -19,28 +19,32 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // workerFloor guards against a vacuous pass, as in the role gate.
 const workerFloor = 20
 
 func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
-	// The ratified log-and-return-nil workers, and the durable retry policy
-	// that makes each one's green River row honest. They are DECLARED per kind
+	// The ratified log-and-return-nil workers, each bound to the durable retry
+	// policy that makes its green River row honest. They are DECLARED per kind
 	// in api/jobs.yaml (fault: nil_after_logging) and joined to the receiver
 	// name below through the registration that binds the two — a worker type
 	// serves exactly one args type, because Work's signature names it, so the
 	// join is one-to-one by construction. A worker not waived there must
 	// return its failure.
+	//
+	// The set is derived rather than written, and gatekit then holds it to the
+	// same two obligations as every hand-written one: a reason that states a
+	// cost, and an entry that still describes live code.
 	census, err := compose.NewJobCensus()
 	if err != nil {
 		t.Fatalf("building the job census: %v", err)
 	}
-	nilAfterLogging := census.NilAfterLoggingWaivers()
+	nilAfterLogging := gatekit.Waive(census.NilAfterLoggingWaivers())
 
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
 	workers := 0
-	usedNilWaiver := map[string]bool{}
 	for _, file := range files {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -78,9 +82,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 			// durable retry policy elsewhere makes the success honest.
 			recv := receiverTypeName(fn)
 			if errorLogsAndReturnsNil(fn) {
-				if _, waived := nilAfterLogging[recv]; waived {
-					usedNilWaiver[recv] = true
-				} else {
+				if !nilAfterLogging.Waived(t, recv) {
 					pos := fset.Position(fn.Pos())
 					t.Errorf("%s:%d: %s logs an error and returns nil — River will record this job as completed while the work failed. Return the failure, or ratify it in api/jobs.yaml with fault: {nil_after_logging: …} naming the retry policy that makes success honest.",
 						pos.Filename, pos.Line, recv)
@@ -91,11 +93,12 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	if workers < workerFloor {
 		t.Fatalf("found only %d Work methods, expected at least %d — the walker matched nothing", workers, workerFloor)
 	}
-	for recv := range nilAfterLogging {
-		if !usedNilWaiver[recv] {
-			t.Errorf("%s: stale waiver — it no longer logs-and-returns-nil; drop the fault block from its kind in api/jobs.yaml", recv)
-		}
-	}
+	// Staleness is only meaningful once the sweep above actually ran: on the
+	// vacuity Fatal every entry would report as unmatched, burying the one
+	// failure that explains all of them. An entry reported here names a worker
+	// that no longer logs-and-returns-nil, so its kind's fault block in
+	// api/jobs.yaml is what goes.
+	nilAfterLogging.AssertAllMatched(t)
 }
 
 // errorLogsAndReturnsNil reports whether fn both logs a failure and returns
