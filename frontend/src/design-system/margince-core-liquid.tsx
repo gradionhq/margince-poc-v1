@@ -22,10 +22,12 @@ import { usePrefersReducedMotion } from "./motion";
  *    of time.
  *
  * Performance, all deliberate:
- *  - renders at a fixed 80×80 internal buffer (smoke is soft; the upscale is
- *    invisible) and caps at 24fps — together roughly 8× cheaper than dpr2@60
+ *  - renders into a small internal buffer sized from the DISPLAYED width and
+ *    capped at 160 (see `coreBufferSize`), and caps at 24fps — a hero costs
+ *    roughly a fifth of what the same sphere would at dpr2@60
  *  - freezes on a hidden tab, an unfocused window, or an off-screen canvas,
  *    so an idle orb behind a modal costs nothing
+ *  - one triangle, no MSAA, and no per-frame layout reads
  */
 
 const FRAGMENT_SHADER = `
@@ -72,27 +74,77 @@ void main(){
   float ph=fract(t2*.34), phB=fract(t2*.34+.5);
   float n1=fbm(vec3((q-flow*.40*ph )*2.2, t2*.06));
   float n2=fbm(vec3((q-flow*.40*phB)*2.2, t2*.06+11.3));
-  float n=mix(n1,n2,abs(ph*2.-1.));
+  float w=abs(ph*2.-1.);
+  float n=mix(n1,n2,w);
   float d=exp(-dot(q-c1,q-c1)/.30)
         + .85*exp(-dot(q-c2,q-c2)/.36)
         + .75*exp(-dot(q-c3,q-c3)/.24);
   d*=.7+.9*n;       // smoke texture carves the drifting masses
-  d+=n*.5;          // ambient haze so the glass never looks empty
+  // Ambient haze. HALF of what it was: at .5 it filled the space between the
+  // masses and the sphere read as green mist in a ball. Jade is depth first and
+  // light second, and the voids have to stay dark or nothing reads as deep.
+  d+=n*.26;
   d*=.75+.5*br;     // density breathes with the swell
   d*=.15+.85*smoothstep(1.,.72,r); // thins toward the rim so the shell reads
   float dd=clamp(d,0.,1.6);
   // silky ridge veins where the noise folds back on itself
   float vein=pow(1.-abs(2.*n-1.),3.);
+  /*
+   * The filaments — threads of light caught in the moving liquid. Three things
+   * make them read as strands rather than as decoration, and each is load-bearing:
+   *
+   *  - **Stretched into the flow.** pow(1-|2f-1|,k) traces the field's 0.5 level
+   *    set, and the level set of an isotropic field is a CLOSED CONTOUR: on its
+   *    own this term draws loops, and no exponent turns a loop into a strand.
+   *    Rotating the sample into the flow's frame and compressing one axis is what
+   *    elongates those contours along the current.
+   *  - **Advected on the same two-phase crossfade as the masses**, so they travel
+   *    with the liquid instead of boiling in place.
+   *  - **Gated on the flow's own speed.** Ungated they sit at one brightness
+   *    across the whole sphere, which reads as cracks in the glass rather than as
+   *    structure being carried. Bright in the fast water, faint in the slack.
+   *
+   * One noise per phase, not a whole fbm: a second octave was visibly busier
+   * without being better, and it cost a third again as much.
+   */
+  vec2 fd=normalize(flow+vec2(1e-4,1e-4));
+  mat2 fr=mat2(fd.x,fd.y,-fd.y,fd.x);
+  vec2 sa=fr*(q-flow*.40*ph ); sa.x*=.30;
+  vec2 sb=fr*(q-flow*.40*phB); sb.x*=.30;
+  float f=mix(noise(vec3(sa*6.4, t2*.10)), noise(vec3(sb*6.4, t2*.10+4.2)), w);
+  float fil=pow(1.-abs(2.*f-1.), 8.+7.*n)
+          * smoothstep(.34,1.,dd)
+          * clamp(length(flow)*.42, .18, 1.);
+  // Subsurface: light that entered the stone, scattered, and left again. The
+  // depth z was already in hand for the lens, so this costs nothing new.
+  float sss=pow(z,1.7);
+  float fres=pow(1.-z,3.6);   // the polished edge
   // The three constants are the FALLBACK ramp, used only when the token could
   // not be resolved (uTintMix = 0). With a tint in hand the same ramp is rebuilt
   // around it, so the shading relationships survive a hue swing to amber or red.
   vec3 cMid =mix(vec3(.08,.60,.40), uTint,                      uTintMix);
   vec3 cDeep=mix(vec3(.02,.32,.21), uTint*.42,                  uTintMix);
   vec3 cMint=mix(vec3(.58,.97,.78), mix(uTint,vec3(1.),.62),    uTintMix);
-  vec3 c=mix(cMid,cDeep,smoothstep(.6,1.5,dd));
-  c=mix(c,cMint,vein*.55*smoothstep(.15,.7,dd));
-  c=mix(c,cMint,pow(clamp(n-.5,0.,1.),2.)*1.1*smoothstep(.2,.8,dd));
+  vec3 c=mix(cMid,cDeep,smoothstep(.55,1.45,dd));
+  // The broad vein system, pulled back from .55. It and the filaments are two
+  // ridge systems over the same field: at full strength they overlay into a
+  // scribble and neither is legible.
+  c=mix(c,cMint,vein*.34*smoothstep(.15,.7,dd));
+  c=mix(c,cMint,pow(clamp(n-.5,0.,1.),2.)*.85*smoothstep(.2,.8,dd));
+  // .52, not higher: at full strength the strands go near-white and stop looking
+  // like light in a liquid.
+  c=mix(c,cMint,fil*.52);
+  c+=cMint*sss*.10;
+  // The dark limb. A cabochon of jade is DARKEST just inside its edge, because
+  // that is the longest path light takes through the stone. Without it a sphere
+  // reads as a flat lit disc however good its interior is — this one line does
+  // more for the roundness than everything above it.
+  c*=1.-.20*pow(1.-z,2.2);
+  c=mix(c,cMint,fres*.20);
   float a=(1.-exp(-dd*2.6))*.97;
+  // The rim stays present even where the liquid is thin, so the stone has an
+  // edge instead of fading out into the glass.
+  a=mix(a,1.,fres*.28);
   a*=smoothstep(1.,.985,r);
   gl_FragColor=vec4(c*a,a);
 }`;
@@ -100,9 +152,38 @@ void main(){
 const VERTEX_SHADER =
   "attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}";
 
-/** Internal render resolution. The smoke is soft enough that 80px upscales clean. */
-const RES = 80;
 const FRAME_MS = 1000 / 24;
+
+/** Below this the filaments alias into sparkle rather than reading as threads. */
+const MIN_BUFFER = 96;
+/** Above this nothing new is visible at any size the Core is ever drawn at. */
+const MAX_BUFFER = 160;
+
+/**
+ * The internal buffer for a sphere displayed at `cssPx` across.
+ *
+ * This was a flat 80 for every Core, and that single number was the ceiling on
+ * the interior: at a 172px hero it is a 2.15× upscale, so any thread finer than
+ * about four display pixels dissolved before it reached the screen. The liquid
+ * was not lacking detail, it was lacking somewhere to put it.
+ *
+ * Deriving it from the displayed size is what lets ONE shader serve a 126px
+ * workbench orb and a 230px hero without either paying for the other, and the
+ * clamp at both ends is what keeps that honest — a caller that sizes a Core to
+ * fill a page does not get to buy fragments it cannot show.
+ *
+ * Deliberately NOT multiplied by devicePixelRatio. Matching a 2× display would
+ * cost four times the fragments to sharpen a subject that is blurred glass and
+ * soft smoke; the shell's highlight and rim are CSS and stay crisp on their own.
+ */
+export function coreBufferSize(cssPx: number): number {
+  // Called before first layout, where clientWidth is 0. The hero is the common
+  // case, so bias the guess there; a ResizeObserver corrects it on the next frame.
+  if (!Number.isFinite(cssPx) || cssPx <= 0) {
+    return MAX_BUFFER;
+  }
+  return Math.min(MAX_BUFFER, Math.max(MIN_BUFFER, Math.round(cssPx * 0.9)));
+}
 
 /**
  * How fast the liquid moves per state. `unavailable` is 0 — a server we cannot
@@ -275,7 +356,10 @@ export function CoreLiquid({
 
     const gl = canvas.getContext("webgl", {
       alpha: true,
-      antialias: true,
+      // Off, and not an oversight: the whole frame is ONE triangle covering the
+      // clip volume, so there is no geometry edge for MSAA to smooth. It would
+      // multiply the samples per pixel to antialias nothing.
+      antialias: false,
       premultipliedAlpha: true,
     });
     if (!gl) {
@@ -331,6 +415,19 @@ export function CoreLiquid({
 
     const speed = SPEED[state];
 
+    // The buffer follows the displayed size, so a Core that changes size — a
+    // breakpoint crossing, a layout that re-sizes its column — gets the
+    // resolution it now deserves instead of the one it mounted with. Read here
+    // rather than every frame because `clientWidth` forces layout.
+    let bufferSize = coreBufferSize(canvas.clientWidth);
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width !== undefined) {
+        bufferSize = coreBufferSize(width);
+      }
+    });
+    observer.observe(canvas);
+
     // A non-zero seed: at t=0 all three masses sit on top of each other, and
     // the first frame would be a plain blob.
     let time = 42.7;
@@ -371,10 +468,10 @@ export function CoreLiquid({
       if (!reduced) {
         time += delta * speed;
       }
-      if (canvas.width !== RES) {
-        canvas.width = RES;
-        canvas.height = RES;
-        gl.viewport(0, 0, RES, RES);
+      if (canvas.width !== bufferSize) {
+        canvas.width = bufferSize;
+        canvas.height = bufferSize;
+        gl.viewport(0, 0, bufferSize, bufferSize);
       }
       gl.uniform2f(uRes, canvas.width, canvas.height);
       gl.uniform1f(uT, time);
@@ -386,6 +483,7 @@ export function CoreLiquid({
 
     return () => {
       cancelAnimationFrame(frame);
+      observer.disconnect();
       gl.deleteProgram(program);
       gl.deleteBuffer(buffer);
     };

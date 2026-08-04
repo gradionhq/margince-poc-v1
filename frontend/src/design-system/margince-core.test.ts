@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { coreBufferSize } from "./margince-core-liquid";
 
 // The Core is the product's identity, not a status light. It is ALWAYS the brand
 // green: a sphere that turns amber or red reads as the brand changing character,
@@ -79,6 +80,22 @@ describe("the Core's colour", () => {
     }
   });
 
+  it("keeps the filaments' colour on the same ramp as the body", () => {
+    // The interior's threads are the one part of the liquid bright enough to
+    // carry a hue of their own, so they are the likeliest place for a second
+    // colour to arrive. They must be a mix toward cMint — which is itself built
+    // from uTint — and never a literal.
+    const shader = readFileSync(join(here, "margince-core-liquid.tsx"), "utf8");
+    expect(shader).toMatch(/c=mix\(c,cMint,fil\*[\d.]+\);/);
+    // Three ramp stops, all derived from the tint uniform. If a fourth colour
+    // appears it will not be one of these.
+    for (const stop of ["cMid", "cDeep", "cMint"]) {
+      expect(shader).toMatch(
+        new RegExp(`vec3 ${stop}\\s*=mix\\(.*uTintMix\\)`),
+      );
+    }
+  });
+
   it("still distinguishes the states by rhythm", () => {
     // Colour is gone, so the beat is the whole vocabulary: if these collapsed to
     // one value the Core would stop saying anything at all.
@@ -86,5 +103,38 @@ describe("the Core's colour", () => {
       [...coreCss.matchAll(/--coreBeat:\s*([^;]+);/g)].map((m) => m[1].trim()),
     );
     expect(beats.size).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("the Core's render buffer", () => {
+  it("follows the displayed size, so a big Core gets a real interior", () => {
+    // The whole point of deriving it: a 126px workbench orb and a 172px hero
+    // must not share one resolution, because the fixed 80 they used to share was
+    // the ceiling on how fine the liquid's threads could be.
+    expect(coreBufferSize(126)).toBeLessThan(coreBufferSize(172));
+  });
+
+  it("never asks for more fragments than the sphere can show", () => {
+    // A caller that sizes a Core to fill a page must not buy a 900px buffer for
+    // a subject that is blurred glass.
+    expect(coreBufferSize(2000)).toBe(160);
+    expect(coreBufferSize(400)).toBe(160);
+  });
+
+  it("never drops below the size where filaments hold together", () => {
+    // Under this the ridge band aliases into sparkle: the threads stop reading
+    // as threads and start reading as noise on the glass.
+    expect(coreBufferSize(20)).toBe(96);
+    expect(coreBufferSize(96)).toBe(96);
+  });
+
+  it("survives being asked before the first layout", () => {
+    // `clientWidth` is 0 until the element is laid out, and NaN is what a torn
+    // -down node hands back. Neither may produce a 0×0 canvas — that renders as
+    // nothing, which is indistinguishable from a broken Core.
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(coreBufferSize(bad)).toBeGreaterThanOrEqual(96);
+      expect(coreBufferSize(bad)).toBeLessThanOrEqual(160);
+    }
   });
 });

@@ -195,29 +195,48 @@
   );
   filter: blur(6px);
 }
-/* The specular highlight, and its absence was a primary reason the sphere read
-   flat. In the artifact this comes from `.login-orb::after` — a 92%-white blurred
-   ellipse over the top-left, ABOVE the canvas. The port inherited the group rule
-   that disabled `::before` (the rotating sheen, correctly dropped for cost) and
-   lost the `::after` with it. Without it there is no hard light source and the
-   liquid inside is the only thing lighting the glass. */
+/* The surface lighting, ABOVE the canvas. Without it the liquid inside is the
+   only thing lighting the glass, which is most of why the sphere read flat. */
 .core-glass::after {
   content: "";
   position: absolute;
-  left: 16%;
-  top: 9%;
-  width: 36%;
-  height: 24%;
+  inset: 0;
   z-index: 2;
   border-radius: var(--r-full);
   pointer-events: none;
-  background: radial-gradient(
-    ellipse at center,
-    color-mix(in srgb, var(--overlayLight) 92%, transparent),
-    transparent 70%
-  );
-  filter: blur(1px);
-  transform: rotate(-20deg);
+  /*
+   * THREE lights, not one, and the count is the point. A single soft ellipse is
+   * the highlight of a matte plastic ball; polished stone has a hard specular
+   * kernel sitting inside a broad sheen, and a translucent stone also passes
+   * light out the far side. All three live in one pseudo-element as stacked
+   * gradients, so this is still a single paint and no new box in the tree.
+   *
+   * They stay in CSS rather than moving into the shader on purpose: a hard
+   * highlight rendered into a 96..160px buffer and then upscaled swims and
+   * shimmers as the sphere breathes. Here it is resolution-independent.
+   */
+  background:
+/* the star: small, near-opaque, barely softened — the light source itself */
+    radial-gradient(
+      ellipse 9% 6% at 27% 20%,
+      color-mix(in srgb, var(--overlayLight) 96%, transparent) 0%,
+      transparent 68%
+    ),
+    /* the sheen: broad and soft, offset from the star — the waxy surface */
+    radial-gradient(
+      ellipse 22% 15% at 31% 24%,
+      color-mix(in srgb, var(--overlayLight) 55%, transparent) 0%,
+      transparent 72%
+    ),
+    /* the far side: light that went THROUGH the stone and left again, opposite
+       the source. This is the cue that reads as translucency rather than as a
+       lit opaque ball, and it is why it is tinted and not white. */
+    radial-gradient(
+      ellipse 34% 24% at 68% 78%,
+      color-mix(in srgb, var(--coreLight) 34%, transparent) 0%,
+      transparent 70%
+    );
+  filter: blur(0.5px);
 }
 /* One swell per period, out and back. The stops were 42% / 68% under
    `ease-in-out`, which re-accelerates at every stop: the sphere lurched out,
@@ -297,13 +316,30 @@
   border-radius: var(--r-full);
   pointer-events: none;
   z-index: 0;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--coreLight) 26%, transparent) 0%,
-    color-mix(in srgb, var(--coreLight) 14%, transparent) 30%,
-    color-mix(in srgb, var(--coreLight) 5%, transparent) 55%,
-    transparent 70%
-  );
+  /*
+   * TWO layers: a tight bloom hugging the glass, over the wide falloff that
+   * dissolves into the page. One gradient could only be tight or wide — as one
+   * it read as a flat disc of tint painted behind the sphere. Light leaving a
+   * bright body is brightest right at the body, and the near bloom is what says
+   * the sphere is the source rather than something sitting on a halo.
+   *
+   * Plain alpha over the page, never a blend mode. An additive glow needs a dark
+   * canvas to read as light; on our light surfaces it turns into grey haze.
+   */
+  background:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--coreLight) 30%, transparent) 0%,
+      color-mix(in srgb, var(--coreLight) 20%, transparent) 34%,
+      transparent 45%
+    ),
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--coreLight) 15%, transparent) 0%,
+      color-mix(in srgb, var(--coreLight) 8%, transparent) 42%,
+      color-mix(in srgb, var(--coreLight) 3%, transparent) 60%,
+      transparent 74%
+    );
   animation: core-fed var(--coreBeat) var(--coreEase) infinite;
 }
 /* The halo is light leaving the sphere, so it swells WITH the sphere — on the
