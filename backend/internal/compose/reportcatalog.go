@@ -61,8 +61,18 @@ func describeReportDefaults(spec reportSpec) string {
 		}
 		aggs = append(aggs, rendered)
 	}
-	if len(spec.defaultBy) == 0 && len(aggs) == 0 {
+	// Each half is rendered only if it EXISTS. runAdHocPlan already builds a spec
+	// with default aggregates and no default grouping (report.go), so an `&&`
+	// guard here would ship "count as deals grouped by " to an agent the first
+	// time such a report joined the prebuilt catalog.
+	switch {
+	case len(aggs) > 0 && len(spec.defaultBy) > 0:
+		return strings.Join(aggs, ", ") + " grouped by " + strings.Join(spec.defaultBy, ", ")
+	case len(aggs) > 0:
+		return strings.Join(aggs, ", ") + " over the whole set"
+	case len(spec.defaultBy) > 0:
+		return "grouped by " + strings.Join(spec.defaultBy, ", ")
+	default:
 		return ""
 	}
-	return strings.Join(aggs, ", ") + " grouped by " + strings.Join(spec.defaultBy, ", ")
 }

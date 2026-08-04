@@ -195,6 +195,17 @@ func walk(from *node, path string, all schemas) (*node, error) {
 	return current, nil
 }
 
+// surfaceStamped names the keys the crm.yaml body REQUIRES and the MCP tool
+// supplies itself, so a caller must never be told to send one.
+//
+// `source` is the whole set today: the write tools stamp their own provenance
+// and every provider overwrites whatever arrived. Rendering it as required
+// would make an agent invent a mandatory value that is then discarded — a
+// sentence that is wrong in exactly the way this generator exists to prevent,
+// and the description already carries an advisory saying it is overwritten. Two
+// statements, one of them false, is worse than the name list it replaced.
+var surfaceStamped = map[string]bool{"source": true}
+
 // objectShape renders a request body: `{key: shape, optional?: shape}`, keys
 // sorted so the text is byte-stable and a reshuffle is never mistaken for a
 // contract change by a client that caches tool descriptions.
@@ -205,26 +216,9 @@ func objectShape(schema *node, all schemas) (string, error) {
 	}
 	required := make(map[string]bool, len(resolved.Required))
 	for _, name := range resolved.Required {
-		required[name] = true
+		required[name] = !surfaceStamped[name]
 	}
-	names := make([]string, 0, len(resolved.Properties))
-	for name := range resolved.Properties {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	parts := make([]string, 0, len(names))
-	for _, name := range names {
-		value, err := valueShape(resolved.Properties[name], all, 0)
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", name, err)
-		}
-		key := name
-		if !required[name] {
-			key += "?"
-		}
-		parts = append(parts, key+": "+value)
-	}
-	return "{" + strings.Join(parts, ", ") + "}", nil
+	return renderProperties(resolved, required, all, 0)
 }
 
 // maxShapeDepth stops the render one level inside an array item or a nested
@@ -285,12 +279,19 @@ func valueShape(prop *node, all schemas, depth int) (string, error) {
 
 // nestedShape renders an inline object one level down, marking optional keys the
 // same way the top level does — the pairing of `domain` with `is_primary?` is
-// the whole answer to "what goes in this array".
+// the whole answer to "what goes in this array". A nested key is never
+// surface-stamped: the tools stamp the body, not what is inside its arrays.
 func nestedShape(resolved *node, all schemas, depth int) (string, error) {
 	required := make(map[string]bool, len(resolved.Required))
 	for _, name := range resolved.Required {
 		required[name] = true
 	}
+	return renderProperties(resolved, required, all, depth+1)
+}
+
+// renderProperties is the one renderer both levels use, so the top-level body
+// and an array's item shape cannot come to spell optionality differently.
+func renderProperties(resolved *node, required map[string]bool, all schemas, depth int) (string, error) {
 	names := make([]string, 0, len(resolved.Properties))
 	for name := range resolved.Properties {
 		names = append(names, name)
@@ -298,9 +299,9 @@ func nestedShape(resolved *node, all schemas, depth int) (string, error) {
 	sort.Strings(names)
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
-		value, err := valueShape(resolved.Properties[name], all, depth+1)
+		value, err := valueShape(resolved.Properties[name], all, depth)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%s: %w", name, err)
 		}
 		key := name
 		if !required[name] {

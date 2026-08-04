@@ -467,3 +467,15 @@ func TestNoWritingToolIsAdvertisedAsReadOnly(t *testing.T) {
 		t.Errorf("checked %d of %d known writers — a name here no longer registers, so this pin is stale", saw, len(writers))
 	}
 }
+
+// probeReportCatalog stands in for the engine's catalog wherever a test builds
+// the full registry. It carries a REAL entry rather than nothing, because an
+// empty catalog takes the branch that omits the enum — so a registry built on
+// nil would conformance-check a schema no deployment serves.
+var probeReportCatalog = []ReportCatalogEntry{{
+	Report:     "deals-by-stage",
+	GroupBy:    []string{"pipeline_id", "stage_id", "status"},
+	Filters:    []string{"owner_id", "pipeline_id", "status"},
+	Aggregates: []string{"amount_minor"},
+	Defaults:   "count as deals grouped by stage_id",
+}}

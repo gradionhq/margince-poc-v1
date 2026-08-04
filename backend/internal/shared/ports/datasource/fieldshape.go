@@ -13,8 +13,7 @@ package datasource
 // json.UnmarshalTypeError.Field is always "" and the path survives only in that
 // wrapper's own prose. A transport reading the empty Field as "the whole body
 // was the wrong shape" then tells a caller their object is a string, which is
-// both false and unactionable: a real session read it as a transport bug and
-// filed one.
+// both false and unactionable.
 //
 // So the path is recovered by DECODING, not by matching the wrapper's sentence.
 // A library's prose is a message nobody promised to keep; re-running the decode
@@ -25,7 +24,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -52,13 +50,17 @@ type FieldShapeError struct {
 	// value was not accepted, and Want stays as the standing description of
 	// what the field holds.
 	Got string
-	// Shape sketches the object the field accepts — one ITEM of it when the
+	// shape sketches the object the field accepts — one ITEM of it when the
 	// field is an array, the value itself when the field is an object. Empty
 	// for a scalar field, which Want already describes completely.
-	Shape string
-	// PerItem reports whether Shape describes one element of an array rather
+	//
+	// Unexported with perItem because only Error() reads them: they are how the
+	// sentence is built, not a second way to ask what a field takes. The two a
+	// transport genuinely needs — Field and Got — are the two it is given.
+	shape string
+	// perItem reports whether shape describes one element of an array rather
 	// than the whole value: the difference between "each item is" and "it takes".
-	PerItem bool
+	perItem bool
 	// cause keeps the decoder's original reachable for an operator's log.
 	// Withholding a message is not the same as losing it.
 	cause error
@@ -79,25 +81,18 @@ func (e *FieldShapeError) Error() string {
 	} else {
 		b.WriteString(" but the value sent was not accepted")
 	}
-	if e.Shape != "" {
-		if e.PerItem {
+	if e.shape != "" {
+		if e.perItem {
 			b.WriteString("; each item is ")
 		} else {
 			b.WriteString("; it takes ")
 		}
-		b.WriteString(e.Shape)
+		b.WriteString(e.shape)
 	}
 	return b.String()
 }
 
 func (e *FieldShapeError) Unwrap() error { return e.cause }
-
-// maxShapeSketch bounds the rendered object sketch. The sketch is reflected off
-// OUR types rather than echoed from the caller, so this is not the echo bound —
-// it is a budget split. The whole refusal is bounded again at the transport, and
-// a wide struct's sketch would otherwise consume that budget and cut the field
-// name and the wanted shape off the front, deleting the half a caller acts on.
-const maxShapeSketch = 160
 
 // ProbeDecoder re-runs a decode over one key's worth of a payload.
 //
@@ -112,12 +107,25 @@ const maxShapeSketch = 160
 type ProbeDecoder func(raw json.RawMessage, into any) error
 
 // LocalizeFieldFault names the ONE key whose value the target could not hold, by
-// decoding each key alone into a fresh target and believing the first verdict
-// that reproduces the failure.
+// re-decoding each declared field's value on its own and taking the first, in
+// sorted order, that fails.
+//
+// The first that FAILS ON ITS OWN, not the one the decoder blamed: nothing here
+// compares the two, so a payload with several bad fields may name a different one
+// than encoding/json stopped at. Both are wrong, so either is worth reporting —
+// but a reader building on "the same one" would be building on a guarantee this
+// does not give. It does guarantee the same answer every time for the same
+// payload, which is what a caller fixing one field needs.
+//
+// It also assumes a field's value decodes independently of its siblings, which is
+// what makes a per-field probe mean anything. True of every generated
+// UnmarshalJSON in this contract — they are all the additionalProperties
+// field-by-field shape — and it would stop being true of a discriminated union,
+// where every single-field probe fails and this would blame an arbitrary key.
 //
 // Nil means the refusal is better said by the generic restatement: the payload
 // is not an object at all (where "the payload must be a JSON object" is exactly
-// right), the target is not a struct, or no single key reproduces the failure.
+// right), the target is not a struct, or no declared field fails alone.
 //
 // A SHAPE mismatch (json.UnmarshalTypeError) fills Got and the sentence names
 // both shapes. Any other per-key failure — an unparseable UUID, a key a nested
@@ -157,27 +165,15 @@ func LocalizeFieldFault(raw json.RawMessage, into any, err error, decode ProbeDe
 	if !isObject {
 		return nil
 	}
-	// Sorted because map iteration is not: a payload with two bad fields must
-	// name the same one on every identical request, or the refusal is not
-	// reproducible and a caller fixing it cannot tell progress from churn.
-	for _, key := range slices.Sorted(maps.Keys(keys)) {
-		single, rebuilt := oneKeyPayload(key, keys[key])
-		if !rebuilt {
-			return nil
-		}
-		probe := reflect.New(target).Interface()
-		probeErr := decode(single, probe)
+	for _, key := range declaredFieldKeys(target, keys) {
+		field, _ := fieldByJSONName(target, key)
+		probe := reflect.New(field.Type).Interface()
+		probeErr := decode(keys[key], probe)
 		if probeErr == nil {
 			continue
 		}
-		field, found := fieldByJSONName(target, key)
-		if !found {
-			// A catch-all key: the type accepts it, so the shape it wanted is
-			// not a field's and there is nothing honest to name.
-			continue
-		}
 		want, shape, perItem := wantedShape(field.Type)
-		refusal := &FieldShapeError{Field: key, Want: want, Shape: shape, PerItem: perItem, cause: probeErr}
+		refusal := &FieldShapeError{Field: key, Want: want, shape: shape, perItem: perItem, cause: probeErr}
 		// Got only when it CONTRADICTS Want. A fault inside an item of a
 		// correctly-shaped array reports the array's own shape, and "must be an
 		// array of objects, not an array of objects" is a sentence that tells
@@ -188,6 +184,31 @@ func LocalizeFieldFault(raw json.RawMessage, into any, err error, decode ProbeDe
 		return refusal
 	}
 	return nil
+}
+
+// declaredFieldKeys narrows a payload's keys to the ones the target actually
+// declares, sorted.
+//
+// Narrowing BEFORE the probes is what bounds the work. A payload's key count is
+// the caller's to choose — a type with an additionalProperties catch-all accepts
+// any cf_ key, and the tool surface admits them by design — so probing per KEY
+// lets a refused call cost one decode per key sent, and a refusal is free to
+// repeat. Per declared FIELD it is bounded by the contract instead. Nothing is
+// lost: a key the target does not declare could only be skipped anyway, since
+// the shape it wanted is not a field's and there is nothing honest to name.
+//
+// Sorted because map iteration is not: a payload with two bad fields must name
+// the same one on every identical request, or the refusal is not reproducible
+// and a caller fixing it cannot tell progress from churn.
+func declaredFieldKeys(target reflect.Type, keys map[string]json.RawMessage) []string {
+	declared := make([]string, 0, len(keys))
+	for key := range keys {
+		if _, found := fieldByJSONName(target, key); found {
+			declared = append(declared, key)
+		}
+	}
+	slices.Sort(declared)
+	return declared
 }
 
 // topLevelKeys splits a payload into its top-level keys, reporting whether it
@@ -203,23 +224,11 @@ func topLevelKeys(raw json.RawMessage) (map[string]json.RawMessage, bool) {
 	return keys, keys != nil
 }
 
-// oneKeyPayload rebuilds a single-key object to re-decode, reporting whether it
-// could. Failure means the raw value did not survive a round trip it just came
-// out of, so this walk cannot answer anything about it — the caller falls back
-// to the decoder's own restatement rather than inventing a field name.
-func oneKeyPayload(key string, value json.RawMessage) (json.RawMessage, bool) {
-	single, err := json.Marshal(map[string]json.RawMessage{key: value})
-	if err != nil {
-		return nil, false
-	}
-	return single, true
-}
-
-// StrictProbe is the provider seam's own decoder, exposed so a localization run
-// for StrictDecode uses the decoder that actually failed.
+// strictProbe is the provider seam's own decoder, so a localization run for
+// StrictDecode uses the decoder that actually failed.
 //
 //craft:ignore naked-any mirror of StrictDecode's seam target
-func StrictProbe(single json.RawMessage, probe any) error {
+func strictProbe(single json.RawMessage, probe any) error {
 	dec := json.NewDecoder(bytes.NewReader(single))
 	dec.DisallowUnknownFields()
 	return dec.Decode(probe)
@@ -268,187 +277,4 @@ func fieldByJSONName(t reflect.Type, name string) (reflect.StructField, bool) {
 		}
 	}
 	return reflect.StructField{}, false
-}
-
-// wantedShape names the WIRE shape a Go field accepts, and sketches the object
-// behind it when there is one. It never names the Go type: the type name is the
-// leak.
-func wantedShape(t reflect.Type) (want, shape string, perItem bool) {
-	t = derefType(t)
-	if t == nil {
-		return anyShape, "", false
-	}
-	// The named types come first because their Go representation describes the
-	// program rather than the wire: a UUID is a byte array, a date is a struct,
-	// and a caller sends both as strings.
-	if named, ok := namedShape(t.Name()); ok {
-		return named, "", false
-	}
-	switch t.Kind() {
-	case reflect.Slice, reflect.Array:
-		elem := derefType(t.Elem())
-		if elem != nil && elem.Kind() == reflect.Struct && !isNamedShape(elem.Name()) {
-			return "an array of " + pluralize(objectShape), objectSketch(elem), true
-		}
-		elemWant, _, _ := wantedShape(t.Elem())
-		return "an array of " + pluralize(elemWant), "", false
-	case reflect.Struct:
-		return objectShape, objectSketch(t), false
-	case reflect.Map:
-		return objectShape, "", false
-	default:
-		return scalarShape(t.Kind()), "", false
-	}
-}
-
-// The two shape phrases repeated across this file, named so the array form and
-// the bare form cannot drift apart.
-const (
-	objectShape = "an object"
-	anyShape    = "a value this field accepts"
-)
-
-// namedShape names the WIRE shape of a type whose Go representation is not it.
-func namedShape(name string) (string, bool) {
-	switch name {
-	case "UUID":
-		return "a UUID string", true
-	case "Time":
-		return "an RFC 3339 timestamp", true
-	case "Date":
-		return "a date in YYYY-MM-DD form", true
-	case "Email":
-		return "an email address", true
-	default:
-		return "", false
-	}
-}
-
-func isNamedShape(name string) bool {
-	_, ok := namedShape(name)
-	return ok
-}
-
-// scalarShape names the wire shape of a Go kind, never its width: an int64 and
-// an int8 both take an integer, and a caller told "int64" has been told about
-// this program.
-func scalarShape(kind reflect.Kind) string {
-	switch kind {
-	case reflect.String:
-		return "a string"
-	case reflect.Bool:
-		return "a boolean"
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return "an integer"
-	case reflect.Float32, reflect.Float64:
-		return "a number"
-	default:
-		return anyShape
-	}
-}
-
-// objectSketch renders the keys an object takes, as the caller would type them:
-// `{"domain": string, "is_primary"?: boolean}`. A `?` marks a key the shape does
-// not require — a pointer or an omitempty tag, which is how the generated
-// contract spells optional.
-//
-// It renders ONE level. A nested object stays the word `object` rather than
-// expanding, because a sketch that recurses grows without a bound the reader
-// asked for, and the field this refusal is about is the one at the top.
-func objectSketch(t reflect.Type) string {
-	var parts []string
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		tag := field.Tag.Get("json")
-		wire, opts, _ := strings.Cut(tag, ",")
-		if wire == "" || wire == "-" {
-			continue
-		}
-		key := `"` + wire + `"`
-		if field.Type.Kind() == reflect.Pointer || strings.Contains(opts, "omitempty") {
-			key += "?"
-		}
-		parts = append(parts, key+": "+leafShape(field.Type))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	sketch := "{" + strings.Join(parts, ", ") + "}"
-	if len(sketch) > maxShapeSketch {
-		return sketch[:maxShapeSketch] + "…}"
-	}
-	return sketch
-}
-
-// leafShape is the one-word shape a sketch shows for a key's value. It stops at
-// `object` and `array` rather than descending, which is what keeps objectSketch
-// one level deep.
-func leafShape(t reflect.Type) string {
-	want, _, _ := wantedShape(t)
-	return strings.TrimPrefix(strings.TrimPrefix(want, "an "), "a ")
-}
-
-// sentShape names what the caller actually put on the wire, in the same
-// vocabulary wantedShape uses so the two halves of the sentence compare. An
-// array is described by its FIRST element, because "an array of strings" is what
-// the caller can see they typed — naming only the element that failed to decode
-// reads as though a scalar was sent where an array was.
-func sentShape(raw json.RawMessage) string {
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
-		return "nothing"
-	}
-	switch trimmed[0] {
-	case '{':
-		return "an object"
-	case '[':
-		var items []json.RawMessage
-		if json.Unmarshal(raw, &items) != nil || len(items) == 0 {
-			return "an empty array"
-		}
-		return "an array of " + pluralize(sentShape(items[0]))
-	case '"':
-		return "a string"
-	case 't', 'f':
-		return "a boolean"
-	case 'n':
-		return "null"
-	default:
-		return "a number"
-	}
-}
-
-// pluralize turns one shape phrase into the plural an array of it takes:
-// "a string" becomes "strings". The irregular one is the only one that matters —
-// "true or false" has no plural a sentence can use.
-func pluralize(phrase string) string {
-	bare := strings.TrimPrefix(strings.TrimPrefix(phrase, "an "), "a ")
-	switch bare {
-	case "null":
-		return "nulls"
-	case "true or false", "value this field accepts":
-		return "values"
-	case "date in YYYY-MM-DD form":
-		return "dates"
-	case "RFC 3339 timestamp":
-		return "RFC 3339 timestamps"
-	case "UUID string":
-		return "UUID strings"
-	case "email address":
-		return "email addresses"
-	}
-	if strings.HasSuffix(bare, "s") {
-		return bare
-	}
-	return bare + "s"
-}
-
-// derefType walks a type to the value behind any pointers; contract fields are
-// pointers wherever the schema makes them optional.
-func derefType(t reflect.Type) reflect.Type {
-	for t != nil && t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	return t
 }

@@ -123,7 +123,7 @@ func StrictDecode(raw json.RawMessage, into any) error {
 		// for a generated UnmarshalJSON (see fieldshape.go), and the transport
 		// left with an unnamed shape failure says "the payload must be a JSON
 		// object" about a payload that IS one.
-		if shape := LocalizeFieldFault(raw, into, err, StrictProbe); shape != nil {
+		if shape := LocalizeFieldFault(raw, into, err, strictProbe); shape != nil {
 			return &FieldDecodeError{Cause: shape}
 		}
 		return &FieldDecodeError{Cause: err}

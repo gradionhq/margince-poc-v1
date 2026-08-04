@@ -279,7 +279,7 @@ func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 			name:   "an activity's links sent as an array of ids names the field and the item shape",
 			fields: `{"kind":"email","links":["019fcb8a-1e77-72ad-a2ad-5bc1b335a8f9"]}`,
 			wantDetail: "`links` must be an array of objects, not an array of strings; " +
-				`each item is {"entity_id": UUID string, "entity_type": string}`,
+				`each item is {entity_id: uuid, entity_type: string}`,
 		},
 		{
 			// The same field with the right SHAPE and guessed KEYS: the array
@@ -288,7 +288,7 @@ func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 			name:   "an activity's links with guessed keys says what an item takes",
 			fields: `{"kind":"email","links":[{"organization_id":"019fcb8a-1e77-72ad-a2ad-5bc1b335a8f9"}]}`,
 			wantDetail: "`links` must be an array of objects but the value sent was not accepted; " +
-				`each item is {"entity_id": UUID string, "entity_type": string}`,
+				`each item is {entity_id: uuid, entity_type: string}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -383,7 +383,7 @@ func TestDecode_theReportedOrganizationPatchNamesItsField(t *testing.T) {
 		return Decode(w, r, &req)
 	}
 	const want = "`domains` must be an array of objects, not an array of strings; " +
-		`each item is {"domain": string, "is_primary"?: boolean}`
+		`each item is {domain: string, is_primary?: boolean}`
 
 	status, detail := decodeBody(t, `{"domains":["openrouter.ai"]}`, intoUpdateOrg)
 	if status != http.StatusUnprocessableEntity {

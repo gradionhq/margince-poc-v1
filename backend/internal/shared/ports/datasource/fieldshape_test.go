@@ -76,19 +76,19 @@ func TestStrictDecode_namesTheFieldAndTheShapeItHolds(t *testing.T) {
 			name: "an array of strings where the items are objects",
 			raw:  `{"domains":["openrouter.ai"]}`,
 			want: "`domains` must be an array of objects, not an array of strings; " +
-				`each item is {"domain": string, "is_primary"?: boolean}`,
+				`each item is {domain: string, is_primary?: boolean}`,
 		},
 		{
 			name: "the bad field is found among good ones",
 			raw:  `{"display_name":"OpenRouter","industry":"Software","domains":["openrouter.ai"]}`,
 			want: "`domains` must be an array of objects, not an array of strings; " +
-				`each item is {"domain": string, "is_primary"?: boolean}`,
+				`each item is {domain: string, is_primary?: boolean}`,
 		},
 		{
 			name: "a string where an object belongs sketches the object",
 			raw:  `{"address":"1 Main St"}`,
 			want: "`address` must be an object, not a string; " +
-				`it takes {"line1"?: string, "city"?: string}`,
+				`it takes {line1?: string, city?: string}`,
 		},
 		{
 			name: "a scalar of the wrong type names both types",
@@ -170,7 +170,7 @@ func TestStrictDecode_separatesAWrongShapeFromARefusedValue(t *testing.T) {
 		t.Errorf("Got = %q, want it empty — the array of objects WAS an array of objects", refusal.Got)
 	}
 	want := "`links` must be an array of objects but the value sent was not accepted; " +
-		`each item is {"entity_id": string, "entity_type": string}`
+		`each item is {entity_id: string, entity_type: string}`
 	if refusal.Error() != want {
 		t.Errorf("refusal =\n  %s\nwant\n  %s", refusal.Error(), want)
 	}
@@ -212,7 +212,7 @@ func TestLocalizeFieldFault_defersToAPathTheDecoderKept(t *testing.T) {
 	if !errors.As(err, &typeErr) || typeErr.Field == "" {
 		t.Fatalf("this case is only meaningful while the decoder keeps a path; err = %v", err)
 	}
-	if got := LocalizeFieldFault(raw, &into, err, StrictProbe); got != nil {
+	if got := LocalizeFieldFault(raw, &into, err, strictProbe); got != nil {
 		t.Errorf("localized to %q, want nil — the decoder already knew %q, which is deeper",
 			got.Field, typeErr.Field)
 	}

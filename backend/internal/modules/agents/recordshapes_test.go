@@ -4,12 +4,15 @@
 package agents
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
@@ -156,14 +159,65 @@ func TestRenderedShapesMarkRequiredKeys(t *testing.T) {
 	}
 }
 
-// probeReportCatalog stands in for the engine's catalog wherever a test builds
-// the full registry. It carries a REAL entry rather than nothing, because an
-// empty catalog takes the branch that omits the enum — so a registry built on
-// nil would conformance-check a schema no deployment serves.
-var probeReportCatalog = []ReportCatalogEntry{{
-	Report:     "deals-by-stage",
-	GroupBy:    []string{"pipeline_id", "stage_id", "status"},
-	Filters:    []string{"owner_id", "pipeline_id", "status"},
-	Aggregates: []string{"amount_minor"},
-	Defaults:   "count as deals grouped by stage_id",
-}}
+// A key the TOOL supplies is never rendered as one the caller must send.
+//
+// `source` is required by every create body in crm.yaml and stamped by this
+// surface, which overwrites whatever arrived. Rendering it required would make
+// an agent invent a mandatory value that is discarded — and the description says
+// two sentences later that it is overwritten, so the pair would contradict
+// itself. Derived from the same list the generator uses, so a second stamped key
+// inherits the check.
+func TestRenderedShapesNeverRequireAKeyThisSurfaceStamps(t *testing.T) {
+	for recordType, rendered := range createRecordShapes {
+		if !strings.Contains(rendered, "source?: string") {
+			t.Errorf("%s renders `source` as a key the caller must send:\n%s", recordType, rendered)
+		}
+	}
+}
+
+// The refusal's item sketch and the description's item shape are read about the
+// SAME field minutes apart, so they are spelled identically — bare keys, `?` for
+// optional, and the generator's leaf words. Two notations read as two shapes.
+//
+// datasource cannot import this table (shared is stdlib-only), so the agreement
+// cannot be a shared constant; it is pinned here instead of assumed.
+func TestRenderedShapesUseTheSameNotationAsADecodeRefusal(t *testing.T) {
+	var org crmcontracts.UpdateOrganizationRequest
+	err := datasource.StrictDecode(json.RawMessage(`{"domains":["x"]}`), &org)
+	if err == nil {
+		t.Fatal("an array of strings was accepted")
+	}
+	var refusal *datasource.FieldShapeError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("err = %v, want a FieldShapeError", err)
+	}
+	const itemShape = "{domain: string, is_primary?: boolean}"
+	if !strings.Contains(refusal.Error(), itemShape) {
+		t.Errorf("the refusal spells the item shape differently:\n%s", refusal.Error())
+	}
+	if !strings.Contains(updateRecordShapes["organization"], itemShape) {
+		t.Errorf("the description spells the item shape differently:\n%s", updateRecordShapes["organization"])
+	}
+}
+
+// The localizer defers to encoding/json's own path only when that path is
+// NESTED, and tells them apart by the "." the decoder joins its field stack
+// with. That premise is about crm.yaml, which is edited elsewhere, and it would
+// fail silently — so it is a gate rather than a comment.
+func TestNoContractFieldNameContainsTheDecodersPathSeparator(t *testing.T) {
+	checked := 0
+	for _, shapes := range []map[datasource.EntityType]reflect.Type{createShapes, updateShapes} {
+		for recordType, shape := range shapes {
+			for _, name := range contractFieldNames(shape) {
+				checked++
+				if strings.Contains(name, ".") {
+					t.Errorf("%s field %q contains the decoder's path separator, so a top-level "+
+						"failure on it would be mistaken for a nested one", recordType, name)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no field names were read — this walk passed vacuously")
+	}
+}
