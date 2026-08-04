@@ -133,7 +133,12 @@ type modelCostRefresh struct {
 	fetcher pageFetcher
 	brain   completer
 	sources []pricingSource
-	log     *slog.Logger
+	// bound maps a provider to the model ids this deployment's routing binds on
+	// it. A structured catalog is narrowed to that provider's own bindings —
+	// nil (nothing wired) keeps every model, which is what a deployment with no
+	// routing had before.
+	bound map[string]map[string]bool
+	log   *slog.Logger
 }
 
 func (m modelCostRefresh) run(ctx context.Context) error {
@@ -202,6 +207,45 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 	return nil
 }
 
+// reduceCatalog narrows a provider's JSON catalog to the models this deployment
+// binds on THAT provider, one passage each.
+//
+// Every refusal here names the file the operator has to change, because each
+// failure has a different cause and a different fix: a key that disagrees with
+// the routing, a catalog with nothing in it, and a binding the vendor no longer
+// lists all look identical downstream — a reply truncated past the output
+// ceiling — and that error points nowhere near any of them.
+func (m modelCostRefresh) reduceCatalog(body string, src pricingSource) (string, error) {
+	wanted, bindsProvider := m.bound[src.Provider]
+	// rates.model_pricing keys and ai-routing.yaml provider names are two
+	// operator-edited files coupled by exact string equality.
+	if !bindsProvider && len(m.bound) > 0 {
+		return "", fmt.Errorf(
+			"extract: rates.model_pricing names provider %q, which ai-routing.yaml does not bind (it binds %s) — the two must use the same spelling",
+			src.Provider, strings.Join(boundProviderNames(m.bound), ", "))
+	}
+	reduced, kept, ok := catalogPassages(body, wanted)
+	switch {
+	case !ok:
+		return "", errors.New("extract: the source served JSON that is not a model catalog")
+	case kept == 0 && len(wanted) == 0:
+		return "", fmt.Errorf("extract: %s served a catalog with no models in it", src.Provider)
+	case kept == 0:
+		// These ids came from the routing file precisely BECAUSE this
+		// deployment calls them, so a vendor rename would otherwise leave
+		// their prices silently stale forever.
+		return "", fmt.Errorf(
+			"extract: none of the %d model(s) bound on %s appears in its catalog — check the ids in ai-routing.yaml against the vendor's own spelling",
+			len(wanted), src.Provider)
+	case kept < len(wanted):
+		m.log.Warn("model-cost refresh: some bound models are absent from the catalog",
+			"provider", src.Provider, "bound", len(wanted), "found", kept)
+	}
+	m.log.Debug("model pricing source served a catalog",
+		"provider", src.Provider, "models", kept, "bytes_before", len(body), "bytes_after", len(reduced))
+	return reduced, nil
+}
+
 // extract fetches one pricing page and returns the evidence-gated models.
 func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]extractedModel, error) {
 	doc, err := m.fetcher.Fetch(ctx, src.URL)
@@ -211,7 +255,15 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	if doc.IsMarkdown() {
 		m.log.Debug("model pricing page served markdown", "provider", src.Provider, "url", src.URL)
 	}
-	resp, err := m.brain.Complete(ctx, rateExtractRequest(doc.Text))
+	pageText := doc.Text
+	if doc.IsJSON() {
+		reduced, err := m.reduceCatalog(doc.Text, src)
+		if err != nil {
+			return nil, err
+		}
+		pageText = reduced
+	}
+	resp, err := m.brain.Complete(ctx, rateExtractRequest(pageText))
 	if err != nil {
 		return nil, fmt.Errorf("extract: %w", err)
 	}
@@ -340,6 +392,22 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 	return microBuckets{in, out, cr, cw}, true
 }
 
+// CountPassages reports how many passages numberPassages would emit for text.
+//
+// The rule is stated ONCE, here, beside the numbering it has to agree with: the
+// probe reports a passage count in two places, and a second copy of "non-empty
+// lines" would drift from the production rule the moment either changed.
+// TestCountPassagesAgreesWithTheNumbering holds the two together.
+func CountPassages(text string) int {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
+}
+
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)
 // — the format the aicert corpus grounds against, so the model can cite an id.
 // The page text is numbered, not edited: the caller wraps it in a nonce
@@ -373,13 +441,14 @@ func (w *aiModelRateRefreshWorker) Work(ctx context.Context, job *river.Job[AiMo
 	return jobs.FaultContext(ctx, w.refresh.run(rateRefreshWorkerCtx(ctx, job.Args.Workspace, job.Args.RequestedBy)))
 }
 
-func newModelCostRefreshWorker(pool *pgxpool.Pool, brain completer, sources []pricingSource, log *slog.Logger) *aiModelRateRefreshWorker {
+func newModelCostRefreshWorker(pool *pgxpool.Pool, brain completer, sources []pricingSource, bound map[string]map[string]bool, log *slog.Logger) *aiModelRateRefreshWorker {
 	return &aiModelRateRefreshWorker{refresh: modelCostRefresh{
 		rates:   ai.NewRateStore(pool),
 		svc:     approvals.NewService(pool),
 		fetcher: webread.New(),
 		brain:   brain,
 		sources: sources,
+		bound:   bound,
 		log:     log,
 	}}
 }

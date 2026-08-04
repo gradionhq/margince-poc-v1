@@ -277,3 +277,12 @@ and cost are the run's totals.
 - Records are committed artifacts — the certification proof travels with the
   code. Re-running refreshes latency/token numbers (network noise); the verdict
   is the durable signal.
+
+## When certification passes but the field does not
+
+A record measures a model against the CORPUS fixture. A site can be certified at
+reliability 1.00 and still fail on the input production actually hands it — the
+model-cost refresh did exactly that against a 530 KB provider catalog while
+`rate_extract/pricing` was certified on a two-line fixture. To run a site against
+real input through the same code, use
+[debug an AI task](debug-an-ai-task.md) (`make ai-probe`).
