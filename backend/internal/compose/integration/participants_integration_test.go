@@ -49,7 +49,7 @@ func stampParties(t *testing.T, e *Env, activity ids.ActivityID, trusted bool, p
 }
 
 // participantRow reads back one stamped party.
-func participantRow(t *testing.T, e *Env, activity ids.ActivityID, address string) (userID, personID *ids.UUID, found bool) {
+func participantRow(t *testing.T, activity ids.ActivityID, address string) (userID, personID *ids.UUID, found bool) {
 	t.Helper()
 	err := OwnerConn(t).QueryRow(context.Background(), `
 		SELECT user_id, person_id FROM activity_participant
@@ -81,7 +81,7 @@ func TestAnUntrustedHeaderNeverBindsAColleaguesUserID(t *testing.T) {
 	stampParties(t, e, activity, false,
 		connector.MessageParticipant{Email: colleagueEmail, Role: connector.ParticipantRoleCC})
 
-	userID, _, found := participantRow(t, e, activity, colleagueEmail)
+	userID, _, found := participantRow(t, activity, colleagueEmail)
 	if !found {
 		t.Fatal("the copied address was dropped entirely; an unresolved party is still a fact about the conversation")
 	}
@@ -106,7 +106,7 @@ func TestAnAttestedHeaderBindsTheColleague(t *testing.T) {
 	stampParties(t, e, activity, true,
 		connector.MessageParticipant{Email: colleagueEmail, Role: connector.ParticipantRoleCC})
 
-	userID, _, found := participantRow(t, e, activity, colleagueEmail)
+	userID, _, found := participantRow(t, activity, colleagueEmail)
 	if !found {
 		t.Fatal("the copied colleague was not recorded at all")
 	}
@@ -128,7 +128,7 @@ func TestAKnownContactResolvesFromAnUntrustedHeaderToo(t *testing.T) {
 	stampParties(t, e, activity, false,
 		connector.MessageParticipant{Email: "sam@target.example", Role: connector.ParticipantRoleCC})
 
-	_, personID, found := participantRow(t, e, activity, "sam@target.example")
+	_, personID, found := participantRow(t, activity, "sam@target.example")
 	if !found {
 		t.Fatal("the copied contact was not recorded")
 	}
