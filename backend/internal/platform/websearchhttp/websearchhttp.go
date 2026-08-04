@@ -34,6 +34,9 @@ import (
 // extra result is a paid unit that nobody reads.
 const defaultMaxResults = 5
 
+// braveEndpoint is the provider's web-search API.
+const braveEndpoint = "https://api.search.brave.com/res/v1/web/search"
+
 // requestTimeout bounds one provider call. A search that hangs must not hold
 // a background pass open behind it.
 const requestTimeout = 10 * time.Second
@@ -62,15 +65,20 @@ type Brave struct {
 	key    string
 	client *http.Client
 	now    func() time.Time
+	// endpoint is the API base. A field rather than a constant so a test can
+	// point it at a local stub — the alternative is a test that either calls
+	// the real provider or proves nothing about the request this builds.
+	endpoint string
 }
 
 // NewBrave binds the adapter to a key. now is injected so a test can pin the
 // read date a stored claim will age against.
 func NewBrave(key string, now func() time.Time) *Brave {
 	return &Brave{
-		key:    key,
-		client: &http.Client{Timeout: requestTimeout},
-		now:    now,
+		key:      key,
+		client:   &http.Client{Timeout: requestTimeout},
+		now:      now,
+		endpoint: braveEndpoint,
 	}
 }
 
@@ -104,7 +112,7 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 		limit = defaultMaxResults
 	}
 
-	endpoint := "https://api.search.brave.com/res/v1/web/search?" + url.Values{
+	endpoint := b.endpoint + "?" + url.Values{
 		"q":     {terms},
 		"count": {strconv.Itoa(limit)},
 	}.Encode()
