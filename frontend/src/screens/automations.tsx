@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -11,12 +12,7 @@ import {
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 import { AutomationInspectors } from "./automationdetail";
-import {
-  canConfigureAutomations,
-  problemMessage,
-  QueryGate,
-  useMe,
-} from "./common";
+import { problemMessage, QueryGate, useMe } from "./common";
 
 // The automations editor (B-EP09.15): a management UI over the CLOSED
 // catalog (E15/ADR-0035). The anti-DSL invariant of features/10 §1 holds by
@@ -188,21 +184,77 @@ function AutomationForm({
 
 // One instance row, rendered from the Automation wire schema alone — no
 // origin field exists on the wire, so authorship cannot change the render.
-// canConfigure gates the mutation affordances (pause/edit/delete): the seeded
-// policies make automation config admin/ops-owned, so other roles get the
-// honest read-only row instead of buttons that can only 403.
+// The two inspector toggles, lifted out of the row so the row stays under the
+// cognitive-complexity gate. They travel together: both are reads of the same
+// automation, admitted by the same grant.
+function InspectorToggles({
+  runsOpen,
+  previewOpen,
+  onToggleRuns,
+  onTogglePreview,
+}: Readonly<{
+  runsOpen: boolean;
+  previewOpen: boolean;
+  onToggleRuns: () => void;
+  onTogglePreview: () => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <Button
+        small
+        variant={runsOpen ? "primary" : "ghost"}
+        aria-expanded={runsOpen}
+        onClick={onToggleRuns}
+      >
+        {t("auto.runs.open")}
+      </Button>
+      <Button
+        small
+        variant={previewOpen ? "primary" : "ghost"}
+        aria-expanded={previewOpen}
+        onClick={onTogglePreview}
+      >
+        {t("auto.preview.open")}
+      </Button>
+    </>
+  );
+}
+
+// Four affordances over three grants. The runs and preview inspectors are
+// READS — automations_runs.go gates on automation:read — so they are not hidden
+// behind the write grant the old role proxy happened to imply.
+//
+// Preview carries one gate this cannot anticipate: after resolving the instance
+// through Get, it also demands read on the TARGET TABLE the recipe names, which
+// varies per automation and is not something the /me snapshot describes. A
+// reader without that table can still open the panel and be refused; the panel
+// reports it. Predicting it here would mean encoding the catalog's table
+// mapping in the client, which is the kind of server knowledge this change
+// exists to stop duplicating.
 export function AutomationRow({
   automation,
   entry,
-  canConfigure,
+  canViewRuns,
+  canEdit,
+  canDelete,
 }: Readonly<{
   automation: Automation;
   entry?: CatalogEntry;
-  canConfigure: boolean;
+  canViewRuns: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  // An open edit form whose grant was revoked would keep offering Save, and
+  // every submission would be a guaranteed 403. Close it with the permission.
+  useEffect(() => {
+    if (!canEdit) {
+      setEditing(false);
+    }
+  }, [canEdit]);
   // Two independent panels (run history + dry-run preview): each mounts lazily
   // only while open, and opening one never closes the other.
   const [runsOpen, setRunsOpen] = useState(false);
@@ -284,7 +336,7 @@ export function AutomationRow({
             .join(" ")}
         </span>
         <span style={{ flexGrow: 1 }} />
-        {canConfigure && (
+        {canEdit && (
           <>
             <Button
               small
@@ -300,38 +352,32 @@ export function AutomationRow({
                 {t("trust.edit")}
               </Button>
             )}
-            <Button
-              small
-              variant={runsOpen ? "primary" : "ghost"}
-              aria-expanded={runsOpen}
-              onClick={() => setRunsOpen((open) => !open)}
-            >
-              {t("auto.runs.open")}
-            </Button>
-            <Button
-              small
-              variant={previewOpen ? "primary" : "ghost"}
-              aria-expanded={previewOpen}
-              onClick={() => setPreviewOpen((open) => !open)}
-            >
-              {t("auto.preview.open")}
-            </Button>
-            <Button
-              small
-              variant="danger"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              {t("auto.delete")}
-            </Button>
           </>
+        )}
+        {canViewRuns && (
+          <InspectorToggles
+            runsOpen={runsOpen}
+            previewOpen={previewOpen}
+            onToggleRuns={() => setRunsOpen((open) => !open)}
+            onTogglePreview={() => setPreviewOpen((open) => !open)}
+          />
+        )}
+        {canDelete && (
+          <Button
+            small
+            variant="danger"
+            disabled={remove.isPending}
+            onClick={() => remove.mutate()}
+          >
+            {t("auto.delete")}
+          </Button>
         )}
       </div>
       <AutomationInspectors
         automationId={automation.id}
         runsOpen={runsOpen}
         previewOpen={previewOpen}
-        canConfigure={canConfigure}
+        canConfigure={canViewRuns}
       />
       {editing && entry && (
         <AutomationForm
@@ -360,10 +406,20 @@ export function AutomationsScreen() {
   const t = useT();
   const queryClient = useQueryClient();
   const [template, setTemplate] = useState<CatalogEntry | null>(null);
-  // Roles come from the session (/v1/me); until they arrive the screen shows
-  // no mutation affordances — buttons appear when the grant is confirmed.
+  // Grants come from the session (/v1/me); until they arrive every predicate
+  // is false, so the screen shows no mutation affordance until one is confirmed.
   const me = useMe();
-  const canConfigure = canConfigureAutomations(me.data?.roles);
+  const canViewRuns = useCan("automation", "read");
+  const canCreate = useCanWrite("automation", "create");
+  const canEdit = useCanWrite("automation", "update");
+  const canDelete = useCanWrite("automation", "delete");
+  // The create form is staged in `template`; it must not survive the grant that
+  // opened it, or Create becomes a button that can only 403.
+  useEffect(() => {
+    if (!canCreate) {
+      setTemplate(null);
+    }
+  }, [canCreate]);
 
   const catalog = useQuery({
     queryKey: ["automation-catalog"],
@@ -415,7 +471,7 @@ export function AutomationsScreen() {
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
-      {me.isSuccess && !canConfigure && (
+      {me.isSuccess && !canCreate && !canEdit && !canDelete && (
         <p className="t-caption" style={{ marginBottom: 10 }}>
           {t("auto.readOnly")}
         </p>
@@ -451,7 +507,7 @@ export function AutomationsScreen() {
                         />
                       )}
                       <strong>{entry.name}</strong>
-                      {canConfigure && (
+                      {canCreate && (
                         <Button small onClick={() => setTemplate(entry)}>
                           {t("auto.use")}
                         </Button>
@@ -507,7 +563,9 @@ export function AutomationsScreen() {
                     key={automation.id}
                     automation={automation}
                     entry={entryFor(automation.key)}
-                    canConfigure={canConfigure}
+                    canViewRuns={canViewRuns}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
                   />
                 ))}
               </ul>

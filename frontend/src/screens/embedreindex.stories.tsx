@@ -3,6 +3,7 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
+import { meFixture } from "../app/mefixture";
 import { EmbedReindexCard } from "./embedreindex";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
@@ -48,8 +49,7 @@ const PREVIEW = {
 function admin(overrides: Record<string, unknown> = {}) {
   return () =>
     jsonResponse({
-      user: { id: "u1", email: "admin@example.test", display_name: "Admin" },
-      roles: ["admin"],
+      ...meFixture({ allow: { embedding_reindex: ["read", "update"] } }),
       ...overrides,
     });
 }
@@ -127,8 +127,7 @@ export const HiddenForNonOpsRole: Story = {
     installFetchStub({
       "GET /me": () =>
         jsonResponse({
-          user: { id: "u2", email: "rep@example.test", display_name: "Rep" },
-          roles: ["rep"],
+          ...meFixture({ roles: ["rep"] }),
         }),
       "GET /embeddings/reindex/status": () => jsonResponse(STATUS_NEEDED),
     });

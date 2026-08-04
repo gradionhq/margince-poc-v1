@@ -24,6 +24,7 @@ import { type ReactNode, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { dotTier } from "../app/autonomy";
+import { useCan, useCanWrite } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import {
@@ -51,7 +52,6 @@ import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
-  canConfigureAutomations,
   LoadMoreButton,
   problemMessage,
   QueryGate,
@@ -202,17 +202,31 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   const t = useT();
   const me = useMe();
   const capabilities = useCompanyContextCapabilities();
-  // Org config is admin/ops-owned (same predicate the write affordances use);
-  // a rep/manager never sees the Organization group. The server re-checks.
-  const isOrgAdmin = canConfigureAutomations(me.data?.roles);
+  // Deliberately a ROLE check, and the one place in this screen that stays one.
+  //
+  // The group spans surfaces with no RBAC object at all — the audit log, user
+  // administration, data reset and job health, which the server guards with
+  // RequireAdmin — alongside ones that do have clean grants. No single
+  // (object, action) pair describes the group.
+  //
+  // The honest cost: a principal granted, say, pipeline writes by an edited
+  // role still cannot NAVIGATE to the Catalog tab, even though the card inside
+  // would now offer them the controls. Per-tab capability gating is the fix,
+  // but it changes what every role sees in the nav — pipeline:read is held by
+  // everyone, so Catalog would appear for reps — and that is a product
+  // decision, not part of rebinding write affordances. Tracked separately.
+  const isOrgAdmin = (me.data?.roles ?? []).some(
+    (role) => role === "admin" || role === "ops",
+  );
   const tabs = SETTINGS_TABS.filter((entry) => {
     // Overlay is exempt for the same reason, plus one of its own: the
     // system-of-record chip in the topbar is deliberately shown to EVERY
     // seat and points here, so hiding the tab would strand any non-admin
     // who follows it on the Account fallback. Hiding buys no security
     // either — the server 403s the privileged reads regardless, and both
-    // cards on the tab already gate themselves on canManageOverlay, so a
-    // rep gets the honest read-only view instead of a dead link.
+    // cards on the tab already gate themselves on the overlay_connection
+    // grants, so a viewer without them gets the honest read-only view
+    // instead of a dead link.
     if (entry.id === "overlay") {
       return true;
     }
@@ -268,14 +282,13 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
 }
 
 // The AI & autonomy tab. AiUsageCard (GET /ai/usage) and AiCallsCard
-// (GET /ai/calls) require the automation Update grant server-side, so they
-// are rendered only for admin/ops — a rep/manager would otherwise hit a
-// 403 error box on a tab they can otherwise use. This mirrors the
-// EconomyBanner's canConfigureAutomations guard on the same /ai/usage seam;
-// the server stays the RBAC authority regardless.
+// (GET /ai/calls) are reads the server gates on automation:update — the AI
+// runtime's spend is treated as operator information, so seeing it takes the
+// automation write grant and not any AI-named object. Binding these to
+// something more intuitive would 403 the cards for exactly the roles meant to
+// read them. EconomyBanner gates the same seam the same way.
 function AiSettingsTab() {
-  const me = useMe();
-  const canSeeRuntime = canConfigureAutomations(me.data?.roles);
+  const canSeeRuntime = useCan("automation", "update");
   return (
     <>
       {canSeeRuntime && <AiUsageCard />}
@@ -980,11 +993,11 @@ function StageCreate({ pipelineId }: Readonly<{ pipelineId: string }>) {
 
 function StageRow({
   stage,
-  canConfig,
+  canEdit,
   t,
 }: Readonly<{
   stage: Stage;
-  canConfig: boolean;
+  canEdit: boolean;
   t: ReturnType<typeof useT>;
 }>) {
   return (
@@ -1001,7 +1014,7 @@ function StageRow({
         {stageSemanticLabel(stage.semantic, t)}
       </Badge>
       <span className="t-mono t-small">{stage.win_probability}%</span>
-      {canConfig && (
+      {canEdit && (
         <EditAction
           label={t("stage.edit")}
           invalidate="pipelines"
@@ -1032,11 +1045,11 @@ function StageRow({
 
 function PipelineRow({
   pipeline,
-  canConfig,
+  canEdit,
   t,
 }: Readonly<{
   pipeline: Pipeline;
-  canConfig: boolean;
+  canEdit: boolean;
   t: ReturnType<typeof useT>;
 }>) {
   const stages = [...(pipeline.stages ?? [])].sort(
@@ -1058,7 +1071,7 @@ function PipelineRow({
             ? t("pipeline.default")
             : t("pipeline.notDefault")}
         </Badge>
-        {canConfig && (
+        {canEdit && (
           <>
             <EditAction
               label={t("pipeline.edit")}
@@ -1096,7 +1109,7 @@ function PipelineRow({
         }}
       >
         {stages.map((stage) => (
-          <StageRow key={stage.id} stage={stage} canConfig={canConfig} t={t} />
+          <StageRow key={stage.id} stage={stage} canEdit={canEdit} t={t} />
         ))}
       </ul>
     </div>
@@ -1107,12 +1120,16 @@ function PipelineRow({
 // key the deals screen's plural selector uses (an array shape, distinct
 // from DealScreen's single-pipeline ["pipelines"] cache entry) — any
 // mutation here invalidates the ["pipelines"] prefix, so both shapes stay
-// fresh. Write affordances are gated on canConfigureAutomations; the list
-// itself is read-only for everyone (the server stays the RBAC authority).
+// fresh. The list itself is readable by everyone; only the write affordances
+// are gated, and the server stays the RBAC authority.
 export function PipelinesCard() {
   const t = useT();
-  const me = useMe();
-  const canConfig = canConfigureAutomations(me.data?.roles);
+  // Adding a pipeline is pipeline:create. Everything else here — renaming a
+  // pipeline, adding a stage, editing one, reordering — is pipeline:update,
+  // including the stage CREATE affordance: a stage is not its own RBAC object,
+  // so adding one is an update to the pipeline that owns it.
+  const canCreate = useCanWrite("pipeline", "create");
+  const canEdit = useCanWrite("pipeline", "update");
   const query = useQuery({
     queryKey: ["pipelines", "all"],
     queryFn: async () => {
@@ -1131,7 +1148,7 @@ export function PipelinesCard() {
         title={t("settings.pipelines")}
         sub={t("settings.pipelinesSub")}
       />
-      {canConfig && (
+      {canCreate && (
         <div style={{ marginBottom: 10 }}>
           <CreateAction
             label={t("pipeline.new")}
@@ -1157,7 +1174,7 @@ export function PipelinesCard() {
               <PipelineRow
                 key={pipeline.id}
                 pipeline={pipeline}
-                canConfig={canConfig}
+                canEdit={canEdit}
                 t={t}
               />
             ))}
