@@ -118,7 +118,8 @@ func awaitKindsCompleted(ctx context.Context, t *testing.T, completed <-chan *ri
 // dispatchGapBound is what separates "scheduled on the configured interval"
 // from "scheduled on some larger constant": three times the interval, which
 // leaves a correct schedule ample slack while excluding every constant actually
-// in reach — dispatchScanInterval, and the tens-of-seconds defaults these flags
+// in reach — the gmail_sync dispatcher's declared 30s scan, and the
+// tens-of-seconds defaults these flags
 // carry, which are the likeliest miswiring of all. The bound is on the GAP
 // between two dispatches rather than on the whole run, because a deadline on the
 // run would also pass for any constant smaller than the deadline.

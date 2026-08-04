@@ -54,9 +54,13 @@ type governedRegistration struct {
 	supplied ast.Expr
 }
 
-// parseComposeSources parses this package's own hand-written files. The test
-// binary runs with the package directory as its working directory, so the
-// sources under gate are the ones beside this file.
+// parseComposeSources parses this package's own hand-written PRODUCT files.
+// The test binary runs with the package directory as its working directory, so
+// the sources under gate are the ones beside this file.
+//
+// Test sources are excluded along with generated ones, and for the same
+// reason: a gate here asks what the runner wires, and a fixture that registers
+// a probe kind or schedules a pass to assert on it is not that.
 func parseComposeSources(t *testing.T) []*ast.File {
 	t.Helper()
 	paths, err := filepath.Glob("*.go")
@@ -66,7 +70,7 @@ func parseComposeSources(t *testing.T) []*ast.File {
 	fset := token.NewFileSet()
 	files := make([]*ast.File, 0, len(paths))
 	for _, path := range paths {
-		if strings.HasSuffix(path, "_gen.go") {
+		if strings.HasSuffix(path, "_gen.go") || strings.HasSuffix(path, "_test.go") {
 			continue
 		}
 		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)

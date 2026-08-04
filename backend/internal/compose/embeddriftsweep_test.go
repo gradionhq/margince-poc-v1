@@ -23,20 +23,20 @@ func (e staticIdentityEmbedder) EmbedIdentity() (string, int) { return e.identit
 
 func TestAddEmbedDriftSweepJobRequiresABoundEmbedLane(t *testing.T) {
 	// No embedder at all: a role with no model path has no store to heal.
-	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, nil, nil); jobs != nil {
+	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, JobRunnerConfig{}, nil); jobs != nil {
 		t.Fatalf("nil embedder registered %d periodic jobs, want none", len(jobs))
 	}
 	// An embedder whose identity is empty (--ai-fake, or a routing config
 	// with no embeddings binding) seeds no marker either — same posture as
 	// WithEmbedReindex.
-	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, staticIdentityEmbedder{identity: ""}, nil); jobs != nil {
+	if jobs := addEmbedDriftSweepJob(newJobRegistry(), nil, JobRunnerConfig{Embedder: staticIdentityEmbedder{identity: ""}}, nil); jobs != nil {
 		t.Fatalf("empty-identity embedder registered %d periodic jobs, want none", len(jobs))
 	}
 }
 
 func TestAddEmbedDriftSweepJobRegistersWorkerAndTick(t *testing.T) {
 	reg := newJobRegistry()
-	jobs := addEmbedDriftSweepJob(reg, nil, staticIdentityEmbedder{identity: "fake/model@1024"}, nil)
+	jobs := addEmbedDriftSweepJob(reg, nil, JobRunnerConfig{Embedder: staticIdentityEmbedder{identity: "fake/model@1024"}}, nil)
 	if len(jobs) != 1 {
 		t.Fatalf("bound embed lane registered %d periodic jobs, want exactly 1", len(jobs))
 	}

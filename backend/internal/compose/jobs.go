@@ -13,6 +13,7 @@ package compose
 
 import (
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,11 +30,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 )
-
-// dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
-// query, deliberately decoupled from per-connection pacing (the sidecar's
-// next_sync_at owns that).
-const dispatchScanInterval = 30 * time.Second
 
 // activeSweepStates is the uniqueness window for the periodic passes: a new
 // tick is suppressed only while a prior run is still in flight (available,
@@ -55,20 +51,20 @@ func sweepInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByState: activeSweepStates}}
 }
 
-// JobRunnerConfig is NewJobRunner's boot configuration: the interval of every
-// pass whose cadence an operator sets (close-date, follow-up reconcile,
-// automation time-scan, GDPR retention), the optional Gmail poll (added
-// only when GmailRegistry is non-nil), the optional Gmail push-watch
-// maintenance pass (added only when GmailRegistry is non-nil AND
-// GmailWatch.Topic is set), and the optional overlay reconcile poller
-// (added only when OverlayVault is non-nil).
+// JobRunnerConfig is NewJobRunner's boot configuration: the dials an operator
+// sets a pass's cadence with, the model lanes and credential custodians the
+// passes work through, and the tuning each pass takes.
 //
-// A nil dependency below takes one of exactly two postures, and each field says
-// which: ABSENT BY OMISSION registers nothing, so a row nothing here could work
-// is never queued at all (GmailRegistry, ChannelVault, OverlayVault,
-// WebhookRetry.Deliverer, AgentScheduler.Service); REGISTERED ANYWAY keeps the
-// worker so a picked-up row fails with an actionable message instead of rotting
-// queued (DeepReadBrain, Embedder, VoiceBrain).
+// WHICH of these a kind needs, and what an absent one costs it, is declared
+// per kind in api/jobs.yaml and resolved in jobschedule.go — not counted here.
+// A field below says what it IS and what its absence means for the pass that
+// reads it; the two postures that absence takes are the declaration's to
+// choose, and they are not interchangeable. Registers nothing means a row
+// nothing here could work is never queued at all; registers anyway keeps the
+// worker so a picked-up row fails with an actionable message instead of
+// rotting queued. The SAME field takes opposite postures on different kinds —
+// Embedder registers nothing for the drift sweep and anyway for a reindex —
+// which is why the posture is stated per kind and never per field.
 type JobRunnerConfig struct {
 	// SendPacing bounds how fast one mailbox transmits and how long a
 	// delivery may be deferred before it parks; the zero value takes the
@@ -193,31 +189,18 @@ type JobRunnerConfig struct {
 	ModelPricingSources []pricingSource
 }
 
-// NewJobRunner wires the deals correctors, the automation time-scan and the
-// GDPR retention fan-out into River periodic jobs for the worker process role.
-// The intervals keep the operator-facing --close-date-interval /
-// --reconcile-interval / --time-scan-interval / --retention-interval flags as
-// the schedule source; RunOnStart preserves the old ticker's boot-time first
-// pass.
+// NewJobRunner wires every worker this process role can run, and every
+// schedule that drives one, into a single River runner. Two halves, and they
+// are gated separately on purpose:
 //
-// When cfg.GmailRegistry is non-nil (the deployment configured the Gmail
-// OAuth app), the sync DISPATCHER is added on a fixed 30s scan — a cheap
-// indexed due-scan enqueueing one per-connection job per due row; the
-// per-connection pacing (--gmail-sync-interval) lives in the registry's
-// scheduling sidecar, so a frequent scan never means frequent provider
-// calls. Leader-elected like the sweeps, so replicas never double-poll. When a
-// Pub/Sub topic is also configured (cfg.GmailWatch.Topic != ""), a push-watch
-// maintenance pass is added on cfg.GmailWatch.Interval that registers/renews
-// Gmail watches nearing expiry; without a topic the watch job is absent by
-// omission and capture stays on the poll.
+// The WORKERS are a capability. Each block below registers the workers its
+// dependency makes workable, so a role wired without a Gmail OAuth app, a
+// secret vault or a model lane does not offer to work what it cannot.
 //
-// When cfg.OverlayVault is non-nil (the deployment configured a secret
-// vault), the overlay reconcile poller is added on cfg.OverlayInterval —
-// leader-elected the same way, sweeping every overlay-mode workspace's
-// active incumbent connection. Without a vault there is no credential
-// custodian to resolve a connection's sealed token through, so the poller
-// stays off by omission, the same posture cfg.GmailRegistry==nil takes for
-// the Gmail poll.
+// The SCHEDULES are the declaration's. Every periodic entry is built by
+// periodicFor from api/jobs.yaml — cadence, registration posture and all —
+// which is why they read as one list rather than as a schedule hidden inside
+// each block. They are leader-elected, so replicas never double-dispatch.
 func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
 	reg := newJobRegistry()
 	// The deep read is not periodic — the api enqueues one job per started
@@ -272,67 +255,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		addDeclaredWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
 	}
 
-	periodic := []*river.PeriodicJob{
-		river.NewPeriodicJob(
-			river.PeriodicInterval(cfg.CloseDateInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return CloseDateSweepArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
-		river.NewPeriodicJob(
-			river.PeriodicInterval(cfg.ReconcileInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return FollowUpReconcileArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
-		river.NewPeriodicJob(
-			river.PeriodicInterval(cfg.TimeScanInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return TimeScanArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
-		river.NewPeriodicJob(
-			river.PeriodicInterval(voiceBuildRetryInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return VoiceBuildRetryArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		),
-		// The captured-organization auto-enrich sweep (ADR-0072/A118): daily,
-		// run-on-start to enrich the existing captured backlog on a fresh boot.
-		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return CaptureAutoEnrichSweepArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true}),
-		// Idempotency retention: hourly rather than daily, because the rows
-		// hold verbatim record snapshots and the replay window they serve is
-		// only 24h — a daily pass would leave a day's worth of expired PII
-		// sitting past its purpose. Run-on-start clears the backlog an
-		// installation upgrading into this sweep already carries.
-		river.NewPeriodicJob(river.PeriodicInterval(time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true}),
-	}
-	// The ADR-0078 relationship-graph passes register themselves, so this
-	// wiring stays one line as that surface grows (jobs_graph.go).
-	periodic = append(periodic, addGraphJobs(reg, pool, log)...)
-	// The ADR-0069 §3a embed drift sweep registers itself the same way
-	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
-	periodic = append(periodic, addEmbedDriftSweepJob(reg, pool, cfg.Embedder, log)...)
-	// The GDPR retention pass registers itself the same way
-	// (jobs_privacyretention.go).
-	periodic = append(periodic, addPrivacyRetentionJobs(reg, pool, cfg, log)...)
-	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
-	periodic = append(periodic, addWebhookRetryJobs(reg, pool, cfg)...)
-	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
-	periodic = append(periodic, addAgentSchedulerJobs(reg, pool, cfg)...)
-
 	if cfg.ClassifyBrain != nil {
 		addDeclaredWorker[CaptureClassifyArgs](reg, &captureClassifyWorker{pool: pool})
 		addDeclaredWorker[CaptureClassifyWorkspaceArgs](reg, &captureClassifyWorkspaceWorker{
 			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
 		})
-		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
-		// same engine; the backlog index makes an empty pass one cheap probe.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return CaptureClassifyArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 	}
 
 	if cfg.EnrichBrain != nil {
@@ -340,82 +267,41 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		addDeclaredWorker[CaptureEnrichWorkspaceArgs](reg, &captureEnrichWorkspaceWorker{
 			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
 		})
-		// Daily (the ADR-0063 nightly cadence rides the same job until the
-		// nightly dispatcher lands); run-on-start clears any backlog early.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return CaptureEnrichArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 	}
 
-	{
-		// Registered unconditionally: the promotion weighs evidence rows the
-		// enrich pass already wrote, so it needs no model. Gating it on a brain
-		// would leave an AI-less deployment unable to act on signatures it had
-		// already collected.
-		addDeclaredWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool})
-		addDeclaredWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
-		// Daily, after the enrich pass has had a night to collect signatures;
-		// run-on-start so a deployment with a backlog acts on it immediately.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return OrgNamePromotionArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
-	}
+	// Registered unconditionally: the org-name promotion weighs evidence rows
+	// the enrich pass already wrote, so it needs no model. Gating it on a brain
+	// would leave an AI-less deployment unable to act on signatures it had
+	// already collected.
+	addDeclaredWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool})
+	addDeclaredWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
 
-	{
-		// Registered unconditionally: only the JUDGING stage needs a model, and
-		// the worker skips it when none is configured. Gating the whole worker on
-		// a brain would mean an AI-less deployment never staged a review for an
-		// existing unsure row and never redacted mail it had already hidden.
-		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
-		addDeclaredWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool})
-		addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{engine: verdicts})
-		// Hourly, like classify: the ledger's due-index makes an empty pass one
-		// cheap probe, and a deferred sender should not wait a day to become a
-		// record. Each workspace's job runs every stage in dependency order —
-		// judging fills the unsure backlog that staging then offers, and
-		// redaction only ever acts on windows that closed before this tick.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return CounterpartyVerdictArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
-	}
-
-	// Telegram ingress PULLS (telegrampoll.go), and a poll needs the vault that
-	// holds the bot's sealed token — so a role without one registers neither half.
-	periodic = registerTelegramPoll(reg, periodic, pool, cfg.ChannelVault, cfg.ChannelAPI, log)
+	// Registered unconditionally for a different reason: only the counterparty
+	// verdict's JUDGING stage needs a model, and the worker skips that stage
+	// when none is configured. Gating the whole worker on a brain would mean an
+	// AI-less deployment never staged a review for an existing unsure row and
+	// never redacted mail it had already hidden.
+	addDeclaredWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool})
+	addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{
+		engine: NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log),
+	})
 
 	if cfg.GmailRegistry != nil {
 		digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
 		addDeclaredWorker[CaptureDigestArgs](reg, digests)
 		addDeclaredWorker[CaptureDigestWorkspaceArgs](reg, &captureDigestWorkspaceWorker{digests: digests})
-		// The digest builds daily after the overnight passes; run-on-start
-		// backfills a missed night so mornings are never silently empty.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return CaptureDigestArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 		addDeclaredWorker[GmailSyncArgs](reg, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
+		// The sync dispatcher scans every registered connector, so a Google
+		// Calendar connection (the same Google OAuth app) syncs on the identical
+		// per-connection path a mailbox does — there is no gcal-specific job.
+		// Per-connection pacing lives in the registry's scheduling sidecar
+		// (next_sync_at = success + --gmail-sync-interval), which is why the
+		// dispatcher's own cadence can be frequent without meaning frequent
+		// provider calls.
 		addDeclaredWorker[CaptureSyncArgs](reg, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
 		// Backfill jobs are enqueued by the api (start op); the worker role
 		// only needs the pager registered.
 		addDeclaredWorker[CaptureBackfillArgs](reg, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
-		// The dispatcher tick is a cheap indexed due-scan; per-connection
-		// pacing lives in the sidecar (next_sync_at = success + interval),
-		// so a frequent scan does not mean frequent provider calls. It scans
-		// every registered connector, so a Google Calendar connection (the same
-		// Google OAuth app) syncs on the identical per-connection path a mailbox
-		// does — no gcal-specific job.
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(dispatchScanInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return GmailSyncArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 		if cfg.GmailWatch.Topic != "" {
 			addDeclaredWorker[GmailWatchArgs](reg, &gmailWatchWorker{
 				registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
@@ -423,11 +309,6 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			addDeclaredWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
 				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
 			})
-			periodic = append(periodic, river.NewPeriodicJob(
-				river.PeriodicInterval(cfg.GmailWatch.Interval),
-				func() (river.JobArgs, *river.InsertOpts) { return GmailWatchArgs{}, sweepInsertOpts() },
-				&river.PeriodicJobOpts{RunOnStart: true},
-			))
 		}
 	}
 
@@ -451,12 +332,38 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// the overlay vault is present (the receiver only enqueues when the api
 		// role has the app secret wired).
 		addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
-		periodic = append(periodic, river.NewPeriodicJob(
-			river.PeriodicInterval(cfg.OverlayInterval),
-			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true},
-		))
 	}
+
+	periodic := slices.Concat(
+		// The passes that register themselves: each helper wires its own
+		// workers and hands back the schedules that go with them, so this
+		// wiring stays one line as those surfaces grow.
+		addGraphJobs(reg, pool, cfg, log),
+		addEmbedDriftSweepJob(reg, pool, cfg, log),
+		addPrivacyRetentionJobs(reg, pool, cfg, log),
+		addWebhookRetryJobs(reg, pool, cfg),
+		addAgentSchedulerJobs(reg, pool, cfg),
+		registerTelegramPoll(reg, pool, cfg, log),
+
+		// The schedules this file places. Each carries its own gate — the
+		// cadence, the configuration it needs, and what an absent dependency
+		// costs it — so every one of them is named here whether or not this
+		// boot ends up placing it.
+		periodicFor(cfg, CloseDateSweepArgs{}),
+		periodicFor(cfg, FollowUpReconcileArgs{}),
+		periodicFor(cfg, TimeScanArgs{}),
+		periodicFor(cfg, VoiceBuildRetryArgs{}),
+		periodicFor(cfg, IdempotencyRetentionArgs{}),
+		periodicFor(cfg, CaptureAutoEnrichSweepArgs{}),
+		periodicFor(cfg, CaptureClassifyArgs{}),
+		periodicFor(cfg, CaptureEnrichArgs{}),
+		periodicFor(cfg, CounterpartyVerdictArgs{}),
+		periodicFor(cfg, OrgNamePromotionArgs{}),
+		periodicFor(cfg, CaptureDigestArgs{}),
+		periodicFor(cfg, GmailSyncArgs{}),
+		periodicFor(cfg, GmailWatchArgs{}),
+		periodicFor(cfg, OverlayReconcileArgs{}),
+	)
 
 	// A kind this role would work but api/jobs.yaml does not declare has no
 	// timeout, no attempt cap and no queue anyone chose — it would run at

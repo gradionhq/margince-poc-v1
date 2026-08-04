@@ -75,8 +75,8 @@ type AgentSchedulerConfig struct {
 
 // addAgentSchedulerJobs registers the scheduler workers and returns the
 // dispatcher's periodic schedule for the caller to append. A non-positive
-// interval registers the workers but no schedule, for periodicWhenPositive's
-// reasons.
+// interval registers the workers but no schedule — the posture the declaration
+// states and jobschedule.go resolves.
 func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.AgentScheduler.Service == nil {
 		return nil
@@ -87,12 +87,7 @@ func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerCo
 	}
 	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool})
 	addDeclaredWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
-	return periodicWhenPositive(cfg.AgentScheduler.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
-		// Run-on-start because a restart must not add a whole interval to a due
-		// hour that already passed: the occurrences that fell due while the
-		// process was down are runnable the moment it is back.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	return periodicFor(cfg, AgentSchedulerArgs{})
 }
 
 // AgentSchedulerArgs schedules one fleet-wide agent-scheduling pass.

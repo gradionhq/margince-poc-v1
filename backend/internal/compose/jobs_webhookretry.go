@@ -59,10 +59,11 @@ type WebhookRetryConfig struct {
 	// tick inserts one row per live workspace whether or not that workspace has
 	// anything due, which is why its DEFAULT is tens of seconds rather than the
 	// few a single tenant's ticker could afford. That default happens to equal
-	// dispatchScanInterval and is not derived from it — the two are separate
-	// passes with separate costs, and moving one does not move the other.
+	// the gmail_sync dispatcher's declared scan and is not derived from it — the
+	// two are separate passes with separate costs, and moving one does not move
+	// the other.
 	//
-	// Non-positive schedules no retry dispatch (periodicWhenPositive).
+	// Non-positive schedules no retry dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 	// Deliverer is the delivery engine one workspace's pass re-attempts
 	// through — the SAME instance the role's cg:webhooks consumer fans out
@@ -75,20 +76,16 @@ type WebhookRetryConfig struct {
 }
 
 // addWebhookRetryJobs registers the retry workers and returns the dispatcher's
-// periodic schedule for the caller to append. A non-positive interval registers
-// the workers but no schedule, for periodicWhenPositive's reasons.
+// periodic schedule for the caller to append. A non-positive interval
+// registers the workers but no schedule — the posture the declaration states
+// and jobschedule.go resolves.
 func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
 	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool})
 	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
-	return periodicWhenPositive(cfg.WebhookRetry.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
-		// Run-on-start because a restart must not add a whole interval to a
-		// backoff that already elapsed: the deliveries parked when the process
-		// went down are due the moment it is back.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	return periodicFor(cfg, WebhookRetryArgs{})
 }
 
 // WebhookRetryArgs schedules one fleet-wide pass over due retries.

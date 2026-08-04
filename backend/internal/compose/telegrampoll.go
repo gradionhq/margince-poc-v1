@@ -68,15 +68,11 @@ const (
 	// number alone moves no wall clock; the two are kept equal by
 	// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
 	telegramPollJobTimeout = 2 * time.Minute
-	// telegramPollSweepInterval is the dispatcher's cadence. Paired with the
-	// long poll above it leaves at most a few seconds of every minute in which
-	// a connection is not waiting on Telegram.
-	telegramPollSweepInterval = 30 * time.Second
 )
 
 // registerTelegramPoll wires the pull-ingress half of the worker role: the
-// leader-elected dispatcher and the per-connection poll worker, plus the periodic
-// tick that drives them.
+// leader-elected dispatcher and the per-connection poll worker, plus the
+// periodic tick that drives them.
 //
 // Both halves are gated on the vault TOGETHER, and neither is registered without
 // it: a dispatcher with no poll worker would queue jobs nothing works, and a poll
@@ -84,20 +80,17 @@ const (
 // handed. A nil api takes the real Bot API client — the acceptance suites pass a
 // fake, because a poller left on the real client would reach api.telegram.org from
 // a test run.
-func registerTelegramPoll(reg *jobRegistry, periodic []*river.PeriodicJob, pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) []*river.PeriodicJob {
-	if vault == nil {
-		return periodic
+func registerTelegramPoll(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
+	if cfg.ChannelVault == nil {
+		return nil
 	}
+	api := cfg.ChannelAPI
 	if api == nil {
 		api = telegram.NewAPI(nil, "")
 	}
 	addDeclaredWorker[TelegramPollSweepArgs](reg, &telegramPollSweepWorker{pool: pool, log: log})
-	addDeclaredWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log))
-	return append(periodic, river.NewPeriodicJob(
-		river.PeriodicInterval(telegramPollSweepInterval),
-		func() (river.JobArgs, *river.InsertOpts) { return TelegramPollSweepArgs{}, sweepInsertOpts() },
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
+	addDeclaredWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, cfg.ChannelVault, api, ambientTelegramEnqueuer{}, log))
+	return periodicFor(cfg, TelegramPollSweepArgs{})
 }
 
 // TelegramPollSweepArgs schedules one DISPATCH pass: due-scan the fleet for live

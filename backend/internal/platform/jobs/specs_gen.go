@@ -7,7 +7,7 @@ import "time"
 // JobContractHash is the sha256 of api/jobs.yaml at generation time: a
 // build fingerprint a census can compare against a freshly hashed
 // contract file to catch a stale generated table.
-const JobContractHash = "742f00c7e9016d38c2000611a10d9663dcef4085d9bb248aea251bca93fa1e09"
+const JobContractHash = "900503c0e272e21e3b3006ddfc5b5990c449eb2fd088c1427e93921f05cae5d4"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it

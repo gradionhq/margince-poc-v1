@@ -23,7 +23,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -44,13 +43,6 @@ func (LinkedInRematchArgs) Kind() string { return "linkedin_rematch" }
 // FleetWide marks this a dispatcher: it enumerates and enqueues,
 // and does no tenant work of its own (jobs.FleetWide).
 func (LinkedInRematchArgs) FleetWide() {}
-
-// linkedInRematchInterval is hourly rather than daily, because the window it
-// covers is the workspace's first day: an export uploaded during onboarding is
-// waiting on a capture backfill that finishes in minutes, and a rep who
-// imported their network in the morning should not have to wait until tomorrow
-// to see it on an account.
-const linkedInRematchInterval = time.Hour
 
 type linkedInRematchWorker struct {
 	pool      *pgxpool.Pool

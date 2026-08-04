@@ -55,10 +55,6 @@ func (VoiceBuildRetryArgs) Kind() string { return "voice_build_retry" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (VoiceBuildRetryArgs) FleetWide() {}
 
-// voiceBuildRetryInterval paces the deferred sweep; deferrals are hours
-// long, so a 15-minute scan is prompt without being busywork.
-const voiceBuildRetryInterval = 15 * time.Minute
-
 // voiceBuildDeferral is how long a budget-deferred build waits before the
 // sweep re-offers it to the (possibly refreshed) budget window.
 const voiceBuildDeferral = 6 * time.Hour

@@ -21,7 +21,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,12 +42,6 @@ func (GraphEdgeReconcileArgs) Kind() string { return "graph_edge_reconcile" }
 // FleetWide marks this a dispatcher: it enumerates and enqueues,
 // and does no tenant work of its own (jobs.FleetWide).
 func (GraphEdgeReconcileArgs) FleetWide() {}
-
-// graphEdgeReconcileInterval is daily, matching the staleness bound the
-// migration states. Tightening it would narrow the window at the cost of a
-// full refold per workspace per run; loosening it would make the migration's
-// stated contract a lie.
-const graphEdgeReconcileInterval = 24 * time.Hour
 
 // graphEdgeReconcileWorker rebuilds the projection for every workspace.
 type graphEdgeReconcileWorker struct {

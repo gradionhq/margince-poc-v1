@@ -75,9 +75,12 @@ type PrivacyRetentionConfig struct {
 // runner's own (Art. 17 reaches the attachment bytes), and the edge invalidator
 // is a search closure, which a module may not import from privacy.
 //
-// A non-positive interval registers the workers but no schedule; the reasoning
-// for that split, and for why it cannot reach a deployment that owes the
-// storage-limitation obligation, is periodicWhenPositive's.
+// A non-positive interval registers the workers but no schedule — the posture
+// the declaration states and jobschedule.go resolves. It cannot reach a
+// deployment that owes the storage-limitation obligation: --retention-interval
+// carries a positive default and cmd/worker's validateSchedulerIntervals
+// refuses a non-positive one at boot. The omission serves the callers that
+// wire a runner for a few named passes and never meant to run this one.
 func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) []*river.PeriodicJob {
 	// Retention removes the interactions the relationship graph is folded
 	// from, so it carries the fold with it — in the same transaction, not on
@@ -90,13 +93,7 @@ func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunner
 		})
 	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool})
 	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention})
-	return periodicWhenPositive(cfg.PrivacyRetention.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return PrivacyRetentionArgs{}, sweepInsertOpts() },
-		// Run-on-start because the interval is an operator's dial and a
-		// storage-limitation obligation is not: a deployment that restarts
-		// inside its own retention window must not silently defer the pass that
-		// window was already too long for.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	return periodicFor(cfg, PrivacyRetentionArgs{})
 }
 
 // PrivacyRetentionArgs schedules one fleet-wide retention pass.

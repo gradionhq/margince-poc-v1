@@ -154,6 +154,10 @@ kinds:
     cadence: 24h
     fans_out_to: capture_auto_enrich_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily, and run at boot like every pass here, so the captured backlog an
+      installation already carries is enriched on the first start rather than a
+      day into it.
 
   capture_auto_enrich_workspace:
     role: workspace
@@ -191,6 +195,10 @@ kinds:
     registration: {when: [ClassifyBrain], absent: registers_nothing}
     fans_out_to: capture_classify_workspace
     fan_out_unit: workspace
+    reason: >-
+      An hourly catch-up (ADR-0063). The nightly suite reruns the same engine,
+      so this pass exists to shorten the wait rather than to be the only run;
+      the backlog index makes a caught-up tenant one cheap probe.
 
   capture_classify_workspace:
     role: workspace
@@ -215,6 +223,13 @@ kinds:
     cadence: 1h
     fans_out_to: capture_counterparty_verdict_workspace
     fan_out_unit: workspace
+    reason: >-
+      Hourly, like capture_classify and for the same reason: the ledger's
+      due-index makes an empty pass one cheap probe, and a deferred sender
+      should not wait a day to become a record. Every stage runs in dependency
+      order inside one workspace's job — judging fills the unsure backlog that
+      staging then offers, and redaction only ever acts on windows that closed
+      before the tick.
 
   capture_counterparty_verdict_workspace:
     role: workspace
@@ -239,6 +254,9 @@ kinds:
     registration: {when: [GmailRegistry], absent: registers_nothing}
     fans_out_to: capture_digest_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily, after the overnight passes it summarizes. The boot pass backfills
+      a missed night, so a morning is never silently empty.
 
   capture_digest_workspace:
     role: workspace
@@ -263,6 +281,9 @@ kinds:
     registration: {when: [EnrichBrain], absent: registers_nothing}
     fans_out_to: capture_enrich_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily — the ADR-0063 nightly cadence rides this job until the nightly
+      dispatcher lands.
 
   capture_enrich_workspace:
     role: workspace
@@ -340,6 +361,10 @@ kinds:
     registration: {when: [Embedder], absent: registers_nothing}
     fans_out_to: embed_drift_workspace
     fan_out_unit: workspace
+    reason: >-
+      An empty pass is six indexed NOT-EXISTS probes per workspace, so a short
+      cadence is cheap; fifteen minutes is how long a lost embed event may keep
+      a record out of semantic search.
 
   embed_drift_workspace:
     role: workspace
@@ -437,6 +462,10 @@ kinds:
     registration: {when: [GmailRegistry], absent: registers_nothing}
     fans_out_to: capture_sync
     fan_out_unit: connection
+    reason: >-
+      A cheap indexed due-scan, deliberately decoupled from per-connection
+      pacing: the registry's scheduling sidecar owns next_sync_at, so a scan
+      this frequent does not mean frequent provider calls.
 
   gmail_watch_renew:
     role: dispatcher
@@ -470,6 +499,11 @@ kinds:
     cadence: 24h
     fans_out_to: graph_edge_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily, because the 90-day window counts go stale through the passage of
+      time and nothing emits an event for that. This pass is what bounds the
+      staleness the migration states, and doubles as the corruption remedy, so
+      loosening the cadence without amending the migration makes it a lie.
 
   graph_edge_workspace:
     role: workspace
@@ -493,6 +527,10 @@ kinds:
     cadence: 1h
     fans_out_to: idempotency_retention_workspace
     fan_out_unit: workspace
+    reason: >-
+      Hourly rather than daily: the rows hold verbatim record snapshots and the
+      replay window they serve is only 24h, so a daily pass would leave a day of
+      expired personal data sitting past its purpose.
 
   idempotency_retention_workspace:
     role: workspace
@@ -515,6 +553,11 @@ kinds:
     cadence: 1h
     fans_out_to: linkedin_rematch_workspace
     fan_out_unit: workspace
+    reason: >-
+      Hourly rather than daily, because the window it covers is a workspace's
+      first day: an export uploaded during onboarding waits on a capture
+      backfill that finishes in minutes, and a rep who imported their network in
+      the morning should not wait until tomorrow to see it on an account.
 
   linkedin_rematch_workspace:
     role: workspace
@@ -538,6 +581,9 @@ kinds:
     cadence: 24h
     fans_out_to: org_name_promotion_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily, after the enrich pass has had a night to collect the signatures
+      this one weighs.
 
   org_name_promotion_workspace:
     role: workspace
@@ -615,6 +661,10 @@ kinds:
     cadence: 24h
     fans_out_to: participant_backfill_workspace
     fan_out_unit: workspace
+    reason: >-
+      Daily. The pass is a catch-up and not a deadline — new mail already
+      arrives with its participants stamped — but it stays periodic because a
+      restore or an import can reintroduce unattributed rows.
 
   participant_backfill_workspace:
     role: workspace
@@ -700,6 +750,10 @@ kinds:
     registration: {when: [ChannelVault], absent: registers_nothing}
     fans_out_to: telegram_poll
     fan_out_unit: connection
+    reason: >-
+      Paired with the 25-second long poll a child holds open, this leaves at
+      most a few seconds of every minute in which a connection is not waiting on
+      Telegram.
 
   time_scan:
     role: dispatcher
@@ -744,6 +798,9 @@ kinds:
     cadence: 15m
     fans_out_to: voice_build
     fan_out_unit: build
+    reason: >-
+      Deferrals are hours long, so a fifteen-minute scan is prompt without being
+      busywork.
 
   webhook_retry:
     role: dispatcher

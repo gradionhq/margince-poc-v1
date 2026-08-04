@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"slices"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,32 +69,6 @@ const (
 	// for why per-workspace parallelism is not what this phase is after.
 	overlayReconcileQueue = "overlay_reconcile"
 )
-
-// periodicWhenPositive is a dispatcher's schedule when interval is a cadence,
-// and NO entry at all when it is not. Every addXJobs helper that takes an
-// operator-set interval routes through it, so the reasoning below is stated
-// here rather than once per pass.
-//
-// A non-positive interval leaves the WORKERS registered and omits only the
-// SCHEDULE. The split is the point: the workers are a capability (a row an
-// earlier boot queued still gets worked, the posture the deep-read and
-// embed-reindex workers take) while the periodic entry is a cadence, and River
-// has no cadence to offer for a zero duration. It does not refuse one either —
-// PeriodicInterval(0) yields Next(t) == t, so the enqueuer re-derives a run time
-// that never advances and dispatches as fast as Postgres accepts an insert.
-// Absent by omission is the only honest reading of "no cadence given".
-//
-// Absent by omission is NOT allowed to reach a deployment that meant to run the
-// pass: every one of these flags carries a positive default and cmd/worker's
-// validateSchedulerIntervals refuses a non-positive one at boot. The omission
-// serves the callers that wire a runner for a few named passes and never meant
-// to run this one at all.
-func periodicWhenPositive(interval time.Duration, args func() (river.JobArgs, *river.InsertOpts), opts *river.PeriodicJobOpts) []*river.PeriodicJob {
-	if interval <= 0 {
-		return nil
-	}
-	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(interval), args, opts)}
-}
 
 // workspaceSweepOpts is the enqueue policy for one fanned-out child, read
 // from the child kind's own declaration. Taking the KIND rather than the
