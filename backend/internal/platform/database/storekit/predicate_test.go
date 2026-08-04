@@ -42,6 +42,7 @@ func compile(t *testing.T, p Predicate) (string, []any) {
 	return sql, args
 }
 
+//craft:ignore naked-any mirrors Predicate.Value, which spans every JSON filter-operand type by contract
 func leaf(field, op string, value any) Predicate {
 	return Predicate{Field: field, Op: op, Value: value}
 }

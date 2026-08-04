@@ -355,9 +355,9 @@ func OrganizationLinkedInReach(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 // nullableOwner renders the zero id as SQL NULL, which the scoping clauses
 // read as "every owner". A zero uuid would otherwise match nobody and turn a
 // workspace-wide sweep into a silent no-op.
-func nullableOwner(owner ids.UUID) any {
+func nullableOwner(owner ids.UUID) *ids.UUID {
 	if owner == ids.Nil {
 		return nil
 	}
-	return owner
+	return &owner
 }

@@ -18,7 +18,7 @@ import (
 )
 
 // bundleZip builds an in-memory export bundle from its two JSON members.
-func bundleZip(t *testing.T, manifest, dump any) []byte {
+func bundleZip(t *testing.T, manifest, dump map[string]any) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)

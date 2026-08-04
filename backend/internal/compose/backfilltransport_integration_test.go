@@ -268,6 +268,8 @@ func TestBackfillPreviewDegradesOnEstimatorFault(t *testing.T) {
 
 // do invokes one backfill handler with a JSON body under ctx and decodes
 // the response into out (when non-nil), returning status and problem code.
+//
+//craft:ignore naked-any out is an optional decode target spanning every backfill response type; a method cannot take a type parameter
 func (b *backfillWireEnv) do(ctx context.Context, t *testing.T, invoke func(http.ResponseWriter, *http.Request), body string, out any) (int, string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/backfill-op", bytes.NewReader([]byte(body))).WithContext(ctx)

@@ -64,6 +64,8 @@ func (p *Provider) writeIncumbent(ctx context.Context) (Incumbent, error) {
 // writeContractTarget returns a fresh pointer to the contract request struct
 // for (entityType, forUpdate) — the type StrictDecode validates the write
 // payload against.
+//
+//craft:ignore naked-any the ten generated contract request structs share no interface; the return is a StrictDecode target by design
 func writeContractTarget(entityType datasource.EntityType, forUpdate bool) (any, error) {
 	switch entityType {
 	case datasource.EntityPerson:
@@ -106,6 +108,8 @@ func writeContractTarget(entityType datasource.EntityType, forUpdate bool) (any,
 // round-trip. The result is always a non-nil map (a JSON-null patch decodes
 // to an empty struct → {}), so callers can inject fields without a nil-map
 // panic.
+//
+//craft:ignore naked-any v mirrors the frozen datasource seam's write-payload parameter, which is untyped by contract
 func decodeCanonical(entityType datasource.EntityType, forUpdate bool, v any) (map[string]any, error) {
 	raw, err := datasource.RawFields(v)
 	if err != nil {
@@ -146,6 +150,8 @@ func decodeCanonical(entityType datasource.EntityType, forUpdate bool, v any) (m
 // there). An empty or absent catch-all is fine; a non-empty one is a
 // caller-invalid write (a misspelled or unsupported field) surfaced as a
 // FieldDecodeError so the transport answers 422, not a silent no-op.
+//
+//craft:ignore naked-any target is whichever contract request struct writeContractTarget minted — inspected by reflection
 func rejectExtraProperties(target any) error {
 	v := reflect.ValueOf(target)
 	if v.Kind() != reflect.Pointer || v.IsNil() {
