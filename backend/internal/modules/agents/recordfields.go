@@ -136,45 +136,90 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type, rendere
 // disagree about several of them, and the wrong advice is worse than none.
 func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	b.WriteString("A task is record_type=activity with kind=task. ")
-	// Only where the shapes actually carry `source`. On create it is accepted
-	// and then overwritten, so believing it took effect would be wrong; on
-	// update no request type has it at all, so it is REFUSED as an unknown key
-	// — opposite advice, and the shared sentence used to give the create one to
-	// both. Derived from the shapes so it cannot drift from which tool this is.
+	writeProvenanceStampAdvisory(b, shapes)
+	writeDealPipelineAdvisory(b, shapes)
+	writeRelationshipAdvisory(b, shapes)
+	writeActivityReachAdvisories(b, shapes)
+	writeCustomFieldAdvisories(b, shapes)
+}
+
+// writeProvenanceStampAdvisory says that naming `source` does not set it.
+//
+// Only where the shapes actually carry the field. On create it is accepted and
+// then overwritten, so believing it took effect would be wrong; on update no
+// request type has it at all, so it is REFUSED as an unknown key — opposite
+// advice, and the shared sentence used to give the create one to both. Derived
+// from the shapes so it cannot drift from which tool this is.
+func writeProvenanceStampAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	if describesField(shapes, "source") {
 		b.WriteString("`source` is accepted but overwritten — this surface stamps its own provenance. ")
 	}
-	// Where the two ids a deal cannot be born without come from. Naming them as
-	// required (which the mapping does) without saying that is what made
-	// create_record/deal unusable: a caller was told exactly what it needed and
-	// had nowhere to get it. Keyed on the field, so this sentence appears on the
-	// tool whose shapes actually declare it and not on the patch tool.
+}
+
+// writeDealPipelineAdvisory says where the two ids a deal cannot be born without
+// come from. Naming them as required (which the mapping does) without saying
+// that is what made create_record/deal unusable: a caller was told exactly what
+// it needed and had nowhere to get it. Keyed on the field, so this sentence
+// appears on the tool whose shapes actually declare it and not on the patch tool.
+func writeDealPipelineAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	if describesField(shapes, "pipeline_id") {
 		b.WriteString("A deal's `pipeline_id` and `stage_id` come from list_pipelines — nothing else ")
 		b.WriteString("on this surface yields them, and neither is defaultable. ")
 	}
-	// The trap a caller cannot see from the field list alone. A relationship's
-	// field list shows `kind`, `person_id`, `organization_id`, `deal_id` and
-	// `project_id` all as equal optional siblings — and they are not: which PAIR
-	// is required is decided by the kind, enforced by a database CHECK, and
-	// invisible from a flat list of names. A caller working from names alone
-	// sends a plausible pair and gets a shape refusal it cannot predict.
-	//
-	// Keyed on an ENDPOINT FIELD, not on the record type, because both maps carry
-	// relationship — the patch tool serves it too. Only the create shape declares
-	// `counterparty_org_id`, so this is the honest test for "can the caller name
-	// an endpoint at all", which is what the pairing rule is about.
-	writeRelationshipAdvisory(b, shapes)
-	// The other field a caller reasonably expects and will not find. An
-	// activity DOES carry links — log_activity and create_record both take them —
-	// so being told the field is unknown, with no pointer, reads as "this is
-	// impossible" rather than "this is a different verb".
-	//
-	// Keyed on the ABSENCE of the links field, not on the record type: both shape
-	// maps carry activity, so a record-type test put this patch-only advice on the
-	// create tool too, which DOES accept links. Same mistake as the endpoint
-	// advisory above, in its sibling.
-	// An activity is not searchable either, and only the EDGE was ever told
+}
+
+// writeRelationshipAdvisory says what a relationship needs, because an edge's
+// requirements are per-KIND and invisible from a flat field list: `kind`,
+// `person_id`, `organization_id`, `deal_id` and `project_id` all read as equal
+// optional siblings, and they are not. Which pair is required is decided by the
+// kind and enforced by a database CHECK, so a caller working from names alone
+// sends a plausible pair and gets a shape refusal it could not have predicted.
+//
+// Keyed on an ENDPOINT FIELD, not on the record type, because both shape maps
+// carry relationship — the patch tool serves it too. Only the create shape
+// declares `counterparty_org_id`, so that is the honest test for "can the caller
+// name an endpoint at all", which is what the pairing rule is about.
+func writeRelationshipAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
+	if describesField(shapes, "counterparty_org_id") {
+		b.WriteString("A person's employer is a relationship, not a field on the person: ")
+		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
+		// REQUIRES, not "and rejects any other". The schema's shape CHECKs pin the
+		// pair each kind must have and forbid the endpoints that would contradict
+		// it, but they do not forbid every irrelevant one — an employment edge will
+		// accept a stray counterparty_org_id. Promising more than the constraints
+		// deliver would be a description a caller could disprove.
+		b.WriteString("Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — ")
+		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
+		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
+		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
+		// An edge is not searchable: search_records' record_type enum has no
+		// relationship, and there is no list-relationships tool. So the id a write
+		// returns is the only handle on the edge this surface will give out.
+		//
+		// It deliberately does NOT say "no read tool serves an edge" — read_record
+		// answers a relationship by id even though its enum does not advertise one
+		// (the contract has no single-relationship GET), and a description a caller
+		// can disprove in one call costs more than the silence it replaced.
+		b.WriteString("An edge is not searchable, so keep the id a relationship write returns. ")
+	} else {
+		// The patch tool still owes the reader the pointer, because a person's
+		// employer is the field they will look for first and not find.
+		b.WriteString("A person's employer is NOT a field here: employment is a relationship, ")
+		b.WriteString("created and archived as record_type=relationship — its endpoints are what it ")
+		b.WriteString("IS, so they cannot be patched. ")
+	}
+}
+
+// writeActivityReachAdvisories appends what an activity write does and does not
+// let a caller reach afterwards: whether the record is searchable, and whether
+// its links can be moved later.
+//
+// The record type gates both advisories; the `links` field decides WHICH one.
+// Both shape maps carry activity, so a record-type test alone put patch-only
+// advice on the create tool too — which DOES accept links. Same mistake as the
+// endpoint advisory, in its sibling.
+func writeActivityReachAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
+	// An activity is not searchable, and only the EDGE was ever told
 	// this. search_records' record_type enum has no activity, so an activity is
 	// retrievable afterwards only through the id its write returned — the same
 	// hazard the relationship advisory names, on the record type this surface
@@ -184,6 +229,10 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("An activity is not searchable — search_records does not serve it — so keep the id ")
 		b.WriteString("an activity write returns; read_record answers it by that id. ")
 	}
+	// The other field a caller reasonably expects and will not find. An activity
+	// DOES carry links — log_activity and create_record both take them — so being
+	// told the field is unknown, with no pointer, reads as "this is impossible"
+	// rather than "this is a different verb".
 	_, hasActivity := shapes[datasource.EntityActivity]
 	if hasActivity && !describesField(shapes, "links") {
 		// Says what is true and stops. Naming the relink action would be
@@ -194,6 +243,11 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
 		b.WriteString("this tool changes what an activity says, never who it is about. ")
 	}
+}
+
+// writeCustomFieldAdvisories appends how an extra key is read, which of the two
+// fates it meets, and which record types carry no custom fields at all.
+func writeCustomFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
 	// Two different fates, and the sentence used to describe neither. It said
 	// every extra key is "silently discarded", which is wrong in both
 	// directions: a key that is not cf_-prefixed is REFUSED by name (this file's
@@ -348,41 +402,4 @@ const stageIDNote = `,"description":"The target stage. Obtain it from list_pipel
 // forbids those rather than leaving the difference to chance.
 func jsonString(s string) string {
 	return strconv.Quote(s)
-}
-
-// writeRelationshipAdvisory says what a relationship needs, because an edge's
-// requirements are per-KIND and invisible from a flat field list: `kind`,
-// `person_id`, `organization_id`, `deal_id` and `project_id` all read as equal
-// optional siblings, and they are not. Which pair is required is decided by the
-// kind and enforced by a database CHECK, so a caller working from names alone
-// sends a plausible pair and gets a shape refusal it could not have predicted.
-func writeRelationshipAdvisory(b *strings.Builder, shapes map[datasource.EntityType]reflect.Type) {
-	if describesField(shapes, "counterparty_org_id") {
-		b.WriteString("A person's employer is a relationship, not a field on the person: ")
-		b.WriteString("record_type=relationship with kind=employment, person_id and organization_id. ")
-		// REQUIRES, not "and rejects any other". The schema's shape CHECKs pin the
-		// pair each kind must have and forbid the endpoints that would contradict
-		// it, but they do not forbid every irrelevant one — an employment edge will
-		// accept a stray counterparty_org_id. Promising more than the constraints
-		// deliver would be a description a caller could disprove.
-		b.WriteString("Each kind REQUIRES its own endpoint pair, and a wrong pair is refused by name — ")
-		b.WriteString("employment: person + organization; deal_stakeholder: deal + person; ")
-		b.WriteString("project_stakeholder: project + person; partner_of, referred_by and ")
-		b.WriteString("co_sell_with: organization + counterparty_org_id. ")
-		// An edge is not searchable: search_records' record_type enum has no
-		// relationship, and there is no list-relationships tool. So the id a write
-		// returns is the only handle on the edge this surface will give out.
-		//
-		// It deliberately does NOT say "no read tool serves an edge" — read_record
-		// answers a relationship by id even though its enum does not advertise one
-		// (the contract has no single-relationship GET), and a description a caller
-		// can disprove in one call costs more than the silence it replaced.
-		b.WriteString("An edge is not searchable, so keep the id a relationship write returns. ")
-	} else {
-		// The patch tool still owes the reader the pointer, because a person's
-		// employer is the field they will look for first and not find.
-		b.WriteString("A person's employer is NOT a field here: employment is a relationship, ")
-		b.WriteString("created and archived as record_type=relationship — its endpoints are what it ")
-		b.WriteString("IS, so they cannot be patched. ")
-	}
 }

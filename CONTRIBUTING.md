@@ -57,10 +57,16 @@ loop your PR will run:
    the file-length ratchet. Add `make frontend-check` when `frontend/`
    changed; `make test-integration` runs the real-Postgres RLS and
    GDPR-erasure lanes (needs `make db-up`).
-2. The **craftsmanship gate** (`craft static`) runs diff-scoped on
-   every push once hooks are installed (`make hooks`): new or touched
-   backend code must be free of `BLOCKER` findings (swallowed errors,
-   sleeps in tests). A *genuine* false positive is waived in-source
+2. The **craftsmanship gate** (`craft static --strict`) runs
+   diff-scoped on every push once hooks are installed (`make hooks`):
+   new or touched backend code must be free of `BLOCKER` **and**
+   `MAJOR` findings — a swallowed error, a sleep in a test, a bare
+   `any` in a signature, a two-bool signature, an assertion-free test,
+   or a function over 80 body lines (160 in `*_test.go`) all stop the
+   push. `MINOR` is advisory. There is no grandfathered backlog: the
+   tree was cleared to zero findings before this bar was armed, so
+   `make craft-static` is green and CI runs the same bar as a required
+   check. A *genuine* false positive is waived in-source
    with a reason: `//craft:ignore <check> <reason>`. The gate tool
    (`cli/craft/`) is part of this repo — don't edit it to silence a
    finding on your own PR; fix the gate in its own reviewed change.
