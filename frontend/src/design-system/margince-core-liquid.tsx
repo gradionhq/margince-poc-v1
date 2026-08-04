@@ -297,6 +297,29 @@ export function coreBufferSize(cssPx: number): number {
   return Math.min(MAX_BUFFER, Math.max(MIN_BUFFER, Math.round(cssPx * 0.9)));
 }
 
+// Some WebGL-capable hosts (older embedded webviews) have no ResizeObserver,
+// or one whose constructor throws; the render effect's `.off` class is
+// already cleared by the time it gets here, so either would leave the canvas
+// transparent instead of painting the shader if left unguarded. Pulled out of
+// the effect itself so that guard doesn't count toward its complexity.
+function tryCreateResizeObserver(
+  onWidth: (width: number) => void,
+): ResizeObserver | null {
+  if (typeof ResizeObserver === "undefined") {
+    return null;
+  }
+  try {
+    return new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width !== undefined) {
+        onWidth(width);
+      }
+    });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * How fast the liquid moves per state. `unavailable` is 0 — a server we cannot
  * reach must not look busy, and the frozen frame says that better than any
@@ -532,20 +555,12 @@ export function CoreLiquid({
     // resolution it now deserves instead of the one it mounted with. Read here
     // rather than every frame because `clientWidth` forces layout.
     let bufferSize = coreBufferSize(canvas.clientWidth);
-    // Some WebGL-capable hosts (older embedded webviews) have no
-    // ResizeObserver; the `.off` class is already cleared above, so a
-    // constructor throw here would leave the canvas transparent instead of
-    // painting the shader. Render continues at the size the canvas mounted
-    // with rather than losing the frame entirely.
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver((entries) => {
-            const width = entries[0]?.contentRect.width;
-            if (width !== undefined) {
-              bufferSize = coreBufferSize(width);
-            }
-          });
+    // A missing or throwing ResizeObserver (see tryCreateResizeObserver)
+    // means render continues at the size the canvas mounted with rather than
+    // losing the frame entirely.
+    const observer = tryCreateResizeObserver((width) => {
+      bufferSize = coreBufferSize(width);
+    });
     observer?.observe(canvas);
 
     // A non-zero seed: at t=0 all three masses sit on top of each other, and

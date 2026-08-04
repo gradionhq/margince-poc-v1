@@ -301,6 +301,47 @@ describe("ImapConnectPanel", () => {
     await screen.findByText(/mailbox connected/i);
     expect(onDismiss).not.toHaveBeenCalled();
   });
+
+  // The disabled "Not now" button only guards ITS OWN click — a caller
+  // wrapping this panel in a dialog also has to keep that dialog's X,
+  // Escape, and backdrop from closing over the same in-flight POST, and this
+  // is the one signal that lets it.
+  it("reports its in-flight state so a caller can guard the dialog's other dismissal routes too", async () => {
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "POST /connectors/imap/connect": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    const pendingChanges: boolean[] = [];
+    render(
+      <ImapConnectPanel
+        onComplete={vi.fn().mockResolvedValue(undefined)}
+        onDismiss={() => {}}
+        onPendingChange={(pending) => pendingChanges.push(pending)}
+      />,
+    );
+    await fillValidForm();
+    await userEvent.click(
+      screen.getByRole("button", { name: /test and connect/i }),
+    );
+    await waitFor(() => expect(pendingChanges).toContain(true));
+    deferred.resolve?.(
+      jsonResponse({
+        connection: {
+          id: "c1",
+          provider: "imap",
+          status: "connected",
+          scopes: [],
+        },
+      }),
+    );
+    await screen.findByText(/mailbox connected/i);
+    expect(pendingChanges.at(-1)).toBe(false);
+  });
 });
 
 // The confirmed OAuth connection hands to the backread step: the grant is not

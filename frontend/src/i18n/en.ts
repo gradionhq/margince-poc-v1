@@ -2191,6 +2191,9 @@ export const en = {
   "ob.conv.connect.linkedinName": "LinkedIn",
   "ob.conv.connect.linkedinConnected": "Connected",
   "ob.conv.connect.linkedinSkippedNote": "Skipped: add it later in Settings",
+  "ob.conv.connect.rosterFailedTitle": "Could not check your mailboxes",
+  "ob.conv.connect.rosterFailedBody":
+    "Something went wrong loading your connection status. Try again before picking a provider.",
   "ob.conv.voice.sceneTitle": "Teach me how you write.",
   "ob.conv.voice.sceneSub":
     "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",

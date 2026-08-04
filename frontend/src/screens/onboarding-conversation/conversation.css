@@ -1607,7 +1607,7 @@
   height: 20px;
   border-radius: var(--r-full);
   background: var(--success);
-  color: var(--textOnAccent);
+  color: var(--textOnStatusControl);
 }
 
 .ob-connect-card-done svg {

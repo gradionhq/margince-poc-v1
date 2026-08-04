@@ -160,7 +160,15 @@ export function rowFor(
   // they backed the old value.
   const grounding = groundingOf(draft, field);
   const proposed = byName.get(field);
-  const provenance = proposed?.value === value ? proposed : undefined;
+  // Trimmed on both sides: a stored profile value can carry surrounding
+  // whitespace (formFromProfile copies profile strings untouched), and a
+  // strict compare against the raw draft value would drop the proposal's own
+  // evidence over nothing more than that whitespace — the same value, read
+  // as if the proposal never backed it.
+  const provenance =
+    proposed !== undefined && proposed.value.trim() === value.trim()
+      ? proposed
+      : undefined;
   const confidence = grounding?.confidence ?? provenance?.confidence;
   const snippet = grounding?.evidence_snippet ?? provenance?.evidence_snippet;
   const source = grounding?.source_url ?? provenance?.source_url;

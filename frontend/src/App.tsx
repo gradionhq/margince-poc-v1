@@ -200,7 +200,14 @@ export function App() {
   if (route.screen === RESET_ROUTE) {
     return (
       <RaillessFrame>
-        <AuthScreen onAuthed={() => undefined} />
+        {/* A stale or bare reset link has no token, so the embedded form
+            renders as an ordinary login rather than ResetForm — and its own
+            "restore the originally requested route" check (LoginForm's
+            onSuccess) never fires home for a non-empty hash, which this one
+            always is. Without an explicit navigate here, a successful
+            sign-in from this route would leave the reader signed in but
+            still looking at a login form. */}
+        <AuthScreen onAuthed={() => navigate({ screen: "home" })} />
       </RaillessFrame>
     );
   }

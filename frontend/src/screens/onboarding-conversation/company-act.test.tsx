@@ -645,6 +645,131 @@ describe("recovering from a rejected confirm", () => {
     await vi.waitFor(() => expect(continueButton).toBeEnabled());
   });
 
+  it("blocks a retry on the no-data path too, until the refetch it triggers actually settles", async () => {
+    // The proposal endpoint never succeeds here, so the confirm mutation
+    // falls back to `proposalFromRead(prevSnapshot.current)` on every
+    // attempt — the exact path the disabled-Continue guard must also cover,
+    // not only the one where `proposal.data` itself carries the hash.
+    let siteReadCalls = 0;
+    const gate: { release: (() => void) | null } = { release: null };
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: async () => {
+        siteReadCalls += 1;
+        if (siteReadCalls > 1) {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        return jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        });
+      },
+      "GET /onboarding/company/proposal": () =>
+        Promise.reject(new Error("proposal endpoint unreachable")),
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "version_skew" }, 409),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+
+    fireEvent.click(continueButton);
+
+    await screen.findByText(
+      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+    );
+    expect(continueButton).toBeDisabled();
+    await vi.waitFor(() => expect(siteReadCalls).toBeGreaterThan(1));
+    // The refetch this rejection triggered is in flight, and `proposal.data`
+    // will NEVER carry a hash on this path — a guard reading only that field
+    // would re-arm the instant it saw `undefined`, straight after the 409.
+    expect(continueButton).toBeDisabled();
+
+    gate.release?.();
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+  });
+
+  it("re-arms Continue once the skew refetch settles, even when it lands the SAME hash the server just rejected", async () => {
+    // Nothing about this refetch ever produces a different hash — a
+    // concurrent confirm elsewhere already left the draft exactly as it was.
+    // A guard that waited for a NEW hash before re-arming would never fire:
+    // the only other route out, `onMutate`, requires pressing Continue, which
+    // is the very button this state disables.
+    let proposalCalls = 0;
+    const gate: { release: (() => void) | null } = { release: null };
+    installFetchStub({
+      [`GET /company/site-reads/${REVIEW_READ_ID}`]: () =>
+        jsonResponse({
+          ...REVIEW_READ,
+          profile_fields: CONFIRM_FIELDS.map(toColdField),
+        }),
+      "GET /onboarding/company/proposal": async () => {
+        proposalCalls += 1;
+        if (proposalCalls > 1) {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        return jsonResponse(reviewProposal(CONFIRM_FIELDS));
+      },
+      [CONFIRM_PATH]: () =>
+        jsonResponse({ title: "conflict", code: "version_skew" }, 409),
+    });
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={REVIEW_STATE}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    const continueButton = await screen.findByRole("button", {
+      name: /Continue/,
+    });
+    fireEvent.click(continueButton);
+
+    await screen.findByText(
+      "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+    );
+    expect(continueButton).toBeDisabled();
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(1));
+    expect(continueButton).toBeDisabled();
+
+    gate.release?.();
+    // The refetch settled with an UNCHANGED hash. Re-arming here — rather
+    // than staying disabled forever — is what keeps this from being a lock
+    // with no way out.
+    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+  });
+
   it("only treats a bare conflict as an already-confirmed race once THIS read's own status says confirmed", async () => {
     let readCalls = 0;
     let getCompanyCalls = 0;

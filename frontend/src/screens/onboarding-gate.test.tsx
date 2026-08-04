@@ -496,10 +496,11 @@ describe("ReadTheatre page ticker", () => {
       />,
     );
 
-    // The fixture's last-arrived page is /legal — the ticker never shows an
-    // earlier one alongside it.
-    expect(screen.getByText("/legal")).toBeInTheDocument();
-    expect(screen.queryByText("/about")).toBeNull();
+    // The fixture's last-arrived FETCH is /about — the skip and the failure
+    // after it in the array are older news, not later arrivals, so the
+    // ticker never shows either one alongside it.
+    expect(screen.getByText("/about")).toBeInTheDocument();
+    expect(screen.queryByText("/legal")).toBeNull();
     expect(screen.queryByText("/careers")).toBeNull();
     expect(screen.getByText("2 pages read")).toBeInTheDocument();
   });
@@ -513,7 +514,7 @@ describe("ReadTheatre page ticker", () => {
         configuredModel={MODEL}
       />,
     );
-    expect(screen.getByText("/legal")).toBeInTheDocument();
+    expect(screen.getByText("/about")).toBeInTheDocument();
 
     rerender(
       <LocaleProvider initial="en">
@@ -537,7 +538,7 @@ describe("ReadTheatre page ticker", () => {
     );
 
     expect(screen.getByText("/team")).toBeInTheDocument();
-    expect(screen.queryByText("/legal")).toBeNull();
+    expect(screen.queryByText("/about")).toBeNull();
     expect(screen.getByText("3 pages read")).toBeInTheDocument();
   });
 
@@ -551,7 +552,11 @@ describe("ReadTheatre page ticker", () => {
       <ReadTheatre
         read={siteRead({
           pages: [
-            { url: "https://gradion.com", status: "fetched", kind: "home" },
+            {
+              url: "https://gradion.com/legal",
+              status: "fetched",
+              kind: "home",
+            },
             {
               url: "https://gradion.com/careers",
               status: "skipped",
@@ -566,14 +571,21 @@ describe("ReadTheatre page ticker", () => {
         configuredModel={MODEL}
       />,
     );
-    expect(screen.getByText("/careers")).toBeInTheDocument();
+    // Both pages arrive together on mount, nothing yet counting as "seen" —
+    // the fetch, being real news, wins the tie over the skip beside it.
+    expect(screen.getByText("/legal")).toBeInTheDocument();
+    expect(screen.queryByText("/careers")).toBeNull();
 
     rerender(
       <LocaleProvider initial="en">
         <ReadTheatre
           read={siteRead({
             pages: [
-              { url: "https://gradion.com", status: "fetched", kind: "home" },
+              {
+                url: "https://gradion.com/legal",
+                status: "fetched",
+                kind: "home",
+              },
               {
                 url: "https://gradion.com/team",
                 status: "fetched",
@@ -601,10 +613,77 @@ describe("ReadTheatre page ticker", () => {
     expect(screen.queryByText("/careers")).toBeNull();
   });
 
+  it("prefers a fetch that arrives in the very same poll as a new skip", () => {
+    // A fetch and a skip can both be genuinely new in one poll; the wire's
+    // fetched-first ordering must not make the skip look like the later
+    // arrival just because it sits last in the array.
+    const { rerender } = render(
+      <ReadTheatre
+        read={siteRead({
+          pages: [
+            {
+              url: "https://gradion.com/legal",
+              status: "fetched",
+              kind: "home",
+            },
+          ],
+          pages_read: 1,
+        })}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+    expect(screen.getByText("/legal")).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <ReadTheatre
+          read={siteRead({
+            pages: [
+              {
+                url: "https://gradion.com/legal",
+                status: "fetched",
+                kind: "home",
+              },
+              {
+                url: "https://gradion.com/team",
+                status: "fetched",
+                kind: "about",
+              },
+              {
+                url: "https://gradion.com/careers",
+                status: "skipped",
+                kind: "other",
+                reason: "not company context",
+              },
+            ],
+            pages_read: 2,
+          })}
+          host="gradion.com"
+          locale="en"
+          configuredModel={MODEL}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText("/team")).toBeInTheDocument();
+    expect(screen.queryByText("/careers")).toBeNull();
+  });
+
   it("shows the page once — the status word beside the path, never the url again", () => {
     render(
       <ReadTheatre
-        read={siteRead()}
+        read={siteRead({
+          pages: [
+            {
+              url: "https://gradion.com/legal",
+              status: "failed",
+              kind: "impressum",
+              reason: null,
+            },
+          ],
+        })}
         host="gradion.com"
         locale="en"
         configuredModel={MODEL}

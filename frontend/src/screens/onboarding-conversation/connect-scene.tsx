@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Check } from "lucide-react";
+import { Check, Circle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../../api/client";
@@ -89,13 +89,19 @@ const ROSTER_PROVIDER: Readonly<Record<MailProvider, string>> = {
 };
 
 /** The connected roster and whether it has actually been verified. `verified`
- *  is false both while the fetch is in flight and after it fails — the two
+ *  is false while the fetch is in flight (first load OR a later refetch, e.g.
+ *  the invalidation IMAP's own successful connect fires) and after it fails —
  *  states the scene's "pick one" rule cannot tell apart from "nothing is
- *  connected" without this flag, and both must withhold provider actions
- *  rather than treat an unread roster as an empty one. */
+ *  connected" without this flag, and all of them must withhold provider
+ *  actions rather than treat an unread or re-reading roster as an empty one.
+ *  `failed` and `retry` exist so a genuine read failure can be said out loud
+ *  and retried, rather than leaving every card silently and permanently
+ *  disabled with nothing on the surface explaining why. */
 type ConnectedMailRoster = Readonly<{
   providers: ReadonlySet<string>;
   verified: boolean;
+  failed: boolean;
+  retry: () => void;
 }>;
 
 /**
@@ -120,7 +126,9 @@ function useConnectedMailProviders(): ConnectedMailRoster {
   const connected = roster.data?.data.filter((c) => c.status === "connected");
   return {
     providers: new Set((connected ?? []).map((c) => c.provider)),
-    verified: roster.isSuccess,
+    verified: roster.isSuccess && !roster.isFetching,
+    failed: roster.isError,
+    retry: () => void roster.refetch(),
   };
 }
 
@@ -209,6 +217,13 @@ export function ConnectScene({
         </h3>
         <p>{t("ob.conv.connect.mailboxHint")}</p>
       </div>
+
+      {/* A mailbox is the required gate on this whole step, so a roster read
+          that failed outright cannot just leave every card silently disabled
+          — that reads as an ordinary "still loading" moment forever, with no
+          way out. Said out loud, with the one recovery that actually clears
+          it: reading the roster again. */}
+      {mailRoster.failed && <MailRosterFailed onRetry={mailRoster.retry} />}
 
       <div className="ob-connect-grid">
         {MAIL_PROVIDERS.map((key) => {
@@ -360,6 +375,37 @@ function ConnectGuarantees() {
   );
 }
 
+/** The honest failure the mailbox section shows when the roster read itself
+ * fails, matching the read-failure card the OAuth/IMAP panels already use
+ * (`ConnectWarn` in onboarding-connect-panels.tsx) — same visual language,
+ * with the one recovery this failure actually has: reading the roster again. */
+function MailRosterFailed({ onRetry }: Readonly<{ onRetry: () => void }>) {
+  const t = useT();
+  return (
+    <div
+      className="readfail warn"
+      role="alert"
+      style={{ maxWidth: 460, margin: "0 auto" }}
+    >
+      <span className="rfi">
+        <Circle aria-hidden />
+      </span>
+      <div>
+        <div className="rft">{t("ob.conv.connect.rosterFailedTitle")}</div>
+        <p className="rfp">{t("ob.conv.connect.rosterFailedBody")}</p>
+        <Button
+          small
+          variant="ghost"
+          onClick={onRetry}
+          style={{ marginTop: "var(--space-3)" }}
+        >
+          {t("common.retry")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type CardState = "idle" | "connected" | "blocked";
 
 /**
@@ -477,7 +523,16 @@ function LinkedinCard({
       {status === "pending" && open && (
         <ConnectDialog
           open
-          onClose={() => setOpen(false)}
+          // X, Escape, and backdrop all resolve to this ONE handler, so
+          // guarding it here is the one place that keeps every dismissal
+          // route from racing the save: a successful PUT landing after the
+          // reader already backed out would leave LinkedIn connected against
+          // a dialog that already closed on a different decision.
+          onClose={() => {
+            if (!pending) {
+              setOpen(false);
+            }
+          }}
           providerMarkKey="linkedin"
           headline={t("ob.conv.connect.dialogHeadlineAccess", {
             name: t("ob.conv.connect.linkedinName"),
@@ -569,6 +624,12 @@ function LinkedinPanel({
         <button
           type="button"
           className="ob-connect-dialog-notnow"
+          // Skipping and connecting are the two answers to the same
+          // question, so they cannot both be in flight at once: a skip that
+          // lands while the connect PUT is still pending would leave the
+          // account skipped locally against a save that lands connected
+          // right after, with nothing to reconcile the two.
+          disabled={pending}
           onClick={onSkip}
         >
           {t("ob.conv.linkedin.skip")}

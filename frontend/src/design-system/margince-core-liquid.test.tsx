@@ -3,9 +3,16 @@
 
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
-import { render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoreLiquid } from "./margince-core-liquid";
+
+// vite.config.ts doesn't enable globals, so @testing-library/react's own
+// auto-cleanup never runs here: without this, the rendered CoreLiquid is
+// never unmounted and its self-rescheduling requestAnimationFrame render
+// loop (stopped only by the effect's own cleanup on unmount) keeps running
+// for the rest of the file.
+afterEach(cleanup);
 
 // A minimal WebGL stand-in: every call the render effect makes on its way to
 // the first frame, none of the actual drawing. jsdom's own getContext is

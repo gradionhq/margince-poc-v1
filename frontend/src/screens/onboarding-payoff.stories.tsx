@@ -38,7 +38,11 @@ function startedAgo(ms: number): string {
   return new Date(NOW_MS - ms).toISOString();
 }
 
-function frame(counts: PayoffCounts, startedAt: string) {
+function frame(
+  counts: PayoffCounts,
+  startedAt: string,
+  resumedSession: boolean,
+) {
   return (
     <StoryProviders>
       {/* The width the payoff actually gets inside the conversation column,
@@ -49,7 +53,7 @@ function frame(counts: PayoffCounts, startedAt: string) {
           locale="en"
           startedAt={startedAt}
           nowMs={NOW_MS}
-          resumedSession={false}
+          resumedSession={resumedSession}
         />
       </div>
     </StoryProviders>
@@ -59,15 +63,19 @@ function frame(counts: PayoffCounts, startedAt: string) {
 const justFinished = startedAgo(4 * MINUTE_MS);
 
 export const FullCounts: Story = {
-  render: () => frame(complete, justFinished),
+  render: () => frame(complete, justFinished, false),
 };
 
 export const VoiceSkipped: Story = {
-  render: () => frame({ ...complete, voiceWords: null }, justFinished),
+  render: () => frame({ ...complete, voiceWords: null }, justFinished, false),
 };
 
 // Started one day, finished another — the counts are the same, the lead cannot
-// be.
+// be. `resumedSession: true` is what actually earns the timeless lead here;
+// the elapsed time alone would too (two days is well past PAYOFF_FRESH_WINDOW_MS),
+// but a story built to represent a restore should exercise the same guard a
+// restore does, not rely on the elapsed check as an accident of its own
+// picked start time.
 export const ResumedAcrossSessions: Story = {
-  render: () => frame(complete, startedAgo(2 * 24 * 60 * MINUTE_MS)),
+  render: () => frame(complete, startedAgo(2 * 24 * 60 * MINUTE_MS), true),
 };

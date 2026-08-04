@@ -140,9 +140,18 @@ const OAUTH_COPY: Record<
 export function OAuthConnectPanel({
   provider,
   onDismiss,
+  onPendingChange,
 }: Readonly<{
   provider: OAuthProvider;
   onDismiss: () => void;
+  /**
+   * Told whenever the connect POST's in-flight state changes. The caller
+   * wraps the dialog's own close handler with it: X, Escape, and backdrop
+   * dismissal all resolve to that ONE handler (see `ConnectDialog`), so this
+   * is the one place that lets them honor the same no-dismissal-during-submit
+   * invariant the disabled "Not now" button below already enforces.
+   */
+  onPendingChange?: (pending: boolean) => void;
 }>) {
   const t = useT();
   const copy = OAUTH_COPY[provider];
@@ -164,6 +173,9 @@ export function OAuthConnectPanel({
       }
     },
   });
+  useEffect(() => {
+    onPendingChange?.(connect.isPending);
+  }, [connect.isPending, onPendingChange]);
   return (
     <>
       {connect.isError && (
@@ -256,10 +268,11 @@ export function OAuthReturnPanel({
   // and the roster's first live OAuth mailbox is the best answer there.
   const unresolvedProvider = provider !== undefined && returning === null;
   // Computed unconditionally (ahead of every early return below) because the
-  // confirmation callback is a hook and every hook here has to run on every
-  // render. Every outcome besides a resolved "ok" is `undefined` roster data
-  // away from ever finding a live row, so `live` stays safely undefined for
-  // them rather than throwing.
+  // `useEffect` below is a hook and must run on every render before any early
+  // return, so `confirmed` (and the `live` value it derives from) has to be
+  // computed here too, to keep hook order stable. Every outcome besides a
+  // resolved "ok" is `undefined` roster data away from ever finding a live
+  // row, so `live` stays safely undefined for them rather than throwing.
   const live = connections.data?.data.find((c) =>
     returning === null
       ? asOAuthProvider(c.provider) !== null && c.status === "connected"
@@ -368,9 +381,13 @@ const IMAP_DEFAULT_PORT = "993";
 export function ImapConnectPanel({
   onComplete,
   onDismiss,
+  onPendingChange,
 }: Readonly<{
   onComplete: (skipped: boolean) => Promise<void>;
   onDismiss: () => void;
+  /** See `OAuthConnectPanel`'s own `onPendingChange` for what this reports
+   * and why the caller needs it. */
+  onPendingChange?: (pending: boolean) => void;
 }>) {
   const t = useT();
   const qc = useQueryClient();
@@ -417,6 +434,9 @@ export function ImapConnectPanel({
       setPassword("");
     },
   });
+  useEffect(() => {
+    onPendingChange?.(connect.isPending);
+  }, [connect.isPending, onPendingChange]);
 
   const parsedMax = max.trim() === "" ? 30 : Number(max);
   const ready =

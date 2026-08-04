@@ -473,7 +473,10 @@ function TheatreTail({
               <span className="ob-scan-ticker-path">
                 {sourcePath(latestPage.url) ?? "/"}
               </span>
-              <span className="ob-scan-ticker-kind">
+              <span
+                className="ob-scan-ticker-kind"
+                title={pageStatusWord(t, latestPage)}
+              >
                 {pageStatusWord(t, latestPage)}
               </span>
             </li>
@@ -530,13 +533,22 @@ function TheatreTail({
  * The page the ticker should say was "just walked".
  *
  * The wire's `pages` array carries no arrival order: the transport lists every
- * fetched page before any skipped one regardless of when either actually
- * happened, so the last array entry is not the newest page — once a single
- * page is skipped, `.at(-1)` would keep naming it forever, even while later
- * pages keep arriving. What IS honest is which URLs are new since the last
- * poll: this hook diffs against the URLs it has already shown and only a
+ * fetched page before any skipped or failed one regardless of when either
+ * actually happened, so the last array entry is not the newest page — once a
+ * single page is skipped, `.at(-1)` would keep naming it forever, even while
+ * later pages keep arriving. What IS honest is which URLs are new since the
+ * last poll: this hook diffs against the URLs it has already shown and only a
  * genuinely new arrival replaces the ticker. Between polls with no new page it
  * holds what it last showed rather than re-deriving a "latest" from position.
+ *
+ * A single poll can still deliver more than one new URL at once — a fresh
+ * fetch and a fresh skip together — and the wire's fetched-first ordering
+ * means the skip is always last among them, not because it happened later.
+ * A fetched page is real, useful news; a skip or failure is "nothing to see
+ * here". So among the newly-arrived URLs this hook prefers the latest fetched
+ * one, and only falls back to a skip/failure when nothing in the batch
+ * actually fetched — rather than guess which of several simultaneous
+ * arrivals is truly newest.
  */
 function useLatestArrivedPage(
   pages: readonly CompanySiteReadPage[],
@@ -544,7 +556,8 @@ function useLatestArrivedPage(
   const seen = useRef<Set<string>>(new Set());
   const latest = useRef<CompanySiteReadPage | null>(null);
   const arrived = pages.filter((page) => !seen.current.has(page.url));
-  const next = arrived.at(-1) ?? latest.current;
+  const arrivedFetched = arrived.filter((page) => page.status === "fetched");
+  const next = arrivedFetched.at(-1) ?? arrived.at(-1) ?? latest.current;
   useEffect(() => {
     for (const page of pages) {
       seen.current.add(page.url);

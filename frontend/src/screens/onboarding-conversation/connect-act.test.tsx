@@ -562,3 +562,221 @@ describe("the IMAP dialog", () => {
     expect(screen.getByRole("button", { name: /Microsoft/ })).toBeTruthy();
   });
 });
+
+// The disabled "Not now"/"Skip" buttons only guard their own click. The
+// dialog's other dismissal routes — X, Escape, backdrop — all resolve to the
+// SAME close handler (`ConnectDialog` → `Modal`), so a success landing after
+// one of those already backed the reader out would leave a connection stored
+// against a decision the panel already promised. Each provider serializes
+// its own decision by keeping that one handler from acting while its own
+// save is in flight.
+describe("dismissal during an in-flight connect request", () => {
+  it("keeps the OAuth dialog open against Escape while its connect POST is pending", async () => {
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+      "POST /connectors/graph/connect": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /Microsoft/ }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Allow access to my Microsoft",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Not now" })).toBeDisabled(),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    deferred.resolve?.(jsonResponse({}));
+  });
+
+  it("keeps the IMAP dialog open against Escape while its connect POST is pending", async () => {
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+      "POST /connectors/imap/connect": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
+    await userEvent.type(screen.getByLabelText("Email"), "me@example.com");
+    await userEvent.type(screen.getByLabelText("App password"), "secret");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Test and connect" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Not now" })).toBeDisabled(),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    deferred.resolve?.(
+      jsonResponse({
+        connection: {
+          id: "c1",
+          provider: "imap",
+          status: "connected",
+          scopes: [],
+        },
+      }),
+    );
+    await screen.findByText(/mailbox connected/i);
+  });
+
+  // LinkedIn's skip and its save race the same way mail's dismiss does: a
+  // successful PUT landing after a skip already dispatched would leave the
+  // account connected on the server against a machine state that says
+  // skipped, with no way to tell the later LINKEDIN_CONNECTED dispatch apart
+  // from a stale one.
+  it("keeps the LinkedIn dialog open and Skip disabled while its save is pending", async () => {
+    const deferred: { resolve: ((r: Response) => void) | null } = {
+      resolve: null,
+    };
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+      "PUT /me/linkedin-account": () =>
+        new Promise((resolve) => {
+          deferred.resolve = resolve;
+        }),
+    });
+    const { dispatch } = renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: /LinkedIn/ }));
+    await userEvent.type(
+      screen.getByLabelText("Your LinkedIn profile URL"),
+      "https://www.linkedin.com/in/lars",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Authorize with LinkedIn" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Skip LinkedIn for now" }),
+      ).toBeDisabled(),
+    );
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(dispatch).not.toHaveBeenCalledWith({ type: "LINKEDIN_SKIPPED" });
+
+    deferred.resolve?.(jsonResponse({ connected: true, connections: 0 }));
+    await waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "LINKEDIN_CONNECTED",
+        profile: "https://www.linkedin.com/in/lars",
+      }),
+    );
+  });
+});
+
+// A roster invalidation (IMAP's own successful connect fires one) puts the
+// query back into flight exactly like the first load did — the "pick one"
+// rule the cards enforce cannot tell that refetch apart from a first read
+// still pending, so both must withhold every card, not only the first.
+it("keeps mail provider cards disabled during a roster refetch, not just its first load", async () => {
+  const deferred: { resolve: ((r: Response) => void) | null } = {
+    resolve: null,
+  };
+  let rosterCalls = 0;
+  installFetchStub({
+    "GET /connectors": () => {
+      rosterCalls += 1;
+      if (rosterCalls === 1) {
+        return jsonResponse({ data: [] });
+      }
+      return new Promise((resolve) => {
+        deferred.resolve = resolve;
+      });
+    },
+    "POST /connectors/imap/connect": () =>
+      jsonResponse({
+        connection: {
+          id: "c1",
+          provider: "imap",
+          status: "connected",
+          scopes: [],
+        },
+      }),
+  });
+  renderConnectAct();
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Google/ })).not.toBeDisabled(),
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
+  await userEvent.type(screen.getByLabelText("Email"), "me@example.com");
+  await userEvent.type(screen.getByLabelText("App password"), "secret");
+  await userEvent.click(
+    screen.getByRole("button", { name: "Test and connect" }),
+  );
+  await screen.findByText(/mailbox connected/i);
+
+  // The connect just invalidated the shared roster query; its refetch (call
+  // #2, deferred above) is in flight, so Google/Microsoft — still, on the
+  // stale data, unconnected — must not be openable until it actually reports
+  // back.
+  expect(screen.getByRole("button", { name: /Google/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Microsoft/ })).toBeDisabled();
+
+  deferred.resolve?.(
+    jsonResponse({
+      data: [
+        {
+          id: "c1",
+          provider: "imap",
+          status: "connected",
+          scopes: [],
+          backfill: { state: "none" },
+        },
+      ],
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Google/ })).toBeDisabled(),
+  );
+});
+
+// A failed roster read is the ONE mail-gate failure with no other surface to
+// explain it: every card renders disabled either way, so a reader facing
+// them with no failed read has nothing to act on and no way to tell it apart
+// from an ordinary still-loading moment.
+it("says why every mail card is disabled when the roster read fails, and offers a retry", async () => {
+  let rosterCalls = 0;
+  installFetchStub({
+    "GET /connectors": () => {
+      rosterCalls += 1;
+      if (rosterCalls === 1) {
+        return jsonResponse({ code: "internal" }, 500);
+      }
+      return jsonResponse({ data: [] });
+    },
+  });
+  renderConnectAct();
+
+  expect(
+    await screen.findByText("Could not check your mailboxes"),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Google/ })).toBeDisabled();
+
+  await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /Google/ })).not.toBeDisabled(),
+  );
+  expect(
+    screen.queryByText("Could not check your mailboxes"),
+  ).not.toBeInTheDocument();
+});

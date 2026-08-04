@@ -114,8 +114,11 @@ describe("the scope preview", () => {
 
     await userEvent.click(screen.getByRole("radio", { name: /12 months/ }));
 
+    // The steady pending state for the new window: no estimate for ANY
+    // window is on screen — not the old one, and not a "new" one, since none
+    // has arrived yet — while the request for it is still in flight.
     expect(
-      screen.queryByText("About 100 messages in that window."),
+      screen.queryByText(/messages in that window\./),
     ).not.toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Connect and read" }),

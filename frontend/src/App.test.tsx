@@ -355,6 +355,66 @@ describe("password-reset deep link", () => {
     // with nowhere for the post-login redirect to go.
     expect(await screen.findByRole("navigation")).toBeTruthy();
   });
+
+  it("reaches home on a sign-in from a bare reset link that never carried a token", async () => {
+    // No query string at all — a stale or hand-typed "#/reset-password" with
+    // nothing to reset. resetTokenFromLocation finds no token, so this mounts
+    // straight into the ordinary login form (never ResetForm, and never the
+    // "Back to sign in" step that would otherwise have cleared the hash) — the
+    // hash stays exactly "#/reset-password" through the whole sign-in.
+    let authenticated = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const supporting = await supportingRoutes(input);
+        if (supporting) return supporting;
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return authenticated
+            ? new Response(
+                JSON.stringify({ user: { id: "u1" }, roles: [], teams: [] }),
+                {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                },
+              )
+            : new Response(JSON.stringify({ code: "unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/problem+json" },
+              });
+        }
+        if (url.endsWith("/v1/auth/login")) {
+          authenticated = true;
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith("/v1/company")) {
+          return new Response(
+            JSON.stringify({ organization_id: "o1", display_name: "Acme" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    window.location.hash = "#/reset-password";
+    mount();
+
+    await userEvent.type(await screen.findByLabelText("Email"), "a@b.com");
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "an entirely new password{enter}",
+    );
+    // The rail is proof the sign-in actually landed the reader on the app —
+    // the non-empty "#/reset-password" hash LoginForm's own redirect check
+    // preserves would otherwise leave this render stuck on the login form.
+    expect(await screen.findByRole("navigation")).toBeTruthy();
+  });
 });
 
 // The onboarding gate (A107/ADR-0061 + the 0082 anchor): an installation that

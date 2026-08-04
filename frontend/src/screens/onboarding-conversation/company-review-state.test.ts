@@ -58,4 +58,15 @@ describe("rowFor provenance", () => {
     expect(row.confidence).toBeNull();
     expect(row.state).toBe("stored");
   });
+
+  it("still attaches the proposal's evidence when only surrounding whitespace differs", () => {
+    // A stored profile value formFromProfile copied untouched can carry
+    // whitespace the proposal's own value never had — the same fact, not a
+    // different one the human has not accepted.
+    const draft = storedDraft("industry", "  Robotics  ");
+    const byName = new Map([["industry", proposalFieldFor("Robotics")]]);
+    const row = rowFor("industry", draft, byName, stubT);
+    expect(row.evidence).not.toBeNull();
+    expect(row.confidence).toBe(0.92);
+  });
 });

@@ -107,6 +107,12 @@ export function ConnectAct({
   // for every unconfirmed state, including one this panel's own "enter"
   // fallback would otherwise let a reader click past.
   const [mailConfirmed, setMailConfirmed] = useState(false);
+  // Whether the open dialog's own credential POST (OAuth's authorize call,
+  // IMAP's connect) is still in flight, told to us by the panel itself. A
+  // success landing after the reader already backed out via the dialog's X,
+  // Escape, or backdrop would leave a mailbox connected against a "no" the
+  // panel already promised, so `closeDialog` below refuses to act while true.
+  const [dialogBusy, setDialogBusy] = useState(false);
   const linkedin = useSaveLinkedInAccount();
 
   // Spends the mark once this mount has read it, so reloading the same
@@ -123,6 +129,9 @@ export function ConnectAct({
     setProvider(key);
   };
   const closeDialog = () => {
+    if (dialogBusy) {
+      return;
+    }
     setProvider(null);
     setResultFor(null);
   };
@@ -217,13 +226,25 @@ export function ConnectAct({
           dialogPanel={
             <>
               {provider === "google" && (
-                <OAuthConnectPanel provider="gmail" onDismiss={closeDialog} />
+                <OAuthConnectPanel
+                  provider="gmail"
+                  onDismiss={closeDialog}
+                  onPendingChange={setDialogBusy}
+                />
               )}
               {provider === "microsoft" && (
-                <OAuthConnectPanel provider="graph" onDismiss={closeDialog} />
+                <OAuthConnectPanel
+                  provider="graph"
+                  onDismiss={closeDialog}
+                  onPendingChange={setDialogBusy}
+                />
               )}
               {provider === "imap" && (
-                <ImapConnectPanel onComplete={finish} onDismiss={closeDialog} />
+                <ImapConnectPanel
+                  onComplete={finish}
+                  onDismiss={closeDialog}
+                  onPendingChange={setDialogBusy}
+                />
               )}
             </>
           }

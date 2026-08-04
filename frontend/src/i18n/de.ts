@@ -2224,6 +2224,10 @@ export const de = {
   "ob.conv.connect.linkedinConnected": "Verbunden",
   "ob.conv.connect.linkedinSkippedNote":
     "Übersprungen: später in den Einstellungen nachholbar",
+  "ob.conv.connect.rosterFailedTitle":
+    "Postfächer konnten nicht geprüft werden",
+  "ob.conv.connect.rosterFailedBody":
+    "Beim Laden deines Verbindungsstatus ist etwas schiefgelaufen. Versuche es erneut, bevor du einen Anbieter auswählst.",
   "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
   "ob.conv.voice.sceneSub":
     "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",

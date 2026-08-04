@@ -113,12 +113,19 @@ export function ResultsAct({
   // the reader is in the middle of, and a sentence that rewrites itself while
   // they read it is worse than one that ages by a minute.
   const nowMs = useNow(0);
-  // Only restore.ts stamps a colon-suffixed "recap:*" narration id; the bare
-  // "recap" id above is the live, never-restored transition into this act.
-  // The distinction is what lets payoffLeadKey stop trusting the device
-  // clock the moment two separately-clocked visits are actually in play.
+  // Only restore.ts stamps a "recap:*" narration id, and withEntries prefixes
+  // every id with its own seq number before it ever reaches the thread — so
+  // a restored entry reads "3:recap:company", never a bare "recap:company".
+  // The live, never-restored transition into this act stamps the unqualified
+  // "recap" id (conversation-machine.ts's applyEvent), which becomes "12:recap"
+  // the same way — no ":recap:" substring, because there is no name after it.
+  // Matching on that substring is what tells the two apart; a leading
+  // `startsWith("recap:")` check would see neither, since the seq prefix is
+  // always there first. The distinction is what lets payoffLeadKey stop
+  // trusting the device clock the moment two separately-clocked visits are
+  // actually in play.
   const resumedSession = state.thread.some(
-    (entry) => entry.kind === "narration" && entry.id.startsWith("recap:"),
+    (entry) => entry.kind === "narration" && entry.id.includes(":recap:"),
   );
   return (
     <ConversationWorkbench

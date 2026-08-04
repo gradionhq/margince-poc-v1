@@ -87,14 +87,25 @@ const statusQueryKey = (provider: Provider) => ["backfill-status", provider];
 // (`problemMessage` in common.tsx turns the RFC 7807 body into it); anything
 // else — a network failure, a thrown non-problem exception — is a raw
 // exception whose own message can leak internals, so it never reaches the
-// reader. It is logged here instead, and the caller falls back to the fixed
-// catalog sentence.
+// reader, and the caller falls back to the fixed catalog sentence. Logging it
+// is `useUnexpectedErrorLog`'s job, not this function's: this one only
+// derives text, so it stays safe to call from render as many times as
+// render happens to run.
 function readerDetail(error: unknown): string | null {
-  if (error instanceof ProblemError) {
-    return error.message;
-  }
-  console.error(error);
-  return null;
+  return error instanceof ProblemError ? error.message : null;
+}
+
+// The one place a raw (non-`ProblemError`) mutation failure reaches the
+// console. An effect, not a render-time call: a live run re-renders on every
+// poll and StrictMode invokes render twice, and `error` keeps the same
+// exception across every one of those — logging it from render would repeat
+// the same exception once per render instead of once per actual failure.
+function useUnexpectedErrorLog(isError: boolean, error: unknown): void {
+  useEffect(() => {
+    if (isError && !(error instanceof ProblemError)) {
+      console.error(error);
+    }
+  }, [isError, error]);
 }
 
 // The template-ready `{detail}` value for a mutation that may or may not
@@ -226,6 +237,10 @@ export function OnboardingBackread({
   const previewForSelection = preview.variables === selected;
   const previewSettled = previewForSelection && !preview.isPending;
 
+  useUnexpectedErrorLog(preview.isError, preview.error);
+  useUnexpectedErrorLog(start.isError, start.error);
+  useUnexpectedErrorLog(cancel.isError, cancel.error);
+
   if (status.data === undefined) {
     // A failed status read must not trap anyone in the wizard: capture itself
     // is unaffected, so the honest answer is the missing view plus the exit.
@@ -253,7 +268,11 @@ export function OnboardingBackread({
       <BackreadSetup
         selected={selected}
         onSelect={setSelected}
-        preview={previewForSelection ? preview.data : undefined}
+        // Gated on settled, not just on-selection: react-query already clears
+        // `data` while a mutation is pending, but this does not depend on
+        // that — the old window's estimate stays withheld on our own terms
+        // even if a future call resolves pending differently.
+        preview={previewSettled ? preview.data : undefined}
         previewProblem={
           previewForSelection
             ? safeDetail(preview.isError, preview.error, t)

@@ -532,9 +532,13 @@
   margin: var(--space-2) 0 0;
 }
 
+/* min-height reserves the wrapped case (path's own line plus the reason's
+   2-line clamp below it, see .ob-scan-ticker-kind) so the row never has to
+   grow into the total/cost strip beneath it — the slot is sized for the
+   worst case up front instead of after the fact. */
 .ob-scan-ticker-row {
   margin: 0;
-  min-height: 22px;
+  min-height: 46px;
   display: flex;
   align-items: baseline;
   padding: 4px var(--space-2);
@@ -542,11 +546,11 @@
   list-style: none;
 }
 
-/* Wraps rather than clips: at narrow phone widths or 200% zoom the path and
-   the status reason cannot both fit on one line, and a fixed one-line row
-   would have to cut one of them off. `min-height` (not `height`) already lets
-   the row grow when that happens, so wrapping costs nothing but the row's own
-   headroom. */
+/* Wraps rather than clips the path away from the reason: at narrow phone
+   widths or 200% zoom the two cannot both fit on one line. The row's
+   reserved height (above) already covers this wrap, so it costs no layout
+   shift; what it does not cover on its own is an unbounded reason, which
+   .ob-scan-ticker-kind's own line-clamp caps. */
 .ob-scan-ticker-entry {
   display: flex;
   flex-wrap: wrap;
@@ -575,13 +579,20 @@
 /* Shrinks and wraps rather than sitting fixed-width beside the path: a long
    skip or failure reason is prose, not a label, and clipping it silently
    would hide the one thing a reader needs from a page that did not come
-   back clean. */
+   back clean. Clamped to 2 lines so an unusually long reason still respects
+   the row's reserved height instead of pushing the total/cost strip below
+   it; the element's own `title` carries the reason in full for whatever the
+   clamp cuts off. */
 .ob-scan-ticker-kind {
+  display: -webkit-box;
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
   color: var(--textMeta);
   font-size: 10.5px;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 /* The running total: the honest count beside the single page on show, so a

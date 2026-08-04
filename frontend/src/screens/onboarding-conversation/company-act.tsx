@@ -128,16 +128,16 @@ export function CompanyAct({
   const [confirmNotice, setConfirmNotice] = useState<
     "skew" | "notReady" | null
   >(null);
-  // The proposal hash each confirm attempt actually submitted (set inside
-  // the mutation itself, not re-derived afterward — see the mutationFn's own
-  // comment), and the one a version-skew rejection was sent with. The
-  // latter lets `awaitingFreshProposal` below recognize when the refetch a
-  // rejection triggers has actually landed a NEW proposal, as opposed to
-  // still being in flight (react-query holds the old data steady while
-  // refetching): a retry before that lands would resubmit the exact draft
-  // the server just rejected.
-  const submittedProposalHash = useRef<string | undefined>(undefined);
-  const staleProposalHash = useRef<string | undefined>(undefined);
+  // True from the moment a version-skew 409 lands until the refetch it
+  // triggers has SETTLED — success, error, or an unchanged hash all count as
+  // settled. Retrying before that would resubmit the exact draft the server
+  // just rejected (react-query holds the old data steady while refetching);
+  // waiting for settlement rather than for a specific new hash is what keeps
+  // this from becoming a lock with no way out — a refetch that fails, or
+  // lands the same hash back (a concurrent confirm elsewhere left the draft
+  // unchanged), still hands control back to the reader instead of leaving
+  // Continue disabled forever with nothing left to change its mind.
+  const [awaitingProposalRefresh, setAwaitingProposalRefresh] = useState(false);
   // A run the machine already owns at mount was persisted when it started
   // (that is how restore found it), so its wizard-state join is already in
   // place; a fresh session joins when its own read starts.
@@ -285,12 +285,6 @@ export function CompanyAct({
       // version pair, so the staged-confirm contract still holds.
       const proposalData =
         proposal.data ?? (read !== null ? proposalFromRead(read) : undefined);
-      // Recorded from what is ACTUALLY going out, not re-derived from
-      // `proposal.data` later in onError: the proposal query can still be
-      // in flight when this fires (the required fields alone gate Continue,
-      // never proposal readiness), and re-reading it there would compare
-      // against a hash this request never claimed to be sending.
-      submittedProposalHash.current = proposalData?.proposal_hash;
       const result =
         read !== null &&
         (read.status === "ready" || read.status === "partial") &&
@@ -343,16 +337,17 @@ export function CompanyAct({
       const code = problemCodeOf(error);
       if (code === "version_skew") {
         // The proposal is cached separately from the read snapshot: refetching
-        // only the read (as before) leaves this hash unchanged, so an
+        // only the read (as before) leaves the stale proposal in place, so an
         // immediate retry would resubmit the very draft the server just
-        // rejected. Refreshing the proposal itself — and remembering what
-        // this attempt actually sent — lets `awaitingFreshProposal` below
-        // tell a same-hash refetch (still in flight, or unchanged) from an
-        // actually new one.
-        staleProposalHash.current = submittedProposalHash.current;
+        // rejected. Both refetches are awaited here, together, so Continue
+        // re-arms exactly once THIS attempt's own refresh has settled —
+        // whatever it turns up — rather than on some later, unrelated cache
+        // update landing.
         setConfirmNotice("skew");
-        void siteRead.refetch();
-        void proposal.refetch();
+        setAwaitingProposalRefresh(true);
+        void Promise.allSettled([siteRead.refetch(), proposal.refetch()]).then(
+          () => setAwaitingProposalRefresh(false),
+        );
         return;
       }
       if (code !== "conflict") {
@@ -381,14 +376,14 @@ export function CompanyAct({
   });
 
   // Continue must not resubmit the proposal the server just rejected for
-  // version skew: true from the moment that 409 lands until a refetch
-  // delivers a proposal with a DIFFERENT hash — react-query holds the old
-  // data (and its old hash) steady for the whole time the refetch is still
-  // in flight, so an unchanged hash means "not yet refreshed", not "already
-  // current".
+  // version skew: disabled for exactly as long as the refetch this driver
+  // kicked off in onError is still in flight, whether or not the proposal
+  // query ever holds any data — the no-data path (a proposal endpoint that
+  // never succeeded) is covered the same as the ordinary one, because the
+  // mutation itself falls back to `proposalFromRead(prevSnapshot.current)`
+  // either way.
   const awaitingFreshProposal =
-    confirmNotice === "skew" &&
-    proposal.data?.proposal_hash === staleProposalHash.current;
+    confirmNotice === "skew" && awaitingProposalRefresh;
 
   // The gate's own field is the ONE place a website address is typed — the
   // rail takes no free text, so there is no second entry point to keep in
