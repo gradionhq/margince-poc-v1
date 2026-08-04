@@ -21,6 +21,78 @@ const (
 	CookieAuthScopes cookieAuthContextKey = "cookieAuth.Scopes"
 )
 
+// Defines values for AIFeedbackInputClaimKind.
+const (
+	AIFeedbackInputClaimKindInferredKpi   AIFeedbackInputClaimKind = "inferred_kpi"
+	AIFeedbackInputClaimKindNextStep      AIFeedbackInputClaimKind = "next_step"
+	AIFeedbackInputClaimKindProfileField  AIFeedbackInputClaimKind = "profile_field"
+	AIFeedbackInputClaimKindResearchClaim AIFeedbackInputClaimKind = "research_claim"
+	AIFeedbackInputClaimKindSignal        AIFeedbackInputClaimKind = "signal"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputClaimKind enum.
+func (e AIFeedbackInputClaimKind) Valid() bool {
+	switch e {
+	case AIFeedbackInputClaimKindInferredKpi:
+		return true
+	case AIFeedbackInputClaimKindNextStep:
+		return true
+	case AIFeedbackInputClaimKindProfileField:
+		return true
+	case AIFeedbackInputClaimKindResearchClaim:
+		return true
+	case AIFeedbackInputClaimKindSignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AIFeedbackInputSubjectType.
+const (
+	AIFeedbackInputSubjectTypeDeal         AIFeedbackInputSubjectType = "deal"
+	AIFeedbackInputSubjectTypeLead         AIFeedbackInputSubjectType = "lead"
+	AIFeedbackInputSubjectTypeOrganization AIFeedbackInputSubjectType = "organization"
+	AIFeedbackInputSubjectTypePerson       AIFeedbackInputSubjectType = "person"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputSubjectType enum.
+func (e AIFeedbackInputSubjectType) Valid() bool {
+	switch e {
+	case AIFeedbackInputSubjectTypeDeal:
+		return true
+	case AIFeedbackInputSubjectTypeLead:
+		return true
+	case AIFeedbackInputSubjectTypeOrganization:
+		return true
+	case AIFeedbackInputSubjectTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AIFeedbackInputVerdict.
+const (
+	AIFeedbackInputVerdictConfirmed  AIFeedbackInputVerdict = "confirmed"
+	AIFeedbackInputVerdictCorrected  AIFeedbackInputVerdict = "corrected"
+	AIFeedbackInputVerdictSuppressed AIFeedbackInputVerdict = "suppressed"
+)
+
+// Valid indicates whether the value is a known member of the AIFeedbackInputVerdict enum.
+func (e AIFeedbackInputVerdict) Valid() bool {
+	switch e {
+	case AIFeedbackInputVerdictConfirmed:
+		return true
+	case AIFeedbackInputVerdictCorrected:
+		return true
+	case AIFeedbackInputVerdictSuppressed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AcceptedExtractionFieldProvenance.
 const (
 	AcceptedExtractionFieldProvenanceAiExtracted AcceptedExtractionFieldProvenance = "ai-extracted"
@@ -6623,31 +6695,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -7313,25 +7385,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	Blocked           ListAutomationRunsParamsOutcome = "blocked"
-	Failed            ListAutomationRunsParamsOutcome = "failed"
-	Fired             ListAutomationRunsParamsOutcome = "fired"
-	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	Skipped           ListAutomationRunsParamsOutcome = "skipped"
+	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
+	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
+	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
+	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case Blocked:
+	case ListAutomationRunsParamsOutcomeBlocked:
 		return true
-	case Failed:
+	case ListAutomationRunsParamsOutcomeFailed:
 		return true
-	case Fired:
+	case ListAutomationRunsParamsOutcomeFired:
 		return true
-	case QueuedForApproval:
+	case ListAutomationRunsParamsOutcomeQueuedForApproval:
 		return true
-	case Skipped:
+	case ListAutomationRunsParamsOutcomeSkipped:
 		return true
 	default:
 		return false
@@ -7391,16 +7463,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
-	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
+	Active  ListCustomFieldsParamsStatus = "active"
+	Retired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsStatusActive:
+	case Active:
 		return true
-	case ListCustomFieldsParamsStatusRetired:
+	case Retired:
 		return true
 	default:
 		return false
@@ -8090,6 +8162,34 @@ func (e ListSavedViewsParamsResource) Valid() bool {
 		return false
 	}
 }
+
+// AIFeedbackInput A human's verdict on one derived claim.
+type AIFeedbackInput struct {
+	ClaimKind AIFeedbackInputClaimKind `json:"claim_kind"`
+
+	// ClaimPath What the claim is ABOUT, not what it says — `profile_field:title`, `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the same logical claim maps to the same verdict across every re-derivation.
+	ClaimPath string `json:"claim_path"`
+
+	// CorrectedValue The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in.
+	CorrectedValue *string `json:"corrected_value,omitempty"`
+
+	// Note Why, in the human's words. Optional and never shown to a model.
+	Note      *string            `json:"note,omitempty"`
+	SubjectId openapi_types.UUID `json:"subject_id"`
+
+	// SubjectType The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+	SubjectType AIFeedbackInputSubjectType `json:"subject_type"`
+	Verdict     AIFeedbackInputVerdict     `json:"verdict"`
+}
+
+// AIFeedbackInputClaimKind defines model for AIFeedbackInput.ClaimKind.
+type AIFeedbackInputClaimKind string
+
+// AIFeedbackInputSubjectType The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+type AIFeedbackInputSubjectType string
+
+// AIFeedbackInputVerdict defines model for AIFeedbackInput.Verdict.
+type AIFeedbackInputVerdict string
 
 // AcceptExtractionRequest defines model for AcceptExtractionRequest.
 type AcceptExtractionRequest struct {
@@ -12770,7 +12870,7 @@ type Person360Employment struct {
 	OrganizationName *string            `json:"organization_name,omitempty"`
 	RelationshipId   openapi_types.UUID `json:"relationship_id"`
 
-	// Role The title as the edge records it
+	// Role The title as the edge records it, which may differ from the person's own title field.
 	Role      *string    `json:"role,omitempty"`
 	StartedAt *time.Time `json:"started_at,omitempty"`
 }
@@ -17732,6 +17832,9 @@ type ResetDataJSONRequestBody ResetDataJSONBody
 
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
+
+// RecordAIFeedbackJSONRequestBody defines body for RecordAIFeedback for application/json ContentType.
+type RecordAIFeedbackJSONRequestBody = AIFeedbackInput
 
 // ApproveApprovalJSONRequestBody defines body for ApproveApproval for application/json ContentType.
 type ApproveApprovalJSONRequestBody = ApproveRequest
@@ -23798,6 +23901,9 @@ type ServerInterface interface {
 	// One call — attempt ladder, routing identity, context provenance, captured payload.
 	// (GET /ai/calls/{id})
 	GetAiCall(w http.ResponseWriter, r *http.Request, id Id)
+	// Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+	// (POST /ai/feedback)
+	RecordAIFeedback(w http.ResponseWriter, r *http.Request)
 	// Authenticated AI configuration posture for transparent human-facing workspaces.
 	// (GET /ai/profile)
 	GetAiProfile(w http.ResponseWriter, r *http.Request)
@@ -24755,6 +24861,12 @@ func (_ Unimplemented) ListAiCalls(w http.ResponseWriter, r *http.Request, param
 // One call — attempt ladder, routing identity, context provenance, captured payload.
 // (GET /ai/calls/{id})
 func (_ Unimplemented) GetAiCall(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+// (POST /ai/feedback)
+func (_ Unimplemented) RecordAIFeedback(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -27309,6 +27421,26 @@ func (siw *ServerInterfaceWrapper) GetAiCall(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetAiCall(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RecordAIFeedback operation middleware
+func (siw *ServerInterfaceWrapper) RecordAIFeedback(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RecordAIFeedback(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -40742,6 +40874,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/calls/{id}", wrapper.GetAiCall)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/ai/feedback", wrapper.RecordAIFeedback)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/ai/profile", wrapper.GetAiProfile)

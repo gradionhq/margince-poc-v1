@@ -849,6 +849,43 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /ai/feedback:
+    post:
+      tags: [AI]
+      operationId: recordAIFeedback
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+      description: |
+        Everything inferred is re-derived rather than stored, which keeps it honest and also
+        makes it forget: correct a claim and the next read asserts the same wrong thing again.
+        This is where a human's answer is remembered (AIRT-AC-9).
+
+        `suppressed` is never surfaced again. `corrected` shows the human's value and is never
+        overwritten by a fresh inference without a recorded 🟡 approval. `confirmed` may carry a
+        "confirmed by" marker. One current verdict per claim: re-deciding replaces, and
+        `audit_log` carries the history.
+
+        `claim_path` names WHAT the claim is about (`profile_field:title`,
+        `moment:replied_after_gap`) and never its value. That is what makes a verdict survive
+        re-derivation — keyed on the value it would evaporate exactly when the evidence shifts,
+        which is when the human's answer matters most.
+
+        Gated on the SUBJECT's update grant: correcting what the system says about a contact is
+        editing that contact. Human-only, because the whole point of the row is that a person
+        decided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AIFeedbackInput' }
+      responses:
+        '204': { description: The verdict is recorded. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /people/{id}/profile-fields:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -11289,7 +11326,9 @@ components:
         relationship_id: { type: string, format: uuid }
         organization_id: { type: string, format: uuid }
         organization_name: { type: [string, 'null'] }
-        role: { type: [string, 'null'], description: The title as the edge records it, which may differ from the person's own title field. }
+        role:
+          type: [string, 'null']
+          description: The title as the edge records it, which may differ from the person's own title field.
         is_current_primary: { type: boolean }
         started_at: { type: [string, 'null'], format: date-time }
         ended_at: { type: [string, 'null'], format: date-time, description: Null means ongoing. A former employment keeps its row — history is never overwritten. }
@@ -11402,6 +11441,38 @@ components:
           description: The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
           items: { $ref: '#/components/schemas/PersonProfileField' }
         since_last_visit: { $ref: '#/components/schemas/Person360SinceLastVisit' }
+
+    AIFeedbackInput:
+      type: object
+      description: A human's verdict on one derived claim.
+      required: [subject_type, subject_id, claim_kind, claim_path, verdict]
+      properties:
+        subject_type:
+          type: string
+          description: The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+          enum: [organization, person, deal, lead]
+        subject_id: { type: string, format: uuid }
+        claim_kind:
+          type: string
+          enum: [profile_field, inferred_kpi, next_step, signal, research_claim]
+        claim_path:
+          type: string
+          maxLength: 200
+          description: >-
+            What the claim is ABOUT, not what it says — `profile_field:title`,
+            `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the
+            same logical claim maps to the same verdict across every re-derivation.
+        verdict:
+          type: string
+          enum: [corrected, suppressed, confirmed]
+        corrected_value:
+          type: string
+          maxLength: 2000
+          description: The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in.
+        note:
+          type: string
+          maxLength: 2000
+          description: Why, in the human's words. Optional and never shown to a model.
 
     PersonRelationshipChange:
       type: object

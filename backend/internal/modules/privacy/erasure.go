@@ -387,6 +387,16 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID); err != nil {
 		return nil, err
 	}
+	// The correction ledger holds what a human typed over what the system
+	// inferred — a title, a phone number, a note — so a corrected verdict is a
+	// held attribute of the subject like any other. Deleted rather than
+	// nulled: a verdict with no value is not a verdict, and the ledger's whole
+	// purpose is to suppress claims about a person nobody may now assert
+	// anything about.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM ai_feedback WHERE subject_type = 'person' AND subject_id = $1`, personID); err != nil {
+		return nil, err
+	}
 	return wiped, nil
 }
 

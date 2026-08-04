@@ -443,6 +443,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record a human's verdict on a claim the system derived — the correction the next re-derivation must respect.
+         * @description Everything inferred is re-derived rather than stored, which keeps it honest and also
+         *     makes it forget: correct a claim and the next read asserts the same wrong thing again.
+         *     This is where a human's answer is remembered (AIRT-AC-9).
+         *
+         *     `suppressed` is never surfaced again. `corrected` shows the human's value and is never
+         *     overwritten by a fresh inference without a recorded 🟡 approval. `confirmed` may carry a
+         *     "confirmed by" marker. One current verdict per claim: re-deciding replaces, and
+         *     `audit_log` carries the history.
+         *
+         *     `claim_path` names WHAT the claim is about (`profile_field:title`,
+         *     `moment:replied_after_gap`) and never its value. That is what makes a verdict survive
+         *     re-derivation — keyed on the value it would evaporate exactly when the evidence shifts,
+         *     which is when the human's answer matters most.
+         *
+         *     Gated on the SUBJECT's update grant: correcting what the system says about a contact is
+         *     editing that contact. Human-only, because the whole point of the row is that a person
+         *     decided.
+         */
+        post: operations["recordAIFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/people/{id}/profile-fields": {
         parameters: {
             query?: never;
@@ -7369,7 +7405,7 @@ export interface components {
             /** Format: uuid */
             organization_id: string;
             organization_name?: string | null;
-            /** @description The title as the edge records it */
+            /** @description The title as the edge records it, which may differ from the person's own title field. */
             role?: string | null;
             is_current_primary: boolean;
             /** Format: date-time */
@@ -7457,6 +7493,26 @@ export interface components {
             /** @description The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`. */
             profile_fields?: components["schemas"]["PersonProfileField"][];
             since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
+        };
+        /** @description A human's verdict on one derived claim. */
+        AIFeedbackInput: {
+            /**
+             * @description The record the claim is about. One ledger across all four, so a correction made on one screen binds on the others.
+             * @enum {string}
+             */
+            subject_type: "organization" | "person" | "deal" | "lead";
+            /** Format: uuid */
+            subject_id: string;
+            /** @enum {string} */
+            claim_kind: "profile_field" | "inferred_kpi" | "next_step" | "signal" | "research_claim";
+            /** @description What the claim is ABOUT, not what it says — `profile_field:title`, `moment:replied_after_gap`. Hashed server-side into the stable claim key, so the same logical claim maps to the same verdict across every re-derivation. */
+            claim_path: string;
+            /** @enum {string} */
+            verdict: "corrected" | "suppressed" | "confirmed";
+            /** @description The human's value. Required for `corrected` and refused for the other two — a corrected verdict with no value is an answer that was lost on the way in. */
+            corrected_value?: string;
+            /** @description Why, in the human's words. Optional and never shown to a model. */
+            note?: string;
         };
         /**
          * @description One thing that happened to a relationship, with the evidence for it. Derived at read
@@ -12874,6 +12930,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecordViewAck"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordAIFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIFeedbackInput"];
+            };
+        };
+        responses: {
+            /** @description The verdict is recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];

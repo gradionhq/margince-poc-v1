@@ -102,6 +102,13 @@ var piiTables = map[string]piiHandling{
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
+	// The correction ledger holds what a human typed OVER what the system
+	// inferred — a title, a phone number, a free-text note about the subject.
+	// The verdict is a decision a person made about them, so Art. 15 hands it
+	// back, and Art. 17 deletes rather than nulls it: a verdict with no value
+	// is not a verdict, and suppressions about a person nobody may now assert
+	// anything about have nothing left to suppress.
+	"ai_feedback": {erasureWrite: true, sarRead: true},
 	// The capture disposition ledger keys on the subject's own address and
 	// keeps the display name their mail arrived with (CAP-DDL-8).
 	"capture_pending_counterparty": {erasureWrite: true, sarRead: true},

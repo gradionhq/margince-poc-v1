@@ -53,6 +53,11 @@ type SARPackage struct {
 	ConsentEvents       []map[string]any `json:"consent_events"`
 	RawCapture          []map[string]any `json:"raw_capture"`
 	FieldOrigins        []map[string]any `json:"field_origins"`
+	// Corrections is what a human recorded over what the system inferred
+	// about this subject. It is theirs twice over: the value was typed by a
+	// person about them, and the suppressions are the record of which claims
+	// this installation has agreed to stop making.
+	Corrections []map[string]any `json:"corrections"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -288,6 +293,13 @@ func sarSections(pkg *SARPackage) []sarSection {
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},
+		// claim_key is exported as it stands: it is a hash of the claim's
+		// path, so it names WHICH claim was decided without carrying the
+		// asserted value, which the ledger never stores in the first place.
+		{&pkg.Corrections, `SELECT af.claim_kind, af.claim_key, af.verdict, af.corrected_value, af.note,
+		          af.captured_by, af.created_at, af.updated_at
+		   FROM ai_feedback af
+		   WHERE af.subject_type = 'person' AND af.subject_id = $1`},
 	}
 }
 
