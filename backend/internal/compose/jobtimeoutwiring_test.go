@@ -29,7 +29,7 @@ import (
 )
 
 // governedRegistrationFloor guards against a vacuous pass. This package
-// registers 53 kinds through the helper today; the floor sits at 45 so
+// registers 55 kinds through the helper today; the floor sits at 45 so
 // retiring a few passes does not drag the gate along, while a walker that
 // matched nothing — or a rename of the helper — still trips it.
 const governedRegistrationFloor = 45

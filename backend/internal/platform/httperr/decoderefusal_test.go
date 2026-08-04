@@ -109,10 +109,10 @@ var decodeRefusalCases = []decodeRefusalCase{
 		wantDetail: "the payload must be a JSON object, not an array",
 	},
 	{
-		name:       "a uuid the library refuses with no exported type falls back to the generic sentence",
+		name:       "a uuid the library refuses names the field even though its words are withheld",
 		body:       `{"to_stage_id":"abcdef"}`,
 		decode:     intoAdvanceDeal,
-		wantDetail: genericDecodeDetail,
+		wantDetail: "`to_stage_id` must be a UUID string but the value sent was not accepted",
 	},
 	{
 		name:       "a timestamp names RFC 3339, never the layout that describes it",
@@ -133,10 +133,10 @@ var decodeRefusalCases = []decodeRefusalCase{
 		wantDetail: "`links.entity_id` must be a UUID string, not a number",
 	},
 	{
-		name:       "a value whose own unmarshaller ran states the shape without claiming a field",
+		name:       "a value whose own unmarshaller ran is still traced back to its field",
 		body:       `{"expected_close_date":5}`,
 		decode:     intoCreateDeal,
-		wantDetail: "a value in the payload must be a string, not a number",
+		wantDetail: "`expected_close_date` must be a date in YYYY-MM-DD form, not a number",
 	},
 	{
 		name:       "an enum names the wire shape, never the generated type",
@@ -148,7 +148,7 @@ var decodeRefusalCases = []decodeRefusalCase{
 		name:       "an integer field names an integer, not its width",
 		body:       `{"amount_minor":"x"}`,
 		decode:     intoCreateDeal,
-		wantDetail: "a value in the payload must be an integer, not a string",
+		wantDetail: "`amount_minor` must be an integer, not a string",
 	},
 	{
 		name:       "malformed JSON carries the offset and nothing else",
@@ -219,6 +219,11 @@ func TestDecode_neverAnswersWithADecoderSentence(t *testing.T) {
 // Withholding a message is not the same as losing it: the shape nothing could
 // name is the one an operator most needs to see, because it is the one that
 // says a decode failure exists that this file does not yet translate.
+//
+// Naming the FIELD does not end the obligation. The caller now learns which
+// input to change and what that input holds, which is all of their half; the
+// reason the library refused the value is still this program's own vocabulary
+// and still owed to a log.
 func TestDecode_theUnnamedShapeStillReachesTheLog(t *testing.T) {
 	var logged bytes.Buffer
 	restore := slog.Default()
@@ -226,8 +231,11 @@ func TestDecode_theUnnamedShapeStillReachesTheLog(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(restore) })
 
 	_, detail := decodeBody(t, `{"to_stage_id":"abcdef"}`, intoAdvanceDeal)
-	if detail != genericDecodeDetail {
-		t.Fatalf("detail = %q, want the generic sentence — this case is the masked one", detail)
+	if !strings.Contains(detail, "`to_stage_id` must be a UUID string") {
+		t.Fatalf("detail = %q, want it to name the field and the shape it holds", detail)
+	}
+	if strings.Contains(detail, "invalid UUID length") {
+		t.Fatalf("detail = %q, want the library's own words withheld", detail)
 	}
 	if !strings.Contains(logged.String(), "invalid UUID length") {
 		t.Errorf("the withheld cause is in no log line: %q", logged.String())
@@ -260,9 +268,27 @@ func TestClassify_seamFieldDecodeIsRestatedButNeverOverwritten(t *testing.T) {
 			wantDetail: `unknown fields "assignee", "subjekt"`,
 		},
 		{
-			name:       "a value the uuid library refuses falls back to the generic sentence",
+			name:       "a value the uuid library refuses names the field and withholds the library",
 			fields:     `{"assignee_id":"abcdef"}`,
-			wantDetail: genericDecodeDetail,
+			wantDetail: "`assignee_id` must be a UUID string but the value sent was not accepted",
+		},
+		{
+			// The reported failure, verbatim. It answered "the payload must be
+			// a JSON object, not a string" about a payload that is an object,
+			// and the session that read it filed a transport bug.
+			name:   "an activity's links sent as an array of ids names the field and the item shape",
+			fields: `{"kind":"email","links":["019fcb8a-1e77-72ad-a2ad-5bc1b335a8f9"]}`,
+			wantDetail: "`links` must be an array of objects, not an array of strings; " +
+				`each item is {entity_id: uuid, entity_type: string}`,
+		},
+		{
+			// The same field with the right SHAPE and guessed KEYS: the array
+			// of objects was an array of objects, so the refusal says what it
+			// takes rather than contradicting what arrived.
+			name:   "an activity's links with guessed keys says what an item takes",
+			fields: `{"kind":"email","links":[{"organization_id":"019fcb8a-1e77-72ad-a2ad-5bc1b335a8f9"}]}`,
+			wantDetail: "`links` must be an array of objects but the value sent was not accepted; " +
+				`each item is {entity_id: uuid, entity_type: string}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -300,8 +326,12 @@ func TestClassify_theSeamsMaskedCauseStillReachesTheLog(t *testing.T) {
 		t.Fatal("a malformed uuid was accepted")
 	}
 	_, body := writeAndDecode(t, err)
-	if detail, _ := body["detail"].(string); detail != genericDecodeDetail {
-		t.Fatalf("detail = %q, want the generic sentence — this case is the masked one", detail)
+	detail, _ := body["detail"].(string)
+	if !strings.Contains(detail, "`assignee_id` must be a UUID string") {
+		t.Fatalf("detail = %q, want it to name the field and the shape it holds", detail)
+	}
+	if strings.Contains(detail, "invalid UUID length") {
+		t.Fatalf("detail = %q, want the library's own words withheld", detail)
 	}
 	if !strings.Contains(logged.String(), "invalid UUID length") {
 		t.Errorf("the withheld cause is in no log line: %q", logged.String())
@@ -341,4 +371,50 @@ func TestUnmarshalTypeDetail_survivesAnErrorCarryingNoType(t *testing.T) {
 		t.Errorf("detail = %q, want it to say what the caller sent", detail)
 	}
 	assertNoInternals(t, detail)
+}
+
+// The reported organization patch, through the REST body decode as well as the
+// seam. A body reaches the same contract structs by either route, and a client
+// told two different things about one mistake has to learn which surface it is
+// on before it can read either answer.
+func TestDecode_theReportedOrganizationPatchNamesItsField(t *testing.T) {
+	intoUpdateOrg := func(w http.ResponseWriter, r *http.Request) bool {
+		var req crmcontracts.UpdateOrganizationRequest
+		return Decode(w, r, &req)
+	}
+	const want = "`domains` must be an array of objects, not an array of strings; " +
+		`each item is {domain: string, is_primary?: boolean}`
+
+	status, detail := decodeBody(t, `{"domains":["openrouter.ai"]}`, intoUpdateOrg)
+	if status != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422", status)
+	}
+	if !strings.Contains(detail, want) {
+		t.Errorf("REST detail = %q, want it to say %q", detail, want)
+	}
+
+	var req crmcontracts.UpdateOrganizationRequest
+	err := datasource.StrictDecode(json.RawMessage(`{"domains":["openrouter.ai"]}`), &req)
+	if err == nil {
+		t.Fatal("the seam accepted an array of strings")
+	}
+	_, body := writeAndDecode(t, err)
+	seamDetail, _ := body["detail"].(string)
+	if !strings.Contains(seamDetail, want) {
+		t.Errorf("seam detail = %q, want it to say %q", seamDetail, want)
+	}
+}
+
+// The shape the refusal asks for is the shape that works. A message naming a
+// structure the decoder then rejects would cost a caller the round trip it was
+// written to save.
+func TestDecode_theShapeTheRefusalNamesIsAccepted(t *testing.T) {
+	var req crmcontracts.UpdateOrganizationRequest
+	raw := json.RawMessage(`{"domains":[{"domain":"openrouter.ai","is_primary":true}]}`)
+	if err := datasource.StrictDecode(raw, &req); err != nil {
+		t.Fatalf("the shape the refusal names was refused: %v", err)
+	}
+	if req.Domains == nil || len(*req.Domains) != 1 || (*req.Domains)[0].Domain != "openrouter.ai" {
+		t.Errorf("domains = %+v, want the one item that was sent", req.Domains)
+	}
 }

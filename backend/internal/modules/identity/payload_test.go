@@ -230,7 +230,9 @@ func TestPassportRevokedPayload(t *testing.T) {
 }
 
 func TestOnboardingStateChangedPayload(t *testing.T) {
-	payload := onboardingStateChangedPayload(payloadTestUserID.UUID, "website", "connect", 3, true, false, false)
+	payload := onboardingStateChangedPayload(payloadTestUserID.UUID, OnboardingState{
+		Path: "website", Step: "connect", Version: 3, VoiceSkipped: true,
+	})
 
 	if !reflect.DeepEqual(payload.EventType(), "onboarding.state_changed") {
 		t.Errorf("got %v, want %v", payload.EventType(), "onboarding.state_changed")

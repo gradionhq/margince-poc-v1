@@ -26,7 +26,7 @@ previous merge.
 ## Run only the checks a change can affect
 
 The first job, **`changes`**, classifies the diff (dorny/paths-filter,
-SHA-pinned) into three scopes; every downstream job gates on the relevant
+SHA-pinned) into four scopes; every downstream job gates on the relevant
 output. A required job skipped this way still counts as passing.
 
 | Scope | Paths | Gates |
@@ -34,6 +34,7 @@ output. A required job skipped this way still counts as passing.
 | `backend` | `backend/**`, `infra/**`, `go.work[.sum]`, `Makefile`, `scripts/**`, `.github/workflows/**`, `AGENTS.md`, `sonar-project.properties` | Go build/gate, craftsmanship, integration, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**` | full-stack live-boot |
+| `docker` | root `Dockerfile.*`, `.dockerignore` | the three image builds |
 
 Consequences:
 
@@ -55,6 +56,7 @@ changes ──┬─> deterministic-gates ──> craftsmanship
           ├─> vuln                                                     │
           ├─> frontend ──> uat                                         │
           ├─> live-boot                                                │
+          ├─> docker-image (×3: api, web, worker) ─> docker-images     │
           v                                                            v
         deterministic-gates + integration + frontend ──────> sonarcloud
   dco  (PR-only, independent)
@@ -88,6 +90,8 @@ one required check.
 | `frontend` | `make frontend-check` (biome + vitest + tsc + Vite build) + a Storybook catalog build (stories must compile & register). Emits `fe-coverage` (lcov) |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
 | `live-boot` | The README quickstart run literally: compose up → migrate → api → `seed-dev` → `verify-boot`. Keeps the API-driven seed and the boot proof honest — the integration shards never boot the api or run the seed script, so those would rot invisibly without this job |
+| `docker image (api\|web\|worker)` | `docker build` of the root Dockerfiles, which only downstream deploy tooling otherwise consumes. Without it a `FROM` bump or stage restructure matches no other classifier scope — every meaningful job skips and the PR looks green — which matters doubly now that Renovate auto-merges green dependency PRs, `dockerfile` manager included |
+| `docker images (api + web + worker)` | The fan-in — and the required check. A path-skipped matrix job reports one check run under its **unexpanded** name, so the leg names can't be required contexts; this static-named job asserts every build leg succeeded (same shape as the `integration` fan-in: it must run and fail, not skip, when a leg fails) |
 | `sonarcloud` | The CI-based scan (below) |
 
 ## Coverage → SonarCloud
@@ -122,7 +126,7 @@ Wiring details:
   pushes).
 - `persist-credentials: false` on the checkouts of the jobs that execute
   PR-authored code (the `integration` shards, unit-coverage pass and fan-in,
-  `live-boot`, `frontend`, `uat`) — so a
+  `live-boot`, `frontend`, `uat`, the `docker image` builds) — so a
   malicious PR running `make test-integration` / `make frontend-e2e` can't read
   the persisted `GITHUB_TOKEN`. The diff-scoped gate jobs
   (`deterministic-gates`, `craftsmanship`, `craft-residue`) keep the token on

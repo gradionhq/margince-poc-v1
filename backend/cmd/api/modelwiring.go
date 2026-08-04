@@ -11,6 +11,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
@@ -37,10 +38,29 @@ import (
 // callers that cache model-written content keyed on it.
 func routingVersionOf(cfg ai.RoutingConfig) string { return cfg.RoutingVersion() }
 
-func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
+// modelPathSpec names the boot knobs resolveModelPath switches on, so a call
+// site labels each flag instead of passing anonymous booleans.
+type modelPathSpec struct {
+	routingPath     string
+	fakeBrain       bool
+	capturePayloads bool
+}
+
+// modelPathSpecFrom gathers the model-path knobs from where each is declared:
+// the routing choice from the process flags, the capture posture from the
+// deployment config.
+func modelPathSpecFrom(cfg apiConfig, deployCfg deployconfig.Config) modelPathSpec {
+	return modelPathSpec{
+		routingPath:     cfg.routingPath,
+		fakeBrain:       cfg.fakeBrain,
+		capturePayloads: deployCfg.AI.CapturePayloads,
+	}
+}
+
+func resolveModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
 	switch {
-	case routingPath != "":
-		cfg, err := ai.LoadRoutingFile(routingPath)
+	case spec.routingPath != "":
+		cfg, err := ai.LoadRoutingFile(spec.routingPath)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}
@@ -51,15 +71,15 @@ func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, ca
 		for _, w := range cfg.UnboundLadderWarnings() {
 			log.Warn(w)
 		}
-		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
+		modelPath, err := compose.NewModelPath(cfg, pool, spec.capturePayloads, log)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}
 		return &modelPath, compose.AIStateConfigured,
 			ai.NewPublicProfile(compose.AIStateConfigured, cfg), routingVersionOf(cfg), nil
-	case fakeBrain:
+	case spec.fakeBrain:
 		cfg := ai.FakeRoutingConfig()
-		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
+		modelPath, err := compose.NewModelPath(cfg, pool, spec.capturePayloads, log)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}

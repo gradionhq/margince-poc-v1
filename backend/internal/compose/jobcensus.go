@@ -35,7 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
-// declaredJobKindFloor guards against a vacuous pass. The contract declares 53
+// declaredJobKindFloor guards against a vacuous pass. The contract declares 55
 // kinds today; the floor sits low enough that retiring a few passes does not
 // drag it along, and high enough that a Declared() answering nothing — which
 // would make every check below iterate zero times — is reported rather than

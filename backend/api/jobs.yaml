@@ -859,6 +859,43 @@ kinds:
     args:
       Workspace: id
 
+  signal_scan:
+    role: dispatcher
+    go_type: SignalScanArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 1h
+    fans_out_to: signal_scan_workspace
+    fan_out_unit: workspace
+    reason: >-
+      Hourly, like capture_classify and for the same reason: a caught-up
+      workspace costs one indexed probe, and an account whose own mail ends a
+      contract should not wait a day for the card that says so. It takes the
+      dispatcher's two minutes above unchanged — the scanning is entirely the
+      child's, and this half enumerates the fleet and inserts one row per
+      workspace.
+
+  signal_scan_workspace:
+    role: workspace
+    go_type: SignalScanWorkspaceArgs
+    queue: ai_capture
+    timeout: 20m
+    max_attempts: 3
+    opts_owner: fan_out
+    args:
+      Workspace: id
+    reason: >-
+      Three producers in series, and the middle one sizes the budget. The
+      deterministic ghosted-thread rule is one indexed scan and an insert per
+      account; the extractor then reads up to extractThreadCap (200) settled
+      conversations at one model call each; the proposal reconciler walks every
+      open signal afterwards. Twenty minutes is what
+      capture_counterparty_verdict_workspace takes for the same 200 serial
+      calls, which is also why this lands on ai_capture rather than default.
+      Each conversation commits with its own watermark, so a cut-off pass keeps
+      every reading it paid for and the next tick resumes on the backlog.
+
   site_deep_read:
     role: workspace
     go_type: SiteDeepReadArgs

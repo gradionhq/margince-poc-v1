@@ -201,7 +201,7 @@ func (t createRecord) Spec() mcp.ToolSpec {
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject/createRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
 			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project","relationship"]},
-			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes)) + `}},
+			"fields":{"type":"object","description":` + jsonString(describeRecordFields(createShapes, createRecordShapes)) + `}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
@@ -240,15 +240,23 @@ func (t logActivity) Spec() mcp.ToolSpec {
 		Name: "log_activity", Title: "Log an activity", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
+		// The two vocabularies are SPLICED from the contract, never spelled
+		// here: this tool's body IS crm.yaml's CreateActivityRequest, and both
+		// hand-written copies had already drifted from it in opposite
+		// directions — `kind` was missing whatsapp and telegram, so a message
+		// the server stores could not be logged; `entity_type` offered a
+		// `project` link the contract does not accept, so an agent doing what
+		// the schema said was refused.
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
-			"kind":{"type":"string","enum":["note","email","call","meeting","task"]},
+			"kind":{"type":"string","enum":` + activityKindEnum + `},
 			"subject":{"type":"string"},"body":{"type":"string"},
 			"occurred_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"direction":{"type":"string","enum":["inbound","outbound"]},
 			"due_at":{"type":"string","format":"date-time"` + timestampNote + `},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
+				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
+				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},
+				"description":"What the activity is about. Omit it and the activity is stored unattached to any record — it will not appear on a person's, company's or deal's timeline."},
 			"source_system":{"type":"string"},"source_id":{"type":"string"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),

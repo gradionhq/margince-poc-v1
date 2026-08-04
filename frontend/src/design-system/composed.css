@@ -447,3 +447,16 @@
   text-transform: uppercase;
   color: var(--textMeta);
 }
+
+/* A collapsed conversation states what it is before what it says. */
+.tl-group-count {
+  font-weight: 500;
+}
+
+/* Members sit inside the group's own body, indented enough to read as
+   contained rather than as siblings that happen to follow. */
+.tl-group-members {
+  margin-block-start: 0.4rem;
+  padding-inline-start: 0.6rem;
+  border-inline-start: 2px solid var(--border);
+}

@@ -46,7 +46,7 @@ GOWORK_COMPOSED := GOWORK=$(COMPOSITION_DIR)/go.work
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -175,6 +175,21 @@ e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model +
 e2e-ai-report: ## Print the certification readiness report — every shipped site, its band, and whether its record is current, stale or absent — from internal/compose/aicert/{corpus,records}/.
 	$(GO) run ./internal/compose/aicert/reportcmd
 
+# ai-probe drives ONE invocation site against input an operator supplies, through
+# the same certification case `make e2e-ai` drives. It answers a different
+# question: e2e-ai asks whether a model is good enough for a prompt, this asks
+# whether a site survives THIS input — which is how a site can be certified and
+# still fail in the field.
+#
+# The paths are absolute because ARGS is the operator's and cwd is backend/,
+# while the corpus is under it and .tmp/ is above it. list/scaffold/fetch cost
+# nothing; only `run` calls a model, and --ai-fake makes even that free.
+# Artifacts land in the gitignored .tmp/aitask — a fetched page carries whatever
+# the source carried.
+ai-probe: composition ## Probe one AI task site against real input (free except `run`, which calls a model). BYOK key auto-loaded from .env.local. ARGS='list' | ARGS='scaffold <task>/<variant>' | ARGS='fetch <url>' | ARGS='run --site <task>/<variant> --fixture f.json --ai-routing ../config/ai-routing.yaml'
+	$(LOAD_ENV_LOCAL) $(GOWORK_COMPOSED) $(GO) run ./cmd/worker aitask $(ARGS) \
+	  --corpus $(CURDIR)/internal/compose/aicert/corpus --work-dir $(CURDIR)/../.tmp/aitask
+
 test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
 
@@ -259,6 +274,7 @@ gen: ## Regenerate everything derived from the contract
 	$(GO) generate ./internal/contracts
 	$(GO) run ./tools/gen-stubs
 	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
+	$(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go
 	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
 	$(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
 		-out-specs internal/platform/jobs/specs_gen.go \

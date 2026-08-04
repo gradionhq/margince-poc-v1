@@ -119,17 +119,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 	caps := opts.Caps.withDefaults()
 	log := &callLog{}
-	rec := &recordingBrain{inner: opts.Brain, log: log}
-	factInner := opts.FactBrain
-	if factInner == nil {
-		factInner = opts.Brain
-	}
-	recFacts := &recordingBrain{inner: factInner, log: log}
-	triageInner := opts.TriageBrain
-	if triageInner == nil {
-		triageInner = factInner
-	}
-	recTriage := &recordingBrain{inner: triageInner, log: log}
+	rec, recFacts, recTriage := recordingLanes(opts, log)
 	var dropped []DebugDrop
 	extract := evidenceExtractor{fetch: pageFetch, brain: rec, factBrain: recFacts, drops: func(sourceURL string, d droppedFinding) {
 		dropped = append(dropped, DebugDrop{
@@ -194,6 +184,26 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.Warnings = append(report.Warnings, warning)
 	}
 	return report, nil
+}
+
+// recordingLanes wraps each of the run's three model lanes in the report's
+// per-call telemetry, applying the fall-through SiteReadDebugOptions
+// documents: an unset fact lane borrows the profile brain, an unset triage
+// lane borrows the fact lane's. All three share one call log, so the report
+// lists the calls of the whole run in the order they returned.
+func recordingLanes(opts SiteReadDebugOptions, log *callLog) (profile, facts, triage *recordingBrain) {
+	profile = &recordingBrain{inner: opts.Brain, log: log}
+	factInner := opts.FactBrain
+	if factInner == nil {
+		factInner = opts.Brain
+	}
+	facts = &recordingBrain{inner: factInner, log: log}
+	triageInner := opts.TriageBrain
+	if triageInner == nil {
+		triageInner = factInner
+	}
+	triage = &recordingBrain{inner: triageInner, log: log}
+	return profile, facts, triage
 }
 
 // debugTriage runs the domain-triage classifier over the landing page the crawl
@@ -336,15 +346,11 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 			routerBrain{router: router, task: ai.TaskSiteTriage},
 			"routing " + routingPath, nil
 	default:
-		provider, modelName, found := strings.Cut(modelOverride, ":")
-		if !found || provider == "" || modelName == "" {
-			return nil, nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
+		cfg, err := pinnedModelRouting(modelOverride)
+		if err != nil {
+			return nil, nil, nil, "", err
 		}
-		router, err := ai.NewLocalRouter(ai.RoutingConfig{
-			Profile:    ai.ProfileCloudFrontier,
-			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
-		})
+		router, err := ai.NewLocalRouter(cfg)
 		if err != nil {
 			return nil, nil, nil, "", err
 		}
@@ -375,4 +381,91 @@ func extractionLane(system string) string {
 	default:
 		return "other"
 	}
+}
+
+// TaskProbeCompleter is a debug-lane completer that also reports the route that
+// served each call. The plain completer seam deliberately hides routing — a
+// case must not be able to reason about which tier answered it — but a probe's
+// whole job is to REPORT what happened, and "which model actually served this"
+// is the first thing a surprising answer is explained by.
+type TaskProbeCompleter func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error)
+
+// TaskProbeBrain binds one task to the model that will answer it for the
+// `worker aitask` probe, under the same one-of-three rule SiteReadDebugBrain
+// uses: a routing file, a direct provider:model override, or the offline fake.
+//
+// It lives HERE, beside SiteReadDebugBrain, because this file is one of the two
+// files that ARE the model-path assembly seam (backend/arch_test.go's
+// modelPathAssemblySeam). A probe that built its own router in cmd/ would be a
+// third gate, and the invariant is that there are exactly two.
+//
+// DB-less like its sibling: the probe has no pool, so this is the local router
+// — no metering, no budget store, no call tracing. That is what makes a probe
+// free to run and is also why it is not a production path.
+func TaskProbeBrain(routingPath, modelSpec string, fake bool, task ai.Task) (TaskProbeCompleter, string, error) {
+	selected := 0
+	for _, on := range []bool{routingPath != "", modelSpec != "", fake} {
+		if on {
+			selected++
+		}
+	}
+	if selected != 1 {
+		return nil, "", fmt.Errorf("pick exactly one of --ai-routing, --model, --ai-fake")
+	}
+
+	if fake {
+		client := ai.NewFakeClient()
+		return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
+			resp, err := client.Complete(ctx, req)
+			return resp, ai.RouteInfo{Provider: string(ai.ProviderFake)}, err
+		}, "fake (offline; the seam is driven, nothing is spent)", nil
+	}
+
+	cfg, banner, err := taskProbeRouting(routingPath, modelSpec)
+	if err != nil {
+		return nil, "", err
+	}
+	// The result cache is disabled for the same reason the certification lane
+	// disables it: a probe exists to report what a call DID, and a
+	// cache-served repeat would report a call that never happened.
+	router, err := ai.NewLocalRouter(cfg, ai.WithoutResultCache())
+	if err != nil {
+		return nil, "", err
+	}
+	return func(ctx context.Context, req model.Request) (model.Response, ai.RouteInfo, error) {
+		return router.Complete(ctx, task, req)
+	}, banner, nil
+}
+
+func taskProbeRouting(routingPath, modelSpec string) (ai.RoutingConfig, string, error) {
+	if routingPath != "" {
+		cfg, err := ai.LoadRoutingFile(routingPath)
+		if err != nil {
+			return ai.RoutingConfig{}, "", err
+		}
+		return cfg, "routing " + routingPath, nil
+	}
+	cfg, err := pinnedModelRouting(modelSpec)
+	if err != nil {
+		return ai.RoutingConfig{}, "", err
+	}
+	return cfg, "model override " + modelSpec, nil
+}
+
+// pinnedModelRouting turns a provider:model override into a routing config that
+// binds ONE tier — every task's ladder then falls through to it.
+//
+// Both debug lanes in this file take the same override in the same spelling, so
+// it is parsed and validated once: two copies would let `worker siteread` and
+// `worker aitask` disagree about what `--model` means.
+func pinnedModelRouting(modelSpec string) (ai.RoutingConfig, error) {
+	provider, modelName, found := strings.Cut(modelSpec, ":")
+	if !found || provider == "" || modelName == "" {
+		return ai.RoutingConfig{}, fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelSpec)
+	}
+	return ai.RoutingConfig{
+		Profile:    ai.ProfileCloudFrontier,
+		Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
+		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
+	}, nil
 }

@@ -279,3 +279,51 @@ func shortDate(at string) string {
 	}
 	return parsed.UTC().Format("2 Jan 2006")
 }
+
+// DeterministicSections is the floor in the shape the card renders: the same
+// sentences, sorted into the questions they answer.
+//
+// It writes no `fit` section, and that absence is the honest one. Fit is a
+// judgment about what this account is worth to US, and a judgment is exactly
+// what a floor with no model cannot make. A heading over a restated fact would
+// claim an assessment nobody performed.
+func DeterministicSections(orgID string, in Input) []Section {
+	account := accountEvidence(orgID)
+	sections := make([]Section, 0, 4)
+
+	// What the company IS: its identity, then the curated statements a human
+	// already accepted, quoted rather than paraphrased.
+	snapshot := append([]Sentence{{Text: identityLine(in), Evidence: account}},
+		profileLines(in, account)...)
+	sections = append(sections, Section{Kind: sectionSnapshot, Sentences: snapshot})
+
+	var health []Sentence
+	if len(in.OpenDeals) > 0 {
+		health = append(health, Sentence{Text: pipelineLine(in), Evidence: leadDealEvidence(in)})
+	}
+	health = append(health, perRecordSentences(stalledDeals(in), citeDeal, dealID, stalledLine)...)
+	if len(health) > 0 {
+		sections = append(sections, Section{Kind: sectionHealth, Sentences: dedupedSentences(health)})
+	}
+
+	var activity []Sentence
+	if len(in.Recent) > 0 {
+		last := in.Recent[0]
+		activity = append(activity, Sentence{
+			Text:     lastTouchLine(last),
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: last.ID}},
+		})
+	}
+	if len(activity) > 0 {
+		sections = append(sections, Section{Kind: sectionActivity, Sentences: activity})
+	}
+
+	if len(in.OpenTasks) > 0 {
+		sections = append(sections, Section{Kind: sectionNextStep, Sentences: []Sentence{{
+			Text: fmt.Sprintf("%s, starting with %q.",
+				plural(len(in.OpenTasks), "open task"), in.OpenTasks[0].Name),
+			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.OpenTasks[0].ID}},
+		}}})
+	}
+	return sections
+}

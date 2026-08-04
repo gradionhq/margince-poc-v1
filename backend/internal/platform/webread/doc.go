@@ -29,6 +29,19 @@ func (d Doc) IsMarkdown() bool {
 	}
 }
 
+// IsJSON reports whether the server served JSON. Like markdown, it must reach
+// the caller VERBATIM: StripTags is an HTML reducer, and running it over JSON
+// silently rewrites the document — every '>' becomes a space and anything
+// between '<' and '>' is swallowed, both of which occur inside ordinary string
+// values. A caller that then parses the result is parsing something the server
+// did not send. The +json structured suffix is honored so a vendor's
+// application/vnd.x+json is not mistaken for HTML.
+func (d Doc) IsJSON() bool {
+	return d.MediaType == "application/json" ||
+		d.MediaType == "text/json" ||
+		strings.HasSuffix(d.MediaType, "+json")
+}
+
 // parseMediaType extracts the bare media type from a Content-Type header,
 // lowercased and without parameters. A malformed header is not an error here —
 // a mislabeled server must never fail a fetch — so the trimmed, lowercased raw

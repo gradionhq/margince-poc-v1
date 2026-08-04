@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -141,13 +142,30 @@ func TestReportVocabularyAvoidsReservedDerivationNames(t *testing.T) {
 }
 
 // A caller-chosen alias must not shadow the injected per-row handle.
+//
+// Its own refusal type, not the vocabulary one the other plan names get: an
+// alias is OPEN — the caller invents it and every name but this one is accepted
+// — so a message quoting the report's measures would state a rule that does not
+// exist, and send a caller to pick from a list that was never the constraint.
 func TestAggregateAliasCannotSquatOnDerivationURL(t *testing.T) {
 	_, _, err := buildSelectList(prebuiltReports["forecast"],
 		[]string{"owner_id"},
 		[]reportAggregate{{Fn: "count", As: reservedDerivationColumn}})
-	var notAllowed *FieldNotAllowedError
-	if !errors.As(err, &notAllowed) || notAllowed.Field != reservedDerivationColumn {
-		t.Fatalf("alias %q → %v, want FieldNotAllowedError on that field", reservedDerivationColumn, err)
+	var reserved *ReservedAliasError
+	if !errors.As(err, &reserved) || reserved.Alias != reservedDerivationColumn {
+		t.Fatalf("alias %q → %v, want ReservedAliasError on that alias", reservedDerivationColumn, err)
+	}
+	_, message := reserved.MessageFault()
+	for _, measure := range allowedReportNames(prebuiltReports["forecast"].measures) {
+		if strings.Contains(message, measure) {
+			t.Errorf("the refusal offers %q as an alias, but any alias but the reserved one is accepted: %s",
+				measure, message)
+		}
+	}
+	// Every other alias still passes — the refusal is about ONE name.
+	if _, _, err := buildSelectList(prebuiltReports["forecast"], []string{"owner_id"},
+		[]reportAggregate{{Fn: "count", As: "my_own_label"}}); err != nil {
+		t.Errorf("a free-form alias was refused: %v", err)
 	}
 }
 

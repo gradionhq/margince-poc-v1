@@ -60,7 +60,7 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	if err := dec.Decode(into); err != nil {
-		Write(w, r, bodyDecodeRefusal(r, err))
+		Write(w, r, bodyDecodeRefusal(r, raw, into, err))
 		return false
 	}
 	if dec.More() {
@@ -75,13 +75,41 @@ func Decode(w http.ResponseWriter, r *http.Request, into any) bool {
 // were already refused above — so a shape RestateDecodeError cannot name is
 // decoder internals: the caller gets a sentence that says what to check, and
 // the decoder's own words go to the log rather than nowhere.
-func bodyDecodeRefusal(r *http.Request, err error) error {
+//
+// Which FIELD comes first, through the same seam function the provider surface
+// uses. A contract type carrying additionalProperties decodes field-by-field
+// under a generated UnmarshalJSON, so encoding/json's own error names no path
+// and the sentence left to say is "the payload must be a JSON object" about a
+// payload that is one. Naming the field is what makes the rest of it useful, and
+// a body reaches these structs by either route — the localization has to be on
+// both or the two surfaces disagree about the same mistake.
+//
+//craft:ignore naked-any mirror of Decode's seam target
+func bodyDecodeRefusal(r *http.Request, raw json.RawMessage, into any, err error) error {
+	if refusal := datasource.LocalizeFieldFault(raw, into, err, bodyProbe); refusal != nil {
+		detail, withheld := fieldShapeDetail(refusal)
+		if withheld {
+			slog.WarnContext(r.Context(), "unnamed request-body field decode failure",
+				"method", r.Method, "path", r.URL.Path, "field", refusal.Field, "err", err)
+		}
+		return Validation("body", "malformed_json", detail)
+	}
 	safe, withheld := SafeDecodeError(err)
 	if withheld {
 		slog.WarnContext(r.Context(), "unnamed request-body decode failure",
 			"method", r.Method, "path", r.URL.Path, "err", err)
 	}
 	return Validation("body", "malformed_json", safe.Error())
+}
+
+// bodyProbe is the decoder Decode itself runs, so a localization probe asks the
+// question the real decode asked. It is deliberately NOT strict about unknown
+// keys: RejectNonCanonicalKeys refused those earlier and by name, and a probe
+// that re-refused them here would blame a field for a key already reported.
+//
+//craft:ignore naked-any mirror of Decode's seam target
+func bodyProbe(single json.RawMessage, probe any) error {
+	return json.NewDecoder(bytes.NewReader(single)).Decode(probe)
 }
 
 // WriteJSON writes a JSON response with the given status.

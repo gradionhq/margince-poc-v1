@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -76,7 +77,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// so it rides its own seam rather than the datasource one — and that seam
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
-	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
+	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
 	// The overlay guard stays OUTERMOST so a mirror-backed workspace is
@@ -122,7 +123,25 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 	return func(ctx context.Context, report string, planArgs json.RawMessage) (json.RawMessage, error) {
 		var req reportRequest
 		if len(planArgs) > 0 {
-			if err := json.Unmarshal(planArgs, &req); err != nil {
+			// STRICT: a plan argument this engine does not serve is refused by
+			// name, not dropped. crm.yaml's runReport body declares `as_of_date`
+			// and this engine has no field for it, so a lenient decode answered
+			// an agent's request for a historical snapshot with current state and
+			// no warning — a silent wrong answer, which is worse than a refusal
+			// because nothing tells the caller to look again.
+			// An UNSERVED key is named, before the shape refusal. The strict
+			// decode alone answered "a plan argument is not the shape this tool
+			// takes" and then described the three arguments the caller had not
+			// sent — so a caller who sent `as_of_date` was told to re-check
+			// three shapes that were never wrong, and could loop on it. Which
+			// key is unserved is a question this package can answer exactly, so
+			// it does, rather than restating the decoder's prose.
+			if unserved := unservedPlanArguments(planArgs); len(unserved) > 0 {
+				return nil, httperr.Validation("arguments", "malformed_json",
+					"this tool does not take "+strings.Join(unserved, ", ")+
+						"; its plan arguments are `"+slotFilters+"`, `"+slotGroupBy+"` and `"+slotAggregates+"`")
+			}
+			if err := strictDecodeReportPlan(planArgs, &req); err != nil {
 				// Server-authored. The REST twin forwards the decoder's own text
 				// under the field `body`, which is wrong here twice over: this tool
 				// has no `body` argument, and the Go decoder names internal types

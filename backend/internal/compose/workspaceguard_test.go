@@ -17,9 +17,8 @@ package compose
 // the workspace would panic here rather than fail — so this suite also pins
 // the ORDER, which no gate can see.
 //
-// It covers EVERY workspace-scoped kind, and the count below is what keeps
-// that true: a new kind added to jobroles.go's compile-time assertions and not
-// to this map fails here rather than going unnoticed.
+// The count below is what keeps the suite from thinning in silence: a worker
+// dropped from the map fails here rather than going unnoticed.
 
 import (
 	"context"
@@ -32,9 +31,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// workspaceScopedKinds is how many jobs.WorkspaceScoped assertions
-// jobroles.go carries. Kept in step with it by the check below.
-const workspaceScopedKinds = 26
+// workspaceScopedKinds is how many workers this suite drives, stated apart
+// from the map so the check below can hold the map to it.
+const workspaceScopedKinds = 27
 
 func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 	// Named by kind rather than by Go type: a failure should say which JOB is
@@ -138,10 +137,13 @@ func TestEveryWorkspaceWorkerRefusesArgsNamingNoWorkspace(t *testing.T) {
 				Args: SiteDeepReadArgs{SiteReadID: ids.NewV7()},
 			})
 		},
+		SignalScanWorkspaceArgs{}.Kind(): func(ctx context.Context) error {
+			return (&signalScanWorkspaceWorker{}).Work(ctx, &river.Job[SignalScanWorkspaceArgs]{})
+		},
 	}
 
 	if len(refusals) != workspaceScopedKinds {
-		t.Fatalf("this suite drives %d workers but the tree declares %d workspace-scoped kinds (jobroles.go) — a kind whose refusal nobody pins is one that can silently stop refusing",
+		t.Fatalf("this suite drives %d workers but is declared to drive %d — a kind whose refusal nobody pins is one that can silently stop refusing",
 			len(refusals), workspaceScopedKinds)
 	}
 

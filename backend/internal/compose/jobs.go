@@ -136,6 +136,13 @@ type JobRunnerConfig struct {
 	// deferred rather than being created on sight. An installation without a
 	// model keeps the old junk OUT, it does not fall back to letting it in.
 	VerdictBrain completer
+	// SignalExtractBrain is the signal-extract lane the hourly signal pass
+	// reads settled conversations with. Nil = no AI configured, and the
+	// consequence is stated rather than hidden: the deterministic
+	// ghosted-thread rule still runs, and what only a reader can get out of
+	// the prose simply is not extracted. The kind registers either way, which
+	// is why nothing in api/jobs.yaml gates on this field.
+	SignalExtractBrain completer
 	// OverlayVault is the custodian of an incumbent connection's sealed token.
 	// Nil is a role with no way to unseal one, so the reconcile poller and the
 	// webhook-as-signal re-fetch worker register nothing rather than queue
@@ -217,6 +224,10 @@ type JobRunnerConfig struct {
 	// ModelPricingSources binds provider names to pricing-page URLs the
 	// model-cost refresh crawls; empty = no-op.
 	ModelPricingSources []pricingSource
+	// BoundModelIDs maps a provider to the model ids this deployment's routing
+	// binds on it, so each pricing source is narrowed to its OWN provider's
+	// bindings. Nil (nothing wired) keeps every model.
+	BoundModelIDs map[string]map[string]bool
 }
 
 // NewJobRunner wires every worker this process role can run, and every
@@ -296,7 +307,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).
 	addDeclaredWorker[FxRateRefreshArgs](reg, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
-	addDeclaredWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
+	addDeclaredWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, cfg.BoundModelIDs, log))
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
 	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
@@ -353,6 +364,7 @@ func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRe
 		addPrivacyRetentionJobs(reg, pool, cfg, log),
 		addWebhookRetryJobs(reg, pool, cfg),
 		addAgentSchedulerJobs(reg, pool, cfg),
+		addSignalJobs(reg, pool, cfg, log),
 		registerTelegramPoll(reg, pool, cfg, log),
 
 		// The schedules this file places. Each carries its own gate — the

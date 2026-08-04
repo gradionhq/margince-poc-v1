@@ -203,6 +203,13 @@ function stubApi(enrich: () => Response) {
   );
 }
 
+// openHistory switches to the tab the account's chronology now lives on. The
+// timeline left the overview when the page gained People and History tabs, so
+// a test about the timeline has to go there first.
+async function openHistory() {
+  await userEvent.click(await screen.findByRole("button", { name: "History" }));
+}
+
 describe("company-360 enrichment", () => {
   it("stages an evidence-backed proposal: human labels, confidence, confirm-first banner", async () => {
     stubApi(() => jsonResponse(proposal));
@@ -682,6 +689,46 @@ describe("CompanyScreen — edit with If-Match (P-1)", () => {
     // omits the field (untouched) rather than clearing the stored set.
     expect(patchBody).not.toHaveProperty("domains");
   });
+
+  // relationship_types is a REPLACE-SET, so the edit modal must prefill it:
+  // an unseeded multiselect collects as the empty string, which is the honest
+  // empty set, and saving an unrelated field would retire every type the
+  // account has without the reader touching them.
+  it("preserves the account's relationship types when an unrelated field is edited", async () => {
+    let patchBody: unknown = null;
+    const partner = {
+      ...org,
+      lifecycle: "customer",
+      relationship_types: ["partner", "supplier"],
+    };
+    stubFetch(async (url, method, request) => {
+      if (method === "PATCH") {
+        patchBody = JSON.parse(await request.text());
+        return jsonResponse({
+          ...partner,
+          industry: "Manufacturing",
+          version: 2,
+        });
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(partner);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await userEvent.click(await openRecordMenu("edit-record"));
+    const industry = await screen.findByLabelText("Industry");
+    await userEvent.clear(industry);
+    await userEvent.type(industry, "Manufacturing");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(patchBody).toBeTruthy());
+    expect(patchBody).toMatchObject({
+      industry: "Manufacturing",
+      relationship_types: ["partner", "supplier"],
+    });
+  });
 });
 
 // B7: the edit modal's repeatable domains field replace-sets the org's live
@@ -1151,8 +1198,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
     });
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
 
     await waitFor(() => expect(screen.getByText("Employment")).toBeTruthy());
     expect(screen.getByText("cto")).toBeTruthy();
@@ -1184,8 +1232,9 @@ describe("CompanyScreen — Relationships tab (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1238,8 +1287,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
     expect(screen.getByText("12")).toBeTruthy();
@@ -1262,8 +1309,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
       },
     );
     render(<CompanyScreen id="o-1" />);
-
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
 
     await waitFor(() =>
       expect(
@@ -1294,8 +1339,6 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
     );
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-
     await waitFor(() =>
       expect(
         screen.getByText("1 account(s) not visible to you were excluded"),
@@ -1305,7 +1348,7 @@ describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
 });
 
 describe("CompanyScreen — the account pulse line (P-4)", () => {
-  it("leads with the score, who carries it, and how many contacts it beat", async () => {
+  it("names the way in and both directions, and shows no composite score", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -1332,21 +1375,22 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
             },
             last_interaction: "2026-06-20T12:00:00Z",
           },
+          last_inbound_at: "2026-06-20T12:00:00Z",
+          last_outbound_at: "2026-06-28T09:00:00Z",
         },
       },
     );
     render(<CompanyScreen id="o-1" />);
 
-    // The contact, the count and the score all read off the one composite
-    // response — no second round trip for the header. The line leads with the
-    // person because that is what a rep acts on; the score follows, labelled,
-    // because a bare number scales to nothing.
-    await waitFor(() =>
-      expect(screen.getByText(/Strongest contact/)).toBeTruthy(),
-    );
-    expect(screen.getByText(/of 3 people here/)).toBeTruthy();
-    expect(screen.getByText(/relationship 41\/100/)).toBeTruthy();
-    expect(screen.getByText(/Last touch/)).toBeTruthy();
+    // The way in first, because that is what a rep acts on, then who wrote
+    // last in each direction.
+    await waitFor(() => expect(screen.getByText(/Way in/)).toBeTruthy());
+    expect(screen.getByText(/of 3 contacts here/)).toBeTruthy();
+    expect(screen.getByText(/They wrote/)).toBeTruthy();
+    expect(screen.getByText(/We wrote/)).toBeTruthy();
+    // The composite is gone: it was PO-F-3's MAX over contacts, so one
+    // talkative contact spoke for the account and "41/100" read as a verdict.
+    expect(screen.queryByText(/41\/100/)).toBeNull();
   });
 
   it("says there is no relationship rather than showing a zero", async () => {
@@ -1411,8 +1455,9 @@ describe("CompanyScreen — relationship kinds by scope (P-5)", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
-    await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Relationships"));
+    const peopleTab = await screen.findByRole("button", { name: "People" });
+    await userEvent.click(peopleTab);
+    expect(peopleTab.getAttribute("aria-pressed")).toBe("true");
     await waitFor(() =>
       expect(screen.getByTestId("add-relationship")).toBeTruthy(),
     );
@@ -1532,6 +1577,7 @@ describe("CompanyScreen — the record's history", () => {
       return jsonResponse(org);
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Changes" })).toBeTruthy(),
@@ -1875,6 +1921,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
       },
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
     expect(
@@ -1903,6 +1950,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
       },
     });
     render(<CompanyScreen id="o-1" />);
+    await openHistory();
 
     await waitFor(() => expect(screen.getByText("Re: Lead Gen")).toBeTruthy());
     expect(screen.queryByText(/more activities than fit here/)).toBeNull();
@@ -1918,6 +1966,9 @@ describe("companyEditFields — the owner select never offers what it cannot sav
     companyEditFields(
       [{ id: "u1", display_name: "Demo Admin" }],
       hasOwner,
+      // The identity translator: this suite is about the owner select's
+      // required-ness, and a key reads as well as a word for that.
+      (key) => key,
     ).find((field) => field.key === "owner_id");
 
   it("is required while the account has an owner, so no blank option renders", () => {
@@ -1958,6 +2009,7 @@ describe("CompanyScreen — the timeline filter does not follow you", () => {
       </QueryClientProvider>
     );
     const { rerender } = rtlRender(page("o-1"));
+    await openHistory();
 
     const pressed = (name: string) =>
       screen.getByRole("button", { name }).getAttribute("aria-pressed");
@@ -1969,6 +2021,7 @@ describe("CompanyScreen — the timeline filter does not follow you", () => {
     await waitFor(() => expect(pressed("Changes")).toBe("true"));
 
     rerender(page("o-2"));
+    await openHistory();
 
     await waitFor(() => expect(pressed("Activities")).toBe("true"));
   });

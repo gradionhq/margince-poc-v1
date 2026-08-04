@@ -103,20 +103,52 @@ func (s *Store) ApplyColdStartProfile(ctx context.Context, in ApplyColdStartProf
 // just minted — all inside the caller's transaction.
 func applyColdStartTx(ctx context.Context, tx pgx.Tx, in ApplyColdStartProfileInput, host, by string) (ids.OrganizationID, error) {
 	wsID := workspaceID(ctx)
+	// Same pair of rules as ApplyDeepReadTx: only when a name is coming, and
+	// then before the row lock the image read takes. Stated here rather than
+	// left to the resolve step to take on the way past, so the ordering does
+	// not depend on which branch that step happens to follow.
+	if carriesOrgName(in.Fields) {
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return ids.OrganizationID{}, err
+		}
+	}
 	orgID, created, err := resolveOrCreateColdStartOrg(ctx, tx, host, by, in.Fields)
 	if err != nil {
+		return ids.OrganizationID{}, err
+	}
+	// The columns as they stand before the apply, including display_name: a
+	// created organization gets its name here, and that is a column change a
+	// reader is entitled to see.
+	//
+	// A row this call just minted has no before-image at all. Reading one back
+	// would return the values the create itself wrote, changedColumnsOnly
+	// would then find nothing moved, and the create audit would omit the name
+	// it inserted — the one change the row is entirely made of.
+	var before map[string]any
+	if created {
+		before = emptyColdStartColumnImages()
+	} else if before, err = readColdStartColumnImages(ctx, tx, orgID); err != nil {
 		return ids.OrganizationID{}, err
 	}
 	applied, err := applyEvidenceFields(ctx, tx, wsID, orgID, companySourceSiteRead, by, in.Fields)
 	if err != nil {
 		return ids.OrganizationID{}, err
 	}
+	after, err := readColdStartColumnImages(ctx, tx, orgID)
+	if err != nil {
+		return ids.OrganizationID{}, err
+	}
+	before, after = changedColumnsOnly(before, after)
 
 	action := "update"
 	if created {
 		action = "create"
 	}
-	auditID, err := storekit.Audit(ctx, tx, action, "organization", orgID.UUID, nil, map[string]any{
+	// before/after carry the RECORD's own column images and nothing else. The
+	// operation's metadata rides audit_log.evidence, which is the column for
+	// it: anything placed in the images is projected by field history as a
+	// change to a field of that name (storekit.AuditWithEvidence).
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, action, "organization", orgID.UUID, before, after, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL, auditKeyFields: applied,
 	})
 	if err != nil {

@@ -35,6 +35,8 @@ func ValidateJSON(schemaJSON json.RawMessage, value string) error {
 
 // validate checks v against n at path (a dotted/bracketed JSON-pointer-ish
 // trail used only for the error message, e.g. "$.facts[2].name").
+//
+//craft:ignore naked-any v is whatever json.Unmarshal decoded — a JSON validator's input is arbitrary by nature
 func (n Node) validate(v any, path string) error {
 	switch n.Type {
 	case typeObject:
@@ -60,6 +62,7 @@ func (n Node) validate(v any, path string) error {
 	}
 }
 
+//craft:ignore naked-any same decoded-JSON contract as validate
 func (n Node) validateObject(v any, path string) error {
 	obj, ok := v.(map[string]any)
 	if !ok {
@@ -89,6 +92,7 @@ func (n Node) validateObject(v any, path string) error {
 	return nil
 }
 
+//craft:ignore naked-any same decoded-JSON contract as validate
 func (n Node) validateArray(v any, path string) error {
 	arr, ok := v.([]any)
 	if !ok {

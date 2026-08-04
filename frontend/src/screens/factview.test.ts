@@ -11,6 +11,9 @@ type OrganizationFact = components["schemas"]["OrganizationFact"];
 
 function fact(over: Partial<OrganizationFact> = {}): OrganizationFact {
   return {
+    // The stored row's id, so a claim written from this fact can cite
+    // something the reader can open.
+    id: "00000000-0000-4000-8000-000000000001",
     category: "market",
     field: "served_industry",
     value: "E-Commerce",

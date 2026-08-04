@@ -32,7 +32,7 @@ import (
 // The floor's wording counts because the floor's OUTPUT is what gets cached. A
 // deploy that reworded it and left this alone kept serving the old sentences
 // to every account whose facts had not moved — which is most of them.
-const promptVersion = "org-brief-v4"
+const promptVersion = "org-brief-v5"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned
@@ -258,9 +258,14 @@ var briefProfileFields = []string{
 // every other fact the card is written from.
 const briefProfileValueMax = 400
 
-// withoutProfile is the Input as the model may see it. The company profile is
-// the reader's own approved prose, quoted after the model runs; a copy in the
-// prompt would let the model rewrite it (see BriefRequest).
+// withoutProfile is the Input as ASK may see it. Ask restates facts and never
+// judges, so the curated company prose stays out of its prompt and is quoted
+// verbatim instead — a paraphrase nobody checked is worth less than the
+// sentence a human already accepted.
+//
+// The BRIEF now receives it: the brief is allowed to assess, and a fit
+// assessment cannot be written without knowing what the company sells. What
+// keeps that honest there is the nature label, not withholding the text.
 func (in Input) withoutProfile() Input {
 	in.Profile = nil
 	return in

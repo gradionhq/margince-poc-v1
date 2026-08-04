@@ -59,13 +59,14 @@ func enumerateEveryWorkspace(ctx context.Context, pool *pgxpool.Pool) ([]ids.UUI
 // on the same process against one pgx pool — so converted sweeps must not
 // simply pile onto default.
 const (
-	// aiCaptureQueue carries the four AI-backed capture passes. Two workers,
-	// matching deep_read: the same species of work — long, model-bound, and
-	// fine to run behind the short maintenance jobs.
+	// aiCaptureQueue carries the passes that make serial model calls. Two
+	// workers, matching deep_read: the same species of work — long,
+	// model-bound, and fine to run behind the short maintenance jobs. WHICH
+	// kinds land here is api/jobs.yaml's to say, not this comment's.
 	aiCaptureQueue      = "ai_capture"
 	aiCaptureMaxWorkers = 2
 
-	// overlayReconcileQueue is serial. See the queue table in NewJobRunner
+	// overlayReconcileQueue is serial. See the queue table in jobQueues
 	// for why per-workspace parallelism is not what this phase is after.
 	overlayReconcileQueue = "overlay_reconcile"
 )

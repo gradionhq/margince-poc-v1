@@ -181,6 +181,17 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 		}
 		in.Domains = &desired
 	}
+	if req.Lifecycle != nil {
+		lifecycle := string(*req.Lifecycle)
+		in.Lifecycle = &lifecycle
+	}
+	if req.RelationshipTypes != nil {
+		desired := make([]string, 0, len(*req.RelationshipTypes))
+		for _, t := range *req.RelationshipTypes {
+			desired = append(desired, string(t))
+		}
+		in.RelationshipTypes = &desired
+	}
 	return in
 }
 
