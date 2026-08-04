@@ -3,7 +3,10 @@
 
 package static
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // lintSource parses one in-memory file under the given name and returns its
 // findings — the name drives the _test.go / domain-path flags, so a case can
@@ -146,6 +149,44 @@ func TestVerdict_onlyBlockerBlocks(t *testing.T) {
 	}
 	if v := verdict(f, true); v != "BLOCK" {
 		t.Fatalf("verdict -strict with MAJOR = %q, want BLOCK", v)
+	}
+}
+
+// sizeSrc returns a package with one function whose body is n lines.
+func sizeSrc(n int) string {
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	for i := 0; i < n; i++ {
+		b.WriteString("\tx++\n")
+	}
+	b.WriteString("}\n")
+	return b.String()
+}
+
+func TestLongFunc_testFilesGetTheRelaxedCeiling(t *testing.T) {
+	src := sizeSrc(120) // over the 80 prod ceiling, under the 160 test one
+	if got := counts(lintSource(t, "p.go", src), "long-func"); got != 1 {
+		t.Fatalf("prod file at 120 body lines: long-func = %d, want 1", got)
+	}
+	if got := counts(lintSource(t, "p_test.go", src), "long-func"); got != 0 {
+		t.Fatalf("test file at 120 body lines: long-func = %d, want 0", got)
+	}
+	if got := counts(lintSource(t, "p_test.go", sizeSrc(170)), "long-func"); got != 1 {
+		t.Fatalf("test file at 170 body lines: long-func = %d, want 1", got)
+	}
+}
+
+func TestLargeFile_testFilesGetTheRelaxedCeiling(t *testing.T) {
+	src := "package p\n" + strings.Repeat("// filler\n", 600)
+	if got := counts(lintSource(t, "p.go", src), "large-file"); got != 1 {
+		t.Fatalf("prod file at 600 lines: large-file = %d, want 1", got)
+	}
+	if got := counts(lintSource(t, "p_test.go", src), "large-file"); got != 0 {
+		t.Fatalf("test file at 600 lines: large-file = %d, want 0", got)
+	}
+	src = "package p\n" + strings.Repeat("// filler\n", 1100)
+	if got := counts(lintSource(t, "p_test.go", src), "large-file"); got != 1 {
+		t.Fatalf("test file at 1100 lines: large-file = %d, want 1", got)
 	}
 }
 
