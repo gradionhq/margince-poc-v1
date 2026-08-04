@@ -40,6 +40,58 @@ const (
 	FanOutBuild
 )
 
+// ArgsKey is the river_job.args key that identifies WHICH unit a child row
+// stands for — the workspace, the connection, or the build it was enqueued
+// against. It is what lets a reader count a fan-out pass at the grain the
+// dispatcher actually ran it at: two children of one workspace differ in this
+// key and in nothing else the job table carries.
+//
+// A unit with no key answers the empty string, and subWorkspaceFanOuts then
+// SKIPS it — so a fourth unit added without a key would quietly drop every
+// kind declared with it out of the unit gauges. Go's switch offers no
+// exhaustiveness for that, and this comment does not pretend otherwise: what
+// catches it is a gate, TestEveryDeclaredFanOutUnitNamesAnArgsKey, which reads
+// the units the CONTRACT actually declares rather than a list kept here. The
+// census then holds every declared child to writing the key its dispatcher's
+// unit names.
+//
+// The zero FanOutUnit — a kind that fans out to nothing — answers the empty
+// string on purpose: it has no unit, and no row of it has a key to group on.
+func (u FanOutUnit) ArgsKey() string {
+	switch u {
+	case FanOutWorkspace:
+		return "workspace_id"
+	case FanOutConnection:
+		return "connection_id"
+	case FanOutBuild:
+		return "build_id"
+	}
+	return ""
+}
+
+// FanOutUnits answers, per fan-out CHILD kind, what one row of it stands for.
+//
+// The unit is declared on the DISPATCHER, beside the edge it names, because
+// that is where the fan-out decision is made — so a reader holding a child row
+// has to walk the edge backwards to learn what it counts as. This is that walk,
+// done once over the compiled table rather than at every call site that needs
+// it. A child no dispatcher names is absent rather than defaulted: the fan-out
+// edges are the registry of what fans out at all.
+//
+// The walk is in KIND ORDER rather than map order. Two dispatchers naming one
+// child with different units is refused at generation, so the answer cannot
+// depend on iteration order — and iterating deterministically is what keeps
+// that true of this function rather than only of the file it reads.
+func FanOutUnits() map[string]FanOutUnit {
+	units := map[string]FanOutUnit{}
+	for _, kind := range slices.Sorted(maps.Keys(specs)) {
+		if spec := specs[kind]; spec.FanOutTo != "" {
+			units[spec.FanOutTo] = spec.FanOutUnit
+		}
+	}
+	return units
+}
+
 // OptsOwner names who supplies a kind's River insert options, and therefore
 // how strongly the declaration binds them. The three levels genuinely differ
 // and the difference is stated rather than implied:

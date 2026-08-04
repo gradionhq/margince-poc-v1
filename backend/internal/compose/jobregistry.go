@@ -170,5 +170,6 @@ func addGovernedWorker[T river.JobArgs](reg *jobRegistry, w jobs.WorkOnly[T], su
 	// and the boot it then refuses is what keeps the zero Spec's timeout —
 	// River's one-minute default — away from a running job.
 	spec, _ := jobs.SpecFor(kind)
+	//nolint:forbidigo // the ONE sanctioned registration: every kind reaches River through this line, already wrapped in jobs.Govern and already recorded for MustBeTotal
 	river.AddWorker(reg.workers, jobs.Govern[T](w, spec, supplied))
 }

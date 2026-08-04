@@ -73,8 +73,15 @@ const (
 
 // workspaceSweepOpts is the enqueue policy for one fanned-out child, read
 // from the child kind's own declaration. Taking the KIND rather than the
-// numbers is what makes the sweep tag unforgettable: a fan-out child's opts
+// numbers is what makes the sweep tag unforgettable: a FLEET PASS's child opts
 // are built here or in fanOutChildOpts and nowhere else, and both stamp it.
+//
+// oneOffChildOpts below builds the same kinds' opts WITHOUT the tag, and is
+// the only thing that does. That is not a hole in the argument, it is the
+// distinction the tag exists to draw: a job enqueued for one already-known
+// workspace by an event is not one workspace's share of a fleet pass, and the
+// helper takes no fleet as an argument, so it cannot be reached from a
+// dispatcher's loop by accident.
 //
 // The attempt cap is small on every fan-out kind because a fanned-out pass's
 // real retry cadence is the dispatcher's tick — a workspace that fails is
@@ -95,6 +102,35 @@ func workspaceSweepOpts(childKind string) *river.InsertOpts {
 		MaxAttempts: spec.MaxAttempts,
 		UniqueOpts:  river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
 	})
+}
+
+// oneOffChildOpts is workspaceSweepOpts' counterpart for the same child kind
+// enqueued for ONE already-known workspace by an event — a tenant's backfill
+// finishing, not a clock reaching a fleet. It reads the queue and the attempt
+// cap from the same declaration, so the two doors cannot route one workspace's
+// pass onto a queue the fleet's share of it never lands on.
+//
+// It deliberately omits BOTH of the things that make a fleet child a fleet
+// child, and each omission is the point rather than an oversight:
+//
+//   - No sweep tag. The tag is what lets a reader tell one workspace's share
+//     of a fleet pass from the same kind enqueued for its own reason, and the
+//     sweep gauges count tagged rows. A one-off tagged as a fleet pass would
+//     inflate the coverage reading of a pass that never ran.
+//   - No active-state uniqueness. The event's whole claim is that new rows
+//     landed, and a pass already RUNNING may have read the workspace before
+//     they did. Deduplicating against it would drop exactly the data the
+//     event fired about, and the caller would have no way to tell.
+//
+// Both are safe to omit only because a one-off enqueue is a single insert for
+// a single known workspace: it fires once per event, so nothing here bounds a
+// fan-out that could otherwise repeat per tick.
+func oneOffChildOpts(childKind string) *river.InsertOpts {
+	spec := fanOutChildSpec(childKind)
+	if spec.OptsOwner != jobs.OptsFanOut {
+		panic("compose: " + childKind + " declares an opts_owner other than fan_out, so its queue and attempt cap are not this helper's to set")
+	}
+	return &river.InsertOpts{Queue: spec.Queue, MaxAttempts: spec.MaxAttempts}
 }
 
 // fanOutChildren is every kind some dispatcher DECLARES it fans out to —
@@ -264,12 +300,14 @@ func fanOutChildOpts(childKind string, callerOpts *river.InsertOpts) *river.Inse
 // row. Tags are validated for format only and take no part in River's
 // unique key, so this changes no scheduling behaviour.
 //
-// Every production caller is in this file. A fan-out child's opts are built by
-// workspaceSweepOpts (a fleet insert) or fanOutChildOpts (a single one) and
+// Every production caller is in this file. A FLEET PASS's child opts are built
+// by workspaceSweepOpts (a fleet insert) or fanOutChildOpts (a single one) and
 // nowhere else, and both stamp the tag — so a dispatcher cannot forget it,
 // which is what an untagged child costs: silent absence from the sweep
 // gauges, while the gauge's own HELP text blames River's retention for the
-// gap. WHICH kinds may be fanned out to is the contract's to say and not this
+// gap. The third builder of the same kinds' opts, oneOffChildOpts, omits the
+// tag deliberately and states why; it is reachable only from a site that
+// already knows the one workspace it is enqueueing for. WHICH kinds may be fanned out to is the contract's to say and not this
 // comment's: fans_out_to in api/jobs.yaml is the registry, and both builders
 // refuse a kind no dispatcher declares there.
 //

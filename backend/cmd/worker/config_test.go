@@ -65,6 +65,54 @@ func TestParseWorkerFlagsRejectsNonPositiveIntervals(t *testing.T) {
 	}
 }
 
+// TestADeepReadCapFromTheEnvironmentIsParsedOrRefused — each of the three
+// crawl caps backs its flag default with an environment variable, and a
+// set-but-unparseable value there is a boot error rather than a fallback to
+// the built-in. An operator who typed a cap and silently got the default
+// instead would have nothing to tell them the value never took.
+func TestADeepReadCapFromTheEnvironmentIsParsedOrRefused(t *testing.T) {
+	base := []string{"--dsn", "postgres://localhost/x"}
+	for _, tc := range []struct {
+		env, bad, good string
+		read           func(workerConfig) string
+	}{
+		{"MARGINCE_DEEPREAD_MAX_PAGES", "many", "7", func(c workerConfig) string { return itoa(c.deepReadMaxPages) }},
+		{"MARGINCE_DEEPREAD_MAX_BYTES", "8MiB", "4096", func(c workerConfig) string { return itoa(c.deepReadMaxBytes) }},
+		{"MARGINCE_DEEPREAD_WALL", "4 minutes", "1m30s", func(c workerConfig) string { return c.deepReadWall.String() }},
+	} {
+		t.Run(tc.env, func(t *testing.T) {
+			t.Setenv(tc.env, tc.bad)
+			if _, err := parseWorkerFlags(base); err == nil {
+				t.Errorf("%s=%q was accepted; an unparseable cap must fail the boot rather than fall back to the built-in default", tc.env, tc.bad)
+			} else if !strings.Contains(err.Error(), tc.env) {
+				t.Errorf("the error does not name the variable that failed: %v", err)
+			}
+
+			t.Setenv(tc.env, tc.good)
+			cfg, err := parseWorkerFlags(base)
+			if err != nil {
+				t.Fatalf("%s=%q: %v", tc.env, tc.good, err)
+			}
+			if got := tc.read(cfg); got != tc.good {
+				t.Errorf("%s=%q produced %q; the environment value must become the flag's default", tc.env, tc.good, got)
+			}
+		})
+	}
+}
+
+// itoa keeps the table above readable without a strconv import for one use.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var digits []byte
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	return string(digits)
+}
+
 // TestParseWorkerFlagsAcceptsPositiveIntervals proves the guard does not
 // reject the ordinary positive case (a smoke test so a stricter bound can
 // never silently reject a valid boot).

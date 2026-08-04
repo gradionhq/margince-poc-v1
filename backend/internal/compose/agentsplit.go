@@ -163,7 +163,7 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 			"fields %s were last edited by a human and were NOT applied; staged as approval %s — once a human approves it, repeat this request with ONLY those fields and the %s: %s header",
 			strings.Join(split.Conflicts, ", "), approvalID, approvalTokenHeader, approvalID),
 	}
-	buffered.flushJSON(w, record)
+	buffered.flushJSON(w, r, record)
 }
 
 // recordVersion pins the staged residue to the record version the auto-execute
@@ -221,13 +221,16 @@ func (b *bufferedResponse) flushTo(w http.ResponseWriter) {
 
 // flushJSON replays the buffered status and headers with a re-encoded
 // JSON body (the Content-Length of the original no longer applies).
-func (b *bufferedResponse) flushJSON(w http.ResponseWriter, payload map[string]any) {
+func (b *bufferedResponse) flushJSON(w http.ResponseWriter, r *http.Request, payload map[string]any) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		// Marshaling a map decoded from JSON cannot fail in practice; if
 		// it ever does, the staging already exists — report rather than
-		// send a truncated record.
-		http.Error(w, "re-encoding the split update response failed", http.StatusInternalServerError)
+		// send a truncated record. Through httperr like every other
+		// refusal on this surface: a client parsing RFC 7807 must not meet
+		// a text/plain body on one path out of a handler, and the marshal
+		// error itself stays server-side.
+		httperr.Write(w, r, fmt.Errorf("re-encoding the split update response failed: %w", err))
 		return
 	}
 	copyHeaders(w, b.header)

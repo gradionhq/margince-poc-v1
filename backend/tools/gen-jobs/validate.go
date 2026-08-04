@@ -89,6 +89,13 @@ func (c contract) validate() error {
 		return fmt.Errorf("contract declares no kinds")
 	}
 	byGoType := make(map[string]string, len(c.Kinds))
+	// fannedOutBy records which dispatcher first claimed a child, so a second
+	// one naming it with a DIFFERENT unit is refused here rather than resolved
+	// by whichever the reader happened to walk last. A child row carries no
+	// unit of its own — every consumer walks the edge backwards to learn what
+	// one stands for — so two edges disagreeing about that make the answer a
+	// property of iteration order, and the unit gauges nondeterministic.
+	fannedOutBy := make(map[string]string, len(c.Kinds))
 	for _, name := range c.sortedKinds() {
 		def := c.Kinds[name]
 		if err := c.validateKind(name, def); err != nil {
@@ -99,6 +106,15 @@ func (c contract) validate() error {
 				name, def.GoType, other)
 		}
 		byGoType[def.GoType] = name
+		if def.FansOutTo == "" {
+			continue
+		}
+		if other, claimed := fannedOutBy[def.FansOutTo]; claimed &&
+			c.Kinds[other].FanOutUnit != def.FanOutUnit {
+			return fmt.Errorf("kind %q: fans out to %q per %s, but %q already fans out to it per %s — a child row stands for ONE unit, and two edges disagreeing about which makes the sweep-unit gauges depend on iteration order",
+				name, def.FansOutTo, def.FanOutUnit, other, c.Kinds[other].FanOutUnit)
+		}
+		fannedOutBy[def.FansOutTo] = name
 	}
 	return nil
 }
