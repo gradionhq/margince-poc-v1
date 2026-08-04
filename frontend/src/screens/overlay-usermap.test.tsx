@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   render as rtlRender,
   screen,
@@ -119,9 +120,13 @@ type Fixture = {
 
 function renderCard(fixture: Fixture = {}) {
   const incumbent = fixture.incumbent ?? "hubspot";
+  // Mutable so a test can revoke mid-run: the route is the single source the
+  // component re-reads, so flipping it and invalidating is deterministic —
+  // no racing a focus refetch.
+  let allow: GrantSpec = fixture.allow ?? USER_MAP_VIEWER;
   const routes: Record<string, RouteHandler> = {
     "GET /me": () => {
-      const me = meFixture({ allow: fixture.allow ?? USER_MAP_VIEWER });
+      const me = meFixture({ allow });
       return jsonResponse({
         ...me,
         user: { ...me.user, id: fixture.me ?? "admin-1" },
@@ -174,7 +179,11 @@ function renderCard(fixture: Fixture = {}) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
-  return { ...result, calls, client };
+  const revokeGrant = async () => {
+    allow = {};
+    await client.invalidateQueries({ queryKey: ["me"] });
+  };
+  return { ...result, calls, client, revokeGrant };
 }
 
 function requests(calls: Request[], method: string, suffix: string): Request[] {
@@ -189,6 +198,28 @@ afterEach(() => {
 });
 
 describe("the mirror user-map card", () => {
+  // Revoking the grant must take the incumbent's directory OFF SCREEN, not just
+  // stop refreshing it. The snapshot is replaced directly in the cache rather
+  // than by racing a refetch, so this asserts the behaviour deterministically.
+  it("withdraws the rows and any open confirmation when the grant is revoked", async () => {
+    const { revokeGrant } = renderCard({ entries: [mappedEntry] });
+    expect(await screen.findByText(/ada@acme.test/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Unmap" }));
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+    await act(async () => {
+      await revokeGrant();
+    });
+
+    // The table, the addresses in it, and the confirmation holding a copy of a
+    // row all go together.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/ada@acme.test/)).not.toBeInTheDocument();
+  });
+
   it("lists unmapped users with the derived reason", async () => {
     renderCard({
       entries: [

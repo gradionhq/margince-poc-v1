@@ -633,6 +633,16 @@ export function MirrorUserMapCard() {
   const [view, setView] = useState<View>("user");
   const [picking, setPicking] = useState<string | null>(null);
   const [unmapping, setUnmapping] = useState<Entry | null>(null);
+  // Evicting the queries is not enough on its own: `unmapping` holds a COPY of
+  // a row and `picking` drives the owner directory, so either could keep the
+  // incumbent's names and addresses on screen after the grant that admitted
+  // them was withdrawn. Clear both with the capability.
+  useEffect(() => {
+    if (!canMap) {
+      setPicking(null);
+      setUnmapping(null);
+    }
+  }, [canMap]);
 
   // Reads are admin/ops-only on the server (usermapservice.go's
   // requireUserMapAdmin): a rep's fetch could only 403, so it is never sent.
@@ -788,7 +798,7 @@ export function MirrorUserMapCard() {
         </>
       )}
       <UnmapConfirm
-        entry={unmapping}
+        entry={canManage ? unmapping : null}
         self={unmapping?.user_id === meId}
         pending={busy}
         error={unmap.isError ? unmap.error.message : null}
