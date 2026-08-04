@@ -21,10 +21,12 @@
 // composition layer registers only through a generated function whose type
 // parameter is the closed set of DECLARED args types, so a kind
 // api/jobs.yaml has never heard of does not compile, and forbidigo refuses
-// the direct river.AddWorker that would go around it. MustBeTotal is the
-// runtime half — it names any registered kind the file does not declare, and
-// the runner refuses to boot rather than working it at River's silent
-// one-minute default.
+// every direct River registration — AddWorker, AddWorkerArgs and
+// AddWorkerSafely alike — that would go around it. Neither gate reaches a
+// fixture registering into a throwaway *river.Workers, and neither would
+// notice a hand-edited generated union, which is what MustBeTotal is for: it
+// names any registered kind the file does not declare, and the runner refuses
+// to boot rather than working it at River's silent one-minute default.
 //
 // It owns no domain either way. The boundary with the bus is deliberate:
 // an event announces that something happened (outbox); a job asks for

@@ -16,11 +16,17 @@ linters:
         # .golangci.strict.yml: the strict pass is new-code-only
         # (new-from-merge-base), and every registration site this binds is
         # pre-existing. addDeclaredWorker's type parameter is what makes an
-        # undeclared kind unbuildable; a direct AddWorker walks around both
-        # that constraint and the kind list jobs.MustBeTotal reads at boot.
-        - pattern: '^river\.AddWorker$'
+        # undeclared kind unbuildable; any direct registration walks around
+        # that constraint, around jobs.Govern (so the worker answers River's
+        # option methods for itself again), and around the kind list
+        # jobs.MustBeTotal reads at boot.
+        #
+        # ALL THREE of River's registration spellings, not just AddWorker:
+        # AddWorkerArgs and AddWorkerSafely are equally unconstrained and
+        # equally direct, and AddWorkerSafely is already idiom in this tree.
+        - pattern: '^river\.AddWorker(Args|Safely)?$'
           pkg: '^github\.com/riverqueue/river$'
-          msg: "register through addDeclaredWorker — a kind absent from api/jobs.yaml is not in declaredJobArgs"
+          msg: "register through addDeclaredWorker — a kind absent from api/jobs.yaml is not in declaredJobArgs, and a direct registration also escapes jobs.Govern and the boot-time totality check"
     depguard:
       rules:
         # Layer B of the boundary stack (ADR-0014 §3): the module DAG from

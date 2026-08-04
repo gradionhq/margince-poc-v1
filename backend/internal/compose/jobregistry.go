@@ -11,11 +11,23 @@ package compose
 // This is the shared body, not the door. Every registration is written as the
 // generated addDeclaredWorker (or its with-timeout form), whose type parameter
 // is constrained to the declared set, so a kind api/jobs.yaml has never heard
-// of cannot be named at a call site at all; forbidigo closes the only way
-// around, a direct river.AddWorker. MustBeTotal at the end of assembly is the
-// runtime restatement of the same claim, over the kind list below rather than
-// over the type set — it is what a hand-edited generated file, or a fixture
-// registered through this helper directly, still has to answer to.
+// of cannot be named at a call site at all.
+//
+// Two ways past that constraint remain, and each has its own gate, because
+// neither is something the compiler can refuse:
+//
+//   - Going to River directly. All three of its registration spellings —
+//     AddWorker, AddWorkerArgs, AddWorkerSafely — take an unconstrained type
+//     parameter and skip jobs.Govern besides, so a worker registered that way
+//     answers River's option methods for itself again. forbidigo bans all
+//     three outside this file.
+//   - Calling addGovernedWorker below, which is constrained only to
+//     river.JobArgs. That is what fixtures do, and it is deliberate; the kind
+//     it records is what jobs.MustBeTotal refuses to boot on.
+//
+// So the compiler holds the sanctioned path, forbidigo holds the way around
+// it, and MustBeTotal holds what is left — including a hand-edited generated
+// file, whose union the compiler would believe.
 
 import (
 	"time"
