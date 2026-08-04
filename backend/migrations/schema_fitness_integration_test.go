@@ -354,7 +354,8 @@ var rowScopedFKDecisions = map[string]string{
 	// row is folded from activity_participant rows by the consumer, and no
 	// request body ever names a person here. Reads of it carry the person
 	// predicate, so an edge never discloses a contact the caller cannot open.
-	"graph_interaction_edge.person_id": "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	"graph_interaction_edge.person_id":        "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	"activity_participant_replay.activity_id": "job bookkeeping: written by the system-principal replay pass sweeping every activity in the workspace, never from a request. The row records THAT an original was re-read and what the parse found — it returns no record to any caller and discloses nothing about the activity it names",
 	// The LinkedIn ghost's match arms (CG-DDL-2). A ghost is not a record and
 	// carries no client-supplied reference: the matcher resolves both ids from
 	// its own row-scoped lookups, and a human confirming a suggestion
