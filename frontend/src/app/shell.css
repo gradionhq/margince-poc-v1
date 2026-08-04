@@ -1250,6 +1250,13 @@
   .scroll {
     padding-bottom: 68px;
   }
+  /* Except where there is no bar. Rail-less surfaces (login, onboarding,
+     booking, the client frame) carry their own chrome and never render the
+     floating nav, so the lane above is 68px of dead space at the bottom of a
+     full-height card — enough to visibly push a centred one off centre. */
+  .app.railless .scroll {
+    padding-bottom: 0;
+  }
   .topbar .searchhint {
     display: none;
   }
