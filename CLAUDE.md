@@ -63,7 +63,12 @@ upstream reconciliation.
 point; update it at the end of every working session. Route findings as you work:
 implementation decisions are recorded in the commit and PR that makes the change
 (git history is the record); spec/ticket defects are reconciled upstream against
-the spec (contract-first, P3), never worked around in this source.
+the spec (contract-first, P3), never worked around in this source; anything found
+but **not** fixed in the current change — a bug, a gap, a follow-up task — becomes
+a GitHub issue in this repo AND an item on the delivery board (org Project 9,
+"Margince Delivery"). When to file is the engineer's call; how to file — the
+commands, the field IDs, the public-repo hygiene rules — is
+[docs/reference/delivery-board.md](docs/reference/delivery-board.md).
 
 ## Build / test / seed
 
