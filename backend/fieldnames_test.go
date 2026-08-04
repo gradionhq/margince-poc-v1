@@ -42,11 +42,14 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // wireFieldName is what a contract field path may look like: a lowercase segment,
@@ -306,4 +309,191 @@ func stringLiteralPrefix(expr ast.Expr) (string, bool) {
 		return strings.TrimSuffix(left, "."), true
 	}
 	return "", false
+}
+
+// httpErrPackage and validationHelper name the transport helper whose first argument
+// lands in the wire field slot; customFieldPrefix is the one field-name family the
+// contract cannot enumerate, a governed column added at runtime and named per workspace.
+const (
+	httpErrPackage    = "httperr"
+	validationHelper  = "Validation"
+	customFieldPrefix = "cf_"
+
+	// minContractFieldNames is the vacuity floor on the vocabulary: the contract declares
+	// hundreds of properties, so a smaller set means the extraction read a fraction of the
+	// file, and every correct literal then fails at once — a verdict on the code under test
+	// when the broken thing is the yardstick. The floor guards the low side only; a
+	// vocabulary admitting everything certifies prose in silence and no count bounds that,
+	// since the honest count rises with every property added. Shape bounds it, below.
+	minContractFieldNames = 100
+)
+
+// validationFieldsOutsideTheContract holds the field names correct but undeclared.
+var validationFieldsOutsideTheContract = gatekit.Waive(map[string]string{
+	"arguments": "compose/registry.go's MCP tools/call handler names params.arguments, which is " +
+		"the JSON-RPC request shape rather than a REST contract property — correct for that " +
+		"wire, and absent from api_gen.go's tags because no REST body carries it",
+})
+
+// A field name published through the transport helper has to BE a field name.
+//
+// The FieldFault walk above polices the field slot on typed refusals. The same slot is
+// reachable a second way — `httperr.Validation`'s first argument, which REST renders as
+// `details.errors[].field` — where prose is the same unactionable answer, one indirection
+// outside the walk that watches for it. httperr's own unqualified calls count too.
+//
+// The vocabulary is the contract's own field names — every distinct `json:"…"` name the
+// generated types declare — rather than a naming shape: camelCase properties
+// (`privateAppToken`) and header parameters (`If-Match`) sit beside snake_case body ones, so
+// the shape rule serving the walk above would refuse fields the contract has.
+//
+// Coverage rests on a convention: 109 of the 142 calls lead with a string literal, spelling
+// 62 distinct paths, and a concatenation counts as literal-leading — its literal prefix is
+// judged, its computed tail is not. The other 33 pass a computed value (`bad.field`,
+// `pred.Field`, `param`) no static reading resolves; several are package-level constants,
+// which a reading that resolved identifiers within a package could judge too.
+func TestEveryValidationFieldLiteralNamesAContractField(t *testing.T) {
+	vocabulary := contractFieldNames(t)
+	checked := 0
+	for _, pf := range parseInternalTree(t) {
+		ast.Inspect(pf.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 ||
+				!callsValidationHelper(call.Fun, pf.file.Name.Name == httpErrPackage) {
+				return true
+			}
+			text, isLiteral := leadingStringLiteral(call.Args[0])
+			if !isLiteral {
+				return true
+			}
+			checked++
+			reportIfNotAContractField(t, pf.path, text, vocabulary)
+			return true
+		})
+	}
+	if checked == 0 {
+		t.Fatalf("no %s.%s call names a field literally — the helper was renamed and this gate "+
+			"watches nothing", httpErrPackage, validationHelper)
+	}
+	validationFieldsOutsideTheContract.AssertAllMatched(t)
+}
+
+// contractFieldNames is the set of field names the contract declares: the `json:"…"` name
+// of every member of every generated type, options stripped — the tag rather than the YAML
+// schema name because the tag is what the wire carries.
+func contractFieldNames(t *testing.T) map[string]bool {
+	t.Helper()
+	path := filepath.Join(internalTree, "contracts", "api_gen.go")
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	out := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		structType, ok := n.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		for _, member := range structType.Fields.List {
+			if member.Tag == nil {
+				continue
+			}
+			tag, unquoteErr := strconv.Unquote(member.Tag.Value)
+			if unquoteErr != nil {
+				t.Fatalf("%s: reading struct tag %s: %v", path, member.Tag.Value, unquoteErr)
+			}
+			name, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
+			if name == "" || name == "-" {
+				continue
+			}
+			if strings.ContainsAny(name, " \t\n") {
+				t.Errorf("%s: %q reached the field-name vocabulary — no declared property name carries "+
+					"whitespace, so the extraction is reading text that is not a json tag and a "+
+					"vocabulary built from it admits prose as a field", path, name)
+				continue
+			}
+			out[name] = true
+		}
+		return true
+	})
+	if len(out) < minContractFieldNames {
+		t.Fatalf("%s yielded %d field names, below the floor of %d — the extraction is broken, so "+
+			"every literal judged against it is judged against nothing", path, len(out), minContractFieldNames)
+	}
+	return out
+}
+
+// callsValidationHelper reports whether fun names the transport helper; the
+// unqualified form counts only inside httperr, whose own calls carry no qualifier.
+func callsValidationHelper(fun ast.Expr, insideHTTPErr bool) bool {
+	if sel, ok := fun.(*ast.SelectorExpr); ok {
+		pkg, qualified := sel.X.(*ast.Ident)
+		return qualified && pkg.Name == httpErrPackage && sel.Sel.Name == validationHelper
+	}
+	bare, unqualified := fun.(*ast.Ident)
+	return unqualified && insideHTTPErr && bare.Name == validationHelper
+}
+
+// leadingStringLiteral returns a string argument's literal text, or the ACCUMULATED literal
+// prefix of a concatenation — every literal operand from the left, joined, up to the first
+// computed one, since `"company_draft." + field` is a legal dotted path at runtime.
+// Accumulating rather than reading the leftmost operand holds against prose split across
+// operands: `"name" + ": missing" + x` has a field-shaped leftmost operand, and the joined
+// prefix `name: missing` does not. Unlike stringLiteralPrefix the trailing dot stays —
+// whether a path ending at a separator names anything is the segment walk's question.
+func leadingStringLiteral(expr ast.Expr) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", false
+		}
+		text, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return "", false
+		}
+		return text, true
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+		left, ok := leadingStringLiteral(e.X)
+		if !ok {
+			return "", false
+		}
+		if right, literal := leadingStringLiteral(e.Y); literal {
+			left += right
+		}
+		return left, true
+	}
+	return "", false
+}
+
+// reportIfNotAContractField judges a dotted path one segment at a time, because a nested
+// path is legal while no whole path is a declared name. An index is dropped (`edits[0]`
+// addresses `edits`), and so is the empty segment a runtime-continued path leaves at its end.
+func reportIfNotAContractField(t *testing.T, path, text string, vocabulary map[string]bool) {
+	t.Helper()
+	named := 0
+	for _, segment := range strings.Split(text, ".") {
+		if index := strings.IndexByte(segment, '['); index >= 0 {
+			segment = segment[:index]
+		}
+		if segment == "" {
+			continue
+		}
+		named++
+		if vocabulary[segment] || strings.HasPrefix(segment, customFieldPrefix) ||
+			validationFieldsOutsideTheContract.Waived(t, segment) {
+			continue
+		}
+		t.Errorf("%s: %s.%s publishes field %q, whose segment %q is not a field the contract declares. "+
+			"REST renders that slot as details.errors[].field, so use the contract's own name (or a %s "+
+			"custom field) and put the explanation in the message argument — or refuse with a "+
+			"MessageFault, which publishes no field, when no single argument is the wrong one.",
+			path, httpErrPackage, validationHelper, text, segment, customFieldPrefix)
+	}
+	if named == 0 {
+		t.Errorf("%s: %s.%s publishes field %q, which addresses no field at all — name the field, or "+
+			"refuse with a MessageFault.", path, httpErrPackage, validationHelper, text)
+	}
 }
