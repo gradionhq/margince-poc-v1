@@ -370,6 +370,239 @@
   }
 }
 
+/* --- the rail variant --------------------------------------------------- */
+/* The inverted split: the conversation narrows to a narrator rail and the
+   artifact takes the room, because for a dense act (a 16-field review) the
+   surface does the work and the conversation only explains it. Same DOM as
+   the split variant — proportions, stepper direction and chrome density are
+   the whole difference, so everything the tests prove about the chrome holds
+   in both. Desktop only: below 900px the base stacking rules already turn
+   both variants into one column. */
+
+@media (min-width: 901px) {
+  .mw-shell.is-rail .mw-body.has-artifact {
+    grid-template-columns: clamp(300px, 26vw, 380px) minmax(0, 1fr);
+  }
+
+  /* The seam flips sides with the emphasis: the rail closes with the strong
+     border and the artifact loses its trough — as the primary surface it
+     reads the page background, not a recess. */
+  .mw-shell.is-rail .mw-conversation {
+    border-right: 1px solid var(--borderStrong);
+  }
+
+  /* A very quiet colour wash at the top of the work surface: the AI family
+     on the near side, the brand on the far one, both fading out before the
+     first row of content. Decoration only, drawn under everything. The
+     gutters grow with the viewport so a wide pane reads as a centred page,
+     never content pinned to its left edge. */
+  .mw-shell.is-rail .mw-artifact {
+    padding: var(--space-6) clamp(var(--space-6), 5vw, 72px);
+    border-left: 0;
+    background:
+      radial-gradient(42rem 15rem at 12% -4%, var(--aiLight), transparent 58%),
+      radial-gradient(
+        30rem 12rem at 92% -2%,
+        var(--accentLight),
+        transparent 55%
+      ),
+      var(--bgPage);
+    background-attachment: local;
+  }
+}
+
+/* The rail's progress line: one sentence and a segment bar. Two lines that
+   never wrap, where five numbered stops needed two ragged ones. */
+.mw-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.mw-progress-label {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mw-progress-track {
+  display: flex;
+  gap: 4px;
+}
+
+.mw-progress-track i {
+  height: 3px;
+  flex: 1;
+  border-radius: var(--r-full);
+  background: var(--borderStrong);
+  transition: background 0.2s ease;
+}
+
+.mw-progress-track i.is-done,
+.mw-progress-track i.is-now {
+  background: var(--accent);
+}
+
+/* The stop underway is the one still being earned, so it reads as half its
+   width filled rather than as another completed segment. */
+.mw-progress-track i.is-now {
+  background: linear-gradient(
+    to right,
+    var(--accent) 50%,
+    var(--borderStrong) 50%
+  );
+}
+
+/* The stop the journey is standing on breathes, gently: the same claim
+   aria-current makes, said in motion for the eye that is scanning the rail.
+   Behind the numeral (z-index), so the digit never blurs. */
+.mw-shell.is-rail .mw-step.is-now b {
+  position: relative;
+}
+
+.mw-shell.is-rail .mw-step.is-now b::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: var(--r-full);
+  background: var(--accentLight);
+  animation: mw-step-breathe 3.4s ease-in-out infinite;
+}
+
+@keyframes mw-step-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+/* The brand line at rail width holds only the Core and the identity — the
+   runtime chip lives in the spend bar directly below. */
+.mw-shell.is-rail .mw-brand {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+/* The spend bar under the identity: what this run costs, said by the one
+   who is spending it. Full rail width — spend and token count on the left,
+   the disclosure caret on the right. */
+.mw-shell.is-rail .mw-aifooter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+  margin-top: calc(-1 * var(--space-2));
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.mw-shell.is-rail .mw-aifooter-label {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mw-shell.is-rail .mw-aistat,
+.mw-shell.is-rail .mw-aistat-btn {
+  width: 100%;
+}
+
+.mw-shell.is-rail .mw-aistat-btn {
+  justify-content: flex-start;
+  padding: var(--space-2) var(--space-3);
+}
+
+.mw-shell.is-rail .mw-aistat-caret {
+  margin-left: auto;
+}
+
+.mw-aistat-tok {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The active model under the spend, one quiet line that never wraps — the
+   full routing is one hover (title) or one chip-press away. */
+.mw-shell.is-rail .mw-aifooter-model {
+  overflow: hidden;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-shell.is-rail .mw-aistat-pop {
+  right: auto;
+  left: 0;
+  width: 100%;
+}
+
+/* Who is signed in, at the rail's very foot. */
+.mw-shell.is-rail .mw-person {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.mw-shell.is-rail .mw-person-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--mono0Fill);
+  color: var(--mono0Text);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mw-shell.is-rail .mw-person-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mw-shell.is-rail .mw-person-id b {
+  color: var(--textPrimary);
+  font-size: 12px;
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-shell.is-rail .mw-person-id small {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Narrow: the artifact stops being a column and becomes the section below the
    conversation. Both panes then scroll with the page rather than themselves —
    two independent scrollers inside one phone screen is a trap. */
@@ -417,7 +650,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .mw-identity i[data-state="working"],
-  .mw-aistat-pop {
+  .mw-aistat-pop,
+  .mw-shell.is-rail .mw-step.is-now b::after {
     animation: none;
   }
   .mw-aistat-caret {

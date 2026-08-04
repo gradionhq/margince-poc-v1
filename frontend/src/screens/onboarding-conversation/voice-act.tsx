@@ -1,10 +1,9 @@
-import { Paperclip, Send, Sparkles } from "lucide-react";
-import type { ChangeEvent, Dispatch } from "react";
+import type { ChangeEvent, Dispatch, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
-import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../onboarding";
+import { VOICE_MIN_WORDS } from "../onboarding";
 import { parseVoiceInsights, VoiceInsights } from "../voice-insights";
 import type {
   ConversationEvent,
@@ -13,21 +12,18 @@ import type {
 import { NarrationBubble } from "./entries";
 import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
+import { railStops } from "./rail";
 import { ConversationThread } from "./thread";
 import { useVoiceBuild } from "./use-voice-build";
 import { useVoiceCorpus } from "./use-voice-corpus";
 import { VoiceActArtifact } from "./voice-artifact";
-import { ConversationWorkbench } from "./workbench";
+import { VoiceBuildScene, VoiceCollectScene, VoiceScene } from "./voice-scenes";
+import { ConversationWorkbench, useConfiguredModel } from "./workbench";
 
 // The voice act driver: intake and ingestion live in useVoiceCorpus, the
-// build lifecycle in useVoiceBuild; this component owns the composer (paste
-// offer), the drop target, and the chips — all expressed as machine events,
-// so the pure reducer stays the single truth about where the act is.
-
-// Below this many client-counted words a composer submit is a message, not
-// corpus material; the client count only routes the offer, the server
-// counts what is ingested.
-const PASTE_OFFER_MIN_WORDS = 40;
+// build lifecycle in useVoiceBuild. Every source — a browsed file, a window
+// drop, a pasted text — lands through the collect scene; the rail beside it
+// narrates and never offers a way to add material of its own.
 
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
 
@@ -44,11 +40,8 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   machine.current = state;
   const corpus = useVoiceCorpus({ state, dispatch, initialSummary });
   const build = useVoiceBuild({ dispatch, machine });
-  const [draft, setDraft] = useState("");
-  const [pendingPaste, setPendingPaste] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const composer = useRef<HTMLTextAreaElement>(null);
 
   const collecting =
     state.phase === "vo.collecting" || state.phase === "vo.speaker";
@@ -64,16 +57,16 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     event.target.value = "";
   };
 
-  // The hint promises "drop files anywhere in this conversation", so the
-  // WHOLE window is the drop target — a file landing on the composer, the
+  // The scene promises "drop files anywhere in this conversation", so the
+  // WHOLE window is the drop target — a file landing on the rail, the
   // artifact panel, or a layout gap must feed the corpus, and outside the
   // collecting phases a stray drop must still be neutralized: the browser's
   // default is to NAVIGATE to the dropped file, which would tear the user
   // out of the onboarding mid-act.
   const { addFiles } = corpus;
   useEffect(() => {
-    // Only FILE drags are claimed: dragging selected text into the composer
-    // is a native interaction this act must not swallow.
+    // Only FILE drags are claimed: dragging selected text elsewhere on the
+    // page is a native interaction this act must not swallow.
     const isFileDrag = (event: globalThis.DragEvent) =>
       event.dataTransfer?.types.includes("Files") ?? false;
     const onDragOver = (event: globalThis.DragEvent) => {
@@ -110,36 +103,36 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     };
   }, [collecting, addFiles]);
 
-  const submitComposer = () => {
-    const text = draft.trim();
-    if (text === "" || state.phase !== "vo.collecting") {
-      return;
-    }
-    // Sending must not strand focus on the send button: the composer stays
-    // the keyboard home while the conversation continues.
-    composer.current?.focus();
-    if (text.split(/\s+/).length >= PASTE_OFFER_MIN_WORDS) {
-      setPendingPaste(text);
-    } else {
-      setPendingPaste(null);
-      dispatch({
-        type: "NARRATION",
-        entry: {
-          kind: "narration",
-          id: "paste:short",
-          i18nKey: "ob.conv.voice.pasteTooShort",
-        },
-      });
-    }
-    setDraft("");
-  };
-
   const handleAnswer = (questionId: string, value: string) => {
     dispatch({ type: "QUESTION_ANSWERED", questionId, value });
     corpus.answerSpeaker(questionId, value);
   };
 
   const presence = presenceFor(state);
+  const configuredModel = useConfiguredModel();
+
+  // Where the journey stands, in the rail's own counting.
+  const stops = railStops(state.memberPath);
+  const eyebrow = t("ob.conv.scene.step", {
+    n: stops.findIndex((stop) => stop.key === "voice") + 1,
+    m: stops.length,
+    label: t("ob.rail.voice"),
+  });
+
+  const scene = (
+    <VoiceSurface
+      state={state}
+      dispatch={dispatch}
+      eyebrow={eyebrow}
+      corpus={corpus}
+      build={build}
+      collecting={collecting}
+      canBuild={canBuild}
+      fileRef={fileRef}
+      onFiles={onFiles}
+      model={configuredModel}
+    />
+  );
 
   return (
     <ConversationWorkbench
@@ -151,14 +144,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
           ? "ob.conv.voice.statusBuilding"
           : "ob.ai.ready",
       )}
-      artifact={
-        <VoiceActArtifact
-          summary={corpus.summary}
-          manifest={corpus.manifest}
-          stage={build.stage}
-          building={state.phase === "vo.building"}
-        />
-      }
+      artifact={scene}
     >
       <div className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}>
         <ConversationThread
@@ -166,26 +152,12 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
         >
-          {state.phase === "vo.invite" && <InviteChips dispatch={dispatch} />}
           {state.phase === "vo.collecting" && (
-            <CollectingControls
-              dispatch={dispatch}
+            // The controls live on the scene now; the rail says only what
+            // the machine wants and why.
+            <CollectingNarration
               serverWords={serverWords}
               canBuild={canBuild}
-              startPending={build.start.isPending}
-              onBuild={() => build.start.mutate()}
-              startError={
-                build.start.isError ? build.start.error.message : null
-              }
-            />
-          )}
-          {pendingPaste !== null && state.phase === "vo.collecting" && (
-            <PasteOffer
-              onAdd={() => {
-                corpus.addPaste(pendingPaste, t("ob.conv.voice.pasteSource"));
-                setPendingPaste(null);
-              }}
-              onDiscard={() => setPendingPaste(null)}
             />
           )}
           {state.phase === "vo.result" && (
@@ -205,52 +177,6 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
         </ConversationThread>
       </div>
       <VoiceNextStep state={state} canBuild={canBuild} />
-      {collecting && (
-        <div className="mw-composer">
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            hidden
-            accept={ACCEPTED_CORPUS_ATTR}
-            onChange={onFiles}
-          />
-          <Button
-            aria-label={t("ob.conv.voice.attach")}
-            onClick={() => fileRef.current?.click()}
-          >
-            <Paperclip aria-hidden />
-          </Button>
-          <textarea
-            ref={composer}
-            value={draft}
-            maxLength={100_000}
-            rows={2}
-            placeholder={t("ob.conv.voice.composer")}
-            aria-label={t("ob.conv.voice.composer")}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (
-                event.key === "Enter" &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing
-              ) {
-                event.preventDefault();
-                submitComposer();
-              }
-            }}
-          />
-          <Button
-            variant="primary"
-            aria-label={t("ob.ai.send")}
-            disabled={!draft.trim()}
-            onClick={submitComposer}
-          >
-            <Send aria-hidden />
-          </Button>
-          <small>{t("ob.conv.voice.dropHint")}</small>
-        </div>
-      )}
     </ConversationWorkbench>
   );
 }
@@ -283,55 +209,12 @@ function VoiceNextStep({
   return null;
 }
 
-function InviteChips({
-  dispatch,
-}: Readonly<{ dispatch: Dispatch<ConversationEvent> }>) {
-  const t = useT();
-  return (
-    <>
-      <NarrationBubble
-        entry={{
-          kind: "narration",
-          id: "voice:invite",
-          i18nKey: "ob.conv.voice.invite",
-        }}
-      />
-      <div className="ob-conv-chips">
-        <Button
-          small
-          variant="primary"
-          onClick={() => dispatch({ type: "VOICE_OPT_IN" })}
-        >
-          {t("ob.conv.voice.optIn")}
-        </Button>
-        <Button
-          small
-          variant="ghost"
-          onClick={() => dispatch({ type: "VOICE_SKIPPED" })}
-        >
-          {t("ob.conv.voice.skipped")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-function CollectingControls({
-  dispatch,
+// What the machine wants while it collects, and nothing it can press: the
+// drop target, the sources and the build action are the scene's.
+function CollectingNarration({
   serverWords,
   canBuild,
-  startPending,
-  onBuild,
-  startError,
-}: Readonly<{
-  dispatch: Dispatch<ConversationEvent>;
-  serverWords: number;
-  canBuild: boolean;
-  startPending: boolean;
-  onBuild: () => void;
-  startError: string | null;
-}>) {
-  const t = useT();
+}: Readonly<{ serverWords: number; canBuild: boolean }>) {
   return (
     <>
       <NarrationBubble
@@ -360,57 +243,6 @@ function CollectingControls({
           }}
         />
       )}
-      {startError !== null && (
-        <p className="mw-send-error" role="alert">
-          {startError}
-        </p>
-      )}
-      <div className="ob-conv-chips">
-        {(canBuild || startPending) && (
-          <Button
-            small
-            variant="primary"
-            className="ob-conv-build-chip"
-            disabled={startPending}
-            onClick={onBuild}
-          >
-            <Sparkles aria-hidden /> {t("ob.conv.voice.buildChip")}
-          </Button>
-        )}
-        <Button
-          small
-          variant="ghost"
-          onClick={() => dispatch({ type: "VOICE_SKIPPED" })}
-        >
-          {t("ob.conv.voice.skipped")}
-        </Button>
-      </div>
-    </>
-  );
-}
-
-function PasteOffer({
-  onAdd,
-  onDiscard,
-}: Readonly<{ onAdd: () => void; onDiscard: () => void }>) {
-  const t = useT();
-  return (
-    <>
-      <NarrationBubble
-        entry={{
-          kind: "narration",
-          id: "paste:offer",
-          i18nKey: "ob.conv.voice.pasteOffer",
-        }}
-      />
-      <div className="ob-conv-chips">
-        <Button small variant="primary" onClick={onAdd}>
-          {t("ob.conv.voice.pasteAdd")}
-        </Button>
-        <Button small variant="ghost" onClick={onDiscard}>
-          {t("ob.conv.voice.pasteDiscard")}
-        </Button>
-      </div>
     </>
   );
 }
@@ -429,31 +261,10 @@ function ResultControls({
   build: ReturnType<typeof useVoiceBuild>;
 }>) {
   const t = useT();
-  const version = build.builtVersion.data ?? null;
   return (
     <>
-      {state.lastBuildStatus === "succeeded" && (
-        <div className="ob-conv-voice-result">
-          <h2>{t("ob.conv.voice.resultTitle")}</h2>
-          {build.builtVersion.isPending && (
-            <p>{t("ob.conv.voice.resultLoading")}</p>
-          )}
-          {!build.builtVersion.isPending && version === null && (
-            <p>{t("ob.conv.voice.resultEmpty")}</p>
-          )}
-          {version !== null && (
-            <>
-              {version.status === "candidate" && (
-                <p className="t-small">{t("ob.conv.voice.candidateNote")}</p>
-              )}
-              <VoiceInsights
-                data={parseVoiceInsights(version)}
-                profileVersion={version.profile_version}
-              />
-            </>
-          )}
-        </div>
-      )}
+      {/* What the build learned is the SCENE's; the rail keeps only the
+          actions, or the same sentences would be on screen twice. */}
       <div className="ob-conv-chips">
         {state.lastBuildStatus === "failed" && (
           <Button
@@ -473,5 +284,109 @@ function ResultControls({
         </Button>
       </div>
     </>
+  );
+}
+
+/**
+ * Which scene the voice act's work surface is showing, and nothing else:
+ * collect the writing, watch the model learn it, then read what it learned.
+ * Outside those three the corpus dossier stands in. Extracted from the act
+ * driver so the driver stays about events, not about staging.
+ */
+function VoiceSurface({
+  state,
+  dispatch,
+  eyebrow,
+  corpus,
+  build,
+  collecting,
+  canBuild,
+  fileRef,
+  onFiles,
+  model,
+}: Readonly<{
+  state: ConversationState;
+  dispatch: Dispatch<ConversationEvent>;
+  eyebrow: string;
+  corpus: ReturnType<typeof useVoiceCorpus>;
+  build: ReturnType<typeof useVoiceBuild>;
+  collecting: boolean;
+  canBuild: boolean;
+  fileRef: RefObject<HTMLInputElement | null>;
+  onFiles: (event: ChangeEvent<HTMLInputElement>) => void;
+  model: string;
+}>) {
+  const t = useT();
+  if (collecting) {
+    return (
+      <VoiceCollectScene
+        eyebrow={eyebrow}
+        summary={corpus.summary}
+        manifest={corpus.manifest}
+        fileRef={fileRef}
+        onFiles={onFiles}
+        onAddPaste={(text) =>
+          corpus.addPaste(text, t("ob.conv.voice.pasteSource"))
+        }
+        onBuild={() => build.start.mutate()}
+        onSkip={() => dispatch({ type: "VOICE_SKIPPED" })}
+        canBuild={canBuild}
+        startPending={build.start.isPending}
+        startError={build.start.isError ? build.start.error.message : null}
+      />
+    );
+  }
+  if (state.phase === "vo.building") {
+    return (
+      <VoiceBuildScene
+        stage={build.stage}
+        summary={corpus.summary}
+        sources={corpus.manifest.length}
+        model={model}
+      />
+    );
+  }
+  if (state.phase === "vo.result" && state.lastBuildStatus === "succeeded") {
+    const version = build.builtVersion.data ?? null;
+    return (
+      <VoiceScene
+        eyebrow={eyebrow}
+        title={t("ob.conv.voice.resultTitle")}
+        sub={t("ob.conv.voice.resultSub")}
+      >
+        {build.builtVersion.isPending && (
+          <p className="ob-conv-artifact-empty">
+            {t("ob.conv.voice.resultLoading")}
+          </p>
+        )}
+        {!build.builtVersion.isPending && version === null && (
+          <p className="ob-conv-artifact-empty">
+            {t("ob.conv.voice.resultEmpty")}
+          </p>
+        )}
+        {version !== null && (
+          <>
+            {version.status === "candidate" && (
+              <p className="t-small">{t("ob.conv.voice.candidateNote")}</p>
+            )}
+            <VoiceInsights
+              data={parseVoiceInsights(version)}
+              profileVersion={version.profile_version}
+            />
+          </>
+        )}
+      </VoiceScene>
+    );
+  }
+  // Everything a scene does not own — a failed or deferred build, the skip
+  // — keeps the corpus dossier. The build scene above has already claimed
+  // every building phase, so no tracker runs here.
+  return (
+    <VoiceActArtifact
+      summary={corpus.summary}
+      manifest={corpus.manifest}
+      stage={build.stage}
+      building={false}
+    />
   );
 }

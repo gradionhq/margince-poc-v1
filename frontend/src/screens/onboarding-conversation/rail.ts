@@ -52,11 +52,9 @@ export function currentStop(state: ConversationState): RailStop["key"] | null {
       return "voice";
     case "results":
       return "ready";
-    // Asking for LinkedIn IS the connect stretch: it is one of the accounts the
-    // last stop is about, and both paths reach it immediately before the inbox.
-    // A stop of its own would grow the rail once per integration and would need a
-    // sixth word for something the reader already reads as "connecting".
-    case "linkedin":
+    // Every account the setup asks for — mailbox and LinkedIn alike — belongs to
+    // this one stop. A stop per integration would grow the rail once per provider
+    // for something the reader already reads as "connecting".
     case "connect":
     case "done":
       return "connect";
@@ -100,4 +98,15 @@ function currentIndexOf(
   stops: readonly RailStop["key"][],
 ) {
   return current === null ? -1 : stops.indexOf(current);
+}
+
+// The clarify surface (a legal-entity pick today) takes the whole screen
+// from inside the CONFIRM stop, but not every run reaches it — most reads
+// resolve the entity on their own. It is a detour off the fixed sequence,
+// not a numbered stop in it, so anything naming "step N of M" while this is
+// live is claiming a slot the flow does not always have. This is the one
+// place that knows the difference; callers ask rather than re-deriving it
+// from phase and pendingQuestion themselves.
+export function isDetour(state: ConversationState): boolean {
+  return state.phase === "co.clarify" && state.pendingQuestion !== null;
 }

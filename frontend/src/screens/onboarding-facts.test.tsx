@@ -15,8 +15,14 @@ import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { EMPTY_DRAFT, MAX_SELECTED_FACTS } from "./onboarding";
+import {
+  type CompanyFieldName,
+  changeDraftField,
+  EMPTY_DRAFT,
+  MAX_SELECTED_FACTS,
+} from "./onboarding";
 import { CompanyStep } from "./onboarding-company-form";
+import { missingRequiredFields } from "./onboarding-conversation/company-proposal";
 import { CompanyConfirmCard } from "./onboarding-conversation/confirm-card";
 import {
   defaultSelectedFactKeys,
@@ -674,19 +680,14 @@ describe("the other fact-picking surfaces", () => {
           proposal={{ ready: true, fields: [], facts: MANY }}
           draft={EMPTY_DRAFT}
           answers={[]}
-          comparisons={[]}
-          pendingQuestionId={null}
           selectedFactKeys={keys}
           setSelectedFactKeys={setKeys}
           missingRequired={[]}
           setField={vi.fn()}
-          onAnswerClarify={vi.fn()}
-          onDismissClarify={vi.fn()}
           onAcceptAll={vi.fn()}
           pending={false}
           authorizing={false}
           error={null}
-          onEditDirectly={vi.fn()}
         />
         <output data-testid="keys">{keys.join(" ")}</output>
       </>
@@ -767,8 +768,8 @@ describe("the other fact-picking surfaces", () => {
 });
 
 // The triage layout: a summary line the reader can skim before any row, the
-// missing-required rows ordered ahead of the settled fields, and a prose
-// field's snippet-shaped preview/full-text swap.
+// work rows ordered ahead of the settled fields inside each group, and a
+// prose field's snippet-shaped preview/full-text swap.
 describe("CompanyConfirmCard as a triage surface", () => {
   type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 
@@ -813,43 +814,180 @@ describe("CompanyConfirmCard as a triage surface", () => {
     };
   }
 
-  function renderTriage(missingRequired: readonly "icp"[]) {
+  function renderTriage(
+    missingRequired: readonly "icp"[],
+    read: components["schemas"]["CompanySiteRead"] | null = null,
+  ) {
     render(
       <CompanyConfirmCard
         proposal={triageProposal()}
         draft={triageDraft()}
         answers={[]}
-        comparisons={[]}
-        pendingQuestionId={null}
+        read={read}
         selectedFactKeys={[]}
         setSelectedFactKeys={vi.fn()}
         missingRequired={missingRequired}
         setField={vi.fn()}
-        onAnswerClarify={vi.fn()}
-        onDismissClarify={vi.fn()}
         onAcceptAll={vi.fn()}
         pending={false}
         authorizing={false}
         error={null}
-        onEditDirectly={vi.fn()}
       />,
     );
   }
 
-  it("summarizes the triage counts under the header: total, grounded, and what still needs the human", () => {
-    renderTriage(["icp"]);
+  // The pinned continue bar replaced the old tally strip: progress measures
+  // real completion toward being able to continue (required fields only),
+  // never a count of every row the board happens to carry.
+  it("measures the continue bar's progress by required fields filled, not every row on the board", () => {
+    render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={{
+          ...EMPTY_DRAFT,
+          values: {
+            ...EMPTY_DRAFT.values,
+            offer_summary: "We do things.",
+            icp: "Mid-market logistics.",
+          },
+        }}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={["display_name"]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
 
-    // 2 settled rows (legal_name, offer_summary) + 1 missing (icp) = 3 total.
+    // 2 of the 3 required fields (offer_summary, icp) are filled; the other
+    // 13 profile fields on the board — settled or not — play no part.
+    const bar = screen.getByRole("progressbar", {
+      name: "Required fields completed",
+    });
+    expect(bar).toHaveProperty("value", 2);
+    expect(bar).toHaveProperty("max", 3);
     expect(
-      screen.getByText("3 fields, 2 grounded, 1 need you."),
+      screen.getByText("1 field needed before you can continue"),
     ).toBeInTheDocument();
   });
 
-  it("puts the missing-required editable row before the field list in the DOM", () => {
+  it("says plainly that nothing more is required once every required field is filled", () => {
+    renderTriage([]);
+
+    expect(
+      screen.getByText("Nothing more needed — you can continue."),
+    ).toBeInTheDocument();
+  });
+
+  it("counts exactly the fields the section nav marks with its blocking icon", () => {
+    render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={{
+          ...EMPTY_DRAFT,
+          values: { ...EMPTY_DRAFT.values, offer_summary: "x" },
+        }}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={["display_name", "icp"]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    const blocking = document.querySelectorAll(
+      '.ob-triage-nav-item[data-blocking="true"]',
+    );
+    expect(blocking).toHaveLength(2);
+    expect(
+      screen.getByText("2 fields needed before you can continue"),
+    ).toBeInTheDocument();
+  });
+
+  // Only display_name, offer_summary and icp ever block confirm (the server
+  // 422s on exactly those three); every other empty or weakly-grounded field
+  // is advisory, however many of them a section carries.
+  it("presents a section as blocking exactly when it holds a required-and-empty field, never for advisory ones alone", () => {
     renderTriage(["icp"]);
 
-    const missingRow = screen.getByLabelText(/Ideal customer/);
-    const settledValue = screen.getByText("Gradion GmbH");
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    // Identity carries display_name (required, empty) alongside four merely
+    // empty-and-optional fields — it must read as blocking.
+    const identityLink = within(nav).getByRole("button", {
+      name: /Legal organization/,
+    });
+    expect(identityLink.querySelector('[data-blocking="true"]')).not.toBeNull();
+
+    // None of buying_intents, common_objections or sales_motion is in
+    // REQUIRED_FIELDS — sales can never present as blocking, however many
+    // of its own fields are still empty.
+    const salesLink = within(nav).getByRole("button", {
+      name: /Positioning and sales/,
+    });
+    expect(salesLink.querySelector('[data-blocking="true"]')).toBeNull();
+    expect(within(salesLink).getByText("3 worth a check")).toBeInTheDocument();
+  });
+
+  it("disables continue exactly while a required field remains empty, and enables it on the same render the last one is filled", async () => {
+    const user = userEvent.setup();
+
+    function RequiredHarness() {
+      const [draft, setDraft] = useState({
+        ...EMPTY_DRAFT,
+        values: {
+          ...EMPTY_DRAFT.values,
+          offer_summary: "We do things.",
+          icp: "Mid-market logistics.",
+        },
+      });
+      return (
+        <CompanyConfirmCard
+          proposal={triageProposal()}
+          draft={draft}
+          answers={[]}
+          selectedFactKeys={[]}
+          setSelectedFactKeys={vi.fn()}
+          missingRequired={missingRequiredFields(draft.values)}
+          setField={(field, value) =>
+            setDraft((current) => changeDraftField(current, field, value))
+          }
+          onAcceptAll={vi.fn()}
+          pending={false}
+          authorizing={false}
+          error={null}
+        />
+      );
+    }
+    render(<RequiredHarness />);
+
+    const continueButton = screen.getByRole("button", { name: /Continue/ });
+    expect(continueButton).toBeDisabled();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /Company name/ }),
+      "Gradion",
+    );
+
+    expect(continueButton).toBeEnabled();
+  });
+
+  it("puts a group's work rows before its settled rows in the DOM", () => {
+    renderTriage(["icp"]);
+
+    // Within the legal-identity group: display_name is required and empty,
+    // legal_name is grounded and settled — the gap outranks the done row.
+    // "Gradion GmbH" also names the identity card above the board; the row
+    // itself is the one that is a button.
+    const missingRow = screen.getByRole("textbox", { name: /Company name/ });
+    const settledValue = screen.getByRole("button", { name: /Gradion GmbH/ });
 
     expect(
       missingRow.compareDocumentPosition(settledValue) &
@@ -857,30 +995,36 @@ describe("CompanyConfirmCard as a triage surface", () => {
     ).toBeTruthy();
   });
 
-  it("hides a prose field's full text behind a preview until the reader expands it", async () => {
+  // A settled row is a one-line summary that is itself the expand control;
+  // the full text stays out of the DOM until the row opens, and opening it
+  // yields the value editable in place.
+  it("hides a prose field's full text behind its collapsed row until the reader expands it", async () => {
     const user = userEvent.setup();
     renderTriage([]);
 
     expect(screen.queryByText(LONG_OFFER)).not.toBeInTheDocument();
-    const expand = screen.getByRole("button", { name: "Show full text" });
-    expect(expand).toHaveAttribute("aria-expanded", "false");
+    // The row button's name carries the preview, which is what tells it
+    // apart from the map square that names the same field.
+    const row = screen.getByRole("button", { name: /We help logistics/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(expand);
+    await user.click(row);
 
-    expect(screen.getByText(LONG_OFFER)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
-    );
+    expect(
+      screen.getByRole("textbox", { name: /What do you sell\?/ }),
+    ).toHaveValue(LONG_OFFER);
   });
 
-  it("keeps a short field's evidence snippet out of the DOM until its chip is toggled", async () => {
+  it("keeps a field's evidence snippet out of the DOM until the open row's chip is toggled", async () => {
     const user = userEvent.setup();
     renderTriage([]);
 
     expect(
       screen.queryByText('"Legal name on the imprint page."'),
     ).not.toBeInTheDocument();
+    // Collapsed rows carry no evidence control at all; the chip appears
+    // with the opened card and its snippet still waits for the toggle.
+    await user.click(screen.getByRole("button", { name: /Gradion GmbH/ }));
     const toggle = screen.getByRole("button", {
       name: "Evidence from gradion.com/impressum",
     });
@@ -891,6 +1035,659 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(
       screen.getByText('"Legal name on the imprint page."'),
     ).toBeInTheDocument();
+  });
+
+  // The identity card leads the surface: a name, and the fields that name
+  // the business — each a jump into the row it summarizes, not another
+  // form. No brand image ever renders; the contract carries none.
+  it("leads with an identity card naming the company, whose values jump to their rows", async () => {
+    const user = userEvent.setup();
+    render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={{
+          ...EMPTY_DRAFT,
+          values: {
+            ...EMPTY_DRAFT.values,
+            display_name: "Gradion",
+            legal_name: "Gradion GmbH",
+            website: "https://gradion.com/",
+            registered_address: "Musterstraße 1, Hamburg",
+            industry: "Software",
+          },
+        }}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Gradion", level: 3 }),
+    ).toBeInTheDocument();
+    // The domain, not the raw URL, and no logo — the contract has none.
+    expect(screen.getByText("gradion.com")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Musterstraße 1, Hamburg" }),
+    );
+
+    expect(document.activeElement).toHaveAttribute(
+      "data-finding-id",
+      "registered_address",
+    );
+  });
+
+  it("says nothing about a company with no name yet", () => {
+    const { container } = render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={EMPTY_DRAFT}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    expect(container.querySelector(".ob-company-card")).toBeNull();
+  });
+
+  // The map is gone: the nav is a plain list of section names, each a jump
+  // link, with only a non-zero unresolved count as its status — no per-field
+  // squares, no legend explaining a colour vocabulary.
+  it("navigates by section name, splitting what blocks from what's merely worth a look, not a grid of squares", () => {
+    renderTriage(["icp"]);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const identityLink = within(nav).getByRole("button", {
+      name: /Legal organization/,
+    });
+    // display_name is required and empty — the one field that actually
+    // blocks confirm. registered_address, register_vat, industry and
+    // history are merely empty-and-optional (legal_name alone is settled) —
+    // worth a look, never an obstacle, and never counted alongside the
+    // blocking one as if they were the same kind of gap.
+    expect(within(identityLink).getByText("1")).toBeInTheDocument();
+    expect(
+      within(identityLink).getByText("4 worth a check"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("What the squares mean")).not.toBeInTheDocument();
+  });
+
+  it("lists a section's outstanding fields by name, exactly the ones its count counts", () => {
+    renderTriage(["icp"]);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const identityLink = within(nav).getByRole("button", {
+      name: /Legal organization/,
+    });
+    const section = identityLink.closest("li");
+    if (section === null) {
+      throw new Error("expected the identity section's list item to exist");
+    }
+    // Same 5 fields the badge counts (legal_name alone is settled and so
+    // named nowhere here), same order the rows themselves use: the gap
+    // outranks the merely-empty fields that follow it.
+    const named = within(section)
+      .getAllByRole("button")
+      .filter((button) => button !== identityLink)
+      .map((button) => button.textContent);
+
+    expect(named).toEqual([
+      "Company name",
+      "Registered address",
+      "Register / VAT ID",
+      "Industry",
+      "Company history",
+    ]);
+  });
+
+  it("lands focus inside the named field's row, ready to type", async () => {
+    const user = userEvent.setup();
+    renderTriage(["icp"]);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    await user.click(within(nav).getByRole("button", { name: "Industry" }));
+
+    // The jump exists so the reader can fill the field, so it lands on the
+    // control rather than the row that holds it.
+    const focused = document.activeElement;
+    expect(focused?.closest("[data-finding-id]")).toHaveAttribute(
+      "data-finding-id",
+      "industry",
+    );
+    expect(focused?.tagName).toMatch(/^(INPUT|TEXTAREA)$/);
+  });
+
+  // The active-section tint is a visual replacement for the old border rule;
+  // the semantics it reads (aria-current) must land on exactly one section
+  // regardless of which visual treatment marks it.
+  it("marks exactly one section current, never zero and never more than one", () => {
+    renderTriage(["icp"]);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const current = within(nav)
+      .getAllByRole("button")
+      .filter((button) => button.getAttribute("aria-current") === "true");
+
+    // jsdom carries no IntersectionObserver, so the board falls back to the
+    // first section — the same honest default the live browser starts from
+    // before anything has scrolled.
+    expect(current).toEqual([
+      within(nav).getByRole("button", { name: /Legal organization/ }),
+    ]);
+  });
+
+  it("shows no unresolved count for a section with nothing outstanding", () => {
+    render(
+      <CompanyConfirmCard
+        proposal={{
+          ready: true,
+          fields: [],
+          facts: [],
+          open_questions: [],
+          remaining_required_fields: [],
+          draft_version: 1,
+          proposal_hash: "hash",
+        }}
+        draft={{
+          ...EMPTY_DRAFT,
+          values: {
+            display_name: "filled",
+            website: "filled",
+            legal_name: "filled",
+            register_vat: "filled",
+            registered_address: "filled",
+            industry: "filled",
+            offer_summary: "filled",
+            icp: "filled",
+            value_proposition: "filled",
+            usp: "filled",
+            customer_pains: "filled",
+            desired_outcomes: "filled",
+            buying_center: "filled",
+            buying_intents: "filled",
+            common_objections: "filled",
+            sales_motion: "filled",
+            history: "filled",
+          },
+        }}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const salesLink = within(nav).getByRole("button", {
+      name: /Positioning and sales/,
+    });
+
+    expect(within(salesLink).queryByText(/^\d+$/)).not.toBeInTheDocument();
+  });
+
+  const FOUNDER: components["schemas"]["CompanySiteReadPerson"] = {
+    name: "Jamie Fox",
+    role: "Co-founder",
+    evidence_snippet: "Jamie Fox, co-founder, leads product.",
+    evidence_url: "https://gradion.com/team",
+  };
+
+  // People are a company fact (who to talk to), the same class of thing as
+  // an office or a service line — they belong on the board, in the section
+  // nav and the group list, not folded into the tail below it.
+  it("promotes people found on the site to their own section on the board", () => {
+    renderTriage([], { ...readWith([]), people: [FOUNDER] });
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    expect(
+      within(nav).getByRole("button", { name: /^People/ }),
+    ).toBeInTheDocument();
+
+    const heading = screen.getByRole("heading", { name: "People", level: 3 });
+    // The section sits in the group list, the same place every field group
+    // does — not in the reference tail further down.
+    expect(heading.closest(".ob-triage-groups")).not.toBeNull();
+    expect(heading.closest(".ob-triage-readmore")).toBeNull();
+    const section = heading.closest("section");
+    if (section === null) {
+      throw new Error("expected the People section to exist");
+    }
+    expect(within(section).getByText("Jamie Fox")).toBeInTheDocument();
+    expect(within(section).getByText("Co-founder")).toBeInTheDocument();
+  });
+
+  it("says plainly when the read found no people, rather than a zero count", () => {
+    renderTriage([], readWith([]));
+
+    const heading = screen.getByRole("heading", { name: "People", level: 3 });
+    const section = heading.closest("section");
+    if (section === null) {
+      throw new Error("expected the People section to exist");
+    }
+    expect(
+      within(section).getByText("No people found on your site."),
+    ).toBeInTheDocument();
+    // No bare digit stands in for the honest sentence, and the section
+    // carries no outstanding count of its own in the nav either — nothing
+    // here is the human's to resolve.
+    expect(within(section).queryByText(/^\d+$/)).not.toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const peopleLink = within(nav).getByRole("button", { name: /^People/ });
+    expect(within(peopleLink).queryByText(/^\d+$/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the read's coverage honesty in the tail, since it is provenance, not a company fact", () => {
+    renderTriage([], readWith([]));
+
+    expect(
+      screen.getByText("What I read, and what I skipped"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Background, not work")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Everything else I found"),
+    ).not.toBeInTheDocument();
+  });
+
+  // A stateful render, so a simulated edit actually changes the draft the
+  // board reads from — the point of these tests is what happens on the
+  // SAME re-render a value lands, which a static fixture cannot exercise.
+  function TriageHarness() {
+    const [draft, setDraft] = useState(triageDraft());
+    return (
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={draft}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={(field, value) =>
+          setDraft((current) => changeDraftField(current, field, value))
+        }
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />
+    );
+  }
+
+  it("marks a required gap more urgently than a merely-empty field, in words a screen reader gets", async () => {
+    const user = userEvent.setup();
+    render(<TriageHarness />);
+
+    // Both are open by default (every work row is); collapse them to the
+    // one-line shape — the shape a settled row also uses, and the one the
+    // mark has to carry on its own since there is no label beside it there.
+    const requiredRow = document.getElementById("ob-triage-row-display_name");
+    const emptyRow = document.getElementById("ob-triage-row-industry");
+    if (requiredRow === null || emptyRow === null) {
+      throw new Error("expected both rows to exist");
+    }
+    await user.click(
+      within(requiredRow).getByRole("button", { name: "Show less" }),
+    );
+    await user.click(
+      within(emptyRow).getByRole("button", { name: "Show less" }),
+    );
+
+    expect(
+      within(requiredRow).getByText("required, still empty"),
+    ).toBeInTheDocument();
+    expect(within(emptyRow).getByText("empty")).toBeInTheDocument();
+    expect(
+      within(emptyRow).queryByText("required, still empty"),
+    ).not.toBeInTheDocument();
+  });
+
+  // An empty legal field can say WHY, from what the crawl's own pages show —
+  // never a guess dressed up as a finding.
+  it("says the legal field was not published when the crawl actually fetched an imprint page", async () => {
+    const user = userEvent.setup();
+    renderTriage([], {
+      ...readWith([]),
+      pages: [
+        {
+          url: "https://gradion.com/impressum",
+          status: "fetched",
+          kind: "impressum",
+        },
+      ],
+    });
+
+    const row = document.getElementById("ob-triage-row-registered_address");
+    if (row === null) {
+      throw new Error("expected the registered_address row to exist");
+    }
+    await user.click(within(row).getByRole("button", { name: "Show less" }));
+
+    expect(
+      within(row).getByText(
+        "Not stated on your legal or imprint page. Yours to add.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says the legal field was not checked when no imprint page was crawled", async () => {
+    const user = userEvent.setup();
+    renderTriage([], readWith([]));
+
+    const row = document.getElementById("ob-triage-row-registered_address");
+    if (row === null) {
+      throw new Error("expected the registered_address row to exist");
+    }
+    await user.click(within(row).getByRole("button", { name: "Show less" }));
+
+    expect(
+      within(row).getByText(
+        "I did not find a legal or imprint page on your site to check. Yours to add.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("drops a row's mark and the section's outstanding count on the same render a value lands", async () => {
+    const user = userEvent.setup();
+    render(<TriageHarness />);
+
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    const identityLink = within(nav).getByRole("button", {
+      name: /Legal organization/,
+    });
+    expect(within(identityLink).getByText("1")).toBeInTheDocument();
+    expect(
+      within(identityLink).getByText("4 worth a check"),
+    ).toBeInTheDocument();
+    const row = document.getElementById("ob-triage-row-display_name");
+    if (row === null) {
+      throw new Error("expected the row to exist");
+    }
+    expect(within(row).getByText("required, still empty")).toBeInTheDocument();
+
+    await user.type(
+      screen.getByRole("textbox", { name: /Company name/ }),
+      "Gradion",
+    );
+
+    // The blocking count and the row's own mark are the same predicate read
+    // twice: filling the one required field can only drop both together.
+    // The advisory count is a different predicate entirely — untouched by
+    // this edit — and must not move just because the blocking count did.
+    expect(within(identityLink).queryByText("1")).not.toBeInTheDocument();
+    expect(
+      within(identityLink).getByText("4 worth a check"),
+    ).toBeInTheDocument();
+    expect(
+      within(row).queryByText("required, still empty"),
+    ).not.toBeInTheDocument();
+  });
+
+  // The live decision surface (DecisionScene) owns answering an open
+  // question; the review card only reads extracted facts back, so it must
+  // never re-ask one in a second shape of its own.
+  it("renders no question panel when the proposal carries open questions", () => {
+    const { container } = render(
+      <CompanyConfirmCard
+        proposal={{
+          ...triageProposal(),
+          open_questions: [
+            {
+              id: "clarify:registered_address:1",
+              question:
+                "The legal notice names more than one registered address. Which one belongs to your company?",
+              field: "registered_address",
+              options: [
+                {
+                  value: "Musterstraße 1, Berlin",
+                  label: "Musterstraße 1, Berlin",
+                },
+                {
+                  value: "Hauptstraße 5, Hamburg",
+                  label: "Hauptstraße 5, Hamburg",
+                },
+              ],
+            },
+          ],
+        }}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    expect(container.querySelector(".ob-conv-confirm-questions")).toBeNull();
+    expect(
+      screen.queryByText(/Which one belongs to your company/),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Musterstraße 1, Berlin" }),
+    ).not.toBeInTheDocument();
+    // Nothing here re-asks the question, so nothing here gates Continue on
+    // an answer this surface cannot collect.
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeEnabled();
+  });
+
+  // One row per RowState, so a future change to any one of them cannot
+  // quietly drop its collapsed signal without this test noticing. The
+  // colour band is never the only thing checked here — every row is
+  // collapsed first, and the assertion is on words, not on a data-state
+  // attribute or a border colour.
+  it("gives every row state a non-colour signal once the row is collapsed", async () => {
+    const user = userEvent.setup();
+    const proposal: Proposal = {
+      ready: true,
+      fields: [
+        {
+          field: "offer_summary",
+          value: "We build revenue software",
+          confidence: 0.9,
+          evidence_snippet: "We build revenue software for manufacturers.",
+          source_url: "https://gradion.com",
+        },
+        {
+          field: "icp",
+          value: "Mid-market manufacturers",
+          confidence: 0.6,
+          evidence_snippet: "We serve manufacturers.",
+          source_url: "https://gradion.com",
+        },
+        {
+          field: "value_proposition",
+          value: "Faster invoicing",
+          confidence: 0.3,
+          evidence_snippet: "Cuts invoicing time.",
+          source_url: "https://gradion.com",
+        },
+      ],
+      facts: [],
+      open_questions: [],
+      remaining_required_fields: ["display_name"],
+      draft_version: 1,
+      proposal_hash: "hash",
+    };
+    const draft = {
+      ...EMPTY_DRAFT,
+      values: {
+        ...EMPTY_DRAFT.values,
+        offer_summary: "We build revenue software",
+        icp: "Mid-market manufacturers",
+        value_proposition: "Faster invoicing",
+        legal_name: "Acme GmbH",
+        registered_address: "Hauptstraße 1, Berlin",
+      },
+      edited: new Set<CompanyFieldName>(["legal_name"]),
+    };
+
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={draft}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={["display_name"]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    // display_name: required, empty. industry: empty, optional.
+    // legal_name: typed. registered_address: stored (a value with no
+    // grounding at all). offer_summary/icp/value_proposition: the three
+    // confidence bands.
+    const signalByField: Record<string, string> = {
+      display_name: "required, still empty",
+      industry: "empty",
+      legal_name: "typed by you",
+      registered_address: "from your profile",
+      offer_summary: "high",
+      icp: "medium",
+      value_proposition: "low",
+    };
+
+    for (const [field, signal] of Object.entries(signalByField)) {
+      const row = document.getElementById(`ob-triage-row-${field}`);
+      if (row === null) {
+        throw new Error(`expected a row for ${field}`);
+      }
+      // Every work state (required, low, empty) opens by default; collapse
+      // it back to the one-line shape this test is actually proving.
+      const showLess = within(row).queryByRole("button", {
+        name: "Show less",
+      });
+      if (showLess !== null) {
+        await user.click(showLess);
+      }
+      expect(within(row).getByText(signal)).toBeInTheDocument();
+    }
+  });
+
+  // The whole point: the densest thing the crawl produced must be visible
+  // content, grouped by type, the moment the review renders — never behind
+  // a disclosure the reader has to know to open.
+  it("shows facts as visible board content grouped by type, with no disclosure to open", () => {
+    const proposal: Proposal = {
+      ...triageProposal(),
+      facts: [
+        {
+          category: "company",
+          field: "founded_year",
+          value: "Founded 2011",
+          value_key: "company:founded_year:2011",
+          evidence_snippet: "Founded in Hamburg in 2011.",
+          evidence_url: "https://gradion.com/about",
+          confidence: 0.9,
+        },
+        {
+          category: "offering",
+          field: "service",
+          value: "Managed Kubernetes",
+          value_key: "offering:service:k8s",
+          evidence_snippet: "We run Kubernetes for logistics operators.",
+          evidence_url: "https://gradion.com/services",
+          confidence: 0.8,
+        },
+      ],
+    };
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    // No disclosure anywhere on the surface — nothing to open.
+    expect(document.querySelector("details")).toBeNull();
+    // Both facts read straight off the page, each under its own type.
+    expect(screen.getByText("Founded 2011")).toBeInTheDocument();
+    expect(screen.getByText("Managed Kubernetes")).toBeInTheDocument();
+    expect(screen.getByText("founded year")).toBeInTheDocument();
+    expect(screen.getByText("service")).toBeInTheDocument();
+    // The section is navigable like any other.
+    const nav = screen.getByRole("navigation", { name: "Jump to a section" });
+    expect(
+      within(nav).getByRole("button", { name: /^Facts/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("still lets a fact be ticked or unticked from the new inline shape", async () => {
+    const user = userEvent.setup();
+    const setSelectedFactKeys = vi.fn();
+    const proposal: Proposal = {
+      ...triageProposal(),
+      facts: [
+        {
+          category: "company",
+          field: "founded_year",
+          value: "Founded 2011",
+          value_key: "company:founded_year:2011",
+          evidence_snippet: "Founded in Hamburg in 2011.",
+          evidence_url: "https://gradion.com/about",
+          confidence: 0.9,
+        },
+      ],
+    };
+    render(
+      <CompanyConfirmCard
+        proposal={proposal}
+        draft={triageDraft()}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={setSelectedFactKeys}
+        missingRequired={[]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Save the fact: Founded 2011" }),
+    );
+
+    expect(setSelectedFactKeys).toHaveBeenCalledWith([
+      "company:founded_year:2011",
+    ]);
   });
 });
 

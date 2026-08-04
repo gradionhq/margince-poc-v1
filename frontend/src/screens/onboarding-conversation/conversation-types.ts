@@ -9,7 +9,6 @@ export type ConversationAct =
   | "company"
   | "voice"
   | "results"
-  | "linkedin"
   | "connect"
   | "done";
 
@@ -24,20 +23,16 @@ export type ConversationPhase =
   // confirmation advances straight to the next act because a reducer cannot
   // self-advance out of a momentary state.
   | "co.confirmed"
-  | "vo.invite"
   | "vo.collecting"
   | "vo.speaker"
   | "vo.building"
   | "vo.result"
   | "vo.skipped"
   | "re.recap"
-  // LinkedIn is its own act and it comes BEFORE the inbox, because it is the
-  // only source that says who your team ALREADY knows. Mail tells you who you
-  // have spoken to; a network tells you who you could reach.
-  | "ln.why"
-  | "ln.authorizing"
-  | "ln.connected"
-  | "ln.skipped"
+  // The connect act carries BOTH mail and LinkedIn on one surface: mail is
+  // the required gate (it is what CONNECT_DONE waits on), LinkedIn is the
+  // recommended addition beside it (linkedinStatus tracks its own
+  // resolution independently and never gates the act's finish).
   | "cn.consent"
   | "cn.done";
 
@@ -123,6 +118,10 @@ export type ConversationState = {
   /** How the last voice build ended: failed may be retried, deferred
    * resumes on its own and its later events re-enter vo.building. */
   lastBuildStatus: BuildTerminalStatus | null;
+  /** LinkedIn's own resolution on the connect screen, independent of mail:
+   * "pending" admits LINKEDIN_CONNECTED/LINKEDIN_SKIPPED exactly once; either
+   * resolves it, and neither ever gates CONNECT_DONE. */
+  linkedinStatus: "pending" | "connected" | "skipped";
 };
 
 export type ReadTerminalStatus = "ready" | "partial" | "failed" | "deferred";
@@ -136,18 +135,14 @@ export type BuildTerminalStatus = "succeeded" | "failed" | "deferred";
  */
 export type ResumePoint = Extract<
   ConversationPhase,
-  | "vo.invite"
-  | "vo.collecting"
-  | "vo.skipped"
-  | "re.recap"
-  | "ln.why"
-  | "cn.consent"
+  "vo.collecting" | "vo.skipped" | "re.recap" | "cn.consent"
 >;
 
 export type ConversationEvent =
-  // The LinkedIn act's two exits. Skipping is a first-class outcome, not a
-  // failure: a member who does not want their network read says so once and
-  // is never asked again in this journey.
+  // LinkedIn's own two resolutions on the connect screen. Skipping is a
+  // first-class outcome, not a failure: a member who does not want their
+  // network read says so once and is never asked again in this journey —
+  // and unlike mail, saying so never blocks finishing the act.
   | { type: "LINKEDIN_CONNECTED"; profile: string }
   | { type: "LINKEDIN_SKIPPED" }
   | {
@@ -172,13 +167,7 @@ export type ConversationEvent =
       buildId?: string;
       entry: NarrationEntry;
     }
-  | {
-      type: "READ_TERMINAL";
-      readId: string;
-      status: ReadTerminalStatus;
-      /** Server-side finding count for the outcome copy; 0 when none. */
-      findings: number;
-    }
+  | { type: "READ_TERMINAL"; readId: string; status: ReadTerminalStatus }
   | { type: "CLARIFY"; readId: string; question: ConversationQuestion }
   // dismissed: the human declined the question locally (nothing written,
   // nothing asked again); legal only for questions carrying a dismiss label.
@@ -195,7 +184,6 @@ export type ConversationEvent =
   // member path) takes the same route the live confirmation takes; a target
   // fast-forwards a creator to the stable point the wizard state recorded.
   | { type: "RESUME"; target?: ResumePoint }
-  | { type: "VOICE_OPT_IN" }
   | { type: "VOICE_SKIPPED" }
   | { type: "UPLOAD_ADDED"; id: string; name: string }
   | { type: "SPEAKER_NEEDED"; question: ConversationQuestion }

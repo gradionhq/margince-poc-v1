@@ -1856,9 +1856,6 @@ export const en = {
   "ob.conv.read.extracting":
     "Done crawling. Now extracting what the site says about your business.",
   "ob.conv.read.warning": "Heads up: {warning}",
-  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
-  "ob.conv.read.partial":
-    "I could not read everything. Findings with sources: {count}.",
   "ob.conv.read.failed":
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
@@ -1874,18 +1871,14 @@ export const en = {
   "ob.conv.company.confirmed":
     "Company profile confirmed. Everything I stored carries its source.",
   "ob.conv.manual.chosen": "I will type it in myself.",
-  "ob.conv.voice.invite":
-    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
-  "ob.conv.voice.optIn": "Yes, learn my voice.",
   "ob.conv.voice.skipped": "Skip voice for now.",
   "ob.conv.voice.uploadAdded": "Added {name}.",
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
   "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
   "ob.conv.voice.collectAsk":
-    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too, and you can paste text below.",
-  "ob.conv.voice.composer": "Paste a text you wrote, or attach files",
-  "ob.conv.voice.attach": "Attach files",
+    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too.",
+  "ob.conv.voice.composer": "Paste the text you wrote here",
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
   "ob.conv.voice.fileSkipped":
@@ -1903,12 +1896,10 @@ export const en = {
   "ob.conv.voice.refusalUnsupported":
     "I could not parse that file as text or a transcript. Nothing was counted.",
   "ob.conv.voice.ingestFailed": "I could not add that source: {detail}",
-  "ob.conv.voice.pasteOffer":
-    "That reads like voice material. Should I add it to your corpus?",
+  "ob.conv.voice.ingestUnexpected":
+    "I could not add that source. Try again in a moment.",
   "ob.conv.voice.pasteAdd": "Yes, add it to my corpus.",
   "ob.conv.voice.pasteDiscard": "No, discard it.",
-  "ob.conv.voice.pasteTooShort":
-    "That is too short to teach me much. Attach files, or paste a longer text you wrote.",
   "ob.conv.voice.pasteSource": "Pasted text",
   "ob.conv.voice.buildFloor":
     "Own words so far: {words}. I need at least {min} before I can build.",
@@ -1952,7 +1943,7 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
-  "ob.conv.composer": "Type your website address, or ask me a question",
+  "ob.conv.composer": "Ask me, or paste your website",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
@@ -1965,16 +1956,113 @@ export const en = {
   "ob.conv.loadFailed": "I could not check your setup. Please try again.",
   "ob.conv.retry": "Try again",
   "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
-  "ob.conv.review.title": "Company profile, prepared from sources",
-  "ob.conv.review.summary":
-    "{total} fields, {grounded} grounded, {needing} need you.",
-  "ob.conv.review.summaryWithQuestions":
-    "{total} fields, {grounded} grounded, {needing} need you, {openQuestions} open questions.",
+  "ob.conv.review.title": "Here is everything I found. Correct me.",
   "ob.conv.review.showMore": "Show full text",
   "ob.conv.review.showLess": "Show less",
-  "ob.conv.review.openQuestions": "Decide these before I save anything.",
   "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
-  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.continue": "Continue",
+  "ob.conv.review.progressLabel": "Required fields completed",
+  "ob.conv.review.requiredRemaining.one":
+    "{count} field needed before you can continue",
+  "ob.conv.review.requiredRemaining.other":
+    "{count} fields needed before you can continue",
+  "ob.conv.review.requiredDone": "Nothing more needed — you can continue.",
+  "ob.conv.triage.stateRequired": "required, still empty",
+  "ob.conv.triage.stateEmpty": "empty",
+  "ob.conv.triage.stateTyped": "typed by you",
+  "ob.conv.triage.stateStored": "from your profile",
+  "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
+  "ob.conv.triage.legalNotPublished":
+    "Not stated on your legal or imprint page. Yours to add.",
+  "ob.conv.triage.legalNotChecked":
+    "I did not find a legal or imprint page on your site to check. Yours to add.",
+  "ob.conv.triage.mapLabel": "Jump to a section",
+  "ob.conv.triage.sectionBlocking": "{count} needed to continue",
+  "ob.conv.triage.sectionAdvisory": "{count} worth a check",
+  "ob.conv.triage.blockingHead": "Needed to continue",
+  "ob.conv.triage.advisoryHead": "Worth a check",
+  "ob.conv.triage.sectionSettled": "Nothing outstanding here",
+  "ob.conv.triage.sectionMore": "+{count} more",
+  "ob.conv.triage.restTitle": "Background, not work",
+  "ob.conv.triage.looksSolid": "Looks solid · {count}",
+  "ob.conv.triage.fixFirst": "Fix these first",
+  "ob.conv.triage.companyWebsite": "Website",
+  "ob.conv.triage.sourceCount": "{count} src",
+  "ob.conv.triage.peopleLabel": "People",
+  "ob.conv.triage.peopleCount": "{count} found",
+  "ob.conv.triage.peopleEmpty": "No people found on your site.",
+  "ob.conv.triage.factsLabel": "Facts",
+  "ob.rail.spend": "Tokens this setup",
+  "ob.rail.tokensUnit": "tok",
+  "ob.conv.scene.step": "Step {n} of {m} · {label}",
+  "ob.conv.scene.detour": "A quick detour",
+  "ob.conv.scene.decisionSub":
+    "Your site names more than one legal entity, and I will not guess which one signs your contracts: it decides what appears on every quote and invoice.",
+  "ob.conv.scene.continue": "Continue",
+  "ob.conv.scene.candidates": "{count} candidates",
+  "ob.conv.connect.sceneTitle": "Connect your accounts.",
+  "ob.conv.connect.sceneSub":
+    "I build your contacts, companies and history out of what already exists in your inbox. No manual data entry, no CSV template.",
+  "ob.conv.connect.mailSection": "Email and calendar",
+  "ob.conv.connect.required": "required",
+  "ob.conv.connect.scopeGoogle": "OAuth, read and send scopes",
+  "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
+  "ob.conv.connect.scopeImap": "Any other provider, app password",
+  "ob.conv.connect.linkedinSection": "LinkedIn",
+  "ob.conv.connect.recommended": "recommended",
+  "ob.conv.connect.linkedinName": "LinkedIn",
+  "ob.conv.connect.linkedinConnect": "Connect",
+  "ob.conv.connect.linkedinConnected": "Connected",
+  "ob.conv.connect.linkedinSkippedNote": "Skipped: add it later in Settings",
+  "ob.conv.connect.linkedinFoot":
+    "LinkedIn is optional: connect it now, or add it later in Settings.",
+  "ob.conv.connect.footPick": "Connect a mailbox to continue.",
+  "ob.conv.connect.footConnected":
+    "Choose how far back the first import should reach.",
+  "ob.conv.voice.sceneTitle": "Teach me how you write.",
+  "ob.conv.voice.sceneSub":
+    "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",
+  "ob.conv.voice.dropTitle": "Drop your writing here",
+  "ob.conv.voice.dropSub":
+    "Sent mail works best, because it shows how you write when you want something.",
+  "ob.conv.voice.browse": "Browse files",
+  "ob.conv.voice.pasteInstead": "Paste text instead",
+  "ob.conv.voice.sourcesTitle": "Sources",
+  "ob.conv.voice.sourcesMeter": "{words} of {min} words kept",
+  "ob.conv.voice.footReady":
+    "Training takes about a minute. You will see a sample before anything is saved.",
+  "ob.conv.voice.footFloor":
+    "{min} words minimum. Below that the model just copies phrasing.",
+  "ob.conv.voice.buildingTitle": "Learning your voice",
+  "ob.conv.voice.buildingMeta": "{words} words, {sources} sources",
+  "ob.conv.voice.resultSub":
+    "Read the sample first. If it lands, confirm. If it is off, add more sources and I rebuild.",
+  "ob.conv.scene.evidence": "evidence",
+  "ob.conv.scene.hideEvidence": "hide evidence",
+  "ob.conv.scene.whyThis": "What I read",
+  "ob.conv.scene.foundOn": "Found on",
+  "ob.conv.guide.decision":
+    "I need one decision from you: {question} It is on the right, with the evidence for each option.",
+  "ob.conv.guide.reviewBlocked.one":
+    "Your review is ready on the right. {count} field blocks confirm.",
+  "ob.conv.guide.reviewBlocked.other":
+    "Your review is ready on the right. {count} fields block confirm.",
+  "ob.conv.guide.reviewAdvisory.one":
+    "Your review is ready on the right. Nothing blocks you; {count} thing is worth a look.",
+  "ob.conv.guide.reviewAdvisory.other":
+    "Your review is ready on the right. Nothing blocks you; {count} things are worth a look.",
+  "ob.conv.guide.reviewClean":
+    "Your review is ready on the right. It looks clean, check what you want and confirm when ready.",
+  "ob.conv.guide.attentionHeading": "These need your input",
+  "ob.conv.guide.attentionGroup.blocking": "Needed before you can continue",
+  "ob.conv.guide.attentionGroup.decisions": "Needs a decision",
+  "ob.conv.guide.attentionGroup.advisory": "Worth a look",
+  "ob.conv.guide.attentionStatus.blocks": "needed to continue",
+  "ob.conv.guide.attentionStatus.empty": "still empty",
+  "ob.conv.guide.attentionStatus.decision": "needs a decision",
+  "ob.conv.guide.attentionStatus.check": "worth a check",
+  "ob.conv.activity.steps": "{count} steps",
+  "ob.conv.showField": "Show me",
   "ob.conv.review.editDirectly": "Edit fields directly",
   "ob.conv.review.backToDossier": "Back to the dossier",
   "ob.conv.review.proposalFallback":
@@ -2016,13 +2104,8 @@ export const en = {
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
-  "ob.conv.linkedin.why":
-    "Before your inbox, one thing matters more: who your team already knows. Your mail says who you have spoken to. Your LinkedIn network says who you could reach \u2014 and on a brand-new CRM, that is the difference between an account that looks cold and one where a colleague can make an introduction today.",
-  "ob.conv.linkedin.ask":
-    "Connecting takes one authorization. I read your connection list and nothing else \u2014 no messages, no posts, no activity.",
-  "ob.conv.linkedin.artifactTitle": "LinkedIn connection",
-  "ob.conv.linkedin.artifactSub":
-    "So the CRM can tell you who on your team already knows someone at an account.",
+  "ob.conv.linkedin.cardBody":
+    "Turns your network into accounts and contacts, and flags it when a connection changes jobs.",
   "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
   "ob.conv.linkedin.scope1Rest":
     "name, position, company and the date you connected.",
@@ -2111,10 +2194,14 @@ export const en = {
   "ob.scan.factsSoFar": "{count} facts so far",
   "ob.scan.stillReading": "still reading",
   "ob.scan.pageStripLabel": "Pages read so far",
+  "ob.scan.logLabel": "The pages I am walking, newest first",
   "ob.scan.pageFetched": "{url} — read",
   "ob.scan.pageSkipped": "{url} — skipped: {reason}",
   "ob.scan.pageFailed": "{url} — could not be read: {reason}",
   "ob.scan.pageNoReason": "no reason recorded",
+  "ob.scan.pageStatusFetched": "read",
+  "ob.scan.pageStatusSkipped": "skipped: {reason}",
+  "ob.scan.pageStatusFailed": "could not be read: {reason}",
   "ob.scan.transparency": "Transparency",
   "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
   "ob.scan.costPending": "no model calls billed yet",

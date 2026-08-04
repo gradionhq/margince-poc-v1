@@ -308,10 +308,9 @@ describe("restore into the conversational shell", () => {
     render(<OnboardingScreen />);
 
     // The saved company must NOT demote the creator to the member path (the
-    // old proxy skipped the voice act for exactly this session).
-    expect(
-      await screen.findByText(/Want me to learn how you write\?/),
-    ).toBeTruthy();
+    // old proxy skipped the voice act for exactly this session), and the
+    // restore lands directly on the collect scene, not an invite step.
+    expect(await screen.findByText(/Teach me how you write\./)).toBeTruthy();
     expect(
       screen.getByText(/Welcome back\. Here is where we stand\./),
     ).toBeTruthy();
@@ -340,9 +339,8 @@ describe("restore into the conversational shell", () => {
         /Your corpus already holds 1240 of your own words\./,
       ),
     ).toBeTruthy();
-    // vo.collecting: the composer and the collect prompt, not the invite.
+    // vo.collecting lands directly on the collect scene and its rail prompt.
     expect(await screen.findByText(/Send me things you wrote\./)).toBeTruthy();
-    expect(screen.queryByText(/Want me to learn how you write\?/)).toBeNull();
   });
 
   it("the member path comes from the state row and skips voice and results entirely", async () => {
@@ -358,9 +356,8 @@ describe("restore into the conversational shell", () => {
     expect(screen.getByRole("button", { name: /Google/ })).toBeTruthy();
     // Microsoft is a live OAuth path now — the chip opens the same connect
     // panel Google does, no "Soon" placeholder, and is never disabled.
-    const microsoft = screen.getByRole("button", { name: "Microsoft" });
+    const microsoft = screen.getByRole("button", { name: /Microsoft/ });
     expect(microsoft).not.toBeDisabled();
-    expect(screen.queryByText(/Want me to learn how you write\?/)).toBeNull();
     // A member restore never probes the voice surface.
     expect(requestsTo(calls, "/voice-profiles", "GET").length).toBe(0);
   });
@@ -381,11 +378,11 @@ describe("restore into the conversational shell", () => {
     expect(screen.getByRole("button", { name: "Understood" })).toBeTruthy();
   });
 
-  // Continuing out of the recap opens the LinkedIn act, and checkpoints
-  // NOTHING yet. The server has no LinkedIn step, so recording "connect" here
-  // would send a reload straight past the network ask — the one question a
-  // brand-new workspace most needs answered.
-  it("continuing out of the results act opens LinkedIn without checkpointing", async () => {
+  // Continuing out of the recap lands directly on the merged connect screen —
+  // mail and LinkedIn together, no separate network-ask act to pass through —
+  // and checkpoints step "connect" immediately: arriving here already shows
+  // everything, so there is nothing a reload could strand behind it.
+  it("continuing out of the results act lands on the merged connect screen and checkpoints it on arrival", async () => {
     const calls = stubApi({
       state: stateRow({ step: "results" }),
       company: savedProfile,
@@ -396,31 +393,11 @@ describe("restore into the conversational shell", () => {
       await screen.findByRole("button", { name: "Understood" }),
     );
 
+    expect(await screen.findByText("Connect your accounts.")).toBeTruthy();
+    // The LinkedIn card is on this same screen, unopened until asked for.
     expect(
-      await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
-    ).toBeTruthy();
-    expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(0);
-  });
-
-  it("answering the LinkedIn act checkpoints step connect", async () => {
-    const calls = stubApi({
-      state: stateRow({ step: "results" }),
-      company: savedProfile,
-    });
-    render(<OnboardingScreen />);
-
-    // The forward move at the results beat lives on the payoff card, which owns
-    // the action and suppresses the duplicate chip beside it.
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Understood" }),
-    );
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
-    );
-
-    expect(
-      await screen.findByText(/Last step: what may I capture/),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Skip LinkedIn for now" }),
+    ).toBeNull();
     await waitFor(() => {
       expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(1);
     });
@@ -428,6 +405,34 @@ describe("restore into the conversational shell", () => {
       .clone()
       .json()) as Record<string, unknown>;
     expect(body.step).toBe("connect");
+  });
+
+  it("skipping LinkedIn on the merged screen records no further checkpoint — the arrival already did", async () => {
+    const calls = stubApi({
+      state: stateRow({ step: "results" }),
+      company: savedProfile,
+    });
+    render(<OnboardingScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Understood" }),
+    );
+    await waitFor(() => {
+      expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(1);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Skip LinkedIn for now" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Skipped LinkedIn. You can connect it any time in Settings.",
+      ),
+    ).toBeTruthy();
+    // LinkedIn's own resolution never writes wizard state; only mail does.
+    expect(requestsTo(calls, "/onboarding/state", "PUT").length).toBe(1);
   });
 
   it("a completed journey navigates straight into the workspace", async () => {
@@ -452,10 +457,11 @@ describe("reload adoption of a persisted read", () => {
       await screen.findByText(/I already finished reading gradion\.com/),
     ).toBeTruthy();
     // The terminal outcome and the review arrive through the normal
-    // conclude path; the per-field narration is recap, never a replay.
-    expect(await screen.findByText(/I could not read everything/)).toBeTruthy();
+    // conclude path; the per-field narration is recap, never a replay. This
+    // fixture's read lost no pages, so the terminal itself stays silent —
+    // the review card below is the only thing that says "ready."
     expect(
-      await screen.findByRole("button", { name: /Accept all/ }),
+      await screen.findByRole("button", { name: /Continue/ }),
     ).toBeTruthy();
     expect(screen.queryByText(/Learned/)).toBeNull();
   });
@@ -496,15 +502,19 @@ describe("reload adoption of a persisted read", () => {
     render(<OnboardingScreen />);
 
     expect(
-      await screen.findByText(/Which legal entity is this installation for\?/),
+      await screen.findByRole("heading", {
+        name: /Which legal entity is this installation for\?/,
+      }),
     ).toBeTruthy();
 
+    // The decision scene: choose, then confirm.
     await userEvent.click(
-      screen.getByRole("button", { name: /Gradion Holding GmbH/ }),
+      screen.getByRole("radio", { name: /Gradion Holding GmbH/ }),
     );
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(
-      await screen.findByRole("button", { name: /Accept all/ }),
+      await screen.findByRole("button", { name: /Continue/ }),
     ).toBeTruthy();
   });
 
@@ -525,7 +535,7 @@ describe("reload adoption of a persisted read", () => {
     expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },
@@ -546,7 +556,7 @@ describe("reload adoption of a persisted read", () => {
     expect(
       await screen.findByRole("textbox", { name: /Your website address/ }),
     ).toBeTruthy();
-    expect(screen.queryByText(/Accept all/)).toBeNull();
+    expect(screen.queryByText(/Continue/)).toBeNull();
   });
 });
 

@@ -8,7 +8,6 @@ import type {
   ConversationPhase,
   ConversationState,
   OutcomeTone,
-  ReadTerminalStatus,
   ResumePoint,
   ThreadEntry,
 } from "./conversation-types";
@@ -49,11 +48,13 @@ export const initialConversationState: ConversationState = {
   activeBuildId: null,
   lastBuildStage: null,
   lastBuildStatus: null,
+  linkedinStatus: "pending",
 };
 
-const readTerminalKeys: Record<ReadTerminalStatus, MessageKey> = {
-  ready: "ob.conv.read.done",
-  partial: "ob.conv.read.partial",
+// Only the two broken statuses speak at all: a ready or partial terminal is
+// silent — the review it leads straight into already shows it is ready, and
+// the coverage detail (what was skipped and why) lives there, not here.
+const readTerminalKeys: Record<"failed" | "deferred", MessageKey> = {
   failed: "ob.conv.read.failed",
   deferred: "ob.conv.read.deferred",
 };
@@ -80,11 +81,9 @@ const buildTerminalTones: Record<BuildTerminalStatus, OutcomeTone> = {
 // Which act owns each restorable landing point; RESUME derives the act from
 // the phase so the pair can never disagree.
 const resumeActs: Record<ResumePoint, ConversationAct> = {
-  "vo.invite": "voice",
   "vo.collecting": "voice",
   "vo.skipped": "voice",
   "re.recap": "results",
-  "ln.why": "linkedin",
   "cn.consent": "connect",
 };
 
@@ -146,22 +145,15 @@ function applyReadTerminal(
   state: ConversationState,
   event: Extract<ConversationEvent, { type: "READ_TERMINAL" }>,
 ): ConversationState {
-  const done = event.status === "ready" || event.status === "partial";
-  if (done) {
-    // A pending clarify question is never stranded: the outcome queues into
-    // the thread while co.clarify stays put until the question is answered.
-    // readCompleted records the completion so the final answer (or a
-    // REVIEW_READY from co.reading) proceeds straight to review; the
-    // concluded run's id retires so its late events are stale.
-    return withEntries(state, { activeReadId: null, readCompleted: true }, [
-      {
-        kind: "outcome",
-        id: `read:${event.status}`,
-        i18nKey: readTerminalKeys[event.status],
-        params: { count: event.findings },
-        tone: "success",
-      },
-    ]);
+  if (event.status === "ready" || event.status === "partial") {
+    // The pending clarify question is never stranded: co.clarify holds until
+    // it is answered. readCompleted records the completion so the final
+    // answer (or a REVIEW_READY from co.reading) proceeds straight to
+    // review; the concluded run's id retires so its late events are stale.
+    // Neither terminal status appends a word — the review it leads straight
+    // into already says "ready," and whatever it skipped along the way is
+    // the review's own coverage detail to show, not the rail's to repeat.
+    return withEntries(state, { activeReadId: null, readCompleted: true });
   }
   // A failed or deferred read moots its clarify question and waits in
   // co.reading for a new URL or the manual path.
@@ -196,7 +188,7 @@ function applyResume(
   if (state.memberPath) {
     return withEntries(state, { act: "connect", phase: "cn.consent" });
   }
-  const phase = event.target ?? "vo.invite";
+  const phase = event.target ?? "vo.collecting";
   return withEntries(state, { act: resumeActs[phase], phase });
 }
 
@@ -313,8 +305,8 @@ function applyEvent(
       return withEntries(
         state,
         state.memberPath
-          ? { act: "linkedin", phase: "ln.why" }
-          : { act: "voice", phase: "vo.invite" },
+          ? { act: "connect", phase: "cn.consent" }
+          : { act: "voice", phase: "vo.collecting" },
         [
           {
             kind: "outcome",
@@ -326,10 +318,6 @@ function applyEvent(
       );
     case "RESUME":
       return applyResume(state, event);
-    case "VOICE_OPT_IN":
-      return withEntries(state, { phase: "vo.collecting" }, [
-        { kind: "user", id: "voice:optin", i18nKey: "ob.conv.voice.optIn" },
-      ]);
     case "VOICE_SKIPPED":
       return withEntries(
         state,
@@ -403,12 +391,14 @@ function applyEvent(
       );
     case "RESULTS_CONTINUE":
       return state.phase === "re.recap"
-        ? withEntries(state, { act: "linkedin", phase: "ln.why" })
+        ? withEntries(state, { act: "connect", phase: "cn.consent" })
         : withEntries(state, { act: "results", phase: "re.recap" }, [
             { kind: "narration", id: "recap", i18nKey: "ob.conv.recap" },
           ]);
+    // Neither resolution moves the act: both sections of the connect screen
+    // stay on the same phase, and only mail's own consent gates CONNECT_DONE.
     case "LINKEDIN_CONNECTED":
-      return withEntries(state, { act: "connect", phase: "cn.consent" }, [
+      return withEntries(state, { linkedinStatus: "connected" }, [
         {
           kind: "outcome",
           id: "linkedin:connected",
@@ -417,7 +407,7 @@ function applyEvent(
         },
       ]);
     case "LINKEDIN_SKIPPED":
-      return withEntries(state, { act: "connect", phase: "cn.consent" }, [
+      return withEntries(state, { linkedinStatus: "skipped" }, [
         {
           kind: "outcome",
           id: "linkedin:skipped",

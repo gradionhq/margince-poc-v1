@@ -1884,9 +1884,6 @@ export const de = {
   "ob.conv.read.extracting":
     "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
   "ob.conv.read.warning": "Hinweis: {warning}",
-  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
-  "ob.conv.read.partial":
-    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
   "ob.conv.read.failed":
     "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
   "ob.conv.read.pollFailed":
@@ -1902,18 +1899,14 @@ export const de = {
   "ob.conv.company.confirmed":
     "Firmenprofil bestätigt. Alles Gespeicherte trägt seine Quelle.",
   "ob.conv.manual.chosen": "Ich tippe es selbst ein.",
-  "ob.conv.voice.invite":
-    "Soll ich lernen, wie du schreibst? Teile ein paar eigene Texte, dann klingen Entwürfe nach dir.",
-  "ob.conv.voice.optIn": "Ja, lerne meine Stimme.",
   "ob.conv.voice.skipped": "Stimme erstmal überspringen.",
   "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
   "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
   "ob.conv.voice.collectAsk":
-    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch, und unten kannst du Text einfügen.",
-  "ob.conv.voice.composer": "Füge einen eigenen Text ein oder hänge Dateien an",
-  "ob.conv.voice.attach": "Dateien anhängen",
+    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch.",
+  "ob.conv.voice.composer": "Füge hier deinen Text ein",
   "ob.conv.voice.dropHint":
     "Du kannst Dateien auch überall in dieses Gespräch ziehen.",
   "ob.conv.voice.fileSkipped":
@@ -1932,12 +1925,10 @@ export const de = {
     "Ich konnte diese Datei weder als Text noch als Transkript lesen. Nichts wurde gezählt.",
   "ob.conv.voice.ingestFailed":
     "Ich konnte diese Quelle nicht hinzufügen: {detail}",
-  "ob.conv.voice.pasteOffer":
-    "Das liest sich wie Stimm-Material. Soll ich es deinem Korpus hinzufügen?",
+  "ob.conv.voice.ingestUnexpected":
+    "Ich konnte diese Quelle nicht hinzufügen. Versuch es gleich noch einmal.",
   "ob.conv.voice.pasteAdd": "Ja, in meinen Korpus.",
   "ob.conv.voice.pasteDiscard": "Nein, verwerfen.",
-  "ob.conv.voice.pasteTooShort":
-    "Das ist zu kurz, um viel zu lernen. Hänge Dateien an oder füge einen längeren eigenen Text ein.",
   "ob.conv.voice.pasteSource": "Eingefügter Text",
   "ob.conv.voice.buildFloor":
     "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
@@ -1982,7 +1973,7 @@ export const de = {
   "ob.conv.consent":
     "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
   "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
-  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
+  "ob.conv.composer": "Frag mich, oder gib deine Website ein",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",
@@ -1998,18 +1989,117 @@ export const de = {
   "ob.conv.retry": "Erneut versuchen",
   "ob.conv.connect.persistFailed":
     "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
-  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
-  "ob.conv.review.summary":
-    "{total} Felder, {grounded} belegt, {needing} brauchen dich.",
-  "ob.conv.review.summaryWithQuestions":
-    "{total} Felder, {grounded} belegt, {needing} brauchen dich, {openQuestions} offene Fragen.",
+  "ob.conv.review.title":
+    "Hier ist alles, was ich gefunden habe. Korrigiere mich.",
   "ob.conv.review.showMore": "Ganzen Text zeigen",
   "ob.conv.review.showLess": "Weniger zeigen",
-  "ob.conv.review.openQuestions":
-    "Entscheide diese Punkte, bevor ich etwas speichere.",
   "ob.conv.review.missing":
     "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
-  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.continue": "Weiter",
+  "ob.conv.review.progressLabel": "Ausgefüllte Pflichtfelder",
+  "ob.conv.review.requiredRemaining.one":
+    "{count} Feld nötig, bevor du fortfahren kannst",
+  "ob.conv.review.requiredRemaining.other":
+    "{count} Felder nötig, bevor du fortfahren kannst",
+  "ob.conv.review.requiredDone": "Nichts weiter nötig — du kannst fortfahren.",
+  "ob.conv.triage.stateRequired": "erforderlich, noch leer",
+  "ob.conv.triage.stateEmpty": "leer",
+  "ob.conv.triage.stateTyped": "von dir eingetragen",
+  "ob.conv.triage.stateStored": "aus deinem Profil",
+  "ob.conv.triage.emptyHint":
+    "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
+  "ob.conv.triage.legalNotPublished":
+    "Nicht auf deinem Impressum angegeben. Trag es selbst ein.",
+  "ob.conv.triage.legalNotChecked":
+    "Ich habe kein Impressum auf deiner Website gefunden, das ich prüfen könnte. Trag es selbst ein.",
+  "ob.conv.triage.mapLabel": "Zu einem Abschnitt springen",
+  "ob.conv.triage.sectionBlocking": "{count} nötig, um fortzufahren",
+  "ob.conv.triage.sectionAdvisory": "{count} prüfenswert",
+  "ob.conv.triage.blockingHead": "Nötig, um fortzufahren",
+  "ob.conv.triage.advisoryHead": "Prüfenswert",
+  "ob.conv.triage.sectionSettled": "Hier ist nichts offen",
+  "ob.conv.triage.sectionMore": "+{count} weitere",
+  "ob.conv.triage.restTitle": "Hintergrund, keine Aufgabe",
+  "ob.conv.triage.looksSolid": "Sieht belegt aus · {count}",
+  "ob.conv.triage.fixFirst": "Zuerst beheben",
+  "ob.conv.triage.companyWebsite": "Website",
+  "ob.conv.triage.sourceCount": "{count} Quelle",
+  "ob.conv.triage.peopleLabel": "Personen",
+  "ob.conv.triage.peopleCount": "{count} gefunden",
+  "ob.conv.triage.peopleEmpty": "Keine Personen auf deiner Website gefunden.",
+  "ob.conv.triage.factsLabel": "Fakten",
+  "ob.rail.spend": "Tokens für dieses Setup",
+  "ob.rail.tokensUnit": "Tok.",
+  "ob.conv.scene.step": "Schritt {n} von {m} · {label}",
+  "ob.conv.scene.detour": "Ein kurzer Umweg",
+  "ob.conv.scene.decisionSub":
+    "Deine Website nennt mehr als eine juristische Einheit, und ich rate nicht, welche deine Verträge unterschreibt: Sie entscheidet, was auf jedem Angebot und jeder Rechnung steht.",
+  "ob.conv.scene.continue": "Weiter",
+  "ob.conv.scene.candidates": "{count} Kandidaten",
+  "ob.conv.connect.sceneTitle": "Verbinde deine Konten.",
+  "ob.conv.connect.sceneSub":
+    "Ich baue deine Kontakte, Firmen und Historie aus dem, was schon in deinem Postfach liegt. Keine Handeingabe, keine CSV-Vorlage.",
+  "ob.conv.connect.mailSection": "E-Mail und Kalender",
+  "ob.conv.connect.required": "erforderlich",
+  "ob.conv.connect.scopeGoogle": "OAuth, Lese- und Sendeberechtigung",
+  "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
+  "ob.conv.connect.scopeImap": "Jeder andere Anbieter, App-Passwort",
+  "ob.conv.connect.linkedinSection": "LinkedIn",
+  "ob.conv.connect.recommended": "empfohlen",
+  "ob.conv.connect.linkedinName": "LinkedIn",
+  "ob.conv.connect.linkedinConnect": "Verbinden",
+  "ob.conv.connect.linkedinConnected": "Verbunden",
+  "ob.conv.connect.linkedinSkippedNote":
+    "Übersprungen: später in den Einstellungen nachholbar",
+  "ob.conv.connect.linkedinFoot":
+    "LinkedIn ist optional: verbinde es jetzt oder später in den Einstellungen.",
+  "ob.conv.connect.footPick": "Verbinde ein Postfach, um fortzufahren.",
+  "ob.conv.connect.footConnected":
+    "Wähle, wie weit der erste Import zurückreichen soll.",
+  "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
+  "ob.conv.voice.sceneSub":
+    "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",
+  "ob.conv.voice.dropTitle": "Leg deine Texte hier ab",
+  "ob.conv.voice.dropSub":
+    "Gesendete Mails eignen sich am besten, weil sie zeigen, wie du schreibst, wenn du etwas willst.",
+  "ob.conv.voice.browse": "Dateien wählen",
+  "ob.conv.voice.pasteInstead": "Stattdessen Text einfügen",
+  "ob.conv.voice.sourcesTitle": "Quellen",
+  "ob.conv.voice.sourcesMeter": "{words} von {min} Wörtern übernommen",
+  "ob.conv.voice.footReady":
+    "Das Training dauert etwa eine Minute. Du siehst ein Beispiel, bevor etwas gespeichert wird.",
+  "ob.conv.voice.footFloor":
+    "Mindestens {min} Wörter. Darunter kopiert das Modell nur Formulierungen.",
+  "ob.conv.voice.buildingTitle": "Ich lerne deine Stimme",
+  "ob.conv.voice.buildingMeta": "{words} Wörter, {sources} Quellen",
+  "ob.conv.voice.resultSub":
+    "Lies zuerst das Beispiel. Passt es, bestätige. Passt es nicht, gib mir mehr Quellen und ich baue neu.",
+  "ob.conv.scene.evidence": "Beleg",
+  "ob.conv.scene.hideEvidence": "Beleg ausblenden",
+  "ob.conv.scene.whyThis": "Was ich gelesen habe",
+  "ob.conv.scene.foundOn": "Gefunden auf",
+  "ob.conv.guide.decision":
+    "Ich brauche eine Entscheidung von dir: {question} Sie steht rechts, mit den Belegen zu jeder Option.",
+  "ob.conv.guide.reviewBlocked.one":
+    "Deine Prüfung ist rechts bereit. {count} Feld blockiert die Übernahme.",
+  "ob.conv.guide.reviewBlocked.other":
+    "Deine Prüfung ist rechts bereit. {count} Felder blockieren die Übernahme.",
+  "ob.conv.guide.reviewAdvisory.one":
+    "Deine Prüfung ist rechts bereit. Nichts blockiert dich; {count} Punkt ist einen Blick wert.",
+  "ob.conv.guide.reviewAdvisory.other":
+    "Deine Prüfung ist rechts bereit. Nichts blockiert dich; {count} Punkte sind einen Blick wert.",
+  "ob.conv.guide.reviewClean":
+    "Deine Prüfung ist rechts bereit. Sie sieht sauber aus, prüfe was du willst und übernimm, wenn du bereit bist.",
+  "ob.conv.guide.attentionHeading": "Diese brauchen deine Eingabe",
+  "ob.conv.guide.attentionGroup.blocking": "Nötig, um fortzufahren",
+  "ob.conv.guide.attentionGroup.decisions": "Braucht eine Entscheidung",
+  "ob.conv.guide.attentionGroup.advisory": "Einen Blick wert",
+  "ob.conv.guide.attentionStatus.blocks": "nötig zum Fortfahren",
+  "ob.conv.guide.attentionStatus.empty": "noch leer",
+  "ob.conv.guide.attentionStatus.decision": "braucht eine Entscheidung",
+  "ob.conv.guide.attentionStatus.check": "einen Blick wert",
+  "ob.conv.activity.steps": "{count} Schritte",
+  "ob.conv.showField": "Zeig mir",
   "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
   "ob.conv.review.backToDossier": "Zurück zum Dossier",
   "ob.conv.review.proposalFallback":
@@ -2050,13 +2140,8 @@ export const de = {
     "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
-  "ob.conv.linkedin.why":
-    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nntest \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
-  "ob.conv.linkedin.ask":
-    "Das Verbinden kostet eine Autorisierung. Ich lese deine Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
-  "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",
-  "ob.conv.linkedin.artifactSub":
-    "Damit das CRM dir sagen kann, wer aus deinem Team bereits jemanden beim Kunden kennt.",
+  "ob.conv.linkedin.cardBody":
+    "Macht aus deinem Netzwerk Firmen und Kontakte, und meldet, wenn jemand aus deinem Netzwerk den Job wechselt.",
   "ob.conv.linkedin.scope1Lead": "Deine Kontaktliste \u2014",
   "ob.conv.linkedin.scope1Rest":
     "Name, Position, Unternehmen und das Datum der Vernetzung.",
@@ -2148,10 +2233,14 @@ export const de = {
   "ob.scan.factsSoFar": "{count} Fakten bisher",
   "ob.scan.stillReading": "lese noch",
   "ob.scan.pageStripLabel": "Bisher gelesene Seiten",
+  "ob.scan.logLabel": "Die Seiten, die ich gerade durchgehe, neueste zuerst",
   "ob.scan.pageFetched": "{url} — gelesen",
   "ob.scan.pageSkipped": "{url} — übersprungen: {reason}",
   "ob.scan.pageFailed": "{url} — nicht lesbar: {reason}",
   "ob.scan.pageNoReason": "kein Grund erfasst",
+  "ob.scan.pageStatusFetched": "gelesen",
+  "ob.scan.pageStatusSkipped": "übersprungen: {reason}",
+  "ob.scan.pageStatusFailed": "nicht lesbar: {reason}",
   "ob.scan.transparency": "Transparenz",
   "ob.scan.costLine": "{calls} Aufrufe · {tokens} Tokens · {cost}",
   "ob.scan.costPending": "noch keine Modellaufrufe berechnet",

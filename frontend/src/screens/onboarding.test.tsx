@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -403,11 +404,17 @@ describe("the conversational company act", () => {
     render(<OnboardingScreen />);
 
     await submitWebsite();
-    await userEvent.click(
-      (
-        await screen.findAllByRole("button", { name: /Edit fields directly/ })
-      )[0],
-    );
+    // Every field is inline-editable on the review board — there is no
+    // separate edit mode to switch into first, only the collapsed row's own
+    // summary to open, exactly as a human would.
+    await screen.findByRole("heading", {
+      name: /Here is everything I found/,
+    });
+    const icpRow = document.getElementById("ob-triage-row-icp");
+    if (icpRow === null) {
+      throw new Error("expected the icp row to exist");
+    }
+    await userEvent.click(within(icpRow).getByRole("button"));
     const icp = (await screen.findByLabelText(
       /Ideal customer/,
     )) as HTMLTextAreaElement;
@@ -438,7 +445,7 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     await waitFor(() => {
       expect(accept.disabled).toBe(false);
@@ -501,7 +508,7 @@ describe("the conversational company act", () => {
     ).toBeTruthy();
   });
 
-  it("shows exact run transparency and applies conversational suggestions only after approval", async () => {
+  it("shows exact run transparency for the finished read", async () => {
     const runtimeRead = {
       ...readyRead,
       ai_runtime: {
@@ -533,31 +540,13 @@ describe("the conversational company act", () => {
         ],
       },
     } as const satisfies CompanySiteRead;
-    stubApi({
-      startRead: runtimeRead,
-      read: runtimeRead,
-      messageReply: {
-        kind: "recommendation",
-        act: "company",
-        message:
-          "I found evidence that industrial software is the clearest industry description.",
-        proposed_changes: [
-          {
-            field: "industry",
-            value: "Industrial software",
-            reason: "This matches the company's stated market.",
-          },
-        ],
-        citations: [{ label: "industry", url: "https://gradion.com/about" }],
-        remaining_required_fields: [],
-        ai_runtime: zeroRuntime,
-      },
-    });
+    stubApi({ startRead: runtimeRead, read: runtimeRead });
     render(<OnboardingScreen />);
 
     await submitWebsite();
-    await screen.findByText(/Finished reading\./);
-    expect(screen.getByText("gemini-3.1-flash-lite-2026-07")).toBeTruthy();
+    expect(
+      await screen.findByText("gemini-3.1-flash-lite-2026-07"),
+    ).toBeTruthy();
     // The run's spend appears twice on purpose: unlabelled on the always-visible
     // chip, and again as a labelled row inside the disclosure. Assert the
     // labelled one, so this stays a test of "the cost is disclosed" rather than
@@ -566,31 +555,9 @@ describe("the conversational company act", () => {
       .getByText("Estimated provider cost")
       .closest(".mw-aistat-r");
     expect(costRow?.querySelector("dd")?.textContent).toContain("$0.079529");
-
-    // The workbench composer, not the gate field: by this point the read has
-    // landed and the surface is the two-column review, where the same box
-    // takes free-text questions.
-    const composer = screen.getByRole("textbox", {
-      name: /Type your website address/,
-    });
-    await userEvent.type(composer, "Which industry should we use?");
-    await userEvent.click(
-      screen.getByRole("button", { name: /Send to Margince/ }),
-    );
-
-    expect(
-      await screen.findByText(/industrial software is the clearest/),
-    ).toBeTruthy();
-    expect(screen.getByText("Industrial software")).toBeTruthy();
-    await userEvent.click(
-      screen.getByRole("button", { name: /Apply to my draft/ }),
-    );
-    await userEvent.click(
-      screen.getAllByRole("button", { name: /Edit fields directly/ })[0],
-    );
-    expect(
-      ((await screen.findByLabelText(/Industry/)) as HTMLInputElement).value,
-    ).toBe("Industrial software");
+    // The rail takes no free text — this transparency lives beside a chip
+    // and jump-link surface, never a composer that could ask it a question.
+    expect(document.querySelector(".mw-composer")).toBeNull();
   });
 });
 

@@ -3,10 +3,11 @@ import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../../i18n";
 import { installFetchStub, jsonResponse } from "../story-utils";
 import { ConnectAct } from "./connect-act";
+import type { ConversationState } from "./conversation-machine";
 import { initialConversationState } from "./conversation-machine";
 
 // The Microsoft chip must open the SAME live OAuth panel as Google (no more
@@ -18,11 +19,15 @@ import { initialConversationState } from "./conversation-machine";
 // completes exactly once — CONNECT_DONE is the only event this act dispatches
 // and a second one would move the machine out from under the wizard.
 
-function renderConnectAct(outcome?: string) {
-  const state = {
+function renderConnectAct(
+  outcome?: string,
+  linkedinStatus: ConversationState["linkedinStatus"] = "pending",
+) {
+  const state: ConversationState = {
     ...initialConversationState,
-    act: "connect" as const,
-    phase: "cn.consent" as const,
+    act: "connect",
+    phase: "cn.consent",
+    linkedinStatus,
   };
   const dispatch = vi.fn();
   const persist = vi.fn(async () => true);
@@ -72,7 +77,9 @@ afterEach(() => {
 it("offers Microsoft as a live chip and opens its connect panel", async () => {
   installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
   renderConnectAct();
-  const ms = screen.getByRole("button", { name: "Microsoft" });
+  // The card names the provider AND what connecting it grants, so the
+  // accessible name is the whole card, not the brand alone.
+  const ms = screen.getByRole("button", { name: /Microsoft/ });
   expect(ms).not.toBeDisabled();
   await userEvent.click(ms);
   expect(
@@ -184,4 +191,81 @@ it("stops offering to skip connecting once consent has returned", async () => {
   expect(
     screen.queryByRole("button", { name: "Skip connecting for now" }),
   ).toBeNull();
+});
+
+// LinkedIn lives beside mail on the same screen now: connecting or skipping
+// it never touches the mail flow above, and neither dispatch is CONNECT_DONE
+// or a wizard-state write — the mail gate owns those exclusively.
+describe("the LinkedIn card", () => {
+  beforeEach(() => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: [] }),
+      "PUT /me/linkedin-account": () =>
+        jsonResponse({ connected: true, connections: 0 }),
+    });
+  });
+
+  it("keeps the authorization form closed until Connect is clicked", () => {
+    renderConnectAct();
+    expect(
+      screen.queryByRole("button", { name: "Authorize with LinkedIn" }),
+    ).toBeNull();
+  });
+
+  it("will not authorize until the profile it attributes the network to is given", async () => {
+    const { dispatch } = renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    const button = screen.getByRole("button", {
+      name: "Authorize with LinkedIn",
+    });
+    expect(button).toBeDisabled();
+    // The disclosure a member is owed before handing over their address
+    // book: exactly what is read, and the promise it never becomes a contact.
+    expect(
+      screen.getByText(/name, position, company and the date you connected/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/do NOT become contacts/i)).toBeTruthy();
+
+    await userEvent.type(
+      screen.getByLabelText("Your LinkedIn profile URL"),
+      "https://www.linkedin.com/in/lars",
+    );
+    expect(button).not.toBeDisabled();
+    await userEvent.click(button);
+
+    await waitFor(() =>
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "LINKEDIN_CONNECTED",
+        profile: "https://www.linkedin.com/in/lars",
+      }),
+    );
+  });
+
+  it("can be declined from the open panel, without a profile", async () => {
+    const { dispatch } = renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skip LinkedIn for now" }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({ type: "LINKEDIN_SKIPPED" });
+  });
+
+  it("admits that nothing syncs yet once the panel is open", async () => {
+    renderConnectAct();
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(screen.getByText(/awaiting approval/i)).toBeTruthy();
+  });
+
+  it("shows the resolved state and offers no further action once skipped", () => {
+    renderConnectAct(undefined, "skipped");
+    expect(screen.getByText("Skipped: add it later in Settings")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
+
+  it("shows the resolved state and offers no further action once connected", () => {
+    renderConnectAct(undefined, "connected");
+    expect(screen.getByText("Connected")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
 });

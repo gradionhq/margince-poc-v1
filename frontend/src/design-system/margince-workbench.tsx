@@ -28,6 +28,8 @@ export type WorkbenchRuntimeLabels = Readonly<{
   chip: string;
   answering: string;
   scope: string;
+  /** Compact unit beside the rail footer's token count ("tok"). */
+  tokensShort?: string;
 }>;
 
 export function MarginceWorkbench({
@@ -43,6 +45,10 @@ export function MarginceWorkbench({
   steps,
   children,
   artifact,
+  variant = "split",
+  footerLabel,
+  stepLabel,
+  person,
 }: Readonly<{
   state: MarginceCoreState;
   progress?: number;
@@ -56,34 +62,110 @@ export function MarginceWorkbench({
   steps?: readonly WorkbenchStep[];
   children: ReactNode;
   artifact?: ReactNode;
+  /**
+   * How the two panes share the viewport. "split" gives the conversation the
+   * wider column — the artifact is a reference dossier beside a talking
+   * surface. "rail" inverts that: the conversation becomes a narrow narrator
+   * rail (vertical step list, compact chrome) and the artifact is the work
+   * surface — the layout for acts whose substance is too dense for a thread.
+   */
+  variant?: "split" | "rail";
+  /** Rail only: the eyebrow over the spend bar ("Tokens this setup"). */
+  footerLabel?: string;
+  /** Rail only: where the journey stands, e.g. "Step 2 of 5 · Confirm".
+   * Copy belongs to the caller's catalog, never to the design system. */
+  stepLabel?: string;
+  /** Rail only: who is signed in, at the rail's very foot. */
+  person?: Readonly<{ name: string; detail: string }>;
 }>) {
+  // The rail reads top-down as: who is speaking, where the journey is, the
+  // conversation itself, and what this run costs — so the identity block
+  // sits ABOVE the steps, and the runtime chip leaves the brand line for a
+  // full-width footer bar at the rail's foot, always in view beside the
+  // work. The split variant keeps its original order.
+  const rail = variant === "rail";
+  const brand = (
+    <header className="mw-brand">
+      <MarginceCoreScene
+        state={state}
+        progress={progress}
+        feed={false}
+        className="mw-core"
+      />
+      <div className="mw-identity">
+        <span>{eyebrow}</span>
+        <h1>{title}</h1>
+        <p>
+          <i data-state={state} aria-hidden /> {status}
+        </p>
+      </div>
+      {!rail && (
+        <AiRuntimeChip
+          runtime={runtime}
+          configured={configured}
+          labels={runtimeLabels}
+          locale={locale}
+        />
+      )}
+    </header>
+  );
+  // At rail width five numbered stops wrap into a ragged second line, so the
+  // rail states the journey the way a progress bar does: one sentence naming
+  // where you are, and a segment per stop. The full list stays the split
+  // variant's, where it has the width to be one row.
+  const stepRail =
+    steps && steps.length > 0 ? (
+      rail ? (
+        <StepProgress steps={steps} label={stepLabel} />
+      ) : (
+        <StepRail steps={steps} />
+      )
+    ) : null;
   return (
-    <div className="mw-shell">
+    <div className={`mw-shell${rail ? " is-rail" : ""}`}>
       <div className={`mw-body ${artifact ? "has-artifact" : ""}`}>
         <section className="mw-conversation">
-          {steps && steps.length > 0 && <StepRail steps={steps} />}
-          <header className="mw-brand">
-            <MarginceCoreScene
-              state={state}
-              progress={progress}
-              feed={false}
-              className="mw-core"
-            />
-            <div className="mw-identity">
-              <span>{eyebrow}</span>
-              <h1>{title}</h1>
-              <p>
-                <i data-state={state} aria-hidden /> {status}
-              </p>
-            </div>
-            <AiRuntimeChip
-              runtime={runtime}
-              configured={configured}
-              labels={runtimeLabels}
-              locale={locale}
-            />
-          </header>
+          {rail ? (
+            <>
+              {brand}
+              {/* The spend sits right under the identity that is doing the
+                  spending — cost is part of who is talking, not a footnote. */}
+              <div className="mw-aifooter">
+                {footerLabel !== undefined && (
+                  <span className="mw-aifooter-label">{footerLabel}</span>
+                )}
+                <AiRuntimeChip
+                  runtime={runtime}
+                  configured={configured}
+                  labels={runtimeLabels}
+                  locale={locale}
+                  showTokens
+                />
+                {/* The model doing the answering, named right under its bill. */}
+                <small className="mw-aifooter-model" title={configured}>
+                  {configured}
+                </small>
+              </div>
+              {stepRail}
+            </>
+          ) : (
+            <>
+              {stepRail}
+              {brand}
+            </>
+          )}
           {children}
+          {rail && person && (
+            <div className="mw-person">
+              <span className="mw-person-avatar" aria-hidden>
+                {person.name.slice(0, 1).toUpperCase()}
+              </span>
+              <span className="mw-person-id">
+                <b>{person.name}</b>
+                <small>{person.detail}</small>
+              </span>
+            </div>
+          )}
         </section>
         {artifact && <aside className="mw-artifact">{artifact}</aside>}
       </div>
@@ -127,6 +209,30 @@ function StepRail({ steps }: Readonly<{ steps: readonly WorkbenchStep[] }>) {
   );
 }
 
+/**
+ * The rail's progress line: the sentence says where the journey is (it is
+ * the accessible text — position AND label, so nothing rests on the bar),
+ * and the segments draw it. Status, never controls: the machine decides
+ * what comes next, so no segment is pressable.
+ */
+function StepProgress({
+  steps,
+  label,
+}: Readonly<{ steps: readonly WorkbenchStep[]; label?: string }>) {
+  return (
+    <div className="mw-progress">
+      {label !== undefined && (
+        <span className="mw-progress-label">{label}</span>
+      )}
+      <span className="mw-progress-track" aria-hidden>
+        {steps.map((step) => (
+          <i key={step.label} className={`is-${step.state}`} />
+        ))}
+      </span>
+    </div>
+  );
+}
+
 // Cost disclosure as an opt-in chip. The summary line (spend so far) is always
 // visible because a reader must never have to ask what a run is costing; the
 // per-model breakdown opens on demand. Hover reveals, click pins — so a
@@ -137,11 +243,14 @@ function AiRuntimeChip({
   configured,
   labels,
   locale,
+  showTokens = false,
 }: Readonly<{
   runtime?: AiRunSummary;
   configured: string;
   labels: WorkbenchRuntimeLabels;
   locale: string;
+  /** Rail footer form: the compact token count rides beside the spend. */
+  showTokens?: boolean;
 }>) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -244,6 +353,15 @@ function AiRuntimeChip({
       >
         <i aria-hidden />
         <strong>{spend}</strong>
+        {showTokens && runtime && (
+          <small className="mw-aistat-tok">
+            {new Intl.NumberFormat(locale, {
+              notation: "compact",
+              maximumFractionDigits: 1,
+            }).format(runtime.tokens_in + runtime.tokens_out)}
+            {labels.tokensShort !== undefined && ` ${labels.tokensShort}`}
+          </small>
+        )}
         <ChevronDown className="mw-aistat-caret" aria-hidden size={12} />
       </button>
       <div className="mw-aistat-pop" id={popoverId} hidden={!open}>

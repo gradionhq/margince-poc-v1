@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type ConversationEvent,
+  type ConversationQuestion,
   conversationReducer,
 } from "./conversation-machine";
 import { entityQuestion, run } from "./test-fixtures";
@@ -23,7 +24,7 @@ describe("read-run correlation", () => {
     const state = midRead();
     expect(state.activeReadId).toBe("r2");
     const stale: ConversationEvent[] = [
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 4 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "CLARIFY", readId: "r1", question: entityQuestion },
       {
         type: "NARRATION",
@@ -47,7 +48,6 @@ describe("read-run correlation", () => {
       type: "READ_TERMINAL",
       readId: "r2",
       status: "ready",
-      findings: 2,
     });
     expect(advanced).not.toBe(state);
   });
@@ -68,11 +68,10 @@ describe("read-run correlation", () => {
       type: "READ_TERMINAL",
       readId: "r2",
       status: "ready",
-      findings: 2,
     });
     expect(concluded.activeReadId).toBeNull();
     const late: ConversationEvent[] = [
-      { type: "READ_TERMINAL", readId: "r2", status: "ready", findings: 2 },
+      { type: "READ_TERMINAL", readId: "r2", status: "ready" },
       { type: "CLARIFY", readId: "r2", question: entityQuestion },
       {
         type: "NARRATION",
@@ -102,7 +101,6 @@ describe("read-run correlation", () => {
         type: "READ_TERMINAL",
         readId: "r1",
         status: "ready",
-        findings: 4,
       }),
     ).toBe(gap);
   });
@@ -116,20 +114,19 @@ describe("clarify interplay with read terminals", () => {
       { type: "CLARIFY", readId: "r1", question: entityQuestion },
     ]);
 
-  it("a finished read never strands the pending question: co.clarify holds, outcome queues", () => {
+  it("a finished read never strands the pending question: co.clarify holds, and the terminal adds no outcome", () => {
     let state = conversationReducer(clarifying(), {
       type: "READ_TERMINAL",
       readId: "r1",
       status: "ready",
-      findings: 3,
     });
     expect(state.phase).toBe("co.clarify");
     expect(state.pendingQuestion?.id).toBe("clarify-entity");
     expect(state.readCompleted).toBe(true);
-    expect(state.thread.at(-1)).toMatchObject({
-      kind: "outcome",
-      i18nKey: "ob.conv.read.done",
-    });
+    // Ready and partial terminals are silent unconditionally: the clarify
+    // question is still the last thing in the thread, not an outcome bubble
+    // the terminal queued behind it.
+    expect(state.thread.at(-1)).toMatchObject({ kind: "question" });
 
     // The completion is never lost: with no questions left, the answer
     // proceeds straight to review instead of back to a finished read.
@@ -140,6 +137,54 @@ describe("clarify interplay with read terminals", () => {
     });
     expect(state.phase).toBe("co.review");
     expect(state.pendingQuestion).toBeNull();
+  });
+
+  // The dead end this closes: the server can hand back several open
+  // questions, but only the first is ever asked while the run is active.
+  // Once it resolves, activeReadId is already null (the run retired at its
+  // terminal) and can never again match a real readId — so the second
+  // question is legal from co.review specifically, without needing its
+  // readId to match anything.
+  it("promotes a second open question to the decision surface once the first resolves in co.review", () => {
+    const secondQuestion: ConversationQuestion = {
+      id: "clarify-industry",
+      i18nKey: "ob.conv.clarify.entity",
+      options: [{ value: "robotics", label: "Robotics" }],
+    };
+    let state = conversationReducer(clarifying(), {
+      type: "READ_TERMINAL",
+      readId: "r1",
+      status: "ready",
+    });
+    state = conversationReducer(state, {
+      type: "QUESTION_ANSWERED",
+      questionId: "clarify-entity",
+      value: "acme-holding",
+    });
+    expect(state.phase).toBe("co.review");
+    expect(state.activeReadId).toBeNull();
+
+    state = conversationReducer(state, {
+      type: "CLARIFY",
+      readId: "r1",
+      question: secondQuestion,
+    });
+    expect(state.phase).toBe("co.clarify");
+    expect(state.pendingQuestion?.id).toBe("clarify-industry");
+  });
+
+  it("a ready or partial terminal never adds an outcome bubble, whichever the server calls it", () => {
+    for (const status of ["ready", "partial"] as const) {
+      const state = conversationReducer(clarifying(), {
+        type: "READ_TERMINAL",
+        readId: "r1",
+        status,
+      });
+      expect(state.readCompleted).toBe(true);
+      expect(state.thread.some((entry) => entry.kind === "outcome")).toBe(
+        false,
+      );
+    }
   });
 
   it("a premature REVIEW_READY mid-read is ignored: review needs a recorded outcome", () => {
@@ -156,7 +201,7 @@ describe("clarify interplay with read terminals", () => {
     const state = run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 5 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "REVIEW_READY" },
     ]);
     expect(state.phase).toBe("co.review");
@@ -167,7 +212,6 @@ describe("clarify interplay with read terminals", () => {
       type: "READ_TERMINAL",
       readId: "r1",
       status: "failed",
-      findings: 0,
     });
     expect(state.phase).toBe("co.reading");
     expect(state.pendingQuestion).toBeNull();
@@ -213,10 +257,10 @@ describe("entry identity", () => {
       { type: "START", memberPath: false },
       { type: "URL_SUBMITTED", url: "https://acme.example" },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "failed", findings: 0 },
+      { type: "READ_TERMINAL", readId: "r1", status: "failed" },
       { type: "URL_SUBMITTED", url: "https://acme.example" },
       { type: "READ_STARTED", readId: "r2" },
-      { type: "READ_TERMINAL", readId: "r2", status: "failed", findings: 0 },
+      { type: "READ_TERMINAL", readId: "r2", status: "failed" },
     ]);
     const ids = state.thread.map((entry) => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
@@ -232,10 +276,9 @@ describe("voice build", () => {
     run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
-      { type: "VOICE_OPT_IN" },
       { type: "BUILD_STARTED", buildId: "b1" },
     ]);
   const built = (status: "succeeded" | "failed" | "deferred") =>

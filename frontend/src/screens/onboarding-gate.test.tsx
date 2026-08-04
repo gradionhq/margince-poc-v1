@@ -5,17 +5,17 @@
 import "@testing-library/jest-dom/vitest";
 
 import {
-  act,
   cleanup,
   render as rtlRender,
   screen,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { FactSnippets, OnboardingGate, ReadTheatre } from "./onboarding-gate";
+import { OnboardingGate, ReadTheatre } from "./onboarding-gate";
 
 // The label useConfiguredModel() hands the gate in the real screen.
 const MODEL = "gemini/gemini-3.5-flash · cloud, efficient";
@@ -45,33 +45,6 @@ afterEach(() => {
 
 const render = (ui: ReactNode) =>
   rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
-
-// jsdom implements no AnimationEvent, so a chip's own animation ending has to be
-// dispatched as a plain bubbling event. The component listens natively, which is
-// why this reaches it at all — a JSX onAnimationEnd would not fire here.
-function endAnimation(chip: Element | null): void {
-  expect(chip).not.toBeNull();
-  if (chip !== null) {
-    act(() => {
-      chip.dispatchEvent(new Event("animationend", { bubbles: true }));
-    });
-  }
-}
-
-// The default jsdom stub answers "no preference"; a case that wants the reduced
-// path installs this one.
-function stubReducedMotion(reduced: boolean): void {
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: reduced && query.includes("prefers-reduced-motion"),
-    media: query,
-    onchange: null,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-    addListener: () => undefined,
-    removeListener: () => undefined,
-    dispatchEvent: () => false,
-  }));
-}
 
 function fact(
   over: Partial<CompanySiteReadFact> & { value_key: string },
@@ -512,6 +485,82 @@ describe("ReadTheatre page strip", () => {
   });
 });
 
+describe("ReadTheatre page ticker", () => {
+  it("shows only the most recently crawled page, next to the honest total", () => {
+    render(
+      <ReadTheatre
+        read={siteRead()}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+
+    // The fixture's last-arrived page is /legal — the ticker never shows an
+    // earlier one alongside it.
+    expect(screen.getByText("/legal")).toBeInTheDocument();
+    expect(screen.queryByText("/about")).toBeNull();
+    expect(screen.queryByText("/careers")).toBeNull();
+    expect(screen.getByText("2 pages read")).toBeInTheDocument();
+  });
+
+  it("swaps to the newest page as it arrives, without ever showing two", () => {
+    const { rerender } = render(
+      <ReadTheatre
+        read={siteRead()}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+    expect(screen.getByText("/legal")).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <ReadTheatre
+          read={siteRead({
+            pages: [
+              ...siteRead().pages,
+              {
+                url: "https://gradion.com/team",
+                status: "fetched",
+                kind: "about",
+              },
+            ],
+            pages_read: 3,
+          })}
+          host="gradion.com"
+          locale="en"
+          configuredModel={MODEL}
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText("/team")).toBeInTheDocument();
+    expect(screen.queryByText("/legal")).toBeNull();
+    expect(screen.getByText("3 pages read")).toBeInTheDocument();
+  });
+
+  it("shows the page once — the status word beside the path, never the url again", () => {
+    render(
+      <ReadTheatre
+        read={siteRead()}
+        host="gradion.com"
+        locale="en"
+        configuredModel={MODEL}
+      />,
+    );
+
+    // The path is the one place the url appears; the status beside it names
+    // what happened without repeating it.
+    expect(screen.getByText("/legal")).toBeInTheDocument();
+    expect(
+      screen.getByText("could not be read: no reason recorded"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/https:\/\/gradion\.com\/legal/)).toBeNull();
+  });
+});
+
 describe("ReadTheatre cost strip", () => {
   it("discloses calls, tokens and cost from the run summary", () => {
     render(
@@ -578,136 +627,49 @@ describe("ReadTheatre cost strip", () => {
 
     expect(screen.getByText(/15\.500 tokens/)).toBeInTheDocument();
   });
-});
 
-describe("FactSnippets", () => {
-  const facts = [
-    fact({ value_key: "a", value: "Managed Kubernetes" }),
-    fact({ value_key: "b", value: "Frankfurt, Germany", category: "company" }),
-    fact({
-      value_key: "c",
-      value: "A very long offering line that runs past the chip's limit",
-      category: "market",
-      evidence_url: "https://gradion.com/",
-    }),
-  ];
-
-  it("surfaces the newest facts in fixed slots, tinted by category", () => {
-    render(<FactSnippets facts={facts} />);
-
-    const chips = document.querySelectorAll(".ob-snip");
-    expect(chips).toHaveLength(3);
-    // Slots come from a coprime step, so no two on screen share one.
-    const slots = [...chips].map((chip) => chip.getAttribute("data-slot"));
-    expect(new Set(slots).size).toBe(slots.length);
-    expect(
-      [...chips].map((chip) => chip.getAttribute("data-fact-category")),
-    ).toEqual(["offering", "company", "market"]);
-  });
-
-  it("truncates a long value and shows the page it came from", () => {
-    render(<FactSnippets facts={facts} />);
-
-    expect(
-      screen.getByText("A very long offering line that…"),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText("/services/platform")).toHaveLength(2);
-    // The root page has no path worth printing.
-    expect(screen.queryByText("/")).toBeNull();
-    expect(document.querySelectorAll(".ob-snip-src")).toHaveLength(2);
-  });
-
-  it("is decoration: the whole layer is hidden from assistive technology", () => {
-    render(<FactSnippets facts={facts} />);
-
-    expect(document.querySelector(".ob-snips")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
-  });
-
-  it("renders nothing before the first fact arrives", () => {
-    render(<FactSnippets facts={[]} />);
-
-    expect(document.querySelector(".ob-snips")).toBeNull();
-  });
-
-  it("gives every single-value fact its own chip, empty value_key and all", () => {
-    // A single-value fact carries no value_key by contract, so the key that
-    // separates chips has to be the server's composite identity. Keyed on
-    // value_key alone these three collide and only one chip mounts.
-    render(
-      <FactSnippets
-        facts={[
-          fact({ value_key: "", field: "phone", value: "+49 40 123456" }),
-          fact({ value_key: "", field: "location", value: "Hamburg" }),
-          fact({ value_key: "", field: "founded_year", value: "2011" }),
-        ]}
-      />,
-    );
-
-    expect(document.querySelectorAll(".ob-snip")).toHaveLength(3);
-    for (const value of ["+49 40 123456", "Hamburg", "2011"]) {
-      expect(screen.getByText(value)).toBeInTheDocument();
-    }
-  });
-
-  it("keeps a chip until its own animation ends, not until the next poll", () => {
-    const { rerender } = render(<FactSnippets facts={[facts[0]]} />);
-    const first = document.querySelector(".ob-snip");
-    expect(first).not.toBeNull();
-
-    // Extraction arrives in per-page batches. The chip already on screen is
-    // mid-fade and must survive the batch that lands beside it.
-    rerender(
-      <LocaleProvider initial="en">
-        <FactSnippets facts={facts} />
-      </LocaleProvider>,
-    );
-    expect(document.querySelectorAll(".ob-snip")).toHaveLength(3);
-    expect(document.querySelector(".ob-snip")).toBe(first);
-
-    // Its animation finishing is the only thing that retires it.
-    endAnimation(first);
-    expect(document.querySelectorAll(".ob-snip")).toHaveLength(2);
-  });
-
-  it("does not bring a faded chip back when the next poll repeats its fact", () => {
-    const { rerender } = render(<FactSnippets facts={facts} />);
-    for (const chip of [...document.querySelectorAll(".ob-snip")]) {
-      endAnimation(chip);
-    }
-    expect(document.querySelector(".ob-snips")).toBeNull();
-
-    // The wire returns the whole fact list on every poll; a chip that has had
-    // its turn must not flash again on the next one.
-    rerender(
-      <LocaleProvider initial="en">
-        <FactSnippets facts={[...facts]} />
-      </LocaleProvider>,
-    );
-    expect(document.querySelector(".ob-snips")).toBeNull();
-  });
-
-  it("stands down under reduced motion while the read's own numbers stay", () => {
-    stubReducedMotion(true);
+  it("keeps the spend and the model list as two rows, never one squeezed grid", () => {
+    const models =
+      "gemini/gemini-3.1-flash-lite · cloud, efficient + " +
+      "qwen/qwen3-32b · local, fast + " +
+      "anthropic/claude-opus-4 · premium reasoning";
     render(
       <ReadTheatre
-        read={siteRead()}
+        read={siteRead({
+          ai_runtime: {
+            currency: "USD",
+            call_attempts: 40,
+            tokens_in: 100_000,
+            tokens_out: 4_203,
+            latency_ms: 8_200,
+            estimated_cost_microusd: 48_800,
+            unpriced_calls: 0,
+            models: [],
+          },
+        })}
         host="gradion.com"
         locale="en"
-        configuredModel={MODEL}
+        configuredModel={models}
       />,
     );
 
-    expect(document.querySelector(".ob-snips")).toBeNull();
-    // The END state, not nothing: the tiles and the counts are still there.
+    // The label and the spend/calls line share one row — the point, at a
+    // glance.
+    const head = document.querySelector(".ob-scan-cost-head");
+    expect(head).not.toBeNull();
     expect(
-      screen
-        .getByRole("list", { name: "Pages read so far" })
-        .querySelectorAll("li"),
-    ).toHaveLength(4);
-    expect(screen.getByText("2 pages read")).toBeInTheDocument();
-    expect(screen.getByText("Fetching pages")).toBeInTheDocument();
+      within(head as HTMLElement).getByText("Transparency"),
+    ).toBeInTheDocument();
+    expect(
+      within(head as HTMLElement).getByText(/40 calls/),
+    ).toBeInTheDocument();
+
+    // The model list is a full-width sibling below it, not squeezed inside
+    // that row — and nothing about giving it its own row drops any of it:
+    // three long ids with their role suffixes all survive verbatim.
+    const model = document.querySelector(".ob-scan-cost-model");
+    expect(model).not.toBeNull();
+    expect(head?.contains(model)).toBe(false);
+    expect(model?.textContent).toBe(models);
   });
 });

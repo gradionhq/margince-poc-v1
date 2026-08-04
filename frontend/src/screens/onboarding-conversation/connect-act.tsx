@@ -5,6 +5,7 @@ import { navigate } from "../../app/router";
 import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
+import { BackfillPanel } from "../backfill";
 import { EMPTY_DRAFT } from "../onboarding";
 import { BuildScene } from "../onboarding-build-scene";
 import {
@@ -12,13 +13,17 @@ import {
   OAuthConnectPanel,
   OAuthReturnPanel,
 } from "../onboarding-connect-panels";
+import type { MailProvider } from "./connect-scene";
+import { ConnectScene } from "./connect-scene";
 import type {
   ConversationEvent,
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
 import { presenceFor } from "./presence";
+import { railStops } from "./rail";
 import { ConversationThread } from "./thread";
+import { useSaveLinkedInAccount } from "./use-linkedin-account";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { ConversationWorkbench } from "./workbench";
 
@@ -27,14 +32,6 @@ import { ConversationWorkbench } from "./workbench";
 // finish gate. Finishing is a server fact before it is a UI fact: the
 // completion checkpoint (step complete, connect skipped or not) must land
 // before any navigation; a failed write is said out loud and retryable.
-
-type Provider = "google" | "microsoft" | "imap";
-
-const providerLabels: Record<Provider, MessageKey> = {
-  google: "ob.s4.provGoogle",
-  microsoft: "ob.s4.provMicrosoft",
-  imap: "ob.s4.provImap",
-};
 
 const scopes: { lead: MessageKey; rest: MessageKey }[] = [
   { lead: "ob.s4.scope1Lead", rest: "ob.s4.scope1Rest" },
@@ -64,10 +61,26 @@ export function ConnectAct({
   // The OAuth return view no longer depends on which chip was open when the
   // consent redirect left this screen — it reads the connector roster fresh,
   // so `provider` only tracks which pre-consent panel is open right now.
-  const [provider, setProvider] = useState<Provider | null>(null);
+  const [provider, setProvider] = useState<MailProvider | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
   const [entering, setEntering] = useState(false);
+  const linkedin = useSaveLinkedInAccount();
+
+  // The act advances LinkedIn only once the answer is STORED. Dispatching
+  // first and saving in the background would let a member finish onboarding
+  // believing they had connected, with nothing recorded and nothing to
+  // correct. Unlike mail, resolving LinkedIn never touches `finish` — it is
+  // a card on the same screen, not a gate on it.
+  const connectLinkedin = (profileUrl: string) => {
+    linkedin.mutate(
+      { profileUrl, connected: true },
+      {
+        onSuccess: () =>
+          dispatch({ type: "LINKEDIN_CONNECTED", profile: profileUrl }),
+      },
+    );
+  };
 
   const finish = async (skipped: boolean) => {
     setFinishing(true);
@@ -96,41 +109,78 @@ export function ConnectAct({
     return <BuildScene onDone={() => navigate({ screen: "home" })} />;
   }
 
+  // Where the journey stands, in the rail's own counting.
+  const stops = railStops(state.memberPath);
+  const eyebrow = t("ob.conv.scene.step", {
+    n: stops.findIndex((stop) => stop.key === "connect") + 1,
+    m: stops.length,
+    label: t("ob.rail.connect"),
+  });
+  // The connector the backfill window applies to. Only the two the deep link
+  // can return for are named; anything else leaves the window unoffered
+  // rather than guessing which mailbox was connected.
+  const backfillProvider =
+    returningProvider === "gmail" || returningProvider === "graph"
+      ? returningProvider
+      : null;
+
   return (
     <ConversationWorkbench
       core={presenceFor(state).core}
       railState={state}
       status={t("ob.ai.ready")}
       artifact={
-        <div className="mw-review ob-conv-artifact">
-          <div className="mw-review-heading">
-            <span>{t("ob.ai.liveArtifact")}</span>
-            <h2>{t("ob.conv.connect.artifactTitle")}</h2>
-            <p>{t("ob.s4.sub")}</p>
-          </div>
-          {outcome !== undefined ? (
-            <OAuthReturnPanel
-              outcome={outcome}
-              provider={returningProvider}
-              onComplete={finish}
-            />
-          ) : (
-            <>
-              {provider === null && (
-                <p className="ob-conv-artifact-empty">
-                  {t("ob.conv.connect.artifactEmpty")}
-                </p>
-              )}
-              {provider === "google" && (
-                <OAuthConnectPanel provider="gmail" onComplete={finish} />
-              )}
-              {provider === "microsoft" && (
-                <OAuthConnectPanel provider="graph" onComplete={finish} />
-              )}
-              {provider === "imap" && <ImapConnectPanel onComplete={finish} />}
-            </>
+        <ConnectScene
+          eyebrow={eyebrow}
+          provider={provider}
+          onPick={setProvider}
+          footNote={t(
+            outcome === "ok"
+              ? "ob.conv.connect.footConnected"
+              : "ob.conv.connect.footPick",
           )}
-        </div>
+          onSkip={() => void finish(true)}
+          skipDisabled={finishing}
+          // Once consent has returned, "skip connecting" is no longer a true
+          // option — a mailbox is connected (or its confirmation failed and a
+          // provider card is the retry), and recording the step as skipped
+          // would persist a fact that is not so.
+          showSkip={outcome !== "ok"}
+          linkedinStatus={state.linkedinStatus}
+          onLinkedinConnect={connectLinkedin}
+          onLinkedinSkip={() => dispatch({ type: "LINKEDIN_SKIPPED" })}
+          linkedinPending={linkedin.isPending}
+          linkedinError={linkedin.isError ? linkedin.error.message : null}
+          panel={
+            outcome !== undefined ? (
+              <>
+                <OAuthReturnPanel
+                  outcome={outcome}
+                  provider={returningProvider}
+                  onComplete={finish}
+                />
+                {/* How far back the first import reaches, on the real
+                    contract (3m/6m/12m) rather than a decorative dial —
+                    the same panel the connectors screen uses. */}
+                {outcome === "ok" && backfillProvider !== null && (
+                  <BackfillPanel provider={backfillProvider} />
+                )}
+              </>
+            ) : (
+              <>
+                {provider === "google" && (
+                  <OAuthConnectPanel provider="gmail" onComplete={finish} />
+                )}
+                {provider === "microsoft" && (
+                  <OAuthConnectPanel provider="graph" onComplete={finish} />
+                )}
+                {provider === "imap" && (
+                  <ImapConnectPanel onComplete={finish} />
+                )}
+              </>
+            )
+          }
+        />
       }
     >
       <div className="mw-thread">
@@ -175,34 +225,6 @@ export function ConnectAct({
                   />
                 </div>
               )}
-              <div className="ob-conv-chips">
-                {(Object.keys(providerLabels) as Provider[]).map((key) => (
-                  <Button
-                    key={key}
-                    small
-                    variant={provider === key ? "primary" : undefined}
-                    onClick={() => setProvider(key)}
-                  >
-                    {t(providerLabels[key])}
-                  </Button>
-                ))}
-                {/* Once consent has returned, "skip connecting" is no longer a
-                    true option — a mailbox is connected (or its confirmation
-                    failed and a provider chip is the retry), and recording the
-                    step as skipped would persist a fact that isn't so. The
-                    artifact panel owns the exit from there: the backread's own
-                    leave controls, or its confirm-failure button. */}
-                {outcome !== "ok" && (
-                  <Button
-                    small
-                    variant="ghost"
-                    disabled={finishing}
-                    onClick={() => void finish(true)}
-                  >
-                    {t("ob.conv.connect.skip")}
-                  </Button>
-                )}
-              </div>
             </>
           )}
           {state.phase === "cn.done" && (

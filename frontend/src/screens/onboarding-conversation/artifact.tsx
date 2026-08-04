@@ -1,18 +1,17 @@
 import { Check } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import { useLocale, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
 import { CompanyStep } from "../onboarding-company-form";
-import { FactsCard, useFactSelection } from "../onboarding-facts";
-import { OnboardingLivePanel } from "../onboarding-live-panel";
 import { ManualCompanyInterview } from "../onboarding-manual-interview";
 
-// The right panel of the company act: a living dossier of what the read
-// grounded, an edit escape hatch hosting the classic form, and — on the
-// manual path — the interview questions. Narration on the left briefly
-// lights the dossier card it names, tying speech to evidence.
+// The company act's work surface: exactly one scene at a time — the pending
+// decision, the triage review, the manual interview, or the edit escape
+// hatch hosting the classic form. Narration on the left briefly lights the
+// row it names, tying speech to evidence.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
@@ -32,6 +31,9 @@ type CompanyActArtifactProps = Readonly<{
   mode: ArtifactMode;
   /** The manual interview replaces the dossier until its review begins. */
   manual: boolean;
+  /** The triage review card; while set it replaces the dossier as the pane's
+   * body — review is work, and the work surface is where work happens. */
+  review?: ReactNode;
   read: CompanySiteRead | null;
   draft: CompanyDraft;
   setField: (field: CompanyFieldName, value: string) => void;
@@ -121,17 +123,21 @@ export function CompanyActArtifact(props: CompanyActArtifactProps) {
 
   return (
     <div className="mw-review ob-conv-artifact" ref={container}>
-      <div className="mw-review-heading">
-        <span>{t("ob.ai.liveArtifact")}</span>
-        <h2>{t("ob.ai.companyKnowledge")}</h2>
-        <p>
-          {t(
-            props.manual
-              ? "ob.ai.companyKnowledgeManualBody"
-              : "ob.ai.companyKnowledgeBody",
-          )}
-        </p>
-      </div>
+      {/* A scene owns its own headline (the prototype's one-surface rule);
+          the generic dossier heading would be a second voice above it. */}
+      {(props.review == null || props.mode !== "dossier") && (
+        <div className="mw-review-heading">
+          <span>{t("ob.ai.liveArtifact")}</span>
+          <h2>{t("ob.ai.companyKnowledge")}</h2>
+          <p>
+            {t(
+              props.manual
+                ? "ob.ai.companyKnowledgeManualBody"
+                : "ob.ai.companyKnowledgeBody",
+            )}
+          </p>
+        </div>
+      )}
       <ArtifactBody {...props} />
     </div>
   );
@@ -145,6 +151,9 @@ function persistLater(): undefined {
 
 function ArtifactBody(props: CompanyActArtifactProps) {
   const t = useT();
+  if (props.review != null && props.mode === "dossier") {
+    return props.review;
+  }
   if (props.manual && props.mode === "dossier") {
     return (
       <ManualCompanyInterview
@@ -203,20 +212,13 @@ function ArtifactBody(props: CompanyActArtifactProps) {
   return <DossierBody {...props} />;
 }
 
-// The dossier: numbered step blocks of collapsed, sourced cards. Every card
-// states its own count in its header, so leaving one shut is an informed choice
-// rather than a missed one.
+// Between scenes there is nothing to stage: before a read there is nothing
+// sourced, and a finished read's proposal is still on its way for a beat.
+// Both waits say so instead of showing the reader a dossier they are about
+// to leave.
 function DossierBody(props: CompanyActArtifactProps) {
   const t = useT();
-  const { locale } = useLocale();
-  const { read } = props;
-  const selection = useFactSelection(
-    read?.facts ?? [],
-    props.selectedFactKeys,
-    props.setSelectedFactKeys,
-  );
-
-  if (read === null) {
+  if (props.read === null) {
     return (
       <>
         <p className="ob-conv-artifact-empty">{t("ob.conv.artifact.empty")}</p>
@@ -230,51 +232,14 @@ function DossierBody(props: CompanyActArtifactProps) {
       </>
     );
   }
-
   return (
     <>
-      <OnboardingLivePanel
-        host={hostOf(read.root_url)}
-        done={SETTLED_READ.has(read.status)}
-        read={read}
-        entityChoice={props.draft.values.legal_name.trim() || null}
-        onConfirmEntity={(value) => props.setField("legal_name", value)}
-        onDeclineEntity={() => props.setField("legal_name", "")}
-        voiceState="waiting"
-        connectState="waiting"
-        // The pulse effect above can only find a row that is mounted, and a
-        // collapsed card mounts none — so the panel gets the named fields and
-        // opens the card that holds one before the effect goes looking.
-        highlightFields={props.highlight?.ids}
-        // Always mounted, empty or not: the card owns the sentence that says a
-        // finished read pulled no separate facts out, and a missing card would
-        // leave the reader to guess whether the read found nothing or the
-        // dossier lost a section.
-        factsSlot={
-          <FactsCard facts={read.facts} selection={selection} locale={locale} />
-        }
-      />
+      <div className="ob-state-loading" role="status">
+        <span className="ob-spinner" /> {t("ob.restoring")}
+      </div>
       <Button small variant="ghost" onClick={() => props.onSwitchMode("edit")}>
         {t("ob.conv.review.editDirectly")}
       </Button>
     </>
   );
-}
-
-// A read that has produced its answer, so the panel may open its cards.
-const SETTLED_READ: ReadonlySet<CompanySiteRead["status"]> = new Set([
-  "ready",
-  "partial",
-  "confirmed",
-]);
-
-function hostOf(rootUrl: string): string {
-  // The panel heads name the site, and the wire always sends an absolute URL —
-  // but a malformed one must degrade to the raw string rather than throw and
-  // take the whole dossier down with it.
-  try {
-    return new URL(rootUrl).host;
-  } catch {
-    return rootUrl;
-  }
 }

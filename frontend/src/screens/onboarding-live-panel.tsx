@@ -590,7 +590,10 @@ export function EntityDecisionCard({
                     {entity.register_number}
                   </span>
                 )}
-                {evidence && <EvidenceChip evidence={evidence} />}
+                {/* Collapsed: five candidates each dragging their whole
+                    imprint quote onto the card is a wall, not a choice. The
+                    verbatim snippet stays one toggle away. */}
+                {evidence && <EvidenceChip evidence={evidence} collapsed />}
               </span>
             </label>
           );

@@ -370,7 +370,7 @@ describe("the conversational voice act", () => {
         initial={{
           ...initialConversationState,
           act: "voice",
-          phase: "vo.invite",
+          phase: "vo.skipped",
         }}
       />,
     );
@@ -395,10 +395,13 @@ describe("the conversational voice act", () => {
       await screen.findByText(/I counted nothing, because I only count words/),
     ).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(0);
-    expect(screen.queryByText(/Own words:/)).toBeNull();
+    expect(screen.queryByText(/words kept/)).toBeNull();
   });
 
-  it("offers the build only at the server floor of 800 words", async () => {
+  // The scene shows the build action from the start and states its
+  // precondition beside it: an affordance that appears out of nowhere at 800
+  // words is one nobody could plan for. Enabled is what the floor gates.
+  it("enables the build only at the server floor of 800 words", async () => {
     stubApi({
       preview: documentPreview,
       ingests: [
@@ -412,14 +415,21 @@ describe("the conversational voice act", () => {
     expect(
       await screen.findByText(/Own words so far: 500\. I need at least 800/),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /Build my voice profile/ }),
-    ).toBeNull();
+    const build = screen.getByRole("button", {
+      name: /Build my voice profile/,
+    }) as HTMLButtonElement;
+    expect(build.disabled).toBe(true);
 
     await uploadFile("two.md", "Second document.");
-    expect(
-      await screen.findByRole("button", { name: /Build my voice profile/ }),
-    ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        (
+          screen.getByRole("button", {
+            name: /Build my voice profile/,
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+    });
     expect(screen.queryByText(/I need at least 800/)).toBeNull();
   });
 
@@ -520,12 +530,12 @@ describe("the conversational voice act", () => {
     await waitFor(() => {
       expect(screen.getAllByText(/Words counted: 900\./).length).toBe(2);
     });
-    expect(await screen.findByText("Own words: 820 of 30000")).toBeTruthy();
+    expect(await screen.findByText("820 of 800 words kept")).toBeTruthy();
     expect(
       await screen.findByRole("button", { name: /Build my voice profile/ }),
     ).toBeTruthy();
     expect(screen.queryByText(/I need at least 800/)).toBeNull();
-    expect(screen.queryByText("Own words: 500 of 30000")).toBeNull();
+    expect(screen.queryByText("500 of 800 words kept")).toBeNull();
   });
 
   it("concludes as failed with the retry chip when the build poll keeps erroring", async () => {

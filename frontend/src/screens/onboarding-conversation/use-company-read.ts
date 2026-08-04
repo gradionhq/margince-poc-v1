@@ -18,9 +18,11 @@ import { diffSiteRead, useNarrationQueue } from "./narration";
 
 // The read lifecycle of the company act as one hook: start the read, poll
 // it, narrate poll deltas through the paced queue, prefill the draft per
-// dossier version, and conclude — clarify question first (while the run is
-// still active), then the terminal outcome, then review when nothing is
-// open. Everything the conversation shows goes through machine events.
+// dossier version, and conclude — the first open question while the run is
+// still active, then the terminal outcome, then review. Any FURTHER open
+// question the proposal carries is promoted one at a time once review has
+// none live, so the review card is never reachable while one is stranded.
+// Everything the conversation shows goes through machine events.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
@@ -28,7 +30,6 @@ type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type ReadTerminal = Readonly<{
   readId: string;
   status: "ready" | "partial";
-  findings: number;
 }>;
 
 type UseCompanyReadArgs = Readonly<{
@@ -95,13 +96,8 @@ export function useCompanyRead({
   // waits for the proposal so a clarify question can precede the outcome.
   const concludeFreshTerminal = useCallback(
     (next: CompanySiteRead) => {
-      const findings = next.profile_fields.length;
       if (next.status === "ready" || next.status === "partial") {
-        pendingTerminal.current = {
-          readId: next.id,
-          status: next.status,
-          findings,
-        };
+        pendingTerminal.current = { readId: next.id, status: next.status };
         setProposalArmed(true);
         return;
       }
@@ -110,7 +106,6 @@ export function useCompanyRead({
           type: "READ_TERMINAL",
           readId: next.id,
           status: next.status,
-          findings,
         });
       }
     },
@@ -285,7 +280,6 @@ export function useCompanyRead({
       type: "READ_TERMINAL",
       readId: activeReadId,
       status: "failed",
-      findings: prevSnapshot.current?.profile_fields.length ?? 0,
     });
   }, [siteRead.isError, dispatch, machine]);
 
@@ -365,6 +359,42 @@ export function useCompanyRead({
       dispatch({ type: "REVIEW_READY" });
     }
   }, [proposal.data, proposal.isError, proposalJoin, answers, dispatch]);
+
+  // The invariant this effect exists for: a question the server still
+  // considers open always has exactly one place to answer it. The terminal
+  // effect above asks only the FIRST one — it dispatches once, before the
+  // run retires, and never runs again. Every question after that is asked
+  // here instead, one at a time: once co.review has no question live, the
+  // next still-unanswered entry in the proposal's own `open_questions`
+  // (an answer or a dismissal both count — either way the human resolved
+  // it) is promoted the same way, and none is skipped. Legal only from
+  // co.review (conversation-legality.ts), which the machine cannot reach
+  // while another read is active, so this can never ask about a stale run.
+  useEffect(() => {
+    if (
+      machine.current.phase !== "co.review" ||
+      machine.current.pendingQuestion !== null
+    ) {
+      return;
+    }
+    const data = proposal.data;
+    const readId = prevSnapshot.current?.id;
+    if (!data || readId === undefined || readId === null) {
+      return;
+    }
+    const open = (data.open_questions ?? []).filter(
+      (question) => !answers.some((answer) => answer.clarifyId === question.id),
+    );
+    const next = open[0];
+    if (next && !askedClarifies.current.has(next.id)) {
+      askedClarifies.current.add(next.id);
+      dispatch({
+        type: "CLARIFY",
+        readId,
+        question: toMachineQuestion(next, prevSnapshot.current?.comparisons),
+      });
+    }
+  }, [proposal.data, answers, dispatch, machine]);
 
   return { startRead, siteRead, proposal, prevSnapshot };
 }

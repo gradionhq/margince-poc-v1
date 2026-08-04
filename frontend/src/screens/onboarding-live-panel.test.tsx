@@ -683,13 +683,10 @@ describe("CompanyActArtifact", () => {
     );
   }
 
-  const NO_FACTS_FOUND =
-    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.";
-
-  it("still shows the facts card when a finished read extracted nothing", () => {
-    // Honest degradation only reaches the reader if the card is there to say
-    // it: omitting the card leaves a settled read looking identical to a
-    // dossier that lost a section.
+  it("waits for the review instead of staging a dossier of its own", () => {
+    // One scene at a time: a finished read whose review scene has not been
+    // handed over yet is a wait, never a second surface the reader is about
+    // to be pulled away from. The facts live in the review card.
     render(
       artifact(
         read({
@@ -699,31 +696,7 @@ describe("CompanyActArtifact", () => {
       ),
     );
 
-    expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
-    expect(screen.getByText(NO_FACTS_FOUND)).toBeTruthy();
-  });
-
-  it("shows the facts themselves when the read did extract some", () => {
-    render(
-      artifact(
-        read({
-          facts: [
-            {
-              category: "company",
-              field: "location",
-              value: "Berlin",
-              value_key: "company:location:berlin",
-              evidence_snippet: "Our workshop sits in Berlin",
-              evidence_url: "https://example.test",
-              confidence: 0.8,
-            },
-          ],
-        }),
-      ),
-    );
-
-    expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
-    expect(screen.getByText("Berlin")).toBeTruthy();
-    expect(screen.queryByText(NO_FACTS_FOUND)).toBeNull();
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Facts" })).toBeNull();
   });
 });

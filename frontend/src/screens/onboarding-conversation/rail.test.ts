@@ -4,7 +4,8 @@ import type {
   ConversationPhase,
   ConversationState,
 } from "./conversation-types";
-import { currentStop, railStops, stopState } from "./rail";
+import { currentStop, isDetour, railStops, stopState } from "./rail";
+import { entityQuestion } from "./test-fixtures";
 
 // The rail is derived, so these tests pin the derivation rather than a list of
 // labels: given where the machine is, which stop is current and what does each
@@ -59,7 +60,7 @@ describe("which stop the conversation is standing on", () => {
   });
 
   it("maps each later act to its own stop", () => {
-    expect(currentStop(at("voice", "vo.invite"))).toBe("voice");
+    expect(currentStop(at("voice", "vo.collecting"))).toBe("voice");
     expect(currentStop(at("results", "re.recap"))).toBe("ready");
     expect(currentStop(at("connect", "cn.consent"))).toBe("connect");
     expect(currentStop(at("done", "cn.done"))).toBe("connect");
@@ -82,7 +83,7 @@ describe("how each stop reads", () => {
     // The manual path never completes a read, so the stop cannot depend on
     // readCompleted alone or a hand-typed setup shows step one unfinished.
     expect(stopState("read", at("company", "co.manual"))).toBe("done");
-    expect(stopState("read", at("voice", "vo.invite"))).toBe("done");
+    expect(stopState("read", at("voice", "vo.collecting"))).toBe("done");
   });
 
   it("reads todo for the read while the gate is still asking", () => {
@@ -115,5 +116,32 @@ describe("how each stop reads", () => {
         "todo",
       );
     }
+  });
+});
+
+describe("whether the clarify surface is a detour off the fixed sequence", () => {
+  it("is a detour only while co.clarify actually carries a pending question", () => {
+    expect(
+      isDetour(
+        at("company", "co.clarify", { pendingQuestion: entityQuestion }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is not a detour once the question is answered, even if the phase lags", () => {
+    // A defensive case: co.clarify with no pending question is not a shape
+    // the reducer produces, but the predicate must not claim a detour from
+    // the phase name alone.
+    expect(
+      isDetour(at("company", "co.clarify", { pendingQuestion: null })),
+    ).toBe(false);
+  });
+
+  it("is never a detour on the ordinary stops of the journey", () => {
+    expect(
+      isDetour(at("company", "co.review", { pendingQuestion: entityQuestion })),
+    ).toBe(false);
+    expect(isDetour(at("voice", "vo.collecting"))).toBe(false);
+    expect(isDetour(initialConversationState)).toBe(false);
   });
 });

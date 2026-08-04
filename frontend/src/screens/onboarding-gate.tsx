@@ -1,20 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import type { components } from "../api/schema";
 import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
-import { usePrefersReducedMotion } from "../design-system/motion";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { normalizeUrl } from "./onboarding";
@@ -41,7 +33,6 @@ type GateScan = Readonly<{
   host: string;
   locale: string;
 }>;
-type CompanySiteReadFact = components["schemas"]["CompanySiteReadFact"];
 type CompanySiteReadPage = components["schemas"]["CompanySiteReadPage"];
 type AiRunSummary = components["schemas"]["AiRunSummary"];
 
@@ -262,12 +253,7 @@ function GateColumn({
             : t("ob.scan.sub"),
         };
   return (
-    // The stage, not the column, is the snippet layer's containing block: the
-    // chips belong in the page margin BESIDE the 540px column, so positioning
-    // them against the column itself would confine the layer to the one strip of
-    // the page it has to stay out of.
     <div className="ob-gate-stage">
-      {scan === undefined ? null : <FactSnippets facts={scan.read.facts} />}
       <div
         className={`ob-gate${scan === undefined ? "" : " ob-scan"}${
           settled ? " is-settled" : ""
@@ -322,15 +308,19 @@ function phaseKey(read: CompanySiteRead): MessageKey | null {
   return null;
 }
 
+// The honest fallback for a page whose skip/failure carries no reason.
+function reasonOf(t: Translate, page: CompanySiteReadPage): string {
+  return page.reason !== null &&
+    page.reason !== undefined &&
+    page.reason.trim() !== ""
+    ? page.reason
+    : t("ob.scan.pageNoReason");
+}
+
 // Colour is never the only carrier: the tile's own name says what happened to
 // the page and why, and it is both the tooltip and the accessible name.
 function pageLabel(t: Translate, page: CompanySiteReadPage): string {
-  const reason =
-    page.reason !== null &&
-    page.reason !== undefined &&
-    page.reason.trim() !== ""
-      ? page.reason
-      : t("ob.scan.pageNoReason");
+  const reason = reasonOf(t, page);
   if (page.status === "skipped") {
     return t("ob.scan.pageSkipped", { url: page.url, reason });
   }
@@ -338,6 +328,20 @@ function pageLabel(t: Translate, page: CompanySiteReadPage): string {
     return t("ob.scan.pageFailed", { url: page.url, reason });
   }
   return t("ob.scan.pageFetched", { url: page.url });
+}
+
+// The ticker's own status word, with no URL in it: the path beside it is
+// already the URL, spelled once. Reusing pageLabel here printed the URL a
+// second time, in full, right next to its own truncated abbreviation.
+function pageStatusWord(t: Translate, page: CompanySiteReadPage): string {
+  const reason = reasonOf(t, page);
+  if (page.status === "skipped") {
+    return t("ob.scan.pageStatusSkipped", { reason });
+  }
+  if (page.status === "failed") {
+    return t("ob.scan.pageStatusFailed", { reason });
+  }
+  return t("ob.scan.pageStatusFetched");
 }
 
 function costLine(t: Translate, runtime: AiRunSummary, locale: string): string {
@@ -409,6 +413,9 @@ function TheatreTail({
     read.pages_read ??
     read.pages.filter((page) => page.status === "fetched").length;
   const skipped = read.pages.filter((page) => page.status === "skipped").length;
+  // Newest-arrived, not "first tracked": the array is append-order, so the
+  // page the reader should be watching right now is the last one in it.
+  const latestPage = read.pages.at(-1) ?? null;
 
   return (
     <>
@@ -439,10 +446,40 @@ function TheatreTail({
         })}
       </ul>
 
-      <p className="ob-scan-counts">
-        <span>
+      {/* The page itself: which one the crawl just walked, not a growing
+          transcript of all of them. Fixed height, one occupant at a time —
+          the old page fades out as the new one fades in, and under reduced
+          motion the text simply swaps. If pages arrive faster than the fade
+          can play, this shows whichever is newest and drops the rest rather
+          than queuing a backlog: the count beside it is the honest tally,
+          not a promise that every page was seen crossing the ticker. */}
+      <div className="ob-scan-ticker">
+        <ul
+          className="ob-scan-ticker-row"
+          aria-live="polite"
+          aria-label={t("ob.scan.logLabel")}
+        >
+          {latestPage === null ? null : (
+            <li
+              key={latestPage.url}
+              className="ob-scan-ticker-entry"
+              data-page-status={latestPage.status}
+            >
+              <span className="ob-scan-ticker-path">
+                {sourcePath(latestPage.url) ?? "/"}
+              </span>
+              <span className="ob-scan-ticker-kind">
+                {pageStatusWord(t, latestPage)}
+              </span>
+            </li>
+          )}
+        </ul>
+        <p className="ob-scan-ticker-total">
           {t("ob.scan.pagesRead", { pages: counts.format(pagesRead) })}
-        </span>
+        </p>
+      </div>
+
+      <p className="ob-scan-counts">
         <span>
           {t("ob.scan.pagesSkipped", { count: counts.format(skipped) })}
         </span>
@@ -453,185 +490,33 @@ function TheatreTail({
       </p>
 
       {/* The AI indigo, not the brand accent: this is what the machine spent,
-          not something the user is being asked to do. */}
+          not something the user is being asked to do. The spend and call
+          count are the point, so they sit together on the label's own line;
+          which model(s) answered is detail, given its own full-width row
+          beneath rather than a column it would have to be squeezed into. */}
       <div className="ob-scan-cost">
-        <p className="ob-scan-cost-label">{t("ob.scan.transparency")}</p>
+        <div className="ob-scan-cost-head">
+          <p className="ob-scan-cost-label">{t("ob.scan.transparency")}</p>
+          <p className="ob-scan-cost-line">
+            {runtime === undefined
+              ? t("ob.scan.costPending")
+              : costLine(t, runtime, locale)}
+          </p>
+        </div>
         <p className="ob-scan-cost-model">{configuredModel}</p>
-        <p className="ob-scan-cost-line">
-          {runtime === undefined
-            ? t("ob.scan.costPending")
-            : costLine(t, runtime, locale)}
-        </p>
       </div>
     </>
   );
 }
 
-// Fixed positions rather than a random walk, and a step coprime with the slot
-// count so consecutive facts always land in different slots: the sequence is
-// then the same in a story, in a test and on screen. `Math.random()` in a
-// render path is a surface nobody can pin.
-const SNIPPET_SLOTS = 7;
-const SLOT_STEP = 3;
-const SNIPPET_CHARS = 32;
-
-/**
- * A fact's identity as the server defines it. `value_key` alone is not one: it
- * is empty for every single-value fact (a phone number, a founding year), so
- * keying chips on it collides them, and React then reuses a chip that is
- * already mid-fade instead of mounting a new one — the fact silently never
- * appears.
- */
-function snippetKey(fact: CompanySiteReadFact): string {
-  return `${fact.category}/${fact.field}/${fact.value_key}`;
-}
-
-type LiveSnippet = Readonly<{
-  key: string;
-  fact: CompanySiteReadFact;
-  slot: number;
-}>;
-
-// Which slot a newly arrived chip takes: the next one clear of every chip still
-// on screen, walking from a cursor that advances by a step coprime with the slot
-// count. Consecutive facts therefore land far apart, and the sequence is the
-// same in a story, in a test and on screen — `Math.random()` in a render path
-// is a surface nobody can pin. Returns null when the layer is full, and the
-// fact is then simply not shown: this is decoration over the column, and the
-// review that follows states every fact anyway.
-function freeSlot(live: readonly LiveSnippet[], cursor: number): number | null {
-  const taken = new Set(live.map((snippet) => snippet.slot));
-  for (let step = 0; step < SNIPPET_SLOTS; step += 1) {
-    const slot = (cursor + step * SLOT_STEP) % SNIPPET_SLOTS;
-    if (!taken.has(slot)) {
-      return slot;
-    }
-  }
-  return null;
-}
-
-function shortValue(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= SNIPPET_CHARS) {
-    return trimmed;
-  }
-  return `${trimmed.slice(0, SNIPPET_CHARS - 1).trimEnd()}…`;
-}
-
-// The page a fact came from, as the site's own path. Parsed with a pattern
-// rather than `new URL`, so a malformed evidence URL yields "no path to show"
-// instead of an exception to swallow.
-function sourcePath(evidenceUrl: string): string | null {
-  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+(\/[^?#]*)?/i.exec(evidenceUrl);
+// The page a crawled URL is, as the site's own path. Parsed with a pattern
+// rather than `new URL`, so a malformed URL yields "no path to show" instead
+// of an exception to swallow.
+function sourcePath(url: string): string | null {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]+(\/[^?#]*)?/i.exec(url);
   const path = match?.[1];
   if (path === undefined || path === "" || path === "/") {
     return null;
   }
   return path.replace(/\/$/, "");
-}
-
-/**
- * Facts surfacing in place while the read runs — decoration over the column,
- * and `aria-hidden` because every fact is stated in the review that follows and
- * every count is already text in the panel above.
- *
- * Nothing travels: a chip fades in where it belongs, holds long enough to be
- * read, and fades out. Under reduced motion there is nothing to show in place
- * of an animation whose whole content IS the animation, so the layer stands
- * down; the counts and the page strip carry the same information without it.
- *
- * A chip leaves when its OWN animation ends, not when the next poll arrives.
- * Extraction lands in per-page batches, so deriving the layer from a window
- * over `facts` would cut chips off mid-fade on the common path — and a batch of
- * four would replace the whole layer in a single frame.
- */
-export function FactSnippets({
-  facts,
-}: Readonly<{ facts: readonly CompanySiteReadFact[] }>) {
-  const reduced = usePrefersReducedMotion();
-  const [live, setLive] = useState<readonly LiveSnippet[]>([]);
-  // Facts already given their turn. A chip that has faded out must not come
-  // back on the next poll, so admission is once per fact for the whole read.
-  const admitted = useRef<Set<string>>(new Set());
-  const cursor = useRef(0);
-  const layer = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (reduced) {
-      return;
-    }
-    let next = live;
-    for (const fact of facts) {
-      const key = snippetKey(fact);
-      if (admitted.current.has(key)) {
-        continue;
-      }
-      const slot = freeSlot(next, cursor.current);
-      if (slot === null) {
-        // The layer is full. Leave this fact and the ones behind it unadmitted,
-        // in order, so a later pass can still surface them once a chip ends.
-        break;
-      }
-      admitted.current.add(key);
-      cursor.current = (cursor.current + SLOT_STEP) % SNIPPET_SLOTS;
-      next = [...next, { key, fact, slot }];
-    }
-    if (next !== live) {
-      setLive(next);
-    }
-    // The layer itself is a dependency, not just `facts`: a chip ending frees a
-    // slot, and that is what gives a held-back fact its turn. This cannot loop —
-    // a pass that admits nothing calls no setter, and `admitted` only grows.
-  }, [facts, reduced, live]);
-
-  const showing = !reduced && live.length > 0;
-
-  // One delegated native listener on the layer rather than a handler per chip.
-  // Native for the reason artifact.tsx documents — and here for a second one:
-  // React does not deliver `animationend` to a JSX handler under jsdom, so a
-  // handler prop would make the chip's whole retirement path untestable.
-  useEffect(() => {
-    const root = layer.current;
-    if (!showing || !root) {
-      return;
-    }
-    const retire = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
-        return;
-      }
-      const key = target.dataset.snipKey;
-      if (key === undefined) {
-        return;
-      }
-      setLive((current) => current.filter((held) => held.key !== key));
-    };
-    root.addEventListener("animationend", retire);
-    return () => root.removeEventListener("animationend", retire);
-  }, [showing]);
-
-  if (!showing) {
-    return null;
-  }
-  return (
-    <div className="ob-snips" aria-hidden="true" ref={layer}>
-      {live.map((snippet) => {
-        const path = sourcePath(snippet.fact.evidence_url);
-        return (
-          <span
-            key={snippet.key}
-            className="ob-snip"
-            data-snip-key={snippet.key}
-            data-slot={snippet.slot}
-            data-fact-category={snippet.fact.category}
-          >
-            <span className="ob-snip-value">
-              {shortValue(snippet.fact.value)}
-            </span>
-            {path === null ? null : <span className="ob-snip-src">{path}</span>}
-          </span>
-        );
-      })}
-    </div>
-  );
 }

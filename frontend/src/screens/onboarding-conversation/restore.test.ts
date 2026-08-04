@@ -126,7 +126,7 @@ describe("restorePlan", () => {
         read: null,
         routeConnect: false,
       }),
-    ).toMatchObject({ memberPath: false, resumeTarget: "vo.invite" });
+    ).toMatchObject({ memberPath: false, resumeTarget: "vo.collecting" });
   });
 
   it("reads the member path from the state row's path field", () => {

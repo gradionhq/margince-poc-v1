@@ -10,8 +10,7 @@
  *    row, the cost line) holds its own height, so an arriving page never moves
  *    what someone is reading;
  *  - under reduced motion the animations end rather than never happen: the tiles
- *    are present, the phase line is legible, the entrance is complete. Only the
- *    decorative snippet layer stands down, and its component does that itself.
+ *    are present, the phase line is legible, the entrance is complete.
  *
  * Copy never lives here (conformance gate) and no colour is a literal: literals
  * live only in design-system/tokens.css.
@@ -276,9 +275,7 @@
 /* The gate and the theatre are full-viewport stages, not cards on a page: the
    host page's own washes would sit behind a surface that already owns the
    whole screen. */
-/* The full-width surface the column sits on, and the snippet layer's containing
-   block: the chips live in the page margin BESIDE the column, so the box they
-   position against has to be the one that HAS margins. */
+/* The full-width surface the column sits on. */
 .ob-gate-stage {
   position: relative;
   min-height: 100vh;
@@ -287,6 +284,21 @@
 }
 
 /* ===== the read theatre ================================================= */
+
+/* One alignment for the whole theatre, held everywhere below the (centred)
+   headline: a crawl is a report, and a report reads left-aligned, flush to
+   one edge, top to bottom — not centred one row and flush the next. Every
+   region also takes the column's full width, which is what lets the tile
+   grid and the wrapping model list stay inside it instead of shrink-wrapping
+   to a size the flex column then centres past the edge. */
+.ob-scan-phase,
+.ob-scan-strip,
+.ob-scan-ticker,
+.ob-scan-counts,
+.ob-scan-cost {
+  width: 100%;
+  text-align: left;
+}
 
 /* Fixed height so the crossfade cannot move the strip beneath it. */
 .ob-scan-phase {
@@ -344,16 +356,15 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  /* Shrink-wraps its tiles rather than spanning the column, because the sheen
-     below is positioned against this box: at full width the light swept a mostly
-     empty strip and read as a stray band beside the tiles instead of as light
-     crossing them. Wrapping still works — the column is the ceiling. */
-  width: auto;
-  max-width: 100%;
+  /* The column is the ceiling, not a suggestion: a shrink-wrapped row of
+     flex items sizes itself to fit ALL of them on one line before wrapping
+     is even considered, so at 40+ tiles the box — and the tiles inside it —
+     ran straight past the column's edge and off the viewport. Taking the
+     full width up front means wrapping happens against a size that is
+     already correct. */
   min-height: 22px;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 6px;
 }
 /* A slow light crossing the tiles: the strip's own way of saying the crawl is
@@ -423,7 +434,6 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
   gap: var(--space-2);
   font-family: var(--f-mono);
   font-size: 12px;
@@ -452,21 +462,28 @@
 /* A footnote under a report, not a card on top of one.
  *
  * Filled and bordered, this block was the heaviest thing on a screen whose
- * subject is the read — the disclosure outweighed the work it annotates. It says
- * the same three things over a hairline instead: label, what is answering, what
- * it has cost, with the spend pushed to the far edge so the number a reader looks
- * for sits where numbers sit. Nothing is hidden; the weight is what changes.
+ * subject is the read — the disclosure outweighed the work it annotates. It
+ * says the same three things over a hairline instead: label, what it has
+ * cost, what is answering. The first two are the point and share one line;
+ * a three-column grid used to force the model list into whatever space the
+ * spend's own nowrap column left over, which was a sliver the moment more
+ * than one model, or one long id, was configured. The model list gets its
+ * own full-width row instead and simply wraps — it is the detail, not the
+ * headline, so it reads smaller and quieter than the line above it.
  */
 .ob-scan-cost {
-  width: 100%;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   margin-top: var(--space-2);
   padding-top: var(--space-3);
   border-top: 1px solid var(--borderSubtle);
-  text-align: left;
+}
+.ob-scan-cost-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .ob-scan-cost-label {
   margin: 0;
@@ -477,14 +494,6 @@
   text-transform: uppercase;
   color: var(--aiText);
 }
-
-.ob-scan-cost-model {
-  margin: 0;
-  color: var(--textMeta);
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-  overflow-wrap: anywhere;
-}
 .ob-scan-cost-line {
   margin: 0;
   min-height: 15px;
@@ -492,164 +501,90 @@
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   color: var(--textMeta);
-  white-space: nowrap;
+}
+.ob-scan-cost-model {
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  overflow-wrap: anywhere;
 }
 
-/* Under 480px the three parts cannot share a line without the model name
-   crushing the spend, so the row becomes two: label with spend, model beneath. */
-@media (max-width: 479px) {
-  .ob-scan-cost {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .ob-scan-cost-model {
-    grid-row: 2;
-    grid-column: 1 / -1;
-  }
-}
-
-/* ===== the snippet layer (decorative) =================================== */
-
-.ob-snips {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-}
-@keyframes ob-snip-life {
-  0% {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  14%,
-  74% {
-    opacity: 1;
-    transform: none;
-  }
-  100% {
-    opacity: 0;
-    transform: none;
-  }
-}
-/* Surfaces and fades IN PLACE — nothing travels across the column. The chip's
-   life is ONE animation, and its end is what removes the chip: the duration
-   here is the whole clock, and no timer in the component duplicates it. */
-.ob-snip {
-  /* Half the width of the centred content column, the same figure the width
-     rule below derives its margin from — shared here so a slot's offset and
-     the chip's own width agree on where the column actually sits. */
-  --ob-snip-col-half: calc(min(540px, 100%) / 2);
-  /* How far a hugging slot reaches past the column edge: room for the chip's
-     own width ceiling plus a small breathing gap, so an offset built from
-     this cannot land the chip on top of the column it hugs. */
-  --ob-snip-reach: calc(230px + var(--space-4));
-  position: absolute;
-  /* Wide enough to read, never wider than the margin it lives in, and never
-     so narrow it goes unreadable when that margin is thin. The margin is half
-     of whatever the stage has left over after the column, less a gutter — so
-     the chip shrinks with the viewport instead of climbing onto the copy, and
-     there is no width at which it silently overlaps or disappears. */
-  max-width: clamp(
-    150px,
-    calc(50% - var(--ob-snip-col-half) - var(--space-4)),
-    230px
-  );
+/* The page ticker: which page the crawl just walked, one at a time. Fixed
+   height on the row so an arrival can never push the counts or the cost
+   strip beneath it — the old occupant fades out, the new one fades in, in
+   place. */
+.ob-scan-ticker {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 7px var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+
+.ob-scan-ticker-row {
+  margin: 0;
+  min-height: 22px;
+  display: flex;
+  align-items: baseline;
+  padding: 4px var(--space-2);
   border-radius: var(--r-sm);
-  border: 1px solid var(--borderSubtle);
-  background: var(--bgElevated);
-  box-shadow: var(--shadow-card);
-  text-align: left;
-  border-left: 3px solid var(--snipTint, var(--borderStrong));
-  animation: ob-snip-life 5.4s cubic-bezier(0.23, 1, 0.32, 1) both;
+  list-style: none;
+  overflow: hidden;
 }
-.ob-snip-value {
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--textPrimary);
+
+.ob-scan-ticker-entry {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: var(--space-3);
+  animation: ob-scan-ticker-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-.ob-snip-src {
+
+.ob-scan-ticker-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--textContent);
   font-family: var(--f-mono);
-  font-size: 9.5px;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-scan-ticker-entry[data-page-status="skipped"] .ob-scan-ticker-path {
+  color: var(--textMeta);
+  text-decoration: line-through;
+}
+
+.ob-scan-ticker-kind {
+  flex: none;
+  color: var(--textMeta);
+  font-size: 10.5px;
+}
+
+/* The running total: the honest count beside the single page on show, so a
+   fast crawl never reads as a stalled one just because the ticker itself
+   can only ever hold one page at a time. */
+.ob-scan-ticker-total {
+  margin: 0;
+  padding: 0 var(--space-2);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--textMeta);
 }
-/* The four wire categories, one tint each, the same tint the chips, bars and
-   rows use elsewhere. */
-.ob-snip[data-fact-category="company"] {
-  --snipTint: var(--catCompany);
-}
-.ob-snip[data-fact-category="offering"] {
-  --snipTint: var(--catOffering);
-}
-.ob-snip[data-fact-category="market"] {
-  --snipTint: var(--catMarket);
-}
-.ob-snip[data-fact-category="signal"] {
-  --snipTint: var(--catSignal);
-}
-/* Seven slots, claimed by a coprime step in the component: two chips on screen
-   at the same time can never be given the same one.
 
-   The slots are insets from the STAGE, but the offset they inset BY is pinned
-   to the centred column, not the stage edge: max() keeps the old small edge
-   gap as a floor on a narrow stage (nothing changes there — the column already
-   fills most of it) and switches over to "50% minus the column's half minus
-   the reach" once the stage is wide enough that the column has real margin on
-   both sides, so the chip tracks the column instead of stranding itself at the
-   viewport edge. --ob-snip-reach guarantees the switched-over branch always
-   leaves a chip's own width of clearance before the column, so it hugs without
-   ever overlapping. Left and right alternate so the layer stays balanced with
-   only two or three chips alive. */
-.ob-snip[data-slot="0"] {
-  top: 6%;
-  left: max(
-    var(--space-4),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
+@keyframes ob-scan-ticker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
-.ob-snip[data-slot="1"] {
-  top: 20%;
-  right: max(
-    var(--space-4),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
-}
-.ob-snip[data-slot="2"] {
-  top: 40%;
-  left: max(
-    var(--space-3),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
-}
-.ob-snip[data-slot="3"] {
-  bottom: 18%;
-  right: max(
-    var(--space-3),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
-}
-.ob-snip[data-slot="4"] {
-  bottom: 6%;
-  left: max(
-    var(--space-5),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
-}
-.ob-snip[data-slot="5"] {
-  top: 58%;
-  right: max(
-    var(--space-5),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
-}
-.ob-snip[data-slot="6"] {
-  bottom: 40%;
-  left: max(
-    var(--space-2),
-    calc(50% - var(--ob-snip-col-half) - var(--ob-snip-reach))
-  );
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-scan-ticker-entry {
+    animation: none;
+  }
 }
 
 /* ===== breakpoints ====================================================== */
@@ -669,13 +604,6 @@
   .ob-gate-input {
     /* 16px or iOS zooms the page on focus. */
     font-size: 16px;
-  }
-  /* Below this the column fills the stage, so the margin the chips live in is
-     gone and the width rule would shrink them to an unreadable sliver. A chip
-     over the copy is worse than no chip: every fact is in the review either
-     way, so the decoration is what gives way. */
-  .ob-snips {
-    display: none;
   }
 }
 
@@ -698,10 +626,9 @@
 @media (prefers-reduced-motion: reduce) {
   /* The END state, not nothing: the column, the phase line and every tile are
      present and complete on the first frame. */
-  .ob-gate > *:not(.ob-snips),
+  .ob-gate > *,
   .ob-scan-phase-text,
-  .ob-scan-tile,
-  .ob-snip {
+  .ob-scan-tile {
     animation: none;
   }
   /* The two liveness loops are pure motion, so under reduced motion they resolve

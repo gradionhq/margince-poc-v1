@@ -70,6 +70,13 @@ const partialRead: CompanySiteRead = {
   status: "partial",
   phase: null,
   pages_read: 40,
+  // A page the crawl genuinely could not reach — the case most likely to
+  // regress into a rail bubble again. Coverage detail belongs to the
+  // review's own CoverageCard, never restated in the conversation.
+  pages: [
+    ...baseRead.pages,
+    { url: "https://gradion.com/team", status: "skipped", reason: "robots" },
+  ],
   draft_version: 3,
   proposal_hash: "proposal-3",
   profile_fields: [
@@ -228,7 +235,10 @@ afterEach(() => {
 // multi-snapshot polling, with chat interleaved, and across a poll failure
 // that recovers into the terminal (the round-2 re-arm).
 describe("the read conclusion ordering contract", () => {
-  it("a multi-poll partial terminal with zero open questions reaches the confirm card", async () => {
+  // The read skipped a page (robots-blocked) and still reaches the confirm
+  // card with no rail commentary about it at all: the coverage detail lives
+  // on the review's own CoverageCard, and the rail never restates it.
+  it("a multi-poll partial terminal that skipped a page reaches the confirm card with no outcome bubble", async () => {
     stubApi([midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
     const composer = await screen.findByRole("textbox", {
@@ -237,19 +247,15 @@ describe("the read conclusion ordering contract", () => {
     await userEvent.type(composer, "gradion.com{Enter}");
 
     expect(
-      await screen.findByText(/I could not read everything/, undefined, {
-        timeout: 8000,
-      }),
-    ).toBeTruthy();
-    expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },
       ),
     ).toBeTruthy();
+    expect(screen.queryByText(/I could not read/)).toBeNull();
   }, 20000);
 
   // The read now runs on its own full-screen stage with no composer, so a
@@ -257,8 +263,10 @@ describe("the read conclusion ordering contract", () => {
   // already says an answer given before the evidence lands is the wrong answer.
   // What still has to hold is the part that was genuinely at risk: a long run
   // whose snapshots keep arriving must converge on the review rather than
-  // stalling as the poll count grows, and the composer must come back with it.
-  it("a long multi-snapshot run converges on the review and reopens the composer", async () => {
+  // stalling as the poll count grows. The rail itself never grows a composer
+  // back — the review's own Continue is the surface's action, not the
+  // rail's.
+  it("a long multi-snapshot run converges on the review", async () => {
     stubApi([midRead, midRead, midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
     await userEvent.type(
@@ -274,15 +282,13 @@ describe("the read conclusion ordering contract", () => {
     expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },
       ),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("textbox", { name: /Type your website address/ }),
-    ).toBeTruthy();
+    expect(document.querySelector(".mw-composer")).toBeNull();
   }, 20000);
 
   it("a poll error mid-read that recovers into the terminal still reaches review", async () => {
@@ -296,7 +302,7 @@ describe("the read conclusion ordering contract", () => {
     expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },

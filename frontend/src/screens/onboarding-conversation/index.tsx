@@ -18,7 +18,6 @@ import {
   conversationReducer,
   initialConversationState,
 } from "./conversation-machine";
-import { LinkedInAct } from "./linkedin-act";
 import { restorePlan, type VoiceRestoreProbe } from "./restore";
 import { ResultsAct } from "./results-act";
 import type { WizardPersistInput } from "./use-wizard-state";
@@ -94,13 +93,13 @@ function actCheckpoint(
   next: ConversationPhase,
   buildSucceeded: boolean,
 ): Omit<WizardPersistInput, "values"> | null {
-  if (prev === "vo.invite" && next === "vo.collecting") {
+  if (
+    (prev === "co.review" || prev === "co.manual") &&
+    next === "vo.collecting"
+  ) {
     return { nextStep: 1, voiceSkipped: false };
   }
-  if (
-    (prev === "vo.invite" || prev === "vo.collecting") &&
-    next === "vo.skipped"
-  ) {
+  if (prev === "vo.collecting" && next === "vo.skipped") {
     return { nextStep: 2, voiceSkipped: true };
   }
   if (prev === "vo.building" && next === "vo.result" && buildSucceeded) {
@@ -109,11 +108,14 @@ function actCheckpoint(
   if ((prev === "vo.result" || prev === "vo.skipped") && next === "re.recap") {
     return { nextStep: 2 };
   }
-  // The server's step vocabulary has no LinkedIn step, so the checkpoint
-  // fires when the act is ANSWERED rather than when it opens. Recording step 3
-  // on the way in would restore a reload straight to the inbox and the network
-  // would never be asked for at all.
-  if (prev === "ln.why" && next === "cn.consent") {
+  // Entering the connect screen (from the recap, or straight off company
+  // confirmation on the member path) shows both mail and LinkedIn at once,
+  // so there is nothing left behind a reload could strand — the checkpoint
+  // fires on arrival, unlike voice and results which fire on departure.
+  if (
+    (prev === "re.recap" || prev === "co.review" || prev === "co.manual") &&
+    next === "cn.consent"
+  ) {
     return { nextStep: 3 };
   }
   return null;
@@ -375,8 +377,6 @@ function CurrentAct({
           corpusWords={voice.data?.summary?.total_words ?? null}
         />
       );
-    case "linkedin":
-      return <LinkedInAct state={state} dispatch={dispatch} />;
     case "connect":
     case "done":
       return (

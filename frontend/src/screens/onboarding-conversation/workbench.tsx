@@ -9,10 +9,10 @@ import {
   type WorkbenchStep,
 } from "../../design-system/margince-workbench";
 import { useLocale, useT } from "../../i18n";
-import { problemMessage } from "../common";
+import { problemMessage, useMe } from "../common";
 import { configuredModelLabel } from "../onboarding-read";
 import type { ConversationState } from "./conversation-types";
-import { railStops, stopState } from "./rail";
+import { isDetour, railStops, stopState } from "./rail";
 
 // The one workbench shell every conversation act shares: identity, orb,
 // runtime transparency bar, and the split conversation/artifact body. Acts
@@ -98,14 +98,29 @@ export function ConversationWorkbench({
   const { locale } = useLocale();
   const configured = useConfiguredModel();
   const first = useFirstWorkbench();
+  const me = useMe();
   // Built here rather than per act, so four acts cannot drift into four
   // different ideas of where the journey is.
-  const steps: WorkbenchStep[] = railStops(railState.memberPath).map(
-    (stop) => ({
-      label: t(stop.labelKey),
-      state: stopState(stop.key, railState),
-    }),
-  );
+  const stops = railStops(railState.memberPath);
+  const steps: WorkbenchStep[] = stops.map((stop) => ({
+    label: t(stop.labelKey),
+    state: stopState(stop.key, railState),
+  }));
+  // The sentence the rail's progress line reads: derived from the same
+  // stops, so the words and the segments cannot disagree. Before the first
+  // stop is current (the read still running) there is no step to name. The
+  // clarify detour is not one of those stops, so it gets its own words
+  // rather than a slot in a count it does not occupy.
+  const current = steps.findIndex((step) => step.state === "now");
+  const stepLabel = isDetour(railState)
+    ? t("ob.conv.scene.detour")
+    : current < 0
+      ? undefined
+      : t("ob.conv.scene.step", {
+          n: current + 1,
+          m: steps.length,
+          label: steps[current].label,
+        });
   return (
     // ob-read-panel is deliberately absent: its centring and decorative glow
     // are for the boxed single-column steps, and both fight a full-viewport
@@ -117,6 +132,7 @@ export function ConversationWorkbench({
     // simply there while the acts change inside it.
     <section className={`ob-workbench-panel${first ? " ob-panel" : ""}`}>
       <MarginceWorkbench
+        variant="rail"
         state={core}
         progress={progress}
         eyebrow={t("ob.ai.identity")}
@@ -139,9 +155,20 @@ export function ConversationWorkbench({
           chip: t("ob.ai.runtimeChip"),
           answering: t("ob.ai.answeringNow"),
           scope: t("ob.ai.runScope"),
+          tokensShort: t("ob.rail.tokensUnit"),
         }}
         steps={steps}
+        stepLabel={stepLabel}
         artifact={artifact}
+        footerLabel={t("ob.rail.spend")}
+        person={
+          me.data
+            ? {
+                name: me.data.user.display_name,
+                detail: me.data.user.email,
+              }
+            : undefined
+        }
       >
         {children}
       </MarginceWorkbench>

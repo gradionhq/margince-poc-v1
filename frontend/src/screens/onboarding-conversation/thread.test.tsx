@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,10 +10,11 @@ import { ConversationThread } from "./thread";
 
 // The thread's presentation duties: live narration reveals word by word
 // while restored entries render instantly, the one live question card
-// claims keyboard focus only when no text field has a better claim, and a
-// question card is interactive IF AND ONLY IF it is the machine's current
-// pending question instance — every other card is fully inert, with its
-// recorded choice shown.
+// claims keyboard focus only when no text field has a better claim, and the
+// full candidate list renders ONLY for the machine's current pending
+// question instance. Every other question entry renders nothing: a settled
+// one's record is the answer turn beside it (a plain UserTurn), and a
+// superseded one has no record to show at all.
 
 afterEach(cleanup);
 
@@ -129,10 +131,11 @@ describe("live question focus", () => {
     expect(document.activeElement).toBe(screen.getByLabelText("composer"));
   });
 
-  it("never focuses an answered card", () => {
+  it("renders nothing to focus once the question is no longer pending", () => {
     render(<Harness entries={[questionEntry]} pendingQuestionId={null} />);
-    const first = screen.getByRole("button", { name: "Acme GmbH" });
-    expect(document.activeElement).not.toBe(first);
+    expect(
+      screen.queryByRole("button", { name: "Acme GmbH" }),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -147,12 +150,12 @@ describe("question card interactivity", () => {
     question: dismissibleQuestion,
   };
 
-  it("a card that is no longer pending is fully inert: every control disabled, clicks change nothing", async () => {
+  it("a question that is no longer pending renders no card at all, and clicking through is impossible", () => {
     const onAnswer = vi.fn();
     const onDismiss = vi.fn();
     // The machine advanced (a dismissal or answer cleared the pending
     // question); the card's moment passed even though no answer turn for it
-    // exists in the thread.
+    // exists in the thread yet.
     render(
       <Harness
         entries={[dismissibleEntry]}
@@ -162,16 +165,14 @@ describe("question card interactivity", () => {
       />,
     );
 
-    const option = screen.getByRole("button", {
-      name: "Acme GmbH",
-    }) as HTMLButtonElement;
-    const dismiss = screen.getByRole("button", {
-      name: "Skip this - I will set it myself",
-    }) as HTMLButtonElement;
-    expect(option.disabled).toBe(true);
-    expect(dismiss.disabled).toBe(true);
-    await userEvent.click(option);
-    await userEvent.click(dismiss);
+    expect(
+      screen.queryByRole("button", { name: "Acme GmbH" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "Skip this - I will set it myself",
+      }),
+    ).not.toBeInTheDocument();
     expect(onAnswer).not.toHaveBeenCalled();
     expect(onDismiss).not.toHaveBeenCalled();
   });
@@ -194,7 +195,10 @@ describe("question card interactivity", () => {
     expect(onAnswer).toHaveBeenCalledWith(entityQuestion.id, "acme-gmbh");
   });
 
-  it("a resolved card shows the recorded option choice", () => {
+  // The guarantee: a settled decision is the one-line answer turn the
+  // reducer already appends beside it — never a replay of the candidate
+  // list it was chosen from.
+  it("renders a resolved question as the chosen value alone, with none of the rejected candidate labels", () => {
     const answerTurn: ThreadEntry = {
       kind: "user",
       id: "3:answer:clarify-entity",
@@ -207,14 +211,18 @@ describe("question card interactivity", () => {
       />,
     );
 
-    const chosen = screen.getAllByRole("button", { name: "Acme GmbH" })[0];
-    expect(chosen.getAttribute("aria-pressed")).toBe("true");
-    expect(chosen.className).toContain("ob-conv-option-selected");
-    const other = screen.getByRole("button", { name: "Acme Holding SE" });
-    expect(other.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText("Acme GmbH")).toBeInTheDocument();
+    expect(screen.queryByText("Acme Holding SE")).not.toBeInTheDocument();
+    // The record is static text, not a button — nothing here is a control
+    // the human could press to re-trigger the choice.
+    expect(
+      screen.queryByRole("button", { name: "Acme GmbH" }),
+    ).not.toBeInTheDocument();
   });
 
-  it("a dismissed card marks the dismissal as its recorded choice", () => {
+  // The skip escape belongs to the live decision; a settled record — chosen
+  // or dismissed — is never a control the human can press again.
+  it("carries no skip control once a question is settled, dismissed or answered", () => {
     const dismissTurn: ThreadEntry = {
       kind: "user",
       id: "3:answer:clarify-entity",
@@ -228,11 +236,16 @@ describe("question card interactivity", () => {
       />,
     );
 
-    const dismiss = screen.getByRole("button", {
-      name: "Skip this - I will set it myself",
-    }) as HTMLButtonElement;
-    expect(dismiss.disabled).toBe(true);
-    expect(dismiss.className).toContain("ob-conv-option-selected");
+    expect(
+      screen.queryByRole("button", {
+        name: "Skip this - I will set it myself",
+      }),
+    ).not.toBeInTheDocument();
+    // The dismissal is still an honest record: it says what happened, as
+    // the ordinary user turn it always was.
+    expect(
+      screen.getByText("Skip this - I will set it myself"),
+    ).toBeInTheDocument();
   });
 });
 
