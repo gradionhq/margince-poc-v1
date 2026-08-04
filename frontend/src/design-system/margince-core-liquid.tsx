@@ -112,8 +112,13 @@ void main(){
   vec2 sa=fr*(q-flow*.40*ph ); sa.x*=.30;
   vec2 sb=fr*(q-flow*.40*phB); sb.x*=.30;
   float f=mix(noise(vec3(sa*6.4, t2*.10)), noise(vec3(sb*6.4, t2*.10+4.2)), w);
+  // The density gate opens EARLIER than the emission's does, and that gap is
+  // deliberate: with the ambient stop dark, gating both at the same density put
+  // every visible thing in one lit patch and left the rest of the sphere an empty
+  // dark field. The threads reach into the shade, where they are structure without
+  // being light.
   float fil=pow(1.-abs(2.*f-1.), 8.+7.*n)
-          * smoothstep(.34,1.,dd)
+          * smoothstep(.20,.88,dd)
           * clamp(length(flow)*.42, .18, 1.);
   // Subsurface: light that entered the stone, scattered, and left again. The
   // depth z was already in hand for the lens, so this costs nothing new.
@@ -122,8 +127,17 @@ void main(){
   // The three constants are the FALLBACK ramp, used only when the token could
   // not be resolved (uTintMix = 0). With a tint in hand the same ramp is rebuilt
   // around it, so the shading relationships survive a hue swing to amber or red.
-  vec3 cMid =mix(vec3(.08,.60,.40), uTint,                      uTintMix);
-  vec3 cDeep=mix(vec3(.02,.32,.21), uTint*.42,                  uTintMix);
+  // The AMBIENT stop — the liquid where nothing is happening — and it is the
+  // sphere's floor, not its middle. Measured at its old value it sat at luminance
+  // .455, so the darkest pixel anywhere in the Core was a mid tone and there was
+  // nothing for the fire to be bright against. The dense masses are lit by the
+  // emitters below; this is the dark they are lit against.
+  vec3 cMid =mix(vec3(.045,.30,.20), uTint*.62,                 uTintMix);
+  // The dark end, and it is DARK: the shade a light has to be seen against. At
+  // its old value the deepest liquid still sat above mid grey, so the sphere had
+  // a glow with nothing to glow out of. Same hue as the rest of the ramp, a third
+  // of the luminance.
+  vec3 cDeep=mix(vec3(.01,.16,.105), uTint*.26,                 uTintMix);
   // Its white target is a GREEN-white, not a neutral one. Pulling a green toward
   // pure white raises blue fastest — the highlight went cyan against the body and
   // put a fringe on everything it touched.
@@ -133,18 +147,38 @@ void main(){
   // brightens. A source does the opposite — it gets more saturated the hotter it
   // is. This one keeps its chroma at full brightness, which is the difference
   // between a pale sphere and a lit one.
-  // Red and blue deliberately BALANCED, which is not the same as "low blue".
-  // Green clips first in every bright emitter here, and once it does the hue that
-  // remains is decided entirely by the residual red-to-blue ratio: at blue .45
-  // against red .31 the hottest pixels — the ones the eye goes to — slid cyan.
-  // Equalising them keeps a clipped highlight on the brand's own hue.
-  vec3 cGlow=mix(vec3(.34,.96,.34),  mix(uTint,vec3(.72,1.,.58),.50), uTintMix);
+  // The emitter is the tint SCALED, not the tint mixed toward some brighter
+  // colour, and that is the whole point: multiplying a triple by a scalar leaves
+  // its channel ratios alone, so the emission is the brand's exact hue at a
+  // higher luminance. Mixing toward a hand-picked bright green instead put the
+  // glow at 122° against the brand's 159° — a spring green lit next to a jade
+  // one, which is visible as a clash long before anyone measures it. The fallback
+  // is the fallback ramp's own mid scaled the same way, so both branches agree.
+  vec3 cGlow=mix(vec3(.15,1.,.68), uTint*1.9, uTintMix);
   vec3 c=mix(cMid,cDeep,smoothstep(.55,1.45,dd));
   // The broad vein system, pulled back from .55. It and the filaments are two
   // ridge systems over the same field: at full strength they overlay into a
   // scribble and neither is legible.
   c=mix(c,cMint,vein*.34*smoothstep(.15,.7,dd));
-  c=mix(c,cMint,pow(clamp(n-.5,0.,1.),2.)*.85*smoothstep(.2,.8,dd));
+  // Pulled back from .85. cMint is near-white, so this term was lifting the whole
+  // mid-range toward it — a broad wash that flattened exactly the range the depth
+  // has to live in.
+  c=mix(c,cMint,pow(clamp(n-.5,0.,1.),2.)*.58*smoothstep(.2,.8,dd));
+  /*
+   * DEPTH, applied to the base ONLY — before a single emitter runs.
+   *
+   * This ordering is the whole trick. Deepening at the end would drag the glow
+   * down with the shade and the sphere would just get darker; deepening the base
+   * first means the darks fall away and the light added afterwards stands out
+   * against them. Bright parts glow because the dark parts got darker.
+   *
+   * Hue-preserving: a gamma on the LUMINANCE, with all three channels scaled by
+   * the same factor. Gamma-ing the channels independently would pull the ratios
+   * apart and slide the hue toward whichever channel is largest, which for this
+   * ramp is a slide toward green.
+   */
+  float L=dot(c,vec3(.2126,.7152,.0722));
+  c*= L>1e-4 ? pow(L,1.42)/L : 1.;
   // The strands mix toward the EMISSIVE stop, not the reflective one. cMint is
   // mixed most of the way to white and so carries blue: against the green body it
   // put a cyan fringe on every thread, which read as chromatic aberration rather
@@ -202,9 +236,24 @@ void main(){
    * this, which means the driver's own clamp never gets to pick a hue for us.
    */
   float mx=max(max(c.r,c.g),c.b);
-  float rolled=mx/(1.+max(mx-.72,0.));
+  // Knee at .95, not .72. Below the knee nothing is touched, so the only thing
+  // this compresses is genuine overflow — at .72 it was flattening the whole top
+  // end, which is exactly the range the glow needs, and the sphere lost its
+  // brights to a safety measure meant only to stop clipping.
+  float rolled=mx/(1.+max(mx-.95,0.));
   c*= mx>1e-4 ? rolled/mx : 1.;
-  float a=(1.-exp(-dd*2.6))*.97;
+  /*
+   * The liquid is a BODY, not a veil — and this is what makes the dark parts
+   * dark. Alpha used to track density alone, which meant the voids deepened for
+   * contrast were also the most transparent: on a light page the surface flooded
+   * straight through them and the darkest pixel in the sphere came back as
+   * luminance .54, lighter than mid grey. No colour change can fix that, because
+   * a dark colour at low alpha over white is not dark. So the shade gets opacity
+   * to be dark IN, and density now modulates the top .26 rather than the whole
+   * range. The glass reads as glass from the shell's highlights and rim, which sit
+   * above this and are unaffected.
+   */
+  float a=.74+.26*(1.-exp(-dd*2.6));
   // The rim stays present even where the liquid is thin, so the stone has an
   // edge instead of fading out into the glass.
   a=mix(a,1.,fres*.34);
