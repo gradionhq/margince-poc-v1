@@ -8,7 +8,9 @@ package privacy
 // colleague's imported network, and the interaction projection folded out of
 // both. This is the SAME Art. 17 transaction the rest of the cascade runs in —
 // a separate file, not a separate obligation, and reached only from
-// anonymizeSubjectRows.
+// anonymizeSubjectRows. erasureCascadeFiles in the PII-coverage gate lists this
+// file alongside erasure.go, so moving a scrub here does not take the tables it
+// purges out of that gate's sight.
 //
 // Every clause here reaches the subject by IDENTIFIER as well as by person id,
 // because the graph structures exist precisely to hold a party who never

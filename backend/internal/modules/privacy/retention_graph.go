@@ -6,6 +6,11 @@ package privacy
 // The time-based sweep's reach into the relationship graph (ADR-0078). It runs
 // inside the retention engine's per-record transaction and is reached only from
 // the person/anonymize action — a separate file, not a separate obligation.
+//
+// retentionSweepFiles in the PII-coverage gate lists this file alongside
+// retention.go, so a table swept only here still counts as swept — and it stays
+// OUT of erasureCascadeFiles, because a nightly sweep is never an answer to an
+// Art. 17 request.
 
 import (
 	"context"

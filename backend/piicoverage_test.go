@@ -222,6 +222,7 @@ var erasureCascadeFiles = []string{
 var retentionSweepFiles = []string{
 	"internal/modules/privacy/retention.go",
 	"internal/modules/privacy/retentionai.go",
+	"internal/modules/privacy/retention_graph.go",
 }
 
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {
