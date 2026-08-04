@@ -13,9 +13,9 @@
  * --coreTint and --coreTintMix too (see margince-core-liquid.tsx), which is what
  * keeps the sphere inside the token layer instead of carrying its own palette.
  *
- * Only the four status states change hue. idle / listening / working stay brand
- * emerald and differ in motion, because "one meaning per colour" (ADR-0040) is
- * broken the moment a busy orb and a failed orb are both allowed to be amber.
+ * NO state changes the hue. The Core is always the brand green, and state is
+ * carried in the rhythm alone — see the state block below for why, and for what
+ * carries a failure or a success to the reader instead.
  */
 
 .core {
@@ -34,14 +34,14 @@
   /* Defaults, overridden per state below. A Core with no data-core-state still
      renders as idle rather than as nothing. */
   --coreTint: var(--accent);
-  /* How hard the shader pulls its colour ramp toward --coreTint.
-     LOW for the three brand states, and that is the point rather than a
-     tuning: the ramp the shader ships IS the artifact's pale mint glass, and
-     --accent is the colour of an ACTION (a filled button, a link) at a
-     saturation no material should carry. Pulling 72% of the way there turned
-     the sphere into a dark emerald marble. At 0.22 the palette still steers
-     the hue, so a re-themed accent still moves the Core, and the glass stays
-     glass. Status states below invert this: there the hue IS the message. */
+  /* How hard the shader pulls its colour ramp toward --coreTint. LOW, and that
+     is the point rather than a tuning: the ramp the shader ships IS the
+     artifact's pale mint glass, and --accent is the colour of an ACTION (a
+     filled button, a link) at a saturation no material should carry. Pulling
+     72% of the way there turned the sphere into a dark emerald marble. At 0.22
+     the palette still steers the hue, so a re-themed accent still moves the
+     Core, and the glass stays glass. No state overrides this — the sphere is
+     one material, lit one way, whatever the machine is doing. */
   --coreTintMix: 0.22;
   --coreBeat: 5.6s;
   --coreSize: 230px;
@@ -62,50 +62,43 @@
 }
 
 /* ---- state: the whole vocabulary, in one place -------------------------- */
-.core[data-core-state="idle"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
-  --coreBeat: 5.6s;
-}
-/* listening: the same colour, a quicker pulse. Nothing has been claimed yet. */
+/* Every state is the SAME green. The Core is the product's identity, not a
+   status light: a sphere that turns amber or red reads as the brand changing
+   character, and a grey one reads as switched off. So state is carried in the
+   RHYTHM alone — how fast it breathes — and the hue never moves off the accent.
+   `idle` is the `.core` default above and needs no block of its own.
+
+   Nothing is lost by this. Every surface that shows a Core also states its
+   condition in words beside it (the workbench's status line, the read theatre's
+   phase and counts, the gate's notice) and marks it on a small status dot that
+   IS allowed to carry the danger and success hues. Those are the signals a
+   reader acts on; the sphere was only ever repeating them in a colour. */
+/* listening: nothing has been claimed yet. */
 .core[data-core-state="listening"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
   --coreBeat: 3.4s;
 }
 .core[data-core-state="working"] {
-  --coreTint: var(--accent);
-  --coreTintMix: 0.22;
   --coreBeat: 2.2s;
 }
+/* Settled: the slowest breath in the set. Rest, not celebration. */
 .core[data-core-state="success"] {
-  --coreTint: var(--success);
-  --coreTintMix: 0.9;
   --coreBeat: 6.4s;
 }
+/* attention / error: quicker than rest, so the sphere is visibly unsettled
+   without borrowing the warn or danger hue to say it. */
 .core[data-core-state="attention"] {
-  --coreTint: var(--warn);
-  --coreTintMix: 0.9;
   --coreBeat: 2.8s;
 }
 .core[data-core-state="error"] {
-  --coreTint: var(--danger);
-  --coreTintMix: 0.9;
   --coreBeat: 4.2s;
 }
-/* quiet: present, not working. Desaturated rather than dimmed, so it does not
-   read as a disabled control. */
+/* quiet: present, not working — nearly still, and still green, so it never
+   reads as a disabled control. */
 .core[data-core-state="quiet"] {
-  --coreTint: var(--textTertiary);
-  --coreTintMix: 0.9;
   --coreBeat: 9s;
 }
 /* unavailable: the one state that does not breathe. A server we cannot reach
-   should not look busy. */
-.core[data-core-state="unavailable"] {
-  --coreTint: var(--textMuted);
-  --coreTintMix: 0.9;
-}
+   should not look busy — but it is not a dead grey ball either. */
 .core[data-core-state="unavailable"] .core-glass,
 .core[data-core-state="unavailable"] .core-tilt,
 .core[data-core-state="unavailable"] .core-glow {
