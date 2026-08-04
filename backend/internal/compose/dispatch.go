@@ -13,12 +13,14 @@ package compose
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -180,10 +182,50 @@ func dispatchWith(ctx context.Context, workspaces []ids.UUID, insert insertManyF
 	}
 	params := make([]river.InsertManyParams, 0, len(workspaces))
 	for _, ws := range workspaces {
-		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: opts})
+		params = append(params, river.InsertManyParams{Args: argsFor(ws), InsertOpts: markedAsFleetPass(opts)})
 	}
 	if err := insert(ctx, params); err != nil {
 		return fmt.Errorf("compose: dispatching %d workspace jobs: %w", len(params), err)
 	}
 	return nil
+}
+
+// markedAsFleetPass copies opts with the sweep tag added, so a reader can
+// tell one workspace's share of a fleet pass from the same kind enqueued by
+// hand — they are the same kind, and the tag is the only difference in the
+// row. Tags are validated for format only and take no part in River's
+// unique key, so this changes no scheduling behaviour.
+//
+// EVERY fan-out site calls it, not only dispatchWith. Five dispatchers fan
+// out with a loop of single inserts instead, and each one calls it
+// directly: gmailSyncWorker and gmailWatchWorker (jobs_capture.go),
+// telegramPollSweepWorker (telegrampoll.go), voiceBuildRetryWorker
+// (voicebuild.go) and overlayReconcileWorker (jobs_overlay.go). A site that
+// forgets the tag is silently absent from the sweep gauges while the
+// gauge's own HELP text blames River's retention for the gap. Nothing
+// derives that obligation yet — this list is the registry, so it has to be
+// right.
+//
+// It COPIES because a single dispatch shares ONE opts value across every
+// workspace in its loop, and voiceBuildInsertOpts' value is shared with the
+// user-initiated build path besides. Appending in place would grow one tag
+// per workspace and hand the caller back a mutated struct.
+//
+// A nil opts yields a tag-ONLY value on purpose. For the fields that matter
+// here — queue, max attempts, priority, tags and the uniqueness window —
+// River falls back to the args' own InsertOpts whenever the explicit value
+// leaves that field at its zero, so a caller that passes nil to let its
+// args declare the uniqueness window (the telegram poll's per-bot rule)
+// keeps that fallback intact. It is NOT a blanket rule over every field:
+// metadata, for one, is defaulted rather than inherited.
+func markedAsFleetPass(opts *river.InsertOpts) *river.InsertOpts {
+	marked := river.InsertOpts{}
+	if opts != nil {
+		marked = *opts
+	}
+	if slices.Contains(marked.Tags, jobs.SweepTag) {
+		return &marked
+	}
+	marked.Tags = append(slices.Clone(marked.Tags), jobs.SweepTag)
+	return &marked
 }

@@ -108,8 +108,8 @@ func declaredIDArgs(inputSchema json.RawMessage) idArgSpec {
 //
 // It also names WHICH id is malformed, which the handler cannot: encoding/json
 // discards the field path when a value's own UnmarshalText fails, so decodeArgs
-// can only report `ids: "x" is not a canonical UUID`. On a tool taking one id
-// that is merely terse; on `merge_records` or `advance_deal` it does not say
+// can only report that a UUID argument was not canonical. On a tool taking one
+// id that is merely terse; on `merge_records` or `advance_deal` it does not say
 // which of two ids to fix.
 //
 // Every missing required id is collected before answering. Reporting them one per

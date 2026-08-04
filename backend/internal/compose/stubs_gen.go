@@ -59,6 +59,10 @@ func (stubs) SendMessage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 	httperr.NotImplemented(w, r, "SendMessage")
 }
 
+func (stubs) GetJobHealth(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetJobHealth")
+}
+
 func (stubs) ResetData(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ResetData")
 }

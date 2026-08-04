@@ -160,7 +160,10 @@ func rejectExtraProperties(target any) error {
 		keys = append(keys, k.String())
 	}
 	sort.Strings(keys)
-	return &datasource.FieldDecodeError{Cause: fmt.Errorf("unknown field(s): %v", keys)}
+	// The seam's own typed refusal, not a formatted string: it names the caller's
+	// keys and nothing of this program, and only the type says so — a transport
+	// that had to guess would mask this alongside the decoder's own prose.
+	return &datasource.FieldDecodeError{Cause: &datasource.UnknownFieldError{Fields: keys}}
 }
 
 // Create is refused for every mirrored type — SupportsWrite declares the

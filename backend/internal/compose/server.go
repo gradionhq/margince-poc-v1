@@ -91,6 +91,7 @@ type Server struct {
 	rateRefreshHandlers
 	webhooksHandlers
 	dataResetHandlers
+	jobHealthHandlers
 	org360Handlers
 	orgBriefHandlers
 
@@ -306,6 +307,10 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 			WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}),
 		approvalsHandlers: approvalsHandlersWithEffects(pool),
 		searchHandlers:    search.NewHandlers(pool),
+		// Constructed, not merely embedded: the handler carries no nil-pool
+		// branch, so the zero value would panic on the first authenticated
+		// read rather than answer anything at all.
+		jobHealthHandlers: jobHealthHandlers{pool: pool},
 		// DSR fulfillment executes privacy's erase path — injected here so
 		// consent never imports its sibling.
 		consentHandlers:     consent.NewHandlers(pool).WithEraser(privacy.NewEraser(pool)),

@@ -13,6 +13,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -277,21 +279,23 @@ func TestKindHasDecisionGrantsMatchesTheMap(t *testing.T) {
 // in the workspace it names: a foreign or absent workspace context must not see
 // or decide it. This is the tenant-isolation floor for the fx_rate /
 // ai_model_rate branch of targetVisible, which touches no tx (the nil tx here
-// is never dereferenced) — the switch decides on the context workspace alone.
+// is never dereferenced) — the sheet's read grant is held throughout, so the
+// workspace comparison is what each case measures.
 func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 	ws := ids.NewV7()
 	other := ids.NewV7()
 	for _, targetType := range []string{"fx_rate", "ai_model_rate"} {
 		tt := targetType
 		a := row{TargetType: &tt, TargetID: &ws}
+		reader := humanCtx(grants(map[string]principal.ObjectGrant{tt: {Read: true}}))
 		cases := []struct {
 			name string
 			ctx  context.Context
 			want bool
 		}{
-			{"owning workspace", principal.WithWorkspaceID(context.Background(), ws), true},
-			{"foreign workspace", principal.WithWorkspaceID(context.Background(), other), false},
-			{"no workspace context", context.Background(), false},
+			{"owning workspace", principal.WithWorkspaceID(reader, ws), true},
+			{"foreign workspace", principal.WithWorkspaceID(reader, other), false},
+			{"no workspace context", reader, false},
 		}
 		for _, c := range cases {
 			t.Run(targetType+"/"+c.name, func(t *testing.T) {
@@ -304,6 +308,75 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The four shapes a staged target can carry, and the reason each answers as it
+// does. This is the rule the inbox, the single read and the decision all run on
+// (decidable → targetVisible), so a shape answered wrong is either an authority
+// object nobody can release or reject, or a record's proposed change disclosed
+// to everyone holding the object grant.
+//
+// No shape here reaches a row probe, so the nil tx is never dereferenced. What a
+// both-halves pair against a REAL type then shows is row-scope work and lives in
+// the compose integration lane.
+//
+// The caller holds read on BOTH types named below, so the object-read floor
+// admits every case and each answer is the shape rule's own — the floor's
+// negatives are TestEveryClassifiedTargetTypeRequiresReadOnItsOwnType.
+func TestTargetVisibleAnswersEachStagedShape(t *testing.T) {
+	staged := tableProject
+	unknown := "chartreuse"
+	target := ids.NewV7()
+	ctx := humanCtx(grants(map[string]principal.ObjectGrant{
+		staged: {Read: true}, unknown: {Read: true},
+	}))
+
+	for _, c := range []struct {
+		name       string
+		targetType *string
+		targetID   *ids.UUID
+		want       bool
+		because    string
+	}{
+		{
+			name: "neither half", want: true,
+			because: "a cold-start proposal is about no record yet, so the decision grants are the whole authority",
+		},
+		{
+			name: "a type with no id", targetType: &staged, want: true,
+			because: "a staged create has no row whose scope could bound it; its authority is the create grant on the type",
+		},
+		{
+			name: "an id with no type", targetID: &target, want: false,
+			because: "a concrete record the probe cannot resolve must not reach everyone holding the object grant",
+		},
+		{
+			name: "both halves, a type with no probe", targetType: &unknown, targetID: &target, want: false,
+			because: "a target type with no visibility rule fails closed rather than answering from the nearest primitive",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := targetVisible(ctx, nil, c.targetType, c.targetID)
+			if err != nil {
+				t.Fatalf("targetVisible: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("targetVisible = %v, want %v — %s", got, c.want, c.because)
+			}
+			// The composition layer's gate reports on the same rule. None of
+			// these shapes reaches a row probe, so "decidable at all" and "visible
+			// to this caller" are the same answer here, and a gate that drifted
+			// from the predicate a human's inbox runs would read green over it.
+			shape := ""
+			if c.targetType != nil {
+				shape = *c.targetType
+			}
+			if reported := TargetShapeDecidable(shape, c.targetID != nil); reported != c.want {
+				t.Errorf("TargetShapeDecidable(%q, %v) = %v, want %v — the gate must report the rule targetVisible runs",
+					shape, c.targetID != nil, reported, c.want)
+			}
+		})
 	}
 }
 
@@ -349,5 +422,48 @@ func TestASelfOnlyKindIsUndecidableByAnyoneButItsSubject(t *testing.T) {
 	// A proposal with no recorded subject is nobody's to read, not everybody's.
 	if selfOnly(owner, row{Kind: "linkedin_match"}) {
 		t.Error("a self-only proposal with no subject was treated as decidable")
+	}
+}
+
+// DecisionGrantObjects is what the composition layer's satisfiability gate reads,
+// and it is load-bearing only if it names the SAME objects requireDecisionGrants
+// enforces. A gate certifying an object the decision does not demand — or blind to
+// one it does — proves nothing about the row a human is asked to decide.
+//
+// Derived over both grant tables so a kind added to either is covered, and each
+// named object is shown NECESSARY: a principal holding every other object outright
+// is still refused.
+func TestDecisionGrantObjectsNamesWhatTheDecisionEnforces(t *testing.T) {
+	kinds := slices.Sorted(maps.Keys(decisionGrants))
+	kinds = append(kinds, slices.Sorted(maps.Keys(targetResolvedGrants))...)
+	if len(kinds) == 0 {
+		t.Fatal("no stageable kinds — the walk covers nothing")
+	}
+	// A row-scoped record type every target-resolved kind can legitimately name.
+	target := tableDeal
+
+	for _, kind := range kinds {
+		objects, err := DecisionGrantObjects(kind, target)
+		if err != nil {
+			t.Errorf("kind %q derives no decision grants: %v", kind, err)
+			continue
+		}
+		if len(objects) == 0 {
+			t.Errorf("kind %q demands no object at all — anyone could release its stagings", kind)
+			continue
+		}
+		for _, withheld := range objects {
+			perms := principal.Permissions{Objects: map[string]principal.ObjectGrant{}}
+			for _, object := range objects {
+				if object != withheld {
+					perms.Objects[object] = principal.ObjectGrant{Create: true, Read: true, Update: true, Delete: true}
+				}
+			}
+			err := requireDecisionGrants(principal.Principal{Permissions: perms}, row{Kind: kind, TargetType: &target})
+			if !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Errorf("kind %q was decidable with no grant on %q, which DecisionGrantObjects names → %v",
+					kind, withheld, err)
+			}
+		}
 	}
 }

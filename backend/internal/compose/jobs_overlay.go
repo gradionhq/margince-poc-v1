@@ -82,7 +82,7 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 	client := river.ClientFromContext[pgx.Tx](ctx)
 	for _, d := range due {
 		if _, err := client.Insert(ctx, OverlayReconcileWorkspaceArgs{Workspace: d.Workspace.UUID},
-			workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts)); err != nil {
+			markedAsFleetPass(workspaceSweepOpts(overlayReconcileQueue, overlaySweepMaxAttempts))); err != nil {
 			// A refused enqueue means this workspace gets no sweep at all, so
 			// it fails the DISPATCHER rather than being logged past: a green
 			// tick over a tenant nobody swept is the shape this phase removes.
