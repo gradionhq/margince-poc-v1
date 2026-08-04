@@ -189,18 +189,28 @@ func todoWithoutRef(fc *fileContext, _ Config) []Finding {
 	return out
 }
 
-// largeFile flags a file past the architecture/11 §3 size smell threshold.
+// largeFile flags a file past the architecture/11 §3 size smell threshold;
+// test files use the relaxed Config.MaxTestFileLines ceiling.
 func largeFile(fc *fileContext, cfg Config) []Finding {
-	if fc.lineN <= cfg.MaxFileLines {
+	max := cfg.MaxFileLines
+	if fc.isTest {
+		max = cfg.MaxTestFileLines
+	}
+	if fc.lineN <= max {
 		return nil
 	}
 	return []Finding{newFinding("large-file", Major, fc.path, 1,
-		"file is %d lines (> %d) — split it by concept", fc.lineN, cfg.MaxFileLines)}
+		"file is %d lines (> %d) — split it by concept", fc.lineN, max)}
 }
 
 // longFunc flags a function whose body exceeds the line ceiling — the
-// god-function / arrow-code smell.
+// god-function / arrow-code smell. Test files use the relaxed
+// Config.MaxTestFuncLines ceiling.
 func longFunc(fc *fileContext, cfg Config) []Finding {
+	max := cfg.MaxFuncLines
+	if fc.isTest {
+		max = cfg.MaxTestFuncLines
+	}
 	var out []Finding
 	for _, d := range fc.file.Decls {
 		fn, ok := d.(*ast.FuncDecl)
@@ -208,9 +218,9 @@ func longFunc(fc *fileContext, cfg Config) []Finding {
 			continue
 		}
 		span := fc.line(fn.Body.Rbrace) - fc.line(fn.Body.Lbrace) - 1
-		if span > cfg.MaxFuncLines {
+		if span > max {
 			out = append(out, newFinding("long-func", Major, fc.path, fc.line(fn.Pos()),
-				"%s is %d body lines (> %d) — extract helpers", fn.Name.Name, span, cfg.MaxFuncLines))
+				"%s is %d body lines (> %d) — extract helpers", fn.Name.Name, span, max))
 		}
 	}
 	return out
