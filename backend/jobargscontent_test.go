@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // contentWords name a payload rather than a pointer to one. Matched as a
@@ -37,13 +39,13 @@ var contentWords = []string{
 // real exception should be rare enough to argue about. The validation below
 // exists so that when one does appear it cannot arrive without a rationale, or
 // outlive the field it was written for.
-var contentFieldWaivers = map[string]string{}
+var contentFieldWaivers = gatekit.Waive(map[string]string{})
 
 func TestJobArgsCarryReferencesNotContent(t *testing.T) {
+	defer contentFieldWaivers.AssertAllMatched(t)
 	dir := filepath.Join("internal", "compose")
 	byType := methodsByType(t, dir)
 	fields := structFields(t, dir)
-	used := map[string]bool{}
 	checked := 0
 
 	for typeName, methods := range byType {
@@ -58,8 +60,7 @@ func TestJobArgsCarryReferencesNotContent(t *testing.T) {
 				if !strings.Contains(lower, word) {
 					continue
 				}
-				if _, waived := contentFieldWaivers[key]; waived {
-					used[key] = true
+				if contentFieldWaivers.Waived(t, key) {
 					break
 				}
 				t.Errorf("%s looks like content, not a reference (matched %q). A job names a row; the worker reads it. If this really is a reference, waive it in contentFieldWaivers with a rationale.", key, word)
@@ -69,14 +70,6 @@ func TestJobArgsCarryReferencesNotContent(t *testing.T) {
 	}
 	if checked < jobArgsFloor {
 		t.Fatalf("found only %d job args types, expected at least %d — the walker matched nothing", checked, jobArgsFloor)
-	}
-	for key, reason := range contentFieldWaivers {
-		if reason == "" {
-			t.Errorf("%s: waiver without a rationale", key)
-		}
-		if !used[key] {
-			t.Errorf("%s: stale waiver — no such field trips the gate any more; delete it", key)
-		}
 	}
 }
 
