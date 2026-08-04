@@ -118,6 +118,7 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 		// failed search produces. The failure is reported as what it is.
 		return nil, fmt.Errorf("websearch: the %s request did not complete", b.Provider())
 	}
+	//craft:ignore swallowed-errors closing a response body after the read has no actionable failure — the read's own error is already returned, and a close error would only mask it
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		// The status alone. A provider error page echoes the query back, and

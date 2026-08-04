@@ -250,6 +250,17 @@ type Server struct {
 
 var _ crmcontracts.ServerInterface = Server{}
 
+// wirePerson360 binds the person record page — the organization page's
+// sibling: same one-transaction assembly, same omitted-and-named sections,
+// same overlay refusal. Its own function so the composition root reads as a
+// list of what is wired rather than how each piece is built.
+func (srv *Server) wirePerson360(pool *pgxpool.Pool) {
+	srv.person360Handlers = person360.NewHandlers(
+		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), time.Now),
+		srv.sorDispatch.isOverlay,
+	)
+}
+
 // Option, readinessChecks, and every With* role-customization function live
 // in serveroptions.go — the per-process-role wiring surface, kept separate
 // from the struct/router assembly below.
@@ -411,12 +422,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		srv.org360Svc,
 		srv.sorDispatch.isOverlay,
 	)
-	// The person record page, the organization page's sibling: same one-tx
-	// assembly, same omitted-and-named sections, same overlay refusal.
-	srv.person360Handlers = person360.NewHandlers(
-		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), time.Now),
-		srv.sorDispatch.isOverlay,
-	)
+	srv.wirePerson360(pool)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
 	// the vault-backed live-incumbent resolver that lets force-fresh reads and
 	// HUMAN write-back reach HubSpot (an AGENT write is refused before it gets
