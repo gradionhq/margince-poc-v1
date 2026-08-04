@@ -114,8 +114,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// On EVERY return, and after the closes above so LIFO stops the lane before the
-	// pool it ships from. relay.go carries why this lane is the caller's to stop.
+	// On EVERY return, and registered last so LIFO runs it FIRST — before the pool
+	// it ships from closes. relay.go carries why only this stop ends the lane.
 	defer stopRelay()
 	opts = append(opts, relayOpts...)
 

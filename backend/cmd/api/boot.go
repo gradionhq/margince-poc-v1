@@ -220,9 +220,9 @@ func workerHandoffOptions(pool *pgxpool.Pool, logger *slog.Logger, modelPath *co
 // serveUntilSignal serves the composed handler with explicit operational
 // limits — a server without timeouts leaks connections under slow clients —
 // until the listener fails or ctx is cancelled. Shutdown drains in-flight
-// requests inside a bounded window, and it returns before the caller's defers
-// run — which is how the relay lane comes to stop after the drain rather than
-// during it, so late-committing requests usually ship before exit.
+// requests inside a bounded window of its own: the ctx that ended the serve is
+// already cancelled, and reusing it would abandon those requests rather than
+// give them time to finish.
 func serveUntilSignal(ctx context.Context, cfg apiConfig, handler http.Handler, stdout io.Writer) error {
 	srv := &http.Server{
 		Addr:              cfg.addr,
