@@ -125,19 +125,25 @@ type RecordInput struct {
 // history is in audit_log, where every other mutation's history lives.
 func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 	if !feedbackSubjects[in.SubjectType] {
-		return &values.ParseError{Field: fieldSubjectType, Code: "invalid_subject_type",
-			Message: "a claim is about an organization, person, deal or lead"}
+		return &values.ParseError{
+			Field: fieldSubjectType, Code: "invalid_subject_type",
+			Message: "a claim is about an organization, person, deal or lead",
+		}
 	}
 	if strings.TrimSpace(in.ClaimPath) == "" {
-		return &values.ParseError{Field: "claim_path", Code: "missing_claim_path",
-			Message: "a verdict names the claim it is about"}
+		return &values.ParseError{
+			Field: "claim_path", Code: "missing_claim_path",
+			Message: "a verdict names the claim it is about",
+		}
 	}
 	// A corrected verdict without a value is a human's answer that was lost on
 	// the way in. The database refuses it too; refusing here names what is
 	// missing instead of surfacing a constraint.
 	if (in.Verdict == VerdictCorrected) != (in.CorrectedValue != nil) {
-		return &values.ParseError{Field: "corrected_value", Code: "corrected_value_mismatch",
-			Message: "a corrected verdict carries the human's value, and no other verdict does"}
+		return &values.ParseError{
+			Field: "corrected_value", Code: "corrected_value_mismatch",
+			Message: "a corrected verdict carries the human's value, and no other verdict does",
+		}
 	}
 	// Gated on the SUBJECT's own grant rather than on a new object of its own:
 	// correcting what the system says about a contact is editing that contact,
@@ -204,8 +210,10 @@ func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 // rendered sentence.
 func (s *FeedbackStore) VerdictsForTx(ctx context.Context, tx pgx.Tx, subjectType string, subjectID ids.UUID) (map[string]Verdict, error) {
 	if !feedbackSubjects[subjectType] {
-		return nil, &values.ParseError{Field: fieldSubjectType, Code: "invalid_subject_type",
-			Message: "a claim is about an organization, person, deal or lead"}
+		return nil, &values.ParseError{
+			Field: fieldSubjectType, Code: "invalid_subject_type",
+			Message: "a claim is about an organization, person, deal or lead",
+		}
 	}
 	// A read grant on the subject, matching the read this consult decorates.
 	// The caller has already resolved the subject's row scope by the time it
