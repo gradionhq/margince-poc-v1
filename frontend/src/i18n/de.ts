@@ -2523,7 +2523,7 @@ export const de = {
   "cf.audit.footer":
     "Jedes Hinzufügen / Bearbeiten / Archivieren wird dauerhaft im Audit-Log festgehalten.",
   "cf.noPermission":
-    "Admin-Rolle erforderlich. Du hast nur Lesezugriff — der Builder sowie die Bearbeiten-/Archivieren-Steuerelemente sind deaktiviert.",
+    "Du hast nur Lesezugriff auf benutzerdefinierte Felder — der Builder sowie die Bearbeiten- und Archivieren-Steuerelemente sind deaktiviert.",
   "cf.retired": "Archiviert",
   "cf.propagate.title": "Wo ein neues Feld auftaucht",
   "cf.propagate.360": "In der 360-Ansicht des Datensatzes",

@@ -2511,7 +2511,7 @@ export const en = {
   "cf.audit.footer":
     "Every add / edit / archive is recorded permanently in the audit log.",
   "cf.noPermission":
-    "Admin role required. You have read-only access — the builder and edit/archive controls are disabled.",
+    "You have read-only access to custom fields — the builder and the edit and archive controls are disabled.",
   "cf.retired": "Retired",
   "cf.propagate.title": "Where a new field shows up",
   "cf.propagate.360": "On the record 360 view",

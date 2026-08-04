@@ -19,7 +19,10 @@ function backend(allow: GrantSpec) {
     const url = String(input instanceof Request ? input.url : input);
     const body = url.endsWith("/v1/me")
       ? meFixture({ allow })
-      : { data: [{ domain: "gmx.test", kind: "extra" }] };
+      : // id is required by the ConsumerMailDomain contract and is what remove
+        // sends; a fixture without it would let a broken remove path call
+        // mutate(undefined) and still pass.
+        { data: [{ id: "cmd-1", domain: "gmx.test", kind: "extra" }] };
     return new Response(JSON.stringify(body), {
       headers: { "Content-Type": "application/json" },
     });

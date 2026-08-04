@@ -129,10 +129,15 @@ func TestGetCurrentPrincipalForbidsCaching(t *testing.T) {
 	}
 }
 
-// An agent presenting a passport is admitted as an agent principal and never
-// binds a session identity, so it reaches this handler as nobody. The contract
-// documents the passport claim as permanently null on that basis; this is what
-// makes that documentation true.
+// A request carrying no session identity is refused outright, rather than
+// answered with a partial profile.
+//
+// This is the HALF of the passport story that lives in this handler. It does
+// not exercise serveAsAgent, so it does not prove that a passport bearer
+// arrives without an identity — only that a caller who does is turned away. The
+// other half is serveAsAgent binding no Identity, which its own tests cover;
+// the contract's claim that the passport field is permanently null rests on
+// both, not on this test alone.
 func TestGetCurrentPrincipalRejectsAPrincipalWithoutASession(t *testing.T) {
 	rec := httptest.NewRecorder()
 

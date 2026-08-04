@@ -413,7 +413,9 @@ describe("CustomFieldsScreen", () => {
       screen.queryByRole("button", { name: /Confirm & add field/i }),
     ).toBeNull();
     expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
-    expect(screen.getByText(/Admin role required/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/read-only access to custom fields/i),
+    ).toBeInTheDocument();
   });
 
   // One grant at a time: the builder needs create, rename/retire need update.

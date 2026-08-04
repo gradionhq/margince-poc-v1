@@ -5534,11 +5534,9 @@ paths:
           schema:
             type: string
             enum: [active, retired]
-            # Pins the generated Go constant names. Left to itself the generator
-            # shortens this pair to a bare Active/Retired whenever the surrounding
-            # schema set shifts — two very generic identifiers squatted in the
-            # shared contracts package, and enum churn in diffs that never touched
-            # custom fields.
+            # Pins the generated Go constant names. Unpinned, the generator may
+            # shorten this pair to a bare Active/Retired — identifiers too generic
+            # to carry in a package shared by every contract type.
             x-enum-varnames:
               [ListCustomFieldsParamsStatusActive, ListCustomFieldsParamsStatusRetired]
           description: >-

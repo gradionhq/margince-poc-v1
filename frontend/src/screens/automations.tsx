@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -248,6 +248,13 @@ export function AutomationRow({
   const t = useT();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  // An open edit form whose grant was revoked would keep offering Save, and
+  // every submission would be a guaranteed 403. Close it with the permission.
+  useEffect(() => {
+    if (!canEdit) {
+      setEditing(false);
+    }
+  }, [canEdit]);
   // Two independent panels (run history + dry-run preview): each mounts lazily
   // only while open, and opening one never closes the other.
   const [runsOpen, setRunsOpen] = useState(false);
@@ -406,6 +413,13 @@ export function AutomationsScreen() {
   const canCreate = useCanWrite("automation", "create");
   const canEdit = useCanWrite("automation", "update");
   const canDelete = useCanWrite("automation", "delete");
+  // The create form is staged in `template`; it must not survive the grant that
+  // opened it, or Create becomes a button that can only 403.
+  useEffect(() => {
+    if (!canCreate) {
+      setTemplate(null);
+    }
+  }, [canCreate]);
 
   const catalog = useQuery({
     queryKey: ["automation-catalog"],

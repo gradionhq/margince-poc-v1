@@ -3,7 +3,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plug } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
@@ -267,6 +267,21 @@ export function OverlayCard() {
     token: string;
   } | null>(null);
 
+  // A confirmation must not outlive the grant that opened it. Hiding the modal
+  // is not enough: the state behind it would still be set, so a grant that came
+  // back — /me refetches on focus and after any 403 — would resurrect a
+  // destructive confirmation nobody re-requested. Clear the state instead.
+  useEffect(() => {
+    if (!canConnect) {
+      setPendingConnect(null);
+    }
+  }, [canConnect]);
+  useEffect(() => {
+    if (!canDisconnect) {
+      setConfirmingDisconnect(false);
+    }
+  }, [canDisconnect]);
+
   const connection = useQuery({
     queryKey: ["overlay", "connection"],
     queryFn: async () => {
@@ -453,7 +468,7 @@ export function OverlayCard() {
         <p className="t-small">{t("overlay.connectConfirmBody")}</p>
       </ConfirmModal>
       <ConfirmModal
-        open={confirmingDisconnect && canDisconnect}
+        open={confirmingDisconnect}
         onClose={() => setConfirmingDisconnect(false)}
         title={t("overlay.disconnectTitle")}
         confirmLabel={t("overlay.disconnect")}

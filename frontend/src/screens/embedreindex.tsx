@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -254,6 +254,15 @@ export function EmbedReindexCard() {
     setPreviewedIdentity(identity);
     setMode(next);
   };
+  // Clearing `mode`, not just hiding the modal: the preview observer keys off
+  // it, so a dialog left half-open would keep asking for an estimate after the
+  // grant that justified it was withdrawn, and would reappear if it came back.
+  useEffect(() => {
+    if (!canWrite) {
+      setMode(null);
+    }
+  }, [canWrite]);
+
   const closeDialog = () => {
     setMode(null);
     setPreviewedIdentity(null);

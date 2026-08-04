@@ -8,7 +8,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -612,10 +612,24 @@ export function MirrorUserMapCard() {
   // (overlay/usermapservice.go). Both queries below are gated on it for that
   // reason, not as a convenience.
   const canManage = useCan("overlay_connection", "update");
+  // Losing the grant must EVICT the rows, not just stop refetching them: the
+  // query keeps its last successful data, and this card's data is PII the
+  // principal is no longer entitled to see. The render is gated on canManage
+  // above for the same reason — belt and braces, because one of the two is a
+  // cache-eviction race and the other is not.
   // Seeing the map is a read the server gates on the update grant; changing a
   // mapping is a real write, so it also needs the seat.
   const canMap = useCanWrite("overlay_connection", "update");
   const queryClient = useQueryClient();
+  // Evicting, not merely hiding: react-query keeps the last successful page
+  // indefinitely, so a principal who loses the grant would otherwise be one
+  // re-render away from the directory again.
+  useEffect(() => {
+    if (!canManage) {
+      queryClient.removeQueries({ queryKey: ["overlay", "user-map"] });
+      queryClient.removeQueries({ queryKey: ["overlay", "owners"] });
+    }
+  }, [canManage, queryClient]);
   const [view, setView] = useState<View>("user");
   const [picking, setPicking] = useState<string | null>(null);
   const [unmapping, setUnmapping] = useState<Entry | null>(null);
@@ -759,7 +773,7 @@ export function MirrorUserMapCard() {
         failed={page.isError}
         error={page.error}
       />
-      {page.isSuccess && (
+      {canManage && page.isSuccess && (
         <>
           <UserMapBody
             entries={page.data.pages.flatMap((one) => one.entries)}
