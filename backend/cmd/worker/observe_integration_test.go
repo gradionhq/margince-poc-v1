@@ -117,6 +117,29 @@ func TestEachDeclaredReadinessCheckCanActuallyFail(t *testing.T) {
 		}
 	})
 
+	t.Run("draining", func(t *testing.T) {
+		// The other end of the same gate. run() defers draining() AFTER
+		// complete(), so LIFO puts it ahead of the job-runner stop: a replica
+		// that has begun shutting down must stop being sent work while it is
+		// still putting down what it holds. The listener outlives the drain —
+		// it is stopped last — which is exactly why the answer has to change.
+		boot := bootedGate()
+		base := startProbeListener(t, workerTestPool(t), budgettest.Client(t), boot)
+		if status, _ := get(t, base+"/readyz"); status != http.StatusOK {
+			t.Fatalf("GET /readyz = %d before the drain, want 200", status)
+		}
+
+		boot.draining()
+
+		status, body := get(t, base+"/readyz")
+		if status != http.StatusServiceUnavailable {
+			t.Fatalf("GET /readyz = %d once shutdown began, want 503 — a draining replica must leave the pool", status)
+		}
+		if !strings.Contains(body, "boot") {
+			t.Errorf("the 503 body does not name the lifecycle check: %q", body)
+		}
+	})
+
 	t.Run("redis", func(t *testing.T) {
 		// Same shape for the bus, pointed at an address nothing listens on:
 		// that is what a bus outage looks like from inside this process, and

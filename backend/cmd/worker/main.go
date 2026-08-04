@@ -118,6 +118,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer stopJobs()
 	// Every phase a replica needs to do work has returned; /readyz may say so.
 	started.complete()
+	// Deferred AFTER complete, so LIFO runs it FIRST: readiness goes false at
+	// the top of the shutdown, before the runner and the lanes are put down.
+	// The listener outlives both — it is stopped last — so a draining replica
+	// keeps answering, and what it answers is "stop sending me work".
+	defer started.draining()
 
 	relayUntilSignal(ctx, cfg, pool, rdb, logger, stdout)
 	return nil

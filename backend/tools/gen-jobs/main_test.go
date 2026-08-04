@@ -168,6 +168,73 @@ kinds:
 `, fanOutPairingRule)
 }
 
+// A child row carries no unit of its own: every consumer walks the fan-out edge
+// backwards to learn what one stands for. Two dispatchers naming one child with
+// DIFFERENT units make that answer depend on which edge the reader walked last,
+// which is iteration order — so the sweep-unit gauges would report a grain
+// nobody chose. Refused here, where a contract can still be edited.
+func TestParseRejectsTwoDispatchersFanningOutToOneChildWithDifferentUnits(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: dispatcher
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 24h
+    fans_out_to: shared_child
+    fan_out_unit: workspace
+  bar:
+    role: dispatcher
+    go_type: BarArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 24h
+    fans_out_to: shared_child
+    fan_out_unit: connection
+  shared_child:
+    role: workspace
+    go_type: SharedChildArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+`, "a child row stands for ONE unit")
+}
+
+// The same child claimed twice with the SAME unit is unambiguous, so it is not
+// this rule's business — the rule is about disagreement, not about sharing.
+func TestParseAcceptsTwoDispatchersFanningOutToOneChildWithOneUnit(t *testing.T) {
+	mustParse(t, validQueues+`
+kinds:
+  foo:
+    role: dispatcher
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 24h
+    fans_out_to: shared_child
+    fan_out_unit: workspace
+  bar:
+    role: dispatcher
+    go_type: BarArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    cadence: 24h
+    fans_out_to: shared_child
+    fan_out_unit: workspace
+  shared_child:
+    role: workspace
+    go_type: SharedChildArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+`)
+}
+
 func TestParseRejectsAnUnknownFanOutUnit(t *testing.T) {
 	mustFail(t, validQueues+`
 kinds:

@@ -342,7 +342,10 @@ that failed. `boot` is this replica having finished starting its event lanes and
 job runner: the listener comes up before those on purpose, so a probe answers
 during a slow boot, and without that check the ordering would let a rollout
 retire the last working replica in favour of one that had not yet picked up a
-job. The body carries no AI line — unlike the api this role wires none, and an
+job, and it goes false again the moment shutdown begins — the listener is
+stopped LAST so the drain stays observable, and a draining replica that still
+answered ready would keep being sent work it is putting down. The body carries
+no AI line — unlike the api this role wires none, and an
 empty field reads as a state that could not be determined rather than as one
 that does not apply. `/healthz` stays a dumb liveness answer, so a database
 outage stops traffic being routed here without restart-looping a process the

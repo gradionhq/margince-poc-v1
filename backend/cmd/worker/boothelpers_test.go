@@ -42,6 +42,10 @@ func TestConfiguringTheWorkerFailsBeforeAnythingIsOpened(t *testing.T) {
 		{"an interval no schedule can use", "runner-interval", []string{"--dsn", "postgres://localhost/x", "--runner-interval=0"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// --dsn backs its default with MARGINCE_DSN, so a CI that exports
+			// one would make the missing-dsn case boot successfully and this
+			// subtest fail for a reason that has nothing to do with the code.
+			t.Setenv("MARGINCE_DSN", "")
 			_, err := configureWorker(tc.args, io.Discard)
 			if err == nil {
 				t.Fatalf("configureWorker(%v) succeeded; a misconfigured deployment must be refused here", tc.args)

@@ -51,29 +51,40 @@ const (
 	observeShutdown     = 5 * time.Second
 )
 
-// bootGate reports whether this process has finished starting. /readyz is what
-// an orchestrator uses to decide a replica may be left in service, and the
-// listener comes up FIRST on purpose — answering a probe DURING boot is half
-// the reason to have one. Without this gate that ordering would make the
-// worker answer "ready" while the event lanes and the job runner were still
-// starting, so a rollout could retire the last working replica in favour of
-// one that had not yet picked up a job.
+// bootGate reports whether this replica is in a state to be left in service.
+// It answers no at BOTH ends of the process's life, and each end is a real
+// failure it exists to prevent:
 //
-// Atomic because the boot goroutine writes it while a scrape reads it.
-type bootGate struct{ done atomic.Bool }
+//   - Starting. The listener comes up FIRST on purpose — answering a probe
+//     during boot is half the reason to have one — so without this gate the
+//     worker would report ready while the event lanes and the job runner were
+//     still coming up, and a rollout could retire the last working replica in
+//     favour of one that had not yet picked up a job.
+//   - Draining. The probes keep serving through the whole shutdown, because
+//     the listener is stopped last so the drain itself stays observable. A
+//     terminating replica that still answered ready would keep being sent work
+//     it is in the middle of putting down.
+//
+// Atomic because the boot and signal paths write it while a scrape reads it.
+type bootGate struct{ ready atomic.Bool }
 
 // complete marks the boot finished. Called once, after the last phase that has
 // to be running before this replica can do any work.
-func (g *bootGate) complete() { g.done.Store(true) }
+func (g *bootGate) complete() { g.ready.Store(true) }
 
-// check is the ReadyCheck form. It reports what THIS process knows — whether
-// the phase that starts the runner returned — which is the honest substitute
-// for a River liveness accessor that does not exist.
+// draining marks the replica as leaving service. Called at the TOP of the
+// shutdown sequence, so readiness goes false before the job runner and the
+// lanes are put down rather than after.
+func (g *bootGate) draining() { g.ready.Store(false) }
+
+// check is the ReadyCheck form. It reports what THIS process knows about its
+// own lifecycle, which is the honest substitute for a River liveness accessor
+// that does not exist.
 func (g *bootGate) check(context.Context) error {
-	if g.done.Load() {
+	if g.ready.Load() {
 		return nil
 	}
-	return errors.New("the worker is still starting its event lanes and job runner")
+	return errors.New("the worker is not in service: it is still starting its event lanes and job runner, or already draining them")
 }
 
 // observeListener is a started operator surface: how to stop it, and the

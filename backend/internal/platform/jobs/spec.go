@@ -77,10 +77,15 @@ func (u FanOutUnit) ArgsKey() string {
 // done once over the compiled table rather than at every call site that needs
 // it. A child no dispatcher names is absent rather than defaulted: the fan-out
 // edges are the registry of what fans out at all.
+//
+// The walk is in KIND ORDER rather than map order. Two dispatchers naming one
+// child with different units is refused at generation, so the answer cannot
+// depend on iteration order — and iterating deterministically is what keeps
+// that true of this function rather than only of the file it reads.
 func FanOutUnits() map[string]FanOutUnit {
 	units := map[string]FanOutUnit{}
-	for _, spec := range specs {
-		if spec.FanOutTo != "" {
+	for _, kind := range slices.Sorted(maps.Keys(specs)) {
+		if spec := specs[kind]; spec.FanOutTo != "" {
 			units[spec.FanOutTo] = spec.FanOutUnit
 		}
 	}

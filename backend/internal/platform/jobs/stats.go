@@ -299,6 +299,11 @@ func statsBySweep(ctx context.Context, pool *pgxpool.Pool) ([]SweepPass, error) 
 // declared sub-workspace kinds: a row of any other kind matches no pair and is
 // not read.
 //
+// The workspace predicate is carried over from statsBySweep unchanged, for the
+// reason it holds there: every kind read here is a tenant kind, so a row with a
+// unit key and no workspace is malformed, and counting it would credit a pass
+// with a unit belonging to no tenant.
+//
 // An empty pairing means the contract declares no such dispatcher, and the
 // query is skipped rather than run with two empty arrays — the answer is the
 // same, and the skip says why it is empty.
@@ -319,6 +324,7 @@ func statsBySweepUnit(ctx context.Context, pool *pgxpool.Pool) ([]SweepUnit, err
 		    JOIN unnest($1::text[], $2::text[]) AS u(kind, args_key) ON u.kind = j.kind
 		    WHERE '` + SweepTag + `' = ANY(j.tags)
 		      AND coalesce(j.args->>u.args_key, '') <> ''
+		      AND coalesce(j.args->>'workspace_id', '') <> ''
 		    ORDER BY j.kind, j.args->>u.args_key, j.created_at DESC, j.id DESC
 		) latest
 		GROUP BY kind`
