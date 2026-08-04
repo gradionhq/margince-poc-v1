@@ -26,6 +26,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // mintSite matches an INSERT into one of the three identity tables. The
@@ -38,7 +40,7 @@ var mintSite = regexp.MustCompile(`(?is)INSERT\s+INTO\s+(person|organization|lea
 // row, each with the reason it is on it. Adding an entry is a deliberate
 // decision about where duplicates can enter the system, which is why it is
 // spelled out rather than pattern-matched.
-var sanctionedMintSites = map[string]string{
+var sanctionedMintSites = gatekit.Waive(map[string]string{
 	// The chokepoint. createPerson/createOrganization take the PO-F ladder's
 	// verdict as an argument, so a create that never consulted it cannot be
 	// written, and they refuse outright when the verdict is an exact-key
@@ -59,10 +61,10 @@ var sanctionedMintSites = map[string]string{
 
 	// Test seeding, not a product path.
 	"internal/compose/integration/harness.go": "integration-harness row seeding",
-}
+})
 
 func TestEveryIdentityInsertGoesThroughTheChokepoint(t *testing.T) {
-	found := map[string]bool{}
+	defer sanctionedMintSites.AssertAllMatched(t)
 	for _, path := range goSourceFiles(t, ".") {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -76,24 +78,13 @@ func TestEveryIdentityInsertGoesThroughTheChokepoint(t *testing.T) {
 			continue
 		}
 		rel := filepath.ToSlash(path)
-		if _, ok := sanctionedMintSites[rel]; !ok {
+		if !sanctionedMintSites.Waived(t, rel) {
 			t.Errorf("%s mints a person, organization or lead row directly.\n"+
 				"Identity rows are minted only through the chokepoint in "+
 				"internal/modules/people/resolvecreate.go, which requires the PO-F-1/PO-F-2 "+
 				"verdict and refuses an exact-key collision. Route the insert through it — "+
 				"or, if this really is a new write shape, enroll it in sanctionedMintSites "+
 				"with the reason it cannot.", rel)
-			continue
-		}
-		found[rel] = true
-	}
-
-	// The list stays honest in the other direction too: an entry whose file no
-	// longer mints anything is stale, and a stale allowlist quietly re-opens
-	// the door the next time that file grows an INSERT.
-	for rel, reason := range sanctionedMintSites {
-		if !found[rel] {
-			t.Errorf("sanctionedMintSites still lists %s (%s) but it no longer mints an identity row — drop the entry", rel, reason)
 		}
 	}
 }
@@ -144,10 +135,10 @@ var mergedIntoWrite = regexp.MustCompile(`(?is)(UPDATE\s+(person|organization)\s
 
 // sanctionedMergeWriters own the redirect pointer that retires one record into
 // another.
-var sanctionedMergeWriters = map[string]string{
+var sanctionedMergeWriters = gatekit.Waive(map[string]string{
 	"internal/modules/people/merge.go":              "the person merge path",
 	"internal/modules/people/merge_organization.go": "the organization merge path",
-}
+})
 
 // TestOnlyTheMergePathRetiresARecord is the structural half of the
 // no-silent-auto-merge guarantee (data-hygiene: fuzzy candidates never
@@ -155,7 +146,7 @@ var sanctionedMergeWriters = map[string]string{
 // else; only a human's disposition, executed by the merge path, may point one
 // record at another.
 func TestOnlyTheMergePathRetiresARecord(t *testing.T) {
-	found := map[string]bool{}
+	defer sanctionedMergeWriters.AssertAllMatched(t)
 	for _, path := range goSourceFiles(t, ".") {
 		if strings.HasSuffix(path, "_test.go") {
 			continue
@@ -168,23 +159,16 @@ func TestOnlyTheMergePathRetiresARecord(t *testing.T) {
 		if isGenerated(path, string(body)) {
 			continue
 		}
-		if _, ok := sanctionedMergeWriters[rel]; ok {
-			found[rel] = mergedIntoWrite.MatchString(string(body))
+		if !mergedIntoWrite.MatchString(string(body)) {
 			continue
 		}
-		if mergedIntoWrite.MatchString(string(body)) {
-			t.Errorf("%s writes merged_into_id.\n"+
-				"Retiring one record into another is the merge path's alone "+
-				"(internal/modules/people/merge.go, merge_organization.go), reached only by a "+
-				"human's disposition on the dedupe queue — DEDUPE_FUZZY_AUTOMERGE is pinned never.", rel)
+		if sanctionedMergeWriters.Waived(t, rel) {
+			continue
 		}
-	}
-	// Same staleness rule as the mint-site list: an entry whose file no longer
-	// writes the pointer is a guard that has quietly stopped guarding anything.
-	for rel, reason := range sanctionedMergeWriters {
-		if !found[rel] {
-			t.Errorf("sanctionedMergeWriters still lists %s (%s) but it no longer writes merged_into_id — drop the entry", rel, reason)
-		}
+		t.Errorf("%s writes merged_into_id.\n"+
+			"Retiring one record into another is the merge path's alone "+
+			"(internal/modules/people/merge.go, merge_organization.go), reached only by a "+
+			"human's disposition on the dedupe queue — DEDUPE_FUZZY_AUTOMERGE is pinned never.", rel)
 	}
 }
 
