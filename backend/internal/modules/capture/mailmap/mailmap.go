@@ -51,6 +51,9 @@ type Message struct {
 	machineTouched  bool
 	listUnsubscribe bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
 	sentByOwner     bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+	// participants are everyone on To and Cc who is neither the mailbox owner
+	// nor the counterparty — the two ends already have their own rows.
+	participants []connector.MessageParticipant
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -94,6 +97,10 @@ func Parse(raw []byte, owner string) (Message, error) {
 
 	fromList, _ := header.AddressList("From")
 	toList, _ := header.AddressList("To")
+	// A malformed Cc line yields no addresses rather than failing the message:
+	// the mail is already read off the wire, and losing the CCs is a smaller
+	// loss than dropping the correspondence.
+	ccList, _ := header.AddressList("Cc")
 	from := firstAddress(fromList)
 	to := firstAddress(toList)
 
@@ -127,7 +134,71 @@ func Parse(raw []byte, owner string) (Message, error) {
 		autoReply:        autoReply,
 		machineTouched:   machineTouched,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
+		participants:     otherParties(toList, ccList, ownerLower, counterparty),
 	}, nil
+}
+
+// ParticipantsOf reads the further parties out of one stored original.
+//
+// The replay pass calls it for messages captured before participants were
+// recorded. It is a narrow seam on purpose: the pass wants exactly the CC and
+// To names, and giving it Parse's whole Message would invite it to re-derive
+// direction or subject from headers the activity row already settled at
+// capture time.
+func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, error) {
+	msg, err := Parse(raw, owner)
+	if err != nil {
+		return nil, err
+	}
+	return msg.participants, nil
+}
+
+// maxParticipants bounds how many further parties one message may contribute.
+//
+// The cap is not a performance guard, it is a shape guard. A message with two
+// hundred addresses on its To line is a mailing list, and every name on it is
+// evidence of a list membership rather than of a conversation — folding those
+// into the interaction graph would report a relationship with everybody who
+// ever received the same newsletter. Past the cap the further parties are
+// dropped entirely rather than truncated, because half a distribution list is
+// no more meaningful than all of it.
+const maxParticipants = 50
+
+// otherParties returns everyone on To and Cc who is neither the mailbox owner
+// nor the counterparty.
+//
+// Both exclusions matter and for different reasons. The owner and the
+// counterparty are the two ends of the exchange and already get their own
+// rows, stamped from the connection rather than from a header — a second row
+// for either would either collide with the uniqueness index or, worse, record
+// the same human twice under two roles.
+//
+// To wins over Cc when an address appears on both, which is a real thing
+// senders do: a direct recipient who is also copied was addressed directly,
+// and that is the stronger claim about their part in the conversation.
+func otherParties(toList, ccList []*mail.Address, ownerLower, counterparty string) []connector.MessageParticipant {
+	counterpartyLower := strings.ToLower(strings.TrimSpace(counterparty))
+	seen := map[string]bool{ownerLower: true, counterpartyLower: true}
+	delete(seen, "")
+
+	var out []connector.MessageParticipant
+	add := func(list []*mail.Address, role string) {
+		for _, a := range list {
+			address := strings.ToLower(strings.TrimSpace(a.Address))
+			if address == "" || seen[address] {
+				continue
+			}
+			seen[address] = true
+			out = append(out, connector.MessageParticipant{Email: address, Role: role})
+		}
+	}
+	add(toList, connector.ParticipantRoleTo)
+	add(ccList, connector.ParticipantRoleCC)
+
+	if len(out) > maxParticipants {
+		return nil
+	}
+	return out
 }
 
 // threadKey derives the conversation identity from the standard reply
@@ -203,7 +274,8 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
 		}.WithOwnerAttestation(m.sentByOwner),
-		ThreadKey: m.threadKey,
+		ThreadKey:    m.threadKey,
+		Participants: m.participants,
 	}
 }
 

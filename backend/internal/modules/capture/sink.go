@@ -205,6 +205,12 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Kind, fields.Direction, rec.Counterparty.Email); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	// Everyone else who was in it — the CCs, the meeting's organizer and
+	// attendees. Separate from the two ends above because these are resolved
+	// against our own people here rather than promoted later.
+	if err := StampFurtherParticipants(ctx, tx, id, fields.Kind, rec.Participants); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is
 	// metadata-only, never the subject/body (capturedActivityAuditImage).
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, capturedActivityAuditImage(rec, fields))

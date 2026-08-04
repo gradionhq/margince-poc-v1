@@ -154,7 +154,46 @@ type NormalizedRecord struct {
 	// same CAP-FORMULA-1 reply join and activity.thread_key. Empty only for a
 	// mail record with none of its three sources; a channel record always has one.
 	ThreadKey string
+
+	// Participants are the FURTHER parties to this message beyond the mailbox
+	// owner and Counterparty — the CCs on a thread, the attendees and organizer
+	// of a meeting. A connector that reports none behaves exactly as before,
+	// which is why this is additive rather than a replacement for Counterparty:
+	// the two ends of the exchange are what direction is defined against, and
+	// everyone else is present without being either end.
+	//
+	// They are addresses, not records. Resolving one to a colleague or a known
+	// contact is capture's job at stamping time, and an address that resolves to
+	// neither is still kept — an attendee nobody has a record for is a fact
+	// about the meeting.
+	Participants []MessageParticipant
 }
+
+// MessageParticipant is one further party to a captured message.
+//
+// Email is the raw header address; capture lowercases it, because that is how
+// person_email stores one and a case difference would otherwise read as a
+// different human. Role is one of the ParticipantRole constants below and is
+// closed at the database, so an unknown value is refused rather than stored.
+type MessageParticipant struct {
+	Email string
+	Role  string
+}
+
+// The roles a further participant may hold. The set is closed by the
+// activity_participant CHECK, so an unlisted value is a constraint violation
+// rather than a stored surprise.
+//
+// These name a HEADER POSITION, not a direction. The third name on a To line
+// is a recipient whether the mailbox owner sent the message or received it —
+// only the two ends of the exchange are assigned by direction, and capture
+// does that from Counterparty rather than from anything a connector reports.
+const (
+	ParticipantRoleTo        = "to"
+	ParticipantRoleCC        = "cc"
+	ParticipantRoleAttendee  = "attendee"
+	ParticipantRoleOrganizer = "organizer"
+)
 
 // Counterparty names the non-owner participant of one captured message. A
 // mail record identifies them by Email (authoritative); a channel record

@@ -128,6 +128,34 @@ func (w *participantBackfillWorker) backfillWorkspace(ctx context.Context, ws id
 			return total, err
 		}
 		if n == 0 {
+			break
+		}
+		total += n
+	}
+	replayed, err := w.replayWorkspace(wsCtx)
+	return total + replayed, err
+}
+
+// replayReplayBatch is smaller than the two-end batch because this pass does
+// real work per row — it parses a stored RFC822 message or calendar resource
+// in Go rather than running one join in the database.
+const participantReplayBatch = 100
+
+// replayWorkspace re-reads the stored originals of activities that already
+// have their two ends recorded, recovering the CCs and meeting attendees.
+//
+// It runs after the two-end backfill and never instead of it: an activity with
+// no participants at all is the worse gap, and settling that first means a
+// workspace part-way through recovery still answers "who was in this" with
+// something true.
+func (w *participantBackfillWorker) replayWorkspace(wsCtx context.Context) (int, error) {
+	total := 0
+	for i := 0; i < participantBackfillBatchesPerTick; i++ {
+		n, err := replayParticipantsBatch(wsCtx, w.pool, participantReplayBatch, w.log)
+		if err != nil {
+			return total, err
+		}
+		if n == 0 {
 			return total, nil
 		}
 		total += n

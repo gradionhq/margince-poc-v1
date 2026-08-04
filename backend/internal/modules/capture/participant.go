@@ -87,6 +87,79 @@ func stampCaptureParticipants(
 	return nil
 }
 
+// StampFurtherParticipants records everyone in the interaction who is neither
+// the mailbox owner nor the counterparty: the CCs on a thread, the organizer
+// and attendees of a meeting.
+//
+// It is exported for the replay pass, which re-reads stored originals for
+// activities captured before this existed. That pass runs in compose because
+// it spans the mail and calendar parsers, and it must write these rows the
+// same way live capture does — one spelling of the resolution, so a recovered
+// row and a captured one are indistinguishable to the graph that reads them.
+//
+// Unlike the counterparty, these addresses are RESOLVED here rather than left
+// for a later promotion. The reason is the interaction graph: its recompute
+// joins a participant's user_id to a person_id (search.RecomputeEdgesForActivities),
+// so an address-only row is invisible to it — and answering "who on our team
+// knows this contact" from CC lines was the entire point of recording them.
+// The counterparty can wait because the ensure path promotes its row moments
+// later; nothing promotes a CC.
+//
+// A party who resolves to neither a colleague nor a known contact is still
+// recorded by address. An attendee nobody has a record for is a fact about the
+// meeting, and dropping them is what the body-text fold already does badly.
+func StampFurtherParticipants(
+	ctx context.Context,
+	tx pgx.Tx,
+	activityID ids.ActivityID,
+	kind string,
+	participants []connector.MessageParticipant,
+) error {
+	if !relstrength.IsInteractionKind(kind) || len(participants) == 0 {
+		return nil
+	}
+	addresses := make([]string, 0, len(participants))
+	roles := make([]string, 0, len(participants))
+	for _, p := range participants {
+		address := strings.ToLower(strings.TrimSpace(p.Email))
+		if address == "" {
+			continue
+		}
+		addresses = append(addresses, address)
+		roles = append(roles, p.Role)
+	}
+	if len(addresses) == 0 {
+		return nil
+	}
+
+	// Both lookups run under the workspace GUC, so neither can resolve an
+	// address to somebody in another tenant. The colleague arm is checked
+	// first: an address that is both a workspace member and a person record is
+	// our side of the conversation, which is the claim the graph is keyed on.
+	//
+	// The address is kept alongside whichever id resolved, matching what the
+	// counterparty promotion does — the row records which address was actually
+	// written to, and a person may hold several.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, address, role)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		       $1, u.id, pe.person_id, inp.address, inp.role
+		  FROM unnest($2::text[], $3::text[]) AS inp(address, role)
+		  LEFT JOIN app_user u
+		         ON lower(u.email) = inp.address
+		  LEFT JOIN LATERAL (
+		       SELECT p.person_id
+		         FROM person_email p
+		        WHERE p.email = inp.address AND p.archived_at IS NULL
+		        ORDER BY p.person_id
+		        LIMIT 1) pe ON u.id IS NULL
+		ON CONFLICT DO NOTHING`,
+		activityID, addresses, roles); err != nil {
+		return fmt.Errorf("capture: stamping the further participants of an interaction: %w", err)
+	}
+	return nil
+}
+
 // insertParticipant writes one participant row, idempotently. Capture's sync
 // loop is at-least-once and its whole write path is keyed on the source
 // natural key, so a replay must add nothing — hence ON CONFLICT DO NOTHING
