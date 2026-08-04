@@ -18,24 +18,31 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // workerFloor guards against a vacuous pass, as in the role gate.
 const workerFloor = 20
 
-// nilAfterLogging are the ratified workers that log a failure and return nil.
-// That shape is EXACTLY the defect this phase removes — a tenant failure
-// becoming a green River row — so each entry states the durable retry policy
-// that makes it honest here. A worker not listed must return its failure.
-var nilAfterLogging = gatekit.Waive(map[string]string{
-	"captureSyncWorker":               "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'",
-	"captureBackfillWorker":           "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended",
-	"overlayReconcileWorkspaceWorker": "two nil paths, neither a swallowed sweep failure. The disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. And a failed RecordSweepSuccess, which leaves the previous backoff in place — the next due-scan is simply later than it needed to be, never earlier. A genuine sweep failure IS returned; the row fails and stays failed, because this kind takes a single attempt and its retry is the backoff the worker just recorded",
-	"voiceBuildWorker":                "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due",
-})
-
 func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
+	// The ratified log-and-return-nil workers, each bound to the durable retry
+	// policy that makes its green River row honest. They are DECLARED per kind
+	// in api/jobs.yaml (fault: nil_after_logging) and joined to the receiver
+	// name below through the registration that binds the two — a worker type
+	// serves exactly one args type, because Work's signature names it, so the
+	// join is one-to-one by construction. A worker not waived there must
+	// return its failure.
+	//
+	// The set is derived rather than written, and gatekit then holds it to the
+	// same two obligations as every hand-written one: a reason that states a
+	// cost, and an entry that still describes live code.
+	census, err := compose.NewJobCensus()
+	if err != nil {
+		t.Fatalf("building the job census: %v", err)
+	}
+	nilAfterLogging := gatekit.Waive(census.NilAfterLoggingWaivers())
+
 	fset, files := parseGoFilesUnder(t, filepath.Join("internal", "compose"))
 	workers := 0
 	for _, file := range files {
@@ -77,7 +84,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 			if errorLogsAndReturnsNil(fn) {
 				if !nilAfterLogging.Waived(t, recv) {
 					pos := fset.Position(fn.Pos())
-					t.Errorf("%s:%d: %s logs an error and returns nil — River will record this job as completed while the work failed. Return the failure, or ratify it in nilAfterLogging naming the retry policy that makes success honest.",
+					t.Errorf("%s:%d: %s logs an error and returns nil — River will record this job as completed while the work failed. Return the failure, or ratify it in api/jobs.yaml with fault: {nil_after_logging: …} naming the retry policy that makes success honest.",
 						pos.Filename, pos.Line, recv)
 				}
 			}
@@ -88,7 +95,9 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 	}
 	// Staleness is only meaningful once the sweep above actually ran: on the
 	// vacuity Fatal every entry would report as unmatched, burying the one
-	// failure that explains all of them.
+	// failure that explains all of them. An entry reported here names a worker
+	// that no longer logs-and-returns-nil, so its kind's fault block in
+	// api/jobs.yaml is what goes.
 	nilAfterLogging.AssertAllMatched(t)
 }
 

@@ -86,7 +86,7 @@ exposes no HTTP surface at all, so an in-process counter there would be
 invisible to every scrape while the api's own copy reported a truthful
 looking zero.
 
-**`/metrics` — is a queue growing?** Seven gauge families:
+**`/metrics` — is a queue growing?** Seven gauge families over the job table:
 
 | Family | Labels | Meaning |
 |---|---|---|
@@ -103,6 +103,66 @@ appears **only when it has something to report**: work sitting in a state
 this exposition does not classify. It is a signal to investigate, not a
 series to graph, which is why it is absent rather than zero the rest of the
 time.
+
+Two more families read the **declaration** — `backend/api/jobs.yaml`, where
+every job kind this build runs is declared — rather than the job table. Every
+gauge above is a projection of `river_job` at scrape time, so it can only name
+a kind that happens to have rows, and that collapses three different situations
+into one absence: a declared kind running idle, a kind nobody ever wired, and
+rows of a kind the contract no longer declares.
+
+| Family | Labels | Meaning |
+|---|---|---|
+| `margince_job_declared_info` | `kind`, `role`, `queue`, `fan_out_unit`, `timeout_seconds` | one series per DECLARED kind, valued 1 — the catalogue, written whether or not the job table holds a row of that kind |
+| `margince_job_unrecognised_kind` | `kind` | rows whose kind the contract does not declare — a retired kind outliving itself in River's retention. Present only when such work exists |
+
+Between them the three states are told apart: a kind in the catalogue with no
+depth series is idle, a kind absent from the catalogue with rows is retired,
+and a kind in neither was never wired at all. Join an alert against
+`margince_job_declared_info` rather than assuming a missing depth series means
+zero work.
+
+Its labels are the declaration's, and a label the declaration does not actually
+**govern** is omitted rather than filled in — a published number is one an
+alert will act on:
+
+- `queue` is absent where a kind's insert options belong to its callers rather
+  than to the contract. The file records a queue for every kind but binds one
+  only where it supplies the options; a caller-owned kind takes its queue from
+  scattered enqueue sites, and publishing that number would reintroduce the
+  declared-versus-actual drift this surface exists to detect.
+- `timeout_seconds` is `-1` where the kind deliberately runs with **no**
+  deadline (the two embed passes, which are bounded by their backlog and must
+  stay outside River's rescuer), and **absent** where the wall clock is an
+  operator's dial computed at the worker's registration — the file calls that
+  one "not knowable here at all", and a guess would be worse than silence.
+  It is never `0`: zero is River's silent one-minute default wearing the same
+  digits as a deliberate absence, and telling those two apart is what the
+  declaration is for.
+- `fan_out_unit` says what ONE child of a dispatcher stands for — a workspace,
+  a connection, or a build — and is absent for a kind that fans out to nothing.
+
+Three further things the declaration states that no gauge can, worth knowing
+when you read a kind's row in `river_job`:
+
+- **Every kind has a CHOSEN timeout.** A kind with none fails generation rather
+  than running on River's one-minute default, and a worker cannot answer for
+  its own wall clock: the declared value is what River is handed.
+- **`fault:` says whether a worker may log a failure and return nil.** Omitted —
+  the case for all but four kinds — it may not, so a green row means the work
+  succeeded. The four that declare it name the durable retry policy that makes
+  the green row honest (a connector sidecar's backoff, a run row's own state),
+  and for those a completed job means "this attempt is concluded", not "the
+  work succeeded".
+- **`args:` says what each field of a kind's payload carries.** River persists
+  args verbatim in a table with no workspace column and no RLS, so a job names
+  a row and the worker reads it: every field is declared an id, or waived as a
+  scalar with the reason a value that is not an id is safe there — and a field
+  whose *name* reads like content (`Body`, `Subject`, `RecipientEmail`) owes a
+  written reason even when it is an id, which is the one thing a reviewer is
+  forced to argue rather than assume. Reading a job's args in an incident
+  should therefore never turn up message bodies or addresses — if it does, that
+  is the defect, not the payload.
 
 Four things worth knowing before you build an alert on these:
 

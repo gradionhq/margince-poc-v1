@@ -10,6 +10,12 @@ package backendarch
 // inline `for each workspace` loop inside one job row, whose per-workspace
 // failures have nowhere durable to land, so River records success while
 // tenants silently failed.
+//
+// api/jobs.yaml states that role per kind and jobkinds_gen.go turns each
+// statement into a compile-time assertion, so the role of a DECLARED kind is
+// the compiler's to check. What is left here is the two halves those generated
+// assertions provably cannot reach — a type the contract has never heard of,
+// and a type that answers to both roles at once.
 
 import (
 	"go/ast"
@@ -92,23 +98,99 @@ func methodsByType(t *testing.T, dir string) map[string]map[string]bool {
 	return byType
 }
 
-func TestEveryJobArgsDeclaresExactlyOneRole(t *testing.T) {
+// collectUnionTerms records the bare type names in one embedded interface
+// term. A union parses as a left-leaning `|` chain, so the recursion follows
+// the chain; the embedded river.JobArgs is a SelectorExpr, not a kind, and is
+// skipped by naming only *ast.Ident.
+func collectUnionTerms(e ast.Expr, into map[string]bool) {
+	switch term := e.(type) {
+	case *ast.Ident:
+		into[term.Name] = true
+	case *ast.BinaryExpr:
+		collectUnionTerms(term.X, into)
+		collectUnionTerms(term.Y, into)
+	}
+}
+
+// declaredKindTypes reads the union terms of declaredJobArgs out of the
+// generated file — the same closed set the compiler enforces at every
+// registration site. Read from the source rather than imported because this
+// package may not depend on internal/platform (.go-arch-lint.yml), and
+// because the claim is about the generated set itself.
+func declaredKindTypes(t *testing.T) map[string]bool {
+	t.Helper()
+	path := filepath.Join("internal", "compose", "jobkinds_gen.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	declared := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		spec, ok := n.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != "declaredJobArgs" {
+			return true
+		}
+		iface, ok := spec.Type.(*ast.InterfaceType)
+		if !ok {
+			return false
+		}
+		for _, field := range iface.Methods.List {
+			if len(field.Names) > 0 {
+				continue // a method, not an embedded term
+			}
+			collectUnionTerms(field.Type, declared)
+		}
+		return false
+	})
+	if len(declared) < jobArgsFloor {
+		t.Fatalf("read only %d declared args types out of %s, expected at least %d — the union walk matched almost nothing", len(declared), path, jobArgsFloor)
+	}
+	return declared
+}
+
+// TestEveryJobArgsTypeIsDeclaredInTheContract is the half the generated
+// assertions cannot reach. They name only kinds the contract already carries,
+// so a type someone added and merely ENQUEUED — Runner.Enqueue takes a bare
+// river.JobArgs, and cmd/api holds seven inserter handles — would be invisible
+// to them. This walks the tree instead, so the type existing at all is enough.
+func TestEveryJobArgsTypeIsDeclaredInTheContract(t *testing.T) {
 	byType := methodsByType(t, filepath.Join("internal", "compose"))
-	jobs := 0
+	declared := declaredKindTypes(t)
+
+	found := 0
 	for typeName, methods := range byType {
 		if !methods["Kind"] {
 			continue
 		}
-		jobs++
-		scoped, fleet := methods["WorkspaceID"], methods["FleetWide"]
-		switch {
-		case scoped && fleet:
-			t.Errorf("%s declares both WorkspaceID() and FleetWide(): a job does one workspace's work or dispatches, never both", typeName)
-		case !scoped && !fleet:
-			t.Errorf("%s is a River job (it declares Kind()) but no role. Add WorkspaceID() ids.UUID if its work belongs to one workspace, or FleetWide() if it only enumerates and enqueues.", typeName)
+		found++
+		if !declared[typeName] {
+			t.Errorf("%s is a River job (it declares Kind()) but is not in api/jobs.yaml. Add it there and run `make gen` — an undeclared kind runs on River's one-minute default and is invisible to both job surfaces.", typeName)
 		}
 	}
-	if jobs < jobArgsFloor {
-		t.Fatalf("found only %d job args types, expected at least %d — the walker matched nothing and this gate would pass vacuously", jobs, jobArgsFloor)
+	if found < jobArgsFloor {
+		t.Fatalf("found only %d job args types, expected at least %d — the walker matched nothing and this gate would pass vacuously", found, jobArgsFloor)
+	}
+}
+
+// TestNoJobArgsDeclaresBothRoles holds what the generated assertions cannot:
+// Go has no negative constraint, so `var _ jobs.FleetWide = T{}` is satisfied
+// just as happily by a type that ALSO implements WorkspaceID. Only a walker
+// sees both at once.
+func TestNoJobArgsDeclaresBothRoles(t *testing.T) {
+	byType := methodsByType(t, filepath.Join("internal", "compose"))
+	roled := 0
+	for typeName, methods := range byType {
+		scoped, fleet := methods["WorkspaceID"], methods["FleetWide"]
+		if !scoped && !fleet {
+			continue
+		}
+		roled++
+		if scoped && fleet {
+			t.Errorf("%s declares both WorkspaceID() and FleetWide(): a job does one workspace's work or dispatches, never both", typeName)
+		}
+	}
+	if roled < jobArgsFloor {
+		t.Fatalf("found only %d types declaring a role, expected at least %d — the walker matched almost nothing and this gate would pass vacuously", roled, jobArgsFloor)
 	}
 }

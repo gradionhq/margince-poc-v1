@@ -290,7 +290,6 @@ func (f fxRefresh) plan(ctx context.Context, current []deals.FxRateRow) (base st
 }
 
 type fxRefreshWorker struct {
-	river.WorkerDefaults[FxRateRefreshArgs]
 	refresh fxRefresh
 }
 

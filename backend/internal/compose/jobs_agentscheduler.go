@@ -32,19 +32,16 @@ const (
 	// fine to run behind the short maintenance jobs — while still keeping one
 	// tenant's hour-long batch from being the whole fleet's scheduling latency.
 	agentSchedulerMaxWorkers = 2
-	// agentSchedulerPassTimeout bounds one workspace's pass. River's whole-job
-	// default of a minute is nowhere near it: a pass executes up to claimBatch
-	// runs sequentially and RunWallClock is each run's own ceiling, and the
-	// margin covers the seed/claim/finish round trips between them, which the
-	// pool bounds rather than this cap.
+	// agentSchedulerPassTimeout is the arithmetic behind
+	// agent_scheduler_workspace's declared timeout: a pass executes up to
+	// claimBatch runs sequentially and RunWallClock is each run's own ceiling,
+	// and the margin covers the seed/claim/finish round trips between them,
+	// which the pool bounds rather than this cap.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and the job census keeps the two equal.
 	agentSchedulerPassTimeout = claimBatch*RunWallClock + 5*time.Minute
-	// agentSchedulerMaxAttempts is ONE: this kind's retry is the dispatcher's
-	// own tick, which is tens of seconds while a single attempt may run for the
-	// timeout above. A second rung would spend a fresh batch of model budget on
-	// work the next tick re-enqueues anyway — and, because retryable is one of
-	// activeSweepStates, a backing-off row SUPPRESSES that tick's re-enqueue,
-	// so the ladder would delay the tenant's next pass rather than hasten it.
-	agentSchedulerMaxAttempts = 1
 )
 
 // AgentSchedulerConfig is the agent scheduler's slice of the runner's boot
@@ -57,7 +54,7 @@ type AgentSchedulerConfig struct {
 	// promptly a due occurrence is noticed and how often a claimable backlog is
 	// drained.
 	//
-	// Non-positive schedules no agent dispatch (periodicWhenPositive).
+	// Non-positive schedules no agent dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 	// Service is the assembled Surface-B runner one workspace's pass ticks —
 	// the SAME instance the role's cg:overnight-agent consumer resumes parked
@@ -77,9 +74,9 @@ type AgentSchedulerConfig struct {
 
 // addAgentSchedulerJobs registers the scheduler workers and returns the
 // dispatcher's periodic schedule for the caller to append. A non-positive
-// interval registers the workers but no schedule, for periodicWhenPositive's
-// reasons.
-func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
+// interval registers the workers but no schedule — the posture the declaration
+// states and jobschedule.go resolves.
+func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.AgentScheduler.Service == nil {
 		return nil
 	}
@@ -87,14 +84,9 @@ func addAgentSchedulerJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRu
 	if now == nil {
 		now = time.Now
 	}
-	river.AddWorker(workers, &agentSchedulerWorker{pool: pool})
-	river.AddWorker(workers, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
-	return periodicWhenPositive(cfg.AgentScheduler.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
-		// Run-on-start because a restart must not add a whole interval to a due
-		// hour that already passed: the occurrences that fell due while the
-		// process was down are runnable the moment it is back.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool})
+	addDeclaredWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
+	return periodicFor(cfg, AgentSchedulerArgs{})
 }
 
 // AgentSchedulerArgs schedules one fleet-wide agent-scheduling pass.
@@ -111,13 +103,12 @@ func (AgentSchedulerArgs) FleetWide() {}
 // only: an archived tenant has nobody to read a morning brief, so seeding one
 // would spend model budget producing a report no one will open.
 type agentSchedulerWorker struct {
-	river.WorkerDefaults[AgentSchedulerArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *agentSchedulerWorker) Work(ctx context.Context, _ *river.Job[AgentSchedulerArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(agentSchedulerQueue, agentSchedulerMaxAttempts),
+		workspaceSweepOpts(AgentSchedulerWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return AgentSchedulerWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -134,13 +125,8 @@ func (a AgentSchedulerWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace
 
 // agentSchedulerWorkspaceWorker ticks one workspace.
 type agentSchedulerWorkspaceWorker struct {
-	river.WorkerDefaults[AgentSchedulerWorkspaceArgs]
 	svc *RunnerService
 	now func() time.Time
-}
-
-func (w *agentSchedulerWorkspaceWorker) Timeout(*river.Job[AgentSchedulerWorkspaceArgs]) time.Duration {
-	return agentSchedulerPassTimeout
 }
 
 // Work binds the tenant and nothing else: each claimed job resolves its own

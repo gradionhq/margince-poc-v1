@@ -37,13 +37,12 @@ func (CaptureClassifyArgs) FleetWide() {}
 
 // captureClassifyWorker is the dispatcher for the label pass.
 type captureClassifyWorker struct {
-	river.WorkerDefaults[CaptureClassifyArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *captureClassifyWorker) Work(ctx context.Context, _ *river.Job[CaptureClassifyArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureClassifyWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureClassifyWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -62,7 +61,6 @@ func (a CaptureClassifyWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspac
 // workspace; the engine commits per model call, so a mid-pass crash or budget
 // stop loses nothing and the next tick resumes from the shrunken backlog.
 type captureClassifyWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureClassifyWorkspaceArgs]
 	classifier *CaptureClassifier
 }
 
@@ -86,13 +84,12 @@ func (CaptureEnrichArgs) FleetWide() {}
 
 // captureEnrichWorker is the dispatcher for the signature-enrich pass.
 type captureEnrichWorker struct {
-	river.WorkerDefaults[CaptureEnrichArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnrichArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureEnrichWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureEnrichWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -111,7 +108,6 @@ func (a CaptureEnrichWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace 
 // one workspace; every accepted field is auditable back to its verbatim
 // signature line.
 type captureEnrichWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureEnrichWorkspaceArgs]
 	enricher *CaptureEnricher
 }
 
@@ -135,13 +131,12 @@ func (OrgNamePromotionArgs) FleetWide() {}
 
 // orgNamePromotionWorker is the dispatcher for the corroborated-name sweep.
 type orgNamePromotionWorker struct {
-	river.WorkerDefaults[OrgNamePromotionArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *orgNamePromotionWorker) Work(ctx context.Context, _ *river.Job[OrgNamePromotionArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(OrgNamePromotionWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return OrgNamePromotionWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -159,7 +154,6 @@ func (a OrgNamePromotionWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 // orgNamePromotionWorkspaceWorker runs one workspace's pass: a database-only
 // walk over the org_name evidence the enrich job collects.
 type orgNamePromotionWorkspaceWorker struct {
-	river.WorkerDefaults[OrgNamePromotionWorkspaceArgs]
 	promoter *OrgNamePromoter
 }
 
@@ -185,7 +179,6 @@ func (CaptureDigestArgs) FleetWide() {}
 // captureDigestWorker assembles one digest per connected user per
 // workspace; a re-run replaces the day's payload (as-of-now truths).
 type captureDigestWorker struct {
-	river.WorkerDefaults[CaptureDigestArgs]
 	registry *capture.Registry
 	pool     *pgxpool.Pool
 	log      *slog.Logger
@@ -203,7 +196,7 @@ type captureDigestWorker struct {
 // behind two model workers would delay it for no reason.
 func (w *captureDigestWorker) Work(ctx context.Context, _ *river.Job[CaptureDigestArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CaptureDigestWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CaptureDigestWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -224,7 +217,6 @@ func (a CaptureDigestWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace 
 // GRANULARITY: one row per workspace instead of one joined error for the
 // fleet, and a retry that re-runs only the workspace that failed.
 type captureDigestWorkspaceWorker struct {
-	river.WorkerDefaults[CaptureDigestWorkspaceArgs]
 	digests *captureDigestWorker
 }
 
@@ -257,7 +249,6 @@ func (a CaptureBackfillArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // (snooze) so a long mailbox never monopolizes a worker slot. A page error
 // returns nil after the engine recorded it — the run row owns its state.
 type captureBackfillWorker struct {
-	river.WorkerDefaults[CaptureBackfillArgs]
 	registry *capture.Registry
 	log      *slog.Logger
 }
@@ -269,18 +260,6 @@ type captureBackfillWorker struct {
 // means each page runs under a FRESH job context — a slow page can never
 // starve the next of its deadline — and the meter climbs per page.
 const backfillPagesPerTick = 1
-
-// backfillTimeout overrides River's 1-minute default: one page of large real
-// messages fetched serially over the network needs real headroom, or the job
-// context dies mid-page and both the fetch and the failure-recording write
-// fail as a spurious "unreachable". (Matches the voice-build precedent of
-// overriding the default for a multi-call, network-bound job.)
-const backfillTimeout = 8 * time.Minute
-
-// Timeout gives one page-per-tick room to finish over a live mailbox.
-func (w *captureBackfillWorker) Timeout(*river.Job[CaptureBackfillArgs]) time.Duration {
-	return backfillTimeout
-}
 
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
 	bfID, err := ids.Parse(job.Args.BackfillID)
@@ -368,13 +347,12 @@ func (CounterpartyVerdictArgs) FleetWide() {}
 // picked up by the next tick, because the backlog is a query, not a queue this
 // worker holds.
 type counterpartyVerdictWorker struct {
-	river.WorkerDefaults[CounterpartyVerdictArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[CounterpartyVerdictArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(aiCaptureQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(CounterpartyVerdictWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CounterpartyVerdictWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -399,7 +377,6 @@ func (a CounterpartyVerdictWorkspaceArgs) WorkspaceID() ids.UUID { return a.Work
 // so splitting them into separate jobs per workspace would break the ordering
 // the pass depends on.
 type counterpartyVerdictWorkspaceWorker struct {
-	river.WorkerDefaults[CounterpartyVerdictWorkspaceArgs]
 	engine *CounterpartyVerdictEngine
 }
 

@@ -21,7 +21,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -44,15 +43,8 @@ func (GraphEdgeReconcileArgs) Kind() string { return "graph_edge_reconcile" }
 // and does no tenant work of its own (jobs.FleetWide).
 func (GraphEdgeReconcileArgs) FleetWide() {}
 
-// graphEdgeReconcileInterval is daily, matching the staleness bound the
-// migration states. Tightening it would narrow the window at the cost of a
-// full refold per workspace per run; loosening it would make the migration's
-// stated contract a lie.
-const graphEdgeReconcileInterval = 24 * time.Hour
-
 // graphEdgeReconcileWorker rebuilds the projection for every workspace.
 type graphEdgeReconcileWorker struct {
-	river.WorkerDefaults[GraphEdgeReconcileArgs]
 	pool  *pgxpool.Pool
 	store *search.Store
 	log   *slog.Logger
@@ -68,7 +60,7 @@ func newGraphEdgeReconcileWorker(pool *pgxpool.Pool, log *slog.Logger) *graphEdg
 // the whole installation.
 func (w *graphEdgeReconcileWorker) Work(ctx context.Context, _ *river.Job[GraphEdgeReconcileArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(GraphEdgeWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return GraphEdgeWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -86,7 +78,6 @@ func (a GraphEdgeWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // graphEdgeWorkspaceWorker runs one workspace's pass. It reuses the dispatcher's
 // wiring rather than a second copy of it.
 type graphEdgeWorkspaceWorker struct {
-	river.WorkerDefaults[GraphEdgeWorkspaceArgs]
 	*graphEdgeReconcileWorker
 }
 

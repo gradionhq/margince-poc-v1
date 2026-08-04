@@ -35,13 +35,12 @@ func (TimeScanArgs) FleetWide() {}
 // timeScanWorker is the dispatcher: it enumerates the fleet and enqueues one
 // scan per workspace, and touches no tenant data itself.
 type timeScanWorker struct {
-	river.WorkerDefaults[TimeScanArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(TimeScanWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return TimeScanWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -60,7 +59,6 @@ func (a TimeScanWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 // module's TimeScanner — River-agnostic by construction (this file's own doc:
 // the adapters are the only code that knows about River).
 type timeScanWorkspaceWorker struct {
-	river.WorkerDefaults[TimeScanWorkspaceArgs]
 	scanner *automation.TimeScanner
 }
 

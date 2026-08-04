@@ -216,10 +216,11 @@ func TestARefusedWriteSurfacesRatherThanBeingRenderedPast(t *testing.T) {
 
 	// Fail at each write in turn, so no single family's writes are the only
 	// ones checked. The count is deliberately larger than the exposition is
-	// long; once the writer stops failing the render succeeds and the loop
-	// has covered every position.
+	// long — the declared catalogue alone is one write per declared kind —
+	// so once the writer stops failing the render succeeds and the loop has
+	// covered every position.
 	var everSucceeded bool
-	for n := range 64 {
+	for n := range 256 {
 		w := &failingWriter{failOn: n, err: refused}
 		err := writeJobMetrics(w, snap)
 		if err == nil {
