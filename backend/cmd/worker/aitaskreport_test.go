@@ -49,6 +49,7 @@ func TestReportFlagsAReplyThatFilledItsBudget(t *testing.T) {
 		Calls: []probeCall{{
 			Request:  model.Request{System: "sys", MaxTokens: 8192},
 			Response: model.Response{OutputTokens: 8192, InputTokens: 175453, Text: "{"},
+			Reply:    probeReply{OutputTokens: 8192, InputTokens: 175453, Text: "{"},
 			Latency:  time.Second,
 		}},
 	}
@@ -64,6 +65,7 @@ func TestReportFlagsAReplyThatFilledItsBudget(t *testing.T) {
 	}
 
 	res.Calls[0].Response.OutputTokens = 12
+	res.Calls[0].Reply.OutputTokens = 12
 	var roomy strings.Builder
 	if err := writeProbeReport(&roomy, res); err != nil {
 		t.Fatalf("writeProbeReport: %v", err)
@@ -173,8 +175,8 @@ func TestHumanTokensReadsAtTheScaleThatMatters(t *testing.T) {
 // explained by.
 func TestServedIdentityPrefersWhatAnsweredOverWhatWasBound(t *testing.T) {
 	both := probeCall{
-		Response: model.Response{ServedModel: "actually-served"},
-		Route:    ai.RouteInfo{ModelID: "was-bound"},
+		Reply: probeReply{ServedModel: "actually-served"},
+		Route: ai.RouteInfo{ModelID: "was-bound"},
 	}
 	if got := servedIdentity(both); got != "actually-served" {
 		t.Errorf("servedIdentity = %q, want the provider-reported identity", got)

@@ -33,9 +33,15 @@ func writeProbeReport(w io.Writer, res probeResult) error {
 		fmt.Fprintf(&b, "  request   %s\n", requestLine(call.Request))
 		if call.Err != "" {
 			fmt.Fprintf(&b, "  response  FAILED after %s — %s\n", call.Latency.Round(1e6), call.Err)
-			continue
+		} else {
+			fmt.Fprintf(&b, "  response  %s\n", responseLine(call))
 		}
-		fmt.Fprintf(&b, "  response  %s\n", responseLine(call))
+		// Kept on its own line: a credential pass that could not run is THIS
+		// tool's problem, and rendering it as a failed model call would blame
+		// the provider for it.
+		if call.RedactionErr != "" {
+			fmt.Fprintf(&b, "  redaction %s — nothing was written for this call\n", call.RedactionErr)
+		}
 	}
 
 	switch {
@@ -77,6 +83,7 @@ func requestLine(req model.Request) string {
 	parts := []string{
 		fmt.Sprintf("system %d B", len(req.System)),
 		fmt.Sprintf("payload %d B", payload),
+		fmt.Sprintf("passages %d", payloadPassages(req)),
 		fmt.Sprintf("~%s tok", humanTokens((len(req.System)+payload)/approxTokensPerByte)),
 		fmt.Sprintf("max_tokens %d", req.MaxTokens),
 	}
@@ -86,17 +93,44 @@ func requestLine(req model.Request) string {
 	return strings.Join(parts, "  ")
 }
 
+// payloadPassages counts the numbered passages the payload actually carries.
+//
+// It is in the run report and not only in `fetch` because it is the number that
+// explains a whole class of failure: a body served as ONE line numbers to ONE
+// passage however many bytes it holds, so every extracted row cites the same
+// id and the evidence gate has nothing to disagree with. A byte count hides
+// that completely.
+func payloadPassages(req model.Request) int {
+	n := 0
+	for _, msg := range req.Messages {
+		for _, line := range strings.Split(msg.Content, "\n") {
+			if strings.TrimSpace(line) != "" {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func responseLine(call probeCall) string {
 	parts := []string{
-		fmt.Sprintf("in %d tok", call.Response.InputTokens),
-		fmt.Sprintf("out %d tok%s", call.Response.OutputTokens, capFlag(call)),
-		fmt.Sprintf("%d B", len(call.Response.Text)),
+		fmt.Sprintf("in %d tok", call.Reply.InputTokens),
+		fmt.Sprintf("out %d tok%s", call.Reply.OutputTokens, capFlag(call)),
+		fmt.Sprintf("%d B", len(call.Reply.Text)),
 	}
 	if served := servedIdentity(call); served != "" {
 		parts = append(parts, "served="+served)
 	}
+	if call.Route.Tier != "" {
+		parts = append(parts, "tier="+string(call.Route.Tier))
+	}
 	if call.Route.Degraded {
 		parts = append(parts, "DEGRADED")
+	}
+	// A probe reports what a call DID. A cache-served repeat that looked like a
+	// fresh call would be the one thing the report must never imply.
+	if call.Route.Cached {
+		parts = append(parts, "CACHED")
 	}
 	parts = append(parts, call.Latency.Round(1e6).String())
 	return strings.Join(parts, "  ")
@@ -125,8 +159,8 @@ func hitCap(resp model.Response, req model.Request) bool {
 // bound, because a vendor may silently substitute a model and the difference is
 // exactly what a surprising result is explained by.
 func servedIdentity(call probeCall) string {
-	if call.Response.ServedModel != "" {
-		return call.Response.ServedModel
+	if call.Reply.ServedModel != "" {
+		return call.Reply.ServedModel
 	}
 	if call.Route.ModelID != "" {
 		return call.Route.ModelID

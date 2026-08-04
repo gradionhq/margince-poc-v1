@@ -419,7 +419,10 @@ func TaskProbeBrain(routingPath, modelSpec string, fake bool, task ai.Task) (Tas
 	if err != nil {
 		return nil, "", err
 	}
-	router, err := ai.NewLocalRouter(cfg)
+	// The result cache is disabled for the same reason the certification lane
+	// disables it: a probe exists to report what a call DID, and a
+	// cache-served repeat would report a call that never happened.
+	router, err := ai.NewLocalRouter(cfg, ai.WithoutResultCache())
 	if err != nil {
 		return nil, "", err
 	}

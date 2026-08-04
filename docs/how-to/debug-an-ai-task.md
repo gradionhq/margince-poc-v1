@@ -71,7 +71,7 @@ make ai-probe ARGS='fetch https://openrouter.ai/api/v1/models'
 ```
 
 ```
-fetched  media=application/json  bytes=531321  passages=1  markdown=false
+fetched  media=application/json  bytes=531321  passages=1  markdown=false  json=true
 ```
 
 **`passages=` is the number that earns its place here.** Passages are what
@@ -93,6 +93,34 @@ make ai-probe ARGS='run --site rate_extract/pricing \
   --ai-routing ../config/ai-routing.openrouter.example.yaml'
 ```
 
+### A JSON catalog needs reducing first, or you are probing the wrong shape
+
+Read this before probing `rate_extract/pricing` against a broker catalog.
+
+Production does **not** hand that site a raw catalog. `modelCostRefresh.extract`
+reduces a JSON body to one passage per model and narrows it to the models this
+deployment's routing binds on that provider — and only then builds the request. That
+reduction lives in the crawl path, **outside** the certification seam the probe
+drives, so pasting the raw catalog in as `page_text` reproduces the shape production
+sent *before* the fix: one passage, hundreds of models, a truncated reply.
+
+That is useful exactly once — to see the old failure — and misleading afterwards.
+To probe what production now sends, reduce the body the same way first:
+
+```bash
+jq -c --argjson bound '["mistralai/mistral-large-2512","mistralai/ministral-14b-2512"]' \
+  '.data[] | select(.id as $i | $bound | index($i))' \
+  .tmp/aitask/fetch-openrouter.ai_api_v1_models.txt > .tmp/aitask/reduced.txt
+
+jq -n --rawfile t .tmp/aitask/reduced.txt \
+  '{provider:"openai_compatible",page_text:$t}' > .tmp/aitask/fx.json
+```
+
+The `passages` count on the request line is how you tell the two apart: one passage
+means you are probing the raw body, several means the reduced one. The reduction
+itself is covered by unit tests (`internal/compose/modelratecatalog_test.go`), not by
+the probe — a probe of the raw catalog going red does **not** mean production is red.
+
 ### `--expect` is not optional for every site
 
 `--fixture` carries what production is given; `--expect` carries what you assert about the
@@ -101,7 +129,7 @@ reply. Several sites validate the expectation **before** calling the model —
 name no declared tool could reach. Those sites need `--expect` or `--scenario`:
 
 ```
-failed    rate_extract/pricing: the expected answer is not a map of model id to its prices
+failed    rate_extract/pricing: the expected answer is not a map of model id to its prices: unexpected end of JSON input
           (no expectation was supplied; this site validates one — use --expect or --scenario)
 ```
 
@@ -116,8 +144,8 @@ caveat    company context not declared for this site
 fixture   589194 B
 
 call 1
-  request   system 1182 B  payload 529955 B  ~133k tok  max_tokens 8192  schema 588 B
-  response  in 175453 tok  out 8192 tok (HIT CAP)  20287 B  served=mistralai/mistral-large-2512  3m2.873s
+  request   system 1182 B  payload 529955 B  passages 1  ~133k tok  max_tokens 8192  schema 588 B
+  response  in 175453 tok  out 8192 tok (HIT CAP)  20287 B  served=mistralai/mistral-large-2512  tier=premium  3m2.873s
 
 evaluate  invalid — parse extraction: unexpected end of JSON input
 ```
@@ -127,8 +155,8 @@ evaluate  invalid — parse extraction: unexpected end of JSON input
 | `scope=` | how much of production this exercised — read it every time |
 | `binding` | which routing answered, and the tier ladder behind it |
 | `caveat` | company context this DB-less lane could not assemble |
-| `request` | the system prompt and payload sized separately, plus the output ceiling |
-| `response` | billed usage, the served model, latency |
+| `request` | the system prompt and payload sized separately, the **passage count**, and the output ceiling |
+| `response` | billed usage, the served model, the tier that answered, latency |
 | `evaluate` | what the **production validator** made of the reply |
 
 Three things worth knowing:
@@ -143,6 +171,9 @@ Three things worth knowing:
   and an output cap, not to bill anyone.
 - **`served=` prefers what the provider said answered** over what the routing bound. A vendor
   that silently substitutes a model is exactly what a surprising result is explained by.
+- **`CACHED` would mean the call never happened.** The probe disables the result cache for
+  the same reason the certification lane does, so you should never see it — if you do, the
+  report is telling you a repeat was served from memory rather than measured.
 
 ### `invalid` vs `wrong_answer` vs `failed`
 
@@ -194,8 +225,20 @@ without part of the real prompt, and the caveat line says so.
 make ai-probe ARGS='run --scenario ../.tmp/aitask/s.yaml --ai-fake --dump-request ../.tmp/aitask/before'
 # …edit the prompt…
 make ai-probe ARGS='run --scenario ../.tmp/aitask/s.yaml --ai-fake --dump-request ../.tmp/aitask/after'
-diff ../.tmp/aitask/before/*.request.json ../.tmp/aitask/after/*.request.json
+
+# Paths inside ARGS='…' are relative to backend/ (the root Makefile delegates
+# with -C backend); your own shell is in the repo root, so diff has no ../.
+nonce='s/untrusted-[0-9a-f-]{36}/untrusted-NONCE/g'
+diff <(sed -E "$nonce" .tmp/aitask/before/*.request.json) \
+     <(sed -E "$nonce" .tmp/aitask/after/*.request.json)
 ```
+
+**The nonce substitution is required, not optional.** Every call mints a fresh
+`untrusted-<uuid>` boundary marker and names it in both the system prompt and the
+payload — that marker is what makes a forged delimiter inside a fetched page inert,
+so it MUST differ per call. Two runs of an unchanged prompt therefore always differ
+in two places. The dumps stay faithful to what was actually sent; the normalisation
+happens in the diff, where it belongs.
 
 Remember the corpus prompts are byte-pinned: changing a shipped prompt invalidates that
 site's certification record, which `make e2e-ai-report` will then show as `stale`.
@@ -209,16 +252,20 @@ should keep measuring, it becomes a committed corpus scenario —
 
 ## Flags
 
-| flag | |
-|---|---|
-| `--site <task>/<variant>` | which site to probe (needed with `--fixture`) |
-| `--scenario <file.yaml>` | fixture + expectation in the corpus format |
-| `--fixture <file.json>` / `--expect <file.json>` | the two halves separately |
-| `--ai-routing <path>` / `--model provider:model` / `--ai-fake` | exactly one; `--ai-fake` is free |
-| `--json <path\|->` | the whole result, machine-readable |
-| `--dump-request <dir>` | each post-stripper request |
-| `--out <path\|->` | where this verb's artifact goes |
-| `--work-dir <dir>` | artifact sink (default gitignored `.tmp/aitask`) |
-| `--corpus <dir>` | corpus for `list` / `scaffold` |
+One flagset serves all four verbs, so a flag a verb has no use for is accepted and
+ignored rather than refused — `list --site x` prints the whole table. The verb
+column is what each flag actually affects.
+
+| flag | verbs | |
+|---|---|---|
+| `--site <task>/<variant>` | run, scaffold | which site to probe (needed with `--fixture`) |
+| `--scenario <file.yaml>` | run | fixture + expectation in the corpus format |
+| `--fixture <file.json>` / `--expect <file.json>` | run | the two halves separately |
+| `--ai-routing <path>` / `--model provider:model` / `--ai-fake` | run | exactly one; `--ai-fake` is free |
+| `--json <path\|->` | run | the whole result, machine-readable |
+| `--dump-request <dir>` | run | each stripped request |
+| `--out <path\|->` | scaffold, fetch | where this verb's artifact goes |
+| `--work-dir <dir>` | scaffold, fetch, run | artifact sink (default gitignored `.tmp/aitask`) |
+| `--corpus <dir>` | list, scaffold | corpus to read |
 
 The BYOK key is loaded from repo-root `.env.local`, exactly as `make e2e-ai` does.

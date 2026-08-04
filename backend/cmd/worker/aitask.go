@@ -415,6 +415,8 @@ func fetchBoundaryLine(doc webread.Doc) string {
 	if mediaType == "" {
 		mediaType = "(none declared)"
 	}
-	return fmt.Sprintf("fetched  media=%s  bytes=%d  passages=%d  markdown=%t",
-		mediaType, len(doc.Text), passages, doc.IsMarkdown())
+	// markdown and json are named because those are the two classes served
+	// VERBATIM; anything else reached here through the HTML reduction.
+	return fmt.Sprintf("fetched  media=%s  bytes=%d  passages=%d  markdown=%t  json=%t",
+		mediaType, len(doc.Text), passages, doc.IsMarkdown(), doc.IsJSON())
 }

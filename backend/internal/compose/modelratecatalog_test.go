@@ -245,22 +245,47 @@ func TestExtractFailsWhenNoBoundModelAppearsInItsCatalog(t *testing.T) {
 	}
 }
 
-// A provider this deployment binds nothing on is not an error: the catalog is
-// simply not filtered, which is what a deployment with no routing had before.
-func TestExtractKeepsEveryModelForAProviderThatBindsNothing(t *testing.T) {
+// A deployment with no routing at all filters by nothing, which is what it had
+// before any of this existed.
+func TestExtractKeepsEveryModelWhenNothingIsWired(t *testing.T) {
 	var sent model.Request
 	refresh := modelCostRefresh{
 		fetcher: catalogFetcher{text: `{"data":[{"id":"vendor/a"},{"id":"vendor/b"}]}`, mediaType: "application/json"},
 		brain:   &catalogCaptureBrain{got: &sent, reply: `{"models":[]}`},
-		bound:   map[string]map[string]bool{"someone_else": {"vendor/z": true}},
 		log:     slog.New(slog.DiscardHandler),
 	}
 	if _, err := refresh.extract(context.Background(), pricingSource{Provider: "x", URL: "https://x.test/m"}); err != nil {
-		t.Fatalf("a provider with no bindings must not fail: %v", err)
+		t.Fatalf("an unwired deployment must not fail: %v", err)
 	}
 	payload := sent.Messages[0].Content
 	if !strings.Contains(payload, "vendor/a") || !strings.Contains(payload, "vendor/b") {
 		t.Errorf("an unfiltered catalog keeps every model:\n%s", payload)
+	}
+}
+
+// rates.model_pricing keys and ai-routing.yaml provider names are two
+// operator-edited files coupled by exact string equality. A mismatch would
+// otherwise disable the filter, send the whole catalog, and fail downstream with
+// a truncated-reply error pointing nowhere near the real cause.
+func TestExtractRefusesAPricingSourceTheRoutingDoesNotBind(t *testing.T) {
+	var sent model.Request
+	refresh := modelCostRefresh{
+		fetcher: catalogFetcher{text: `{"data":[{"id":"vendor/a"}]}`, mediaType: "application/json"},
+		brain:   &catalogCaptureBrain{got: &sent, reply: `{"models":[]}`},
+		bound:   map[string]map[string]bool{"openai_compatible": {"vendor/a": true}},
+		log:     slog.New(slog.DiscardHandler),
+	}
+	_, err := refresh.extract(context.Background(), pricingSource{Provider: "openrouter", URL: "https://x.test/m"})
+	if err == nil {
+		t.Fatal("a pricing source naming a provider the routing does not bind must be refused")
+	}
+	// The message has to name BOTH spellings, or the operator cannot see which
+	// of the two files to change.
+	if !strings.Contains(err.Error(), "openrouter") || !strings.Contains(err.Error(), "openai_compatible") {
+		t.Errorf("error %q must show both spellings", err)
+	}
+	if sent.System != "" {
+		t.Error("no model call may be made on a misconfigured source")
 	}
 }
 

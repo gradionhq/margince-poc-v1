@@ -219,7 +219,18 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	}
 	pageText := doc.Text
 	if doc.IsJSON() {
-		wanted := m.bound[src.Provider]
+		wanted, bindsProvider := m.bound[src.Provider]
+		// rates.model_pricing keys and ai-routing.yaml provider names are two
+		// operator-edited files coupled by exact string equality. When the
+		// routing binds SOMETHING but nothing under this source's key, the key
+		// is spelled wrong — and left alone it would silently disable the
+		// filter, send the whole catalog, and fail downstream with a truncated
+		// reply whose error points nowhere near the real cause.
+		if !bindsProvider && len(m.bound) > 0 {
+			return nil, fmt.Errorf(
+				"extract: rates.model_pricing names provider %q, which ai-routing.yaml does not bind (it binds %s) — the two must use the same spelling",
+				src.Provider, strings.Join(boundProviderNames(m.bound), ", "))
+		}
 		reduced, kept, ok := catalogPassages(doc.Text, wanted)
 		if !ok {
 			return nil, errors.New("extract: the source served JSON that is not a model catalog")
@@ -373,6 +384,17 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 		return microBuckets{}, false
 	}
 	return microBuckets{in, out, cr, cw}, true
+}
+
+// boundProviderNames lists the providers the routing binds, sorted, so a
+// mismatch error can show the operator what the other file actually says.
+func boundProviderNames(bound map[string]map[string]bool) []string {
+	names := make([]string, 0, len(bound))
+	for provider := range bound {
+		names = append(names, provider)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // catalogPassages reduces a JSON model catalog to ONE LINE PER MODEL, keeping

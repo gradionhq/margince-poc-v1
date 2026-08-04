@@ -44,16 +44,20 @@ type probeCall struct {
 	// document, and re-decoding it into a struct would only invite a later
 	// edit to serialize the unstripped one by mistake.
 	Wire json.RawMessage `json:"request"`
-	// Response is stripped in place before it is written: Text is the only
-	// field that can carry content, and a model that echoes a credential out of
-	// its context must not land it in a dump.
-	Response model.Response `json:"response"`
+	// Response is the live reply, kept for the report's sizing and NOT
+	// serialized: it carries ProviderMetadata, raw vendor JSON nothing has
+	// stripped. Reply below is the projection that may be written down.
+	Response model.Response `json:"-"`
+	Reply    probeReply     `json:"response"`
 	Route    ai.RouteInfo   `json:"route"`
 	Latency  time.Duration  `json:"latency_ns"`
-	// Err is the completer's own failure. A call that never completed is the
-	// lane's problem, not a measurement of the reply, so it is kept apart from
-	// the outcome the validator reports.
+	// Err is the COMPLETER's own failure — a call that never completed is the
+	// lane's problem, not a measurement of the reply.
 	Err string `json:"error,omitempty"`
+	// RedactionErr is a failure of this probe's own credential pass, kept apart
+	// from Err: a stripper that could not run is a harness problem, and
+	// rendering it as a failed model call would misattribute it to the provider.
+	RedactionErr string `json:"redaction_error,omitempty"`
 }
 
 // probeRequest is the serializable projection of one request: everything a
@@ -64,6 +68,15 @@ type probeRequest struct {
 	MaxTokens      int             `json:"max_tokens"`
 	ResponseSchema json.RawMessage `json:"response_schema,omitempty"`
 	Tools          []string        `json:"tools,omitempty"`
+}
+
+// probeReply is the serializable projection of one reply: the usage numbers and
+// the stripped text, and nothing a vendor put there that nothing has stripped.
+type probeReply struct {
+	Text         string `json:"text"`
+	InputTokens  int    `json:"input_tokens"`
+	OutputTokens int    `json:"output_tokens"`
+	ServedModel  string `json:"served_model,omitempty"`
 }
 
 type probeMessage struct {
@@ -155,17 +168,19 @@ func (c *recordingCompleter) Complete(ctx context.Context, req model.Request) (m
 	// A request that cannot be stripped is not written down at all: a dump is a
 	// convenience, and no convenience is worth emitting a credential. The
 	// failure is recorded on the call so it is visible rather than silent.
+	call.Reply = probeReply{
+		InputTokens: resp.InputTokens, OutputTokens: resp.OutputTokens, ServedModel: resp.ServedModel,
+	}
 	wire, stripErr := stripRequest(ctx, req)
 	if stripErr != nil {
-		call.Err = strings.TrimSpace(call.Err + " " + stripErr.Error())
+		call.RedactionErr = stripErr.Error()
 	} else {
 		call.Wire = wire
 	}
 	if text, err := stripText(ctx, req.SecretStripper, resp.Text); err == nil {
-		call.Response.Text = text
+		call.Reply.Text = text
 	} else {
-		call.Response.Text = ""
-		call.Err = strings.TrimSpace(call.Err + " " + err.Error())
+		call.RedactionErr = strings.TrimSpace(call.RedactionErr + " " + err.Error())
 	}
 	c.calls = append(c.calls, call)
 	// The caller gets the UNALTERED reply: stripping guards what is written
@@ -255,7 +270,11 @@ func runProbe(ctx context.Context, stdout io.Writer, census *aitasks.Registry, c
 	// the same credential gate the per-call replies do.
 	output, stripErr := stripText(ctx, nil, trace.Output)
 	if stripErr != nil {
-		return stripErr
+		// Reported like any other harness failure, and through the SAME exit —
+		// a bare return here would discard the report, the json result and
+		// every call already recorded.
+		res.Failure = stripErr.Error()
+		return finishProbe(stdout, cfg, res, stripErr)
 	}
 	res.Output = output
 	if runErr != nil {
@@ -404,6 +423,10 @@ func dumpProbeRequests(dir string, res probeResult) error {
 		return fmt.Errorf("aitask: %w", err)
 	}
 	for i, call := range res.Calls {
+		if len(call.Wire) == 0 {
+			// Nothing was safe to write; a "null" file would read as a dump.
+			continue
+		}
 		out, err := json.MarshalIndent(call.Wire, "", "  ")
 		if err != nil {
 			return fmt.Errorf("aitask: rendering request %d: %w", i+1, err)
