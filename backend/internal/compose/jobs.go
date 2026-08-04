@@ -228,6 +228,41 @@ type JobRunnerConfig struct {
 // the Gmail poll.
 func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
 	workers := river.NewWorkers()
+	registerJobWorkers(workers, pool, cfg, log)
+
+	periodic := unconditionalSweeps(cfg)
+	// The ADR-0078 relationship-graph passes register themselves, so this
+	// wiring stays one line as that surface grows (jobs_graph.go).
+	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
+	// The ADR-0069 §3a embed drift sweep registers itself the same way
+	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
+	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
+	// The GDPR retention pass registers itself the same way
+	// (jobs_privacyretention.go).
+	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
+	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
+	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
+	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
+	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
+	periodic = append(periodic, addSignalJobs(workers, pool, cfg, log)...)
+
+	// Everything that exists only because this deployment configured it.
+	periodic = append(periodic, addConfiguredJobs(workers, pool, cfg, log)...)
+
+	return jobs.New(pool, jobs.Config{
+		Queues:       jobRunnerQueues(),
+		Workers:      workers,
+		PeriodicJobs: periodic,
+	}, log)
+}
+
+// registerJobWorkers registers the workers this process role can serve. Most
+// register whatever the deployment configured — a worker with no work simply
+// never runs — so only the send lane, which needs a registry to dispatch
+// through at all, is gated here; the lanes whose SCHEDULE is deployment-shaped
+// are addConfiguredJobs' (jobs_configured.go). Registering a worker is not
+// scheduling it: NewJobRunner assembles the periodic list.
+func registerJobWorkers(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
 	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
@@ -275,8 +310,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	if cfg.SendRegistry != nil {
 		river.AddWorker(workers, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
 	}
+}
 
-	periodic := []*river.PeriodicJob{
+// unconditionalSweeps is every periodic pass an installation ticks whatever it
+// configured, as opposed to the ones an operator's own wiring switches on
+// (addConfiguredJobs). RunOnStart preserves the old ticker's boot-time first
+// pass.
+func unconditionalSweeps(cfg JobRunnerConfig) []*river.PeriodicJob {
+	return []*river.PeriodicJob{
 		river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.CloseDateInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return CloseDateSweepArgs{}, sweepInsertOpts() },
@@ -311,59 +352,43 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
-	// The ADR-0078 relationship-graph passes register themselves, so this
-	// wiring stays one line as that surface grows (jobs_graph.go).
-	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
-	// The ADR-0069 §3a embed drift sweep registers itself the same way
-	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
-	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
-	// The GDPR retention pass registers itself the same way
-	// (jobs_privacyretention.go).
-	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
-	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
-	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
-	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
-	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
-	periodic = append(periodic, addSignalJobs(workers, pool, cfg, log)...)
+}
 
-	// Everything that exists only because this deployment configured it.
-	periodic = append(periodic, addConfiguredJobs(workers, pool, cfg, log)...)
-
-	return jobs.New(pool, jobs.Config{
-		Queues: map[string]river.QueueConfig{
-			river.QueueDefault: {MaxWorkers: 5},
-			// Deep reads run on their own bounded pool so long crawls cannot
-			// evict the short maintenance jobs from the default queue.
-			deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
-			// Rate refreshes (FX fetch + pricing-page crawl+LLM extract) are
-			// likewise long; their own bounded pool keeps a multi-workspace
-			// burst from starving close-date, reconcile, and capture jobs.
-			rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
-			// The AI-backed capture passes make serial model calls, so a
-			// fanned-out fleet of them would occupy every default worker and
-			// delay sends, Telegram polls, and capture syncs. Same species as
-			// deep reads — long and model-bound — so the same posture.
-			aiCaptureQueue: {MaxWorkers: aiCaptureMaxWorkers},
-			// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
-			// counts but does not pace, and its keys are per workspace, so it
-			// cannot bound a provider-level burst: a concurrent fan-out could
-			// exceed the incumbent's per-second Search limit. Each workspace
-			// still gets its own job row, which is the observability this phase
-			// is after; per-workspace PARALLELISM is not.
-			overlayReconcileQueue: {MaxWorkers: 1},
-			// A full batch of sequential calls to endpoints this deployment
-			// does not control: long and outbound-bound, so the same posture
-			// deep reads take (webhookRetryQueue).
-			webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
-			// A batch of agent runs, each entitled to the full RunWallClock —
-			// the longest pass in the tree (agentSchedulerQueue).
-			agentSchedulerQueue: {MaxWorkers: agentSchedulerMaxWorkers},
-			// A full batch per policy, each record its own multi-statement
-			// audited transaction — minutes of database-bound work per tenant
-			// (privacyRetentionQueue).
-			privacyRetentionQueue: {MaxWorkers: privacyRetentionMaxWorkers},
-		},
-		Workers:      workers,
-		PeriodicJobs: periodic,
-	}, log)
+// jobRunnerQueues is the runner's queue set: the default pool plus one bounded
+// pool per species of long job, so a burst of slow work never evicts the short
+// maintenance passes sharing the process.
+func jobRunnerQueues() map[string]river.QueueConfig {
+	return map[string]river.QueueConfig{
+		river.QueueDefault: {MaxWorkers: 5},
+		// Deep reads run on their own bounded pool so long crawls cannot
+		// evict the short maintenance jobs from the default queue.
+		deepReadQueue: {MaxWorkers: deepReadMaxWorkers},
+		// Rate refreshes (FX fetch + pricing-page crawl+LLM extract) are
+		// likewise long; their own bounded pool keeps a multi-workspace
+		// burst from starving close-date, reconcile, and capture jobs.
+		rateRefreshQueue: {MaxWorkers: rateRefreshMaxWorkers},
+		// The AI-backed capture passes make serial model calls, so a
+		// fanned-out fleet of them would occupy every default worker and
+		// delay sends, Telegram polls, and capture syncs. Same species as
+		// deep reads — long and model-bound — so the same posture.
+		aiCaptureQueue: {MaxWorkers: aiCaptureMaxWorkers},
+		// Overlay reconcile is SERIAL by design. overlaybudget.ConsumeSearch
+		// counts but does not pace, and its keys are per workspace, so it
+		// cannot bound a provider-level burst: a concurrent fan-out could
+		// exceed the incumbent's per-second Search limit. Each workspace
+		// still gets its own job row, which is the observability this phase
+		// is after; per-workspace PARALLELISM is not.
+		overlayReconcileQueue: {MaxWorkers: 1},
+		// A full batch of sequential calls to endpoints this deployment
+		// does not control: long and outbound-bound, so the same posture
+		// deep reads take (webhookRetryQueue).
+		webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
+		// A batch of agent runs, each entitled to the full RunWallClock —
+		// the longest pass in the tree (agentSchedulerQueue).
+		agentSchedulerQueue: {MaxWorkers: agentSchedulerMaxWorkers},
+		// A full batch per policy, each record its own multi-statement
+		// audited transaction — minutes of database-bound work per tenant
+		// (privacyRetentionQueue).
+		privacyRetentionQueue: {MaxWorkers: privacyRetentionMaxWorkers},
+	}
 }

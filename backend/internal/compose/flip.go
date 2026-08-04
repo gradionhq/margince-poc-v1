@@ -243,29 +243,9 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
 
-	operator, err := flipOperator(ctx)
+	rep, err := f.importMirrorEstate(ctx, run, mode, v.checks.Incumbent)
 	if err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
-	}
-	source := mirrorFlipSource{ms: f.ms}
-	writers := newFlipWriters(f.pool, f.ms, v.checks.Incumbent).forRun(run.ID, operator)
-	assocs, err := source.Associations(ctx)
-	if err != nil {
-		return crmcontracts.OverlayFlipAccepted{}, err
-	}
-	writers.SetAssociations(assocs)
-
-	rep, err := migration.NewEngine(f.runs, writers).Run(ctx, run.ID, source)
-	if err != nil {
-		// The run record holds the failure + checkpoint: executing again
-		// resumes it. The mirror stays frozen — the estate must not
-		// drift between attempts. The cause is logged, not wrapped onto
-		// the wire: the engine's chain names internal call sites and can
-		// carry store sentinels that would remap the status.
-		f.log.Error("overlay flip: migration run failed", "run_id", run.ID.String(), "mode", string(mode), "err", err)
-		return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf(
-			"the flip's migration run did not complete; it is resumable — re-run the flip to continue from its checkpoint (run %s): %w",
-			run.ID, apperrors.ErrConflict)
 	}
 
 	if err := f.svc.CompleteFlip(ctx, run.ID, string(mode)); err != nil {
@@ -283,6 +263,38 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 		out.EmergencyDisclosure = emergencyDisclosure(v.checks.LastSyncedAt)
 	}
 	return out, nil
+}
+
+// importMirrorEstate writes the sealed mirror into the native tables under
+// this run: the writers attribute every imported record to the run and to the
+// human who ordered the cutover, and the association map is loaded before the
+// first object so a record's links land with it rather than a pass later.
+func (f *flipRunner) importMirrorEstate(ctx context.Context, run migration.Run, mode crmcontracts.OverlayFlipRequestMode, incumbent string) (migration.Report, error) {
+	operator, err := flipOperator(ctx)
+	if err != nil {
+		return migration.Report{}, err
+	}
+	source := mirrorFlipSource{ms: f.ms}
+	writers := newFlipWriters(f.pool, f.ms, incumbent).forRun(run.ID, operator)
+	assocs, err := source.Associations(ctx)
+	if err != nil {
+		return migration.Report{}, err
+	}
+	writers.SetAssociations(assocs)
+
+	rep, err := migration.NewEngine(f.runs, writers).Run(ctx, run.ID, source)
+	if err != nil {
+		// The run record holds the failure + checkpoint: executing again
+		// resumes it. The mirror stays frozen — the estate must not
+		// drift between attempts. The cause is logged, not wrapped onto
+		// the wire: the engine's chain names internal call sites and can
+		// carry store sentinels that would remap the status.
+		f.log.Error("overlay flip: migration run failed", "run_id", run.ID.String(), "mode", string(mode), "err", err)
+		return migration.Report{}, fmt.Errorf(
+			"the flip's migration run did not complete; it is resumable — re-run the flip to continue from its checkpoint (run %s): %w",
+			run.ID, apperrors.ErrConflict)
+	}
+	return rep, nil
 }
 
 // parseFlipRequest is the confirm-first gate on the request itself: the
