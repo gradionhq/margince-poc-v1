@@ -443,6 +443,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Who around this contact could open a door, and through whom.
+         * @description The local graph answers one question a rep actually asks: *who here can introduce me,
+         *     and what is the evidence they really know them?* It is not a picture of the whole
+         *     network — a diagram of everything answers nothing.
+         *
+         *     Two groups. `direct` is the colleagues who have corresponded with this contact
+         *     themselves, warmest first, each with the messages behind the claim. `account` is the
+         *     other contacts at their employer and which colleague is warmest with each — the route
+         *     when nobody here knows the person but somebody knows their colleague.
+         *
+         *     Row scope is applied per group, not once at the root: a contact outside the caller's
+         *     scope is absent from `account` rather than named, and an activity they may not read is
+         *     absent from the receipts rather than counted. `dropped_count` says how many a group
+         *     lost to the cap so the reader knows the picture is partial.
+         *
+         *     The `direct` edges carry receipts — the actual messages, each individually
+         *     visibility-checked. The `account` edges deliberately carry counts and dates only:
+         *     pooled interaction metadata is disclosable where the correspondence itself is not.
+         */
+        get: operations["getPersonGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/feedback": {
         parameters: {
             query?: never;
@@ -7496,6 +7535,82 @@ export interface components {
             profile_fields?: components["schemas"]["PersonProfileField"][];
             since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
         };
+        /** @description The local graph around one contact — nodes, the edges between them, and the route worth taking. */
+        PersonGraph: {
+            /** Format: uuid */
+            person_id: string;
+            /** @description Everyone in the picture, including the contact themselves as the anchor. */
+            nodes: components["schemas"]["PersonGraphNode"][];
+            /** @description Who has actually corresponded with whom. An edge exists only where interactions do. */
+            edges: components["schemas"]["PersonGraphEdge"][];
+            route?: components["schemas"]["PersonGraphRoute"];
+            /** @description Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
+            groups_omitted: ("direct" | "account")[];
+            /** @description How many nodes each group lost to its cap. Stated rather than silently truncated. */
+            dropped_count?: {
+                direct?: number;
+                account?: number;
+            };
+        };
+        PersonGraphNode: {
+            /** @description Stable within this response, and what an edge refers to. `user:<uuid>` or `person:<uuid>`. */
+            id: string;
+            /** @enum {string} */
+            type: "colleague" | "contact";
+            /**
+             * @description `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+             * @enum {string}
+             */
+            group: "anchor" | "direct" | "account";
+            label: string;
+            /** @description Their role or employer, when the record carries one. */
+            sublabel?: string;
+            /** Format: uuid */
+            person_id?: string;
+            /** Format: uuid */
+            user_id?: string;
+        };
+        /** @description One corresponding pair, with the evidence the graph is allowed to disclose. */
+        PersonGraphEdge: {
+            /** @description A node id. */
+            from: string;
+            /** @description A node id. */
+            to: string;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+            interactions_90d: number;
+            inbound_90d?: number;
+            outbound_90d?: number;
+            /** Format: date-time */
+            last_at?: string | null;
+            /** @description The actual messages behind this edge, each individually visibility-checked before it is named. Present on `direct` edges only: pooled counts are disclosable where the correspondence itself is not, so an `account` edge carries the numbers and no rows. */
+            receipts?: components["schemas"]["PersonGraphReceipt"][];
+        };
+        PersonGraphReceipt: {
+            /** Format: uuid */
+            activity_id: string;
+            subject?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /**
+         * @description The warmest way in, chosen deterministically rather than scored by a model: the
+         *     strongest direct relationship if one exists, otherwise the strongest relationship any
+         *     colleague has with someone else at the same company.
+         */
+        PersonGraphRoute: {
+            /** Format: uuid */
+            via_user_id: string;
+            via_display_name: string;
+            /**
+             * Format: uuid
+             * @description Set when the route goes via a colleague at the same company rather than the contact directly.
+             */
+            through_person_id?: string;
+            through_display_name?: string;
+            /** @description The proof line, written from the counts — "6 two-way exchanges · replied 2 days ago". */
+            why: string;
+        };
         /**
          * @description One reason this contact is worth attention now, with the evidence behind it.
          *
@@ -12993,6 +13108,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordViewAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The local graph. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonGraph"];
                 };
             };
             401: components["responses"]["Unauthorized"];

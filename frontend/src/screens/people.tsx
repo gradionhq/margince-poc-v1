@@ -50,6 +50,7 @@ import {
   usePerson360,
   WhoKnowsThem,
 } from "./person360";
+import { PersonGraphPanel } from "./persongraph";
 import { PersonMoments } from "./personmoments";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
@@ -665,7 +666,10 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
               </>
             )}
             {tab === "relationships" && (
-              <RelationshipsTab scope={{ person_id: person.id }} />
+              <div style={{ display: "grid", gap: "var(--space-4)" }}>
+                <PersonGraphPanel personId={id} />
+                <RelationshipsTab scope={{ person_id: person.id }} />
+              </div>
             )}
             {tab === "history" && (
               <RecordHistoryTab kind="person" id={person.id} />

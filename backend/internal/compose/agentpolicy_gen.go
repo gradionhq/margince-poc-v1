@@ -161,6 +161,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/people":                                                     {Op: "listPeople", Access: "tool", Tool: "search_records", RecordType: "person", Tier: "auto_execute"},
 	"GET /v1/people/{id}":                                                {Op: "getPerson", Access: "tool", Tool: "read_record", RecordType: "person", Tier: "auto_execute"},
 	"GET /v1/people/{id}/360":                                            {Op: "getPerson360", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/people/{id}/graph":                                          {Op: "getPersonGraph", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/people/{id}/profile-fields":                                 {Op: "getPersonProfileFields", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/products":                                                   {Op: "listProducts", Access: "tool", Tool: "search_records", RecordType: "product", Tier: "auto_execute"},
 	"GET /v1/products/{id}":                                              {Op: "getProduct", Access: "tool", Tool: "read_record", RecordType: "product", Tier: "auto_execute"},

@@ -5010,6 +5010,87 @@ func (e PersonEmailEmailType) Valid() bool {
 	}
 }
 
+// Defines values for PersonGraphGroupsOmitted.
+const (
+	PersonGraphGroupsOmittedAccount PersonGraphGroupsOmitted = "account"
+	PersonGraphGroupsOmittedDirect  PersonGraphGroupsOmitted = "direct"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphGroupsOmitted enum.
+func (e PersonGraphGroupsOmitted) Valid() bool {
+	switch e {
+	case PersonGraphGroupsOmittedAccount:
+		return true
+	case PersonGraphGroupsOmittedDirect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphEdgeStrengthBucket.
+const (
+	PersonGraphEdgeStrengthBucketModerate PersonGraphEdgeStrengthBucket = "moderate"
+	PersonGraphEdgeStrengthBucketNone     PersonGraphEdgeStrengthBucket = "none"
+	PersonGraphEdgeStrengthBucketStrong   PersonGraphEdgeStrengthBucket = "strong"
+	PersonGraphEdgeStrengthBucketWeak     PersonGraphEdgeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphEdgeStrengthBucket enum.
+func (e PersonGraphEdgeStrengthBucket) Valid() bool {
+	switch e {
+	case PersonGraphEdgeStrengthBucketModerate:
+		return true
+	case PersonGraphEdgeStrengthBucketNone:
+		return true
+	case PersonGraphEdgeStrengthBucketStrong:
+		return true
+	case PersonGraphEdgeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphNodeGroup.
+const (
+	PersonGraphNodeGroupAccount PersonGraphNodeGroup = "account"
+	PersonGraphNodeGroupAnchor  PersonGraphNodeGroup = "anchor"
+	PersonGraphNodeGroupDirect  PersonGraphNodeGroup = "direct"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphNodeGroup enum.
+func (e PersonGraphNodeGroup) Valid() bool {
+	switch e {
+	case PersonGraphNodeGroupAccount:
+		return true
+	case PersonGraphNodeGroupAnchor:
+		return true
+	case PersonGraphNodeGroupDirect:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonGraphNodeType.
+const (
+	PersonGraphNodeTypeColleague PersonGraphNodeType = "colleague"
+	PersonGraphNodeTypeContact   PersonGraphNodeType = "contact"
+)
+
+// Valid indicates whether the value is a known member of the PersonGraphNodeType enum.
+func (e PersonGraphNodeType) Valid() bool {
+	switch e {
+	case PersonGraphNodeTypeColleague:
+		return true
+	case PersonGraphNodeTypeContact:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PersonMomentConfidence.
 const (
 	PersonMomentConfidenceHigh         PersonMomentConfidence = "high"
@@ -7187,22 +7268,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	Automatic  VoiceProfileVersionReason = "automatic"
-	Manual     VoiceProfileVersionReason = "manual"
-	Onboarding VoiceProfileVersionReason = "onboarding"
-	Rollback   VoiceProfileVersionReason = "rollback"
+	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
+	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
+	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
+	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case Automatic:
+	case VoiceProfileVersionReasonAutomatic:
 		return true
-	case Manual:
+	case VoiceProfileVersionReasonManual:
 		return true
-	case Onboarding:
+	case VoiceProfileVersionReasonOnboarding:
 		return true
-	case Rollback:
+	case VoiceProfileVersionReasonRollback:
 		return true
 	default:
 		return false
@@ -13044,6 +13125,97 @@ type PersonEmail struct {
 
 // PersonEmailEmailType defines model for PersonEmail.EmailType.
 type PersonEmailEmailType string
+
+// PersonGraph The local graph around one contact — nodes, the edges between them, and the route worth taking.
+type PersonGraph struct {
+	// DroppedCount How many nodes each group lost to its cap. Stated rather than silently truncated.
+	DroppedCount *struct {
+		Account *int `json:"account,omitempty"`
+		Direct  *int `json:"direct,omitempty"`
+	} `json:"dropped_count,omitempty"`
+
+	// Edges Who has actually corresponded with whom. An edge exists only where interactions do.
+	Edges []PersonGraphEdge `json:"edges"`
+
+	// GroupsOmitted Groups withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	GroupsOmitted []PersonGraphGroupsOmitted `json:"groups_omitted"`
+
+	// Nodes Everyone in the picture, including the contact themselves as the anchor.
+	Nodes    []PersonGraphNode  `json:"nodes"`
+	PersonId openapi_types.UUID `json:"person_id"`
+
+	// Route The warmest way in, chosen deterministically rather than scored by a model: the
+	// strongest direct relationship if one exists, otherwise the strongest relationship any
+	// colleague has with someone else at the same company.
+	Route *PersonGraphRoute `json:"route,omitempty"`
+}
+
+// PersonGraphGroupsOmitted defines model for PersonGraph.GroupsOmitted.
+type PersonGraphGroupsOmitted string
+
+// PersonGraphEdge One corresponding pair, with the evidence the graph is allowed to disclose.
+type PersonGraphEdge struct {
+	// From A node id.
+	From            string     `json:"from"`
+	Inbound90d      *int       `json:"inbound_90d,omitempty"`
+	Interactions90d int        `json:"interactions_90d"`
+	LastAt          *time.Time `json:"last_at,omitempty"`
+	Outbound90d     *int       `json:"outbound_90d,omitempty"`
+
+	// Receipts The actual messages behind this edge, each individually visibility-checked before it is named. Present on `direct` edges only: pooled counts are disclosable where the correspondence itself is not, so an `account` edge carries the numbers and no rows.
+	Receipts       *[]PersonGraphReceipt         `json:"receipts,omitempty"`
+	StrengthBucket PersonGraphEdgeStrengthBucket `json:"strength_bucket"`
+
+	// To A node id.
+	To string `json:"to"`
+}
+
+// PersonGraphEdgeStrengthBucket defines model for PersonGraphEdge.StrengthBucket.
+type PersonGraphEdgeStrengthBucket string
+
+// PersonGraphNode defines model for PersonGraphNode.
+type PersonGraphNode struct {
+	// Group `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+	Group PersonGraphNodeGroup `json:"group"`
+
+	// Id Stable within this response, and what an edge refers to. `user:<uuid>` or `person:<uuid>`.
+	Id       string              `json:"id"`
+	Label    string              `json:"label"`
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+
+	// Sublabel Their role or employer, when the record carries one.
+	Sublabel *string             `json:"sublabel,omitempty"`
+	Type     PersonGraphNodeType `json:"type"`
+	UserId   *openapi_types.UUID `json:"user_id,omitempty"`
+}
+
+// PersonGraphNodeGroup `anchor` is the contact this graph is about. `direct` knows them. `account` works with them.
+type PersonGraphNodeGroup string
+
+// PersonGraphNodeType defines model for PersonGraphNode.Type.
+type PersonGraphNodeType string
+
+// PersonGraphReceipt defines model for PersonGraphReceipt.
+type PersonGraphReceipt struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+	OccurredAt time.Time          `json:"occurred_at"`
+	Subject    *string            `json:"subject,omitempty"`
+}
+
+// PersonGraphRoute The warmest way in, chosen deterministically rather than scored by a model: the
+// strongest direct relationship if one exists, otherwise the strongest relationship any
+// colleague has with someone else at the same company.
+type PersonGraphRoute struct {
+	ThroughDisplayName *string `json:"through_display_name,omitempty"`
+
+	// ThroughPersonId Set when the route goes via a colleague at the same company rather than the contact directly.
+	ThroughPersonId *openapi_types.UUID `json:"through_person_id,omitempty"`
+	ViaDisplayName  string              `json:"via_display_name"`
+	ViaUserId       openapi_types.UUID  `json:"via_user_id"`
+
+	// Why The proof line, written from the counts — "6 two-way exchanges · replied 2 days ago".
+	Why string `json:"why"`
+}
 
 // PersonListResponse defines model for PersonListResponse.
 type PersonListResponse struct {
@@ -24646,6 +24818,9 @@ type ServerInterface interface {
 	// Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
 	// (POST /people/{id}/consent/double-opt-in)
 	IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id)
+	// Who around this contact could open a door, and through whom.
+	// (GET /people/{id}/graph)
+	GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
@@ -26158,6 +26333,12 @@ func (_ Unimplemented) RecordConsent(w http.ResponseWriter, r *http.Request, id 
 // Mint + deliver a double-opt-in confirmation token (the issuance half of the DOI round-trip).
 // (POST /people/{id}/consent/double-opt-in)
 func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Who around this contact could open a door, and through whom.
+// (GET /people/{id}/graph)
+func (_ Unimplemented) GetPersonGraph(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35544,6 +35725,38 @@ func (siw *ServerInterfaceWrapper) IssueDoubleOptIn(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPersonGraph operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonGraph(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonGraph(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergePerson operation middleware
 func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Request) {
 
@@ -41619,6 +41832,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/consent/double-opt-in", wrapper.IssueDoubleOptIn)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/graph", wrapper.GetPersonGraph)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)

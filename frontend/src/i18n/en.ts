@@ -3053,6 +3053,32 @@ export const en = {
   "person.thin.remediation.employer":
     "Add their employer and Margince can read that company's site for their role.",
   "person.thin.logFirst": "Log the first interaction",
+  "person.graph.loading": "Reading the network around this contact…",
+  "person.graph.routeTitle": "The warmest way in",
+  "person.graph.routeDirect": "{name} already corresponds with them.",
+  "person.graph.routeVia":
+    "{name} corresponds with {through} at the same company.",
+  "person.graph.noRoute":
+    "Nobody here corresponds with them or with anyone at their company yet.",
+  "person.graph.direct": "Who knows them",
+  "person.graph.directSub":
+    "Colleagues who have corresponded with this contact themselves.",
+  "person.graph.noDirect": "Nobody here has corresponded with them.",
+  "person.graph.account": "At the same company",
+  "person.graph.accountSub":
+    "Their colleagues, and who here is warmest with each.",
+  "person.graph.noAccount": "No other contacts on record at their company.",
+  "person.graph.omitted":
+    "Part of this is hidden because you do not have the grant for it.",
+  "person.graph.noEdge": "No recorded correspondence with {name}.",
+  "person.graph.withColleague": "with {name}",
+  "person.graph.withContact": "with this contact",
+  "person.graph.counts":
+    "{total} interactions in 90 days · {inbound} in, {outbound} out",
+  "person.graph.countsOnly":
+    "Counts only — the messages themselves stay on the timeline.",
+  "person.graph.untitledMessage": "Message with no subject",
+  "person.graph.dropped": "{count} more not shown.",
   "person.moment.dismiss": "Not now",
   "person.moment.recommended": "Next:",
   "person.moment.willConfirm": "will ask you to confirm",

@@ -3074,6 +3074,33 @@ export const de = {
   "person.thin.remediation.employer":
     "Hinterlegen Sie den Arbeitgeber, dann liest Margince dessen Website nach ihrer Rolle.",
   "person.thin.logFirst": "Ersten Kontakt erfassen",
+  "person.graph.loading": "Das Netzwerk um diesen Kontakt wird gelesen \u2026",
+  "person.graph.routeTitle": "Der w\u00e4rmste Weg hinein",
+  "person.graph.routeDirect": "{name} steht bereits im Austausch mit ihnen.",
+  "person.graph.routeVia":
+    "{name} steht im Austausch mit {through} im selben Unternehmen.",
+  "person.graph.noRoute":
+    "Bisher steht hier niemand im Austausch mit ihnen oder mit jemandem in ihrem Unternehmen.",
+  "person.graph.direct": "Wer sie kennt",
+  "person.graph.directSub":
+    "Kolleginnen und Kollegen, die selbst mit diesem Kontakt korrespondiert haben.",
+  "person.graph.noDirect": "Hier hat niemand mit ihnen korrespondiert.",
+  "person.graph.account": "Im selben Unternehmen",
+  "person.graph.accountSub":
+    "Ihre Kolleginnen und Kollegen \u2014 und wer hier zu jedem den w\u00e4rmsten Draht hat.",
+  "person.graph.noAccount":
+    "Keine weiteren Kontakte in diesem Unternehmen erfasst.",
+  "person.graph.omitted":
+    "Ein Teil davon ist ausgeblendet, weil die Berechtigung daf\u00fcr fehlt.",
+  "person.graph.noEdge": "Keine erfasste Korrespondenz mit {name}.",
+  "person.graph.withColleague": "mit {name}",
+  "person.graph.withContact": "mit diesem Kontakt",
+  "person.graph.counts":
+    "{total} Interaktionen in 90 Tagen \u00b7 {inbound} eingehend, {outbound} ausgehend",
+  "person.graph.countsOnly":
+    "Nur Z\u00e4hlwerte \u2014 die Nachrichten selbst bleiben in der Chronik.",
+  "person.graph.untitledMessage": "Nachricht ohne Betreff",
+  "person.graph.dropped": "{count} weitere werden nicht angezeigt.",
   "person.moment.dismiss": "Nicht jetzt",
   "person.moment.recommended": "Als N\u00e4chstes:",
   "person.moment.willConfirm": "wird zur Best\u00e4tigung vorgelegt",
