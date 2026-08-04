@@ -445,7 +445,7 @@ jobs:
   # required check; a build the deploy pipeline would reject fails the merge
   # here instead.
   docker-image:
-    name: docker image (${{ matrix.image }})
+    name: docker image (${{ matrix.role }})
     needs: [changes]
     if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
@@ -453,7 +453,9 @@ jobs:
       # A broken web image must not hide whether api/worker still build.
       fail-fast: false
       matrix:
-        image: [api, web, worker]
+        # `role`, not `image`: the check-image-pins gate key-anchors every
+        # `image:` in a workflow as a container reference to digest-check.
+        role: [api, web, worker]
     defaults:
       run:
         working-directory: .
@@ -462,7 +464,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the image
-        run: docker build -f Dockerfile.${{ matrix.image }} .
+        run: docker build -f Dockerfile.${{ matrix.role }} .
 
   vuln:
     name: govulncheck
