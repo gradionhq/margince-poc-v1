@@ -57,14 +57,19 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
       </p>
     );
   }
+  // The arrays are required by the contract, and this guard is still load
+  // bearing: a proxy error page, a version-skewed server, or a caller that
+  // never reached the handler all deliver an object without them. Rendering
+  // nothing beats taking the whole record page down with a TypeError.
   const data = graph.data;
-  if (!data) {
+  if (!data?.nodes) {
     return null;
   }
+  const nodes = data.nodes;
 
-  const anchor = data.nodes.find((n) => n.group === "anchor");
-  const direct = data.nodes.filter((n) => n.group === "direct");
-  const account = data.nodes.filter((n) => n.group === "account");
+  const anchor = nodes.find((n) => n.group === "anchor");
+  const direct = nodes.filter((n) => n.group === "direct");
+  const account = nodes.filter((n) => n.group === "account");
 
   return (
     <div style={{ display: "grid", gap: "var(--space-4)" }}>
@@ -125,7 +130,7 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
 }
 
 function omitted(graph: Graph, group: string): boolean {
-  return graph.groups_omitted.some((g) => g === group);
+  return (graph.groups_omitted ?? []).some((g) => g === group);
 }
 
 /**
@@ -239,8 +244,10 @@ function EdgeDetail({
   anchorId,
 }: Readonly<{ graph: Graph; nodeId: string; anchorId: string }>) {
   const t = useT();
-  const node = graph.nodes.find((n) => n.id === nodeId);
-  const edges = graph.edges.filter((e) => e.from === nodeId || e.to === nodeId);
+  const node = graph.nodes?.find((n) => n.id === nodeId);
+  const edges = (graph.edges ?? []).filter(
+    (e) => e.from === nodeId || e.to === nodeId,
+  );
   if (!node || edges.length === 0) {
     return (
       <Card>
@@ -276,7 +283,7 @@ function EdgeFacts({
 }: Readonly<{ edge: Edge; graph: Graph; anchorId: string }>) {
   const t = useT();
   const otherEnd = edge.to === anchorId ? undefined : edge.to;
-  const otherLabel = graph.nodes.find((n) => n.id === otherEnd)?.label;
+  const otherLabel = graph.nodes?.find((n) => n.id === otherEnd)?.label;
   const receipts = edge.receipts ?? [];
   return (
     <div style={{ marginTop: "var(--space-3)" }}>
