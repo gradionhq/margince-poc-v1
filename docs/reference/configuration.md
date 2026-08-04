@@ -86,7 +86,7 @@ exposes no HTTP surface at all, so an in-process counter there would be
 invisible to every scrape while the api's own copy reported a truthful
 looking zero.
 
-**`/metrics` — is a queue growing?** Seven gauge families over the job table:
+**`/metrics` — is a queue growing?** Nine gauge families over the job table:
 
 | Family | Labels | Meaning |
 |---|---|---|
@@ -97,8 +97,18 @@ looking zero.
 | `margince_job_oldest_queued_age_seconds` | `queue`, `workspace_id` | how long the oldest runnable-and-unclaimed job has waited |
 | `margince_sweep_workspaces_total` | `sweep` | workspaces with a surviving child of that fleet pass |
 | `margince_sweep_workspaces_failed` | `sweep` | those whose MOST RECENT child is discarded or cancelled |
+| `margince_sweep_units_total` | `sweep`, `unit` | the same reading one grain down, for the dispatchers that fan out per **connection** or per **build**: units with a surviving child |
+| `margince_sweep_units_failed` | `sweep`, `unit` | those whose MOST RECENT child is discarded or cancelled |
 
-An eighth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
+The last two exist because the workspace pair counts each workspace once, and
+four dispatchers fan out below that grain. They report **only** the kinds whose
+declared `fan_out_unit` is finer than a workspace — for the other twenty-one the
+unit *is* the workspace, so the two pairs would carry the same numbers. Together
+they partition the fan-out kinds: every kind appears in exactly one, so an alert
+covers the fleet with `margince_sweep_workspaces_failed > 0 or
+margince_sweep_units_failed > 0` and never double-counts.
+
+A tenth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
 appears **only when it has something to report**: work sitting in a state
 this exposition does not classify. It is a signal to investigate, not a
 series to graph, which is why it is absent rather than zero the rest of the
@@ -193,14 +203,16 @@ Four things worth knowing before you build an alert on these:
   because the fleet shrank: the cleaner deletes finalized rows on its own
   schedule. An absent series is the honest answer — a fabricated zero would
   be indistinguishable from "the fleet is empty".
-
-One further limit, stated because nothing in the numbers reveals it: a
-dispatcher that fans out per **connection** rather than per workspace (Gmail
-sync, Gmail watch, Telegram poll) still counts each workspace once. If one
-workspace holds two connections and only one of them is failing, that
-workspace's most recent child may be the successful one, and the failure is
-not reflected in `margince_sweep_workspaces_failed`. Per-connection health is
-visible on the endpoint below, by kind.
+- **The per-workspace pair reads one grain too coarse for four dispatchers,**
+  and that is what `margince_sweep_units_*` is for. Gmail sync, Gmail watch and
+  the Telegram poll fan out per **connection**; the voice-build retry fans out
+  per **build**. A workspace holding two connections produces two children per
+  pass, and if the broken one failed before the healthy one succeeded, that
+  workspace's most recent child is the successful one — so the workspace pair
+  reports zero failures while a connection is dead. The unit pair counts each
+  connection in its own right and reports the failure. Read the workspace pair
+  for fleet coverage and the unit pair for whether every unit of a pass ran;
+  neither replaces the other, and no kind is in both.
 
 **`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
 every workspace's id and every kind, because an operator scraping a service

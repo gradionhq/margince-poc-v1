@@ -40,6 +40,47 @@ const (
 	FanOutBuild
 )
 
+// ArgsKey is the river_job.args key that identifies WHICH unit a child row
+// stands for — the workspace, the connection, or the build it was enqueued
+// against. It is what lets a reader count a fan-out pass at the grain the
+// dispatcher actually ran it at: two children of one workspace differ in this
+// key and in nothing else the job table carries.
+//
+// The mapping is a switch over the closed unit set rather than a table beside
+// it, so a fourth unit does not compile until it says which key names it, and
+// the census holds every declared child to actually carrying the key its
+// dispatcher's unit names. The zero FanOutUnit — a kind that fans out to
+// nothing — answers the empty string, which is not a key any row has.
+func (u FanOutUnit) ArgsKey() string {
+	switch u {
+	case FanOutWorkspace:
+		return "workspace_id"
+	case FanOutConnection:
+		return "connection_id"
+	case FanOutBuild:
+		return "build_id"
+	}
+	return ""
+}
+
+// FanOutUnits answers, per fan-out CHILD kind, what one row of it stands for.
+//
+// The unit is declared on the DISPATCHER, beside the edge it names, because
+// that is where the fan-out decision is made — so a reader holding a child row
+// has to walk the edge backwards to learn what it counts as. This is that walk,
+// done once over the compiled table rather than at every call site that needs
+// it. A child no dispatcher names is absent rather than defaulted: the fan-out
+// edges are the registry of what fans out at all.
+func FanOutUnits() map[string]FanOutUnit {
+	units := map[string]FanOutUnit{}
+	for _, spec := range specs {
+		if spec.FanOutTo != "" {
+			units[spec.FanOutTo] = spec.FanOutUnit
+		}
+	}
+	return units
+}
+
 // OptsOwner names who supplies a kind's River insert options, and therefore
 // how strongly the declaration binds them. The three levels genuinely differ
 // and the difference is stated rather than implied:

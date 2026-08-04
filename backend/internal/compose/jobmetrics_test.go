@@ -137,6 +137,28 @@ func TestTheSweepPairIsRenderedPerFanOutKind(t *testing.T) {
 	}
 }
 
+// TestTheSweepUnitPairIsRenderedAtTheDeclaredGrain — the pair exists because
+// the per-workspace one cannot tell a workspace with one broken connection
+// from a healthy workspace. Both halves carry the same sweep label so an alert
+// can compare them, and the unit label says which grain is being read; without
+// it the two pairs are indistinguishable in a dashboard.
+func TestTheSweepUnitPairIsRenderedAtTheDeclaredGrain(t *testing.T) {
+	var buf bytes.Buffer
+	if err := writeJobMetrics(&buf, jobs.Snapshot{Units: []jobs.SweepUnit{
+		{Kind: "capture_sync", Unit: jobs.FanOutConnection, Units: 9, Failed: 2},
+	}}); err != nil {
+		t.Fatalf("writeJobMetrics: %v", err)
+	}
+	for _, line := range []string{
+		`margince_sweep_units_total{sweep="capture_sync",unit="connection"} 9`,
+		`margince_sweep_units_failed{sweep="capture_sync",unit="connection"} 2`,
+	} {
+		if !strings.Contains(buf.String(), line) {
+			t.Errorf("exposition missing %q\ngot:\n%s", line, buf.String())
+		}
+	}
+}
+
 // TestEverySeriesIsWrittenInAStableOrder — a scrape target's series order
 // should not flap between scrapes for no reason, and map iteration order is
 // not stable. sortedKeys next door exists for the same reason.

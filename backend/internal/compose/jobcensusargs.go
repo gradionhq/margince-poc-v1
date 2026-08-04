@@ -143,6 +143,76 @@ func (c *JobCensus) everyArgsFieldIsDeclaredAndBack() []string {
 	return findings
 }
 
+// everyFanOutChildCarriesItsUnitKey holds the sweep-unit gauges to the rows
+// they read. The pair counts a fan-out pass per DECLARED unit by grouping on
+// one args key — jobs.FanOutUnit.ArgsKey — and a child whose struct does not
+// write that key contributes nothing to the group: the SQL's own filter drops
+// it, and the kind then reads as a pass with no units at all rather than as a
+// pass nobody can measure. An absent series and an idle one are the same
+// output, which is the failure mode the declared catalogue exists to end.
+//
+// It is checked against the ENCODER rather than against the field walk. What
+// the metric groups on is a key in river_job.args, and the key is what
+// encoding/json writes — a Go field named ConnectionID answers the walk while
+// the column holds connection_id, so a name-level check would pass on a type
+// whose rows the query cannot see.
+//
+// Every unit is held, workspace included, even though the workspace-unit kinds
+// are not published in this pair: their key is what the per-workspace pair and
+// the whole scoped read group on, so a child that stopped writing it would be
+// invisible to those too.
+func (c *JobCensus) everyFanOutChildCarriesItsUnitKey() []string {
+	var findings []string
+	units := jobs.FanOutUnits()
+	for _, kind := range slices.Sorted(maps.Keys(units)) {
+		wired, registered := c.wired[kind]
+		if !registered {
+			continue // already reported by the wired-and-back check.
+		}
+		key := units[kind].ArgsKey()
+		if key == "" {
+			findings = append(findings, fmt.Sprintf(
+				"%s is fanned out to but its dispatcher declares no fan_out_unit, so nothing says what one of its rows stands for", kind))
+			continue
+		}
+		written, err := argsJSONKeys(wired.args)
+		if err != nil {
+			findings = append(findings, fmt.Sprintf("%s: %v", kind, err))
+			continue
+		}
+		if !slices.Contains(written, key) {
+			findings = append(findings, fmt.Sprintf(
+				"%s is fanned out per %s but its rows carry no %q key (they carry %v) — the sweep gauges group on that key, so every child of this kind would be dropped from the count rather than reported as a failure",
+				kind, fanOutUnitName(units[kind]), key, written))
+		}
+	}
+	return findings
+}
+
+// argsJSONKeys is the top-level keys an args value actually lands in
+// river_job.args under, taken from encoding/json itself: River marshals the
+// value verbatim, so the encoder's answer is the column's content by
+// definition, and no re-derivation of it can be wrong in a different way.
+//
+// A zero value is enough because the question is about KEYS. Only a field
+// declared `omitempty` could vary with content, and one on a fan-out child's
+// unit id would be a defect of its own — an unset id that silently drops the
+// key rather than writing an empty one.
+func argsJSONKeys(args river.JobArgs) ([]string, error) {
+	if args == nil {
+		return nil, errors.New("the registration recorded no args value at all, so there is nothing to encode")
+	}
+	encoded, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("its args do not encode at all, so River could never enqueue one: %w", err)
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &object); err != nil {
+		return nil, fmt.Errorf("its args encode to %s rather than to a JSON object, so river_job.args has no keys to group on", encoded)
+	}
+	return slices.Sorted(maps.Keys(object)), nil
+}
+
 // argsFieldNames is the fields an args type puts in river_job.args, under the
 // Go names the declaration spells them with and in the order the encoder writes
 // them — or the reason the type carries a payload this walk cannot see.

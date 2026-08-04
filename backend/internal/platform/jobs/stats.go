@@ -11,6 +11,8 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -84,10 +86,39 @@ type SweepPass struct {
 	Failed     int64
 }
 
+// SweepUnit is one fan-out kind read per FAN-OUT UNIT — the grain the
+// dispatcher actually ran the pass at — for the kinds whose unit is finer than
+// a workspace.
+//
+// It exists because SweepPass counts workspaces, and three dispatchers fan out
+// per CONNECTION and one per BUILD. A workspace holding two connections
+// produces two children per pass, and if one fails while the other succeeds
+// afterwards, the workspace's most recent child is the successful one: the
+// failure is real, the tenant is being half-served, and the workspace pair
+// reports nothing. Counting at the declared unit is what makes that visible.
+//
+// Only the kinds whose unit is NOT the workspace are reported. For the other
+// twenty-one the two readings are the same measurement — the unit key IS
+// workspace_id — and publishing both would be two series for one number, which
+// is a worse operator surface than one series and a documented pairing.
+type SweepUnit struct {
+	Kind string
+	Unit FanOutUnit
+	// Units is how many distinct units of this kind have a surviving child,
+	// and Failed how many of those most recently ended dead. The pair reads
+	// exactly as SweepPass's does, one grain down.
+	Units  int64
+	Failed int64
+}
+
 // Snapshot is one read of the job table, for a reader that renders it.
 type Snapshot struct {
 	Rows   []StateRow
 	Sweeps []SweepPass
+	// Units is empty when no declared kind fans out below the workspace,
+	// which is a legitimate fleet rather than a failed read — Stats returns
+	// the error for that.
+	Units []SweepUnit
 }
 
 // Stats reads the live job table for the metric surface.
@@ -111,7 +142,32 @@ func Stats(ctx context.Context, pool *pgxpool.Pool) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Rows: rows, Sweeps: sweeps}, nil
+	units, err := statsBySweepUnit(ctx, pool)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	return Snapshot{Rows: rows, Sweeps: sweeps, Units: units}, nil
+}
+
+// subWorkspaceFanOuts answers the fan-out child kinds whose declared unit is
+// finer than a workspace, paired with the args key that identifies one — the
+// two arrays statsBySweepUnit joins the job table against.
+//
+// Derived from the contract on every call rather than kept as a list: a
+// dispatcher that changes its fan_out_unit, or a new one that fans out per
+// connection, is enrolled by the declaration that made it so. Both arrays are
+// built in one pass so they stay index-aligned by construction.
+func subWorkspaceFanOuts() (kinds, argsKeys []string) {
+	units := FanOutUnits()
+	for _, kind := range slices.Sorted(maps.Keys(units)) {
+		key := units[kind].ArgsKey()
+		if units[kind] == FanOutWorkspace || key == "" {
+			continue
+		}
+		kinds = append(kinds, kind)
+		argsKeys = append(argsKeys, key)
+	}
+	return kinds, argsKeys
 }
 
 func statsByState(ctx context.Context, pool *pgxpool.Pool) ([]StateRow, error) {
@@ -216,6 +272,68 @@ func statsBySweep(ctx context.Context, pool *pgxpool.Pool) ([]SweepPass, error) 
 	}
 	if err := cursor.Err(); err != nil {
 		return nil, fmt.Errorf("jobs: reading sweep passes: %w", err)
+	}
+	return out, nil
+}
+
+// statsBySweepUnit is statsBySweep one grain down, for the kinds whose
+// dispatcher fans out per connection or per build rather than per workspace.
+//
+// The reading rule is the SAME — latest outcome per unit, never a batch, for
+// the reason statsBySweep sets out in full — and only the key it is latest PER
+// changes: args->>'connection_id' instead of args->>'workspace_id'. That is
+// what removes the masking. A workspace with a healthy connection and a broken
+// one is one healthy unit and one failed unit here, where the workspace pair
+// sees only whichever child ran last.
+//
+// The kind→key pairing arrives as two aligned arrays and is JOINED against
+// rather than spliced into the SQL, so a kind name and an args key never reach
+// the statement as text. The unnest join is also what bounds the scan to the
+// declared sub-workspace kinds: a row of any other kind matches no pair and is
+// not read.
+//
+// An empty pairing means the contract declares no such dispatcher, and the
+// query is skipped rather than run with two empty arrays — the answer is the
+// same, and the skip says why it is empty.
+func statsBySweepUnit(ctx context.Context, pool *pgxpool.Pool) ([]SweepUnit, error) {
+	kinds, argsKeys := subWorkspaceFanOuts()
+	if len(kinds) == 0 {
+		return nil, nil
+	}
+
+	const q = `
+		SELECT kind,
+		       count(*)::bigint,
+		       count(*) FILTER (WHERE state IN ` + terminalBadStates + `)::bigint
+		FROM (
+		    SELECT DISTINCT ON (j.kind, j.args->>u.args_key)
+		           j.kind, j.state::text AS state
+		    FROM river_job j
+		    JOIN unnest($1::text[], $2::text[]) AS u(kind, args_key) ON u.kind = j.kind
+		    WHERE '` + SweepTag + `' = ANY(j.tags)
+		      AND coalesce(j.args->>u.args_key, '') <> ''
+		    ORDER BY j.kind, j.args->>u.args_key, j.created_at DESC, j.id DESC
+		) latest
+		GROUP BY kind`
+
+	cursor, err := pool.Query(ctx, q, kinds, argsKeys)
+	if err != nil {
+		return nil, fmt.Errorf("jobs: reading sweep units: %w", err)
+	}
+	defer cursor.Close()
+
+	units := FanOutUnits()
+	var out []SweepUnit
+	for cursor.Next() {
+		var s SweepUnit
+		if err := cursor.Scan(&s.Kind, &s.Units, &s.Failed); err != nil {
+			return nil, fmt.Errorf("jobs: scanning sweep units: %w", err)
+		}
+		s.Unit = units[s.Kind]
+		out = append(out, s)
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("jobs: reading sweep units: %w", err)
 	}
 	return out, nil
 }
