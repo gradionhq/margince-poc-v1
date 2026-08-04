@@ -24,14 +24,6 @@ const NO_GRANT: RbacObjectGrant = {
   delete: false,
 };
 
-/** Every action on an object, for the cases that genuinely need all four. */
-export const ALL: readonly RbacAction[] = [
-  "create",
-  "read",
-  "update",
-  "delete",
-];
-
 export type GrantSpec = Partial<Record<RbacObject, readonly RbacAction[]>>;
 
 /**

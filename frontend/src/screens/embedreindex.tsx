@@ -396,7 +396,15 @@ export function EmbedReindexCard() {
             }
             pending={confirm.isPending}
             error={confirm.error?.message}
-            onConfirm={() => confirm.mutate(mode === "rebuild")}
+            onConfirm={() => {
+              // The grant can be withdrawn while this dialog sits open — /me
+              // refetches on focus and after any 403 — so the write re-reads it
+              // rather than trusting the capability that opened the dialog.
+              if (!canWrite) {
+                return;
+              }
+              confirm.mutate(mode === "rebuild");
+            }}
           >
             {preview.isPending && (
               <p className="t-small">{t("embedreindex.previewLoading")}</p>

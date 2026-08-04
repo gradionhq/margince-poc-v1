@@ -279,11 +279,12 @@ it("renders the status but no rebuild actions on the read grant alone", async ()
       "GET /embeddings/reindex/preview": () => json(PREVIEW),
     },
   );
-  // The card itself renders — the read grant admits the status query — but
-  // every control that would start work is withheld.
-  await waitFor(() =>
-    expect(screen.queryByText("Review & reindex")).toBeNull(),
-  );
+  // Positively: the card renders, because the read grant admits the status
+  // query. Asserting only the absence of the write controls would pass just as
+  // well when the card returns null — which is what a broken READ binding
+  // produces, and is exactly the case this test exists to distinguish.
+  await waitFor(() => expect(screen.getByText(/Reindex/i)).toBeTruthy());
+  expect(screen.queryByText("Review & reindex")).toBeNull();
   expect(screen.queryByRole("button", { name: /Rebuild/ })).toBeNull();
 });
 

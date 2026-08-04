@@ -42,6 +42,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const addButton = () =>
+  screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
+
+// The per-row remove control is icon-only; its accessible name is the label.
+const removeButton = () =>
+  screen.getByRole("button", { name: "Remove" }) as HTMLButtonElement;
+
 describe("ConsumerMailDomainsCard", () => {
   it("enables add and remove on capture_settings:update", async () => {
     vi.stubGlobal("fetch", backend(CAPTURE_EDITOR));
@@ -52,10 +59,8 @@ describe("ConsumerMailDomainsCard", () => {
     );
 
     await waitFor(() => expect(screen.getByText("gmx.test")).toBeTruthy());
-    expect(
-      (screen.getByRole("button", { name: "Add" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    expect(addButton().disabled).toBe(false);
+    expect(removeButton().disabled).toBe(false);
   });
 
   it("leaves both inert without the update grant", async () => {
@@ -67,10 +72,10 @@ describe("ConsumerMailDomainsCard", () => {
     );
 
     await waitFor(() => expect(screen.getByText("gmx.test")).toBeTruthy());
-    expect(
-      (screen.getByRole("button", { name: "Add" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    // Both, not just Add: the two share one grant, so a change that decoupled
+    // them would otherwise pass.
+    expect(addButton().disabled).toBe(true);
+    expect(removeButton().disabled).toBe(true);
   });
 
   // Removal is an UPDATE. A principal holding delete but not update must not
@@ -84,9 +89,9 @@ describe("ConsumerMailDomainsCard", () => {
     );
 
     await waitFor(() => expect(screen.getByText("gmx.test")).toBeTruthy());
-    expect(
-      (screen.getByRole("button", { name: "Add" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    // Both, not just Add: the two share one grant, so a change that decoupled
+    // them would otherwise pass.
+    expect(addButton().disabled).toBe(true);
+    expect(removeButton().disabled).toBe(true);
   });
 });

@@ -193,6 +193,13 @@ func objectGrantActions(t *testing.T) []string {
 				continue
 			}
 			for _, field := range st.Fields.List {
+				// Booleans only. Every field is an action TODAY, but a struct
+				// that later carried metadata — a source, a timestamp — would
+				// otherwise silently enlarge the required action vocabulary and
+				// fail this gate somewhere far from the change that caused it.
+				if ident, ok := field.Type.(*ast.Ident); !ok || ident.Name != "bool" {
+					continue
+				}
 				for _, name := range field.Names {
 					actions = append(actions, strings.ToLower(name.Name))
 				}

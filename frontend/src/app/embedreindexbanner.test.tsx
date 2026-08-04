@@ -79,11 +79,12 @@ it('shows "Reindex needed" for ops too', async () => {
   expect(await screen.findByText("Reindex needed")).toBeTruthy();
 });
 
-it("renders nothing for a non-ops role even when the binding changed", async () => {
-  // Gated the same as EconomyBanner: a rep has nothing actionable to do
-  // with this surface, so the status read is never even probed.
+it("renders nothing without the read grant, even when the binding changed", async () => {
+  // The GRANT is what denies here, not the role or the seat — the fixture below
+  // holds a full seat and says nothing about roles. A principal with nothing
+  // actionable on this surface never even probes the status read.
   const { fetchMock } = mount(
-    {},
+    { embedding_reindex: [] },
     {
       configured_identity: "anthropic/voyage-3@1024",
       populated_identity: "anthropic/voyage-2@1024",

@@ -222,10 +222,16 @@ function InspectorToggles({
 }
 
 // Four affordances over three grants. The runs and preview inspectors are
-// READS — automations_runs.go gates on automation:read, and Preview resolves
-// the instance through Get (read) before carrying the target table's own read
-// gate — so they are not hidden behind the write grant that the old role proxy
-// happened to imply.
+// READS — automations_runs.go gates on automation:read — so they are not hidden
+// behind the write grant the old role proxy happened to imply.
+//
+// Preview carries one gate this cannot anticipate: after resolving the instance
+// through Get, it also demands read on the TARGET TABLE the recipe names, which
+// varies per automation and is not something the /me snapshot describes. A
+// reader without that table can still open the panel and be refused; the panel
+// reports it. Predicting it here would mean encoding the catalog's table
+// mapping in the client, which is the kind of server knowledge this change
+// exists to stop duplicating.
 export function AutomationRow({
   automation,
   entry,
@@ -451,7 +457,7 @@ export function AutomationsScreen() {
   return (
     <div className="wrap">
       <SectionHeader title={t("nav.automations")} sub={t("auto.sub")} />
-      {me.isSuccess && !canEdit && (
+      {me.isSuccess && !canCreate && !canEdit && !canDelete && (
         <p className="t-caption" style={{ marginBottom: 10 }}>
           {t("auto.readOnly")}
         </p>

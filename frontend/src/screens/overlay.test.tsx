@@ -159,7 +159,7 @@ describe("the overlay card", () => {
     expect(screen.queryByLabelText("Private-app token")).toBeNull();
   });
 
-  it("does not offer actions to a non-admin seat", async () => {
+  it("does not offer actions without any overlay grant", async () => {
     stubApi({
       "GET /me": meRoute({}),
       "GET /overlay/connection": () =>
@@ -389,7 +389,38 @@ describe("the overlay card", () => {
     ).toBeTruthy();
   });
 
-  it("does not offer reconcile/disconnect to a non-admin seat on a live connection", async () => {
+  // Reconcile and disconnect are update and delete — independent grants over
+  // very different amounts of damage. Without one-at-a-time cases a swap ships
+  // unnoticed, because the all-or-none fixtures pass either way.
+  it("offers reconcile but not disconnect on the update grant alone", async () => {
+    stubApi({
+      "GET /me": meRoute({ overlay_connection: ["read", "update"] }),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
+      "GET /overlay/budget": () => jsonResponse(budgetFixture),
+    });
+    render(<OverlayCard />);
+    expect(
+      await screen.findByRole("button", { name: "Sync now" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+  });
+
+  it("offers disconnect but not reconcile on the delete grant alone", async () => {
+    stubApi({
+      "GET /me": meRoute({ overlay_connection: ["read", "delete"] }),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
+      "GET /overlay/budget": () => jsonResponse(budgetFixture),
+    });
+    render(<OverlayCard />);
+    expect(
+      await screen.findByRole("button", { name: "Disconnect" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sync now" })).toBeNull();
+  });
+
+  it("does not offer reconcile/disconnect without either grant on a live connection", async () => {
     stubApi({
       "GET /me": meRoute({}),
       "GET /overlay/connection": () => jsonResponse(activeConnection),

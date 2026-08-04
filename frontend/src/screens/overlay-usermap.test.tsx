@@ -772,7 +772,7 @@ describe("the mirror user-map card", () => {
     expect(screen.queryByText(/HubSpot/)).not.toBeInTheDocument();
   });
 
-  it("withholds the surface, and the reads behind it, from a non-admin seat", async () => {
+  it("withholds the surface, and the reads behind it, without the grant", async () => {
     const { calls } = renderCard({ allow: {} });
     expect(
       await screen.findByText(/You do not have permission/i),

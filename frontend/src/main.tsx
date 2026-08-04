@@ -24,7 +24,14 @@ const queryClient = new QueryClient({
 // freshness of the data queries.
 api.use({
   onResponse({ response }) {
-    if (response.status === 403) {
+    // Never on /me's OWN 403. Invalidating the query that produced the response
+    // refetches it, which 403s again — a request loop in place of a stable
+    // error. (A dead session answers 401 here, not 403, so this path is the
+    // unusual one; it still must not spin.)
+    if (
+      response.status === 403 &&
+      !new URL(response.url).pathname.endsWith("/me")
+    ) {
       void queryClient.invalidateQueries({ queryKey: ["me"] });
     }
     return response;

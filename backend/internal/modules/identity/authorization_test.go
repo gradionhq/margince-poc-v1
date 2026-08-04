@@ -109,8 +109,14 @@ func TestMeResponseSeatTypeFailsClosed(t *testing.T) {
 // user another's capabilities; stored, it would outlive the role change that
 // revoked them.
 func TestGetCurrentPrincipalForbidsCaching(t *testing.T) {
+	// A real address, for the reason the mapping test gives: an empty one fails
+	// the generated Email type's marshal, and this assertion would then be
+	// reading headers off a response that never serialized.
 	req := httptest.NewRequest(http.MethodGet, "/me", nil).
-		WithContext(withIdentity(t.Context(), Identity{SeatType: "full"}))
+		WithContext(withIdentity(t.Context(), Identity{
+			Email:    "rep@example.com",
+			SeatType: "full",
+		}))
 	rec := httptest.NewRecorder()
 
 	Handlers{}.GetCurrentPrincipal(rec, req)

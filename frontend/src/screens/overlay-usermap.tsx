@@ -730,8 +730,14 @@ export function MirrorUserMapCard() {
       setMapping.reset();
       setPicking(null);
     },
-    onPick: (userId, incumbentUserId) =>
-      setMapping.mutate({ userId, incumbentUserId }),
+    // Re-read at the write, not at the render that offered it: an open picker
+    // outlives a grant withdrawn by the next /me refetch.
+    onPick: (userId, incumbentUserId) => {
+      if (!canMap) {
+        return;
+      }
+      setMapping.mutate({ userId, incumbentUserId });
+    },
     onUnmapRequest: (entry) => {
       unmap.reset();
       setUnmapping(entry);
@@ -776,7 +782,12 @@ export function MirrorUserMapCard() {
           unmap.reset();
           setUnmapping(null);
         }}
-        onConfirm={(userId) => unmap.mutate(userId)}
+        onConfirm={(userId) => {
+          if (!canMap) {
+            return;
+          }
+          unmap.mutate(userId);
+        }}
       />
     </Card>
   );

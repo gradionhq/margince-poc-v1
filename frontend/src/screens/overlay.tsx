@@ -438,7 +438,10 @@ export function OverlayCard() {
         pending={connect.isPending}
         error={connect.isError ? connect.error.message : null}
         onConfirm={() => {
-          if (!pendingConnect) {
+          // Re-read at the moment of the write. /me refetches on focus and
+          // after any 403, so a grant held when this dialog opened can be gone
+          // by the time it is confirmed.
+          if (!pendingConnect || !canConnect) {
             return;
           }
           connect.mutate({
@@ -450,14 +453,19 @@ export function OverlayCard() {
         <p className="t-small">{t("overlay.connectConfirmBody")}</p>
       </ConfirmModal>
       <ConfirmModal
-        open={confirmingDisconnect}
+        open={confirmingDisconnect && canDisconnect}
         onClose={() => setConfirmingDisconnect(false)}
         title={t("overlay.disconnectTitle")}
         confirmLabel={t("overlay.disconnect")}
         confirmVariant="danger"
         pending={disconnect.isPending}
         error={disconnect.isError ? disconnect.error.message : null}
-        onConfirm={() => disconnect.mutate()}
+        onConfirm={() => {
+          if (!canDisconnect) {
+            return;
+          }
+          disconnect.mutate();
+        }}
       >
         <p className="t-small">{t("overlay.disconnectBody")}</p>
       </ConfirmModal>

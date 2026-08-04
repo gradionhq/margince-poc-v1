@@ -433,6 +433,9 @@ describe("CustomFieldsScreen", () => {
     expect(
       screen.getAllByRole("button", { name: /Archive field/i }).length,
     ).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Edit label/i }).length).toBe(
+      1,
+    );
     expect(screen.queryByText("Add field to Deal")).toBeNull();
   });
 
@@ -448,6 +451,11 @@ describe("CustomFieldsScreen", () => {
     );
     renderScreen();
     await waitFor(() => expect(screen.getByText("Renewal date")).toBeTruthy());
+    // Positive as well as negative: without this a broken create binding would
+    // pass, since "no archive control" is also true when nothing renders.
+    expect(
+      screen.getByRole("region", { name: /Add a field to Deal/i }),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Archive field/i })).toBeNull();
   });
 

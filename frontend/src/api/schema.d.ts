@@ -8998,7 +8998,9 @@ export interface components {
             } | null;
         };
         /**
-         * @description The closed set of RBAC-governed object types (features/04 §1). This enum is the vocabulary's single declaration: the Go policy package derives its object list from these generated constants, and the web client types every capability check against the generated union — so a misspelled object is a compile error on both sides rather than a grant that silently matches nothing and reads as a bug in the role.
+         * @description The closed set of RBAC-governed object types (features/04 §1).
+         *     The web client types every capability check against this enum, which openapi-typescript renders as a string union — so a misspelled object is a compile error there.
+         *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
          * @enum {string}
          */
         RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run";
