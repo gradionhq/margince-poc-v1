@@ -86,7 +86,7 @@ var satelliteLifecyclePaths = []satellitePath{
 	},
 	{
 		name:    "merge_relink",
-		file:    "internal/modules/people/merge.go",
+		file:    "internal/modules/people/mergerelink.go",
 		remedy:  "relink its rows onto the survivor in relinkPersonReferences — rows left on the merged-away person are orphaned, invisible to every read of the survivor",
 		piiOnly: true,
 	},

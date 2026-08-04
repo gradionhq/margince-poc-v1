@@ -215,15 +215,19 @@ func meetingAheadMoment(now time.Time, page *crmcontracts.Person360) (crmcontrac
 		return crmcontracts.PersonMoment{}, false
 	}
 	horizon := now.AddDate(0, 0, meetingHorizonDays)
-	// The timeline is ordered newest first, so the LAST future meeting in that
-	// order is the soonest one — the one being prepared for.
+	// The SOONEST meeting inside the horizon, chosen by comparing times rather
+	// than by trusting the timeline's ordering. Relying on "newest first" would
+	// make the card name a meeting three weeks out the first time a caller
+	// built this page any other way, and the failure would be silent.
 	var next *crmcontracts.Activity
 	for i := range page.Activities.Data {
 		a := &page.Activities.Data[i]
 		if a.Kind != "meeting" || !a.OccurredAt.After(now) || a.OccurredAt.After(horizon) {
 			continue
 		}
-		next = a
+		if next == nil || a.OccurredAt.Before(next.OccurredAt) {
+			next = a
+		}
 	}
 	if next == nil {
 		return crmcontracts.PersonMoment{}, false

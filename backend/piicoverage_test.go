@@ -102,6 +102,12 @@ var piiTables = map[string]piiHandling{
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
+	// The enrichment sidecar holds the subject's title, phone, employer and
+	// public profile URL, each with the verbatim sentence it was read from —
+	// their data twice over, the value and the quote naming them. Nothing
+	// cascades to it, because anonymize-in-place leaves the person row
+	// standing, so erasure has to reach it by statement.
+	"person_profile_field": {erasureWrite: true, sarRead: true},
 	// The correction ledger holds what a human typed OVER what the system
 	// inferred — a title, a phone number, a free-text note about the subject.
 	// The verdict is a decision a person made about them, so Art. 15 hands it

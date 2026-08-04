@@ -113,6 +113,7 @@ func StampFurtherParticipants(
 	tx pgx.Tx,
 	activityID ids.ActivityID,
 	kind string,
+	ourHeaderIsTrusted bool,
 	participants []connector.MessageParticipant,
 ) error {
 	if !relstrength.IsInteractionKind(kind) || len(participants) == 0 {
@@ -133,9 +134,20 @@ func StampFurtherParticipants(
 	}
 
 	// Both lookups run under the workspace GUC, so neither can resolve an
-	// address to somebody in another tenant. The colleague arm is checked
-	// first: an address that is both a workspace member and a person record is
-	// our side of the conversation, which is the claim the graph is keyed on.
+	// address to somebody in another tenant.
+	//
+	// The COLLEAGUE arm is gated on ourHeaderIsTrusted, and that gate is the
+	// load-bearing part. A recipient list on an INBOUND message is written by
+	// whoever sent it: nothing authenticates it, and DKIM does not cover a Cc
+	// line the sender chose. Binding a user_id from one would let an outsider
+	// mail a synced mailbox with `Cc: ceo@ourcompany.com` and manufacture an
+	// interaction edge — the graph would then name that colleague as the
+	// warmest route to the sender's own contact, on evidence the sender wrote.
+	//
+	// Nothing is lost by refusing it. A colleague genuinely copied on inbound
+	// mail receives that message in their OWN mailbox, where their own
+	// connection stamps them as its owner — attested rather than asserted. The
+	// edge arrives either way; only the forgery does not.
 	//
 	// The address is kept alongside whichever id resolved, matching what the
 	// counterparty promotion does — the row records which address was actually
@@ -146,7 +158,7 @@ func StampFurtherParticipants(
 		       $1, u.id, pe.person_id, inp.address, inp.role
 		  FROM unnest($2::text[], $3::text[]) AS inp(address, role)
 		  LEFT JOIN app_user u
-		         ON lower(u.email) = inp.address
+		         ON $4 AND lower(u.email) = inp.address
 		  LEFT JOIN LATERAL (
 		       SELECT p.person_id
 		         FROM person_email p
@@ -154,7 +166,7 @@ func StampFurtherParticipants(
 		        ORDER BY p.person_id
 		        LIMIT 1) pe ON u.id IS NULL
 		ON CONFLICT DO NOTHING`,
-		activityID, addresses, roles); err != nil {
+		activityID, addresses, roles, ourHeaderIsTrusted); err != nil {
 		return fmt.Errorf("capture: stamping the further participants of an interaction: %w", err)
 	}
 	return nil

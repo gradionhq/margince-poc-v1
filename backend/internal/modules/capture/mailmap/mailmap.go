@@ -153,17 +153,6 @@ func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, e
 	return msg.participants, nil
 }
 
-// maxParticipants bounds how many further parties one message may contribute.
-//
-// The cap is not a performance guard, it is a shape guard. A message with two
-// hundred addresses on its To line is a mailing list, and every name on it is
-// evidence of a list membership rather than of a conversation — folding those
-// into the interaction graph would report a relationship with everybody who
-// ever received the same newsletter. Past the cap the further parties are
-// dropped entirely rather than truncated, because half a distribution list is
-// no more meaningful than all of it.
-const maxParticipants = 50
-
 // otherParties returns everyone on To and Cc who is neither the mailbox owner
 // nor the counterparty.
 //
@@ -195,10 +184,7 @@ func otherParties(toList, ccList []*mail.Address, ownerLower, counterparty strin
 	add(toList, connector.ParticipantRoleTo)
 	add(ccList, connector.ParticipantRoleCC)
 
-	if len(out) > maxParticipants {
-		return nil
-	}
-	return out
+	return connector.CapParticipants(out)
 }
 
 // threadKey derives the conversation identity from the standard reply

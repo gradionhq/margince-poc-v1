@@ -35,10 +35,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/websearch"
 )
 
-// profileHosts are the platforms whose /in/ style addresses are worth
-// keeping as a person's public professional profile. They are exactly the
-// hosts the fetch policy denies, which is the point: found by searching,
-// never read.
+// profileHosts are the platforms whose /in/ style addresses are worth keeping
+// as a person's public professional profile.
+//
+// It is a SUBSET of websearch's fetch deny-list, not a mirror of it: that list
+// also refuses the consumer social platforms, whose profiles are not
+// professional identity and have no business on a CRM record. What the two
+// share is the posture — every host here is one this product finds by
+// searching and never reads.
 var profileHosts = []string{"linkedin.com", "xing.com"}
 
 // discoverProfileURL searches for this person and returns the first result

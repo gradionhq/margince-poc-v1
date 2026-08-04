@@ -179,7 +179,7 @@ func (h Reads) addDirectGroup(
 		dropped = len(edges) - graphDirectCap
 		edges = edges[:graphDirectCap]
 	}
-	names, err := userNames(ctx, tx, edgeUsers(edges))
+	names, err := UserNames(ctx, tx, EdgeUsers(edges))
 	if err != nil {
 		return 0, err
 	}

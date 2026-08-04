@@ -44,6 +44,7 @@ import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
 import {
   IdentityRail,
+  type Person360,
   RelationshipPulse,
   ThinState,
   thinRecord,
@@ -307,6 +308,38 @@ const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
   "whatsapp",
   "telegram",
 ];
+
+/**
+ * PersonAside is the relationship column, and in overlay mode it SAYS it
+ * cannot answer rather than disappearing.
+ *
+ * Both panels read the interaction projection, which is folded from natively
+ * captured participants — a mirror-backed workspace has none. Rendering
+ * nothing would let the page read as "nobody here knows them", which is a lie
+ * about the relationship rather than an empty answer about the data.
+ */
+function PersonAside({
+  view,
+  overlay,
+}: Readonly<{ view?: Person360; overlay: boolean }>) {
+  if (overlay) {
+    return (
+      <>
+        <OverlayUnavailable />
+        <OverlayUnavailable />
+      </>
+    );
+  }
+  if (!view) {
+    return undefined;
+  }
+  return (
+    <>
+      <RelationshipPulse view={view} />
+      <WhoKnowsThem view={view} />
+    </>
+  );
+}
 
 function timelineKind(kind: string): TimelineEntry["kind"] {
   const known = TIMELINE_KINDS.find((candidate) => candidate === kind);
@@ -688,14 +721,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
               )
             }
             rail={view ? <IdentityRail view={view} /> : undefined}
-            aside={
-              view ? (
-                <>
-                  <RelationshipPulse view={view} />
-                  <WhoKnowsThem view={view} />
-                </>
-              ) : undefined
-            }
+            aside={<PersonAside view={view} overlay={overlay} />}
           >
             <div style={{ marginBottom: 16 }}>
               <SegmentedControl

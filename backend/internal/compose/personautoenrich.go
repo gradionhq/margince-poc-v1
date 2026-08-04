@@ -34,6 +34,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -127,51 +128,38 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 		if err != nil {
 			return err
 		}
-		filled := false
-		for _, sp := range staged {
-			// ApplySitePersonFields owns the match rule and keeps it narrow:
-			// an exact live email among that organization's own employees, or
-			// exactly ONE employee whose name matches confidently. Zero or two
-			// is not identifiable, and it declines rather than guessing.
-			matched, err := g.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
-				Name:            sp.proposal.Name,
-				Role:            sp.proposal.Role,
-				PublishedEmail:  sp.proposal.PublishedEmail,
-				LinkedinURL:     sp.proposal.LinkedinURL,
-				EvidenceSnippet: sp.proposal.EvidenceSnippet,
-				SourceURL:       sp.proposal.SourceURL,
-			})
-			if err != nil {
-				return err
-			}
-			if !matched {
-				continue
-			}
-			// The proposal asked a human to create a lead for this person.
-			// The person exists, so the question is answered by the world
-			// rather than by the human, and the queue should not carry it.
-			withdrawn, err := g.approvals.WithdrawInTx(ctx, tx, sp.approvalID,
-				"the published person is already a contact in this workspace")
-			if err != nil {
-				return err
-			}
-			filled = true
-			g.log.InfoContext(ctx, "person auto-enriched from the employer's site",
-				string(recordTypePerson), personID.String(), "organization", orgID.String(),
-				"source", sp.proposal.SourceURL, "proposal_withdrawn", withdrawn)
+		filled, err := g.fillFromStagedPages(ctx, tx, orgID, personID, staged)
+		if err != nil {
+			return err
 		}
 		if filled {
+			// The employer's own pages answered. Search is the fallback for
+			// what they did not say, not a second opinion on what they did.
 			return nil
 		}
-		// Nothing filled from the staged pages. Remember what a later
-		// discovery pass would need; it runs after this transaction, because
-		// a network call must never be made with a write transaction open.
 		name, employer, err := g.searchTerms(ctx, tx, personID, orgID)
 		if err != nil {
 			// Not swallowed: a failed query has already aborted this
 			// transaction, so continuing past it turns a readable error into
 			// "commit unexpectedly resulted in rollback" somewhere else.
 			return err
+		}
+		// Already discovered. The write downstream is ON CONFLICT DO NOTHING,
+		// so a repeat costs nothing in the database — but the search runs
+		// BEFORE it, and that is a paid third-party request carrying this
+		// contact's real name and employer. Without this check a rep editing
+		// one contact in a loop, or capture updating a person on every inbound
+		// mail, spends one API unit per event re-discovering a URL already
+		// stored.
+		var already bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM person_profile_field
+			                WHERE person_id = $1 AND field = 'linkedin')`,
+			personID).Scan(&already); err != nil {
+			return err
+		}
+		if already {
+			return nil
 		}
 		needsDiscovery, discoverName, discoverEmployer = true, name, employer
 		return nil
@@ -207,7 +195,7 @@ func (g *PersonAutoEnrich) employerOf(ctx context.Context, tx pgx.Tx, personID i
 		  AND archived_at IS NULL AND organization_id IS NOT NULL
 		LIMIT 1`, personID).Scan(&orgID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return ids.OrganizationID{}, false, nil
 		}
 		return ids.OrganizationID{}, false, err
@@ -270,4 +258,52 @@ func (g *PersonAutoEnrich) stagedSitePeople(ctx context.Context, tx pgx.Tx, orgI
 		out = append(out, stagedSitePerson{approvalID: id, proposal: p})
 	}
 	return out, rows.Err()
+}
+
+// fillFromStagedPages applies whatever the employer's own site already
+// published about this contact, and reports whether anything landed.
+//
+// Split out because it is the half that needs no network: the staged proposals
+// are already on file, and only their absence justifies paying for a search.
+func (g *PersonAutoEnrich) fillFromStagedPages(
+	ctx context.Context,
+	tx pgx.Tx,
+	orgID ids.OrganizationID,
+	personID ids.PersonID,
+	staged []stagedSitePerson,
+) (bool, error) {
+	filled := false
+	for _, sp := range staged {
+		// ApplySitePersonFields owns the match rule and keeps it narrow:
+		// an exact live email among that organization's own employees, or
+		// exactly ONE employee whose name matches confidently. Zero or two
+		// is not identifiable, and it declines rather than guessing.
+		matched, err := g.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
+			Name:            sp.proposal.Name,
+			Role:            sp.proposal.Role,
+			PublishedEmail:  sp.proposal.PublishedEmail,
+			LinkedinURL:     sp.proposal.LinkedinURL,
+			EvidenceSnippet: sp.proposal.EvidenceSnippet,
+			SourceURL:       sp.proposal.SourceURL,
+		})
+		if err != nil {
+			return false, err
+		}
+		if !matched {
+			continue
+		}
+		// The proposal asked a human to create a lead for this person.
+		// The person exists, so the question is answered by the world
+		// rather than by the human, and the queue should not carry it.
+		withdrawn, err := g.approvals.WithdrawInTx(ctx, tx, sp.approvalID,
+			"the published person is already a contact in this workspace")
+		if err != nil {
+			return false, err
+		}
+		filled = true
+		g.log.InfoContext(ctx, "person auto-enriched from the employer's site",
+			string(recordTypePerson), personID.String(), "organization", orgID.String(),
+			"source", sp.proposal.SourceURL, "proposal_withdrawn", withdrawn)
+	}
+	return filled, nil
 }

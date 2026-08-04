@@ -40,6 +40,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -73,6 +74,12 @@ type replayCandidate struct {
 	// connection's own account label rather than the granting user's login
 	// address — those differ, and it is the MAILBOX the headers name.
 	owner string
+	// ourHeaderIsTrusted is the persisted owner attestation: the provider
+	// vouched that our own mailbox owner SENT this message, so its recipient
+	// list is what our user typed. Without it the list is the sender's text
+	// and no colleague may be bound from it — capture.StampFurtherParticipants
+	// says what a forged Cc line would otherwise buy.
+	ourHeaderIsTrusted bool
 }
 
 // replayParticipantsBatch re-reads up to limit stored originals and returns how
@@ -117,6 +124,7 @@ func replayParticipantsBatch(ctx context.Context, pool *pgxpool.Pool, limit int,
 func selectReplayCandidates(ctx context.Context, tx pgx.Tx, limit int) ([]replayCandidate, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT a.id, a.kind, a.source_system, rc.payload,
+		       coalesce(a.counterparty_outbound_attested, false),
 		       coalesce((
 		         SELECT c.account_label
 		           FROM capture_connection c
@@ -142,7 +150,8 @@ func selectReplayCandidates(ctx context.Context, tx pgx.Tx, limit int) ([]replay
 	var out []replayCandidate
 	for rows.Next() {
 		var c replayCandidate
-		if err := rows.Scan(&c.activityID, &c.kind, &c.source, &c.payload, &c.owner); err != nil {
+		if err := rows.Scan(&c.activityID, &c.kind, &c.source, &c.payload,
+			&c.ourHeaderIsTrusted, &c.owner); err != nil {
 			return nil, fmt.Errorf("compose: reading a replay candidate: %w", err)
 		}
 		out = append(out, c)
@@ -162,6 +171,13 @@ func selectReplayCandidates(ctx context.Context, tx pgx.Tx, limit int) ([]replay
 func replayOne(ctx context.Context, tx pgx.Tx, c replayCandidate) (string, error) {
 	if c.owner == "" {
 		return replayNoOwner, nil
+	}
+	// A kind that is not an interaction writes no participants however many
+	// the header names, so parsing it and recording `participants` would file
+	// the one verdict nobody ever revisits against an activity that produced
+	// nothing.
+	if !relstrength.IsInteractionKind(c.kind) {
+		return replayFoundNone, nil
 	}
 	// A payload this parser cannot decompose is a VERDICT the pass records and
 	// moves past, which is why neither failure below is returned. These are
@@ -188,7 +204,8 @@ func replayOne(ctx context.Context, tx pgx.Tx, c replayCandidate) (string, error
 	if len(participants) == 0 {
 		return replayFoundNone, nil
 	}
-	if err := capture.StampFurtherParticipants(ctx, tx, c.activityID, c.kind, participants); err != nil {
+	if err := capture.StampFurtherParticipants(ctx, tx, c.activityID, c.kind,
+		c.ourHeaderIsTrusted, participants); err != nil {
 		return "", err
 	}
 	return replayWroteParticipants, nil

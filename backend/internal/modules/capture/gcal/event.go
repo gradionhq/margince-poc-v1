@@ -111,12 +111,6 @@ func ParticipantsOf(raw []byte, owner string) ([]connector.MessageParticipant, e
 	return m.participants, nil
 }
 
-// maxParticipants bounds how many parties one meeting may contribute, for the
-// same reason mailmap bounds a To line: past a certain size the invitee list
-// is a broadcast rather than a meeting, and every name on it would otherwise
-// read as somebody this workspace has a relationship with.
-const maxParticipants = 50
-
 // meetingParties returns the organizer and attendees as participant rows,
 // excluding the mailbox owner.
 //
@@ -148,10 +142,7 @@ func meetingParties(ev rawEvent, ownerLower string) []connector.MessageParticipa
 		add(a.Email, connector.ParticipantRoleAttendee)
 	}
 
-	if len(out) > maxParticipants {
-		return nil
-	}
-	return out
+	return connector.CapParticipants(out)
 }
 
 // isExternalDomain reports whether dom is a real domain outside the owner's —

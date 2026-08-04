@@ -99,7 +99,7 @@ func TestParseGivesADirectRecipientTheToRoleEvenWhenAlsoCopied(t *testing.T) {
 // received the same newsletter.
 func TestParseDropsTheFurtherPartiesOfABroadcast(t *testing.T) {
 	var recipients []string
-	for i := range maxParticipants + 1 {
+	for i := range connector.MaxParticipants + 1 {
 		recipients = append(recipients, fmt.Sprintf("person%d@list.example", i))
 	}
 	raw := crlf(

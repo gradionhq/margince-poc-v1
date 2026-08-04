@@ -136,7 +136,7 @@ var mergedIntoWrite = regexp.MustCompile(`(?is)(UPDATE\s+(person|organization)\s
 // sanctionedMergeWriters own the redirect pointer that retires one record into
 // another.
 var sanctionedMergeWriters = gatekit.Waive(map[string]string{
-	"internal/modules/people/merge.go":              "the person merge path",
+	"internal/modules/people/mergerelink.go":        "the person merge path's satellite relink",
 	"internal/modules/people/merge_organization.go": "the organization merge path",
 })
 

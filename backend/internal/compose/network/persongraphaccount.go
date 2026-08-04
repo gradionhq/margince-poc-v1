@@ -32,19 +32,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// addAccountGroup adds the other contacts at this person's current employer,
-// each with the colleague who knows them best.
-//
-// The contacts are row-scoped in the query itself rather than probed
-// afterwards: a contact outside the caller's scope must be ABSENT, and
-// fetching then filtering leaks the count through the dropped total.
-// accountContact is one colleague of the contact, as the query returns them.
+// accountContact is one COWORKER of the contact — another person at the same
+// employer. Named for the group rather than as a "colleague", which everywhere
+// else in this package means one of OUR users.
 type accountContact struct {
 	id    ids.UUID
 	name  string
 	title *string
 }
 
+// addAccountGroup adds the other contacts at this person's current employer,
+// each with the colleague of ours who knows them best.
+//
+// The coworkers are row-scoped in the query itself rather than probed
+// afterwards: one outside the caller's scope must be ABSENT, and fetching then
+// filtering would leak their existence through the dropped total.
 func (h Reads) addAccountGroup(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -55,15 +57,15 @@ func (h Reads) addAccountGroup(
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return 0, err
 	}
-	contacts, err := readAccountContacts(ctx, tx, personID)
+	contacts, total, err := readAccountContacts(ctx, tx, personID)
 	if err != nil {
 		return 0, err
 	}
-	dropped := 0
-	if len(contacts) > graphAccountCap {
-		dropped = len(contacts) - graphAccountCap
-		contacts = contacts[:graphAccountCap]
-	}
+	// The TRUE remainder, not "one more than the cap". A company with fifty
+	// employees has to read as thirty-seven not shown, or the number is a
+	// worse lie than no number: it tells the reader the picture is nearly
+	// complete when it is a quarter of one.
+	dropped := total - len(contacts)
 	if len(contacts) == 0 {
 		return dropped, nil
 	}
@@ -78,23 +80,26 @@ func (h Reads) addAccountGroup(
 // answers a different question — which of several employers is the main one —
 // and keying on it would drop a real colleague who holds a second post.
 //
-// One extra row is fetched beyond the cap so the caller can say how many were
-// dropped without a second count.
-func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]accountContact, error) {
+// It returns the capped slice AND the full membership count, because the two
+// answer different questions: the slice is what the graph draws, and the count
+// is what the reader is told they are not seeing.
+func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]accountContact, int, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if scope == "" {
 		scope = "true"
 	}
-	limitPos := arg(graphAccountCap + 1)
+	limitPos := arg(graphAccountCap)
 
+	// count(*) OVER () rides the same row-scoped predicate as the page, so the
+	// remainder can never name coworkers the caller may not read.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT p.id, p.full_name, p.title
+		SELECT DISTINCT p.id, p.full_name, p.title, count(*) OVER () AS total
 		  FROM relationship theirs
 		  JOIN relationship colleague
 		    ON colleague.organization_id = theirs.organization_id
@@ -111,22 +116,23 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 		 ORDER BY p.full_name, p.id
 		 LIMIT $%d`, personPos, personPos, scope, limitPos), args...)
 	if err != nil {
-		return nil, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
+		return nil, 0, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
 	}
 	defer rows.Close()
 
 	var out []accountContact
+	total := 0
 	for rows.Next() {
 		var c accountContact
-		if err := rows.Scan(&c.id, &c.name, &c.title); err != nil {
-			return nil, fmt.Errorf("network: reading a colleague of a contact: %w", err)
+		if err := rows.Scan(&c.id, &c.name, &c.title, &total); err != nil {
+			return nil, 0, fmt.Errorf("network: reading a coworker of a contact: %w", err)
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("network: reading the colleagues of a contact: %w", err)
+		return nil, 0, fmt.Errorf("network: reading the coworkers of a contact: %w", err)
 	}
-	return out, nil
+	return out, total, nil
 }
 
 // addAccountEdges puts the colleagues on the graph and hangs each one's
@@ -150,7 +156,7 @@ func (h Reads) addAccountEdges(
 	if err != nil {
 		return err
 	}
-	names, err := userNames(ctx, tx, edgeUsers(edges))
+	names, err := UserNames(ctx, tx, EdgeUsers(edges))
 	if err != nil {
 		return err
 	}

@@ -124,6 +124,55 @@ type RecordInput struct {
 // answer to "has a human decided this", and two answers is no answer. The
 // history is in audit_log, where every other mutation's history lives.
 func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
+	if err := admitVerdict(ctx, in); err != nil {
+		return err
+	}
+	// The one spelling for provenance, and it returns an error rather than a
+	// zero value: captured_by is text NOT NULL, which "" satisfies, so a
+	// principal-less path would write a verdict attributed to nobody — and
+	// "corrected by you" with no you is the one thing this row must never say.
+	capturedBy, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return err
+	}
+	key := ClaimKey(in.ClaimPath)
+
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Live, not merely visible: an unbounded caller skips the plain
+		// probe's query entirely, so an archived or erased subject would keep
+		// accruing verdicts — and a corrected_value is human-typed text about
+		// them that the profile-fields read would then render.
+		if err := auth.EnsureVisibleLive(ctx, tx, in.SubjectType, in.SubjectID); err != nil {
+			return err
+		}
+		id, err := upsertVerdict(ctx, tx, in, key, capturedBy)
+		if err != nil {
+			return err
+		}
+		// Audit-only: the closed catalog (events.md §5) defines no
+		// ai_feedback.* type, and the closed-verb law forbids inventing one
+		// build-side. Nothing downstream reacts to a verdict either — the
+		// ledger is CONSULTED at re-derivation time — so the audit row carries
+		// the attribution a "corrected by you" marker and any later dispute
+		// both need.
+		//
+		// The after-image records the claim and the verdict, never the value
+		// the model asserted: the ledger does not keep that and neither does
+		// its audit trail.
+		_, err = storekit.Audit(ctx, tx, "update", "ai_feedback", id, nil, map[string]any{
+			"subject_type": in.SubjectType,
+			"subject_id":   in.SubjectID.String(),
+			"claim_kind":   in.ClaimKind,
+			"claim_key":    key,
+			"verdict":      in.Verdict,
+		})
+		return err
+	})
+}
+
+// admitVerdict refuses what must never reach the ledger, naming the field the
+// caller has to fix rather than letting a column CHECK answer for it.
+func admitVerdict(ctx context.Context, in RecordInput) error {
 	if !feedbackSubjects[in.SubjectType] {
 		return &values.ParseError{
 			Field: fieldSubjectType, Code: "invalid_subject_type",
@@ -145,61 +194,45 @@ func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 			Message: "a corrected verdict carries the human's value, and no other verdict does",
 		}
 	}
+	// Human-only, because the whole point of the row is that a PERSON decided:
+	// the column is hard-coded source = 'human', and a verdict an agent could
+	// write would let a model launder its own claim into the ledger that is
+	// supposed to overrule it.
+	if err := auth.RequireHuman(ctx); err != nil {
+		return err
+	}
 	// Gated on the SUBJECT's own grant rather than on a new object of its own:
 	// correcting what the system says about a contact is editing that contact,
 	// and a separate object would let the two drift apart.
-	if err := auth.Require(ctx, in.SubjectType, principal.ActionUpdate); err != nil {
-		return err
-	}
-	actor, _ := principal.Actor(ctx)
-	key := ClaimKey(in.ClaimPath)
+	return auth.Require(ctx, in.SubjectType, principal.ActionUpdate)
+}
 
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Row scope before the write: a subject outside the caller's scope is
-		// a not-found, so a verdict cannot be used to probe which records
-		// exist.
-		if err := auth.EnsureVisible(ctx, tx, in.SubjectType, in.SubjectID); err != nil {
-			return err
-		}
-		var id ids.UUID
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO ai_feedback
-			  (workspace_id, subject_type, subject_id, claim_kind, claim_key,
-			   verdict, corrected_value, note, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, $7, 'human', $8)
-			ON CONFLICT (workspace_id, subject_type, subject_id, claim_kind, claim_key)
-			DO UPDATE SET verdict = EXCLUDED.verdict,
-			              corrected_value = EXCLUDED.corrected_value,
-			              note = EXCLUDED.note,
-			              captured_by = EXCLUDED.captured_by,
-			              version = ai_feedback.version + 1,
-			              updated_at = now()
-			RETURNING id`,
-			in.SubjectType, in.SubjectID, in.ClaimKind, key,
-			in.Verdict, in.CorrectedValue, in.Note, actor.ID,
-		).Scan(&id); err != nil {
-			return fmt.Errorf("ai: recording a human's verdict on a derived claim: %w", err)
-		}
-		// Audit-only: the closed catalog (events.md §5) defines no
-		// ai_feedback.* type, and the closed-verb law forbids inventing one
-		// build-side. The audit row carries the attribution, which is what a
-		// "corrected by you" marker and any later dispute both need.
-		//
-		// The after-image records the claim and the verdict, never the value
-		// the model asserted — the ledger does not keep that and neither does
-		// its audit trail.
-		if _, err := storekit.Audit(ctx, tx, "update", "ai_feedback", id, nil, map[string]any{
-			"subject_type": in.SubjectType,
-			"subject_id":   in.SubjectID.String(),
-			"claim_kind":   in.ClaimKind,
-			"claim_key":    key,
-			"verdict":      in.Verdict,
-		}); err != nil {
-			return err
-		}
-		return nil
-	})
+// upsertVerdict replaces any previous decision about the same claim. Replacing
+// rather than appending is the point: a verdict is the current answer to "has a
+// human decided this", and two answers is no answer. The history is in
+// audit_log, where every other mutation's history lives.
+func upsertVerdict(ctx context.Context, tx pgx.Tx, in RecordInput, key, capturedBy string) (ids.UUID, error) {
+	var id ids.UUID
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO ai_feedback
+		  (workspace_id, subject_type, subject_id, claim_kind, claim_key,
+		   verdict, corrected_value, note, source, captured_by)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, $2, $3, $4, $5, $6, $7, 'human', $8)
+		ON CONFLICT (workspace_id, subject_type, subject_id, claim_kind, claim_key)
+		DO UPDATE SET verdict = EXCLUDED.verdict,
+		              corrected_value = EXCLUDED.corrected_value,
+		              note = EXCLUDED.note,
+		              captured_by = EXCLUDED.captured_by,
+		              version = ai_feedback.version + 1,
+		              updated_at = now()
+		RETURNING id`,
+		in.SubjectType, in.SubjectID, in.ClaimKind, key,
+		in.Verdict, in.CorrectedValue, in.Note, capturedBy,
+	).Scan(&id); err != nil {
+		return ids.Nil, fmt.Errorf("ai: recording a human's verdict on a derived claim: %w", err)
+	}
+	return id, nil
 }
 
 // VerdictsForTx returns every verdict recorded about one record, keyed by

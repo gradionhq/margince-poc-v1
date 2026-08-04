@@ -217,7 +217,11 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	// Everyone else who was in it — the CCs, the meeting's organizer and
 	// attendees. Separate from the two ends above because these are resolved
 	// against our own people here rather than promoted later.
-	if err := StampFurtherParticipants(ctx, tx, id, fields.Kind, rec.Participants); err != nil {
+	// The recipient list is OURS to trust only when the provider attested our
+	// own mailbox owner sent this message — then the Cc line is what our user
+	// typed. On anything inbound it is the sender's text.
+	if err := StampFurtherParticipants(ctx, tx, id, fields.Kind,
+		rec.Counterparty.SentByOwner(), rec.Participants); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is

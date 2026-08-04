@@ -129,7 +129,7 @@ func (w *participantBackfillWorker) backfillWorkspace(ctx context.Context, ws id
 	return total + replayed, err
 }
 
-// replayReplayBatch is smaller than the two-end batch because this pass does
+// participantReplayBatch is smaller than the two-end batch because this pass does
 // real work per row — it parses a stored RFC822 message or calendar resource
 // in Go rather than running one join in the database.
 const participantReplayBatch = 100

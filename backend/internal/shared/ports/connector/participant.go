@@ -37,3 +37,24 @@ const (
 	ParticipantRoleAttendee  = "attendee"
 	ParticipantRoleOrganizer = "organizer"
 )
+
+// MaxParticipants bounds how many further parties one message may contribute.
+//
+// The cap is a SHAPE guard, not a performance one. A message addressed to two
+// hundred people is a distribution list, and every name on it is evidence of a
+// list membership rather than of a conversation — folding those in would
+// report a relationship with everybody who received the same newsletter.
+const MaxParticipants = 50
+
+// CapParticipants returns the parties, or nothing at all past the cap.
+//
+// Nothing rather than a truncation: half a distribution list is no more
+// meaningful than all of it, and a truncated one would look like a small
+// meeting. It lives here so mail and calendar cannot drift apart — the same
+// sixty-person invite must be recorded, or not, whichever parser saw it.
+func CapParticipants(parties []MessageParticipant) []MessageParticipant {
+	if len(parties) > MaxParticipants {
+		return nil
+	}
+	return parties
+}

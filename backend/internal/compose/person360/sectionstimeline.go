@@ -220,36 +220,9 @@ func (s *Service) consentSection(ctx context.Context, tx pgx.Tx, personID ids.Pe
 // is enforced at write time (the snippet column is NOT NULL), so every row
 // here can show the reader the text its value was read from.
 func (s *Service) profileFieldsSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, out *crmcontracts.Person360) error {
-	fields, err := readProfileFields(ctx, tx, personID)
+	fields, err := s.readProfileFields(ctx, tx, personID)
 	if err != nil {
 		return err
-	}
-	// What a human already decided about each field. Folded in HERE rather
-	// than left for the client to join: a corrected value the page rendered
-	// without its marker would read as the machine's assertion, which is
-	// exactly the claim the human overrode.
-	verdicts, err := s.feedback.VerdictsForTx(ctx, tx, "person", personID.UUID)
-	if err != nil {
-		return err
-	}
-	for i := range fields {
-		f := &fields[i]
-		claim := profileFieldClaimPath(string(f.Field))
-		f.ClaimKey = &claim
-		v, found := verdicts[ai.VerdictLookupKey(ai.ClaimProfileField, ai.ClaimKey(claim))]
-		if !found {
-			continue
-		}
-		verdict := crmcontracts.PersonProfileFieldVerdict(v.Verdict)
-		f.Verdict = &verdict
-		f.VerdictNote = v.Note
-		if v.Verdict == ai.VerdictCorrected && v.CorrectedValue != nil {
-			// The human's value stands. The captured snippet is left in place
-			// beneath it on purpose — what the machine read is still the
-			// evidence for why it got this wrong, and hiding it would leave the
-			// correction unexplainable.
-			f.Value = *v.CorrectedValue
-		}
 	}
 	out.ProfileFields = &fields
 	return nil
@@ -261,8 +234,15 @@ func (s *Service) profileFieldsSection(ctx context.Context, tx pgx.Tx, personID 
 // would silently lose every correction.
 func profileFieldClaimPath(field string) string { return "profile_field:" + field }
 
-// readProfileFields is shared with the standalone profile-fields endpoint.
-func readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {
+// readProfileFields is EVERY read of person_profile_field — the 360 section
+// and the standalone sidecar endpoint both come through here.
+//
+// That matters because the human's verdict is folded in below. A corrected
+// value rendered without its marker reads as the machine's assertion, which is
+// exactly the claim the human overrode, so consulting the ledger cannot be one
+// caller's job: a second read path that skipped it would keep serving the
+// rejected value on a surface nobody thought to check.
+func (s *Service) readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]crmcontracts.PersonProfileField, error) {
 	rows, err := tx.Query(ctx, `
 		-- updated_at, not created_at: this is when the value took its CURRENT
 		-- form, which is the date the receipt should show after a human edit.
@@ -285,7 +265,43 @@ func readProfileFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([
 		f.Field = crmcontracts.PersonProfileFieldField(field)
 		out = append(out, f)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return s.applyFieldVerdicts(ctx, tx, personID, out)
+}
+
+// applyFieldVerdicts overlays what a human already decided about each field.
+func (s *Service) applyFieldVerdicts(
+	ctx context.Context,
+	tx pgx.Tx,
+	personID ids.PersonID,
+	fields []crmcontracts.PersonProfileField,
+) ([]crmcontracts.PersonProfileField, error) {
+	verdicts, err := s.feedback.VerdictsForTx(ctx, tx, "person", personID.UUID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range fields {
+		f := &fields[i]
+		claim := profileFieldClaimPath(string(f.Field))
+		f.ClaimKey = &claim
+		v, found := verdicts[ai.VerdictLookupKey(ai.ClaimProfileField, ai.ClaimKey(claim))]
+		if !found {
+			continue
+		}
+		verdict := crmcontracts.PersonProfileFieldVerdict(v.Verdict)
+		f.Verdict = &verdict
+		f.VerdictNote = v.Note
+		if v.Verdict == ai.VerdictCorrected && v.CorrectedValue != nil {
+			// The human's value stands. The captured snippet is left in place
+			// beneath it on purpose — what the machine read is still the
+			// evidence for why it got this wrong, and hiding it would leave the
+			// correction unexplainable.
+			f.Value = *v.CorrectedValue
+		}
+	}
+	return fields, nil
 }
 
 // sinceLastVisitSection counts what arrived since the caller's own

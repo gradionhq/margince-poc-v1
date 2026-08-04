@@ -322,12 +322,13 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 // purgePersonDerivedRows deletes what the system DERIVED about the subject and
 // keyed on their person id.
 //
-// The three tables share a posture that makes them one step rather than three:
+// The four tables share a posture that makes them one step rather than four:
 // none is anonymizable. An embedding is an opaque vector of the text, a
-// provenance row says where a now-erased field came from, and a correction
-// verdict is what a human typed over what the system inferred. Nulling any of
-// them leaves a row asserting something about a person nobody may now assert
-// anything about, so all three are deleted outright.
+// provenance row says where a now-erased field came from, an enrichment row
+// holds the subject's title and employer with the verbatim sentence it was
+// read from, and a correction verdict is what a human typed over what the
+// system inferred. Nulling any of them leaves a row asserting something about
+// a person nobody may now assert anything about, so all four are deleted.
 func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, personID); err != nil {
@@ -335,6 +336,14 @@ func purgePersonDerivedRows(ctx context.Context, tx pgx.Tx, personID ids.PersonI
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM field_provenance WHERE object_type = 'person' AND object_id = $1`, personID); err != nil {
+		return err
+	}
+	// The enrichment sidecar. anonymize-in-place leaves the person row
+	// standing, so nothing cascades here: the value AND its evidence snippet
+	// — which quotes the page or signature naming the subject — survive an
+	// erasure verbatim unless this statement removes them.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_profile_field WHERE person_id = $1`, personID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,

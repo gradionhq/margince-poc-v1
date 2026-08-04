@@ -76,7 +76,7 @@ func (s *Service) employmentsSection(ctx context.Context, tx pgx.Tx, personID id
 	}
 	limit := sectionCap
 	kind := "employment"
-	rows, _, err := s.people.ListRelationshipsTx(ctx, tx, people.ListRelationshipsInput{
+	rows, page, err := s.people.ListRelationshipsTx(ctx, tx, people.ListRelationshipsInput{
 		Kind: &kind, PersonID: &personID, Limit: &limit,
 	})
 	if err != nil {
@@ -116,7 +116,11 @@ func (s *Service) employmentsSection(ctx context.Context, tx pgx.Tx, personID id
 	out.Employments = &struct {
 		Data []crmcontracts.Person360Employment `json:"data"`
 		Page crmcontracts.PageInfo              `json:"page"`
-	}{Data: data, Page: crmcontracts.PageInfo{HasMore: len(rows) >= sectionCap}}
+		// The store's own answer, not len(rows) >= cap: ListRelationshipsTx
+		// over-fetches by one to know this exactly, and guessing it would
+		// report has_more on a person holding exactly 25 employments and send
+		// the client to a page that does not exist.
+	}{Data: data, Page: crmcontracts.PageInfo{HasMore: page.HasMore}}
 	return nil
 }
 

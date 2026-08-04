@@ -126,7 +126,13 @@ func (s *Service) Acknowledge(ctx context.Context, personID ids.PersonID) (crmco
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		// Anything that names a record is gated: acknowledging a person the
 		// caller cannot read would confirm they exist.
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		// Live, not merely visible: Art. 17 anonymizes a person in place and
+		// stamps archived_at while LEAVING owner_id alone, so the plain probe
+		// still admits their owner. This sidecar is the only path to the
+		// enrichment rows — the 360 refuses through its LiveOnly root read —
+		// and it would otherwise serve the subject's name, title and employer
+		// after the controller certified them erased.
+		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `
@@ -156,10 +162,16 @@ func (s *Service) ProfileFields(ctx context.Context, personID ids.PersonID) ([]c
 	}
 	var out []crmcontracts.PersonProfileField
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		// Live, not merely visible: Art. 17 anonymizes a person in place and
+		// stamps archived_at while LEAVING owner_id alone, so the plain probe
+		// still admits their owner. This sidecar is the only path to the
+		// enrichment rows — the 360 refuses through its LiveOnly root read —
+		// and it would otherwise serve the subject's name, title and employer
+		// after the controller certified them erased.
+		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
-		fields, err := readProfileFields(ctx, tx, personID)
+		fields, err := s.readProfileFields(ctx, tx, personID)
 		if err != nil {
 			return err
 		}

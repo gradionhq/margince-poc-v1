@@ -170,6 +170,10 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 // FromEnv binds whichever provider the deployment configured, or Disabled
 // when it configured none.
 //
+// The seam IS the return type, which is why this returns an interface: a
+// caller must not be able to tell a bound provider from Disabled, or it would
+// branch on which one it got instead of on the ErrNoProvider the port defines.
+//
 // Absence is a valid, supported answer here — the same posture ADR-0020 gives
 // model keys. A deployment that wants no external egress simply sets nothing,
 // and every consumer degrades honestly instead of erroring at request time.
@@ -177,6 +181,7 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 // instead of on the ErrNoProvider the port defines.
 //
 //nolint:ireturn // the seam IS the return type: a caller must not be able to
+//nolint:ireturn // the seam is the return type — see the doc comment above
 func FromEnv(now func() time.Time) (websearch.Client, bool) {
 	if key := strings.TrimSpace(os.Getenv("BRAVE_SEARCH_API_KEY")); key != "" {
 		return NewBrave(key, now), true
