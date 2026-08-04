@@ -55,6 +55,56 @@ func TestAReasonlessWaiverFailsWhereItIsReliedOn(t *testing.T) {
 	}
 }
 
+// The floor measures the text a reason states, not the bytes it occupies: space
+// is not an argument, and a subject long enough to clear the byte count is still
+// only the subject.
+func TestAReasonThatStatesNoCostIsRefusedHoweverLongItIs(t *testing.T) {
+	const subject = "internal/modules/people/store.go"
+	for _, probe := range []struct{ name, reason string }{
+		{"blank padding", strings.Repeat(" ", 25)},
+		{"mixed whitespace padding", "  \t\n   \n\t     \n            "},
+		{"the subject restated", subject},
+		{"the subject in another case", strings.ToUpper(subject)},
+		{"the subject quoted", `"` + subject + `"`},
+		{"the subject with a trailing period", subject + "."},
+		{"the subject in parentheses", "(" + subject + ")"},
+		{"the subject with padding around it", "  " + subject + " \n"},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			w := Waive(map[string]string{subject: probe.reason})
+			rec := &recorder{TB: t}
+			if !w.Waived(rec, subject) {
+				t.Error("the subject stays waived — the reason is the defect, not the ratification")
+			}
+			if len(rec.errs) != 1 || !strings.Contains(rec.joined(), "what it costs") {
+				t.Errorf("a reason stating no cost was accepted: %s", rec.joined())
+			}
+		})
+	}
+}
+
+// A reason may open with its subject and then explain it — the shape several
+// live gates write — because naming the subject first and stating the cost after
+// is a reason, and refusing it would push those gates to bury the subject.
+func TestAReasonOpeningWithItsSubjectAndThenExplainingIsAccepted(t *testing.T) {
+	for _, probe := range []struct{ subject, reason string }{
+		{"enrich", "enrich — scrapeCompany fetches the target's own website through the web-read seam"},
+		{"send_offer", "send — pinned for what the contract promises, though today's code performs no delivery"},
+		{"arguments", "arguments names the JSON-RPC request shape rather than a REST contract property"},
+	} {
+		t.Run(probe.subject, func(t *testing.T) {
+			w := Waive(map[string]string{probe.subject: probe.reason})
+			rec := &recorder{TB: t}
+			if !w.Waived(rec, probe.subject) {
+				t.Fatal("a ratified subject was not waived")
+			}
+			if len(rec.errs) != 0 {
+				t.Errorf("a reason that states a cost was refused: %s", rec.joined())
+			}
+		})
+	}
+}
+
 func TestAWaiverMatchingNothingIsReportedAsStale(t *testing.T) {
 	w := Waive(map[string]string{
 		"live":  "reached by the lookup below, so it must not be reported",
@@ -84,6 +134,24 @@ func TestSubjectsEnumeratesInADeterministicOrder(t *testing.T) {
 	for range 8 {
 		if got := w.Subjects(); strings.Join(got, ",") != "a,b,c" {
 			t.Fatalf("Subjects() = %v, want a,b,c in every call", got)
+		}
+	}
+}
+
+// A gate keys its waivers by its own vocabulary's type, and two of them key by a
+// named string type. The order is total over any such type, because a string
+// subject has exactly one rendering and no two distinct subjects share it.
+func TestSubjectsOfAWaiverSetKeyedByANamedStringTypeAreOrderedToo(t *testing.T) {
+	type recordType string
+	w := Waive(map[recordType]string{
+		"organization": "the third subject, ratified for the reason stated right here",
+		"deal":         "the first subject, ratified for the reason stated right here",
+		"person":       "the second subject, ratified for the reason stated right here",
+	})
+	for range 8 {
+		got := w.Subjects()
+		if len(got) != 3 || got[0] != "deal" || got[1] != "organization" || got[2] != "person" {
+			t.Fatalf("Subjects() = %v, want deal,organization,person in every call", got)
 		}
 	}
 }

@@ -14,17 +14,26 @@
 package gatekit
 
 import (
-	"fmt"
-	"sort"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 )
 
-// minReason is the shortest text that can state a cost. A reason that only
-// names its own subject, or repeats its key, identifies the exception without
-// saying what it buys or gives up — which is the half a later reader needs in
-// order to judge whether the trade still holds.
+// minReason is the shortest text that can state a cost, measured on the text a
+// reason states rather than the bytes it occupies: whitespace is normalised
+// first, so padding is not length.
+//
+// Length is only half the floor. A reason that restates its own subject
+// identifies the exception at any length without saying what it buys or gives
+// up — which is the half a later reader needs in order to judge whether the
+// trade still holds — so a restatement is refused however long the subject is.
 const minReason = 20
+
+// reasonEdgePunctuation is the quoting and terminal punctuation a restatement
+// may wear without becoming a reason: `"enrich"`, `(enrich)` and `enrich.` all
+// say exactly what `enrich` says.
+const reasonEdgePunctuation = " \t\"'`“”‘’.,:;!?()[]{}<>"
 
 // Waivers is a set of ratified exceptions to one gate's rule, each bound to the
 // reason it costs.
@@ -32,8 +41,10 @@ const minReason = 20
 // K is the vocabulary the gate's subjects are drawn from — a record type, a
 // table name, an operationId. Keying by the caller's own named type keeps the
 // type instead of casting it away at the lookup, so a record-type waiver cannot
-// be keyed by a tool name.
-type Waivers[K comparable] struct {
+// be keyed by a tool name. It is a string type, which is what makes the report
+// order below total: every subject has one rendering, and no two distinct
+// subjects share it.
+type Waivers[K ~string] struct {
 	// mu guards matched. A package-level Waivers is shared by every test in its
 	// package, so concurrent access is possible the moment any of them calls
 	// t.Parallel(); an unguarded map would surface as a stale-waiver report at
@@ -46,7 +57,7 @@ type Waivers[K comparable] struct {
 // Waive ratifies entries, each mapping a subject to what waiving it costs. The
 // input is copied: a caller that mutates its literal afterwards must not widen
 // what was ratified.
-func Waive[K comparable](entries map[K]string) *Waivers[K] {
+func Waive[K ~string](entries map[K]string) *Waivers[K] {
 	reasons := make(map[K]string, len(entries))
 	for subject, reason := range entries {
 		reasons[subject] = reason
@@ -75,11 +86,31 @@ func (w *Waivers[K]) Waived(t testing.TB, subject K) bool {
 		return false
 	}
 	w.matched[subject] = true
-	if len(reason) < minReason {
-		t.Errorf("waiver %v carries no usable reason (%q): state what it costs, so the next "+
+	stated := statedText(reason)
+	switch {
+	case restatesSubject(stated, string(subject)):
+		t.Errorf("waiver %s answers with its own subject (%q): state what it costs, so the next "+
+			"reader can judge whether the cost is still worth paying", subject, reason)
+	case len(stated) < minReason:
+		t.Errorf("waiver %s carries no usable reason (%q): state what it costs, so the next "+
 			"reader can judge whether the cost is still worth paying", subject, reason)
 	}
 	return true
+}
+
+// statedText reduces a reason to the text it states: no surrounding space, and
+// every internal run of whitespace read as the one space it stands for.
+func statedText(reason string) string {
+	return strings.Join(strings.Fields(reason), " ")
+}
+
+// restatesSubject reports whether a reason says its subject over again and
+// nothing more. The whole text is compared, never a prefix: a reason that opens
+// with its subject and then explains it — `enrich — the call fetches the
+// target's own website` — is the shape several gates write, and it does state a
+// cost.
+func restatesSubject(stated, subject string) bool {
+	return strings.EqualFold(strings.Trim(stated, reasonEdgePunctuation), strings.TrimSpace(subject))
 }
 
 // Subjects returns every ratified subject in a deterministic order, for the
@@ -95,9 +126,7 @@ func (w *Waivers[K]) Subjects() []K {
 	for subject := range w.reasons {
 		subjects = append(subjects, subject)
 	}
-	sort.Slice(subjects, func(i, j int) bool {
-		return fmt.Sprintf("%v", subjects[i]) < fmt.Sprintf("%v", subjects[j])
-	})
+	slices.Sort(subjects)
 	return subjects
 }
 
@@ -119,10 +148,10 @@ func (w *Waivers[K]) AssertAllMatched(t testing.TB) {
 	stale := make([]string, 0, len(w.reasons))
 	for subject := range w.reasons {
 		if !w.matched[subject] {
-			stale = append(stale, fmt.Sprintf("%v", subject))
+			stale = append(stale, string(subject))
 		}
 	}
-	sort.Strings(stale)
+	slices.Sort(stale)
 	for _, subject := range stale {
 		t.Errorf("waiver %s matched no subject: delete it, or correct the key if the subject "+
 			"was renamed", subject)
