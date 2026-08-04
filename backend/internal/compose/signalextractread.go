@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -93,10 +94,36 @@ type settledThread struct {
 // dueThreads lists the conversations that have settled and have moved since
 // they were last read, newest first.
 //
+// A conversation's account comes from the three-arm walk (the message's own
+// link, its deal's account, the employer of the contact it is about) rather
+// than a direct organization link. Capture files mail against the PERSON it was
+// with, so a direct match resolved nothing on real correspondence and this
+// producer read no conversations at all.
+//
+// The walk is joined rather than applied as a predicate because the question
+// here is which account a thread belongs to, not whether it belongs to a known
+// one — and it is a LEFT join because the two things the aggregate computes are
+// different questions over different rows:
+//
+//   - WHEN the conversation last moved, and how many messages it holds, is
+//     asked of EVERY message on the thread. Counting only the resolvable ones
+//     would let a thread look settled while a message nobody can place arrived
+//     minutes ago, and the settle window exists precisely to keep the model out
+//     of a conversation still in progress.
+//   - WHICH account it belongs to is asked only of the messages that reach one;
+//     count(DISTINCT) ignores the NULLs a LEFT join leaves behind.
+//
 // The org resolution is deliberately strict: exactly one organization across
 // the whole thread. A conversation touching two accounts would have its events
 // filed against whichever the join happened to pick, and a signal on the wrong
 // account is worse than no signal — it is a claim the reader cannot trace back.
+// A contact with two live employers makes their threads ambiguous by the same
+// rule and skips them; filtering the walk down to a primary employer would buy
+// those threads back by guessing, which is the thing being refused.
+//
+// A message whose contact reaches no account at all still reaches the PROMPT —
+// threadMessages reads the conversation by thread_key alone. Resolution decides
+// whose conversation this is, not which of its messages the model may read.
 func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]settledThread, error) {
 	settled := now.Add(-extractSettleHours * time.Hour)
 	rows, err := tx.Query(ctx, `
@@ -104,10 +131,10 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			SELECT a.thread_key,
 			       max(a.occurred_at) AS newest,
 			       count(DISTINCT a.id) AS message_count,
-			       min(l.organization_id::text) AS one_org,
-			       count(DISTINCT l.organization_id) AS org_count
+			       min(ro.organization_id::text) AS one_org,
+			       count(DISTINCT ro.organization_id) AS org_count
 			  FROM activity a
-			  JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization'
+			  LEFT JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
 			 WHERE a.thread_key IS NOT NULL AND a.kind = 'email'
 			   AND a.archived_at IS NULL AND a.captured_by LIKE 'connector:%'
 			 GROUP BY a.thread_key
@@ -127,12 +154,17 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		            AND s.refused_activity_at IS NOT DISTINCT FROM c.newest
 		            AND s.refused_message_count IS NOT DISTINCT FROM c.message_count
 		            AND s.scanned_at > $4)
-		   -- Due when the conversation has MOVED in either way it can. The
+		   -- Due when the conversation has MOVED in any way it can. The
 		   -- timestamp misses a message inserted at the same instant and a
-		   -- backfill that adds older ones; the count sees both.
+		   -- backfill that adds older ones; the count sees both. And the
+		   -- ACCOUNT moves without the conversation moving at all — two of the
+		   -- three arms are live relationships, so a contact changing employer
+		   -- re-points every quiet thread they are on. Read for one account is
+		   -- not read for another.
 		   AND (s.thread_key IS NULL
 		        OR s.last_activity_at < c.newest
-		        OR s.message_count <> c.message_count)
+		        OR s.message_count <> c.message_count
+		        OR s.resolved_org_id IS DISTINCT FROM c.one_org::uuid)
 		 ORDER BY c.newest DESC
 		 LIMIT $2`, settled, limit, extractRefusalCap, now.Add(-extractParkFor))
 	if err != nil {
@@ -239,12 +271,17 @@ func recordThreadRefusal(
 func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO signal_thread_scan
-		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at)
-		VALUES ($1, $2, $3, $4, $5)
+		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
+		   resolved_org_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (workspace_id, thread_key) DO UPDATE
 		   SET last_activity_at = greatest(signal_thread_scan.last_activity_at, excluded.last_activity_at),
 		       message_count = excluded.message_count,
 		       scanned_at = excluded.scanned_at,
+		       -- WHICH account this reading was for. Overwritten, never
+		       -- greatest()-style clamped: the account is not a high-water mark,
+		       -- it is what the walk resolves to now.
+		       resolved_org_id = excluded.resolved_org_id,
 		       -- A reading landed, so the earlier refusals were about a model
 		       -- that could not do it then, not a conversation that cannot be
 		       -- done. Left standing they would park the thread on its next
@@ -252,7 +289,7 @@ func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thr
 		       refusals = 0,
 		       refused_activity_at = NULL,
 		       refused_message_count = NULL`,
-		wsID, thread.Key, thread.Newest, thread.Count, now); err != nil {
+		wsID, thread.Key, thread.Newest, thread.Count, now, thread.OrganizationID); err != nil {
 		return fmt.Errorf("record where the read got to: %w", err)
 	}
 	return nil

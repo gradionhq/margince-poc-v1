@@ -50,8 +50,15 @@ func (b *scriptedBrain) Complete(_ context.Context, _ model.Request) (model.Resp
 	return model.Response{Text: b.reply}, nil
 }
 
-// seedThread logs one captured email on a conversation, linked to the account.
-func seedThread(t *testing.T, e *Env, org ids.UUID, key, subject, body, direction string, at time.Time) ids.UUID {
+// seedMessage logs one captured email on a conversation, filed against the
+// given contact and nothing else.
+//
+// This is the shape capture actually writes: mail is linked to the PERSON it
+// was with, never to their employer. Seeding a direct organization link — which
+// these fixtures used to do — describes a row no connector has ever produced,
+// and a producer that resolved accounts the narrow way passed every test here
+// while finding no conversation at all on a real workspace.
+func seedMessage(t *testing.T, e *Env, contact ids.UUID, key, subject, body, direction string, at time.Time) ids.UUID {
 	t.Helper()
 	owner := OwnerConn(t)
 	stamp := at.UTC().Format(time.RFC3339Nano)
@@ -60,22 +67,46 @@ func seedThread(t *testing.T, e *Env, org ids.UUID, key, subject, body, directio
 		 source, captured_by)
 		VALUES ($1, $2, 'email', '`+direction+`', '`+subject+`', '`+body+`', '`+key+`',
 		        '`+stamp+`', '`+stamp+`', 'gmail', 'connector:gmail')`, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, id, org)
+	if contact != (ids.UUID{}) {
+		LinkActivity(t, owner, e.WS, id, "person", contact)
+	}
 	return id
+}
+
+// employeeOf is a contact who works at the account, which is the only way
+// captured mail reaches it.
+func employeeOf(t *testing.T, e *Env, org ids.UUID, name string) ids.UUID {
+	t.Helper()
+	person := e.SeedPerson(t, name, &e.Rep1)
+	seedEmployment(t, OwnerConn(t), e.WS, person, org)
+	return person
+}
+
+// seedThread logs one captured email on a conversation belonging to the
+// account, filed against a contact who works there.
+func seedThread(t *testing.T, e *Env, org ids.UUID, key, subject, body, direction string, at time.Time) ids.UUID {
+	t.Helper()
+	return seedMessage(t, e, employeeOf(t, e, org, key+" contact"), key, subject, body, direction, at)
 }
 
 // extractPass runs one pass with the given reply scripted, and reports how
 // many signals it raised.
 func extractPass(t *testing.T, e *Env, brain *scriptedBrain) int {
 	t.Helper()
+	return extractPassStats(t, e, brain).Raised
+}
+
+// extractPassStats runs one pass and reports everything it did, for the tests
+// that care whether a conversation was OFFERED as well as whether it was read.
+func extractPassStats(t *testing.T, e *Env, brain *scriptedBrain) compose.ExtractPass {
+	t.Helper()
 	extractor := compose.NewSignalExtractor(e.Pool, brain,
 		func() time.Time { return extractClock }, slog.Default())
-	raised, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
+	pass, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
 	if err != nil {
 		t.Fatalf("signal extract: %v", err)
 	}
-	return raised
+	return pass
 }
 
 // reply builds the model answer for one event on the given message.
@@ -206,10 +237,11 @@ func TestAThreadSpanningTwoAccountsIsNotFiledAgainstEither(t *testing.T) {
 	e := Setup(t)
 	acme := e.SeedOrg(t, "Acme", &e.Rep1)
 	contoso := e.SeedOrg(t, "Contoso", &e.Rep1)
-	shared := seedThread(t, e, acme, "thread-shared", "Joint project",
-		"We are ending our side of the arrangement.", "inbound", extractClock.Add(-48*time.Hour))
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, shared, contoso)
+	at := extractClock.Add(-48 * time.Hour)
+	seedMessage(t, e, employeeOf(t, e, acme, "Ada at Acme"), "thread-shared", "Joint project",
+		"We are ending our side of the arrangement.", "inbound", at)
+	seedMessage(t, e, employeeOf(t, e, contoso, "Cai at Contoso"), "thread-shared", "Joint project",
+		"Noted from our side too.", "inbound", at.Add(time.Minute))
 
 	brain := &scriptedBrain{reply: `{"events": []}`}
 	if raised := extractPass(t, e, brain); raised != 0 {
@@ -217,6 +249,180 @@ func TestAThreadSpanningTwoAccountsIsNotFiledAgainstEither(t *testing.T) {
 	}
 	if brain.calls != 0 {
 		t.Errorf("the model was called %d times on a conversation with no single account", brain.calls)
+	}
+}
+
+// The same refusal through the other arm that can produce two accounts: ONE
+// contact who currently works at two of them. Their threads name no single
+// account either, and picking the alphabetically-first organization id would be
+// a guess wearing a query's clothing.
+func TestAThreadWithATwoEmployerContactIsNotFiledAgainstEither(t *testing.T) {
+	e := Setup(t)
+	acme := e.SeedOrg(t, "Acme", &e.Rep1)
+	contoso := e.SeedOrg(t, "Contoso", &e.Rep1)
+	moonlighter := e.SeedPerson(t, "Mo Moonlighter", &e.Rep1)
+	owner := OwnerConn(t)
+	seedEmployment(t, owner, e.WS, moonlighter, acme)
+	seedEmployment(t, owner, e.WS, moonlighter, contoso)
+	seedMessage(t, e, moonlighter, "thread-two-hats", "Renewal",
+		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
+
+	brain := &scriptedBrain{reply: `{"events": []}`}
+	if pass := extractPassStats(t, e, brain); pass.Due != 0 {
+		t.Fatalf("the queue offered %d conversations, want none with an ambiguous account", pass.Due)
+	}
+	if brain.calls != 0 {
+		t.Errorf("the model was called %d times on a conversation with no single account", brain.calls)
+	}
+}
+
+// The deal arm on its own. A conversation whose contact works nowhere still
+// belongs to the account when the message is filed against that account's deal
+// — and the walk must reach it, because this is the shape a rep produces by
+// dragging a thread onto a deal rather than onto a company.
+func TestAThreadReachesTheAccountThroughItsDealAlone(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	pipeline, stage, _ := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
+	unattached := e.SeedPerson(t, "Unaffiliated Ursula", &e.Rep1)
+	notice := seedMessage(t, e, unattached, "thread-deal", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
+	LinkActivity(t, OwnerConn(t), e.WS, notice, "deal", deal)
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	if raised := extractPass(t, e, brain); raised != 1 {
+		t.Fatalf("the pass raised %d signals, want the one the conversation states", raised)
+	}
+	if kinds := openSignalKinds(t, e, org); len(kinds) != 1 || kinds[0] != "contract_ended" {
+		t.Fatalf("the account carries %v, want the contract_ended reached through its deal", kinds)
+	}
+}
+
+// A message nobody can place must not make the conversation look FINISHED.
+//
+// Due-ness is asked of every message on the thread; the account is asked only
+// of the ones that reach one. Counting only the resolvable messages would let a
+// conversation that is still in progress read as settled, and the model would
+// be handed a negotiation mid-sentence — which is the whole reason the settle
+// window exists.
+func TestAnUnplaceableMessageStillHoldsTheConversationOpen(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	contact := employeeOf(t, e, org, "Ada at Acme")
+	seedMessage(t, e, contact, "thread-live", "Renewal for 2027",
+		"We are still discussing it internally.", "inbound", extractClock.Add(-48*time.Hour))
+	// A stranger's reply, minutes ago: it reaches no account, but the
+	// conversation is plainly still moving.
+	seedMessage(t, e, e.SeedPerson(t, "Stranger Sam", &e.Rep1), "thread-live", "Renewal for 2027",
+		"Adding my thoughts before we decide.", "inbound", extractClock.Add(-time.Minute))
+
+	brain := &scriptedBrain{reply: `{"events": []}`}
+	if pass := extractPassStats(t, e, brain); pass.Due != 0 {
+		t.Fatalf("the queue offered %d conversations, want none still in progress", pass.Due)
+	}
+	if brain.calls != 0 {
+		t.Errorf("the model was called %d times on an unsettled conversation", brain.calls)
+	}
+}
+
+// Two of the three arms are LIVE relationships, so a conversation's account can
+// change with no new mail on it. A contact moving employer re-points every
+// quiet thread they are on, and the new account has never had these events
+// read for it — the watermark says the THREAD was read, which is a different
+// claim.
+func TestAThreadIsReReadWhenItsContactChangesEmployer(t *testing.T) {
+	e := Setup(t)
+	acme := e.SeedOrg(t, "Acme", &e.Rep1)
+	contoso := e.SeedOrg(t, "Contoso", &e.Rep1)
+	mover := employeeOf(t, e, acme, "Mo Mover")
+	notice := seedMessage(t, e, mover, "thread-move", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	if raised := extractPass(t, e, brain); raised != 1 {
+		t.Fatalf("the first pass raised %d signals, want one against the first account", raised)
+	}
+
+	owner := OwnerConn(t)
+	e.WsExec(t, `UPDATE relationship SET ended_at = $1
+		 WHERE person_id = $2 AND organization_id = $3 AND kind = 'employment'`,
+		extractClock.Add(-time.Hour), mover, acme)
+	seedEmployment(t, owner, e.WS, mover, contoso)
+
+	if raised := extractPass(t, e, brain); raised != 1 {
+		t.Fatalf("the second pass raised %d signals, want one against the account they moved to", raised)
+	}
+	if kinds := openSignalKinds(t, e, contoso); len(kinds) != 1 || kinds[0] != "contract_ended" {
+		t.Fatalf("the new account carries %v, want the contract_ended its own mail states", kinds)
+	}
+}
+
+// A pass that runs out of time stops, reports it, and leaves the rest due.
+//
+// The first pass over a connected mailbox's history has hundreds of
+// conversations to read and cannot finish them inside one job. Being killed
+// part-way is not the same as stopping part-way: the kill fails the job, retries
+// the whole pass twice against the same backlog, and discards it — three passes
+// of noise describing nothing wrong. What was read stays read either way,
+// because each conversation commits its signals and its watermark together.
+func TestAPassThatRunsOutOfTimeStopsAndLeavesTheRestDue(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	at := extractClock.Add(-48 * time.Hour)
+	for i := range 3 {
+		seedThread(t, e, org, fmt.Sprintf("thread-%d", i), "Renewal",
+			"We have decided not to renew.", "inbound", at.Add(time.Duration(i)*time.Minute))
+	}
+
+	brain := &scriptedBrain{reply: `{"events": []}`}
+	extractor := compose.NewSignalExtractor(e.Pool, brain,
+		func() time.Time { return extractClock }, slog.Default())
+	// A deadline already inside the stop margin: the pass must not start a
+	// single conversation, rather than starting one and being cut off.
+	ctx, cancel := context.WithDeadline(e.Admin(), time.Now().Add(time.Second))
+	defer cancel()
+
+	pass, err := extractor.RunWorkspace(ctx, ids.From[ids.WorkspaceKind](e.WS))
+	if err != nil {
+		t.Fatalf("running out of time is not a failure: %v", err)
+	}
+	if !pass.OutOfTime {
+		t.Error("the pass did not report that it stopped early, so a shortened " +
+			"pass is indistinguishable from a complete one")
+	}
+	if brain.calls != 0 {
+		t.Errorf("the model was called %d times with no time left to commit the answer", brain.calls)
+	}
+
+	// Nothing was read, so everything is still owed a reading.
+	if again := extractPassStats(t, e, brain); again.Due != 3 {
+		t.Fatalf("%d conversations are still due, want all three the first pass "+
+			"never reached", again.Due)
+	}
+}
+
+// A manually logged activity still carries a direct organization link — a
+// human filing a call against a company writes exactly that row. The walk's
+// first arm is not dead code, and this is the case that keeps it honest.
+func TestAThreadLinkedStraightToTheAccountIsStillRead(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	notice := seedMessage(t, e, ids.UUID{}, "thread-direct", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	if raised := extractPass(t, e, brain); raised != 1 {
+		t.Fatalf("the pass raised %d signals, want the one the conversation states", raised)
+	}
+	if kinds := openSignalKinds(t, e, org); len(kinds) != 1 || kinds[0] != "contract_ended" {
+		t.Fatalf("the account carries %v, want the contract_ended on its own link", kinds)
 	}
 }
 
@@ -384,13 +590,13 @@ func TestAThreadTheModelCannotReadStarvesNoOneAndIsNotGivenUpOn(t *testing.T) {
 
 	extractor := compose.NewSignalExtractor(e.Pool, brain,
 		func() time.Time { return extractClock }, slog.Default())
-	raised, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
+	pass, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
 	if err != nil {
 		t.Fatalf("one thread's refusal is not the pass's failure: %v", err)
 	}
-	if raised != 1 {
+	if pass.Raised != 1 {
 		t.Fatalf("the pass raised %d signals, want the readable thread's one — "+
-			"the unreadable thread ahead of it stopped the pass", raised)
+			"the unreadable thread ahead of it stopped the pass", pass.Raised)
 	}
 
 	// The refused thread is still DUE: its watermark never moved, so a later
@@ -433,14 +639,14 @@ func TestAProviderFailureOnOneThreadStillLetsThePassReadTheRest(t *testing.T) {
 	extractor := compose.NewSignalExtractor(e.Pool, brain,
 		func() time.Time { return extractClock }, slog.Default())
 
-	raised, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
+	pass, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS))
 	if err == nil {
 		t.Fatal("a provider failure was not reported — nobody learns the model is down")
 	}
-	if raised != 1 {
+	if pass.Raised != 1 {
 		t.Fatalf("the pass raised %d signals, want the readable thread's one — the "+
 			"broken thread ahead of it stopped the pass, and it sorts first on "+
-			"every future pass too", raised)
+			"every future pass too", pass.Raised)
 	}
 }
 

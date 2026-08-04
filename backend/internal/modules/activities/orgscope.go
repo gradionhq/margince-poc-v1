@@ -54,18 +54,66 @@ func OrgLinkedActivityExistsAny(orgsPos int) string {
 	return activityReachesOrg(sprintf("ANY($%d)", orgsPos))
 }
 
-// activityReachesOrg is the walk itself. operand is what each arm compares its
-// organization id against — a single bind, or ANY(array) — so the three links
-// are written once and neither caller can drift from the other.
-func activityReachesOrg(operand string) string {
-	return sprintf(`EXISTS (
-		    SELECT 1 FROM activity_link l
+// orgArms is the three links themselves — the account an activity is filed
+// against, the account its deal belongs to, and the employer of the contact it
+// is about.
+//
+// It is a separate constant because the walk is now asked two different
+// questions. A predicate asks whether an activity reaches a KNOWN account; a
+// producer asks which accounts an activity reaches at all, and needs them in
+// its SELECT. The arms are where drift would actually happen — an arm gaining
+// a condition in one spelling and not the other — so the arms are what is
+// shared, and each question keeps its own shape around them.
+//
+// The deal arm deliberately does not exclude archived or lost deals: a
+// fragment stricter than the predicate would show a message on the timeline
+// whose account never gets a signal about it.
+const orgArms = `FROM activity_link l
 		    LEFT JOIN deal d ON d.id = l.deal_id
 		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		      AND r.ended_at IS NULL AND r.archived_at IS NULL
+		      AND r.ended_at IS NULL AND r.archived_at IS NULL`
+
+// activityReachesOrg is the walk as a PREDICATE, for a query that aliases
+// activity as a. operand is what each arm compares its organization id against
+// — a single bind, or ANY(array).
+//
+// It stays an EXISTS rather than a join against OrgReachSet: EXISTS stops at
+// the first arm that matches, and every one of this function's callers is a
+// hot read.
+func activityReachesOrg(operand string) string {
+	return sprintf(`EXISTS (
+		    SELECT 1 %s
 		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = %[1]s OR d.organization_id = %[1]s OR r.organization_id = %[1]s))`,
-		operand)
+		      AND (l.organization_id = %[2]s OR d.organization_id = %[2]s OR r.organization_id = %[2]s))`,
+		orgArms, operand)
+}
+
+// OrgReachSet is the same walk as a SET: the body of a derived table producing
+// one (activity_id, organization_id) row per account an activity reaches.
+//
+// The predicate above answers "does this activity reach account X" and takes
+// the account as a bind. A producer scanning the whole workspace has the
+// opposite question — it holds an activity and needs the accounts — so it
+// cannot use the predicate at all. Both are the same three arms.
+//
+// DISTINCT collapses an activity that reaches one account through several arms
+// (its own link and its deal's, say) to one row, so a caller counting messages
+// is not counting links. An activity that reaches TWO accounts is two rows on
+// purpose: whether that is an ambiguity to refuse or a fact to file twice is
+// the caller's ruling, not this fragment's.
+//
+// No entity_type filter: the activity_link_shape CHECK already guarantees
+// exactly one of the three id columns is set per row, and the predicate omits
+// it for the same reason.
+//
+// No workspace filter: activity_link, deal and relationship all carry FORCE
+// row-level security, and every caller runs inside WithWorkspaceTx.
+func OrgReachSet() string {
+	return sprintf(`SELECT DISTINCT l.activity_id, o.org_id AS organization_id
+		    %s
+		    CROSS JOIN LATERAL (VALUES (l.organization_id), (d.organization_id),
+		                              (r.organization_id)) AS o(org_id)
+		    WHERE o.org_id IS NOT NULL`, orgArms)
 }
 
 // listActivitiesFilter builds the timeline query's join, WHERE terms and

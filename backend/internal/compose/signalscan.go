@@ -31,6 +31,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -58,14 +59,28 @@ type ghostedCandidate struct {
 // "Worth chasing" is the guard that keeps this from becoming noise: an
 // unanswered fortnight on an account nobody is working is not an observation
 // about a relationship, it is the absence of one.
+//
+// The account behind an interaction comes from the three-arm walk
+// (activities.OrgReachSet), not a direct organization link. Capture files mail
+// against the PERSON it was with, so a direct match found nothing on real
+// correspondence and this rule fired on no account at all. Reaching through the
+// contact is also what makes the rule TRUE: a reply from a colleague at the
+// same account answers us, and under the direct match it was invisible, so an
+// answered thread still read as ghosted.
+//
+// An interaction reaching two accounts counts as the newest for BOTH, and that
+// is the intended reading here — "we spoke last and nobody answered" is a fact
+// each account holds on its own, and one message can be the last word on two
+// relationships. The extractor next door refuses the same ambiguity, because
+// what it files is one claim that must belong to exactly one account.
 func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghostedCandidate, error) {
 	cutoff := now.AddDate(0, 0, -ghostedThresholdDays)
 	rows, err := tx.Query(ctx, `
 		WITH newest AS (
-			SELECT DISTINCT ON (l.organization_id)
-			       l.organization_id, a.id, a.subject, a.direction, a.occurred_at
+			SELECT DISTINCT ON (ro.organization_id)
+			       ro.organization_id, a.id, a.subject, a.direction, a.occurred_at
 			  FROM activity a
-			  JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization'
+			  JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
 			 WHERE a.archived_at IS NULL
 			   AND a.kind IN ('email','call','meeting')
 			   -- An interaction with no recorded direction cannot say who spoke
@@ -73,7 +88,7 @@ func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghoste
 			   -- PO-F-4 applies to the engagement state.
 			   AND a.direction IS NOT NULL
 			   AND a.occurred_at <= $1
-			 ORDER BY l.organization_id, a.occurred_at DESC, a.id DESC
+			 ORDER BY ro.organization_id, a.occurred_at DESC, a.id DESC
 		)
 		SELECT n.organization_id, n.id, coalesce(n.subject, ''), n.occurred_at
 		  FROM newest n
@@ -113,19 +128,30 @@ func signalFingerprint(kind string, orgID ids.UUID, evidence ...ids.UUID) string
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
+// GhostedPass is what one workspace's deterministic pass did.
+//
+// Considered and Raised are different facts and a caller needs both. A rule
+// that fired on forty accounts and wrote nothing has simply already said so —
+// the fingerprint holds — while a rule that considered nothing has no accounts
+// to talk about, which is a broken walk rather than a quiet week.
+type GhostedPass struct {
+	// Considered is how many accounts the rule fired on, before the fingerprint
+	// decided which were already standing.
+	Considered int
+	// Raised is how many signals were newly written.
+	Raised int
+}
+
 // WriteGhostedSignals is the deterministic producer pass: compose computes
 // WHICH accounts the rule fired on — a question that spans activity,
 // organization and deal, which is why it lives here — and the signals module
 // writes the rows, because a module owns its own table.
-//
-// It returns how many signals it wrote, which is what a caller logs: a pass
-// that wrote nothing on a busy workspace is worth noticing.
-func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, now time.Time) (int, error) {
+func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, now time.Time) (GhostedPass, error) {
 	candidates, err := scanGhostedThreads(ctx, tx, now)
 	if err != nil {
-		return 0, err
+		return GhostedPass{}, err
 	}
-	written := 0
+	pass := GhostedPass{Considered: len(candidates)}
 	for _, found := range candidates {
 		days := int(now.Sub(found.At).Hours() / 24)
 		raised, err := signals.RecordDerived(ctx, tx, wsID, signals.DerivedSignal{
@@ -140,11 +166,11 @@ func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, n
 			Audit: map[string]any{paramKind: kindGhostedThread, "days_silent": days},
 		}, now)
 		if err != nil {
-			return written, err
+			return pass, err
 		}
 		if raised {
-			written++
+			pass.Raised++
 		}
 	}
-	return written, nil
+	return pass, nil
 }

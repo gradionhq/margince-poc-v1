@@ -114,13 +114,59 @@ func (p extractPayload) events() []extractedEvent {
 	return *p.Events
 }
 
+// ExtractPass is what one workspace's reading pass did.
+//
+// Raised alone cannot describe a pass. A pass that read two hundred
+// conversations and found nothing worth filing is a healthy one; a pass that
+// was offered no conversation at all is a broken queue — and for a full release
+// the two were the same line in the log, which is how a producer that resolved
+// no account on any real workspace went unnoticed.
+type ExtractPass struct {
+	// Due is how many conversations the queue offered this pass.
+	Due int
+	// Raised is how many signals were written.
+	Raised int
+	// AtCap says the queue filled its per-pass limit, so there is very likely
+	// more backlog behind it. The first passes over an installation's history
+	// are expected to sit here for a few hours.
+	AtCap bool
+	// Deferred says the workspace's model budget stopped the pass early.
+	Deferred bool
+	// OutOfTime says the pass ran up against its own deadline and stopped
+	// while conversations were still owed a reading.
+	OutOfTime bool
+}
+
+// extractStopMargin is how much of the pass's deadline is kept in reserve.
+//
+// A pass stops on its own rather than being killed mid-conversation. Each
+// thread commits its signals and its watermark together, so being cut off costs
+// only the thread in flight — but it costs it as a FAILED job, which retries the
+// whole pass twice more and then discards it, and a discarded job is a fault
+// somebody should look at rather than the ordinary shape of a first run over a
+// mailbox's history.
+//
+// Ten seconds: room for the thread in flight to finish its model call and
+// commit, without spending a meaningful slice of the pass on caution.
+const extractStopMargin = 10 * time.Second
+
+// outOfTime reports whether the pass should stop rather than start another
+// conversation. A pass with no deadline never stops here.
+func outOfTime(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && time.Until(deadline) <= extractStopMargin
+}
+
 // RunWorkspace reads every due thread in the workspace already bound in ctx,
-// and reports how many signals it raised.
+// and reports what the pass did.
 //
 // Each thread commits on its own: its signals and its watermark move together
 // or neither does, so a budget stop or a crash costs at most the thread in
 // flight, and that one is read again next pass.
-func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID) (int, error) {
+func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID) (ExtractPass, error) {
 	now := x.now()
 	var due []settledThread
 	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
@@ -128,8 +174,9 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 		due = found
 		return err
 	}); err != nil {
-		return 0, fmt.Errorf("signal extract: %w", err)
+		return ExtractPass{}, fmt.Errorf("signal extract: %w", err)
 	}
+	pass := ExtractPass{Due: len(due), AtCap: len(due) >= extractThreadCap}
 
 	raised := 0
 	// One thread's failure is not the pass's. Returning on the first error left
@@ -138,23 +185,40 @@ func (x *SignalExtractor) RunWorkspace(ctx context.Context, wsID ids.WorkspaceID
 	// nothing after it is ever reached. Each thread is read on its own terms
 	// and the failures are reported together.
 	var failed []error
-	for _, thread := range due {
+	for i, thread := range due {
+		// Checked BEFORE the call, not after it fails. Letting the deadline
+		// arrive mid-call turns an ordinary partial pass into a fault: every
+		// conversation still queued reports its own "context deadline exceeded",
+		// the job errors, River retries the whole pass twice and discards it —
+		// and none of that noise describes anything wrong. What is left unread
+		// is simply still due, because the watermark only moved for the threads
+		// that were actually read.
+		if outOfTime(ctx) {
+			x.log.InfoContext(ctx, "signal extract: out of time, stopping the pass",
+				"conversations_read", i, "still_due", len(due)-i, "raised", raised)
+			pass.Raised = raised
+			pass.OutOfTime = true
+			return pass, errors.Join(failed...)
+		}
 		n, err := x.readThread(ctx, wsID, thread, now)
 		raised += n
 		if errors.Is(err, ai.ErrBudgetDeferred) {
 			// The budget is the WORKSPACE's, so this one does stop the pass:
 			// every thread behind it would buy the same refusal.
 			x.log.InfoContext(ctx, "signal extract: budget exhausted, stopping the pass", "raised", raised)
-			return raised, errors.Join(failed...)
+			pass.Raised = raised
+			pass.Deferred = true
+			return pass, errors.Join(failed...)
 		}
 		if err != nil {
 			failed = append(failed, fmt.Errorf("reading conversation %q: %w", thread.Key, err))
 		}
 	}
+	pass.Raised = raised
 	if len(failed) > 0 {
-		return raised, fmt.Errorf("signal extract: %w", errors.Join(failed...))
+		return pass, fmt.Errorf("signal extract: %w", errors.Join(failed...))
 	}
-	return raised, nil
+	return pass, nil
 }
 
 // readThread asks about one conversation and commits what it learned.

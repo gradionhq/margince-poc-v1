@@ -78,6 +78,25 @@ type signalScanWorkspaceWorker struct {
 	log       *slog.Logger
 }
 
+// signalScanTimeout overrides River's one-minute default.
+//
+// One pass reads up to extractThreadCap conversations, each of them a model
+// call, so a minute covers a quiet workspace and nothing else. An installation
+// that has just connected a mailbox has thousands of messages of history, and
+// under the default the first pass was killed part-way through, retried twice
+// against the same backlog, and discarded — while the reading it HAD done was
+// committed and fine.
+//
+// Five minutes is a pass that gets somewhere against a real backlog. It is a
+// ceiling, not a target: the pass stops itself with extractStopMargin to spare
+// (see outOfTime), so this bound is what it may use, never what it waits for.
+const signalScanTimeout = 5 * time.Minute
+
+// Timeout gives one pass room to work through a real backlog.
+func (w *signalScanWorkspaceWorker) Timeout(*river.Job[SignalScanWorkspaceArgs]) time.Duration {
+	return signalScanTimeout
+}
+
 func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[SignalScanWorkspaceArgs]) error {
 	wsCtx, err := workspaceJobCtx(ctx, job.Args)
 	if err != nil {
@@ -92,16 +111,16 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	wsID := ids.From[ids.WorkspaceKind](job.Args.Workspace)
 
 	now := w.now()
-	var ghosted int
+	var ghosted GhostedPass
 	if err := database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
-		written, err := WriteGhostedSignals(wsCtx, tx, wsID, now)
-		ghosted = written
+		pass, err := WriteGhostedSignals(wsCtx, tx, wsID, now)
+		ghosted = pass
 		return err
 	}); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
 
-	read := 0
+	var read ExtractPass
 	var extractErr error
 	if w.extractor != nil {
 		read, extractErr = w.extractor.RunWorkspace(wsCtx, wsID)
@@ -119,10 +138,20 @@ func (w *signalScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[Sig
 	if err := errors.Join(extractErr, proposeErr); err != nil {
 		return jobs.FaultContext(ctx, err)
 	}
-	if ghosted+read+standing > 0 {
-		w.log.InfoContext(wsCtx, "signal scan: raised signals, offers standing",
-			"ghosted", ghosted, "extracted", read, "offers_standing", standing)
-	}
+	// Logged on EVERY pass, including the ones that raised nothing, and carrying
+	// what each half was OFFERED as well as what it wrote.
+	//
+	// The line used to appear only when something was raised. A producer whose
+	// account walk resolved nothing on any real workspace therefore looked
+	// exactly like a quiet week — it shipped, ran hourly, wrote nothing for a
+	// full release, and said nothing about it. Considered and due are the
+	// numbers that tell a broken queue from a calm one; one line per workspace
+	// per hour is what that costs.
+	w.log.InfoContext(wsCtx, "signal scan pass",
+		"ghosted_considered", ghosted.Considered, "ghosted_raised", ghosted.Raised,
+		"threads_due", read.Due, "extracted", read.Raised,
+		"at_cap", read.AtCap, "budget_deferred", read.Deferred,
+		"out_of_time", read.OutOfTime, "offers_standing", standing)
 	return nil
 }
 
