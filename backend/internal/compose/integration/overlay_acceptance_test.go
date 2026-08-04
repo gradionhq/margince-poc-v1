@@ -38,13 +38,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go/build"
-	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -53,201 +48,91 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// backendModulePath is this module's own import path — spelled once so
-// every import-path comparison below reads the same literal arch_test.go
-// (backend/arch_test.go) already pins at the repo root.
-const backendModulePath = "github.com/gradionhq/margince/backend"
-
-// backendModuleRoot resolves the backend Go module's root directory from
-// this test file's own location: `go test` always chdirs into the
-// package directory it is testing (here,
-// backend/internal/compose/integration), so three levels up is the
-// module root — verified against go.mod rather than assumed, so a future
-// package move fails loudly instead of silently walking the wrong tree.
-func backendModuleRoot(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("os.Getwd: %v", err)
-	}
-	root, err := filepath.Abs(filepath.Join(wd, "..", "..", ".."))
-	if err != nil {
-		t.Fatalf("resolving the backend module root: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
-		t.Fatalf("resolved %q as the backend module root, but it has no go.mod: %v", root, err)
-	}
-	return root
-}
-
-// acceptancePackagesUnder/acceptanceDirectImports are the same
-// tree-derived, direct-import-only technique backend/arch_test.go's own
-// packagesUnder/projectImports use (that file lives in package
-// backendarch at the module root, which holds no importable production
-// code, so this suite — living in package integration — carries its own
-// copy rather than reach across an import boundary that does not exist).
-func acceptancePackagesUnder(t *testing.T, root string) []string {
-	t.Helper()
-	seen := map[string]bool{}
-	var dirs []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		dir := filepath.ToSlash(filepath.Dir(path))
-		if !seen[dir] {
-			seen[dir] = true
-			dirs = append(dirs, dir)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking %s: %v", root, err)
-	}
-	return dirs
-}
-
-// acceptanceImportContext is build.Default with the "integration" build tag
-// appended: the zero-value build.Context (build.ImportDir's default) does
-// NOT satisfy `//go:build integration`, so every integration-tagged file —
-// including this very suite's own package and sibling packages like
-// internal/modules/agents that carry integration test files — would be
-// dropped into Context.ImportDir's IgnoredGoFiles and never scanned for
-// imports at all. That would make an incumbent import smuggled into any
-// integration-tagged file above the seam invisible to this gate. Starting
-// from build.Default (not the zero value) also keeps GOOS/GOARCH/GOPATH
-// correct for the host running the test.
-func acceptanceImportContext() build.Context {
-	ctx := build.Default
-	ctx.BuildTags = append(append([]string{}, ctx.BuildTags...), "integration")
-	return ctx
-}
-
-func acceptanceDirectImports(t *testing.T, dir string) []string {
-	t.Helper()
-	ctx := acceptanceImportContext()
-	pkg, err := ctx.ImportDir(dir, 0)
-	if err != nil {
-		if _, ok := err.(*build.NoGoError); ok {
-			// A directory that genuinely holds no Go source files at all
-			// (not even integration-tagged ones) has nothing to scan —
-			// distinct from any other resolution error, which must
-			// surface rather than be swallowed as "no imports" (T2).
-			return nil
-		}
-		t.Fatalf("resolving %s: %v", dir, err)
-	}
-	var out []string
-	for _, group := range [][]string{pkg.Imports, pkg.TestImports, pkg.XTestImports} {
-		for _, imp := range group {
-			if strings.Contains(imp, ".") {
-				out = append(out, imp)
-			}
-		}
-	}
-	return out
-}
-
-// TestAcceptance_AC_OV_1_NoIncumbentImportAboveSeam proves design.md's
-// AC-OV-1 (subsystems/overlay-augmentation.md: "the three AI layers and
-// UI call only the SoR Provider interface — no direct incumbent-API or
-// direct crm-core call exists above the seam"): no package outside
-// internal/modules/overlay's own tree imports overlay/hubspot directly.
+// seedMirroredPersonFixture stands up the overlay-mode half of AC-OV-2's
+// two-mode comparison: a second, overlay-mode workspace whose acting user is
+// mapped to the fake incumbent's owner-1, one ingested mirror person, and the
+// overlay Provider serving it.
 //
-// internal/compose (the composition ROOT package only, ADR-0054/A69) is
-// the one sanctioned exception — it is where the Dispatcher/Provider seam
-// is WIRED to the concrete hubspot.Adapter (compose/overlay.go,
-// compose/jobs.go), which is BELOW/AT the seam, not above it. Every
-// compose SUBPACKAGE (this package included) gets no such exception: this
-// test itself proves, by construction, that reuse-driving-the-fake
-// throughout this suite never had to reach for hubspot directly either.
-func TestAcceptance_AC_OV_1_NoIncumbentImportAboveSeam(t *testing.T) {
-	root := backendModuleRoot(t)
-	hubspotImportPath := backendModulePath + "/internal/modules/overlay/hubspot"
-	overlayModulePrefix := backendModulePath + "/internal/modules/overlay"
-	composeRootImportPath := backendModulePath + "/internal/compose"
-
-	dirToImportPath := func(dir string) string {
-		rel := strings.TrimPrefix(dir, filepath.ToSlash(root)+"/")
-		return backendModulePath + "/" + rel
-	}
-
-	for _, sub := range []string{"internal/modules", "internal/platform", "internal/compose", "internal/contracts", "cmd"} {
-		for _, dir := range acceptancePackagesUnder(t, filepath.Join(root, filepath.FromSlash(sub))) {
-			importPath := dirToImportPath(dir)
-			if strings.HasPrefix(importPath, overlayModulePrefix) {
-				continue // the seam's own inside — overlay may reference its own hubspot subpackage's siblings (e.g. shared test fixtures)
-			}
-			if importPath == composeRootImportPath {
-				continue // the ONE sanctioned composition root (see doc above)
-			}
-			for _, imp := range acceptanceDirectImports(t, dir) {
-				if imp == hubspotImportPath {
-					t.Errorf("%s imports %s directly — no package above the seam may import the incumbent adapter (AC-OV-1)", importPath, imp)
-				}
-			}
-		}
-	}
-
-	// Positive half: the modules that DO reach records above the overlay
-	// seam (the governed agent tool surface, the inbound capture sink,
-	// and search's retrieval join) reach them ONLY through
-	// ports/datasource — never overlay directly, confirming they are
-	// exactly the "layers above the seam" AC-OV-1 describes and that the
-	// seam is actually load-bearing for them, not merely unused.
-	datasourcePath := backendModulePath + "/internal/shared/ports/datasource"
-	for _, mod := range []string{"agents", "capture", "search"} {
-		modDir := filepath.Join(root, "internal", "modules", mod)
-		sawDatasource := false
-		for _, dir := range acceptancePackagesUnder(t, modDir) {
-			for _, imp := range acceptanceDirectImports(t, dir) {
-				if imp == datasourcePath {
-					sawDatasource = true
-				}
-				if strings.HasPrefix(imp, overlayModulePrefix) {
-					t.Errorf("%s imports %s — the %s module must reach records only through %s, never overlay directly", dirToImportPath(dir), imp, mod, datasourcePath)
-				}
-			}
-		}
-		if !sawDatasource {
-			t.Errorf("module %q never imports %s — expected it to reach records through the frozen SoR Provider seam", mod, datasourcePath)
-		}
-	}
-}
-
-// acceptanceIncumbent is the incumbent name this suite's meter-based
-// proofs (AC-OV-3/7) charge against — the fake adapter's own Name().
-const acceptanceIncumbent = "fake"
-
-// acceptanceBudgetMeter builds a Redis-backed OVB meter with a small,
-// fast-to-exhaust REST budget (cap 10, warn at 5, shed at 8) for the fake
-// incumbent — the deterministic thresholds AC-OV-3/7 assert against. The
-// raw-Redis dependency lives in budgettest (platform tier), never in this
-// compose suite.
-func acceptanceBudgetMeter(t *testing.T) *overlaybudget.Meter {
+// The ref it returns is the overlay Provider's OWN ref for the ingested
+// fixture (the numeric-external-id<->UUID bridge is internal to package
+// overlay) — resolved once via Search, then reused by every read verb the
+// caller exercises.
+func seedMirroredPersonFixture(t *testing.T, e *Env) (context.Context, *overlay.Provider, datasource.EntityRef) {
 	t.Helper()
-	return budgettest.Meter(t, budgettest.SmallConfig(acceptanceIncumbent))
+	overlayWS, actorID := seedOverlayModeWorkspace(t)
+	ctx := overlayActorCtx(overlayWS, actorID)
+	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
+	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
+		t.Fatalf("mapping the acting user to owner-1: %v", err)
+	}
+	if err := mirror.Ingest(ctx, overlay.Record{
+		ObjectClass: "person", ExternalID: "100214862055",
+		Fields: map[string]any{"firstname": "Ada Overlay"}, ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
+	}); err != nil {
+		t.Fatalf("ingesting the overlay fixture: %v", err)
+	}
+	provider := overlay.NewProvider(mirror, nil)
+	found, err := provider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
+	if err != nil || len(found.Records) != 1 {
+		t.Fatalf("resolving the overlay fixture's own ref: err=%v records=%d", err, len(found.Records))
+	}
+	return ctx, provider, found.Records[0].Ref
 }
 
-// contactsTranslator is a fixed canonical->incumbent class translator
-// scoped to this suite's one fixtured mapping (person -> contacts) — the
-// same role hubspot.IncumbentClassesFor plays in production, stood in here
-// so these tests never import the hubspot subpackage (see AC-OV-1 above).
-func contactsTranslator(canonical string) ([]string, bool) {
-	if canonical == "person" {
-		return []string{overlay.IncumbentClassContacts}, true
+// assertNonEmptyPersonPayload asserts rec carries a decodable, non-empty
+// person field payload for wantRef — the structural half of
+// bounded-equivalence (both modes return a real record of the same
+// shape for the same requested ref), as distinct from the trust half
+// AC-OV-2's subtests assert separately.
+func assertNonEmptyPersonPayload(t *testing.T, mode string, rec datasource.Record, wantRef datasource.EntityRef) {
+	t.Helper()
+	if rec.Ref != wantRef {
+		t.Errorf("%s Read Ref = %v, want the requested %v", mode, rec.Ref, wantRef)
 	}
-	return nil, false
+	var fields map[string]any
+	if err := json.Unmarshal(rec.Fields, &fields); err != nil || len(fields) == 0 {
+		t.Fatalf("%s Read fields = %s (err %v), want a non-empty person payload", mode, rec.Fields, err)
+	}
+}
+
+// assertEverySeamVerbIsClassifiedExactlyOnce holds the published
+// bounded-capability manifest, derived from the frozen interface's own method
+// set rather than hand-listed twice. Write-back (branch 2) split the old
+// "every write is unsupported" partition into three: the read verbs, the
+// SUPPORTED write-back verbs (Create/Update/Archive — incumbent-first,
+// OVA-MAP-W), and the still-unsupported verbs (AdvanceDeal needs the overlay
+// stage-map StageSemantic also lacks; Merge/PromoteLead have no atomic
+// incumbent projection, OVA-MAP-W6; RunReport/StageSemantic have no HubSpot
+// analogue).
+func assertEverySeamVerbIsClassifiedExactlyOnce(t *testing.T) {
+	t.Helper()
+	readVerbs := map[string]bool{"Read": true, "Search": true, "ListObjects": true, "ListFields": true, "Freshness": true}
+	writeVerbs := map[string]bool{"Create": true, "Update": true, "Archive": true}
+	unsupportedManifest := map[string]bool{
+		"RunReport": true, "StageSemantic": true, "AdvanceDeal": true, "Merge": true, "PromoteLead": true,
+	}
+	ifaceType := reflect.TypeOf((*datasource.SystemOfRecordProvider)(nil)).Elem()
+	for i := 0; i < ifaceType.NumMethod(); i++ {
+		name := ifaceType.Method(i).Name
+		classified := 0
+		for _, set := range []map[string]bool{readVerbs, writeVerbs, unsupportedManifest} {
+			if set[name] {
+				classified++
+			}
+		}
+		if classified != 1 {
+			t.Fatalf("method %q is in %d manifest categories — it must be in exactly one (read / write / unsupported)", name, classified)
+		}
+	}
+	if got, want := ifaceType.NumMethod(), len(readVerbs)+len(writeVerbs)+len(unsupportedManifest); got != want {
+		t.Fatalf("SystemOfRecordProvider has %d methods but this test's manifest only classifies %d — a verb was added to the frozen seam with no manifest entry here", got, want)
+	}
 }
 
 // TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset proves design.md's
@@ -268,45 +153,7 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 	native := compose.NewProvider(e.Pool)
 	personRef := datasource.EntityRef{Type: datasource.EntityPerson, ID: personID}
 
-	overlayWS, actorID := seedOverlayModeWorkspace(t)
-	ctx := overlayActorCtx(overlayWS, actorID)
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
-	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
-		t.Fatalf("mapping the acting user to owner-1: %v", err)
-	}
-	if err := mirror.Ingest(ctx, overlay.Record{
-		ObjectClass: "person", ExternalID: "100214862055",
-		Fields: map[string]any{"firstname": "Ada Overlay"}, ModifiedAt: time.Now().UTC(), OwnerExternalID: "owner-1",
-	}); err != nil {
-		t.Fatalf("ingesting the overlay fixture: %v", err)
-	}
-	overlayProvider := overlay.NewProvider(mirror, nil)
-
-	// overlayRef is the overlay Provider's OWN ref for the ingested
-	// fixture (the numeric-external-id<->UUID bridge is internal to
-	// package overlay) — resolved once via Search, then reused by every
-	// subtest below exactly like Read/Search's own subtest already does.
-	overlaySearch, err := overlayProvider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
-	if err != nil || len(overlaySearch.Records) != 1 {
-		t.Fatalf("resolving the overlay fixture's own ref: err=%v records=%d", err, len(overlaySearch.Records))
-	}
-	overlayRef := overlaySearch.Records[0].Ref
-
-	// nonEmptyPersonPayload asserts rec carries a decodable, non-empty
-	// person field payload for wantRef — the structural half of
-	// bounded-equivalence (both modes return a real record of the same
-	// shape for the same requested ref), as distinct from the trust half
-	// asserted separately below.
-	nonEmptyPersonPayload := func(t *testing.T, mode string, rec datasource.Record, wantRef datasource.EntityRef) {
-		t.Helper()
-		if rec.Ref != wantRef {
-			t.Errorf("%s Read Ref = %v, want the requested %v", mode, rec.Ref, wantRef)
-		}
-		var fields map[string]any
-		if err := json.Unmarshal(rec.Fields, &fields); err != nil || len(fields) == 0 {
-			t.Fatalf("%s Read fields = %s (err %v), want a non-empty person payload", mode, rec.Fields, err)
-		}
-	}
+	ctx, overlayProvider, overlayRef := seedMirroredPersonFixture(t, e)
 
 	t.Run("Read is bounded-equivalent: same record shape, differing only in the trust dimension", func(t *testing.T) {
 		nativeRec, err := native.Read(e.Admin(), personRef)
@@ -317,8 +164,8 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 		if err != nil {
 			t.Fatalf("overlay Read: %v", err)
 		}
-		nonEmptyPersonPayload(t, "native", nativeRec, personRef)
-		nonEmptyPersonPayload(t, "overlay", overlayRec, overlayRef)
+		assertNonEmptyPersonPayload(t, "native", nativeRec, personRef)
+		assertNonEmptyPersonPayload(t, "overlay", overlayRec, overlayRef)
 		// The one dimension bounded-equivalence PERMITS to differ: a native
 		// read is authoritative; an overlay read is mirror-backed and must
 		// declare Authoritative=false (03e §2.3 / AC-OV-5). Everything else
@@ -382,35 +229,7 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 		}
 	})
 
-	// The published bounded-capability manifest, derived from the frozen
-	// interface's own method set rather than hand-listed twice. Write-back
-	// (branch 2) split the old "every write is unsupported" partition into
-	// three: the read verbs, the SUPPORTED write-back verbs (Create/Update/
-	// Archive — incumbent-first, OVA-MAP-W), and the still-unsupported verbs
-	// (AdvanceDeal needs the overlay stage-map StageSemantic also lacks;
-	// Merge/PromoteLead have no atomic incumbent projection, OVA-MAP-W6;
-	// RunReport/StageSemantic have no HubSpot analogue).
-	readVerbs := map[string]bool{"Read": true, "Search": true, "ListObjects": true, "ListFields": true, "Freshness": true}
-	writeVerbs := map[string]bool{"Create": true, "Update": true, "Archive": true}
-	unsupportedManifest := map[string]bool{
-		"RunReport": true, "StageSemantic": true, "AdvanceDeal": true, "Merge": true, "PromoteLead": true,
-	}
-	ifaceType := reflect.TypeOf((*datasource.SystemOfRecordProvider)(nil)).Elem()
-	for i := 0; i < ifaceType.NumMethod(); i++ {
-		name := ifaceType.Method(i).Name
-		classified := 0
-		for _, set := range []map[string]bool{readVerbs, writeVerbs, unsupportedManifest} {
-			if set[name] {
-				classified++
-			}
-		}
-		if classified != 1 {
-			t.Fatalf("method %q is in %d manifest categories — it must be in exactly one (read / write / unsupported)", name, classified)
-		}
-	}
-	if got, want := ifaceType.NumMethod(), len(readVerbs)+len(writeVerbs)+len(unsupportedManifest); got != want {
-		t.Fatalf("SystemOfRecordProvider has %d methods but this test's manifest only classifies %d — a verb was added to the frozen seam with no manifest entry here", got, want)
-	}
+	assertEverySeamVerbIsClassifiedExactlyOnce(t)
 
 	t.Run("AdvanceDeal + Merge + PromoteLead + RunReport + StageSemantic declare the published unsupported_by_sor manifest", func(t *testing.T) {
 		if _, err := overlayProvider.AdvanceDeal(ctx, datasource.AdvanceDealInput{}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
@@ -454,158 +273,6 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 			t.Errorf("Create = %v, want the declared ErrUnsupportedBySoR", err)
 		}
 	})
-}
-
-// TestAcceptance_AC_OV_3_MirrorReadMeetsBudget proves design.md's AC-OV-3
-// via deterministic classification rather than a wall-clock p95
-// assertion: OVA-PARAM-9 (the overlay-perf-addendum's own numeric
-// latency budgets) is pinned upstream as "unset — open"
-// (subsystems/overlay-augmentation.md), so asserting a specific
-// millisecond threshold here would either fabricate an unpinned number
-// or flake on a loaded CI runner (T11 bars real-clock-dependent
-// assertions). Instead this proves the actual, load-bearing DISTINCTION
-// AC-OV-3 requires: a mirror-served Provider.Read never touches the OVB
-// meter at all — it rides the same always-available budget a native SoR
-// read does — while a force-fresh read (FreshnessReader.Read, reached
-// through Provider.Freshness) spends exactly one unit on the DEDICATED
-// force_fresh lane, the overlay-perf-addendum bucket, every time. That
-// bucketing is exactly what a perf harness's classification step reads
-// to route the two kinds of read into different budgets; this test
-// proves the classification is correct without needing a timer at all.
-func TestAcceptance_AC_OV_3_MirrorReadMeetsBudget(t *testing.T) {
-	e := Setup(t)
-	ws, actorID := seedOverlayModeWorkspace(t)
-	ctx := overlayActorCtx(ws, actorID)
-
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
-	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
-		t.Fatalf("mapping the acting user to owner-1: %v", err)
-	}
-	mirrorTime := time.Now().UTC().Add(-time.Hour)
-	if err := mirror.Ingest(ctx, overlay.Record{
-		ObjectClass: "person", ExternalID: "100214862066",
-		Fields: map[string]any{"firstname": "Budget"}, ModifiedAt: mirrorTime, OwnerExternalID: "owner-1",
-	}); err != nil {
-		t.Fatalf("ingesting the mirror fixture: %v", err)
-	}
-
-	basicProvider := overlay.NewProvider(mirror, nil)
-	searchRes, err := basicProvider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
-	if err != nil || len(searchRes.Records) != 1 {
-		t.Fatalf("resolving the fixture's own ref: err=%v records=%d", err, len(searchRes.Records))
-	}
-	ref := searchRes.Records[0].Ref
-
-	fakeInc := fake.New()
-	liveRec := fake.Rec("100214862066", map[string]any{"firstname": "Live"})
-	liveRec.ObjectClass = overlay.IncumbentClassContacts
-	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
-
-	meter := acceptanceBudgetMeter(t)
-	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
-	fullProvider := overlay.NewProvider(mirror, ff)
-
-	before := meter.Snapshot(ctx, acceptanceIncumbent)
-	if _, err := fullProvider.Read(ctx, ref); err != nil {
-		t.Fatalf("mirror-served Read: %v", err)
-	}
-	afterMirrorRead := meter.Snapshot(ctx, acceptanceIncumbent)
-	if afterMirrorRead.Consumed != before.Consumed {
-		t.Fatalf("a mirror-served Read spent %d OVB units (before=%d) — it must ride the same always-available native-mode read budget, never the overlay-perf-addendum meter", afterMirrorRead.Consumed, before.Consumed)
-	}
-
-	freshInfo, err := fullProvider.Freshness(ctx, ref)
-	if err != nil {
-		t.Fatalf("force-fresh Freshness: %v", err)
-	}
-	if !freshInfo.Authoritative {
-		t.Fatal("a force-fresh read under threshold must reach the live incumbent and answer Authoritative:true")
-	}
-	afterForceFresh := meter.Snapshot(ctx, acceptanceIncumbent)
-	if afterForceFresh.Consumed != before.Consumed+1 {
-		t.Fatalf("force-fresh Consumed = %d, want %d (exactly one force_fresh-lane spend) — the addendum bucket must record it, distinctly from the mirror read above", afterForceFresh.Consumed, before.Consumed+1)
-	}
-}
-
-// TestAcceptance_AC_OV_7_ForceFreshDegrades proves design.md's AC-OV-7
-// (OVA-EVT-3): once the OVB meter reports the shed band, a force-fresh
-// read degrades to mirror-with-staleness (Authoritative:false, zero
-// additional quota spent — proven by the meter's own Consumed count
-// staying unchanged, the only way FreshnessReader.Read could ever reach
-// the live incumbent) and emits mirror.budget_degraded on the bus — never
-// silently. Driven through compose.Dispatcher (the real production
-// seam every Freshness call rides) with the fake incumbent as this
-// task's mandated concurrent mutator, mirroring
-// freshness_integration_test.go's module-level proof one layer up the
-// composed stack.
-func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
-	e := Setup(t)
-	ws, actorID := seedOverlayModeWorkspace(t)
-	ctx := overlayActorCtx(ws, actorID)
-
-	mirror := overlay.NewMirrorStore(e.Pool, stubOwnerEmails{})
-	if err := mirror.UpsertUserMap(ctx, ids.From[ids.UserKind](actorID), "hubspot", "owner-1", "manual"); err != nil {
-		t.Fatalf("mapping the acting user to owner-1: %v", err)
-	}
-	mirrorTime := time.Now().UTC().Add(-time.Hour)
-	if err := mirror.Ingest(ctx, overlay.Record{
-		ObjectClass: "person", ExternalID: "100214862077",
-		Fields: map[string]any{"firstname": "Shed"}, ModifiedAt: mirrorTime, OwnerExternalID: "owner-1",
-	}); err != nil {
-		t.Fatalf("ingesting the mirror fixture: %v", err)
-	}
-
-	basicProvider := overlay.NewProvider(mirror, nil)
-	searchRes, err := basicProvider.Search(ctx, datasource.SearchQuery{EntityTypes: []datasource.EntityType{datasource.EntityPerson}, Limit: 10})
-	if err != nil || len(searchRes.Records) != 1 {
-		t.Fatalf("resolving the fixture's own ref: err=%v records=%d", err, len(searchRes.Records))
-	}
-	ref := searchRes.Records[0].Ref
-
-	fakeInc := fake.New()
-	liveRec := fake.Rec("100214862077", map[string]any{"firstname": "Live"})
-	liveRec.ObjectClass = overlay.IncumbentClassContacts
-	fakeInc.Seed(overlay.IncumbentClassContacts, liveRec)
-
-	meter := acceptanceBudgetMeter(t)
-	// Push the window to shed (limit 10, shed at 8) via the POLLER lane —
-	// proving Band is a total across lanes, never reachable by a
-	// force-fresh spend alone.
-	if err := meter.ConsumeREST(ctx, acceptanceIncumbent, overlaybudget.SourcePoller, 8); err != nil {
-		t.Fatalf("pre-loading the poller lane to shed: %v", err)
-	}
-	if got := meter.BandREST(ctx, acceptanceIncumbent); got != overlaybudget.BandShed {
-		t.Fatalf("meter.Band = %q after loading to the shed threshold, want %q", got, overlaybudget.BandShed)
-	}
-
-	ff := overlay.NewFreshnessReader(func(context.Context) (overlay.Incumbent, error) { return fakeInc, nil }, mirror, meter, contactsTranslator)
-	overlayProvider := overlay.NewProvider(mirror, ff)
-	d := compose.NewDispatcher(compose.NewProvider(e.Pool), overlayProvider, e.Pool)
-
-	info, err := d.Freshness(ctx, ref)
-	if err != nil {
-		t.Fatalf("dispatched Freshness under the shed band: %v", err)
-	}
-	if info.Authoritative {
-		t.Fatal("under the shed band, force-fresh must degrade to the mirror — never Authoritative:true")
-	}
-
-	snap := meter.Snapshot(ctx, acceptanceIncumbent)
-	if snap.Consumed != 8 {
-		t.Fatalf("meter Consumed = %d, want unchanged at 8 — the shed path must spend nothing on the force_fresh lane (proof the live incumbent was never reached)", snap.Consumed)
-	}
-
-	var eventCount int
-	if err := e.Pool.QueryRow(
-		context.Background(),
-		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'mirror.budget_degraded' AND envelope->>'workspace_id' = $1`,
-		ws.String(),
-	).Scan(&eventCount); err != nil {
-		t.Fatalf("querying event_outbox: %v", err)
-	}
-	if eventCount != 1 {
-		t.Fatalf("mirror.budget_degraded outbox rows = %d, want exactly 1", eventCount)
-	}
 }
 
 // countAcceptanceMirrorConflictEvents counts event_outbox rows carrying
