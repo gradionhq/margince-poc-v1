@@ -63,8 +63,15 @@ const voiceBuildRetryInterval = 15 * time.Minute
 // sweep re-offers it to the (possibly refreshed) budget window.
 const voiceBuildDeferral = 6 * time.Hour
 
-// voiceBuildTimeout bounds one run: one builder call plus 15 evaluation
-// drafts and 5 judge calls, each small, with validator retry headroom.
+// voiceBuildTimeout is the reasoning behind voice_build's declared timeout: one
+// builder call plus 15 evaluation drafts and 5 judge calls, each small, with
+// validator retry headroom. It is still read at runtime for one thing only —
+// reclaimAfter, the grace a replacement worker waits beyond the job's own wall
+// clock — so it must not drift below what that wall clock actually is.
+//
+// api/jobs.yaml carries the value River is actually handed, so moving this
+// number alone moves no wall clock; the two are kept equal by
+// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
 const voiceBuildTimeout = 10 * time.Minute
 
 // The live voice_build row states the worker distinguishes when a claim is

@@ -33,11 +33,16 @@ const (
 	// endpoint hangs to its full attempt budget must not hold every other
 	// tenant's due retries behind it.
 	webhookRetryMaxWorkers = 3
-	// webhookRetrySweepTimeout bounds one workspace's pass. River's
-	// whole-job default of a minute is far too short: webhooks.MaxSweepDuration
-	// is the pass's own ceiling (its batch bound times its per-attempt
-	// bound), and the margin covers the per-delivery database round trips
-	// between attempts, which the pool bounds rather than this cap.
+	// webhookRetrySweepTimeout is the arithmetic behind
+	// webhook_retry_workspace's declared timeout: webhooks.MaxSweepDuration is
+	// the pass's own ceiling (its batch bound times its per-attempt bound), and
+	// the margin covers the per-delivery database round trips between attempts,
+	// which the pool bounds rather than this cap.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant
+	// keeps the two equal.
 	webhookRetrySweepTimeout = webhooks.MaxSweepDuration + 5*time.Minute
 )
 

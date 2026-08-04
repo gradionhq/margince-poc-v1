@@ -13,13 +13,18 @@
 // workers, and schedules the periodic jobs. So platform never learns what
 // a worker does.
 //
-// The declaration is what the runtime OBEYS for a job's timeout. Govern
-// wraps a worker in a type River reaches only through Work, so a worker
-// cannot answer for its own wall clock and the file is the sole authority
-// on it. What the declaration does not yet BIND is registration: a kind
-// the file has never heard of can still be registered, which is why the
-// composition layer asserts totality (MustBeTotal) at boot rather than
-// relying on the compiler to refuse one.
+// The declaration is what the runtime OBEYS for the timeout of every job
+// registered THROUGH Govern: it wraps a worker in a type River reaches
+// only through Work, so that worker cannot answer for its own wall clock.
+//
+// Registration itself is not yet bound, and that is the whole of the gap.
+// Nothing stops a direct river.AddWorker, and a worker registered that way
+// still answers River's option methods for itself — whether or not its
+// kind is declared — and never reaches the kind list MustBeTotal reads, so
+// the boot-time totality check cannot see it either. MustBeTotal catches
+// the case it can: a kind the composition layer registered through the
+// sanctioned path that the file has never heard of. Closing the rest is
+// the commit that makes the declared type set the only way in.
 //
 // It owns no domain either way. The boundary with the bus is deliberate:
 // an event announces that something happened (outbox); a job asks for

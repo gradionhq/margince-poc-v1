@@ -32,11 +32,16 @@ const (
 	// fine to run behind the short maintenance jobs — while still keeping one
 	// tenant's hour-long batch from being the whole fleet's scheduling latency.
 	agentSchedulerMaxWorkers = 2
-	// agentSchedulerPassTimeout bounds one workspace's pass. River's whole-job
-	// default of a minute is nowhere near it: a pass executes up to claimBatch
-	// runs sequentially and RunWallClock is each run's own ceiling, and the
-	// margin covers the seed/claim/finish round trips between them, which the
-	// pool bounds rather than this cap.
+	// agentSchedulerPassTimeout is the arithmetic behind
+	// agent_scheduler_workspace's declared timeout: a pass executes up to
+	// claimBatch runs sequentially and RunWallClock is each run's own ceiling,
+	// and the margin covers the seed/claim/finish round trips between them,
+	// which the pool bounds rather than this cap.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant
+	// keeps the two equal.
 	agentSchedulerPassTimeout = claimBatch*RunWallClock + 5*time.Minute
 	// agentSchedulerMaxAttempts is ONE: this kind's retry is the dispatcher's
 	// own tick, which is tens of seconds while a single attempt may run for the

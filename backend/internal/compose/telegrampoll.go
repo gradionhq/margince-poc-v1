@@ -58,11 +58,15 @@ const (
 	// with nothing to report. Long enough that a 30s dispatcher tick is
 	// effectively continuous; short enough to leave room inside the job timeout.
 	telegramPollTimeoutSeconds = 25
-	// telegramPollJobTimeout bounds one poll job. It must EXCEED the long poll
-	// plus the headroom the client adds around it: a poll cancelled by its own
-	// job timeout returns nothing, so its offset never advances and the
-	// connection retries forever without making progress. Asserted rather than
-	// assumed — telegrampoll_test.go.
+	// telegramPollJobTimeout is the reasoning behind telegram_poll's declared
+	// timeout. It must EXCEED the long poll plus the headroom the client adds
+	// around it: a poll cancelled by its own job timeout returns nothing, so its
+	// offset never advances and the connection retries forever without making
+	// progress. Asserted rather than assumed — telegrampoll_test.go.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the two are kept equal by
+	// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
 	telegramPollJobTimeout = 2 * time.Minute
 	// telegramPollSweepInterval is the dispatcher's cadence. Paired with the
 	// long poll above it leaves at most a few seconds of every minute in which

@@ -39,15 +39,20 @@ const (
 	privacyRetentionMaxWorkers = 2
 )
 
-// privacyRetentionPassTimeout bounds one workspace's pass, and it is the
-// heaviest of the fanned-out passes: River's whole-job default of a minute
-// would cancel a tenant with a real backlog mid-record on every attempt until
-// the row discarded, leaving a permanently failing job row on the one
-// obligation whose entire point is auditability. privacy.MaxPassDuration is the
-// pass's own ceiling (its stage count times its batch bound times its
-// per-record allowance), and the margin covers the policy read and the
-// per-stage due-list reads between records, which the pool bounds rather than
-// this cap.
+// privacyRetentionPassTimeout is the arithmetic behind
+// privacy_retention_workspace's declared timeout, the heaviest of the
+// fanned-out passes: privacy.MaxPassDuration is the pass's own ceiling (its
+// stage count times its batch bound times its per-record allowance), and the
+// margin covers the policy read and the per-stage due-list reads between
+// records, which the pool bounds rather than this cap. Anything shorter cancels
+// a tenant with a real backlog mid-record on every attempt until the row
+// discards, leaving a permanently failing job row on the one obligation whose
+// entire point is auditability.
+//
+// api/jobs.yaml carries the value River is actually handed, so moving this
+// number alone moves no wall clock; the declaration names this constant in its
+// derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant keeps
+// the two equal.
 //
 // A var rather than a const because the engine derives its stage count from its
 // own selector table instead of hand-counting it.
