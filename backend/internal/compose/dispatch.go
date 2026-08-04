@@ -97,6 +97,35 @@ func workspaceSweepOpts(childKind string) *river.InsertOpts {
 	})
 }
 
+// oneOffChildOpts is workspaceSweepOpts' counterpart for the same child kind
+// enqueued for ONE already-known workspace by an event — a tenant's backfill
+// finishing, not a clock reaching a fleet. It reads the queue and the attempt
+// cap from the same declaration, so the two doors cannot route one workspace's
+// pass onto a queue the fleet's share of it never lands on.
+//
+// It deliberately omits BOTH of the things that make a fleet child a fleet
+// child, and each omission is the point rather than an oversight:
+//
+//   - No sweep tag. The tag is what lets a reader tell one workspace's share
+//     of a fleet pass from the same kind enqueued for its own reason, and the
+//     sweep gauges count tagged rows. A one-off tagged as a fleet pass would
+//     inflate the coverage reading of a pass that never ran.
+//   - No active-state uniqueness. The event's whole claim is that new rows
+//     landed, and a pass already RUNNING may have read the workspace before
+//     they did. Deduplicating against it would drop exactly the data the
+//     event fired about, and the caller would have no way to tell.
+//
+// Both are safe to omit only because a one-off enqueue is a single insert for
+// a single known workspace: it fires once per event, so nothing here bounds a
+// fan-out that could otherwise repeat per tick.
+func oneOffChildOpts(childKind string) *river.InsertOpts {
+	spec := fanOutChildSpec(childKind)
+	if spec.OptsOwner != jobs.OptsFanOut {
+		panic("compose: " + childKind + " declares an opts_owner other than fan_out, so its queue and attempt cap are not this helper's to set")
+	}
+	return &river.InsertOpts{Queue: spec.Queue, MaxAttempts: spec.MaxAttempts}
+}
+
 // fanOutChildren is every kind some dispatcher DECLARES it fans out to —
 // api/jobs.yaml's fans_out_to, read as the registry it is. Computed once
 // because a per-connection dispatcher consults it once per insert.

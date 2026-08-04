@@ -226,6 +226,47 @@ func TestFanOutChildOptsRefusesACallerOwnedKindWithNoOpts(t *testing.T) {
 	fanOutChildOpts(VoiceBuildArgs{}.Kind(), nil)
 }
 
+// A one-off child takes the same declared queue and attempt cap the fleet's
+// children take — routing one workspace's pass onto a different queue is drift
+// the contract exists to make impossible — and takes NEITHER of the two things
+// that would make it read as a fleet pass. Both omissions are asserted, because
+// a value that merely happened not to carry them is one field away from doing
+// so, and neither failure is visible at the call site.
+func TestOneOffChildOptsTakeTheDeclaredQueueButNotTheFleetPassMarkings(t *testing.T) {
+	kind := CaptureDigestWorkspaceArgs{}.Kind()
+	spec := specFor(t, kind)
+	opts := oneOffChildOpts(kind)
+
+	if opts.Queue != spec.Queue {
+		t.Errorf("Queue = %q, want the declared %q", opts.Queue, spec.Queue)
+	}
+	if opts.MaxAttempts != spec.MaxAttempts {
+		t.Errorf("MaxAttempts = %d, want the declared %d", opts.MaxAttempts, spec.MaxAttempts)
+	}
+	if slices.Contains(opts.Tags, jobs.SweepTag) {
+		t.Errorf("Tags = %v, want no %q — a job one tenant's backfill asked for is not one "+
+			"workspace's share of a fleet pass, and the sweep gauges count tagged rows",
+			opts.Tags, jobs.SweepTag)
+	}
+	if len(opts.UniqueOpts.ByState) != 0 {
+		t.Errorf("ByState = %v, want none — the event fired BECAUSE new rows landed, and an "+
+			"already-running pass may have read the workspace before they did",
+			opts.UniqueOpts.ByState)
+	}
+}
+
+// The same guard workspaceSweepOpts carries: a kind whose queue and attempt cap
+// are owned elsewhere must not have them supplied here either, or a one-off
+// would publish numbers the contract does not govern for that kind.
+func TestOneOffChildOptsRefusesAKindWhoseOptsItDoesNotOwn(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a kind whose opts_owner is not fan_out must not silently get fan-out opts")
+		}
+	}()
+	oneOffChildOpts(TelegramPollArgs{}.Kind()) // opts_owner: args
+}
+
 func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 	return CloseDateWorkspaceArgs{Workspace: ws}
 }
@@ -236,8 +277,8 @@ func closeDateWorkspaceArgsFor(ws ids.UUID) river.JobArgs {
 //
 // This covers the dispatchWith builder. The other one, fanOutChildOpts, is
 // covered by the posture tests above — between them every fan-out child's
-// opts are built here or there, and TestEveryFleetWideJobOnlyDispatches is
-// what proves no dispatcher reaches River by a third spelling.
+// opts are built here or there, and TestNoScheduledDispatcherIsEnqueuedByHand
+// is what proves no dispatcher is placed by a third spelling.
 func TestDispatchWithMarksEveryChildAsOneWorkspacesShareOfAFleetPass(t *testing.T) {
 	var got []river.InsertManyParams
 	insert := func(_ context.Context, params []river.InsertManyParams) error {

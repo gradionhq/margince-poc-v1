@@ -290,12 +290,12 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 			return nil
 		}
 		if completed {
-			// The connect-time import just closed: build today's digest now so
-			// the morning screen reflects the freshly-imported history instead
-			// of waiting for the nightly pass. Best-effort — a failed enqueue
-			// never fails the backfill (the nightly run still covers it), and
-			// the digest job is unique-by-state so a duplicate offer is inert.
-			w.enqueueDigest(ctx, job.Args.BackfillID)
+			// The connect-time import just closed: build today's digest for
+			// THIS workspace now, so the morning screen reflects the
+			// freshly-imported history instead of waiting for the nightly
+			// pass. Best-effort — a failed enqueue never fails the backfill,
+			// which the nightly run still covers.
+			w.enqueueDigest(ctx, job.Args)
 		}
 		if done {
 			return nil
@@ -304,27 +304,39 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 	return river.JobSnooze(time.Second)
 }
 
-// enqueueDigest offers a same-day digest build through the ambient River
-// client; the digest worker rebuilds the day idempotently (as-of-now truths).
+// enqueueDigest offers a same-day digest build for THIS workspace through the
+// ambient River client; the digest worker rebuilds the day idempotently
+// (as-of-now truths).
+//
+// The child kind, never the dispatcher. The finishing tenant is known here, and
+// CaptureDigestArgs is a fleet fan-out: enqueueing it would run every workspace
+// in the installation because one of them imported its history, and N tenants
+// finishing together would run the fleet N times. The intent is local, so the
+// enqueue is too — which also leaves the fan-out path exclusively the
+// dispatcher's, so a digest pass in the sweep gauges is one a clock scheduled.
+//
+// oneOffChildOpts carries the queue and attempt cap the contract declares for
+// the kind, and states there why a one-off deliberately takes neither the sweep
+// tag nor the active-state uniqueness the fleet's children carry. The second of
+// those matters here in particular: a digest already RUNNING may have
+// snapshotted the workspace BEFORE this backfill's rows landed, and deduping
+// against it would drop the freshly-imported history off the morning screen
+// until the nightly pass.
+//
 // The Safely variant is deliberate: a unit test may drive Work directly with
 // no River client in context, and the plain ClientFromContext PANICS there —
-// a best-effort enqueue must degrade to a no-op, never crash the pager.
-//
-// No active-state uniqueness here (unlike the periodic sweep): a digest that
-// is already RUNNING may have snapshotted the workspace BEFORE this backfill's
-// rows landed, so deduping against it would drop the freshly-imported history
-// off the morning screen until the nightly pass. A completion must guarantee a
-// rebuild that sees its own data, so it always enqueues a fresh one — cheap
-// and idempotent (the build replaces the day). One completion fires once, so
-// this is not a fan-out.
-func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, backfillID string) {
+// a best-effort enqueue must degrade to a no-op, never crash the pager. A
+// failed enqueue never fails the backfill either; the nightly pass still
+// covers the workspace.
+func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, args CaptureBackfillArgs) {
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
 		return
 	}
-	if _, err := client.Insert(ctx, CaptureDigestArgs{}, nil); err != nil {
+	child := CaptureDigestWorkspaceArgs{Workspace: args.Workspace}
+	if _, err := client.Insert(ctx, child, oneOffChildOpts(child.Kind())); err != nil {
 		w.log.WarnContext(ctx, "capture backfill: digest enqueue failed",
-			"backfill", backfillID, "err", err)
+			"backfill", args.BackfillID, "err", err)
 	}
 }
 
