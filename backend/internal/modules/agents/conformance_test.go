@@ -123,7 +123,7 @@ func fullRegistry(t *testing.T) *Registry {
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
 	RegisterCoreTools(r, nil, nil, nil, nil)
 	RegisterPipelineTool(r, func(context.Context) ([]Pipeline, error) { return nil, nil })
-	RegisterReportTool(r, nil)
+	RegisterReportTool(r, nil, probeReportCatalog)
 	RegisterIntentTools(r, inertRetriever{})
 	RegisterSlippingTools(r,
 		func(context.Context) ([]SlippingDeal, error) { return nil, nil },

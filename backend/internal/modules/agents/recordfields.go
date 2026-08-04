@@ -94,20 +94,27 @@ func describesField(shapes map[datasource.EntityType]reflect.Type, name string) 
 	return false
 }
 
-// describeRecordFields renders the per-record_type field lists for a tool's
+// describeRecordFields renders the per-record_type field SHAPES for a tool's
 // `fields` description, in a fixed record_type order so the schema text is
 // byte-stable across processes (a description that reshuffles per boot reads
 // as a changed tool to a client that caches it).
-func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string {
+//
+// Shapes, not names. A name list says `domains` and `links` in the same breath
+// as `industry` and `subject`, and the first two are arrays of objects — the
+// list gives a caller no way to see the difference, and two reported sessions
+// guessed wrong and stopped. The shapes come from recordshapes_gen.go, which is
+// generated from crm.yaml so the enum VALUES and the required keys come along;
+// the Go structs this package reflects cannot yield either.
+func describeRecordFields(shapes map[datasource.EntityType]reflect.Type, rendered map[string]string) string {
 	// EntityTypes() fixes the order, so the text is byte-stable and a new
 	// entity type shows up here instead of being quietly left undescribed.
 	order := datasource.EntityTypes()
 	var b strings.Builder
-	b.WriteString("The crm.yaml body for the record_type. Accepted field names — ")
-	b.WriteString("anything else is NOT stored (see below): ")
+	b.WriteString("The crm.yaml body for the record_type. Field shapes below — a key with no `?` is ")
+	b.WriteString("REQUIRED, `?` marks an optional one, and a name not listed is NOT stored (see the ")
+	b.WriteString("end of this description): ")
 	for i, recordType := range order {
-		shape, ok := shapes[recordType]
-		if !ok {
+		if _, ok := shapes[recordType]; !ok {
 			continue
 		}
 		if i > 0 {
@@ -115,7 +122,7 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		}
 		b.WriteString(string(recordType))
 		b.WriteString(": ")
-		b.WriteString(strings.Join(contractFieldNames(shape), ", "))
+		b.WriteString(rendered[string(recordType)])
 	}
 	b.WriteString(". ")
 	writeFieldAdvisories(&b, shapes)

@@ -72,14 +72,20 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 		Name: "book_meeting", Title: "Book a meeting", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "bookMeeting",
-		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
+		// `links` is REQUIRED by crm.yaml's bookMeeting body and was advertised
+		// as optional, so an agent that read the schema and omitted it was
+		// refused for a rule the schema never stated. Its vocabulary is spliced
+		// from the contract for the same reason log_activity's is: the copy
+		// here had drifted to offer a `project` link the contract refuses.
+		InputSchema: schema(`{"type":"object","required":["start","end","links"],"properties":{
 			"host_user_id":{"type":"string","format":"uuid"},
 			"start":{"type":"string","format":"date-time"` + timestampNote + `},
 			"end":{"type":"string","format":"date-time"` + timestampNote + `},
 			"subject":{"type":"string"},
-			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},"maxItems":25},
+			"links":{"type":"array","minItems":1,"items":{"type":"object","required":["entity_type","entity_id"],"properties":{
+				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
+				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},"maxItems":25,
+				"description":"Who and what the meeting is about; at least one. The booking is refused without it."},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
