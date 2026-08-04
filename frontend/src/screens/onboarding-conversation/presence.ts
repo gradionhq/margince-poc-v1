@@ -85,7 +85,7 @@ function voicePresence(state: ConversationState): OrbPresence {
           : (buildStageOrder.indexOf(stage) + 1) / buildStageOrder.length,
     };
   }
-  if (state.phase === "vo.invite" || state.phase === "vo.speaker") {
+  if (state.phase === "vo.speaker") {
     return { core: "attention" };
   }
   if (state.phase === "vo.result") {
@@ -117,8 +117,6 @@ export function presenceFor(
       return voicePresence(state);
     case "results":
       return { core: "success" };
-    case "linkedin":
-      return { core: "listening" };
     case "connect":
       return { core: "listening" };
     case "done":

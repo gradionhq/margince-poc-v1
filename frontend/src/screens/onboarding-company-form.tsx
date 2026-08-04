@@ -6,7 +6,7 @@ import {
   EvidenceChip,
   ProvenanceTag,
 } from "../design-system/trust";
-import { useT } from "../i18n";
+import { useLocale, useT } from "../i18n";
 import { coldFieldLabel } from "./common";
 import { confidenceLevel } from "./inbox";
 import {
@@ -16,10 +16,10 @@ import {
   groundingOf,
   isRequired,
   LEGAL_IDENTITY_FIELDS,
-  MAX_SELECTED_FACTS,
   OFFER_FIELDS,
   SALES_FIELDS,
 } from "./onboarding";
+import { CapNotice, saveDisabled, useFactSelection } from "./onboarding-facts";
 
 // The reviewable company form: the field groups at the house form rhythm,
 // grounded values carrying their evidence and provenance, plus the
@@ -57,6 +57,15 @@ export function CompanyStep({
   embedded?: boolean;
 }>) {
   const t = useT();
+  const { locale } = useLocale();
+  // The contract ceiling on `selected_fact_keys` is the selection model's to
+  // enforce, wherever a fact is picked: this form's cards and the fact table's
+  // checkboxes write the same key list, so they refuse on the same terms.
+  const factSelection = useFactSelection(
+    read?.facts ?? [],
+    selectedFactKeys,
+    setSelectedFactKeys,
+  );
 
   return (
     <section className={embedded ? "ob-company-review" : "ob-panel"}>
@@ -170,27 +179,18 @@ export function CompanyStep({
             </span>
           </summary>
           <p className="ob-sub">{t("ob.factsSub")}</p>
+          <CapNotice atCap={factSelection.atCap} locale={locale} />
           <div className="fact-grid">
             {read.facts.map((fact) => {
-              const selected = selectedFactKeys.includes(fact.value_key);
-              const selectionFull =
-                !selected && selectedFactKeys.length >= MAX_SELECTED_FACTS;
+              const selected = factSelection.isSelected(fact);
               return (
                 <button
                   key={`${fact.field}:${fact.value_key}`}
                   type="button"
                   className={`fact-card ${selected ? "selected" : ""}`}
                   aria-pressed={selected}
-                  disabled={selectionFull}
-                  onClick={() =>
-                    setSelectedFactKeys(
-                      selected
-                        ? selectedFactKeys.filter(
-                            (key) => key !== fact.value_key,
-                          )
-                        : [...selectedFactKeys, fact.value_key],
-                    )
-                  }
+                  disabled={saveDisabled(factSelection, selected)}
+                  onClick={() => factSelection.toggle(fact)}
                 >
                   <span className="fact-check">
                     {selected ? <Check aria-hidden /> : <Circle aria-hidden />}

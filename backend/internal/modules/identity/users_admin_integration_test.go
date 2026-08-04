@@ -14,6 +14,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -96,6 +99,37 @@ func TestInviteUserCreatesActiveMemberWithRoleTokenAndEvent(t *testing.T) {
 		Email: "sneaky@acme.test", DisplayName: "X", Role: "rep",
 	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("non-admin invite: err = %v, want permission denied", err)
+	}
+}
+
+// TestInviteUserHandlerEmailsTheSetPasswordLink drives InviteUser through the
+// HTTP handler rather than the service directly, because sendInvite — and the
+// passwordLink call inside it — only runs on that path: the service layer
+// mints the token but never sends the mail.
+func TestInviteUserHandlerEmailsTheSetPasswordLink(t *testing.T) {
+	e := setupRevocationEnv(t, "invite-mail")
+	mail := &capturedMail{}
+	h := NewHandlers(e.svc).WithPasswordReset(mail, "https://crm.example.test")
+
+	ctx := withIdentity(e.wsCtx(e.admin), e.admin)
+	body := `{"email":"invited@acme.test","display_name":"Invited Rep","role":"rep"}`
+	rec := httptest.NewRecorder()
+	h.InviteUser(rec, httptest.NewRequest(http.MethodPost, "/v1/users", strings.NewReader(body)).WithContext(ctx))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("invite status = %d, want 201: %s", rec.Code, rec.Body)
+	}
+
+	if mail.sent != 1 || mail.to != "invited@acme.test" {
+		t.Fatalf("mail = %+v, want one message to the invited address", mail)
+	}
+	// Same shape as the reset link: the token rides the fragment, never the
+	// server-visible query — passwordLink is the single builder for both.
+	serverVisible, fragment, found := strings.Cut(mail.body, "#")
+	if !found || strings.Contains(serverVisible, "token=") {
+		t.Fatalf("invite link puts the token in the server-visible query: %q", mail.body)
+	}
+	if !strings.Contains(fragment, "/reset-password?token=") {
+		t.Fatalf("invite mail carries no set-password link: %q", mail.body)
 	}
 }
 

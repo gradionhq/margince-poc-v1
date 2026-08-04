@@ -1,0 +1,176 @@
+/* The coverage card: what a company site read covered and what it could not,
+   folded into the triage review's grouped surface. Structure and rhythm
+   only — every colour reads a token. */
+
+.ob-live-card {
+  display: flex;
+  flex-direction: column;
+  animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes ob-live-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ob-live-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-3);
+  background: transparent;
+  border: 0;
+  font-family: var(--f-body);
+  font-size: 13px;
+  text-align: left;
+  color: var(--textPrimary);
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.ob-live-card-head:hover {
+  background: var(--bgHover);
+}
+
+.ob-live-card-glyph {
+  flex: none;
+  color: var(--textTertiary);
+}
+
+.ob-live-card[data-done="true"] .ob-live-card-glyph {
+  color: var(--success);
+}
+
+.ob-live-card-title {
+  font-weight: 500;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.ob-live-card-count {
+  flex: none;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+.ob-live-card-toggle {
+  flex: none;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ob-live-card-chev {
+  flex: none;
+  color: var(--textTertiary);
+  transition: transform 0.16s ease;
+}
+
+.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
+  transform: rotate(180deg);
+}
+
+.ob-live-card-body {
+  padding: 0 var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---- list bodies -------------------------------------------------------- */
+
+.ob-live-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ob-live-empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+.ob-live-coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ob-live-coverage-label {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* Three gaps, three voices. A skipped page is routine and must not shout; a page
+   that could not be read is a hole in the dossier and reads danger; a warning
+   about the read as a whole reads warn. One alarm colour for all three would
+   make a robots.txt skip indistinguishable from a failure. The label itself
+   states which in words — the colour only makes the difference scannable. */
+.ob-live-coverage[data-kind="skip"] .ob-live-coverage-label {
+  color: var(--textMeta);
+}
+
+.ob-live-coverage[data-kind="fail"] .ob-live-coverage-label {
+  color: var(--danger);
+}
+
+.ob-live-coverage[data-kind="warn"] .ob-live-coverage-label {
+  color: var(--warn);
+}
+
+/* What was missed, in the reader's vocabulary. It leads the row; the URL below
+   it is corroboration for whoever wants the exact path. */
+.ob-live-coverage-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--textPrimary);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-coverage-url {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-coverage-reason {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--textContent);
+}
+
+/* Reduced motion jumps to the end state: the card is already in place, and
+   nothing here waits on an animation to become reachable. */
+@media (prefers-reduced-motion: reduce) {
+  .ob-live-card {
+    animation: none;
+  }
+
+  .ob-live-card-chev,
+  .ob-live-card-head {
+    transition: none;
+  }
+}

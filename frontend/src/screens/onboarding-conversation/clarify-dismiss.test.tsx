@@ -17,7 +17,7 @@ import { QuestionCard } from "./entries";
 
 // Humans outrank the reader: every clarify carries a local dismiss escape,
 // so an implausible question (page chrome glued into entity names) can never
-// become an unanswerable gate in front of Accept all. Dismissal writes
+// become an unanswerable gate in front of Continue. Dismissal writes
 // nothing; a human_conflict dismissal still sends the explicit keep_current
 // resolution the server requires, while a census dismissal sends none.
 
@@ -317,7 +317,7 @@ function render(ui: ReactNode) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -343,17 +343,16 @@ afterEach(() => {
 });
 
 describe("dismissing a clarify in the company act", () => {
-  it("unblocks Accept all and the next-step bar, and the census confirm sends no resolution", async () => {
+  it("unblocks Continue, and the census confirm sends no resolution", async () => {
     const read = readyRead([]);
     const calls = stubApi(read, proposalWithQuestion(read));
     render(<OnboardingScreen />);
 
     await submitWebsite();
     expect(
-      await screen.findByText(/Which legal entity is this installation for\?/),
-    ).toBeTruthy();
-    expect(
-      await screen.findByRole("button", { name: "1 decision open" }),
+      await screen.findByRole("heading", {
+        name: /Which legal entity is this installation for\?/,
+      }),
     ).toBeTruthy();
 
     await userEvent.click(
@@ -362,11 +361,11 @@ describe("dismissing a clarify in the company act", () => {
 
     // The dismissal is noted, the gate opens, nothing was written.
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(false);
     expect(
-      await screen.findByRole("button", { name: "Your review is ready" }),
+      await screen.findByText(/Your review is ready on the right\./),
     ).toBeTruthy();
     expect(screen.getByText(/You skipped: Registered legal name/)).toBeTruthy();
 
@@ -382,14 +381,16 @@ describe("dismissing a clarify in the company act", () => {
     render(<OnboardingScreen />);
 
     await submitWebsite();
-    await screen.findByText(/Which legal entity is this installation for\?/);
+    await screen.findByRole("heading", {
+      name: /Which legal entity is this installation for\?/,
+    });
 
     await userEvent.click(
       await screen.findByRole("button", { name: "Keep my value" }),
     );
 
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(false);
     await userEvent.click(accept);

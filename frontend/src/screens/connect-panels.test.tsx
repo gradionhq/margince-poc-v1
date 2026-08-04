@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("the Google connect panel", () => {
   it("warns about the unverified-app notice and how to get past it", () => {
-    render(<OAuthConnectPanel provider="gmail" onComplete={async () => {}} />);
+    render(<OAuthConnectPanel provider="gmail" onDismiss={() => {}} />);
     expect(
       screen.getByText(/unverified app.*Advanced.*Continue/i),
     ).toBeTruthy();
@@ -57,9 +57,9 @@ it("OAuthConnectPanel posts the given provider and redirects", async () => {
     "POST /connectors/graph/connect": () =>
       jsonResponse({ authorize_url: "https://login.microsoftonline/x" }),
   });
-  render(<OAuthConnectPanel provider="graph" onComplete={vi.fn()} />);
+  render(<OAuthConnectPanel provider="graph" onDismiss={() => {}} />);
   await userEvent.click(
-    screen.getByRole("button", { name: "Connect Microsoft" }),
+    screen.getByRole("button", { name: "Allow access to my Microsoft" }),
   );
   await waitFor(() =>
     expect(assign).toHaveBeenCalledWith("https://login.microsoftonline/x"),

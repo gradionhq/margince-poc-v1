@@ -12,7 +12,6 @@ import type {
 // A member joining an existing installation only confirms company context and
 // consent; voice and results events belong to the creator path exclusively.
 const creatorOnlyEvents = new Set<ConversationEvent["type"]>([
-  "VOICE_OPT_IN",
   "VOICE_SKIPPED",
   "UPLOAD_ADDED",
   "SPEAKER_NEEDED",
@@ -52,8 +51,7 @@ const legalPhases: Record<
   MANUAL_CHOSEN: new Set(["co.intro", "co.reading", "co.review"]),
   COMPANY_CONFIRMED: new Set(["co.review", "co.manual"]),
   RESUME: new Set(["co.confirmed"]),
-  VOICE_OPT_IN: new Set(["vo.invite"]),
-  VOICE_SKIPPED: new Set(["vo.invite", "vo.collecting"]),
+  VOICE_SKIPPED: new Set(["vo.collecting"]),
   UPLOAD_ADDED: new Set(["vo.collecting"]),
   SPEAKER_NEEDED: new Set(["vo.collecting"]),
   BUILD_STARTED: new Set(["vo.collecting", "vo.result"]),
@@ -62,10 +60,11 @@ const legalPhases: Record<
   BUILD_STAGE: new Set(["vo.building", "vo.result"]),
   BUILD_TERMINAL: new Set(["vo.building", "vo.result"]),
   RESULTS_CONTINUE: new Set(["vo.result", "vo.skipped", "re.recap"]),
-  // Both exits are legal only from the act's one waiting phase, so a stray
-  // dispatch cannot skip the inbox step or re-run the authorization.
-  LINKEDIN_CONNECTED: new Set(["ln.why"]),
-  LINKEDIN_SKIPPED: new Set(["ln.why"]),
+  // Both live on the connect screen alongside mail; eventGuards restricts
+  // them further to linkedinStatus "pending", so a stray dispatch cannot
+  // re-run the authorization or overwrite an already-recorded skip.
+  LINKEDIN_CONNECTED: new Set(["cn.consent"]),
+  LINKEDIN_SKIPPED: new Set(["cn.consent"]),
   CONNECT_DONE: new Set(["cn.consent"]),
 };
 
@@ -118,6 +117,23 @@ function narrationLegal(
   return true;
 }
 
+// The first open question is asked while the run is still active, so its
+// readId must match. Every later one — the server's proposal can hand back
+// several — is asked only once the machine has already retired the run into
+// co.review, promoting them one at a time as each prior one resolves; that
+// run's id survives its own retirement in concludedReadId for exactly this
+// check, so a clarify from a DIFFERENT, superseded run (queued behind a slow
+// poll, say) still cannot land on a review it does not belong to.
+function clarifyLegal(
+  state: ConversationState,
+  event: Extract<ConversationEvent, { type: "CLARIFY" }>,
+): boolean {
+  if (event.readId === state.activeReadId) {
+    return true;
+  }
+  return state.phase === "co.review" && event.readId === state.concludedReadId;
+}
+
 function eventGuards(
   state: ConversationState,
   event: ConversationEvent,
@@ -128,8 +144,9 @@ function eventGuards(
     // URL_SUBMITTED and READ_STARTED and after a terminal was recorded, so
     // read events in those windows are all stale.
     case "READ_TERMINAL":
-    case "CLARIFY":
       return event.readId === state.activeReadId;
+    case "CLARIFY":
+      return clarifyLegal(state, event);
     case "NARRATION":
       return narrationLegal(state, event);
     case "REVIEW_READY":
@@ -169,6 +186,12 @@ function eventGuards(
       return state.phase === "vo.result"
         ? state.lastBuildStatus === "deferred" && event.status !== "deferred"
         : true;
+    // LinkedIn resolves exactly once: connecting after a skip (or skipping
+    // after a connect) would either re-run the authorization or overwrite an
+    // outcome already recorded.
+    case "LINKEDIN_CONNECTED":
+    case "LINKEDIN_SKIPPED":
+      return state.linkedinStatus === "pending";
     default:
       return true;
   }

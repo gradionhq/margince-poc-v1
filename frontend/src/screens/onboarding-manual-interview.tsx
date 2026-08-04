@@ -6,6 +6,7 @@ import type { MessageKey } from "../i18n/en";
 import {
   type CompanyFieldName,
   type CompanyForm,
+  isMultilineField,
   isRequired,
 } from "./onboarding";
 
@@ -19,7 +20,6 @@ type ManualQuestion = Readonly<{
   chapter: MessageKey;
   prompt: MessageKey;
   hint: MessageKey;
-  multiline?: boolean;
 }>;
 
 const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
@@ -34,7 +34,6 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.registered_address",
     hint: "ob.manual.registered_addressHint",
-    multiline: true,
   },
   {
     field: "register_vat",
@@ -53,14 +52,12 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.offer_summary",
     hint: "ob.manual.offer_summaryHint",
-    multiline: true,
   },
   {
     field: "icp",
     chapter: "ob.manualChapterCustomer",
     prompt: "ob.manual.icp",
     hint: "ob.manual.icpHint",
-    multiline: true,
   },
   {
     field: "industry",
@@ -73,63 +70,54 @@ const MANUAL_QUESTIONS: readonly ManualQuestion[] = [
     chapter: "ob.manualChapterLegal",
     prompt: "ob.manual.history",
     hint: "ob.manual.historyHint",
-    multiline: true,
   },
   {
     field: "value_proposition",
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.value_proposition",
     hint: "ob.manual.value_propositionHint",
-    multiline: true,
   },
   {
     field: "usp",
     chapter: "ob.manualChapterOffer",
     prompt: "ob.manual.usp",
     hint: "ob.manual.uspHint",
-    multiline: true,
   },
   {
     field: "buying_center",
     chapter: "ob.manualChapterCustomer",
     prompt: "ob.manual.buying_center",
     hint: "ob.manual.buying_centerHint",
-    multiline: true,
   },
   {
     field: "customer_pains",
     chapter: "ob.manualChapterCustomer",
     prompt: "ob.manual.customer_pains",
     hint: "ob.manual.customer_painsHint",
-    multiline: true,
   },
   {
     field: "desired_outcomes",
     chapter: "ob.manualChapterCustomer",
     prompt: "ob.manual.desired_outcomes",
     hint: "ob.manual.desired_outcomesHint",
-    multiline: true,
   },
   {
     field: "buying_intents",
     chapter: "ob.manualChapterSales",
     prompt: "ob.manual.buying_intents",
     hint: "ob.manual.buying_intentsHint",
-    multiline: true,
   },
   {
     field: "common_objections",
     chapter: "ob.manualChapterSales",
     prompt: "ob.manual.common_objections",
     hint: "ob.manual.common_objectionsHint",
-    multiline: true,
   },
   {
     field: "sales_motion",
     chapter: "ob.manualChapterSales",
     prompt: "ob.manual.sales_motion",
     hint: "ob.manual.sales_motionHint",
-    multiline: true,
   },
 ];
 
@@ -198,7 +186,7 @@ export function ManualCompanyInterview({
       </div>
       <h1 id={promptID}>{t(question.prompt)}</h1>
       <p>{t(question.hint)}</p>
-      {question.multiline ? (
+      {isMultilineField(question.field) ? (
         <textarea
           id={answerID}
           className="ob-manual-input ob-manual-textarea"

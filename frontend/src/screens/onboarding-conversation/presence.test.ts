@@ -91,10 +91,7 @@ describe("presenceFor: voice, results, connect", () => {
     ).toBeCloseTo(1);
   });
 
-  it("asks for attention on the invite and the speaker question", () => {
-    expect(presenceFor(state({ act: "voice", phase: "vo.invite" })).core).toBe(
-      "attention",
-    );
+  it("asks for attention on the speaker question", () => {
     expect(presenceFor(state({ act: "voice", phase: "vo.speaker" })).core).toBe(
       "attention",
     );
