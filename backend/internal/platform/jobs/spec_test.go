@@ -118,10 +118,17 @@ func TestCloneCoversEveryReferenceASpecCarries(t *testing.T) {
 // sharedReferences reports every path within a type at which a copy would share
 // memory with its original. A slice is reported AND walked into: cloning the
 // outer slice of a []*T copies the pointers, not what they point at.
+//
+// An ARRAY is walked into but never reported. Its elements live in the struct
+// itself, so copying the Spec copies them; only what those elements in turn
+// point at is shared. Reporting one would demand a clone for a field no caller
+// can reach the table through.
 func sharedReferences(t reflect.Type, path string) []string {
 	switch t.Kind() {
-	case reflect.Slice, reflect.Array:
+	case reflect.Slice:
 		return append([]string{path}, sharedReferences(t.Elem(), path+"[]")...)
+	case reflect.Array:
+		return sharedReferences(t.Elem(), path+"[]")
 	case reflect.Map, reflect.Pointer, reflect.Chan, reflect.Func, reflect.Interface:
 		return []string{path}
 	case reflect.Struct:

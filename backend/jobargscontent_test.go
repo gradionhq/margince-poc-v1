@@ -57,10 +57,14 @@ func TestEveryJobArgsFieldIsAnIdOrAnArguedForScalar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("building the job census: %v", err)
 	}
-	argued := gatekit.Waive(declaredArgsRationales(census))
+	compiled, err := census.ArgsFields()
+	if err != nil {
+		t.Fatalf("reading the compiled args fields: %v", err)
+	}
+	argued := gatekit.Waive(declaredArgsRationales(compiled))
 
 	kinds := map[string]struct{}{}
-	for _, field := range census.ArgsFields() {
+	for _, field := range compiled {
 		kinds[field.Kind] = struct{}{}
 		name := field.GoType + "." + field.Name
 
@@ -97,13 +101,13 @@ func TestEveryJobArgsFieldIsAnIdOrAnArguedForScalar(t *testing.T) {
 // declaredArgsRationales is every args field the contract argues for, keyed as
 // this gate names a field.
 //
-// It reads the same walk the gate does, so the waiver set and the subjects it
+// It reads the same fields the gate does, so the waiver set and the subjects it
 // is consulted over have exactly one population: a rationale on a kind this
 // build does not register would otherwise report stale on a deployment that
 // merely does not run that kind.
-func declaredArgsRationales(census *compose.JobCensus) map[string]string {
+func declaredArgsRationales(compiled []compose.JobArgsField) map[string]string {
 	rationales := map[string]string{}
-	for _, field := range census.ArgsFields() {
+	for _, field := range compiled {
 		if field.Reason != "" {
 			rationales[field.GoType+"."+field.Name] = field.Reason
 		}

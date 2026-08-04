@@ -9,16 +9,18 @@ package compose
 // It is a file of its own because the question is a different one from the
 // rest of the census. Every other arm compares a declared VALUE against a
 // wired one; this one has to decide first what the compiled type even
-// contributes to the column — JSON inlines an embedding, drops an unexported
-// field, and honours a `-` tag — and that reading is the whole substance of
-// the check.
+// contributes to the column — jobargsjsonfields.go is that reading, and it is
+// the whole substance of the check — and then refuse the types for which the
+// reading has no answer.
 
 import (
+	"encoding"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"reflect"
 	"slices"
-	"strings"
 
 	"github.com/riverqueue/river"
 
@@ -43,12 +45,21 @@ type JobArgsField struct {
 
 // ArgsFields walks every registered kind's args struct, in kind order and then
 // in field order, and reports each field beside its declaration.
-func (c *JobCensus) ArgsFields() []JobArgsField {
+//
+// The error is every args type the walk cannot answer for, joined. A caller
+// that got a short list instead would be holding a declaration to a population
+// quietly missing the one type whose payload nothing can see.
+func (c *JobCensus) ArgsFields() ([]JobArgsField, error) {
 	var fields []JobArgsField
-	for _, kind := range slices.Sorted(maps.Keys(c.wired)) {
-		spec, declared := jobs.SpecFor(kind)
-		for _, name := range argsFieldNames(c.wired[kind].args) {
-			field := JobArgsField{Kind: kind, GoType: spec.GoType, Name: name}
+	var refused []error
+	for _, reading := range c.readArgs() {
+		if reading.err != nil {
+			refused = append(refused, reading.err)
+			continue
+		}
+		spec, declared := jobs.SpecFor(reading.kind)
+		for _, name := range reading.fields {
+			field := JobArgsField{Kind: reading.kind, GoType: spec.GoType, Name: name}
 			if declared {
 				if arg, found := declaredArg(spec, name); found {
 					field.Declared, field.Scalar, field.Reason = true, arg.Scalar, arg.Reason
@@ -57,7 +68,33 @@ func (c *JobCensus) ArgsFields() []JobArgsField {
 			fields = append(fields, field)
 		}
 	}
-	return fields
+	if len(refused) > 0 {
+		return nil, errors.Join(refused...)
+	}
+	return fields, nil
+}
+
+// argsReading is one registered kind's args type as the walk reads it: the Go
+// names of the fields it puts in river_job.args, or the reason the type cannot
+// be read at all. Both arms below need the same two answers, and a second walk
+// could only disagree with the first.
+type argsReading struct {
+	kind   string
+	fields []string
+	err    error
+}
+
+// readArgs reads every registered kind's args type, in kind order.
+func (c *JobCensus) readArgs() []argsReading {
+	readings := make([]argsReading, 0, len(c.wired))
+	for _, kind := range slices.Sorted(maps.Keys(c.wired)) {
+		fields, err := argsFieldNames(c.wired[kind].args)
+		if err != nil {
+			err = fmt.Errorf("%s: %w", kind, err)
+		}
+		readings = append(readings, argsReading{kind: kind, fields: fields, err: err})
+	}
+	return readings
 }
 
 // declaredArg answers the declaration for one args field, and whether there is
@@ -81,130 +118,76 @@ func declaredArg(spec jobs.Spec, name string) (jobs.ArgField, bool) {
 // is safe".
 func (c *JobCensus) everyArgsFieldIsDeclaredAndBack() []string {
 	var findings []string
-	for kind, spec := range jobs.Declared() {
-		entry, wired := c.wired[kind]
-		if !wired {
+	for _, reading := range c.readArgs() {
+		if reading.err != nil {
+			findings = append(findings, reading.err.Error())
+			continue
+		}
+		spec, declared := jobs.SpecFor(reading.kind)
+		if !declared {
 			continue // already reported by the totality check.
 		}
-		compiled := argsFieldNames(entry.args)
 		for _, field := range spec.Args {
-			if !slices.Contains(compiled, field.Name) {
+			if !slices.Contains(reading.fields, field.Name) {
 				findings = append(findings, fmt.Sprintf(
-					"%s declares an args field %s that %s does not have — a declaration for a field nobody carries governs nothing", kind, field.Name, spec.GoType))
+					"%s declares an args field %s that %s does not have — a declaration for a field nobody carries governs nothing", reading.kind, field.Name, spec.GoType))
 			}
 		}
-	}
-	// The other direction reads the compiled fields, which ArgsFields already
-	// joins to the declaration for its own callers.
-	for _, field := range c.ArgsFields() {
-		if !field.Declared {
-			findings = append(findings, fmt.Sprintf(
-				"%s.%s is not declared in api/jobs.yaml — say what it carries: `%s: id`, or a scalar with the reason it is safe in a table Art. 17 erasure never reaches", field.GoType, field.Name, field.Name))
+		for _, name := range reading.fields {
+			if _, found := declaredArg(spec, name); !found {
+				findings = append(findings, fmt.Sprintf(
+					"%s.%s is not declared in api/jobs.yaml — say what it carries: `%s: id`, or a scalar with the reason it is safe in a table Art. 17 erasure never reaches", spec.GoType, name, name))
+			}
 		}
 	}
 	return findings
 }
 
-// argsFieldNames is the fields an args struct puts in river_job.args, in
-// declaration order and under the Go names the declaration spells them with.
-// River marshals args to a JSON object, so a non-struct carries no fields at
-// all and answers none.
+// argsFieldNames is the fields an args type puts in river_job.args, under the
+// Go names the declaration spells them with and in the order the encoder writes
+// them — or the reason the type carries a payload this walk cannot see.
 //
-// An EMBEDDED struct is walked THROUGH rather than counted as one field,
-// because flattening is what actually reaches the column: encoding/json lifts
-// an anonymous field's own fields into the enclosing object unless a tag names
-// it. Reported as its type name, a Body sitting one level down would satisfy
-// every check here while landing in the args verbatim, which is the one thing
-// the args declaration exists to prevent.
-func argsFieldNames(args river.JobArgs) []string {
-	return structFieldNames(reflect.TypeOf(args), nil)
+// The error is this gate's own limit, stated rather than left as a silent
+// empty answer. Everything below reads DECLARED FIELDS, so a type that decides
+// its own encoding, or one that is not an object at all, puts bytes in a column
+// with no workspace column and no RLS that no line in api/jobs.yaml can govern.
+// Nothing in the fleet is written either way today, and the refusal is what
+// keeps it that way: a gate that cannot see a whole encoding path is
+// indistinguishable from one that found nothing wrong.
+func argsFieldNames(args river.JobArgs) ([]string, error) {
+	t := reflect.TypeOf(args)
+	switch {
+	case t == nil:
+		return nil, errors.New("the registration recorded no args value at all, so there is nothing to read the carried fields off — register the kind with its args type")
+	case marshalsItself(t):
+		return nil, fmt.Errorf(
+			"%s encodes ITSELF: what a row of this kind carries is decided by its own MarshalJSON/MarshalText rather than by its fields, so the declaration in api/jobs.yaml governs nothing and this walk sees nothing. Let the encoder write the struct — and if the method arrived by embedding, make the embedding a named field so what it writes sits under one declared key", t)
+	case t.Kind() != reflect.Struct:
+		return nil, fmt.Errorf(
+			"%s is a %s rather than a struct, so what it carries has no field names to hold a declaration to. River persists args as one JSON object per row and api/jobs.yaml governs that object field by field: give the kind a struct whose fields can be named", t, t.Kind())
+	}
+	return jsonFieldsWritten(t), nil
 }
 
-// structFieldNames walks one struct type, inlining what JSON would inline and
-// dropping what JSON would drop. enclosing carries the types already on the
-// path: a struct may embed a pointer to itself, which is legal Go and would
-// otherwise recur forever.
-func structFieldNames(t reflect.Type, enclosing []reflect.Type) []string {
-	if t == nil || t.Kind() != reflect.Struct || slices.Contains(enclosing, t) {
-		return nil
-	}
-	names := make([]string, 0, t.NumField())
-	for i := range t.NumField() {
-		field := t.Field(i)
-		if omittedFromArgs(field) {
-			continue
+// marshalsItself reports a type that hands the encoder finished bytes instead
+// of its fields — including one that inherited the method from an embedding,
+// which is the shape a reviewer is least likely to notice.
+//
+// Both receiver forms are refused. Whether a pointer method is actually REACHED
+// depends on the value being addressable where the encoder meets it, which is a
+// property of River's call site rather than of the args type; a gate resting on
+// that would move when a dependency's internals do.
+func marshalsItself(t reflect.Type) bool {
+	pointer := reflect.PointerTo(t)
+	for _, encoder := range []reflect.Type{
+		reflect.TypeFor[json.Marshaler](),
+		reflect.TypeFor[encoding.TextMarshaler](),
+	} {
+		if t.Implements(encoder) || pointer.Implements(encoder) {
+			return true
 		}
-		if inner, inlined := inlinedStruct(field); inlined {
-			names = append(names, structFieldNames(inner, append(enclosing, t))...)
-			continue
-		}
-		names = append(names, field.Name)
 	}
-	return names
-}
-
-// omittedFromArgs reports a field encoding/json never writes, and therefore one
-// that never lands in river_job.args.
-//
-// The question this whole file answers is what a job CARRIES, so a field that
-// reaches the column by no path is not an undeclared payload — it is not a
-// payload at all. Demanding a declaration for it would put a line in
-// api/jobs.yaml saying a job carries something it does not, which is the
-// declared-versus-actual gap this contract removes, read backwards.
-//
-// Only the exact `-` tag is the skip directive: `json:"-,"` names a field "-"
-// and is written like any other. The Go name is what both sides of the census
-// are keyed by, so the distinction matters here and the rename does not.
-func omittedFromArgs(field reflect.StructField) bool {
-	if tag, tagged := field.Tag.Lookup("json"); tagged && tag == "-" {
-		return true
-	}
-	if field.IsExported() {
-		return false
-	}
-	// An unexported field is the encoder's to drop, with one exception it is
-	// not: an EMBEDDED struct, which json reaches through either way — its
-	// exported fields are promoted into the enclosing object (inlinedStruct,
-	// below), or it is written as a nested one when a tag names it. Both reach
-	// the column, so neither may be dropped here.
-	return !field.Anonymous || embeddedStruct(field.Type) == nil
-}
-
-// embeddedStruct is the struct type an anonymous field stands for, following
-// the one pointer an embedding may be, and nil when the field embeds something
-// that is not a struct at all.
-func embeddedStruct(t reflect.Type) reflect.Type {
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Kind() != reflect.Struct {
-		return nil
-	}
-	return t
-}
-
-// inlinedStruct reports the struct an anonymous field contributes its own
-// fields to the enclosing object, and whether the field is such an embedding at
-// all. A tag that names the field is what stops the inlining: JSON then writes
-// a nested object under that name, and the embedding is one field like any
-// other.
-func inlinedStruct(field reflect.StructField) (reflect.Type, bool) {
-	if !field.Anonymous || jsonName(field) != "" {
-		return nil, false
-	}
-	t := embeddedStruct(field.Type)
-	return t, t != nil
-}
-
-// jsonName is the name a field's json tag gives it, which is the part before
-// the first option and is empty when the tag only carries options.
-func jsonName(field reflect.StructField) string {
-	tag, tagged := field.Tag.Lookup("json")
-	if !tagged {
-		return ""
-	}
-	name, _, _ := strings.Cut(tag, ",")
-	return name
+	return false
 }
 
 // goTypeName is the Go type name a registration is read back under: the worker

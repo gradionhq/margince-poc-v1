@@ -506,8 +506,8 @@ func servicesDeepBrain() laneFake {
 	}
 }
 
-// runServicesDeepRead crawls acmeServicesSite with deepOfferingReply as
-// the one corpus answer and returns the finished dossier.
+// runServicesDeepRead crawls acmeServicesSite with servicesDeepBrain as the one
+// corpus answer and returns the finished dossier.
 func runServicesDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
 	worker, svc := newDeepReadTestWorker(e, acmeServicesSite(), servicesDeepBrain())

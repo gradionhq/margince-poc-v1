@@ -216,8 +216,8 @@ type Spec struct {
 // Args or sorted Registration.When in place would edit the compiled table for
 // every later reader in the process, and the contract's whole claim is that
 // what the file says is what the fleet does. Every hand-out below goes through
-// it — specCloneCoversEveryReference in spec_test.go is what holds the list to
-// the type as Spec grows.
+// it — TestCloneCoversEveryReferenceASpecCarries is what holds the list to the
+// type as Spec grows.
 func (s Spec) clone() Spec {
 	s.Registration.When = slices.Clone(s.Registration.When)
 	s.Args = slices.Clone(s.Args)

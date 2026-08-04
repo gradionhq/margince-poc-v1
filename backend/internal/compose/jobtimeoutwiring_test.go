@@ -24,6 +24,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -179,6 +180,52 @@ func governedRegistrations(t *testing.T) []governedRegistration {
 	return found
 }
 
+// configFieldsRead is every JobRunnerConfig field path an expression reads, as
+// api/jobs.yaml spells one: the selector chain minus the config value it hangs
+// off. cfg.DeepReadCaps yields DeepReadCaps, and cfg.GmailWatch.Interval yields
+// both GmailWatch and GmailWatch.Interval, because a declaration may name
+// either the group or the dial inside it.
+//
+// The paths are compared WHOLE. A substring test would accept
+// cfg.DeepReadCapsLegacy for a kind declaring DeepReadCaps — a registration
+// reading a different dial than the file names, which is precisely the drift
+// this arm exists to catch.
+func configFieldsRead(expr ast.Expr) []string {
+	var paths []string
+	ast.Inspect(expr, func(n ast.Node) bool {
+		selector, isSelector := n.(*ast.SelectorExpr)
+		if !isSelector {
+			return true
+		}
+		if path, named := fieldPath(selector); named {
+			paths = append(paths, path)
+		}
+		return true
+	})
+	return paths
+}
+
+// fieldPath is the dotted field path a selector names within the value it hangs
+// off, and whether it is such a chain at all: everything from the second
+// identifier on, so the name the call site gives the config never has to match
+// the one the contract was written against. A selector on anything but a chain
+// of identifiers — an index, a call's result — names no field path this gate
+// can join to a declaration, and says so rather than half-reading it.
+func fieldPath(selector *ast.SelectorExpr) (string, bool) {
+	switch x := selector.X.(type) {
+	case *ast.Ident:
+		return selector.Sel.Name, true
+	case *ast.SelectorExpr:
+		within, named := fieldPath(x)
+		if !named {
+			return "", false
+		}
+		return within + "." + selector.Sel.Name, true
+	default:
+		return "", false
+	}
+}
+
 // TestEveryOperatorSuppliedTimeoutIsActuallySuppliedAtItsRegistration is the
 // half a policy test cannot reach. An operator-supplied TimeoutPolicy returns
 // whatever it is handed, so the declaration is only as good as the argument —
@@ -217,9 +264,9 @@ func TestEveryOperatorSuppliedTimeoutIsActuallySuppliedAtItsRegistration(t *test
 			// from, and a value computed from a different one would satisfy
 			// every other check here while making the file say a budget
 			// governs this kind that does not.
-			if computed := types.ExprString(r.supplied); !strings.Contains(computed, spec.Timeout.OperatorField) {
+			if !slices.Contains(configFieldsRead(r.supplied), spec.Timeout.OperatorField) {
 				t.Errorf("%s declares its timeout comes from JobRunnerConfig.%s, but its registration computes it from %s. The file is what an operator reads to know which dial moves this deadline — change one end or the other so they name the same field.",
-					kind, spec.Timeout.OperatorField, computed)
+					kind, spec.Timeout.OperatorField, types.ExprString(r.supplied))
 			}
 		case r.supplied != nil:
 			t.Errorf("%s supplies a timeout its policy never reads. Only a {operator: …} kind takes addDeclaredWorkerWithTimeout; every other one takes its value from api/jobs.yaml, so this expression governs nothing and reads as if it did.", kind)
@@ -308,6 +355,68 @@ func TestTheSanctionedRegistrationSpellingsAreRead(t *testing.T) {
 	}
 	if computed := types.ExprString(got.supplied); computed != "deepReadTimeout(cfg.DeepReadCaps)" {
 		t.Errorf("the supplied expression reads as %q; it is what the declared operator field is compared against", computed)
+	}
+}
+
+// TestOnlyTheDeclaredDialSatisfiesTheTimeoutItDeclares holds the join above to
+// WHOLE field paths. A registration reading a neighbouring dial — the one added
+// beside it, whose name starts the same way — is the drift that leaves the file
+// naming a budget nothing computes from, and it is invisible to any check that
+// asks only whether the declared name appears somewhere in the expression.
+func TestOnlyTheDeclaredDialSatisfiesTheTimeoutItDeclares(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		supplied string
+		declared string
+		want     bool
+	}{
+		{
+			name:     "the declared dial, as this package writes it today",
+			supplied: "deepReadTimeout(cfg.DeepReadCaps)",
+			declared: "DeepReadCaps",
+			want:     true,
+		},
+		{
+			name:     "a nested dial is named by its whole path",
+			supplied: "cfg.GmailWatch.Interval + time.Minute",
+			declared: "GmailWatch.Interval",
+			want:     true,
+		},
+		{
+			name:     "the group a nested dial sits in is named too",
+			supplied: "watchTimeout(cfg.GmailWatch)",
+			declared: "GmailWatch",
+			want:     true,
+		},
+		{
+			name:     "a field whose name merely starts with the declared one",
+			supplied: "deepReadTimeout(cfg.DeepReadCapsLegacy)",
+			declared: "DeepReadCaps",
+			want:     false,
+		},
+		{
+			name:     "a sibling dial under another group",
+			supplied: "deepReadTimeout(cfg.Overlay.DeepReadCaps)",
+			declared: "PrivacyRetention.DeepReadCaps",
+			want:     false,
+		},
+		{
+			name:     "a constant that reads nothing from the config at all",
+			supplied: "20 * time.Minute",
+			declared: "DeepReadCaps",
+			want:     false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			expr, err := parser.ParseExpr(tc.supplied)
+			if err != nil {
+				t.Fatalf("parsing %s: %v", tc.supplied, err)
+			}
+			read := configFieldsRead(expr)
+			if got := slices.Contains(read, tc.declared); got != tc.want {
+				t.Errorf("%s reads %v, so the gate says it computes JobRunnerConfig.%s = %t, want %t", tc.supplied, read, tc.declared, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -275,15 +275,16 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # `go generate ./...`): internal/compose is generated INTO, and its own
 # generate directives would need the tools resolvable from that package.
 #
-# EVERY generator runs pinned to the ROOT workspace, for the reason
-# gen-composition already did: they all live in the separate backend/tools
-# module, so what a caller happens to export as GOWORK (off, or the composed
-# workspace, or an unrelated one) decides which module graph resolves their
-# dependencies. Generated files are committed and drift-gated, so a generator
-# whose own build inputs move with the caller's environment turns a clean
-# checkout into a red gate on somebody else's machine.
+# EVERY line below runs pinned to the ROOT workspace, for the reason
+# gen-composition already did: the generators live in the separate
+# backend/tools module — including the two the contracts package's own
+# directives shell out to — so what a caller happens to export as GOWORK (off,
+# or the composed workspace, or an unrelated one) decides which module graph
+# resolves their dependencies. Generated files are committed and drift-gated,
+# so a generator whose own build inputs move with the caller's environment
+# turns a clean checkout into a red gate on somebody else's machine.
 gen: ## Regenerate everything derived from the contract
-	$(GO) generate ./internal/contracts
+	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
 	$(GOWORK_ROOT) $(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go
