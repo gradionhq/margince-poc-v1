@@ -31,6 +31,42 @@ func (s *Service) strengthSection(ctx context.Context, tx pgx.Tx, personID ids.P
 	return nil
 }
 
+// relationshipChangesSection reports what happened to the relationship, as
+// opposed to what it currently is.
+//
+// It sits beside the strength section rather than inside it because the two
+// answer different questions and a caller may hold the grant for one reading
+// and still lose the other to a section fault. Both fold the same §4 curve, so
+// they cannot disagree about the same window.
+func (s *Service) relationshipChangesSection(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *crmcontracts.Person360) error {
+	changes, err := s.people.PersonRelationshipChangesTx(ctx, tx, personID, now)
+	if err != nil {
+		return err
+	}
+	wire := make([]crmcontracts.PersonRelationshipChange, 0, len(changes))
+	for _, c := range changes {
+		item := crmcontracts.PersonRelationshipChange{
+			Kind: crmcontracts.PersonRelationshipChangeKind(c.Kind),
+			At:   c.At,
+		}
+		// Days and the two bands are per-kind, so each is set only where it
+		// means something. A zero "days" on a band move would read as "this
+		// happened today".
+		if c.Days > 0 {
+			days := c.Days
+			item.Days = &days
+		}
+		if c.FromBucket != "" {
+			from := crmcontracts.PersonRelationshipChangeFromBucket(c.FromBucket)
+			to := crmcontracts.PersonRelationshipChangeToBucket(c.ToBucket)
+			item.FromBucket, item.ToBucket = &from, &to
+		}
+		wire = append(wire, item)
+	}
+	out.RelationshipChanges = &wire
+	return nil
+}
+
 // employmentsSection lists this person's employment edges, current primary
 // first — the header's "who they work for" and the career ribbon's history
 // come from the same rows, so a former employer is never overwritten.

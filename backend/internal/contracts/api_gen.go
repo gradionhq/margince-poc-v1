@@ -4850,16 +4850,17 @@ func (e PartnerRelationshipStage) Valid() bool {
 
 // Defines values for Person360SectionsOmitted.
 const (
-	Person360SectionsOmittedActivities     Person360SectionsOmitted = "activities"
-	Person360SectionsOmittedConsent        Person360SectionsOmitted = "consent"
-	Person360SectionsOmittedDealRoles      Person360SectionsOmitted = "deal_roles"
-	Person360SectionsOmittedEmployments    Person360SectionsOmitted = "employments"
-	Person360SectionsOmittedLastTouch      Person360SectionsOmitted = "last_touch"
-	Person360SectionsOmittedNetwork        Person360SectionsOmitted = "network"
-	Person360SectionsOmittedNextSteps      Person360SectionsOmitted = "next_steps"
-	Person360SectionsOmittedProfileFields  Person360SectionsOmitted = "profile_fields"
-	Person360SectionsOmittedSinceLastVisit Person360SectionsOmitted = "since_last_visit"
-	Person360SectionsOmittedStrength       Person360SectionsOmitted = "strength"
+	Person360SectionsOmittedActivities          Person360SectionsOmitted = "activities"
+	Person360SectionsOmittedConsent             Person360SectionsOmitted = "consent"
+	Person360SectionsOmittedDealRoles           Person360SectionsOmitted = "deal_roles"
+	Person360SectionsOmittedEmployments         Person360SectionsOmitted = "employments"
+	Person360SectionsOmittedLastTouch           Person360SectionsOmitted = "last_touch"
+	Person360SectionsOmittedNetwork             Person360SectionsOmitted = "network"
+	Person360SectionsOmittedNextSteps           Person360SectionsOmitted = "next_steps"
+	Person360SectionsOmittedProfileFields       Person360SectionsOmitted = "profile_fields"
+	Person360SectionsOmittedRelationshipChanges Person360SectionsOmitted = "relationship_changes"
+	Person360SectionsOmittedSinceLastVisit      Person360SectionsOmitted = "since_last_visit"
+	Person360SectionsOmittedStrength            Person360SectionsOmitted = "strength"
 )
 
 // Valid indicates whether the value is a known member of the Person360SectionsOmitted enum.
@@ -4880,6 +4881,8 @@ func (e Person360SectionsOmitted) Valid() bool {
 	case Person360SectionsOmittedNextSteps:
 		return true
 	case Person360SectionsOmittedProfileFields:
+		return true
+	case Person360SectionsOmittedRelationshipChanges:
 		return true
 	case Person360SectionsOmittedSinceLastVisit:
 		return true
@@ -5016,6 +5019,78 @@ const (
 func (e PersonReachabilityProvider) Valid() bool {
 	switch e {
 	case PersonReachabilityProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeFromBucket.
+const (
+	PersonRelationshipChangeFromBucketModerate PersonRelationshipChangeFromBucket = "moderate"
+	PersonRelationshipChangeFromBucketNone     PersonRelationshipChangeFromBucket = "none"
+	PersonRelationshipChangeFromBucketStrong   PersonRelationshipChangeFromBucket = "strong"
+	PersonRelationshipChangeFromBucketWeak     PersonRelationshipChangeFromBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeFromBucket enum.
+func (e PersonRelationshipChangeFromBucket) Valid() bool {
+	switch e {
+	case PersonRelationshipChangeFromBucketModerate:
+		return true
+	case PersonRelationshipChangeFromBucketNone:
+		return true
+	case PersonRelationshipChangeFromBucketStrong:
+		return true
+	case PersonRelationshipChangeFromBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeKind.
+const (
+	Cooled          PersonRelationshipChangeKind = "cooled"
+	RepliedAfterGap PersonRelationshipChangeKind = "replied_after_gap"
+	Warmed          PersonRelationshipChangeKind = "warmed"
+	WentQuiet       PersonRelationshipChangeKind = "went_quiet"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeKind enum.
+func (e PersonRelationshipChangeKind) Valid() bool {
+	switch e {
+	case Cooled:
+		return true
+	case RepliedAfterGap:
+		return true
+	case Warmed:
+		return true
+	case WentQuiet:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonRelationshipChangeToBucket.
+const (
+	PersonRelationshipChangeToBucketModerate PersonRelationshipChangeToBucket = "moderate"
+	PersonRelationshipChangeToBucketNone     PersonRelationshipChangeToBucket = "none"
+	PersonRelationshipChangeToBucketStrong   PersonRelationshipChangeToBucket = "strong"
+	PersonRelationshipChangeToBucketWeak     PersonRelationshipChangeToBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonRelationshipChangeToBucket enum.
+func (e PersonRelationshipChangeToBucket) Valid() bool {
+	switch e {
+	case PersonRelationshipChangeToBucketModerate:
+		return true
+	case PersonRelationshipChangeToBucketNone:
+		return true
+	case PersonRelationshipChangeToBucketStrong:
+		return true
+	case PersonRelationshipChangeToBucketWeak:
 		return true
 	default:
 		return false
@@ -12655,6 +12730,9 @@ type Person360 struct {
 	// ProfileFields The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`.
 	ProfileFields *[]PersonProfileField `json:"profile_fields,omitempty"`
 
+	// RelationshipChanges What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold.
+	RelationshipChanges *[]PersonRelationshipChange `json:"relationship_changes,omitempty"`
+
 	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
 	SectionsOmitted []Person360SectionsOmitted `json:"sections_omitted"`
 
@@ -12842,6 +12920,35 @@ type PersonReachability struct {
 
 // PersonReachabilityProvider defines model for PersonReachability.Provider.
 type PersonReachabilityProvider string
+
+// PersonRelationshipChange One thing that happened to a relationship, with the evidence for it. Derived at read
+// by folding the §4 curve over a window that ends in the past, so it needs no table and
+// disappears when the activities behind it are erased.
+type PersonRelationshipChange struct {
+	// At When it happened — the reply's own timestamp, or the last touch of a relationship that went quiet. For a band move this is the read instant: a band move is observed, not dated.
+	At time.Time `json:"at"`
+
+	// Days The span the change is about: the silence a reply broke, or how long a quiet relationship has been quiet. Absent for a band move.
+	Days *int `json:"days,omitempty"`
+
+	// FromBucket The §4 band the relationship held one comparison window ago. Band moves only.
+	FromBucket *PersonRelationshipChangeFromBucket `json:"from_bucket,omitempty"`
+
+	// Kind `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+	Kind PersonRelationshipChangeKind `json:"kind"`
+
+	// ToBucket The band it holds now. Band moves only.
+	ToBucket *PersonRelationshipChangeToBucket `json:"to_bucket,omitempty"`
+}
+
+// PersonRelationshipChangeFromBucket The §4 band the relationship held one comparison window ago. Band moves only.
+type PersonRelationshipChangeFromBucket string
+
+// PersonRelationshipChangeKind `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+type PersonRelationshipChangeKind string
+
+// PersonRelationshipChangeToBucket The band it holds now. Band moves only.
+type PersonRelationshipChangeToBucket string
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {

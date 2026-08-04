@@ -7425,8 +7425,10 @@ export interface components {
              */
             last_outbound_at?: string | null;
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch")[];
+            sections_omitted: ("employments" | "deal_roles" | "strength" | "network" | "activities" | "next_steps" | "consent" | "profile_fields" | "since_last_visit" | "last_touch" | "relationship_changes")[];
             strength?: components["schemas"]["RelationshipStrength"];
+            /** @description What CHANGED about this relationship, most consequential first — derived at read from the person's own interactions, never stored. `strength` says what the relationship IS; this says what happened to it, which is what a reader acts on. Empty when nothing crossed a threshold. */
+            relationship_changes?: components["schemas"]["PersonRelationshipChange"][];
             /** @description The colleagues who know this contact, warmest first — who to ask. */
             network?: {
                 colleagues: components["schemas"]["PersonNetworkColleague"][];
@@ -7455,6 +7457,35 @@ export interface components {
             /** @description The enrichment evidence sidecar — same rows as `GET /people/{id}/profile-fields`. */
             profile_fields?: components["schemas"]["PersonProfileField"][];
             since_last_visit?: components["schemas"]["Person360SinceLastVisit"];
+        };
+        /**
+         * @description One thing that happened to a relationship, with the evidence for it. Derived at read
+         *     by folding the §4 curve over a window that ends in the past, so it needs no table and
+         *     disappears when the activities behind it are erased.
+         */
+        PersonRelationshipChange: {
+            /**
+             * @description `replied_after_gap` — they answered after a long silence, the strongest buy-signal captured data alone can produce. `went_quiet` — an established relationship stopped. `warmed` / `cooled` — the §4 band moved. A band move is reported; a point drift is not, because the score decays continuously and reporting that would fire on every read.
+             * @enum {string}
+             */
+            kind: "replied_after_gap" | "went_quiet" | "warmed" | "cooled";
+            /**
+             * Format: date-time
+             * @description When it happened — the reply's own timestamp, or the last touch of a relationship that went quiet. For a band move this is the read instant: a band move is observed, not dated.
+             */
+            at: string;
+            /** @description The span the change is about: the silence a reply broke, or how long a quiet relationship has been quiet. Absent for a band move. */
+            days?: number;
+            /**
+             * @description The §4 band the relationship held one comparison window ago. Band moves only.
+             * @enum {string}
+             */
+            from_bucket?: "none" | "weak" | "moderate" | "strong";
+            /**
+             * @description The band it holds now. Band moves only.
+             * @enum {string}
+             */
+            to_bucket?: "none" | "weak" | "moderate" | "strong";
         };
         /** @description One colleague's own relationship with this contact. */
         PersonNetworkColleague: {
