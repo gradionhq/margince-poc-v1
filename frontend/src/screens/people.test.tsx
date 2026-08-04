@@ -143,6 +143,17 @@ function stubFetch(
     if (pathname.endsWith("/strength")) {
       return jsonResponse(options?.strength ?? dormantStrength);
     }
+    if (pathname.endsWith("/360")) {
+      return jsonResponse({
+        as_of: "2026-08-04T09:00:00Z",
+        person: anna,
+        sections_omitted: [],
+        strength: options?.strength ?? dormantStrength,
+        last_inbound_at: "2026-07-01T09:00:00Z",
+        last_outbound_at: "2026-06-20T09:00:00Z",
+        network: { colleagues: [] },
+      });
+    }
     if (pathname.endsWith("/context")) {
       return jsonResponse({
         anchor: { type: "person", id: "p-1" },
@@ -736,7 +747,7 @@ describe("PersonScreen — Relationships tab (P-5)", () => {
 });
 
 describe("PersonScreen — relationship-strength card (P-4)", () => {
-  it("renders the bucket badge, score, and all four factor labels", async () => {
+  it("leads with the relationship in words, not a verdict number", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -748,12 +759,7 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
         strength: {
           score: 72,
           bucket: "strong",
-          factors: {
-            recency: 0.9,
-            frequency: 0.6,
-            reciprocity: 0.5,
-            direction: 0.8,
-          },
+          factors: { recency: 0.9, frequency: 0.6, reciprocity: 0.5 },
           last_interaction: "2026-07-01T09:00:00Z",
           inbound_90d: 5,
           outbound_90d: 7,
@@ -763,18 +769,18 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
     );
     render(<PersonScreen id="p-1" />);
 
-    await waitFor(() => expect(screen.getByText("Strong")).toBeTruthy());
-    expect(screen.getByText("Score 72/100")).toBeTruthy();
-    expect(screen.getByText("Recency")).toBeTruthy();
-    expect(screen.getByText("Frequency")).toBeTruthy();
-    expect(screen.getByText("Reciprocity")).toBeTruthy();
-    expect(screen.getByText("Direction")).toBeTruthy();
-    expect(screen.getByText("90%")).toBeTruthy();
-    expect(screen.getByText("5 in · 7 out (90d)")).toBeTruthy();
-    expect(screen.getByText("Computed from 3 activities")).toBeTruthy();
+    // Both directions, never folded: which way went last is the fact a rep
+    // acts on, and one "last touch" date hides it.
+    await waitFor(() => expect(screen.getByText("They last wrote")).toBeTruthy());
+    expect(screen.getByText("We last wrote")).toBeTruthy();
+
+    // The score is computed and inspectable, but it does not lead: nothing
+    // on the face of the card states it as a verdict.
+    expect(screen.queryByText("Score 72/100")).toBeNull();
+    expect(screen.getByText("How this is computed")).toBeTruthy();
   });
 
-  it("renders an honest 'no interactions yet' state for a dormant/score-0 record", async () => {
+  it("says plainly when nobody here has spoken to them", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
@@ -786,10 +792,15 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
     );
     render(<PersonScreen id="p-1" />);
 
-    await waitFor(() => expect(screen.getByText("Dormant")).toBeTruthy());
-    expect(screen.getByText("Score 0/100")).toBeTruthy();
-    expect(screen.getByText("No interactions yet")).toBeTruthy();
-    expect(screen.queryByText(/^0$/)).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Nobody here has a recorded exchange with them yet.",
+        ),
+      ).toBeTruthy(),
+    );
+    // A bare 0 is the absence inventory this state exists to replace.
+    expect(screen.queryByText("Score 0/100")).toBeNull();
   });
 });
 

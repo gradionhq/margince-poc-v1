@@ -472,7 +472,10 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
   });
   const timelineQuery = useTimeline("person", id);
   const view360 = usePerson360(id);
-  const view = view360.data;
+  // The composite is only usable once it carries its mandatory root record.
+  // Guarding on the whole payload would let a partial or error-shaped body
+  // through and crash the rail on a person that is not there.
+  const view = view360.data?.person ? view360.data : undefined;
   const overlay = useSorMode() === "overlay";
   const viewerId = useViewerId();
 
@@ -643,9 +646,12 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             {tab === "overview" && thinRecord(view) && view && (
               <ThinState view={view} />
             )}
+            {/* Consent renders on a thin record too: it is not an absence
+                but a guard — what you may send is a live fact whether or
+                not anyone has written to them yet. */}
+            {tab === "overview" && <ConsentSection personId={person.id} />}
             {tab === "overview" && !thinRecord(view) && (
               <>
-                <ConsentSection personId={person.id} />
                 <CustomFieldsCard object="person" record={person} />
                 <RecordContextPanel entityType="person" id={person.id} />
                 <LogActivity entityType="person" entityId={person.id} />
