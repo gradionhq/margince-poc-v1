@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -447,4 +448,25 @@ func AuthzRule(p principal.Principal, entityType string, auditAction string) str
 		return ""
 	}
 	return p.Permissions.Rule(entityType, action)
+}
+
+const roleAdmin = "admin"
+
+// RequireAdmin admits only a principal carrying the workspace "admin" role.
+// Object grants can't express installation-wide administration, so admin
+// endpoints gate on the role directly. A system principal (internal callers)
+// passes; every other non-admin is denied with the existence-preserving
+// ErrPermissionDenied (403).
+func RequireAdmin(ctx context.Context) error {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return fmt.Errorf("no principal in context: %w", apperrors.ErrPermissionDenied)
+	}
+	if p.Type == principal.PrincipalSystem {
+		return nil
+	}
+	if slices.Contains(p.Permissions.RoleKeys, roleAdmin) {
+		return nil
+	}
+	return fmt.Errorf("admin-only operation: %w", apperrors.ErrPermissionDenied)
 }

@@ -37,9 +37,9 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "archive_record", Title: "Archive a record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
-		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject",
+		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject/archiveRelationship",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","project"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","project","relationship"]},
 			"id":{"type":"string","format":"uuid"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
@@ -272,9 +272,21 @@ func recordLabel(rec datasource.Record) string {
 		DisplayName string `json:"display_name"`
 		Name        string `json:"name"`
 		Email       string `json:"email"`
+		Kind        string `json:"kind"`
 	}
 	//craft:ignore swallowed-errors label extraction is best-effort by design — unparseable fields fall through to the id below
 	_ = json.Unmarshal(rec.Fields, &f)
+	// An edge has no name of any sort: its identity is its kind plus two
+	// endpoints, so "Archive relationship 0195c3…" tells the approving human
+	// nothing about what disappears, while "employment" at least names the class.
+	//
+	// Scoped to that ONE type rather than added to the ladder below. `kind` is a
+	// field an activity also carries, and there the id is the better answer: a
+	// staged overwrite reading `Update activity "note"` would name a class where a
+	// human needs to know WHICH note, and would suppress the id that told them.
+	if rec.Ref.Type == datasource.EntityRelationship && f.Kind != "" {
+		return fmt.Sprintf("%q", f.Kind)
+	}
 	for _, s := range []string{f.FullName, f.DisplayName, f.Name, f.Email} {
 		if s != "" {
 			return fmt.Sprintf("%q", s)

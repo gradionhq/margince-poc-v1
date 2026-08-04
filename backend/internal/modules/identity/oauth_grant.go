@@ -52,6 +52,11 @@ type issueGrantInput struct {
 	Scopes         []string
 	RefreshAllowed bool
 	Resource       *string
+	// LentPassportID is the passport the human lent, carried from the
+	// authorization code purely so the Settings list can name it. Nothing reads
+	// it to decide anything; see oauth_lend.go on why a lend outlives the
+	// passport it came from.
+	LentPassportID *ids.PassportID
 }
 
 // errConsentingUserInactive refuses a consent whose human is no longer live.
@@ -109,10 +114,11 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 		return ids.Nil, "", err
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed, resource)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed, resource, lent_passport_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
-		in.WorkspaceID, in.ClientID, in.UserID, in.Scopes, in.RefreshAllowed, in.Resource).Scan(&grantID)
+		in.WorkspaceID, in.ClientID, in.UserID, in.Scopes, in.RefreshAllowed, in.Resource,
+		in.LentPassportID).Scan(&grantID)
 	if err != nil {
 		return ids.Nil, "", err
 	}

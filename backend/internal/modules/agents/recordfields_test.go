@@ -349,3 +349,84 @@ func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
 	}
 	return parsed.Properties.RecordType.Enum
 }
+
+// The create and patch descriptions must not converge.
+//
+// They differ on one thing that matters: an edge's endpoints can be NAMED on
+// create and cannot be patched at all, because an edge's ends are what it is. The
+// branch that says so was keyed on `shapes[EntityRelationship]` at first, and both
+// maps carry that key — so the patch tool shipped the create tool's pairing rule
+// and the sentence written for the patch tool was unreachable.
+func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
+	create := describeRecordFields(createShapes)
+	patch := describeRecordFields(updateShapes)
+
+	// The pairing rule is create-only: naming a pair is a thing only a create can
+	// do. Keyed on the stable CLAIM, not on the sentence — a reworded advisory is
+	// not a regression, a missing one is.
+	const pairingRule = "endpoint pair"
+	if !strings.Contains(create, pairingRule) {
+		t.Errorf("create_record's description does not state the per-kind endpoint pairing rule, which "+
+			"is invisible from a flat field list: %q", create)
+	}
+	if strings.Contains(patch, pairingRule) {
+		t.Error("update_record's description states the endpoint pairing rule, and a patch cannot reach " +
+			"an endpoint — so it is advice the caller cannot act on")
+	}
+
+	// And the patch tool says what IS true for it, rather than saying nothing.
+	if !strings.Contains(patch, "cannot be patched") {
+		t.Errorf("update_record's description never says an edge's endpoints are unpatchable, which is "+
+			"the first thing a caller looks for and does not find: %q", patch)
+	}
+
+	// The same mistake in its sibling: an activity's links ARE settable on create
+	// and not patchable, and both shape maps carry activity — so a record-type key
+	// put the patch-only advice on the create tool too.
+	const linksAdvisory = "links are NOT patchable"
+	if !strings.Contains(patch, linksAdvisory) {
+		t.Errorf("update_record's description does not say an activity's links are unpatchable: %q", patch)
+	}
+	if strings.Contains(create, linksAdvisory) {
+		t.Error("create_record's description says an activity's links are NOT patchable — create_record " +
+			"and log_activity both ACCEPT links, so it is advice against a field the tool takes")
+	}
+}
+
+// The closing custom-field sentence must not promise carriage the surface
+// withholds.
+//
+// Every record type's description ends by telling callers that extra cf_<slug>
+// keys are read as custom-field values. That is false for activity and
+// relationship: neither contract shape carries the additionalProperties bag a cf_
+// value travels in, and customfields.FieldObjects deliberately excludes both — so
+// an agent following the description writes a key the strict decoder refuses.
+func TestTheCustomFieldSentenceNamesTheTypesThatTakeNone(t *testing.T) {
+	for name, description := range map[string]string{
+		"create": describeRecordFields(createShapes),
+		"update": describeRecordFields(updateShapes),
+	} {
+		if !strings.Contains(description, "cf_<slug>") {
+			t.Fatalf("%s: the description no longer mentions the custom-field key shape at all: %q",
+				name, description)
+		}
+		// The exclusion clause, isolated with Cut so the assertion reads the
+		// SENTENCE rather than the whole description — "activity" appears earlier
+		// in the field lists, so a substring test over the full text would pass
+		// without any exclusion being stated at all.
+		_, exclusion, found := strings.Cut(description, "No custom fields on")
+		if !found {
+			t.Errorf("%s: the description promises cf_ carriage and excludes nothing, though activity and "+
+				"relationship carry no additionalProperties bag — a cf_ key on either is refused, not "+
+				"stored: %q", name, description)
+			continue
+		}
+		// Both, and by name: an agent reads prose, so "some types are excluded"
+		// would leave it guessing which.
+		for _, excluded := range []string{"activity", "relationship"} {
+			if !strings.Contains(exclusion, excluded) {
+				t.Errorf("%s: the cf_ exclusion clause %q does not name %q", name, exclusion, excluded)
+			}
+		}
+	}
+}

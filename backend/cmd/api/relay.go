@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -30,7 +29,7 @@ import (
 // next boot, and shutdown loses no events.
 //
 //nolint:contextcheck // the relay + webhook consumer are process-lifetime lanes, deliberately rooted at context.Background() and stopped by the returned stop(), never by the request ctx.
-func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhookKey string, webhookRetryInterval time.Duration, logger *slog.Logger) (compose.Option, func(), error) {
+func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhookKey string, logger *slog.Logger) (compose.Option, func(), error) {
 	rdb, err := events.NewClient(ctx, redisAddr)
 	if err != nil {
 		return nil, nil, err
@@ -43,12 +42,13 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhoo
 	relay.Go(func() {
 		events.NewRelay(pool, rdb, logger).Run(relayCtx)
 	})
-	// When a webhook signing key is configured, this single-process role
-	// also runs the cg:webhooks delivery consumer + retry sweep (in a split
-	// deployment cmd/worker owns them). Owner-scoped fan-out (BYO-EVT-4)
-	// rides the same deliverer.
+	// When a webhook signing key is configured, this role also runs the
+	// cg:webhooks delivery consumer — the owner-scoped fan-out (BYO-EVT-4)
+	// that turns a bus event into first delivery attempts. Re-attempting a
+	// PARKED delivery is not here: that sweep is a River periodic job, and
+	// this role runs no River runner, so cmd/worker owns it.
 	if webhookKey != "" {
-		if derr := startInlineWebhookDelivery(relayCtx, &relay, rdb, pool, webhookKey, webhookRetryInterval, logger); derr != nil {
+		if derr := startInlineWebhookDelivery(relayCtx, &relay, rdb, pool, webhookKey, logger); derr != nil {
 			// Mirror the stop closure's order below: cancel, drain the relay
 			// goroutine, THEN close the bus client — the relay's Run(relayCtx)
 			// is already in flight and must observe cancellation and stop
@@ -75,10 +75,10 @@ func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhoo
 }
 
 // startInlineWebhookDelivery builds the owner-scoped delivery deliverer and
-// registers its cg:webhooks consumer + retry sweep on the relay group. Kept
-// out of startInlineRelay so that function stays flat; both goroutines share
-// the relay's lifecycle context and WaitGroup.
-func startInlineWebhookDelivery(ctx context.Context, relay *sync.WaitGroup, rdb *redis.Client, pool *pgxpool.Pool, webhookKey string, retryInterval time.Duration, logger *slog.Logger) error {
+// registers its cg:webhooks consumer on the relay group. Kept out of
+// startInlineRelay so that function stays flat; the consumer shares the
+// relay's lifecycle context and WaitGroup.
+func startInlineWebhookDelivery(ctx context.Context, relay *sync.WaitGroup, rdb *redis.Client, pool *pgxpool.Pool, webhookKey string, logger *slog.Logger) error {
 	deliverer, err := compose.NewWebhookDeliverer(pool, webhookKey, logger)
 	if err != nil {
 		return err
@@ -95,6 +95,5 @@ func startInlineWebhookDelivery(ctx context.Context, relay *sync.WaitGroup, rdb 
 			logger.Error("subscriber cg:webhooks", "err", err)
 		}
 	})
-	relay.Go(func() { deliverer.RunRetrySweep(ctx, retryInterval) })
 	return nil
 }

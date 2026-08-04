@@ -230,29 +230,6 @@ func (s *Store) enqueueForSubscriptions(ctx context.Context, subIDs []ids.UUID, 
 	return targets, err
 }
 
-// liveWorkspaces lists the tenants a sweep pass iterates. Like the
-// retention evaluator, it reads the workspace root directly (that table is
-// the tenant resolver, not RLS-scoped record data) and is bounded by fleet
-// size, not tenant data volume — each workspace's due rows are then read
-// under its own GUC, never cross-tenant.
-func (s *Store) liveWorkspaces(ctx context.Context) ([]ids.UUID, error) {
-	// rls-exempt: the retry sweeper enumerates live tenants to scan each under its own GUC (the retention-evaluator precedent); the workspace root is the tenant resolver, not RLS-scoped record data.
-	rows, err := s.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 // dueRetries finds retrying deliveries in the ctx's workspace whose backoff
 // has elapsed and whose subscription is still live and active (a paused
 // subscription's retries wait until it resumes). Runs under the tenant GUC.

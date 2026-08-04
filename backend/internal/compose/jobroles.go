@@ -12,13 +12,16 @@ package compose
 import "github.com/gradionhq/margince/backend/internal/platform/jobs"
 
 var (
+	_ jobs.WorkspaceScoped = AgentSchedulerWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureBackfillArgs{}
 	_ jobs.WorkspaceScoped = CloseDateWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = FollowUpWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = TimeScanWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = IdempotencyRetentionWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = PrivacyRetentionWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = CaptureAutoEnrichWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = EmbedDriftWorkspaceArgs{}
+	_ jobs.WorkspaceScoped = EmbedReindexWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GmailWatchRenewArgs{}
 	_ jobs.WorkspaceScoped = OverlayReconcileWorkspaceArgs{}
 	_ jobs.WorkspaceScoped = GraphEdgeWorkspaceArgs{}
@@ -38,9 +41,11 @@ var (
 	_ jobs.WorkspaceScoped = TelegramIngestArgs{}
 	_ jobs.WorkspaceScoped = TelegramPollArgs{}
 	_ jobs.WorkspaceScoped = VoiceBuildArgs{}
+	_ jobs.WorkspaceScoped = WebhookRetryWorkspaceArgs{}
 )
 
 var (
+	_ jobs.FleetWide = AgentSchedulerArgs{}
 	_ jobs.FleetWide = CaptureAutoEnrichSweepArgs{}
 	_ jobs.FleetWide = CaptureClassifyArgs{}
 	_ jobs.FleetWide = CaptureDigestArgs{}
@@ -48,6 +53,7 @@ var (
 	_ jobs.FleetWide = CloseDateSweepArgs{}
 	_ jobs.FleetWide = CounterpartyVerdictArgs{}
 	_ jobs.FleetWide = EmbedDriftSweepArgs{}
+	_ jobs.FleetWide = EmbedReindexArgs{}
 	_ jobs.FleetWide = FollowUpReconcileArgs{}
 	_ jobs.FleetWide = GmailSyncArgs{}
 	_ jobs.FleetWide = GmailWatchArgs{}
@@ -57,8 +63,9 @@ var (
 	_ jobs.FleetWide = OrgNamePromotionArgs{}
 	_ jobs.FleetWide = OverlayReconcileArgs{}
 	_ jobs.FleetWide = ParticipantBackfillArgs{}
+	_ jobs.FleetWide = PrivacyRetentionArgs{}
 	_ jobs.FleetWide = TelegramPollSweepArgs{}
 	_ jobs.FleetWide = TimeScanArgs{}
 	_ jobs.FleetWide = VoiceBuildRetryArgs{}
-	_ jobs.FleetWide = embedReindexArgs{}
+	_ jobs.FleetWide = WebhookRetryArgs{}
 )

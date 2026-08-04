@@ -55,12 +55,20 @@ func sweepInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByState: activeSweepStates}}
 }
 
-// JobRunnerConfig is NewJobRunner's boot configuration: the three
-// always-on periodic passes' intervals, the optional Gmail poll (added
+// JobRunnerConfig is NewJobRunner's boot configuration: the interval of every
+// pass whose cadence an operator sets (close-date, follow-up reconcile,
+// automation time-scan, GDPR retention), the optional Gmail poll (added
 // only when GmailRegistry is non-nil), the optional Gmail push-watch
 // maintenance pass (added only when GmailRegistry is non-nil AND
 // GmailWatch.Topic is set), and the optional overlay reconcile poller
 // (added only when OverlayVault is non-nil).
+//
+// A nil dependency below takes one of exactly two postures, and each field says
+// which: ABSENT BY OMISSION registers nothing, so a row nothing here could work
+// is never queued at all (GmailRegistry, ChannelVault, OverlayVault,
+// WebhookRetry.Deliverer, AgentScheduler.Service); REGISTERED ANYWAY keeps the
+// worker so a picked-up row fails with an actionable message instead of rotting
+// queued (DeepReadBrain, Embedder, VoiceBrain).
 type JobRunnerConfig struct {
 	// SendPacing bounds how fast one mailbox transmits and how long a
 	// delivery may be deferred before it parks; the zero value takes the
@@ -75,8 +83,17 @@ type JobRunnerConfig struct {
 	CloseDateInterval time.Duration
 	ReconcileInterval time.Duration
 	TimeScanInterval  time.Duration
-	GmailRegistry     *capture.Registry
-	GmailWatch        GmailWatchConfig
+	// PrivacyRetention carries the GDPR retention dispatcher's cadence
+	// (jobs_privacyretention.go).
+	PrivacyRetention PrivacyRetentionConfig
+	// WebhookRetry carries the retry dispatcher's cadence and the delivery
+	// engine one workspace's pass re-attempts through (jobs_webhookretry.go).
+	WebhookRetry WebhookRetryConfig
+	// AgentScheduler carries the Surface-B dispatcher's cadence and the runner
+	// one workspace's pass ticks (jobs_agentscheduler.go).
+	AgentScheduler AgentSchedulerConfig
+	GmailRegistry  *capture.Registry
+	GmailWatch     GmailWatchConfig
 	// ChannelVault is the custodian of a channel connection's sealed bot token.
 	// Nil means this role registers no Telegram poller at all: a poll cannot
 	// authenticate without the token, so a dispatcher wired without a vault
@@ -143,9 +160,9 @@ type JobRunnerConfig struct {
 	// the render layer draws when no logo is on file.
 	Blobstore blobstore.Store
 	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
-	// embed-reindex worker re-embeds under. The worker registers
-	// regardless of whether this is nil: a picked-up embed_reindex job
-	// on a brainless worker role fails clearly (embedReindexWorker.Work)
+	// embed-reindex workspace worker re-embeds under. The workers register
+	// regardless of whether this is nil: a picked-up reindex job on a
+	// brainless worker role fails clearly (jobs_embedreindex.go)
 	// rather than sitting queued forever behind a job no one can work —
 	// the same posture as DeepReadBrain.
 	Embedder search.Embedder
@@ -176,11 +193,12 @@ type JobRunnerConfig struct {
 	ModelPricingSources []pricingSource
 }
 
-// NewJobRunner wires the deals correctors and the automation time-scan
-// into River periodic jobs for the worker process role. The intervals
-// keep the operator-facing --close-date-interval / --reconcile-interval /
-// --time-scan-interval flags as the schedule source; RunOnStart preserves
-// the old ticker's boot-time first pass.
+// NewJobRunner wires the deals correctors, the automation time-scan and the
+// GDPR retention fan-out into River periodic jobs for the worker process role.
+// The intervals keep the operator-facing --close-date-interval /
+// --reconcile-interval / --time-scan-interval / --retention-interval flags as
+// the schedule source; RunOnStart preserves the old ticker's boot-time first
+// pass.
 //
 // When cfg.GmailRegistry is non-nil (the deployment configured the Gmail
 // OAuth app), the sync DISPATCHER is added on a fixed 30s scan — a cheap
@@ -229,11 +247,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// own per-connection credential (no deployment-wide OAuth app to gate
 	// on), so there is nothing to check for before wiring it up.
 	river.AddWorker(workers, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
-	// The embed-reindex job is not periodic — the api enqueues one job per
-	// confirmed reindex (embedreindextransport.go); the worker role only
-	// needs the worker registered, same posture as the deep-read worker
-	// above.
-	river.AddWorker(workers, &embedReindexWorker{store: search.NewStore(pool), embedder: cfg.Embedder})
+	// The embed reindex registers itself the same way, workers only: it is not
+	// periodic, because the api enqueues its dispatcher once per confirmed
+	// reindex (jobs_embedreindex.go).
+	addEmbedReindexJobs(workers, pool, cfg.Embedder)
 	// The rate-refresh jobs are not periodic — the api enqueues one per admin
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).
@@ -292,6 +309,13 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The ADR-0069 §3a embed drift sweep registers itself the same way
 	// (embeddriftsweep.go) — worker + tick only when an embed lane is bound.
 	periodic = append(periodic, addEmbedDriftSweepJob(workers, pool, cfg.Embedder, log)...)
+	// The GDPR retention pass registers itself the same way
+	// (jobs_privacyretention.go).
+	periodic = append(periodic, addPrivacyRetentionJobs(workers, pool, cfg, log)...)
+	// The outbound-webhook retry sweep likewise (jobs_webhookretry.go).
+	periodic = append(periodic, addWebhookRetryJobs(workers, pool, cfg)...)
+	// The Surface-B agent scheduler likewise (jobs_agentscheduler.go).
+	periodic = append(periodic, addAgentSchedulerJobs(workers, pool, cfg)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{pool: pool})
@@ -452,6 +476,17 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			// still gets its own job row, which is the observability this phase
 			// is after; per-workspace PARALLELISM is not.
 			overlayReconcileQueue: {MaxWorkers: 1},
+			// A full batch of sequential calls to endpoints this deployment
+			// does not control: long and outbound-bound, so the same posture
+			// deep reads take (webhookRetryQueue).
+			webhookRetryQueue: {MaxWorkers: webhookRetryMaxWorkers},
+			// A batch of agent runs, each entitled to the full RunWallClock —
+			// the longest pass in the tree (agentSchedulerQueue).
+			agentSchedulerQueue: {MaxWorkers: agentSchedulerMaxWorkers},
+			// A full batch per policy, each record its own multi-statement
+			// audited transaction — minutes of database-bound work per tenant
+			// (privacyRetentionQueue).
+			privacyRetentionQueue: {MaxWorkers: privacyRetentionMaxWorkers},
 		},
 		Workers:      workers,
 		PeriodicJobs: periodic,

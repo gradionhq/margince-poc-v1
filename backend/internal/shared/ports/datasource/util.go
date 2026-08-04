@@ -6,14 +6,15 @@ package datasource
 // Provider-side mechanics every SystemOfRecordProvider implementation
 // needs (the SoR-mode modules today, an overlay adapter tomorrow):
 // strict field decoding, payload normalization, record marshalling, and
-// the two typed errors the transports map to 422. Additive utilities
+// the typed errors the transports map to 422. Additive utilities
 // only — the seam interfaces above stay frozen (ADR-0054 §4).
 
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,8 +27,15 @@ import (
 // than as the set being denied.
 type UnsupportedEntityError struct{ Type string }
 
+// Error makes two claims and keeps them apart, because the vocabulary contains a
+// member no provider serves every verb for: `relationship` has record verbs and
+// no search, no schema descriptor, no attachment writer. So the hint names the
+// vocabulary AS a vocabulary — a caller learns the spelling — without the implied
+// promise that every member reaches every verb. Phrased as "the types served
+// here", the sentence would refuse relationship while listing it as available.
 func (e *UnsupportedEntityError) Error() string {
-	return "entity_type " + e.Type + " is not served here; known types are " + entityVocabulary
+	return "entity_type " + e.Type + " is not served here; the vocabulary is " + entityVocabulary +
+		", and a valid type can name a verb or provider that does not serve it"
 }
 
 // entityVocabulary renders the known set from EntityTypes rather than
@@ -42,11 +50,37 @@ var entityVocabulary = func() string {
 	return strings.Join(names, "|")
 }()
 
-// FieldDecodeError maps to 422 on every surface.
+// FieldDecodeError maps to 422 on every surface. Its Cause has two very
+// different provenances, and a transport must not treat them alike: it is either
+// a refusal this package wrote (UnknownFieldError below), which names the
+// caller's own key and is theirs to read, or whatever encoding/json and the
+// value unmarshalers underneath it produced, which describes OUR program. The
+// transport tells them apart by TYPE — the library's prose is a message nobody
+// promised to keep, so matching on it is not a boundary.
 type FieldDecodeError struct{ Cause error }
 
 func (e *FieldDecodeError) Error() string { return "fields: " + e.Cause.Error() }
 func (e *FieldDecodeError) Unwrap() error { return e.Cause }
+
+// UnknownFieldError is this package's OWN refusal of field keys the target does
+// not serve. It quotes the keys the caller sent and nothing else, so it is the
+// one field-decode cause a transport may show verbatim.
+//
+// Typed for exactly that reason: it travels wrapped in FieldDecodeError
+// alongside decoder failures whose text is Go internals, and the transport has
+// to keep one and mask the other.
+type UnknownFieldError struct{ Fields []string }
+
+func (e *UnknownFieldError) Error() string {
+	quoted := make([]string, 0, len(e.Fields))
+	for _, field := range e.Fields {
+		quoted = append(quoted, strconv.Quote(field))
+	}
+	if len(quoted) == 1 {
+		return "unknown field " + quoted[0]
+	}
+	return "unknown fields " + strings.Join(quoted, ", ")
+}
 
 // RawFields normalizes the seam's `any` payload: tools hand over the
 // agent's raw JSON; in-process callers may hand the typed request struct.
@@ -118,12 +152,20 @@ func RejectNonCanonicalKeys(raw json.RawMessage, into any) error {
 		// Not a JSON object — the decoder below reports the shape error.
 		return nil
 	}
+	var unknown []string
 	for key := range keys {
 		if _, ok := canonical[key]; !ok {
-			return fmt.Errorf("unknown field %q", key)
+			unknown = append(unknown, key)
 		}
 	}
-	return nil
+	if len(unknown) == 0 {
+		return nil
+	}
+	// Sorted because map iteration is not: a refusal that names a different one
+	// of the caller's mistakes on each identical request is not reproducible,
+	// and reporting all of them saves a round trip per misspelling.
+	slices.Sort(unknown)
+	return &UnknownFieldError{Fields: unknown}
 }
 
 // collectCanonicalKeys gathers the byte-exact json field names of a struct

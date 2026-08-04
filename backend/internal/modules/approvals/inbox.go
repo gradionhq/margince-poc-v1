@@ -107,8 +107,8 @@ func (in ListInput) targeted() bool { return in.TargetType != nil && in.TargetID
 // List returns the inbox, newest first — but only the approvals the caller
 // could themselves decide. Deciding is human work, and so is triage: an
 // agent cannot browse the queue of withheld authority, and neither can a
-// human who lacks the grant the staged effect needs or cannot see the
-// target row under their own/team scope. Without this filter the inbox is
+// human who lacks the grant the staged effect needs or could not read the
+// staged target itself. Without this filter the inbox is
 // a workspace-wide side channel that leaks proposed_change, target ids,
 // and diffs to any low-privilege user (C3/ADR-0036).
 //
@@ -238,9 +238,10 @@ func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInp
 // probe exists only because its rows point at different records. The per-kind
 // grant check still varies by row and stays in the loop.
 //
-// A target outside the caller's row scope answers an EMPTY list, never a
-// refusal: nothing staged against a record they cannot see is decidable, and
-// saying so is the same existence-hiding answer the record's own read gives.
+// A target the caller could not read — its type ungranted, or its row outside
+// their scope — answers an EMPTY list, never a refusal: nothing staged against a
+// record they cannot see is decidable, and saying so is the same
+// existence-hiding answer the record's own read gives.
 //
 // The scan is bounded at PendingScanCap, so a full scan is also a reason to
 // report has_more: past the cap this read cannot tell a client it has seen
@@ -417,9 +418,10 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 		return nil, err
 	}
 	if !visible {
-		// The record itself is outside the caller's row scope, so nothing
-		// staged against it is decidable — and saying so is the same
-		// existence-hiding answer the record read gives.
+		// The record itself is one this caller could not read — an ungranted
+		// type or an out-of-scope row — so nothing staged against it is
+		// decidable, and saying so is the same existence-hiding answer the
+		// record read gives.
 		return []crmcontracts.Approval{}, nil
 	}
 	now := s.now()

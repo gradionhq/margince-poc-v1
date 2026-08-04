@@ -53,14 +53,10 @@ func (h Handlers) CreateStage(w http.ResponseWriter, r *http.Request, _ crmcontr
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	in := CreateStageInput{
-		PipelineID:     pathID[ids.PipelineKind](req.PipelineId),
-		Name:           req.Name,
-		Position:       req.Position,
-		WinProbability: req.WinProbability,
-	}
-	if req.Semantic != nil {
-		in.Semantic = string(*req.Semantic)
+	in, err := stageCreateInput(req)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
 	}
 	stage, err := h.store.CreateStage(r.Context(), in)
 	if err != nil {

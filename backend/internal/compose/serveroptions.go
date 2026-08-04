@@ -23,11 +23,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/extraction"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // Option customizes the wiring for one process role; everything not
@@ -231,6 +233,35 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.customfieldsHandlers = customfields.NewHandlers(pool, schemaPool)
 		s.schemaPoolReady = schemaPool.Ping
+	}
+}
+
+// WithDataReset wires the non-production admin data-reset endpoint
+// (POST /v1/admin/reset-data): the sweep runs through the composed app-role
+// pool (the one every option receives, as WithSchemaPool takes it), while
+// schemaPool (may be nil) is the owner-privileged pool that finalizes cf_*
+// column drops — nil skips that finalize step, the reset itself still
+// succeeds. Absent this option, or outside a non-production posture, the
+// endpoint answers 404 (dataResetHandlers' zero value has a nil pool, the
+// same closed default).
+func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runtimeenv.Environment) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.dataResetHandlers = dataResetHandlers{
+			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
+		}
+	}
+}
+
+// WithNonProduction surfaces the SAME deployment posture WithDataReset
+// gates the endpoint on, onto /me's non_production field (the client
+// signal for showing/hiding the "Reset data" action) — mirrors WithSorMode,
+// which surfaces the datasource dispatch's mode the same way. Absent this
+// option, /me reports production (Handlers' zero value), the fail-closed
+// default that hides the action rather than risk exposing it under an
+// unwired role.
+func WithNonProduction(env runtimeenv.Environment) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithNonProduction(env.IsNonProduction())
 	}
 }
 

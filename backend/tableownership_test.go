@@ -315,6 +315,15 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/approvals:audit_log":    "approval evidence stamps passport_id/on_behalf_of, columns storekit's writer does not carry; same append-only table, this module's own writer",
 	"internal/modules/approvals:event_outbox": "approvals stages its events with the full envelope (passport actor fields) storekit.Emit does not carry; still outbox-only publishing",
 
+	// the non-production admin data-reset orchestration (compose, cross-module
+	// by nature — it sweeps every module's workspace_id tables in one
+	// transaction) must clear the workspace's staged events alongside the
+	// domain rows it just deleted: event_outbox has no workspace_id column
+	// (tenancy lives in the envelope) and no owning module's store call could
+	// scope a delete to "this workspace's queued events" without compose
+	// growing a dependency on every module it sweeps.
+	"internal/compose:event_outbox": "the reset orchestration clears this workspace's staged events in the same transaction as the domain sweep, so no relay ever wakes on an envelope pointing at a row the reset just deleted",
+
 	// identity owns login/failed-login, which land in system_log (a login
 	// mutates no record). They fire before/without an authenticated
 	// principal for storekit.LogSystem to stamp — bootstrap and failed

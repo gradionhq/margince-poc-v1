@@ -7,9 +7,9 @@ package integration
 
 // The embed-reindex transport end to end (Task 15, ADR-0068 design
 // §5.6-swap): the three /embeddings/reindex* HTTP ops over a real
-// migrated Postgres, the CAS+enqueue-in-one-tx confirm, and the REAL
-// River worker (compose.NewJobRunner, exactly as cmd/worker wires it —
-// no hand-called ReembedCorpus standing in for the worker role).
+// migrated Postgres, the claim+enqueue-in-one-tx confirm, and the REAL
+// River workers (compose.NewJobRunner, exactly as cmd/worker wires it —
+// no hand-called store pass standing in for the worker role).
 // Completion/cancellation is observed on River's own subscription
 // channels (SubscribeCompleted/SubscribeCancelled, subscribed before
 // Start), never a sleep or a poll — the same idiom
@@ -17,10 +17,10 @@ package integration
 // this package's other real-worker suites (applyRiverSchema/
 // awaitKindCompleted are that file's helpers, reused here unchanged).
 //
-// The 409-vs-202 split rides the enqueue's own unique-skip outcome
-// (EnqueueTxUnique, Task 11), proven here through the real handler, not
-// asserted against the store directly — search.Store's own CAS/rollup
-// behaviour is already covered by binding_integration_test.go.
+// The 409-vs-202 split rides the marker's own claim, proven here through
+// the real handler, not asserted against the store directly —
+// search.Store's own CAS/rollup behaviour is already covered by
+// binding_integration_test.go.
 
 import (
 	"context"
@@ -184,9 +184,9 @@ func seedStaleEmbeddingRow(t *testing.T, e *env, wsID string) {
 
 // newEmbedReindexRunner builds (but does not start) the real worker-role
 // River runner over embedder — compose.NewJobRunner exactly as
-// cmd/worker wires it, so the embed_reindex job that runs here is the
+// cmd/worker wires it, so the reindex jobs that run here are the
 // same code the production worker binary runs, not a hand-called
-// ReembedCorpus standing in for it. The three always-on periodic passes
+// store pass standing in for it. The three always-on periodic passes
 // are given a long interval so they don't interleave noise into this
 // suite's completion/cancellation stream.
 func newEmbedReindexRunner(t *testing.T, e *env, embedder search.Embedder) *jobs.Runner {
@@ -302,9 +302,9 @@ func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	if st.EntitiesPending < 1 {
 		t.Fatalf("entities_pending = %d, want >= 1 (the seeded stale row)", st.EntitiesPending)
 	}
-	// updated_at is the "reindexing since" clock the SPA reads; it must be a
-	// real RFC3339 instant on the wire, not a zeroed/absent field — the
-	// binding row's updated_at is stamped on seed and every CAS.
+	// updated_at is the last-progress instant the SPA renders an age from; it
+	// must be a real RFC3339 instant on the wire, not a zeroed/absent field —
+	// the binding row's updated_at is stamped on seed and every CAS.
 	if _, err := time.Parse(time.RFC3339, st.UpdatedAt); err != nil {
 		t.Fatalf("status.updated_at = %q, want a parseable RFC3339 instant: %v", st.UpdatedAt, err)
 	}
@@ -357,14 +357,14 @@ func TestEmbedReindexConfirmRequiresAdminOrOps(t *testing.T) {
 	}
 }
 
-// TestEmbedReindexConfirmLifecycle drives the full CAS+enqueue+worker
-// loop through the real handler and the real River worker: confirm
-// flips idle->reembedding and enqueues; a second confirm while that job
-// is still live is 409 reindex_running (the enqueue's own unique-skip,
-// not the CAS); discarding the live job (simulating an exhausted-retry
-// terminal state) lets a fresh confirm re-enqueue (202); starting the
-// real worker then re-embeds the fleet and the status read returns to
-// idle/not-needed.
+// TestEmbedReindexConfirmLifecycle drives the full claim+enqueue+worker
+// loop through the real handler and the real River workers: confirm flips
+// idle->reembedding and enqueues the dispatcher; a second confirm while
+// the run holds the marker is 409 reindex_running — and it stays 409 once
+// the DISPATCHER row itself has finished, which is the whole point of the
+// claim living on the marker rather than on an active job row. Starting
+// the real workers then fans the fleet out, re-embeds it, and the status
+// read returns to idle/not-needed with the marker claimable again.
 func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 	router := embedReindexRouter(t, "reindex-lifecycle-v1")
 	e := setupEmbedReindex(t, router)
@@ -384,19 +384,6 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 		t.Fatalf("second confirm while live -> %d %+v, want 409 reindex_running", status, problem)
 	}
 
-	if _, err := e.owner.Exec(context.Background(),
-		`UPDATE river_job SET state = 'discarded', finalized_at = now() WHERE kind = 'embed_reindex'`); err != nil {
-		t.Fatalf("simulating the discarded job: %v", err)
-	}
-
-	status, confirmed, _ = embedConfirm(t, e, nil)
-	if status != http.StatusAccepted {
-		t.Fatalf("confirm after the discarded job -> %d, want 202 (a discarded job must not block a fresh confirm)", status)
-	}
-	if confirmed.Status != "reembedding" {
-		t.Fatalf("status after re-confirm = %q, want reembedding", confirmed.Status)
-	}
-
 	runner := newEmbedReindexRunner(t, e, router)
 	sub, cancelSub := runner.SubscribeCompleted()
 	defer cancelSub()
@@ -404,7 +391,7 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex")
+	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK {
@@ -422,6 +409,44 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 	identity, _ := router.EmbedIdentity()
 	if final.PopulatedIdentity != identity {
 		t.Fatalf("final populated_identity = %q, want %q", final.PopulatedIdentity, identity)
+	}
+
+	// The released marker is claimable again: the run gave it back, rather
+	// than the confirm having to wait for a job row to age out of some
+	// uniqueness window.
+	if status, _, _ := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+		t.Fatalf("confirm after the run released -> %d, want 202", status)
+	}
+}
+
+// TestEmbedReindexRepeatConfirmIsRefusedAfterItsDispatcherFinishes is the
+// single-flight case the fan-out puts at risk. The claim used to rest on the
+// reindex job still being ACTIVE, and the dispatcher that replaced it finishes
+// in milliseconds, as soon as it has enqueued the fleet — so a claim resting on
+// that would let a second confirm fan a second run out over the first one's
+// pending set. Finalizing the dispatcher row by hand is that moment made
+// deterministic: the run is still on, and the confirm must still refuse.
+func TestEmbedReindexRepeatConfirmIsRefusedAfterItsDispatcherFinishes(t *testing.T) {
+	router := embedReindexRouter(t, "reindex-singleflight-v1")
+	e := setupEmbedReindex(t, router)
+	wsID := embedReindexWorkspaceID(t, e)
+	seedStaleEmbeddingRow(t, e, wsID)
+
+	if status, _, _ := embedConfirm(t, e, nil); status != http.StatusAccepted {
+		t.Fatalf("first confirm -> %d, want 202", status)
+	}
+	tag, err := e.owner.Exec(context.Background(),
+		`UPDATE river_job SET state = 'completed', finalized_at = now() WHERE kind = 'embed_reindex' AND state != 'completed'`)
+	if err != nil {
+		t.Fatalf("finalizing the dispatcher row: %v", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("finalized %d dispatcher rows, want exactly 1 — the confirm enqueued something other than one dispatcher", tag.RowsAffected())
+	}
+
+	status, _, problem := embedConfirm(t, e, nil)
+	if status != http.StatusConflict || problem.Code != "reindex_running" {
+		t.Fatalf("confirm after the dispatcher row finished -> %d %+v, want 409 reindex_running — a run is not over because its dispatcher is", status, problem)
 	}
 }
 
@@ -452,15 +477,23 @@ func TestEmbedReindexConfirmRefusesIdentityDrift(t *testing.T) {
 	}
 }
 
-// TestEmbedReindexIdentityMismatchedJobCancels proves the worker's own
-// entry guard: a job enqueued under one identity, picked up by a worker
-// role whose CURRENT embed lane reports a DIFFERENT identity (the
-// operator changed the config after enqueue, before the worker ran),
-// cancels via river.JobCancel rather than retrying — observed as a
-// genuine river_job 'cancelled' terminal state, not 25 burned attempts.
+// TestEmbedReindexIdentityMismatchedJobCancels proves the workspace worker's
+// own entry guard: a run enqueued under one identity, picked up by a worker
+// role whose CURRENT embed lane reports a DIFFERENT identity (the operator
+// changed the config after the confirm, before the worker ran), cancels via
+// river.JobCancel rather than retrying — observed as a genuine river_job
+// 'cancelled' terminal state, not a burned ladder.
+//
+// A cancel is a terminal outcome like any other, so the workspace leaves the
+// run's pending set and the last one out hands the marker back. That is the
+// honest reading: the run reached every workspace it was ever going to, and a
+// marker still reading reembedding would refuse the re-confirm under the new
+// config that is exactly what the fleet now needs. Nothing was re-embedded, and
+// nothing claims otherwise — populated_identity is unmoved.
 func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 	enqueueRouter := embedReindexRouter(t, "reindex-cancel-enqueue-v1")
 	e := setupEmbedReindex(t, enqueueRouter)
+	before, _ := enqueueRouter.EmbedIdentity()
 
 	// force=true: this scenario is about the WORKER's own drift guard,
 	// not about whether the store happens to derive reindex-needed —
@@ -471,7 +504,7 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 	}
 
 	// The worker role's OWN embed lane reports a DIFFERENT identity than
-	// the job was enqueued under — the drift the entry guard must catch.
+	// the run was claimed under — the drift the entry guard must catch.
 	driftedRouter := embedReindexRouter(t, "reindex-cancel-drifted-v1")
 	runner := newEmbedReindexRunner(t, e, driftedRouter)
 	sub, cancelSub := runner.SubscribeCancelled()
@@ -480,26 +513,29 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	awaitKindCompleted(waitCtx, t, sub, "embed_reindex")
+	awaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
 
 	var jobState string
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT state FROM river_job WHERE kind = 'embed_reindex' ORDER BY id DESC LIMIT 1`).Scan(&jobState); err != nil {
+		`SELECT state FROM river_job WHERE kind = 'embed_reindex_workspace' ORDER BY id DESC LIMIT 1`).Scan(&jobState); err != nil {
 		t.Fatalf("reading the job's terminal state: %v", err)
 	}
 	if jobState != "cancelled" {
 		t.Fatalf("job state = %q, want cancelled (river.JobCancel, not a burned retry)", jobState)
 	}
 
-	// The marker must still read reembedding — a cancelled job must NOT
-	// silently stamp the binding as complete under an identity nothing
-	// actually re-embedded the corpus for.
 	status, st, _ := embedStatus(t, e)
 	if status != http.StatusOK {
 		t.Fatalf("status -> %d", status)
 	}
-	if st.Status != "reembedding" {
-		t.Fatalf("status.status = %q after a cancelled job, want reembedding (the marker must not be stamped complete)", st.Status)
+	if st.Status != "idle" {
+		t.Fatalf("status.status = %q after the run's only workspace cancelled, want idle — a marker held by a run that reached every workspace it will ever reach refuses the re-confirm the fleet needs", st.Status)
+	}
+	if st.PopulatedIdentity != before {
+		t.Fatalf("populated_identity = %q, want it unmoved at %q — a cancelled run re-embedded nothing and must claim nothing", st.PopulatedIdentity, before)
+	}
+	if status, _, problem := embedConfirm(t, e, anyMap{"force": true}); status != http.StatusAccepted {
+		t.Fatalf("re-confirm after the drifted run cancelled -> %d %+v, want 202 — the marker is what the next run needs back", status, problem)
 	}
 }
 
@@ -541,7 +577,7 @@ func TestEmbedReindexForceReindexWhenNotNeeded(t *testing.T) {
 	startEmbedReindexRunner(t, runner2)
 	waitCtx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
-	awaitKindCompleted(waitCtx2, t, sub2, "embed_reindex")
+	awaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK || final.Status != "idle" || final.ReindexNeeded {

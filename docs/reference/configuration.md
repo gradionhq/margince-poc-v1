@@ -46,7 +46,12 @@ Operational endpoints (served next to `/v1`):
   customfields schema pool when `--schema-dsn` is set) must pass within
   2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
-  `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
+  `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`, the
+  AI router's counters, the overlay sync-health section, and the
+  **job-runtime section** below.
+- `GET /v1/admin/job-health` — the per-workspace read of the same job
+  table, for an admin rather than a scrape. See
+  [Reading the job surfaces](#reading-the-job-surfaces).
 - `/mcp` plus `/oauth/*` and the RFC 8414/9728 discovery documents
   (`/.well-known/oauth-authorization-server`,
   `/.well-known/oauth-protected-resource` and its `/mcp` suffixed form) —
@@ -72,6 +77,98 @@ Operational endpoints (served next to `/v1`):
   passport the human lent, not what the client requested — these documents state
   the vocabulary a client may name, they do not bound the grant.
 
+### Reading the job surfaces
+
+Two readers over one table, `river_job`, answering two different questions.
+Both are served by `cmd/api`, and both are read at request time rather than
+counted in process — `cmd/worker`, where the dispatchers actually run,
+exposes no HTTP surface at all, so an in-process counter there would be
+invisible to every scrape while the api's own copy reported a truthful
+looking zero.
+
+**`/metrics` — is a queue growing?** Seven gauge families:
+
+| Family | Labels | Meaning |
+|---|---|---|
+| `margince_job_queue_depth` | `queue`, `workspace_id` | available + scheduled + retryable + pending — work nobody has done yet (OPS-MET-2) |
+| `margince_job_running` | `queue`, `workspace_id` | currently executing |
+| `margince_job_discarded` | `kind`, `workspace_id` | every attempt spent; will never run without intervention |
+| `margince_job_cancelled` | `kind`, `workspace_id` | stopped deliberately, attempts unspent — counted apart from discarded because the operator story differs, not because it is less dead. The sweep pair counts either as a workspace missed |
+| `margince_job_oldest_queued_age_seconds` | `queue`, `workspace_id` | how long the oldest runnable-and-unclaimed job has waited |
+| `margince_sweep_workspaces_total` | `sweep` | workspaces with a surviving child of that fleet pass |
+| `margince_sweep_workspaces_failed` | `sweep` | those whose MOST RECENT child is discarded or cancelled |
+
+An eighth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
+appears **only when it has something to report**: work sitting in a state
+this exposition does not classify. It is a signal to investigate, not a
+series to graph, which is why it is absent rather than zero the rest of the
+time.
+
+Four things worth knowing before you build an alert on these:
+
+- **An empty `workspace_id` means a dispatcher**, exactly and in both
+  directions — where *empty* means the `workspace_id` key is **absent or
+  JSON null** in the job's args, which is what a fan-out job's args look
+  like. A job that does tenant work always names its workspace.
+  A row whose key is *present but an empty string* is neither: it is
+  malformed, and appears under `workspace_id="malformed_workspace_id"` so it
+  is visible as the anomaly it is rather than being counted as dispatcher
+  work. A job that does tenant work declares its workspace, so a null
+  there is a fan-out job and nothing else. The label carries the **id**,
+  never a name: the exposition endpoint has no redaction path.
+- **A job scheduled for the future is counted in depth but contributes no
+  age.** It is queued, but it is not late. A queue holding nothing but running or
+  discarded rows reports no age series at all — a running job has already
+  been claimed and a discarded one never will be, so neither is what
+  "oldest runnable-and-unclaimed" measures. The endpoint reports `null` for
+  the same rows.
+- **The sweep pair is per workspace, not per pass.** There is no such thing
+  as "the last pass" in this table: River resolves a uniqueness conflict by
+  updating the existing row, so a child still active from the previous
+  fan-out is deduplicated and writes no new row. Any batch-keyed reading
+  would report a dispatcher retried mid-fleet as covering a fraction of the
+  workspaces it actually covers. Instead, each workspace's most recent child
+  of that kind is what counts.
+- **A sweep series can shrink or vanish because of River's retention,** not
+  because the fleet shrank: the cleaner deletes finalized rows on its own
+  schedule. An absent series is the honest answer — a fabricated zero would
+  be indistinguishable from "the fleet is empty".
+
+One further limit, stated because nothing in the numbers reveals it: a
+dispatcher that fans out per **connection** rather than per workspace (Gmail
+sync, Gmail watch, Telegram poll) still counts each workspace once. If one
+workspace holds two connections and only one of them is failing, that
+workspace's most recent child may be the successful one, and the failure is
+not reflected in `margince_sweep_workspaces_failed`. Per-connection health is
+visible on the endpoint below, by kind.
+
+**`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
+every workspace's id and every kind, because an operator scraping a service
+is outside the tenant boundary by construction (ADR-0080/A125 admits the id
+for exactly this reason, and only the id). That is a deliberate asymmetry
+with the admin endpoint below, which is scoped — so `/metrics` must stay
+behind the same access control as any other operator surface, never proxied
+to a tenant.
+
+**`GET /v1/admin/job-health` — whose work died, and why?** Admin-only and
+human-session-only; an agent passport is refused at the middleware and again
+in the handler. It reports, for each kind, the waiting/running/retrying/dead
+counts and the oldest waiting age, plus up to 50 recent failures.
+
+- **It is scoped to the caller's own workspace plus the untenanted
+  dispatcher rows, never the fleet.** `river_job` has no workspace column
+  and therefore no RLS, so the handler imposes the scope itself. The
+  untenanted arm is a closed set of declared dispatcher kinds — an
+  unrecognised untenanted row is omitted rather than shared.
+- **The failure `reason` is the job layer's own vetted sentence.**
+  `river_job.errors` holds whatever a worker returned, and a worker that
+  bypassed the fault seam stored its raw cause — which routinely names an
+  address or record a provider refused. Anything not in the closed
+  vocabulary is replaced by one fixed substitute. River's stored panic trace
+  is never read at all. A row that recorded no cause at all — a job cancelled
+  before it ran — says so, rather than borrowing the unvettable-failure
+  sentence and claiming a failure that never happened.
+
 ## cmd/worker — the background process role
 
 **Outbound mail does not leave without this process.** Every role that accepts
@@ -81,6 +178,16 @@ recorded on the timeline, answers `202`, and then sits `pending` in
 `comms_outbound` indefinitely with no reason string, because nothing has yet
 tried and failed. Run a worker, or accept that mail is queued and not sent.
 
+**A failed outbound webhook is never re-attempted without this process either.**
+Both roles run the `cg:webhooks` consumer when `--webhook-key` is set, so an
+api-only deployment still makes each delivery's FIRST attempt — but the retry
+sweep is a River periodic job (`webhook_retry` → one `webhook_retry_workspace`
+row per live workspace) and only `cmd/worker` runs a River runner. In an api-only
+deployment a delivery that fails its first attempt sits `retrying` forever, never
+reaching its 6-attempt budget and so never reaching `dead_lettered` either. The
+api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
+[explanation/outbound-webhooks.md](../explanation/outbound-webhooks.md#6-the-two-runtime-lanes-and-where-they-run).
+
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
@@ -89,12 +196,12 @@ tried and failed. Run a worker, or accept that mail is queued and not sent.
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
 | `--ai-fake` | — | `false` | run the Surface-B runner on the offline fake model |
-| `--runner-interval` | — | `30s` | Surface-B scheduler tick |
-| `--retention-interval` | — | `24h` | retention evaluator pass interval |
+| `--runner-interval` | — | `30s` | Surface-B scheduler tick — the River periodic schedule of the `agent_scheduler` dispatcher, which enqueues one `agent_scheduler_workspace` job per live workspace. It paces the fan-out, not an agent's own schedule: the catalog's daily due hour decides when a brief runs |
+| `--retention-interval` | — | `24h` | retention evaluator pass interval — the River periodic schedule of the `privacy_retention` dispatcher, which enqueues one `privacy_retention_workspace` job per workspace |
 | `--time-scan-interval` | — | `1h` | clock-trigger automation scan interval (`no_activity_reminder` et al. — the River periodic job `TimeScanner.Scan` drives) |
 | `--close-date-interval` | — | `24h` | close-date hygiene sweep interval (INV-CLOSE-PAST) |
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets; unset = the delivery worker stays off (no `cg:webhooks` consumer, no retry sweep) |
-| `--webhook-retry-interval` | — | `5s` | outbound-webhook retry-sweep tick interval |
+| `--webhook-retry-interval` | — | `30s` | how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace (worker role only) |
 | `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--overlay-reconcile-interval` | — | `2m` | overlay-mode incumbent mirror sweep interval. Every tick spends incumbent API quota per object class even when nothing changed (9 classes ≈ 11 REST calls/tick against HubSpot's 90k/day), so lengthen it on a dev box. `POST /overlay/reconcile` ("Sync now") only marks the workspace due — the sweep still waits for the next tick, so a long interval makes that button feel slow |
 | `--overlay-backfill-limit` | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | cap the overlay INITIAL mirror backfill at N records per object class — dev/demo, so connecting a real portal doesn't pull it all onto a laptop. Only the backfill is capped: later incremental sweeps still bring in anything edited after the sweep window, which opens shortly before the connect instant (a clock-skew grace). A class the cap actually cuts short reports `backfillComplete: false` permanently (`overlay_backfill_cursor.truncated`) — unsetting the limit does NOT resume it, since the cursor is already `done`; reset that class's `overlay_backfill_cursor` row (or reconnect, which purges it) to backfill it for real. Don't change the limit mid-backfill either — the running count rides in `overlay_backfill_cursor` as a `<count>\|<inner>` prefix the uncapped adapter rejects, which fails that class every sweep until the cursor row is cleared |
@@ -242,9 +349,47 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `MARGINCE_ENV` | api (identity handlers) | `dev` enables dev-only trust switches. The Makefile exports `dev`; production must not set it. |
+| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev`, `staging`, or `test` yield a non-production posture; unset, `production`, or any unrecognized value ⇒ production, which disables every dev-only destructive switch (today: the admin data-reset endpoint below). The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
+
+### `POST /v1/admin/reset-data` — non-production data reset
+
+Gated on the `MARGINCE_ENV` posture above. In production the operation does
+not exist: the environment check runs **before** auth, so a misconfigured
+production deployment 404s rather than leaking that the endpoint exists (never
+a 403). In a non-production posture:
+
+1. **Human-only** (`auth.RequireHuman`) — an agent/passport principal is
+   rejected, 403.
+2. **Admin-only** (`auth.RequireAdmin`) — the literal `admin` role; `ops` and
+   every other role is rejected, 403.
+3. **Typed confirmation** — the request body `{"confirmation": "<organization
+   name>"}` must equal the workspace's organization name exactly; a mismatch
+   is `422` (never partially applied — checked before anything is touched).
+
+On success it wipes workspace domain + seeded-config data back to the
+first-boot bootstrapped state and re-runs the module seeders (pipeline/stages,
+consent purposes + retention, AI defaults, starter automations, the booking
+page) — the same seed path `identity`'s installation bootstrap uses. It
+**preserves** the identity/auth layer (`workspace`, every `app_user`, roles,
+role assignments, teams, team memberships, sessions, passports, tokens — so
+login keeps working) and the append-only ledgers `audit_log` / `system_log`.
+The reset itself is recorded as an `audit_log` row (action `reset_data`).
+
+The sweep runs as the app role — no superuser, no disabled triggers — so it
+discovers a safe delete order at runtime (a savepoint per table per pass,
+retrying whatever a still-live FK blocks) rather than relying on a hand-kept
+ordering; an unbreakable FK cycle is surfaced as an error, never silently
+skipped. Orphaned `cf_*` custom-field columns are dropped afterward through
+the owner schema pool (`--schema-dsn`); with no schema pool configured that
+step is skipped (logged, not swallowed) and the reset itself still succeeds.
+
+`GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
+show the action only where it will work: Admin settings → *data* tab → Danger
+zone → *Reset data*, which prompts the operator to type the organization name
+before calling the endpoint — the server is the sole validator of that string,
+the client-side prompt is only UX.
 
 The **deployment configuration** (`--config`, default `margince.yaml`) is
 seeded the same way for local dev. The annotated reference is

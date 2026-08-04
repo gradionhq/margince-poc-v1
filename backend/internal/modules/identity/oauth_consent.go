@@ -117,9 +117,10 @@ func (s *Service) SelectablePassports(ctx context.Context, id Identity) ([]Conse
 
 // lentPassport is one resolved lend: WHICH passport the human handed to the
 // client, and the scopes the connection actually receives from it. Both travel
-// together because the authorization code needs the scopes and the audit trail
-// needs the id — the code row has no column for the passport, so that id is
-// recoverable afterwards only from what is recorded alongside it.
+// together because the authorization code stores both — the scopes as the
+// authority the connection receives, the id as provenance the redemption
+// forwards to the grant so Settings can answer "which passport did this come
+// from?" without reading the audit log.
 type lentPassport struct {
 	ID     ids.PassportID
 	Scopes []string

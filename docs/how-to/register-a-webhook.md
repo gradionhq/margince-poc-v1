@@ -51,9 +51,10 @@ operationally, not this one.
 export MARGINCE_WEBHOOK_KEY="$(openssl rand -base64 32)"   # then (re)start the api + worker
 ```
 
-In `make dev` the single-process api runs delivery inline (`--inline-relay`); in a split deployment the
-worker runs the `cg:webhooks` consumer + retry sweep. Either way the same key must be set on the
-process that delivers.
+The api delivers on the bus inline in `make dev` (`--inline-relay`), and the worker runs the same
+`cg:webhooks` consumer in a split deployment — the same key must be set on whichever process delivers.
+Re-attempting a delivery that FAILED is the worker's alone: it is a River periodic job, and the api
+runs no job runner, so an installation with no worker never retries a parked delivery.
 
 ## 2. Create a subscription
 

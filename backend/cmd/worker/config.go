@@ -76,7 +76,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
 	fs.StringVar(&cfg.routingPath, "ai-routing", os.Getenv("MARGINCE_AI_ROUTING"), "path to ai-routing.yaml; enables the Surface-B runner")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
-	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "Surface-B scheduler tick interval")
+	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
 	fs.DurationVar(&cfg.closeDateInterval, "close-date-interval", 24*time.Hour, "close-date hygiene sweep interval (INV-CLOSE-PAST)")
 	fs.DurationVar(&cfg.reconcileInterval, "reconcile-interval", 24*time.Hour, "overnight follow-up reconciliation pass interval (features/07 §8a)")
@@ -114,7 +114,11 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.sendRateWindow, "send-rate-window", 0, "window the outbound per-mailbox rate limit is measured over; 0 takes the built-in default")
 	fs.DurationVar(&cfg.sendMaxAge, "send-max-age", 0, "how long a staged send may be deferred before it parks with a reason; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
-	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
+	// A fleet fan-out — one job row per live workspace per tick — so the default
+	// is tens of seconds, not the few an in-process ticker could afford. Taken
+	// verbatim as the River schedule; compose clamps nothing
+	// (compose.WebhookRetryConfig.Interval).
+	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 30*time.Second, "how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
 	fs.StringVar(&cfg.logFormat, "log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "log format: text|json")
 	if err := fs.Parse(args); err != nil {
@@ -141,9 +145,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 }
 
 // validateSchedulerIntervals rejects a non-positive value for any duration
-// that becomes a time.Ticker period or a River periodic schedule: a
-// time.Ticker panics on a non-positive duration, and a non-positive River
-// interval continuously reschedules its maintenance job. These are strictly
+// that becomes a River periodic schedule. River refuses none of them:
+// PeriodicInterval(0) yields Next(t) == t, so the enqueuer re-derives a run
+// time that never advances and fires as fast as Postgres accepts an insert,
+// and compose reads a non-positive interval as "no cadence given" and
+// registers no schedule at all — a role that meant to sweep silently never
+// would. Both readings are wrong for an operator's dial. These are strictly
 // scheduling PERIODS. Two duration flags are deliberately NOT in this set:
 // gmail-watch-renew-within is a renewal THRESHOLD (a lead time —
 // time.Now().Add(within) in DueWatches), so zero validly means "renew

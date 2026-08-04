@@ -488,11 +488,12 @@ up)
   # connector is configured.
   #
   # --retention-interval 720h: the worker runs the nightly GDPR
-  # retention/erasure pass unconditionally. River's RunOnStart still fires one
-  # evaluation immediately at boot (inherent, not gated by this flag) — but it
-  # only ERASES data past its jurisdiction floor, so on a fresh dev database
-  # it is a no-op. The long interval just stops it recurring during a dev
-  # session.
+  # retention/erasure pass unconditionally — it is the River schedule of the
+  # privacy_retention dispatcher, which fans out one job per workspace.
+  # RunOnStart still fires one fan-out immediately at boot (inherent, not gated
+  # by this flag) — but it only ERASES data past its jurisdiction floor, so on
+  # a fresh dev database it is a no-op. The long interval just stops it
+  # recurring during a dev session.
   ( cd backend && GOWORK="$PWD/../build/composition/go.work" go build -o ../bin/worker ./cmd/worker ) > >(log_as boot) 2>&1
   worker_gmail_flags=()
   if [[ "$gmail_enabled" == "1" ]]; then

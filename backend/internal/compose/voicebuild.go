@@ -361,7 +361,11 @@ func (w *voiceBuildRetryWorker) Work(ctx context.Context, _ *river.Job[VoiceBuil
 			ProfileID:   ref.ProfileID.String(),
 			BuildID:     ref.BuildID.String(),
 			RequestedBy: ref.RequestedBy.String(),
-		}, voiceBuildInsertOpts()); err != nil {
+			// Tagged HERE rather than inside voiceBuildInsertOpts, which the
+			// user-initiated build path shares: a build someone asked for is
+			// not one workspace's share of a fleet pass, and counting it as
+			// one is precisely what the tag exists to prevent.
+		}, markedAsFleetPass(voiceBuildInsertOpts())); err != nil {
 			w.log.WarnContext(ctx, "voice build retry enqueue failed", "build", ref.BuildID.String(), "err", err)
 		}
 	}

@@ -12,9 +12,14 @@ export type CfType =
   | "boolean";
 
 // Chip order is normative (AC-custom-fields-2): Deal, Company, Contact, Lead.
-// PARAM-2 also pins `activity` as a target object; the screen AC enumerates
-// only these four, so we follow the screen AC and omit activity here — flagged
-// for the docs chain-rule rather than silently added.
+//
+// `activity` is not here and no longer needs a flag: the engine itself stopped
+// accepting it. Its target set (customfields.FieldObjects) is now the objects
+// whose stores read cf_* columns AND whose contract schemas carry them, and an
+// activity has neither — so a field on one was creatable and never served, and
+// this screen was the only thing hiding it. `project` DOES qualify server-side
+// and is absent here, which is a screen gap rather than a mismatch: the screen
+// AC enumerates these four.
 export const CF_OBJECTS: readonly CfObject[] = [
   "deal",
   "organization",

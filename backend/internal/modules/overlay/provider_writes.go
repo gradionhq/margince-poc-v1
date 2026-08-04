@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"sort"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -159,7 +160,10 @@ func rejectExtraProperties(target any) error {
 		keys = append(keys, k.String())
 	}
 	sort.Strings(keys)
-	return &datasource.FieldDecodeError{Cause: fmt.Errorf("unknown field(s): %v", keys)}
+	// The seam's own typed refusal, not a formatted string: it names the caller's
+	// keys and nothing of this program, and only the type says so — a transport
+	// that had to guess would mask this alongside the decoder's own prose.
+	return &datasource.FieldDecodeError{Cause: &datasource.UnknownFieldError{Fields: keys}}
 }
 
 // Create is refused for every mirrored type — SupportsWrite declares the
@@ -357,12 +361,30 @@ func requireSupportedWrite(verb WriteVerb, et datasource.EntityType) error {
 	if SupportsWrite(verb, et) {
 		return nil
 	}
-	if _, err := writeContractTarget(et, verb == WriteUpdate); err != nil {
-		// An entity the mirror does not carry at all — the honest answer is
-		// "no such entity here", not "this verb is unsupported".
+	if !isSeamEntityType(et) {
+		// Not in the seam's vocabulary at all — "no such entity here", which is
+		// a different answer from "this capability is not served here", and the
+		// caller acts on it differently: one is a misspelling to fix, the other
+		// a mode to stop asking in.
 		return &datasource.UnsupportedEntityError{Type: string(et)}
 	}
+	// A RECOGNIZED type the mirror does not carry. It gets the declared
+	// unsupported-by-SoR answer (AC-OV-2), not the unknown-entity one.
+	//
+	// The discriminator used to be writeContractTarget, which conflated "has a
+	// contract write shape in this file's switch" with "is a known entity" — so
+	// `project` and `relationship`, both full members of the vocabulary, were
+	// refused with a message that named the vocabulary they belong to and told
+	// the caller their entity_type was not served ANYWHERE. Deriving membership
+	// from EntityTypes() fixes both at once, and enrols the next type added
+	// there without an edit here.
 	return apperrors.ErrUnsupportedBySoR
+}
+
+// isSeamEntityType reports whether et is a member of the datasource seam's
+// entity vocabulary, derived from EntityTypes() rather than from any local list.
+func isSeamEntityType(et datasource.EntityType) bool {
+	return slices.Contains(datasource.EntityTypes(), et)
 }
 
 // SupportsWrite reports whether the overlay provider can serve verb for et.

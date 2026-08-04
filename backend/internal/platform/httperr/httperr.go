@@ -20,6 +20,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -112,14 +113,14 @@ func clientInputValidation(err error) (error, bool) {
 	// that true for HTTP rather than letting it fall through to the 500 a
 	// pure client mistake must never answer with.
 	//
-	// The cause names which field and why, matching what httperr.Decode
-	// already puts on the wire for the same class from the native path; the
-	// sentence after it is what the caller should DO, which a decoder message
-	// on its own never says.
+	// The detail names which field and why through the SAME restatement the
+	// native body decode uses, so both paths say one thing about one mistake,
+	// and it ends with what the caller should DO — which a decoder message on
+	// its own never says. Whatever it had to withhold is logged by Write.
 	var badFields *datasource.FieldDecodeError
 	if errors.As(err, &badFields) {
-		return Validation("fields", "invalid_field",
-			badFields.Cause.Error()+" — check the field names and value types against this operation's request schema"), true
+		detail, _ := fieldDecodeRefusal(badFields.Cause)
+		return Validation("fields", "invalid_field", detail), true
 	}
 
 	// An entity_type no provider on this installation serves. Same obligation
@@ -315,6 +316,12 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
 			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
 	}
+	// A refusal that masked a library's own sentence still owes the operator
+	// that sentence, exactly as the native body decode logs its unnamed shapes.
+	if withheld := withheldFieldDecodeCause(err); withheld != nil {
+		slog.WarnContext(r.Context(), "unnamed field-decode failure",
+			"method", r.Method, "path", r.URL.Path, "err", withheld)
+	}
 	// Fields renders INTO details rather than over it: both are public on
 	// DetailedError, so a handler may legitimately carry extra structured
 	// context alongside a per-field breakdown, and dropping that context on
@@ -406,6 +413,33 @@ func Validation(field, code, message string) *DetailedError {
 		Detail: message,
 		Fields: []FieldError{{Field: field, Code: code, Message: message}},
 	}
+}
+
+// RequireBodyID refuses a required body id the caller simply omitted, naming the
+// wire field. Nil when the id is present.
+//
+// The defect it closes is the generator's: oapi-codegen renders a REQUIRED body
+// id as a non-pointer UUID, and encoding/json leaves an absent key at the zero
+// value with no error. So "required" in the contract is a claim only this check
+// makes true — and what made it worth a named helper is where the zero value
+// LANDS. It reaches a lookup or a link-target probe, matches no row, and comes
+// back as a bare not-found: the caller is told a record it never mentioned does
+// not exist, on a request whose real fault was an absent key.
+//
+// It lives here rather than per-module because Classify matches *DetailedError
+// before anything else, so one call answers a 422 naming the field on REST AND
+// the same field-named sentence on the MCP tool surface — which never runs a
+// module's HTTP mapper. A module error type per caller would be a second
+// spelling of a rule whose wire output is byte-identical.
+//
+// The id arrives as ids.UUID: this package deliberately does not import the
+// generated contracts, so the openapi_types.UUID conversion happens at the call
+// site, where the contract type legally lives.
+func RequireBodyID(field string, id ids.UUID) error {
+	if id.IsZero() {
+		return Validation(field, "required", field+" is required")
+	}
+	return nil
 }
 
 // fieldDetails renders the per-field breakdown into the contract's

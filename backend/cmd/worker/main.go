@@ -29,7 +29,6 @@ import (
 	// build/composition/ in a composed build, the committed vanilla stub
 	// in a bare one — same import path either way.
 	"github.com/gradionhq/margince/composition"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -37,8 +36,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -48,7 +47,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 func main() {
@@ -149,6 +147,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// cmd/api's relay group; a bare goroutine would be killed mid-handler
 	// when the relay returns.
 	var background sync.WaitGroup
+	// Declared out here because the job runner below schedules the SAME
+	// service the resume subscriber consumes into: one governed registry and
+	// one brain per role, never two that could drift apart.
+	var runnerSvc *compose.RunnerService
 	if modelPath.AgentLoop != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
 		// The Surface-B runner's agent tools reach overlay write-back through
@@ -159,10 +161,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if rverr != nil {
 			return rverr
 		}
-		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
-		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
-		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
-		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
+		runnerSvc = compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
+		_, _ = fmt.Fprintln(stdout, "worker resuming approved Surface-B runs (cg:overnight-agent)")
+		background.Go(func() { runResumeSubscriber(ctx, rdb, runnerSvc, logger) })
 	}
 	if modelPath.Embedder != nil {
 		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
@@ -195,22 +196,25 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if blobConfigured {
 		_, _ = fmt.Fprintln(stdout, "worker storing site-read logos and erasing attachment objects (blobstore configured)")
 	}
-	// Retention removes the interactions the relationship graph is folded
-	// from, so it carries the fold with it — in its own transaction, not on
-	// the bus. Injected here because the fold belongs to the search module and
-	// a module never imports a sibling.
-	retention := privacy.NewRetentionService(pool, blob, logger).
-		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
-			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
-		})
-	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
-	background.Go(func() { privacy.RunRetention(ctx, retention, cfg.retentionInterval, logger) })
-
 	if err := backfillConnectorCredentials(ctx, pool, stdout, logger); err != nil {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, stdout)
+	// ONE deliverer serves both outbound-webhook lanes (E10/S-E10.6): the
+	// cg:webhooks consumer started here and the River retry sweep the runner
+	// below schedules. That shared instance is why it is built before the
+	// runner rather than after it.
+	var webhookDeliverer *webhooks.Deliverer
+	if cfg.webhookKey != "" {
+		webhookDeliverer, err = compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
+		if err != nil {
+			return fmt.Errorf("worker: %w", err)
+		}
+		_, _ = fmt.Fprintln(stdout, "worker delivering outbound webhooks (cg:webhooks)")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", webhookDeliverer.HandleEvent, logger, 0) })
+	}
+
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, webhookDeliverer, runnerSvc, stdout)
 	if err != nil {
 		return err
 	}
@@ -219,21 +223,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
-
-	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key
-	// is configured: it consumes cg:webhooks to fan matching events to
-	// subscribers — owner-scoped, so a webhook never delivers an event its
-	// owner may not see (BYO-EVT-4) — and sweeps due retries on a ticker.
-	// Without the key the delivery worker stays off entirely.
-	if cfg.webhookKey != "" {
-		deliverer, err := compose.NewWebhookDeliverer(pool, cfg.webhookKey, logger)
-		if err != nil {
-			return fmt.Errorf("worker: %w", err)
-		}
-		_, _ = fmt.Fprintf(stdout, "worker delivering outbound webhooks (cg:webhooks), retry sweep every %s\n", cfg.webhookRetryInterval)
-		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger, 0) })
-		background.Go(func() { deliverer.RunRetrySweep(ctx, cfg.webhookRetryInterval) })
-	}
 
 	_, _ = fmt.Fprintf(stdout, "worker relaying outbox events to %s\n", cfg.redisAddr)
 	// Run until signalled; unshipped rows wait durably in the outbox for
@@ -290,7 +279,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, webhookDeliverer *webhooks.Deliverer, runnerSvc *compose.RunnerService, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -331,8 +320,19 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		CloseDateInterval: cfg.closeDateInterval,
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
-		GmailRegistry:     captureReg,
-		GmailWatch:        watchCfg,
+		// The GDPR retention fan-out's cadence: --retention-interval is the
+		// schedule source, now read by River rather than by a ticker.
+		PrivacyRetention: compose.PrivacyRetentionConfig{Interval: cfg.retentionInterval},
+		// A nil deliverer (no --webhook-key) registers neither half.
+		WebhookRetry: compose.WebhookRetryConfig{
+			Interval: cfg.webhookRetryInterval, Deliverer: webhookDeliverer,
+		},
+		// A nil service (no declared model) registers neither half.
+		AgentScheduler: compose.AgentSchedulerConfig{
+			Interval: cfg.runnerInterval, Service: runnerSvc,
+		},
+		GmailRegistry: captureReg,
+		GmailWatch:    watchCfg,
 		// The Telegram ingest worker builds its Sink from this — the same
 		// suppression-list config every other capture path shares.
 		CaptureConfig: cfg.captureConfig,
@@ -395,7 +395,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, configuredVault))
+	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, configuredVault, runnerSvc))
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.
@@ -438,21 +438,6 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		return compose.NewModelPath(ai.FakeRoutingConfig(), pool, capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil
-	}
-}
-
-func runScheduler(ctx context.Context, svc *compose.RunnerService, interval time.Duration, log *slog.Logger) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if err := svc.Tick(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Error("runner scheduler tick", "err", err)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
 	}
 }
 
