@@ -46,7 +46,7 @@ var graphPerms = principal.Permissions{
 
 // readGraph drives the real HTTP handler, so the wiring and the JSON shape are
 // exercised rather than the service alone.
-func readGraph(t *testing.T, e *Env, ctx context.Context, personID ids.UUID) (int, crmcontracts.PersonGraph) {
+func readGraph(ctx context.Context, t *testing.T, e *Env, personID ids.UUID) (int, crmcontracts.PersonGraph) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/people/"+personID.String()+"/graph", nil).WithContext(ctx)
@@ -63,7 +63,7 @@ func readGraph(t *testing.T, e *Env, ctx context.Context, personID ids.UUID) (in
 
 // seedExchange records one two-way exchange between a colleague and a contact,
 // then folds the projection the cg:graph-edge consumer would have folded.
-func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject string) ids.UUID {
+func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject string) {
 	t.Helper()
 	owner := OwnerConn(t)
 	ctx := context.Background()
@@ -91,7 +91,6 @@ func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject stri
 	}); err != nil {
 		t.Fatalf("folding the edge: %v", err)
 	}
-	return id
 }
 
 // A contact outside the caller's row scope must 404. An empty graph would
@@ -101,7 +100,7 @@ func TestPersonGraphRefusesAContactOutsideRowScope(t *testing.T) {
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
 
-	if code, _ := readGraph(t, e, rep, theirs); code != http.StatusNotFound {
+	if code, _ := readGraph(rep, t, e, theirs); code != http.StatusNotFound {
 		t.Errorf("graph of another team's contact → %d, want 404", code)
 	}
 }
@@ -115,7 +114,7 @@ func TestPersonGraphAttachesTheMessagesBehindADirectEdge(t *testing.T) {
 	seedExchange(t, e, e.Rep1, mine, "Q3 pricing")
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
-	code, graph := readGraph(t, e, rep, mine)
+	code, graph := readGraph(rep, t, e, mine)
 	if code != http.StatusOK {
 		t.Fatalf("graph → %d, want 200", code)
 	}
@@ -161,7 +160,7 @@ func TestPersonGraphWithholdsReceiptsFromACallerWithNoActivityGrant(t *testing.T
 	}
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, noActivity)
 
-	code, graph := readGraph(t, e, rep, mine)
+	code, graph := readGraph(rep, t, e, mine)
 	if code != http.StatusOK {
 		t.Fatalf("graph → %d, want 200 — the edge stands on the person grant alone", code)
 	}
@@ -193,7 +192,7 @@ func TestPersonGraphHidesCoworkersOutsideRowScope(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
-	code, graph := readGraph(t, e, rep, mine)
+	code, graph := readGraph(rep, t, e, mine)
 	if code != http.StatusOK {
 		t.Fatalf("graph → %d, want 200", code)
 	}
@@ -226,7 +225,7 @@ func TestPersonGraphRecommendsNothingWithoutAnEdge(t *testing.T) {
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
 
-	code, graph := readGraph(t, e, rep, mine)
+	code, graph := readGraph(rep, t, e, mine)
 	if code != http.StatusOK {
 		t.Fatalf("graph → %d, want 200", code)
 	}
@@ -253,7 +252,7 @@ func TestPersonGraphRefusesAnArchivedContact(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
-	if code, _ := readGraph(t, e, rep, mine); code != http.StatusNotFound {
+	if code, _ := readGraph(rep, t, e, mine); code != http.StatusNotFound {
 		t.Errorf("graph of an archived contact → %d, want 404", code)
 	}
 }
