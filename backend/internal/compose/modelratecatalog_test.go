@@ -316,3 +316,24 @@ func TestExtractFiltersByTheSourcesOwnProvider(t *testing.T) {
 		t.Errorf("another provider's binding must not select rows from this catalog:\n%s", payload)
 	}
 }
+
+// The probe reports a passage count in two places and production numbers
+// passages in a third. This holds the shared counter to the numbering it
+// describes, so neither can drift into reporting a different rule.
+func TestCountPassagesAgreesWithTheNumbering(t *testing.T) {
+	for _, body := range []string{
+		"",
+		"one line",
+		"a\nb\nc",
+		"a\n\n   \nb\n",
+		`{"data":[{"id":"a"},{"id":"b"}]}`,
+		"trailing\n",
+		"\n\nleading",
+	} {
+		numbered := numberPassages(body)
+		want := strings.Count(numbered, "\n")
+		if got := CountPassages(body); got != want {
+			t.Errorf("CountPassages(%q) = %d, but numberPassages emitted %d passages", body, got, want)
+		}
+	}
+}

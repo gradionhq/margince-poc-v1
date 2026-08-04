@@ -111,6 +111,18 @@ func stripDoc(ctx context.Context, stripper model.SecretStripper, doc []byte) (j
 	return json.RawMessage(stripped), nil
 }
 
+// redact is the best-effort credential pass for a message the probe is about to
+// write down. Unlike the request and reply paths it cannot refuse to emit —
+// these strings ARE the diagnosis — so a stripper that fails yields the empty
+// string plus a marker rather than the unstripped original.
+func redact(ctx context.Context, text string) string {
+	out, err := stripText(ctx, nil, text)
+	if err != nil {
+		return "(withheld: the credential pass could not run over this message)"
+	}
+	return out
+}
+
 // stripText runs the credential pass over a bare string, returning what may be
 // written down in its place.
 func stripText(ctx context.Context, stripper model.SecretStripper, text string) (string, error) {
@@ -253,7 +265,10 @@ func runProbe(ctx context.Context, stdout io.Writer, census *aitasks.Registry, c
 		// The case's own refusal is passed through verbatim — it already names
 		// what it wanted. The one line added is the one the case cannot know:
 		// that an expectation was never supplied.
-		res.Failure = err.Error()
+		// Prepare is handed the RAW fixture, so a case that quotes what it
+		// rejected would put operator content — and any credential in it —
+		// straight into stdout and the --json artifact.
+		res.Failure = redact(ctx, err.Error())
 		if !res.HasExpectation {
 			res.Failure += "\n          (no expectation was supplied; this site validates one — use --expect or --scenario)"
 		}
@@ -273,17 +288,20 @@ func runProbe(ctx context.Context, stdout io.Writer, census *aitasks.Registry, c
 		// Reported like any other harness failure, and through the SAME exit —
 		// a bare return here would discard the report, the json result and
 		// every call already recorded.
-		res.Failure = stripErr.Error()
+		res.Failure = stripErr.Error() // the stripper's OWN failure carries no probed content
 		return finishProbe(stdout, cfg, res, stripErr)
 	}
 	res.Output = output
 	if runErr != nil {
 		// The calls recorded so far still ship: a failure on the third of four
 		// calls is diagnosed from the two that worked.
-		res.Failure = runErr.Error()
+		res.Failure = redact(ctx, runErr.Error())
 		return finishProbe(stdout, cfg, res, runErr)
 	}
 	outcome := prepared.Evaluate(trace)
+	// Evaluate is handed the raw reply and the validators quote it, so the
+	// detail is content too — it reaches stdout and --json like everything else.
+	outcome.Detail = redact(ctx, outcome.Detail)
 	res.Outcome = &outcome
 	return finishProbe(stdout, cfg, res, nil)
 }

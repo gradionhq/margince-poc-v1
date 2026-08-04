@@ -28,7 +28,7 @@ judge and no record.
 make ai-probe ARGS='list'
 ```
 
-```
+```text
 SITE                                  KIND        SCOPE            LADDER                   CORPUS
 rate_extract/pricing                  one_shot    full_invocation  premium,cheap_cloud      yes
 agent_loop/loop                       agent_loop  single_turn      cheap_cloud,premium      yes
@@ -63,14 +63,18 @@ content somewhere a commit would pick it up. `--out -` writes to stdout instead;
 
 ## 3. Feed it real input
 
-`fetch` runs the production fetcher and emits the exact bytes the extraction sites are
-handed — post-`StripTags` for HTML, verbatim for markdown and JSON:
+`fetch` runs the production fetcher and emits what crosses the FETCH boundary:
+HTML reduced by `StripTags`, markdown and JSON verbatim.
+
+That is not always what a site is finally handed. A route may reduce further before
+building its request — `rate_extract/pricing` narrows a JSON catalog to one passage
+per bound model (see below). `fetch` shows you the input to that step, not its output.
 
 ```bash
 make ai-probe ARGS='fetch https://openrouter.ai/api/v1/models'
 ```
 
-```
+```text
 fetched  media=application/json  bytes=531321  passages=1  markdown=false  json=true
 ```
 
@@ -116,10 +120,14 @@ jq -n --rawfile t .tmp/aitask/reduced.txt \
   '{provider:"openai_compatible",page_text:$t}' > .tmp/aitask/fx.json
 ```
 
-The `passages` count on the request line is how you tell the two apart: one passage
-means you are probing the raw body, several means the reduced one. The reduction
-itself is covered by unit tests (`internal/compose/modelratecatalog_test.go`), not by
-the probe — a probe of the raw catalog going red does **not** mean production is red.
+The `passages` count on the request line is the quickest signal, but read it as a
+heuristic rather than a proof: a reduced catalog that matched exactly **one** bound
+model also yields one passage. Confirm by looking at the payload — the reduced form
+carries only the model ids you bound, the raw one carries every id the vendor lists.
+
+The reduction itself is covered by unit tests
+(`internal/compose/modelratecatalog_test.go`), not by the probe — so a probe of the
+raw catalog going red does **not** mean production is red.
 
 ### `--expect` is not optional for every site
 
@@ -128,7 +136,7 @@ reply. Several sites validate the expectation **before** calling the model —
 `rate_extract/fx` refuses one that is not a currency→rate map, `agent_loop` refuses a step
 name no declared tool could reach. Those sites need `--expect` or `--scenario`:
 
-```
+```text
 failed    rate_extract/pricing: the expected answer is not a map of model id to its prices: unexpected end of JSON input
           (no expectation was supplied; this site validates one — use --expect or --scenario)
 ```
@@ -137,7 +145,7 @@ That is the site's own message. The probe never invents an expectation to get pa
 
 ## 4. Read the report
 
-```
+```text
 site      rate_extract/pricing   kind=one_shot   scope=full_invocation
 binding   routing config/ai-routing.openrouter.example.yaml   ladder [premium,cheap_cloud]
 caveat    company context not declared for this site
@@ -187,7 +195,7 @@ These are three different problems and the report keeps them apart:
 `wrong_answer` frequently means **your expectation is wrong**, not the model's answer. When
 the OpenRouter fix was verified, the first run came back:
 
-```
+```text
 evaluate  wrong_answer — cache-read 0.05 where the scenario expects cache-read 0
 ```
 

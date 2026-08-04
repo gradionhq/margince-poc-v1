@@ -366,3 +366,11 @@ func LoadScenarioFile(path string, census *aitasks.Registry) (Scenario, error) {
 	}
 	return sc, nil
 }
+
+// ScenarioRenderShape and ExpectRenderShape expose the render-only mirrors so a
+// test can hold their field sets against the types they mirror. A dropped field
+// would otherwise break RenderScenario's round-trip contract silently.
+func ScenarioRenderShape() any { return scenarioForRender{} }
+
+// ExpectRenderShape is ScenarioRenderShape's sibling for the expectation half.
+func ExpectRenderShape() any { return expectForRender{} }

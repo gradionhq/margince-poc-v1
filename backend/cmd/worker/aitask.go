@@ -162,6 +162,11 @@ func (c aiTaskFlags) validate() error {
 			return errors.New("aitask run takes --scenario or --fixture, not both — they disagree about what is being probed")
 		case c.fixturePath != "" && c.siteRef() == "":
 			return errors.New("aitask run --fixture needs --site: a fixture names no site, and only the site says which code probes it")
+		case c.scenarioPath != "" && c.expectPath != "":
+			// A scenario carries its own expectation. Taking --expect too would
+			// silently grade against one of them, and the expectation decides
+			// the verdict.
+			return errors.New("aitask run takes --expect with --fixture, not with --scenario: a scenario already carries its expectation")
 		}
 	}
 	return nil
@@ -379,15 +384,18 @@ func resolveSite(census *aitasks.Registry, siteRef string) (aitasks.Site, error)
 // bytes the extraction sites are handed, post-StripTags, not the raw body. That
 // is what makes assembling a fixture by hand faithful rather than approximate.
 //
-// The text goes to stdout and the boundary line to stderr, so the output pipes
-// into a file or jq without the diagnostics contaminating it.
+// When the body itself is piped to stdout ("-") the boundary line is suppressed:
+// a diagnostic ahead of a JSON document is exactly what makes `… | jq` fail, and
+// this change is what made piping a JSON body worth doing.
 func fetchPage(ctx context.Context, stdout io.Writer, rawURL, outPath string) error {
 	doc, err := webread.New().Fetch(ctx, rawURL)
 	if err != nil {
 		return fmt.Errorf("aitask fetch %s: %w", rawURL, err)
 	}
-	if _, err := fmt.Fprintln(stdout, fetchBoundaryLine(doc)); err != nil {
-		return err
+	if outPath != "-" {
+		if _, err := fmt.Fprintln(stdout, fetchBoundaryLine(doc)); err != nil {
+			return err
+		}
 	}
 	return emitArtifact(stdout, outPath, []byte(doc.Text), "fetched "+rawURL)
 }
@@ -405,12 +413,7 @@ func fetchArtifactName(rawURL string) string {
 // which is invisible in a byte count and decisive for whether evidence
 // citation can mean anything.
 func fetchBoundaryLine(doc webread.Doc) string {
-	passages := 0
-	for _, line := range strings.Split(doc.Text, "\n") {
-		if strings.TrimSpace(line) != "" {
-			passages++
-		}
-	}
+	passages := compose.CountPassages(doc.Text)
 	mediaType := doc.MediaType
 	if mediaType == "" {
 		mediaType = "(none declared)"

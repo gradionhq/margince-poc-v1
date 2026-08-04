@@ -355,3 +355,45 @@ func TestProbeStripsCredentialsOutOfEverythingItWritesDown(t *testing.T) {
 		}
 	}
 }
+
+// Prepare is handed the RAW fixture and Evaluate the raw reply, and both quote
+// what they rejected. Those messages reach stdout and the --json artifact, so
+// they pass the same credential gate the request and the reply do.
+func TestProbeStripsCredentialsOutOfAFailureItReports(t *testing.T) {
+	const secret = "sk-liveKEYmaterialThatMustNeverBeWritten1234"
+
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "fixture.json")
+	// A fixture the site REFUSES: page_text is the shape it takes, so a number
+	// here makes Prepare quote the value it could not read.
+	body := []byte(`{"provider":"Aurora AI","page_text":"` + secret + `","tracked_currencies":5}`)
+	if err := os.WriteFile(fixture, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jsonOut := filepath.Join(dir, "result.json")
+
+	var out strings.Builder
+	// The probe reports a harness failure, so a non-nil error here is expected.
+	_ = runAITaskProbe(context.Background(), []string{
+		"run", "--site", "rate_extract/pricing", "--fixture", fixture,
+		"--ai-fake", "--corpus", testCorpusDir(), "--json", jsonOut,
+	}, &out)
+
+	if strings.Contains(out.String(), secret) {
+		t.Errorf("the report printed the credential:\n%s", out.String())
+	}
+	raw, err := os.ReadFile(jsonOut)
+	if err != nil {
+		t.Fatalf("--json wrote nothing even on a failure: %v", err)
+	}
+	if strings.Contains(string(raw), secret) {
+		t.Error("the --json artifact carries the credential a refusal quoted")
+	}
+	var res probeResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("--json must stay decodable on a failure: %v", err)
+	}
+	if res.Failure == "" {
+		t.Error("a refusal must still be reported — redaction is not silence")
+	}
+}

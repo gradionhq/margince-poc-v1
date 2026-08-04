@@ -12,6 +12,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -103,11 +104,7 @@ func requestLine(req model.Request) string {
 func payloadPassages(req model.Request) int {
 	n := 0
 	for _, msg := range req.Messages {
-		for _, line := range strings.Split(msg.Content, "\n") {
-			if strings.TrimSpace(line) != "" {
-				n++
-			}
-		}
+		n += compose.CountPassages(msg.Content)
 	}
 	return n
 }

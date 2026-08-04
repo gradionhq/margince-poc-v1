@@ -36,6 +36,11 @@ func TestAITaskFlagsRefuseWhatCannotRun(t *testing.T) {
 			"not both",
 		},
 		{"run from a fixture with no site to bind it to", []string{"run", "--fixture", "f.json"}, "--site"},
+		{
+			"a scenario already carries its expectation, so --expect would be ignored",
+			[]string{"run", "--scenario", "s.yaml", "--expect", "e.json"},
+			"already carries its expectation",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parseAITaskFlags(tc.args)

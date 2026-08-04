@@ -62,7 +62,7 @@ func TestFetchServesJSONVerbatim(t *testing.T) {
 	if doc.Text != body {
 		t.Errorf("Fetch rewrote the server's JSON:\n got %q\nwant %q", doc.Text, body)
 	}
-	var parsed map[string]any
+	var parsed map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(doc.Text), &parsed); err != nil {
 		t.Fatalf("fetched JSON must remain parseable: %v", err)
 	}
