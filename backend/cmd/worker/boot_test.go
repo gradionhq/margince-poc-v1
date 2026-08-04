@@ -9,15 +9,17 @@ import (
 	"testing"
 )
 
-// The lanes must be joinable, because run() closes the bus and the pool on
-// deferred calls that fire after the join — and it defers that join BEFORE it
-// checks the boot error, so a half-started set has to be joinable too. Both
-// halves are asserted here rather than left to the comments that state them:
-// the ordering is invisible at runtime until a subscriber reads a closed pool,
-// which is the failure this shape exists to prevent.
+// run() closes the bus and the pool on deferred calls that fire after the lanes
+// are joined, so join() has to actually end them — the ordering is invisible at
+// runtime until a subscriber reads a closed pool.
+//
+// That startEventLanes returns a JOINABLE value on its failure paths is not
+// covered here: driving it to a real failure needs a live bus and pool, so it
+// belongs to the integration lane. A unit test that rebuilt the struct by hand
+// and asserted its own fields would only restate its own setup.
 
-// joinWaitsForEveryLane is the property: join() cancels the lanes' context and
-// does not return until each goroutine has left its handler.
+// TestJoinCancelsTheLanesAndWaitsForThem is the property: join() cancels the
+// lanes' context and does not return until each goroutine has left its handler.
 func TestJoinCancelsTheLanesAndWaitsForThem(t *testing.T) {
 	ctx, stop := context.WithCancel(context.Background())
 	lanes := workerLanes{background: &sync.WaitGroup{}, stop: stop}
@@ -40,21 +42,4 @@ func TestJoinCancelsTheLanesAndWaitsForThem(t *testing.T) {
 	if ctx.Err() == nil {
 		t.Error("join() returned without cancelling the lanes' context")
 	}
-}
-
-// A boot failure joins the lanes that DID start, so startEventLanes must never
-// answer with a value join() would panic on. It cannot be called here without a
-// database, so this pins the contract at the construction its first two lines
-// perform: every field join() touches is set before any return can happen.
-func TestAZeroLaneSetIsNeverHandedBack(t *testing.T) {
-	_, stop := context.WithCancel(context.Background())
-	defer stop()
-	lanes := workerLanes{background: &sync.WaitGroup{}, stop: stop}
-
-	if lanes.background == nil || lanes.stop == nil {
-		t.Fatal("startEventLanes' construction must set every field join() dereferences")
-	}
-	// Joining a set whose lanes never started is the boot-failure path, and it
-	// must return rather than block on a WaitGroup nobody will decrement.
-	lanes.join()
 }
