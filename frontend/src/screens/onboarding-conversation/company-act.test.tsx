@@ -645,11 +645,16 @@ describe("recovering from a rejected confirm", () => {
     await vi.waitFor(() => expect(continueButton).toBeEnabled());
   });
 
-  it("blocks a retry on the no-data path too, until the refetch it triggers actually settles", async () => {
+  it("stays blocked on the no-data path too, once the refetch settles without ever producing a hash", async () => {
     // The proposal endpoint never succeeds here, so the confirm mutation
     // falls back to `proposalFromRead(prevSnapshot.current)` on every
     // attempt — the exact path the disabled-Continue guard must also cover,
-    // not only the one where `proposal.data` itself carries the hash.
+    // not only the one where `proposal.data` itself carries the hash. A
+    // refetch that fails is outcome (3) of the three refreshAfterSkew can
+    // settle into: no new hash ever exists to resubmit, so the block does
+    // NOT lift on its own — the only difference from a permanent lock is
+    // that the reader is told so, and given a retry to press instead of the
+    // Continue button this notice disables.
     let siteReadCalls = 0;
     const gate: { release: (() => void) | null } = { release: null };
     installFetchStub({
@@ -705,15 +710,23 @@ describe("recovering from a rejected confirm", () => {
     expect(continueButton).toBeDisabled();
 
     gate.release?.();
-    await vi.waitFor(() => expect(continueButton).toBeEnabled());
+    // The refetch settled — into a failure — and Continue MUST NOT re-arm
+    // onto a draft the server has never actually seen. The dedicated notice
+    // swaps to naming that, with its own retry standing in for the button.
+    await screen.findByText(
+      "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
+    );
+    expect(continueButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
-  it("re-arms Continue once the skew refetch settles, even when it lands the SAME hash the server just rejected", async () => {
-    // Nothing about this refetch ever produces a different hash — a
-    // concurrent confirm elsewhere already left the draft exactly as it was.
-    // A guard that waited for a NEW hash before re-arming would never fire:
-    // the only other route out, `onMutate`, requires pressing Continue, which
-    // is the very button this state disables.
+  it("re-arms Continue once a skew refetch actually lands a NEW hash, whether that is the automatic one or a later manual retry", async () => {
+    // The first refetch this 409 triggers lands the SAME hash — a
+    // concurrent confirm elsewhere already left the draft exactly as it
+    // was. A guard that re-armed on that alone (rather than on a hash that
+    // actually differs) would let the very next press earn the identical
+    // 409 all over again. The reader's own retry is what finally moves
+    // things on, once the draft underneath has genuinely changed.
     let proposalCalls = 0;
     const gate: { release: (() => void) | null } = { release: null };
     installFetchStub({
@@ -729,7 +742,11 @@ describe("recovering from a rejected confirm", () => {
             gate.release = resolve;
           });
         }
-        return jsonResponse(reviewProposal(CONFIRM_FIELDS));
+        const hash = proposalCalls <= 2 ? "proposal-1" : "proposal-2";
+        return jsonResponse({
+          ...reviewProposal(CONFIRM_FIELDS),
+          proposal_hash: hash,
+        });
       },
       [CONFIRM_PATH]: () =>
         jsonResponse({ title: "conflict", code: "version_skew" }, 409),
@@ -764,9 +781,17 @@ describe("recovering from a rejected confirm", () => {
     expect(continueButton).toBeDisabled();
 
     gate.release?.();
-    // The refetch settled with an UNCHANGED hash. Re-arming here — rather
-    // than staying disabled forever — is what keeps this from being a lock
-    // with no way out.
+    // The refetch settled with the SAME hash the server just rejected. The
+    // block MUST stay, and the reader is told why, with a retry of their
+    // own rather than the Continue button that is still disabled.
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.click(retry);
+    await vi.waitFor(() => expect(proposalCalls).toBeGreaterThan(2));
+    gate.release?.();
+    // This second refetch landed a genuinely NEW hash — only now may
+    // Continue re-arm, onto a draft the server has not rejected.
     await vi.waitFor(() => expect(continueButton).toBeEnabled());
   });
 

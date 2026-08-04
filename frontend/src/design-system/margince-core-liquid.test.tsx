@@ -89,4 +89,24 @@ describe("CoreLiquid", () => {
       globalThis.ResizeObserver = original;
     }
   });
+
+  it("still paints the shader when the ResizeObserver constructor throws", () => {
+    const original = globalThis.ResizeObserver;
+    // A host where the global EXISTS but constructing one fails (some
+    // embedded webviews advertise the constructor and then reject it) —
+    // the other half of tryCreateResizeObserver's try/catch, distinct from
+    // the global-missing case above.
+    globalThis.ResizeObserver = class {
+      constructor() {
+        throw new Error("ResizeObserver is not supported in this host");
+      }
+    } as unknown as typeof ResizeObserver;
+    try {
+      expect(() => render(<CoreLiquid state="idle" />)).not.toThrow();
+      const canvas = document.querySelector("canvas");
+      expect(canvas).not.toHaveClass("off");
+    } finally {
+      globalThis.ResizeObserver = original;
+    }
+  });
 });

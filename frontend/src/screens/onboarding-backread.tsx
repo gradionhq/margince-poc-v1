@@ -96,16 +96,16 @@ function readerDetail(error: unknown): string | null {
 }
 
 // The one place a raw (non-`ProblemError`) mutation failure reaches the
-// console. An effect, not a render-time call: a live run re-renders on every
-// poll and StrictMode invokes render twice, and `error` keeps the same
-// exception across every one of those — logging it from render would repeat
-// the same exception once per render instead of once per actual failure.
-function useUnexpectedErrorLog(isError: boolean, error: unknown): void {
-  useEffect(() => {
-    if (isError && !(error instanceof ProblemError)) {
-      console.error(error);
-    }
-  }, [isError, error]);
+// console. Wired as each mutation's own `onError`, not a render-time call or
+// an effect watching `isError`/`error`: react-query runs a mutation to
+// completion independently of whatever component started it, so this fires
+// exactly once per actual failure — including the one where the reader
+// leaves mid-flight and the component that would have hosted an effect is
+// already unmounted by the time the request settles.
+function logUnexpectedError(error: unknown): void {
+  if (!(error instanceof ProblemError)) {
+    console.error(error);
+  }
 }
 
 // The template-ready `{detail}` value for a mutation that may or may not
@@ -176,6 +176,7 @@ export function OnboardingBackread({
       }
       return data;
     },
+    onError: logUnexpectedError,
   });
 
   const start = useMutation({
@@ -194,6 +195,7 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
+    onError: logUnexpectedError,
   });
 
   const cancel = useMutation({
@@ -209,6 +211,7 @@ export function OnboardingBackread({
     },
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: statusQueryKey(provider) }),
+    onError: logUnexpectedError,
   });
 
   // The scope loads itself for whichever window is selected: the first thing a
@@ -236,10 +239,6 @@ export function OnboardingBackread({
   // a settled answer; see `BackreadScope`).
   const previewForSelection = preview.variables === selected;
   const previewSettled = previewForSelection && !preview.isPending;
-
-  useUnexpectedErrorLog(preview.isError, preview.error);
-  useUnexpectedErrorLog(start.isError, start.error);
-  useUnexpectedErrorLog(cancel.isError, cancel.error);
 
   if (status.data === undefined) {
     // A failed status read must not trap anyone in the wizard: capture itself

@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { Button } from "../../design-system/atoms";
 import { useLocale, useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
 import { coldFieldLabel, problemCodeOf, throwProblem, useMe } from "../common";
@@ -121,23 +122,37 @@ export function CompanyAct({
   const [artifactMode, setArtifactMode] = useState<ArtifactMode>("dossier");
   // A confirm 409 that this driver has already resolved into a next step,
   // rather than a bare failure: "skew" means the draft changed under the
-  // human (a re-fetch is already in flight, the retry becomes meaningful),
-  // "notReady" means the read itself is not confirmable yet. Neither is the
-  // generic confirmFailed banner — see confirmBannerMessage below — because
-  // neither is "fix your input and try the same thing again".
+  // human, "notReady" means the read itself is not confirmable yet. Neither
+  // is the generic confirmFailed banner — see confirmBannerMessage below —
+  // because neither is "fix your input and try the same thing again". This
+  // is the banner's OWN category and outlives the refetch below: it clears
+  // only at the next confirm attempt (onMutate), not the moment Continue
+  // re-arms, so the reassurance stays on screen until the reader has had a
+  // chance to read it, not merely until it stops being true.
   const [confirmNotice, setConfirmNotice] = useState<
     "skew" | "notReady" | null
   >(null);
-  // True from the moment a version-skew 409 lands until the refetch it
-  // triggers has SETTLED — success, error, or an unchanged hash all count as
-  // settled. Retrying before that would resubmit the exact draft the server
-  // just rejected (react-query holds the old data steady while refetching);
-  // waiting for settlement rather than for a specific new hash is what keeps
-  // this from becoming a lock with no way out — a refetch that fails, or
-  // lands the same hash back (a concurrent confirm elsewhere left the draft
-  // unchanged), still hands control back to the reader instead of leaving
-  // Continue disabled forever with nothing left to change its mind.
+  // Whether a "skew" 409 blocks the NEXT press of Continue, settled in one
+  // of three outcomes once its refetch (or the reader's own manual retry of
+  // one) resolves — (1) a genuinely NEW proposal hash landed: the block
+  // lifts, because the next press would send something the server has not
+  // seen yet; (2) the refetch succeeded but the hash is UNCHANGED:
+  // re-arming would earn the identical 409, so the block stays and
+  // `skewStuck` switches the banner to naming that and offering a manual
+  // retry; (3) the refetch itself FAILED: same outcome as (2), since there
+  // is nothing new to resubmit either way.
+  const [skewBlocked, setSkewBlocked] = useState(false);
+  const [skewStuck, setSkewStuck] = useState(false);
+  // True for as long as this driver's own refetch (automatic or a manual
+  // retry of a "skewStuck" notice) is in flight — disables the retry action
+  // itself, so a second press cannot start a second refetch on top of one
+  // already running.
   const [awaitingProposalRefresh, setAwaitingProposalRefresh] = useState(false);
+  // The proposal hash THIS confirm attempt submitted, captured inside the
+  // mutation so the version-skew refresh below can tell "the refetch moved
+  // past the rejected draft" from "the refetch landed the exact same one" —
+  // the only distinction that decides whether the block lifts.
+  const submittedProposalHashRef = useRef<string | undefined>(undefined);
   // A run the machine already owns at mount was persisted when it started
   // (that is how restore found it), so its wizard-state join is already in
   // place; a fresh session joins when its own read starts.
@@ -245,6 +260,41 @@ export function CompanyAct({
     [dispatch, clarify.dismissClarify],
   );
 
+  // The one refresh a version-skew 409 ever runs, whether it fires
+  // automatically (the mutation's own onError) or the reader asks for
+  // another look at a "skewStuck" notice — one place, so the three-outcome
+  // decision below can never drift between the two callers. The proposal is
+  // cached separately from the read snapshot: refetching only the read
+  // leaves the stale proposal in place, so both are awaited together.
+  const refreshAfterSkew = useCallback(() => {
+    setAwaitingProposalRefresh(true);
+    const submittedHash = submittedProposalHashRef.current;
+    void Promise.allSettled([siteRead.refetch(), proposal.refetch()]).then(
+      ([, proposalOutcome]) => {
+        setAwaitingProposalRefresh(false);
+        const refreshedHash =
+          proposalOutcome.status === "fulfilled"
+            ? proposalOutcome.value.data?.proposal_hash
+            : undefined;
+        // Three outcomes, and only the first lifts the block: (1) the
+        // refetch succeeded and came back with a DIFFERENT hash — the next
+        // press provably sends a draft the server has not rejected; (2) the
+        // refetch succeeded but the hash is UNCHANGED — resubmitting would
+        // earn the identical 409, so the block stays and `skewStuck` tells
+        // the reader so, with a route to ask again; (3) the refetch itself
+        // FAILED — same outcome as (2), since there is nothing new to
+        // resubmit. The banner's own text (confirmNotice) is untouched
+        // either way: it already says "have a look, then press Continue
+        // again", which stays true whether that press is available now or
+        // needs one more look first.
+        const landedNewDraft =
+          refreshedHash !== undefined && refreshedHash !== submittedHash;
+        setSkewBlocked(!landedNewDraft);
+        setSkewStuck(!landedNewDraft);
+      },
+    );
+  }, [siteRead.refetch, proposal.refetch]);
+
   // The one route off the review, whether this attempt confirmed it or an
   // earlier one already did (the recovered "already confirmed" 409 below
   // reaches this too) — one place, so the checkpoint and the machine
@@ -285,6 +335,7 @@ export function CompanyAct({
       // version pair, so the staged-confirm contract still holds.
       const proposalData =
         proposal.data ?? (read !== null ? proposalFromRead(read) : undefined);
+      submittedProposalHashRef.current = proposalData?.proposal_hash;
       const result =
         read !== null &&
         (read.status === "ready" || read.status === "partial") &&
@@ -315,9 +366,14 @@ export function CompanyAct({
     },
     // Every fresh attempt starts clean: a notice from a PREVIOUS 409 must
     // not survive to describe THIS one, whether this click succeeds, fails
-    // the same way again, or fails differently.
+    // the same way again, or fails differently. Reachable only once a prior
+    // skew has actually lifted (Continue is disabled while `skewBlocked`),
+    // so resetting it here is the belt on top of that suspender, not the
+    // thing keeping a stale draft from resubmitting.
     onMutate: () => {
       setConfirmNotice(null);
+      setSkewBlocked(false);
+      setSkewStuck(false);
     },
     onSuccess: finishConfirm,
     // A 409 always leaves the reader with something to do — never a dead
@@ -336,18 +392,10 @@ export function CompanyAct({
     onError: (error) => {
       const code = problemCodeOf(error);
       if (code === "version_skew") {
-        // The proposal is cached separately from the read snapshot: refetching
-        // only the read (as before) leaves the stale proposal in place, so an
-        // immediate retry would resubmit the very draft the server just
-        // rejected. Both refetches are awaited here, together, so Continue
-        // re-arms exactly once THIS attempt's own refresh has settled —
-        // whatever it turns up — rather than on some later, unrelated cache
-        // update landing.
+        // See refreshAfterSkew for the three outcomes this can settle into.
         setConfirmNotice("skew");
-        setAwaitingProposalRefresh(true);
-        void Promise.allSettled([siteRead.refetch(), proposal.refetch()]).then(
-          () => setAwaitingProposalRefresh(false),
-        );
+        setSkewBlocked(true);
+        refreshAfterSkew();
         return;
       }
       if (code !== "conflict") {
@@ -376,14 +424,9 @@ export function CompanyAct({
   });
 
   // Continue must not resubmit the proposal the server just rejected for
-  // version skew: disabled for exactly as long as the refetch this driver
-  // kicked off in onError is still in flight, whether or not the proposal
-  // query ever holds any data — the no-data path (a proposal endpoint that
-  // never succeeded) is covered the same as the ordinary one, because the
-  // mutation itself falls back to `proposalFromRead(prevSnapshot.current)`
-  // either way.
-  const awaitingFreshProposal =
-    confirmNotice === "skew" && awaitingProposalRefresh;
+  // version skew — see refreshAfterSkew for the three outcomes that decide
+  // when `skewBlocked` clears.
+  const awaitingFreshProposal = skewBlocked;
 
   // The gate's own field is the ONE place a website address is typed — the
   // rail takes no free text, so there is no second entry point to keep in
@@ -831,20 +874,37 @@ export function CompanyAct({
           )}
           {/* A confirm 409 this driver already turned into a next step
               rather than a bare failure — see the `confirm` mutation's
-              onError for which server state each one names, and why
-              neither is "fix your input and press the same button again". */}
+              onError, and refreshAfterSkew, for which server state each one
+              names, and why neither is "fix your input and press the same
+              button again". A "skew" notice that is also `skewStuck` swaps
+              in its own message plus a retry: the refresh already ran once
+              and did not clear the block, so pressing Continue again would
+              only repeat the same 409 — the reader's one route forward is
+              asking for another look, not the button this notice disables. */}
           {confirmNotice !== null && (
             <div role="alert">
               <NarrationBubble
                 entry={{
                   kind: "narration",
-                  id: `confirm:${confirmNotice}`,
+                  id: `confirm:${confirmNotice}${skewStuck ? ":stuck" : ""}`,
                   i18nKey:
-                    confirmNotice === "skew"
-                      ? "ob.conv.review.confirmVersionSkew"
-                      : "ob.conv.review.confirmNotReady",
+                    confirmNotice === "notReady"
+                      ? "ob.conv.review.confirmNotReady"
+                      : skewStuck
+                        ? "ob.conv.review.confirmVersionSkewStuck"
+                        : "ob.conv.review.confirmVersionSkew",
                 }}
               />
+              {confirmNotice === "skew" && skewStuck && (
+                <Button
+                  small
+                  variant="ghost"
+                  onClick={refreshAfterSkew}
+                  disabled={awaitingProposalRefresh}
+                >
+                  {t("common.retry")}
+                </Button>
+              )}
             </div>
           )}
         </ConversationThread>

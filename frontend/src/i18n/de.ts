@@ -2300,6 +2300,8 @@ export const de = {
     "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
   "ob.conv.review.confirmVersionSkew":
     "Deine Prüfung wurde gerade mit neueren Informationen aus dem Read aktualisiert. Schau sie dir an und drücke dann erneut Weiter.",
+  "ob.conv.review.confirmVersionSkewStuck":
+    "Ich habe noch einmal geprüft, aber es hat sich noch nichts geändert. Weiter würde jetzt genauso fehlschlagen. Schau noch einmal nach oder prüfe es gleich erneut.",
   "ob.conv.review.confirmNotReady":
     "Dieser Read ist noch nicht bereit zur Bestätigung. Warte, bis er fertig ist, oder starte einen neuen.",
   "ob.conv.artifact.empty":

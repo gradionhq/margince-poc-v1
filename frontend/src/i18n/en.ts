@@ -2266,6 +2266,8 @@ export const en = {
     "I could not save that yet: {detail} Fix it and accept again.",
   "ob.conv.review.confirmVersionSkew":
     "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+  "ob.conv.review.confirmVersionSkewStuck":
+    "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
   "ob.conv.review.confirmNotReady":
     "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
   "ob.conv.artifact.empty":

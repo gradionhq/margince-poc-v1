@@ -465,21 +465,7 @@ function TheatreTail({
           aria-label={t("ob.scan.logLabel")}
         >
           {latestPage === null ? null : (
-            <li
-              key={latestPage.url}
-              className="ob-scan-ticker-entry"
-              data-page-status={latestPage.status}
-            >
-              <span className="ob-scan-ticker-path">
-                {sourcePath(latestPage.url) ?? "/"}
-              </span>
-              <span
-                className="ob-scan-ticker-kind"
-                title={pageStatusWord(t, latestPage)}
-              >
-                {pageStatusWord(t, latestPage)}
-              </span>
-            </li>
+            <ScanTickerEntry key={latestPage.url} page={latestPage} t={t} />
           )}
         </ul>
         <p className="ob-scan-ticker-total">
@@ -565,6 +551,38 @@ function useLatestArrivedPage(
     latest.current = next;
   });
   return next;
+}
+
+// The ticker's status word, reachable in full even though it visually clamps
+// to two lines: `aria-label` carries the whole sentence regardless of what
+// CSS clips (browsers disagree on how much of a `-webkit-line-clamp`d text
+// node survives into the accessible name, so this never depends on that),
+// and a plain button — rather than `title`, which needs a mouse hover no
+// touch surface offers — lets a sighted reader expand the clamp on tap or
+// keyboard activation. Toggling only flips a CSS class: the text node itself
+// never changes, so it cannot re-trigger the ticker row's own `aria-live`
+// announcement, which fires once, on this whole entry mounting for a new
+// page — never on the reader expanding an old one.
+function ScanTickerEntry({
+  page,
+  t,
+}: Readonly<{ page: CompanySiteReadPage; t: Translate }>) {
+  const [expanded, setExpanded] = useState(false);
+  const reason = pageStatusWord(t, page);
+  return (
+    <li className="ob-scan-ticker-entry" data-page-status={page.status}>
+      <span className="ob-scan-ticker-path">{sourcePath(page.url) ?? "/"}</span>
+      <button
+        type="button"
+        className="ob-scan-ticker-kind"
+        aria-expanded={expanded}
+        aria-label={reason}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        {reason}
+      </button>
+    </li>
+  );
 }
 
 // The page a crawled URL is, as the site's own path. Parsed with a pattern

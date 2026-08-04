@@ -579,20 +579,36 @@
 /* Shrinks and wraps rather than sitting fixed-width beside the path: a long
    skip or failure reason is prose, not a label, and clipping it silently
    would hide the one thing a reader needs from a page that did not come
-   back clean. Clamped to 2 lines so an unusually long reason still respects
-   the row's reserved height instead of pushing the total/cost strip below
-   it; the element's own `title` carries the reason in full for whatever the
-   clamp cuts off. */
+   back clean. Clamped to 2 lines by default so an unusually long reason
+   still respects the row's reserved height instead of pushing the
+   total/cost strip below it — this is a `<button>`, not a `title`-carrying
+   span, because a hover tooltip is unreachable on a touch surface; a tap or
+   Enter/Space toggles `aria-expanded` (below), which is the reader's actual
+   route to the rest of the sentence, with `aria-label` on the element itself
+   (onboarding-gate.tsx) covering the same text for assistive tech regardless
+   of how much of it the clamp leaves in the DOM. */
 .ob-scan-ticker-kind {
   display: -webkit-box;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   overflow-wrap: anywhere;
+  border: none;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
   color: var(--textMeta);
+  font-family: var(--f-body);
   font-size: 10.5px;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+}
+
+/* The reader's own request to see the rest — the only thing that ever lifts
+   the clamp, so the row never grows on its own. */
+.ob-scan-ticker-kind[aria-expanded="true"] {
+  -webkit-line-clamp: unset;
 }
 
 /* The running total: the honest count beside the single page on show, so a
