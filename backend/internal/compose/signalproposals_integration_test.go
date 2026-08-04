@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seedAccountAtStage plants the account the whole overhaul is named for,
@@ -277,4 +278,93 @@ func TestAcceptingSettlesEveryOpenContradictionOnTheAccount(t *testing.T) {
 				"would ever close it", signal, status)
 		}
 	}
+}
+
+// teamScopedDecider is a rep who may decide a lifecycle offer — the two
+// grants the kind requires — but whose row scope is their TEAM, not the
+// workspace. Every fixture above decides as an admin, which is RowScopeAll and
+// therefore cannot show what the scope bound does.
+var teamScopedDecider = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"organization": {Read: true, Update: true},
+		"signal":       {Read: true, Update: true},
+		"deal":         {Read: true},
+		"person":       {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}
+
+// Accepting settles the account's contradictions — the ones the decider could
+// have opened themselves, and no others.
+//
+// A signal is matched for settlement by resolved_org_id, while signal row
+// scope is inherited from its SUBJECT (auth.SignalScopeClause). Those are
+// different questions and can disagree: a signal resolved to this account
+// whose subject is a deal in another team is on an account the decider can
+// read and about a record they cannot. Settling it would mutate a row outside
+// their scope on the strength of a decision they were never shown it for.
+func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedAccountAtStage(t, e, "customer")
+	mine := seedOpenContractEnded(t, e, org)
+	// Same account, but its subject is a deal owned by the OTHER team.
+	theirs := seedOpenContractEndedOnDeal(t, e, org, seedDealOwnedBy(t, e, e.Rep3))
+
+	proposePass(t, e)
+	if _, err := approvalsServiceWithEffects(e.Pool).Decide(
+		e.As(e.Rep1, nil, teamScopedDecider),
+		ids.From[ids.ApprovalKind](stagedOffer(t, e, org)), true, nil); err != nil {
+		t.Fatalf("accepting the offer: %v", err)
+	}
+
+	if status := signalStatus(t, e, mine); status != "acknowledged" {
+		t.Errorf("the signal on the decider's own account reads %q, want acknowledged", status)
+	}
+	if status := signalStatus(t, e, theirs); status != "open" {
+		t.Errorf("a signal whose subject is another team's deal reads %q after the "+
+			"accept, want open — it was settled by a decision made without it ever "+
+			"being visible to the decider", status)
+	}
+}
+
+// seedDealOwnedBy plants a deal on another team, so a signal subjected to it
+// sits outside a team-scoped decider's row scope.
+func seedDealOwnedBy(t *testing.T, e *integration.Env, owner ids.UUID) ids.UUID {
+	t.Helper()
+	pipeline, stage, _ := integration.DealFixture(t, e)
+	deal := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id,
+			                  source, captured_by)
+			VALUES ($1, $2, 'Their renewal', $3, $4, $5, 'manual', 'human:seed')`,
+			deal, e.WS, pipeline, stage, owner)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return deal
+}
+
+// seedOpenContractEndedOnDeal files a contradiction that RESOLVES to the
+// account but is ABOUT a deal — the shape where resolved_org_id and the
+// subject scope disagree.
+func seedOpenContractEndedOnDeal(t *testing.T, e *integration.Env, org, deal ids.UUID) ids.UUID {
+	t.Helper()
+	signal := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO signal (id, workspace_id, kind, source_channel, entity_type, entity_id,
+			                    resolved_org_id, resolution_state, severity, summary, status,
+			                    detected_at, source, captured_by)
+			VALUES ($1, $2, 'contract_ended', 'derived', 'deal', $3, $4, 'resolved',
+			        'warn', 'Their renewal will not proceed.', 'open',
+			        now(), 'signal-scan', 'agent:contract_ended')`,
+			signal, e.WS, deal, org)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return signal
 }

@@ -269,7 +269,10 @@ func lifecycleAcceptEffect(svc *approvals.Service, store *people.Store) approval
 			// ending, and the reader answering one has answered all three —
 			// while the record has now left the stage this reconciler looks
 			// for, so no later pass would ever close the others.
-			_, err = signals.AcknowledgeOpenForOrgTx(execCtx, tx,
+			// execCtx writes (machine provenance, beside the stage move); ctx
+			// carries the human, whose row scope bounds which of the account's
+			// signals may be settled at all.
+			_, err = signals.AcknowledgeOpenForOrgTx(execCtx, ctx, tx,
 				proposal.OrganizationID.UUID, signalKindContractEnded)
 			return err
 		})

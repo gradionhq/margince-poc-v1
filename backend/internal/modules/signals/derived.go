@@ -27,6 +27,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -196,14 +197,39 @@ func AcknowledgeTx(ctx context.Context, tx pgx.Tx, signalID ids.UUID) (bool, err
 // It takes the KIND rather than a list of ids because the decision was about
 // the account's situation, not about which row happened to be quoted on the
 // card the reader saw.
+//
+// TWO principals, deliberately. ctx is who WRITES — the machine, so the
+// acknowledgement carries the same provenance as the stage move beside it.
+// decider is the human whose row scope BOUNDS it, and only rows they could
+// have opened themselves are settled.
+//
+// The two are not the same question, and the account is not the answer to the
+// second. A signal is matched here by resolved_org_id, while signal row scope
+// is inherited from its SUBJECT (auth.SignalScopeClause: person, organization
+// or deal). Those can differ — a signal resolved to this account whose subject
+// is a deal the decider may not see — so seeing the account is not seeing
+// every signal on it, and a bulk settle keyed on the account alone would
+// mutate rows outside the decider's scope.
 func AcknowledgeOpenForOrgTx(
-	ctx context.Context, tx pgx.Tx, orgID ids.UUID, kind string,
+	ctx context.Context, decider context.Context, tx pgx.Tx, orgID ids.UUID, kind string,
 ) (int, error) {
-	rows, err := tx.Query(ctx, `
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos, kindPos := arg(orgID), arg(kind)
+	scope, err := auth.SignalScopeClause(decider, "signal", arg)
+	if err != nil {
+		return 0, err
+	}
+	if scope == "" {
+		// Unbounded on every subject type, so there is nothing to narrow.
+		scope = "true"
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT id FROM signal
-		 WHERE resolved_org_id = $1 AND kind = $2
+		 WHERE resolved_org_id = $%d AND kind = $%d
 		   AND status = 'open' AND archived_at IS NULL
-		 ORDER BY detected_at`, orgID, kind)
+		   AND %s
+		 ORDER BY detected_at`, orgPos, kindPos, scope), args...)
 	if err != nil {
 		return 0, fmt.Errorf("list the account's open signals: %w", err)
 	}
