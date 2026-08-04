@@ -337,27 +337,28 @@ when it raised something (so a dead producer looked like a quiet week), and
 River's one-minute default killed the first pass over the backlog, retried it
 twice and discarded it. The pass now stops itself with a margin and reports it.
 
-**PR #413 is in DRAFT, and the reason is #424, not the walk.** The security
-review found that a derived signal inherits the ACCOUNT's visibility while its
-evidence comes from correspondence that may be readable only by the person who
-captured it. Before this change the producers resolved an account through a
-direct `activity_link` row, which is the same link that makes an activity
-readable to the account's readers — so evidence could not out-run the signal's
-own gate. The employer and deal arms are not links on the activity, so it can
-now. 53 signals on the demo database sit on workspace-visible accounts carrying
-subject lines and model summaries drawn from capture-private mail, against the
-2026-07-31 founder decision recorded in `auth.rbac.ownerPrivateTables`.
+**A signal now carries the visibility of the correspondence behind it**
+(migration 0181, closes #424). The security review found that a derived signal
+inherited the ACCOUNT's visibility while its evidence came from mail readable
+only by whoever captured it — 53 such signals stood on the demo database,
+against the 2026-07-31 capture-privacy decision in `auth.rbac.ownerPrivateTables`.
 
-Every cheap narrowing is wrong: excluding capture-private contacts returns the
-producers to zero (all 1,256 person-linked activities have one), and excluding
-over-visible accounts suppresses exactly the promoted accounts people work. The
-principled answer — a derived signal carries its evidence's visibility — is a
-schema and scope-clause change plus a product call about what a rep sees on a
-colleague's unpromoted account. **That decision is the thing blocking the merge.**
+Founder call: the two producers are treated differently because they differ.
+The ghosted rule computes from metadata the account's readers could count
+themselves, so it stays workspace-shared and CITES its message rather than
+quoting the subject line. The extractor writes what messages SAY, so its
+findings inherit the conversation's readability — `bool_and` over the messages,
+since the model is shown all of them. `signal` gained `visibility`/`owner_id`
+mirroring person and organization; `SignalScopeClause` ANDs the arm and does not
+lift it for an unbounded human.
+
+Verified by re-running the producers from an empty table over the 2,943-email
+corpus: content-bearing signals readable workspace-wide on a shared account went
+53 → **0**, with the extracted signals still produced and owner-private to the
+mailbox owner.
 
 ### Open — what this left behind
 
-- **#424 (blocking)** — a derived signal is more visible than its evidence.
 - **#415** — the employment arm has no start date, so mail from someone's
   previous job resolves to their current employer. Needs a writer for
   `relationship.started_at` first; nothing populates it today (213 employment
