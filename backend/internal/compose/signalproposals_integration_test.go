@@ -318,8 +318,13 @@ func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
 		t.Fatalf("accepting the offer: %v", err)
 	}
 
+	// The account is ownerless, so it is visible at every tier — which is what
+	// makes this the control: the two signals differ ONLY in their subject, so
+	// the one that stays open stays open because of the deal it is about and
+	// nothing else.
 	if status := signalStatus(t, e, mine); status != "acknowledged" {
-		t.Errorf("the signal on the decider's own account reads %q, want acknowledged", status)
+		t.Errorf("the signal subjected to the account itself reads %q, want "+
+			"acknowledged — the scope bound is settling rows it should not withhold", status)
 	}
 	if status := signalStatus(t, e, theirs); status != "open" {
 		t.Errorf("a signal whose subject is another team's deal reads %q after the "+
