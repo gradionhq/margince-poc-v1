@@ -5,6 +5,7 @@ package storekit
 
 import (
 	"errors"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -42,8 +43,38 @@ func UniqueViolation(err error) (constraint string, ok bool) {
 }
 
 func IsForeignKeyViolation(err error) bool {
-	_, ok := pgViolation(err, pgForeignKeyViolation)
+	_, ok := ForeignKeyViolation(err)
 	return ok
+}
+
+// ForeignKeyViolation names the violated constraint of a 23503.
+func ForeignKeyViolation(err error) (constraint string, ok bool) {
+	return pgViolation(err, pgForeignKeyViolation)
+}
+
+// ForeignKeyColumn answers WHICH column of a 23503 pointed nowhere, so a
+// transport can name the caller's own field instead of making them diff every
+// id they sent.
+//
+// It reads the column off the constraint name by removing the TABLE name
+// Postgres reports alongside it — exactly, not by splitting on underscores.
+// Both halves contain them, so `organization_parent_org_id_fkey` splits as
+// `organization` + `parent_org_id` and no guess at the boundary gets that
+// right. A hand-named constraint yields nothing rather than a wrong name.
+func ForeignKeyColumn(err error) (column string, ok bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != pgForeignKeyViolation {
+		return "", false
+	}
+	trimmed, isDefaultName := strings.CutSuffix(pgErr.ConstraintName, "_fkey")
+	if !isDefaultName || pgErr.TableName == "" {
+		return "", false
+	}
+	column, isOnThisTable := strings.CutPrefix(trimmed, pgErr.TableName+"_")
+	if !isOnThisTable || column == "" {
+		return "", false
+	}
+	return column, true
 }
 
 // ExclusionViolation names a fired EXCLUDE constraint — the overlap

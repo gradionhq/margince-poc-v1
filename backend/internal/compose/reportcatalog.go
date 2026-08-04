@@ -112,3 +112,31 @@ func (e *reportEngine) Run(ctx context.Context, report string, req reportRequest
 	}
 	return e.runSpec(ctx, report, spec, req)
 }
+
+// servedPlanArguments is what a run_report plan may contain. Named here rather
+// than read off reportRequest's json tags because it is also the sentence the
+// refusal prints, and a list a reader can see is worth more than one derived
+// from a struct they cannot.
+var servedPlanArguments = map[string]bool{slotFilters: true, slotGroupBy: true, slotAggregates: true}
+
+// unservedPlanArguments names the plan keys this engine does not serve, sorted.
+//
+// crm.yaml's runReport body declares `as_of_date` and this engine has no field
+// for it, so the caller most likely to hit this is one reading the contract
+// correctly. They are owed the key's name, not a description of three arguments
+// they did not send.
+func unservedPlanArguments(planArgs json.RawMessage) []string {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(planArgs, &keys); err != nil {
+		// Not an object: the strict decode below says so, and better.
+		return nil
+	}
+	var unserved []string
+	for key := range keys {
+		if !servedPlanArguments[key] {
+			unserved = append(unserved, "`"+key+"`")
+		}
+	}
+	slices.Sort(unserved)
+	return unserved
+}

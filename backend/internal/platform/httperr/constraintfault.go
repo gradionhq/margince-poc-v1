@@ -43,8 +43,7 @@ func constraintFault(err error) (Fault, bool) {
 	case storekit.IsForeignKeyViolation(err):
 		return Fault{
 			Status: http.StatusUnprocessableEntity, Code: "reference_not_found",
-			Detail: "a value in this request names a record that does not exist here; check the ids you sent " +
-				"against records this workspace actually has, and do not retry the call unchanged",
+			Detail:     referenceNotFoundDetail(err),
 			InfraCause: err,
 		}, true
 	case isConstrainedValue(err):
@@ -77,4 +76,30 @@ func infrastructureCause(err error) bool {
 	var pgErr *pgconn.PgError
 	var netErr net.Error
 	return errors.As(err, &pgErr) || errors.As(err, &netErr)
+}
+
+// referenceNotFoundDetail names the FIELD whose id pointed nowhere, when the
+// violated constraint says which.
+//
+// The first version of this message said only "a value in this request names a
+// record that does not exist here; check the ids you sent against records this
+// workspace actually has". A UAT agent took that advice literally and could not
+// act on it twice over: the request carried two ids (the path's and the
+// patch's) and it could not tell which was blamed, and the one that was blamed —
+// `owner_id` — references a USER, which no tool on this surface enumerates. It
+// then sent a person id that genuinely exists and got byte-identical text back.
+// Advice that cannot be followed is worse than none: it reads as a transient
+// problem and invites the retry the rest of the sentence forbids.
+//
+// So the field is named where the constraint yields it, and the sentence no
+// longer promises that searching this workspace's records will find the answer.
+func referenceNotFoundDetail(err error) string {
+	if field, ok := storekit.ForeignKeyColumn(err); ok {
+		return "`" + field + "` names a record that does not exist, or is not the kind of record that " +
+			"field references — an owner is a user, a parent is an organization. Send an id of the right " +
+			"kind, and do not retry the call unchanged"
+	}
+	return "an id in this request names a record that does not exist, or is not the kind of record its " +
+		"field references. Check each id you sent against the kind its field expects, and do not retry " +
+		"the call unchanged"
 }

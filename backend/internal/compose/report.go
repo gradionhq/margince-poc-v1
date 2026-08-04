@@ -262,7 +262,7 @@ func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggre
 	for _, dim := range groupBy {
 		expr, ok := spec.dimensions[dim]
 		if !ok {
-			return nil, nil, &FieldNotAllowedError{Field: dim, Allowed: allowedReportNames(spec.dimensions)}
+			return nil, nil, &FieldNotAllowedError{Field: dim, Slot: slotGroupBy, Allowed: allowedReportNames(spec.dimensions)}
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %s", expr, dim))
 		columns = append(columns, dim)
@@ -295,7 +295,7 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 	if name == reservedDerivationColumn {
 		// The transport injects this key into every aggregate row; an
 		// alias squatting on it would make the handle ambiguous.
-		return "", "", &FieldNotAllowedError{Field: name, Allowed: allowedReportNames(spec.measures)}
+		return "", "", &FieldNotAllowedError{Field: name, Slot: "measure", Allowed: allowedReportNames(spec.measures)}
 	}
 	switch agg.Fn {
 	case "count":
@@ -303,7 +303,7 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 	case "sum", "avg", "min", "max":
 		expr, ok := spec.measures[agg.Field]
 		if !ok {
-			return "", "", &FieldNotAllowedError{Field: agg.Field, Allowed: allowedReportNames(spec.measures)}
+			return "", "", &FieldNotAllowedError{Field: agg.Field, Slot: slotAggregates + " field", Allowed: allowedReportNames(spec.measures)}
 		}
 		return name, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)), nil
 	default:
@@ -352,7 +352,7 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	for _, key := range filterKeys {
 		expr, ok := spec.filters[key]
 		if !ok {
-			return nil, &FieldNotAllowedError{Field: key, Allowed: allowedReportNames(spec.filters)}
+			return nil, &FieldNotAllowedError{Field: key, Slot: slotFilter, Allowed: allowedReportNames(spec.filters)}
 		}
 		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
 	}

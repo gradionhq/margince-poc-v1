@@ -273,3 +273,42 @@ func TestClassify_aTypedRefusalStillWinsOverTheConstraintNet(t *testing.T) {
 		t.Errorf("the net replaced a refusal that named the field and its values: %q", fault.Detail)
 	}
 }
+
+// The reference refusal names the FIELD whose id pointed nowhere. Its first
+// version named none and told the caller to check their ids "against records
+// this workspace actually has" — advice a UAT agent followed into a dead end,
+// because the field it blamed references a user, which no tool on that surface
+// lists, and a genuinely existing person id came back with byte-identical text.
+func TestClassify_theReferenceRefusalNamesTheFieldWhenTheConstraintYieldsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name, constraint, wantField string
+		wantNamed                   bool
+	}{
+		{"a default-named foreign key yields its column", "organization_owner_id_fkey", "owner_id", true},
+		{"a multi-word column survives whole", "organization_parent_org_id_fkey", "parent_org_id", true},
+		{"a constraint that is not a foreign key names nothing", "organization_display_name_key", "", false},
+		{"a hand-named constraint names nothing rather than guessing", "one_primary_domain", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fmt.Errorf("writing: %w", &pgconn.PgError{Code: "23503", TableName: "organization", ConstraintName: tc.constraint})
+			fault, ok := Classify(err)
+			if !ok || fault.Status != http.StatusUnprocessableEntity {
+				t.Fatalf("fault = %+v, ok = %v, want a 422", fault, ok)
+			}
+			if tc.wantNamed && !strings.Contains(fault.Detail, "`"+tc.wantField+"`") {
+				t.Errorf("detail does not name %q: %q", tc.wantField, fault.Detail)
+			}
+			if !tc.wantNamed && strings.Contains(fault.Detail, "`") {
+				t.Errorf("detail names a field it could not derive: %q", fault.Detail)
+			}
+			// Whichever branch ran, the schema stays behind and the advice never
+			// sends the caller looking for a record kind this surface cannot list.
+			if strings.Contains(fault.Detail, tc.constraint) {
+				t.Errorf("detail leaks the constraint name: %q", fault.Detail)
+			}
+			if strings.Contains(fault.Detail, "records this workspace actually has") {
+				t.Errorf("detail still gives the advice that could not be followed: %q", fault.Detail)
+			}
+		})
+	}
+}

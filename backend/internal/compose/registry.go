@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -128,6 +129,18 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 			// an agent's request for a historical snapshot with current state and
 			// no warning — a silent wrong answer, which is worse than a refusal
 			// because nothing tells the caller to look again.
+			// An UNSERVED key is named, before the shape refusal. The strict
+			// decode alone answered "a plan argument is not the shape this tool
+			// takes" and then described the three arguments the caller had not
+			// sent — so a caller who sent `as_of_date` was told to re-check
+			// three shapes that were never wrong, and could loop on it. Which
+			// key is unserved is a question this package can answer exactly, so
+			// it does, rather than restating the decoder's prose.
+			if unserved := unservedPlanArguments(planArgs); len(unserved) > 0 {
+				return nil, httperr.Validation("arguments", "malformed_json",
+					"this tool does not take "+strings.Join(unserved, ", ")+
+						"; its plan arguments are `"+slotFilters+"`, `"+slotGroupBy+"` and `"+slotAggregates+"`")
+			}
 			if err := strictDecodeReportPlan(planArgs, &req); err != nil {
 				// Server-authored. The REST twin forwards the decoder's own text
 				// under the field `body`, which is wrong here twice over: this tool
