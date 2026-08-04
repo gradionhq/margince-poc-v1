@@ -176,6 +176,60 @@ func TestLongFunc_testFilesGetTheRelaxedCeiling(t *testing.T) {
 	}
 }
 
+// The ceiling measures CODE, not text. golangci's funlen is configured
+// ignore-comments in this repo, so a function that passes there must not block
+// here — and a gate that charged for explanation would push a reader-hostile
+// trade: delete the why, or hide the lines behind an abstraction nobody needs.
+func TestLongFunc_countsCodeNotComments(t *testing.T) {
+	// 60 code lines and 60 comment lines: 120 raw body lines, 60 of code.
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	for range 60 {
+		b.WriteString("\t// why this line is here\n\tx++\n")
+	}
+	b.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", b.String()), "long-func"); got != 0 {
+		t.Fatalf("60 code lines under 60 comment lines: long-func = %d, want 0 — comments are not length", got)
+	}
+
+	// The same 120 raw lines, all code, must still be flagged: the change is what
+	// counts as a line, not the ceiling.
+	if got := counts(lintSource(t, "p.go", sizeSrc(120)), "long-func"); got != 1 {
+		t.Fatalf("120 code lines: long-func = %d, want 1", got)
+	}
+}
+
+// A comment sharing a line with code does not make that line free.
+func TestLongFunc_aTrailingCommentDoesNotDiscountItsCodeLine(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	for range 90 {
+		b.WriteString("\tx++ // still a code line\n")
+	}
+	b.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", b.String()), "long-func"); got != 1 {
+		t.Fatalf("90 code lines carrying trailing comments: long-func = %d, want 1", got)
+	}
+}
+
+// A block comment spanning lines is comment-only for every line it covers.
+func TestLongFunc_blockCommentLinesAreNotCode(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("package p\n\nvar x int\n\nfunc run() {\n")
+	b.WriteString("\t/*\n")
+	for range 100 {
+		b.WriteString("\t   prose, not code\n")
+	}
+	b.WriteString("\t*/\n")
+	for range 20 {
+		b.WriteString("\tx++\n")
+	}
+	b.WriteString("}\n")
+	if got := counts(lintSource(t, "p.go", b.String()), "long-func"); got != 0 {
+		t.Fatalf("20 code lines under a 102-line block comment: long-func = %d, want 0", got)
+	}
+}
+
 func TestLargeFile_testFilesGetTheRelaxedCeiling(t *testing.T) {
 	src := "package p\n" + strings.Repeat("// filler\n", 600)
 	if got := counts(lintSource(t, "p.go", src), "large-file"); got != 1 {

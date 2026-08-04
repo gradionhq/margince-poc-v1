@@ -340,7 +340,10 @@ function you add will block your push.
 - Full manual sweep of the whole backend: **`make craft-static`** — green, and the CI
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
-  80 body lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
+  80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
+  A comment-only line is not length: the ceiling asks how much a reader must
+  hold at once, and an explanation reduces that. This is also what keeps the
+  check agreeing with golangci's `funlen`, configured here `ignore-comments`.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 

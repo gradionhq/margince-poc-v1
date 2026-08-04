@@ -59,6 +59,9 @@ type fileContext struct {
 	isTest   bool
 	inDomain bool
 	waivers  map[string][]int // check name → lines carrying //craft:ignore
+	// commentOnly marks the lines that carry nothing but a comment, so a length
+	// check can measure CODE. A line shared with code is absent from this set.
+	commentOnly map[int]bool
 }
 
 // Run walks the given paths (files or directories), applies every check to
@@ -174,16 +177,63 @@ func newFileContext(path string, src []byte, domainMarker string) (*fileContext,
 		return nil, false
 	}
 	fc := &fileContext{
-		path:     path,
-		fset:     fset,
-		file:     file,
-		lineN:    countLines(src),
-		isTest:   strings.HasSuffix(path, "_test.go"),
-		inDomain: strings.Contains(filepath.ToSlash(path), domainMarker),
-		waivers:  map[string][]int{},
+		path:        path,
+		fset:        fset,
+		file:        file,
+		lineN:       countLines(src),
+		isTest:      strings.HasSuffix(path, "_test.go"),
+		inDomain:    strings.Contains(filepath.ToSlash(path), domainMarker),
+		waivers:     map[string][]int{},
+		commentOnly: map[int]bool{},
 	}
 	fc.parseWaivers()
+	fc.markCommentOnlyLines(src)
 	return fc, true
+}
+
+// markCommentOnlyLines records every line whose only content is a comment.
+//
+// It works from the source rather than the AST alone because that is what makes
+// the distinction the length checks need: a comment on its own line is prose, a
+// comment following code is an annotation on a line that still costs a reader a
+// statement. `x++ // why` is therefore code, and only the whitespace-prefixed
+// case is discounted — including every line a block comment spans, unless code
+// resumes after it closes.
+func (fc *fileContext) markCommentOnlyLines(src []byte) {
+	lines := strings.Split(string(src), "\n")
+	lineText := func(n int) string {
+		if n < 1 || n > len(lines) {
+			return ""
+		}
+		return lines[n-1]
+	}
+	for _, group := range fc.file.Comments {
+		for _, c := range group.List {
+			start := fc.fset.Position(c.Slash)
+			if strings.TrimSpace(lineText(start.Line)[:start.Column-1]) != "" {
+				continue // code precedes it: the line is code that happens to be annotated
+			}
+			end := fc.fset.Position(c.End())
+			if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) != "" {
+				continue // code resumes after a block comment closes
+			}
+			for n := start.Line; n <= end.Line; n++ {
+				fc.commentOnly[n] = true
+			}
+		}
+	}
+}
+
+// codeLinesIn counts the lines strictly between two lines that carry code, which
+// is what the size ceilings are expressed in.
+func (fc *fileContext) codeLinesIn(open, close int) int {
+	n := 0
+	for line := open + 1; line < close; line++ {
+		if !fc.commentOnly[line] {
+			n++
+		}
+	}
+	return n
 }
 
 // parseWaivers records every `//craft:ignore <check> <reason>` directive

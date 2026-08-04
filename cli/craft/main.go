@@ -339,7 +339,13 @@ func cmdStatic(args []string) int {
 	asJSON := fs.Bool("json", false, "emit canonical JSON instead of text")
 	strict := fs.Bool("strict", false, "treat MAJOR findings as blocking too")
 	fileMax := fs.Int("max-file-lines", 500, "large-file threshold")
-	funcMax := fs.Int("max-func-lines", 80, "long-func body-line threshold")
+	funcMax := fs.Int("max-func-lines", 80, "long-func code-line threshold")
+	// The test ceilings are separate knobs because a long scenario test that sets
+	// up, acts and asserts once is not the god-function smell the product numbers
+	// hunt. Exposed alongside the product ones so both bars can be probed and
+	// tuned from the command line rather than only in source.
+	testFileMax := fs.Int("max-test-file-lines", 1000, "large-file threshold for *_test.go")
+	testFuncMax := fs.Int("max-test-func-lines", 160, "long-func code-line threshold for *_test.go")
 	if err := fs.Parse(args); err != nil {
 		return fail("static: %v", err)
 	}
@@ -352,7 +358,9 @@ func cmdStatic(args []string) int {
 		paths = []string{*root}
 	}
 	report, err := static.Run(paths, static.Config{
-		MaxFileLines: *fileMax, MaxFuncLines: *funcMax, Strict: *strict,
+		MaxFileLines: *fileMax, MaxFuncLines: *funcMax,
+		MaxTestFileLines: *testFileMax, MaxTestFuncLines: *testFuncMax,
+		Strict: *strict,
 	})
 	if err != nil {
 		return fail("static: %v", err)
