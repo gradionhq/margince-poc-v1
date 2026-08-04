@@ -23,10 +23,15 @@ import (
 // outbox row, so an unreachable Redis fails the boot the same way an
 // unreachable Postgres does (B-EP04.1). The returned compose option makes
 // the bus a readiness dependency of THIS process (a split deployment's
-// api is ready on Postgres alone); the stop function runs after the HTTP
-// server shuts down, so late-committing requests usually ship before
-// exit — anything still unshipped waits durably in the outbox for the
-// next boot, and shutdown loses no events.
+// api is ready on Postgres alone).
+//
+// The returned stop is the ONLY thing that ends these goroutines. They run on a
+// context of their own, rooted at context.Background() below, so neither the ctx
+// passed here nor the process signal cancels them — which is why the caller must
+// stop the lane on EVERY return path and not only the one that served. cmd/api
+// defers it the moment the lane exists; on the served path that lands after the
+// HTTP drain, so late-committing requests usually ship before exit, and anything
+// still unshipped waits durably in the outbox for the next boot.
 //
 //nolint:contextcheck // the relay + webhook consumer are process-lifetime lanes, deliberately rooted at context.Background() and stopped by the returned stop(), never by the request ctx.
 func startInlineRelay(ctx context.Context, pool *pgxpool.Pool, redisAddr, webhookKey string, logger *slog.Logger) (compose.Option, func(), error) {
