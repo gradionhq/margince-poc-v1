@@ -203,6 +203,8 @@ func overlayBackfillLimitFromEnv(limit *int) error {
 	return nil
 }
 
+// envOr reads an environment variable with an explicit default, keeping
+// flag definitions self-documenting.
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
