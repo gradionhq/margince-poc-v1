@@ -72,12 +72,17 @@ WITH cited AS (
                    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
               THEN (e->>'source_id')::uuid END AS activity_id
     FROM signal s
-    CROSS JOIN LATERAL jsonb_array_elements(s.evidence) AS e
+    -- The array test lives INSIDE the lateral, not in the WHERE below it. A
+    -- WHERE clause does not order itself before the FROM it filters, so a
+    -- single row whose evidence is an object rather than an array would reach
+    -- jsonb_array_elements and abort the migration — and with it the deploy.
+    -- Anything that is not an array simply cites nothing.
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(s.evidence) = 'array' THEN s.evidence ELSE '[]'::jsonb END) AS e
    WHERE s.source = 'signal-scan'
      AND s.captured_by LIKE 'agent:%'
      AND s.kind <> 'ghosted_thread'
      AND s.archived_at IS NULL
-     AND jsonb_typeof(s.evidence) = 'array'
 ), readable AS (
   SELECT c.signal_id,
          -- The any-link rule, as auth.ActivityScopeClause spells it: one

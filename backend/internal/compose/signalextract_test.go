@@ -215,6 +215,9 @@ func TestAPassStopsWhileThereIsStillTimeToFinishTheOneInFlight(t *testing.T) {
 		name string
 		ctx  func(t *testing.T) context.Context
 		want bool
+		// cancelled separates a caller that stopped asking from a deadline that
+		// simply ran down. Only the first is a failure.
+		cancelled bool
 	}{
 		{
 			name: "no deadline at all keeps going",
@@ -240,18 +243,24 @@ func TestAPassStopsWhileThereIsStillTimeToFinishTheOneInFlight(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "already cancelled stops",
+			name: "already cancelled stops, and says it was cancelled",
 			ctx: func(t *testing.T) context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 				return ctx
 			},
-			want: true,
+			want:      true,
+			cancelled: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := outOfTime(tc.ctx(t)); got != tc.want {
+			got, cancelled := outOfTime(tc.ctx(t))
+			if got != tc.want {
 				t.Errorf("outOfTime = %v, want %v", got, tc.want)
+			}
+			if cancelled != tc.cancelled {
+				t.Errorf("cancelled = %v, want %v — a caller that gave up and a "+
+					"deadline that ran down are different news", cancelled, tc.cancelled)
 			}
 		})
 	}

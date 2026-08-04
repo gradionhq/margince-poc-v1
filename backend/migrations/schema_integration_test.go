@@ -575,6 +575,20 @@ func TestSignalVisibilityBackfillNarrowsOnlyWhatAProducerWrote(t *testing.T) {
 	nameless := seedPreVisibilitySignal(t, conn, ws, namelessOrg, "commitment_made",
 		"signal-scan", "agent:commitment_made", namelessMail)
 
+	// evidence that is not an array at all. jsonb is free-form, so the shape
+	// the backfill expects is a convention rather than a guarantee, and a row
+	// that breaks it must cost nothing more than being skipped.
+	if _, err := conn.Exec(ctx, `
+		INSERT INTO signal (workspace_id, kind, source_channel, entity_type, entity_id,
+		  resolved_org_id, resolution_state, severity, summary, evidence, status,
+		  detected_at, source, captured_by)
+		VALUES ($1, 'commitment_made', 'derived', 'organization', $2, $2, 'resolved',
+		  'info', 'A finding whose evidence is an object.',
+		  '{"source_id": "not-even-a-list"}'::jsonb, 'open', now(), 'signal-scan',
+		  'agent:commitment_made')`, ws, org); err != nil {
+		t.Fatalf("seeding the non-array-evidence signal: %v", err)
+	}
+
 	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
 		t.Fatalf("re-applying 0185 over existing rows: %v — a migration that cannot "+
 			"run over real evidence is a deploy that cannot happen", err)
