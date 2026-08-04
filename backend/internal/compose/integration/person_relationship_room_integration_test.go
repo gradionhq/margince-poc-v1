@@ -45,6 +45,7 @@ var roomPerms = principal.Permissions{
 		"organization": {Read: true},
 		"relationship": {Read: true},
 		"activity":     {Create: true, Read: true, Update: true},
+		"deal":         {Read: true},
 	},
 	RowScope: principal.RowScopeTeam,
 }
@@ -286,6 +287,128 @@ func TestErasureReachesTheEnrichmentSidecarAndTheLedger(t *testing.T) {
 		}
 		if left != 0 {
 			t.Errorf("%s kept %d row(s) about an erased subject", tc.table, left)
+		}
+	}
+}
+
+// The whole page, populated. The refusal tests above prove what a caller does
+// not get; this proves the sections actually assemble from real rows — a page
+// that refuses correctly and renders nothing is not a working page.
+func TestPerson360AssemblesEverySectionFromRealRows(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "ScaleCommerce", &e.Rep1)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+
+	SeedRow(t, owner, `INSERT INTO relationship
+		(id, workspace_id, kind, person_id, organization_id, role, is_current_primary, source, captured_by)
+		VALUES ($1, $2, 'employment', '`+mine.String()+`', '`+org.String()+`',
+		        'Head of Procurement', true, 'manual', 'human:x')`, e.WS)
+
+	// One inbound message and one open task: the timeline, the last-touch
+	// pair and the next-steps section each read a different slice of these.
+	inbound := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'email', 'Re: pricing', 'body', '2026-08-01T09:00:00Z',
+		        'inbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, inbound, "person", mine)
+	task := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, occurred_at, due_at, is_done, source, captured_by)
+		VALUES ($1, $2, 'task', 'Send the quote', '2026-07-28T09:00:00Z', '2026-07-30T09:00:00Z',
+		        false, 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, task, "person", mine)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	page, err := personRoomService(e).Assemble(rep, ids.From[ids.PersonKind](mine))
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if len(page.SectionsOmitted) != 0 {
+		t.Errorf("a fully-granted caller lost sections: %v", page.SectionsOmitted)
+	}
+	if page.Employments == nil || len(page.Employments.Data) != 1 {
+		t.Error("the employment edge did not reach the page")
+	} else if page.Employments.Data[0].Role == nil || *page.Employments.Data[0].Role != "Head of Procurement" {
+		t.Error("the employment edge lost the role it records")
+	}
+	if page.Activities == nil || len(page.Activities.Data) == 0 {
+		t.Error("the timeline is empty on a contact with a captured message")
+	}
+	if page.NextSteps == nil || len(page.NextSteps.Data) != 1 {
+		t.Error("the open task did not reach next steps")
+	}
+	// The two directions are read separately and never folded: an account we
+	// mailed a fortnight ago with no reply and one that wrote this morning
+	// have the same last-touch date and opposite meanings.
+	if page.LastInboundAt == nil {
+		t.Error("last_inbound_at is absent on a contact who wrote to us")
+	}
+	if page.LastOutboundAt != nil {
+		t.Error("last_outbound_at is set though nothing outbound was captured")
+	}
+	if page.Strength == nil {
+		t.Error("the relationship score did not assemble")
+	}
+	if page.RelationshipChanges == nil {
+		t.Error("the derived changes section is absent entirely, which is different from empty")
+	}
+	if page.Moments == nil {
+		t.Fatal("the moments section is absent entirely")
+	}
+	// An unanswered inbound and an overdue task are both true here, and the
+	// order is the editorial judgment: owing a reply outranks late work.
+	kinds := make([]string, 0, len(*page.Moments))
+	for _, m := range *page.Moments {
+		kinds = append(kinds, string(m.Kind))
+	}
+	if len(kinds) < 2 || kinds[0] != "unanswered_inbound" || kinds[1] != "task_overdue" {
+		t.Errorf("moments = %v, want unanswered_inbound before task_overdue", kinds)
+	}
+	if page.SinceLastVisit == nil {
+		t.Error("since-last-visit is absent for a caller who has never visited")
+	}
+}
+
+// A dismissed moment stays dismissed across a re-derivation. The verdict is
+// keyed on the moment's PATH, so this has to survive the evidence changing —
+// a key derived from the evidence would resurface it on the next mail.
+func TestDismissedMomentDoesNotComeBack(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	inbound := SeedRow(t, owner, `INSERT INTO activity
+		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'email', 'Re: pricing', 'body', '2026-07-30T09:00:00Z',
+		        'inbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, inbound, "person", mine)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	svc := personRoomService(e)
+	personID := ids.From[ids.PersonKind](mine)
+
+	page, err := svc.Assemble(rep, personID)
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if page.Moments == nil || len(*page.Moments) == 0 {
+		t.Fatal("an unanswered inbound message produced no moment")
+	}
+	claim := (*page.Moments)[0].ClaimKey
+
+	if err := ai.NewFeedbackStore(e.Pool).Record(rep, ai.RecordInput{
+		SubjectType: "person", SubjectID: mine, ClaimKind: ai.ClaimSignal,
+		ClaimPath: claim, Verdict: ai.VerdictSuppressed,
+	}); err != nil {
+		t.Fatalf("dismissing: %v", err)
+	}
+
+	after, err := svc.Assemble(rep, personID)
+	if err != nil {
+		t.Fatalf("Assemble after the dismissal: %v", err)
+	}
+	for _, m := range *after.Moments {
+		if m.ClaimKey == claim {
+			t.Fatalf("the dismissed moment %q came back", claim)
 		}
 	}
 }
