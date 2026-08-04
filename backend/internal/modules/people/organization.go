@@ -45,6 +45,14 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	if err := parseOrgDomains(in.Domains); err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	// Both write paths, not just the patch: a vocabulary checked on update and
+	// not on create is a value the database refuses at birth and the transport
+	// cannot name.
+	if in.SizeBand != nil {
+		if err := checkSizeBand(*in.SizeBand); err != nil {
+			return crmcontracts.Organization{}, err
+		}
+	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return crmcontracts.Organization{}, err
@@ -373,6 +381,9 @@ func buildOrganizationPatch(ctx context.Context, tx pgx.Tx, current crmcontracts
 		p.Set("industry", current.Industry, *in.Industry)
 	}
 	if in.SizeBand != nil {
+		if err := checkSizeBand(*in.SizeBand); err != nil {
+			return nil, err
+		}
 		p.Set("size_band", current.SizeBand, *in.SizeBand)
 	}
 	if in.OwnerID != nil {

@@ -25,6 +25,9 @@ import (
 type recordingComms struct {
 	anchor ids.UUID
 	args   SendMessageArgs
+	// booked records that the seam was reached at all, so a test can assert a
+	// refusal stopped SHORT of it rather than merely returning an error.
+	booked *BookMeetingArgs
 }
 
 func (c *recordingComms) DraftEmail(context.Context, ids.UUID, string) (string, string, error) {
@@ -39,7 +42,8 @@ func (c *recordingComms) Availability(context.Context, *ids.UUID, time.Time, tim
 	return nil, nil
 }
 
-func (c *recordingComms) BookMeeting(context.Context, BookMeetingArgs) (json.RawMessage, error) {
+func (c *recordingComms) BookMeeting(_ context.Context, args BookMeetingArgs) (json.RawMessage, error) {
+	c.booked = &args
 	return nil, nil
 }
 

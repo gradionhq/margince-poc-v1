@@ -94,20 +94,27 @@ func describesField(shapes map[datasource.EntityType]reflect.Type, name string) 
 	return false
 }
 
-// describeRecordFields renders the per-record_type field lists for a tool's
+// describeRecordFields renders the per-record_type field SHAPES for a tool's
 // `fields` description, in a fixed record_type order so the schema text is
 // byte-stable across processes (a description that reshuffles per boot reads
 // as a changed tool to a client that caches it).
-func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string {
+//
+// Shapes, not names. A name list says `domains` and `links` in the same breath
+// as `industry` and `subject`, and the first two are arrays of objects — the
+// list gives a caller no way to see the difference, and two reported sessions
+// guessed wrong and stopped. The shapes come from recordshapes_gen.go, which is
+// generated from crm.yaml so the enum VALUES and the required keys come along;
+// the Go structs this package reflects cannot yield either.
+func describeRecordFields(shapes map[datasource.EntityType]reflect.Type, rendered map[string]string) string {
 	// EntityTypes() fixes the order, so the text is byte-stable and a new
 	// entity type shows up here instead of being quietly left undescribed.
 	order := datasource.EntityTypes()
 	var b strings.Builder
-	b.WriteString("The crm.yaml body for the record_type. Accepted field names — ")
-	b.WriteString("anything else is NOT stored (see below): ")
+	b.WriteString("The crm.yaml body for the record_type. Field shapes below — a key with no `?` is ")
+	b.WriteString("REQUIRED, `?` marks an optional one, and a name not listed is NOT stored (see the ")
+	b.WriteString("end of this description): ")
 	for i, recordType := range order {
-		shape, ok := shapes[recordType]
-		if !ok {
+		if _, ok := shapes[recordType]; !ok {
 			continue
 		}
 		if i > 0 {
@@ -115,7 +122,7 @@ func describeRecordFields(shapes map[datasource.EntityType]reflect.Type) string 
 		}
 		b.WriteString(string(recordType))
 		b.WriteString(": ")
-		b.WriteString(strings.Join(contractFieldNames(shape), ", "))
+		b.WriteString(rendered[string(recordType)])
 	}
 	b.WriteString(". ")
 	writeFieldAdvisories(&b, shapes)
@@ -167,6 +174,16 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 	// maps carry activity, so a record-type test put this patch-only advice on the
 	// create tool too, which DOES accept links. Same mistake as the endpoint
 	// advisory above, in its sibling.
+	// An activity is not searchable either, and only the EDGE was ever told
+	// this. search_records' record_type enum has no activity, so an activity is
+	// retrievable afterwards only through the id its write returned — the same
+	// hazard the relationship advisory names, on the record type this surface
+	// creates far more often. Keyed on the create shapes (which carry `links`),
+	// because it is the write that hands out the only handle.
+	if describesField(shapes, "links") {
+		b.WriteString("An activity is not searchable — search_records does not serve it — so keep the id ")
+		b.WriteString("an activity write returns; read_record answers it by that id. ")
+	}
 	_, hasActivity := shapes[datasource.EntityActivity]
 	if hasActivity && !describesField(shapes, "links") {
 		// Says what is true and stops. Naming the relink action would be
@@ -177,9 +194,19 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
 		b.WriteString("this tool changes what an activity says, never who it is about. ")
 	}
-	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
-	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
-	b.WriteString("so re-read the record if you are unsure a value landed.")
+	// Two different fates, and the sentence used to describe neither. It said
+	// every extra key is "silently discarded", which is wrong in both
+	// directions: a key that is not cf_-prefixed is REFUSED by name (this file's
+	// rejectUnknownFields), so an agent was told to distrust a success it would
+	// never receive — while the one case that IS silently dropped, a cf_ key
+	// whose custom field is not active, was the half the sentence glossed over.
+	// A UAT run found exactly that: cf_employee_count answered 200 with a full
+	// record body and the value nowhere in it.
+	b.WriteString("Extra keys must be named cf_<slug> and are read as custom-field values; ")
+	b.WriteString("any other key is REFUSED by name, so an unknown field is never a silent ")
+	b.WriteString("loss. A cf_ key whose custom field is not ACTIVE in this workspace is the ")
+	b.WriteString("one that is: the write reports success and drops the value, so re-read the ")
+	b.WriteString("record if you are unsure a cf_ value landed.")
 	// …but not for every record type, and the exception is this surface's own
 	// decision: a type takes custom fields only if its contract shape carries the
 	// additionalProperties bag a cf_ value travels in, and activity and
