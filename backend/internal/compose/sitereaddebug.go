@@ -119,17 +119,7 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 	}
 	caps := opts.Caps.withDefaults()
 	log := &callLog{}
-	rec := &recordingBrain{inner: opts.Brain, log: log}
-	factInner := opts.FactBrain
-	if factInner == nil {
-		factInner = opts.Brain
-	}
-	recFacts := &recordingBrain{inner: factInner, log: log}
-	triageInner := opts.TriageBrain
-	if triageInner == nil {
-		triageInner = factInner
-	}
-	recTriage := &recordingBrain{inner: triageInner, log: log}
+	rec, recFacts, recTriage := recordingLanes(opts, log)
 	var dropped []DebugDrop
 	extract := evidenceExtractor{fetch: pageFetch, brain: rec, factBrain: recFacts, drops: func(sourceURL string, d droppedFinding) {
 		dropped = append(dropped, DebugDrop{
@@ -194,6 +184,26 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.Warnings = append(report.Warnings, warning)
 	}
 	return report, nil
+}
+
+// recordingLanes wraps each of the run's three model lanes in the report's
+// per-call telemetry, applying the fall-through SiteReadDebugOptions
+// documents: an unset fact lane borrows the profile brain, an unset triage
+// lane borrows the fact lane's. All three share one call log, so the report
+// lists the calls of the whole run in the order they returned.
+func recordingLanes(opts SiteReadDebugOptions, log *callLog) (profile, facts, triage *recordingBrain) {
+	profile = &recordingBrain{inner: opts.Brain, log: log}
+	factInner := opts.FactBrain
+	if factInner == nil {
+		factInner = opts.Brain
+	}
+	facts = &recordingBrain{inner: factInner, log: log}
+	triageInner := opts.TriageBrain
+	if triageInner == nil {
+		triageInner = factInner
+	}
+	triage = &recordingBrain{inner: triageInner, log: log}
+	return profile, facts, triage
 }
 
 // debugTriage runs the domain-triage classifier over the landing page the crawl

@@ -172,83 +172,77 @@ func (x *SignalExtractor) readThread(
 	}
 	events, err := x.ask(ctx, thread)
 	if errors.Is(err, errRefusedReading) {
-		// The WATERMARK DOES NOT MOVE, and the refusal is COUNTED. A refusal
-		// says this reply was unusable, not that the conversation holds
-		// nothing, and the two are worlds apart for a reader: retiring the
-		// thread on the first one would drop whatever it actually says for
-		// good. Leaving it due forever is the other failure — dueThreads takes
-		// the newest extractThreadCap conversations, so a thread that never
-		// settles holds a slot in every pass and the backlog behind it is
-		// never reached. The count parks it after extractRefusalCap readings
-		// of the SAME text. Parking is a deferral, not a verdict: a new
-		// message unparks it, and so does time, because the model that could
-		// not read it is not the model that will be asked next week.
-		//
-		// It is not returned as an error either. Nothing here failed that a
-		// retry of the PASS would fix, and faulting the job would re-run every
-		// other thread to reach this one.
-		//
-		// clampToken for the same reason validateExtractPayload uses it on
-		// every echoed token: this error can carry model output, the model read
-		// untrusted mail, and an operator log is not the place for either a
-		// correspondent's chosen volume or their private text.
-		var refusals int
-		if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-			counted, countErr := recordThreadRefusal(ctx, tx, wsID, thread, now)
-			refusals = counted
-			return countErr
-		}); markErr != nil {
-			return 0, markErr
-		}
-		// Said differently once the attempts are gone, because it means
-		// something different: nobody will look at this conversation again for
-		// a week, and whatever it states is not on the account until then. A
-		// per-refusal line at the same level would bury that in the noise of
-		// the two that preceded it.
-		if refusals >= extractRefusalCap {
-			x.log.WarnContext(ctx, "signal extract: parking a conversation nothing could read",
-				"thread_key", thread.Key, "refusals", refusals,
-				"parked_for", extractParkFor.String(), "error", clampToken(err.Error()))
-			return 0, nil
-		}
-		x.log.InfoContext(ctx, "signal extract: refusing the model's reading, will try again",
-			"thread_key", thread.Key, "refusals", refusals,
-			"of", extractRefusalCap, "error", clampToken(err.Error()))
-		return 0, nil
+		return 0, x.deferRefusedReading(ctx, wsID, thread, now, err)
 	}
 	if err != nil {
 		// A provider or budget failure is not this thread's fault, so the
 		// watermark stays where it is and the conversation is read again.
 		return 0, err
 	}
+	return x.commitReading(ctx, wsID, thread, events, now)
+}
+
+// deferRefusedReading counts one refused reading of this conversation and
+// leaves it due for the next pass — or parks it, once the attempts are gone.
+//
+// The WATERMARK DOES NOT MOVE, and the refusal is COUNTED. A refusal says this
+// reply was unusable, not that the conversation holds nothing, and the two are
+// worlds apart for a reader: retiring the thread on the first one would drop
+// whatever it actually says for good. Leaving it due forever is the other
+// failure — dueThreads takes the newest extractThreadCap conversations, so a
+// thread that never settles holds a slot in every pass and the backlog behind
+// it is never reached. The count parks it after extractRefusalCap readings of
+// the SAME text. Parking is a deferral, not a verdict: a new message unparks
+// it, and so does time, because the model that could not read it is not the
+// model that will be asked next week.
+//
+// The refusal is not returned as an error either. Nothing here failed that a
+// retry of the PASS would fix, and faulting the job would re-run every other
+// thread to reach this one.
+func (x *SignalExtractor) deferRefusedReading(
+	ctx context.Context, wsID ids.WorkspaceID, thread settledThread, now time.Time, refusal error,
+) error {
+	var refusals int
+	if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
+		counted, countErr := recordThreadRefusal(ctx, tx, wsID, thread, now)
+		refusals = counted
+		return countErr
+	}); markErr != nil {
+		return markErr
+	}
+	// clampToken for the same reason validateExtractPayload uses it on every
+	// echoed token: this error can carry model output, the model read untrusted
+	// mail, and an operator log is not the place for either a correspondent's
+	// chosen volume or their private text.
+	if refusals >= extractRefusalCap {
+		// Said differently once the attempts are gone, because it means
+		// something different: nobody will look at this conversation again for
+		// a week, and whatever it states is not on the account until then. A
+		// per-refusal line at the same level would bury that in the noise of
+		// the two that preceded it.
+		x.log.WarnContext(ctx, "signal extract: parking a conversation nothing could read",
+			"thread_key", thread.Key, "refusals", refusals,
+			"parked_for", extractParkFor.String(), "error", clampToken(refusal.Error()))
+		return nil
+	}
+	x.log.InfoContext(ctx, "signal extract: refusing the model's reading, will try again",
+		"thread_key", thread.Key, "refusals", refusals,
+		"of", extractRefusalCap, "error", clampToken(refusal.Error()))
+	return nil
+}
+
+// commitReading writes the signals this conversation stated and advances its
+// watermark in ONE transaction, and reports how many signals were raised.
+func (x *SignalExtractor) commitReading(
+	ctx context.Context, wsID ids.WorkspaceID, thread settledThread, events []extractedEvent, now time.Time,
+) (int, error) {
 	raised := 0
 	if err := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
 		for _, event := range events {
 			if event.Confidence < extractConfidenceFloor {
 				continue
 			}
-			cited, err := ids.Parse(event.MessageID)
-			if err != nil {
-				// The validator has already checked every id against the ones
-				// supplied, so this cannot come from the model; it would mean
-				// the ids we sent are unparseable, which is our own bug.
-				return fmt.Errorf("cited message id: %w", err)
-			}
-			written, err := signals.RecordDerived(ctx, tx, wsID, signals.DerivedSignal{
-				Kind:           event.Kind,
-				OrganizationID: thread.OrganizationID,
-				Summary:        event.Summary,
-				Severity:       extractKinds[event.Kind],
-				Fingerprint:    signalFingerprint(event.Kind, thread.OrganizationID, cited),
-				Evidence: []signals.DerivedEvidence{
-					{Snippet: event.Summary, ActivityID: cited},
-				},
-				Audit: map[string]any{
-					paramKind:               event.Kind,
-					"thread_key":            thread.Key,
-					extractionConfidenceKey: float64(event.Confidence),
-				},
-			}, now)
+			written, err := recordExtractedEvent(ctx, tx, wsID, thread, event, now)
 			if err != nil {
 				return err
 			}
@@ -261,6 +255,36 @@ func (x *SignalExtractor) readThread(
 		return 0, err
 	}
 	return raised, nil
+}
+
+// recordExtractedEvent raises one event as a signal against the account,
+// citing the message it was stated in, and reports whether the card is new.
+func recordExtractedEvent(
+	ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread,
+	event extractedEvent, now time.Time,
+) (bool, error) {
+	cited, err := ids.Parse(event.MessageID)
+	if err != nil {
+		// The validator has already checked every id against the ones
+		// supplied, so this cannot come from the model; it would mean
+		// the ids we sent are unparseable, which is our own bug.
+		return false, fmt.Errorf("cited message id: %w", err)
+	}
+	return signals.RecordDerived(ctx, tx, wsID, signals.DerivedSignal{
+		Kind:           event.Kind,
+		OrganizationID: thread.OrganizationID,
+		Summary:        event.Summary,
+		Severity:       extractKinds[event.Kind],
+		Fingerprint:    signalFingerprint(event.Kind, thread.OrganizationID, cited),
+		Evidence: []signals.DerivedEvidence{
+			{Snippet: event.Summary, ActivityID: cited},
+		},
+		Audit: map[string]any{
+			paramKind:               event.Kind,
+			"thread_key":            thread.Key,
+			extractionConfidenceKey: float64(event.Confidence),
+		},
+	}, now)
 }
 
 // errRefusedReading marks a reply this site will not act on. It is TERMINAL
