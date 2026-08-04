@@ -8,14 +8,14 @@
   "postUpdateOptions": ["gomodTidy"],
   "prConcurrentLimit": 5,
   "platformAutomerge": true,
+  "automerge": true,
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
   "packageRules": [
     {
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "minor"],
-      "groupName": "go dependencies (non-major)",
-      "automerge": true
+      "groupName": "go dependencies (non-major)"
     },
     {
       "matchManagers": ["gomod"],
