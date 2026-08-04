@@ -398,6 +398,36 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /admin/job-health:
+    get:
+      tags: [Identity]
+      operationId: getJobHealth
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
+      x-agent-access: human-only
+      summary: What the background system is holding, and whose work failed.
+      description: >
+        Admin-only. Reports the caller's own workspace's background jobs by kind — waiting,
+        running, retrying, and dead — plus the untenanted dispatcher rows that fan work out
+        to every workspace. Another workspace's jobs are never included: river_job carries no
+        workspace column and therefore no RLS, so this endpoint imposes the scope itself.
+        Failure text is the job layer's own vetted sentence, never a worker's raw cause
+        (that column is fleet-visible and has no redaction path). Human session only
+        (x-agent-access: human-only).
+      responses:
+        '200':
+          description: The workspace's background-job health.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JobHealth' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: >
+            Refused: the caller is an agent/passport principal (this endpoint is human-only)
+            or a human without the admin role. Not an object/action RBAC grant denial.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # ------------------------------ /passports --------------------------------
   /passports:
     get:
@@ -12746,6 +12776,73 @@ components:
             scopes:
               type: array
               items: { type: string, enum: [read_only, draft_only, act_with_approval, auto_execute_low_risk] }
+
+    # ---- Admin (background-job health) ----
+    JobHealth:
+      type: object
+      additionalProperties: false
+      required: [workspace_id, generated_at, kinds, recent_failures]
+      properties:
+        workspace_id:
+          type: string
+          format: uuid
+          description: The workspace these counts are scoped to — the caller's own.
+        generated_at: { type: string, format: date-time }
+        kinds:
+          type: array
+          items: { $ref: '#/components/schemas/JobKindHealth' }
+        recent_failures:
+          type: array
+          maxItems: 50
+          description: Most recent first, capped at 50. A bounded list, not a log.
+          items: { $ref: '#/components/schemas/JobFailure' }
+
+    JobKindHealth:
+      type: object
+      additionalProperties: false
+      required: [kind, queue, fleet_wide, waiting, running, retrying, dead, oldest_waiting_age_seconds]
+      properties:
+        kind: { type: string, description: The stable job identifier River persists in river_job.kind. }
+        queue: { type: string }
+        fleet_wide:
+          type: boolean
+          description: >
+            True for a dispatcher — a job that fans work out and does no tenant work of its
+            own. Its rows carry no workspace.
+        waiting: { type: integer, description: 'Available, scheduled or pending: queued and not yet started.' }
+        running: { type: integer }
+        retrying: { type: integer, description: Failed at least once and backing off toward another attempt. }
+        dead:
+          type: integer
+          description: >
+            Discarded or cancelled: this work will not happen without intervention. A discarded
+            job spent every attempt; a cancelled one was stopped deliberately.
+        oldest_waiting_age_seconds:
+          type: [integer, 'null']
+          description: >
+            How long the oldest runnable-and-unclaimed job of this kind has waited. Null when
+            nothing of this kind is runnable now; a job scheduled for the future is not late.
+
+    JobFailure:
+      type: object
+      additionalProperties: false
+      required: [kind, workspace_id, state, attempt, max_attempts, failed_at, reason]
+      properties:
+        kind: { type: string }
+        workspace_id:
+          type: [string, 'null']
+          format: uuid
+          description: Null for a dispatcher.
+        state: { type: string, enum: [retryable, discarded, cancelled] }
+        attempt: { type: integer }
+        max_attempts: { type: integer }
+        failed_at: { type: string, format: date-time }
+        reason:
+          type: string
+          description: >
+            The job layer's vetted operator sentence. A failure whose stored text did not come
+            from that closed vocabulary reports a fixed substitute instead — the raw cause never
+            travels here.
 
     # ---- Audit ----
     AuditLogEntry:

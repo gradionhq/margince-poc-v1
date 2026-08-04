@@ -12,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -73,15 +74,27 @@ func NewV7() UUID {
 	return u
 }
 
+// ParseError is what Parse answers for a string that is not a UUID.
+//
+// Typed, because a transport boundary has to tell a refusal WE wrote from a
+// decoder message describing our own program — one reaches a client unchanged
+// and the other never may. This sentence names the caller's value and the form
+// it must take, and nothing else.
+type ParseError struct{ Value string }
+
+func (e *ParseError) Error() string {
+	return strconv.Quote(e.Value) + " is not a canonical UUID (expected the 8-4-4-4-12 hex form)"
+}
+
 // Parse reads the canonical 8-4-4-4-12 hex form.
 func Parse(s string) (UUID, error) {
 	var u UUID
 	if len(s) != 36 || s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
-		return Nil, fmt.Errorf("ids: %q is not a canonical UUID", s)
+		return Nil, &ParseError{Value: s}
 	}
 	hexed := s[:8] + s[9:13] + s[14:18] + s[19:23] + s[24:]
 	if _, err := hex.Decode(u[:], []byte(hexed)); err != nil {
-		return Nil, fmt.Errorf("ids: %q is not a canonical UUID", s)
+		return Nil, &ParseError{Value: s}
 	}
 	return u, nil
 }

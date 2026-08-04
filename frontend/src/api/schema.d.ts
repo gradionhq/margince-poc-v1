@@ -177,6 +177,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/job-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the background system is holding, and whose work failed.
+         * @description Admin-only. Reports the caller's own workspace's background jobs by kind — waiting, running, retrying, and dead — plus the untenanted dispatcher rows that fan work out to every workspace. Another workspace's jobs are never included: river_job carries no workspace column and therefore no RLS, so this endpoint imposes the scope itself. Failure text is the job layer's own vetted sentence, never a worker's raw cause (that column is fleet-visible and has no redaction path). Human session only (x-agent-access: human-only).
+         */
+        get: operations["getJobHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/passports": {
         parameters: {
             query?: never;
@@ -8973,6 +8993,50 @@ export interface components {
                 scopes?: ("read_only" | "draft_only" | "act_with_approval" | "auto_execute_low_risk")[];
             } | null;
         };
+        JobHealth: {
+            /**
+             * Format: uuid
+             * @description The workspace these counts are scoped to — the caller's own.
+             */
+            workspace_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            kinds: components["schemas"]["JobKindHealth"][];
+            /** @description Most recent first, capped at 50. A bounded list, not a log. */
+            recent_failures: components["schemas"]["JobFailure"][];
+        };
+        JobKindHealth: {
+            /** @description The stable job identifier River persists in river_job.kind. */
+            kind: string;
+            queue: string;
+            /** @description True for a dispatcher — a job that fans work out and does no tenant work of its own. Its rows carry no workspace. */
+            fleet_wide: boolean;
+            /** @description Available, scheduled or pending: queued and not yet started. */
+            waiting: number;
+            running: number;
+            /** @description Failed at least once and backing off toward another attempt. */
+            retrying: number;
+            /** @description Discarded or cancelled: this work will not happen without intervention. A discarded job spent every attempt; a cancelled one was stopped deliberately. */
+            dead: number;
+            /** @description How long the oldest runnable-and-unclaimed job of this kind has waited. Null when nothing of this kind is runnable now; a job scheduled for the future is not late. */
+            oldest_waiting_age_seconds: number | null;
+        };
+        JobFailure: {
+            kind: string;
+            /**
+             * Format: uuid
+             * @description Null for a dispatcher.
+             */
+            workspace_id: string | null;
+            /** @enum {string} */
+            state: "retryable" | "discarded" | "cancelled";
+            attempt: number;
+            max_attempts: number;
+            /** Format: date-time */
+            failed_at: string;
+            /** @description The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here. */
+            reason: string;
+        };
         /** @description An append-only audit row. Mirrors the `audit_log` table. */
         AuditLogEntry: {
             /** Format: uuid */
@@ -12021,6 +12085,36 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getJobHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace's background-job health. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobHealth"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Refused: the caller is an agent/passport principal (this endpoint is human-only) or a human without the admin role. Not an object/action RBAC grant denial. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listPassports: {

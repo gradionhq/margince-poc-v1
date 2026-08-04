@@ -1,0 +1,92 @@
+name: patch
+
+# Cut and publish the incremental patch for what lands on main. The patch is
+# produced by the release-management CLI (a closed-source tool built and
+# published from gradionhq/margince-constellation as a private container image),
+# run here against this repo's checkout: the product source that the patch
+# describes lives here, so the patch is cut here.
+#
+# The range is the push's before..after — exactly what the push added to the
+# mainline. On a branch creation or force-push there is no ancestor to diff from
+# (github.event.before is all-zeros), so the job no-ops. On a manual dispatch
+# there is no push range, so it falls back to the parent commit (HEAD~1..HEAD).
+#
+# The patch is a build artifact for the distribution pipeline to consume, not a
+# durable release, so it is kept for one day only.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Pull the private release-management image from ghcr.io with the default
+  # GITHUB_TOKEN.
+  packages: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The release-management CLI image, published :latest from constellation's
+  # main (gradionhq/margince-constellation). The pull authenticates with the
+  # job's default GITHUB_TOKEN (packages: read).
+  RELEASE_MANAGEMENT_IMAGE: ghcr.io/gradionhq/margince-constellation/release-management:latest
+
+jobs:
+  patch:
+    name: patch
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          # Full history so both ends of the range resolve; the shallow default
+          # would not carry the before commit.
+          fetch-depth: 0
+      - name: Log in to ghcr.io
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Create the patch for what landed on main
+        id: patch
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # A push carries its previous tip in BEFORE; a manual dispatch carries
+          # nothing, so fall back to the parent commit. An all-zeros BEFORE means
+          # no ancestor (branch creation / force-push): nothing to diff.
+          base="$BEFORE"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse --verify HEAD~1 2>/dev/null || true)"
+          fi
+          if [ -z "$base" ] || printf '%s' "$base" | grep -qE '^0+$'; then
+            echo "No ancestor commit to diff from; no incremental patch to cut." >&2
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The image ENTRYPOINT is the CLI (WORKDIR /work); mount the checkout
+          # there and diff it with -repo. The container runs as root over a
+          # runner-owned mount, so inject safe.directory via git's env config
+          # (no writable config file needed) for the CLI's git subprocess.
+          docker run --rm \
+            -v "$PWD":/work \
+            -e GIT_CONFIG_COUNT=1 \
+            -e GIT_CONFIG_KEY_0=safe.directory \
+            -e GIT_CONFIG_VALUE_0='*' \
+            "$RELEASE_MANAGEMENT_IMAGE" \
+            create-patch -from "$base" -to "$AFTER" -repo . -out "main-$AFTER.patch"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+      - name: Publish the patch with a short retention
+        if: steps.patch.outputs.created == 'true'
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: main-patch-${{ github.sha }}
+          path: main-${{ github.sha }}.patch
+          if-no-files-found: error
+          # A per-push build input for the dist pipeline, not a durable release.
+          retention-days: 1

@@ -178,7 +178,7 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		// An approval (and its coldstart.* echoes) carries staged-change
 		// detail — summary, edited_change, target ids — so it is gated on
 		// the SAME target-visibility predicate the approvals inbox uses
-		// (approvals/authority.go targetVisible, C3/ADR-0036: what you
+		// (approvals/targetvisibility.go targetVisible, C3/ADR-0036: what you
 		// cannot see you cannot decide), never fanned out workspace-wide.
 		return s.approvalVisibleTo(ctx, entityID)
 	default:
@@ -267,105 +267,6 @@ func (s *Store) offerDealVisible(ctx context.Context, offerID ids.UUID) (bool, e
 	return s.probeVisible(ctx, func(c context.Context, tx pgx.Tx) error {
 		return auth.EnsureVisible(c, tx, "deal", dealID)
 	})
-}
-
-// approvalVisibleTo gates an approval.*/coldstart.* event on the same
-// target-visibility rule the approvals inbox enforces (approvals/
-// authority.go targetVisible, C3/ADR-0036): the approval's envelope leaks
-// staged-change detail (summary, edited_change, target ids), so it may only
-// reach an owner who can see the TARGET record. It resolves the approval's
-// polymorphic target and applies the target's row scope (approvalTargetVisible)
-// A target-LESS approval (some approval.requested proposals and every
-// coldstart.* echo carry no target) cannot be scope-bounded, so it is
-// FAIL-CLOSED (not delivered) — a ratified deferral, exactly like the
-// deferredDelivery* subjects: never a workspace-wide fan-out of content the
-// owner's grants could not read. A missing approval row reads as
-// not-visible. The approval table is read with a raw probe under the
-// existing WithWorkspaceTx boundary rather than importing the approvals
-// module (a module never imports a sibling).
-func (s *Store) approvalVisibleTo(ctx context.Context, approvalID ids.UUID) (bool, error) {
-	var (
-		targetType *string
-		targetID   *ids.UUID
-	)
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT target_entity_type, target_entity_id FROM approval WHERE id = $1`,
-			approvalID).Scan(&targetType, &targetID)
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if targetType == nil || targetID == nil {
-		// Target-less approval — no record whose scope could bound the
-		// fan-out, so it is EXPLICITLY undelivered (fail-closed), never
-		// leaked workspace-wide.
-		return false, nil
-	}
-	return s.approvalTargetVisible(ctx, *targetType, *targetID)
-}
-
-// approvalTargetVisible gates an approval event on its TARGET record's
-// visibility under the SAME read-path admission the target's own store applies
-// (auth.Require object-read AND the row scope), because the envelope discloses
-// the target's details (summary, target ids, edited_change): a subscriber may
-// receive an approval only about a target it could itself read, never one it
-// cannot. This is the target-visibility half of approvals.targetVisible
-// (approvals/authority.go) HARDENED with the object-read capability, exactly as
-// entityVisibleTo hardens the primary read path (the P0 gate): a lingering row
-// scope with no current read grant must not leak the payload through the
-// approval path any more than through the direct-subject path. It deliberately
-// omits ONLY the inbox's `decidable` decision-grant half — that governs who may
-// ACT on an approval (authorization), not who may learn a visible target's
-// proposed change — so a webhook owner's fan-out set may be broader than the
-// inbox's decidable set while disclosing nothing beyond what the owner could
-// already read. Diverging here from the sibling's row-scope-only probe is
-// deliberate: the webhook fan-out has no handler-level approval.read entry gate
-// (the inbox does), so the target object-read is the read-path floor this gate
-// owes on its own. Workspace-shared admin config (product, custom_field) has no
-// per-owner scope — existence is the floor. Unknown target type: fail closed.
-// Self-contained (a module never imports a sibling); the row-scoped branches
-// must stay in step with entityVisibleTo above.
-func (s *Store) approvalTargetVisible(ctx context.Context, targetType string, targetID ids.UUID) (bool, error) {
-	switch targetType {
-	case "person", "organization", "deal", "lead":
-		return s.rowScopedVisible(ctx, targetType, func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureVisible(c, tx, targetType, targetID)
-		})
-	case "offer":
-		return s.offerVisibleTo(ctx, targetID)
-	case "signal":
-		return s.rowScopedVisible(ctx, "signal", func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureSignalVisible(c, tx, targetID)
-		})
-	case "activity":
-		return s.rowScopedVisible(ctx, "activity", func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureActivityVisible(c, tx, targetID)
-		})
-	case "relationship":
-		// An edge inherits the CONJUNCTION of its endpoints' scope. The object-read
-		// floor is `relationship`, matching every other row-scoped arm here — the
-		// endpoint reads are the clause's own business.
-		return s.rowScopedVisible(ctx, "relationship", func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureRelationshipVisible(c, tx, targetID)
-		})
-	case "product":
-		// Rate-card products are workspace-shared config with no row scope —
-		// existence is the floor (approvals.targetVisible); an archived product
-		// is not a live target.
-		return s.rowExists(ctx, `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`, targetID)
-	case "custom_field":
-		// The field catalog is workspace-shared admin config with no row scope;
-		// no archived_at predicate — retire is a status flip that keeps the row
-		// live, matching approvals.targetVisible.
-		return s.rowExists(ctx, `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`, targetID)
-	default:
-		// Unknown target type: fail closed, exactly like approvals.targetVisible.
-		return false, nil
-	}
 }
 
 // rowExists runs a single-row existence probe under the ctx's workspace tx —

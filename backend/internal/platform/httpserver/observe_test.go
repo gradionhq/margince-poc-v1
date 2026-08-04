@@ -256,3 +256,99 @@ func TestChassisWrappersPreserveResponseControllerCapabilities(t *testing.T) {
 		})
 	}
 }
+
+// TestMetricsHandsTheJobSectionItsOwnDeadlineNotTheRequests — the job read
+// queries a table no index covers, so it is the one section that has to
+// stay inside the handler's budget. The overlay section next door is wired
+// with r.Context() and runs unbounded; a reader who pattern-matched that
+// neighbour would inherit the unbounded query, so the difference is pinned
+// here rather than left to a comment.
+func TestMetricsHandsTheJobSectionItsOwnDeadlineNotTheRequests(t *testing.T) {
+	var deadlineSet bool
+	jobStats := func(ctx context.Context, _ io.Writer) error {
+		_, deadlineSet = ctx.Deadline()
+		return nil
+	}
+
+	rec := httptest.NewRecorder()
+	// A request context with NO deadline of its own, so a deadline seen by
+	// the section can only have come from the handler.
+	Metrics(nil, unreadableBacklog, zeroPublished, nil, jobStats, nil)(
+		rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if !deadlineSet {
+		t.Error("the job section ran without a deadline; an unbounded scan can hold the " +
+			"scrape open for as long as the query takes")
+	}
+}
+
+// TestMetricsStopsWritingWhenTheJobSectionRefusesAWrite — a truncated
+// exposition parses as a smaller fleet rather than as a broken one, so a
+// refused write ends the body instead of being rendered past.
+func TestMetricsStopsWritingWhenTheJobSectionRefusesAWrite(t *testing.T) {
+	// A writer that actually REFUSES, passed through the callback exactly as
+	// the real section receives it. Returning a synthetic error without
+	// touching w would exercise the handler's branch while proving nothing
+	// about the truncated-scrape path this test is named for.
+	refused := errors.New("connection reset")
+	jobStats := func(_ context.Context, w io.Writer) error {
+		if _, err := w.Write([]byte("margince_job_queue_depth{queue=\"q\",workspace_id=\"\"} 1\n")); err != nil {
+			return err
+		}
+		return refused
+	}
+	overlayReached := false
+
+	rec := httptest.NewRecorder()
+	Metrics(nil, unreadableBacklog, zeroPublished, nil, jobStats, &OverlayMetrics{
+		SourceLag: func(context.Context) (map[string]time.Duration, error) {
+			overlayReached = true
+			return nil, errors.New("unreached")
+		},
+		SyncedTotal:   func() uint64 { return 0 },
+		ConflictTotal: func() uint64 { return 0 },
+		DeletedTotal:  func() uint64 { return 0 },
+	})(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if overlayReached {
+		t.Error("the handler kept writing after the job section reported the writer was gone")
+	}
+}
+
+// TestMetricsWithNoJobSectionWiredStillServesTheRest — a process role that
+// wires no job read (the same posture nil extra and nil overlay take) must
+// still serve the families it does have.
+func TestMetricsWithNoJobSectionWiredStillServesTheRest(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Metrics(nil, func(context.Context) (int64, error) { return 7, nil },
+		func() uint64 { return 3 }, nil, nil, nil)(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if !strings.Contains(rec.Body.String(), "margince_outbox_unpublished 7") {
+		t.Errorf("a nil job section suppressed the rest of the exposition:\n%s", rec.Body.String())
+	}
+}
+
+// unreadableBacklog stands in for the outbox read on a pool that cannot be
+// reached, which is the honest state of idlePool.
+func unreadableBacklog(context.Context) (int64, error) {
+	return 0, errors.New("the outbox is not readable in a wiring test")
+}
+
+func zeroPublished() uint64 { return 0 }
+
+// TestMetricsOmitsThePoolGaugesWhenNoPoolIsInjected — every other section
+// here is "declared or absent"; the pool gauges were the one that panicked
+// instead. An unmeasured pool must be missing from the scrape, never
+// reported as an idle one.
+func TestMetricsOmitsThePoolGaugesWhenNoPoolIsInjected(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Metrics(nil, unreadableBacklog, zeroPublished, nil, nil, nil)(
+		rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	if strings.Contains(rec.Body.String(), "margince_pgxpool_conns") {
+		t.Errorf("the pool gauges were rendered without a pool to measure:\n%s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "margince_relay_published_total") {
+		t.Errorf("an absent pool suppressed the sections that did not need it:\n%s", rec.Body.String())
+	}
+}

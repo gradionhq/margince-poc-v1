@@ -231,7 +231,21 @@ type OverlayMetrics struct {
 // router's call metrics) directly after the pool gauges; nil means the
 // role wired none. overlay is injected the same way (nil for a role with
 // no overlay surface wired).
-func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer), overlay *OverlayMetrics) http.HandlerFunc {
+//
+// jobStats renders the job-runtime section. Unlike extra it takes a
+// context, because it queries at scrape time, and it is handed THIS
+// handler's deadline-bound ctx rather than the request's — an unbounded
+// job read is the one thing the 2s budget below exists to stop.
+//
+// A section that could not MEASURE writes nothing and returns nil, so the
+// rest of the exposition still serves; the error return is reserved for a
+// refused WRITE, which in practice means the scraper's connection is
+// already gone. The handler logs it and stops rather than writing further
+// sections into a socket that is not there.
+//
+// The parameter list has reached the point where a further section should
+// become a struct rather than a seventh argument.
+func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), published func() uint64, extra func(io.Writer), jobStats func(context.Context, io.Writer) error, overlay *OverlayMetrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -249,16 +263,28 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 		_, _ = fmt.Fprintf(w, "# TYPE margince_relay_published_total counter\n")
 		_, _ = fmt.Fprintf(w, "margince_relay_published_total %d\n", published())
 
-		stat := pool.Stat()
-		_, _ = fmt.Fprintf(w, "# HELP margince_pgxpool_conns Connection pool state by class.\n")
-		_, _ = fmt.Fprintf(w, "# TYPE margince_pgxpool_conns gauge\n")
-		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"acquired\"} %d\n", stat.AcquiredConns())
-		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"idle\"} %d\n", stat.IdleConns())
-		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"total\"} %d\n", stat.TotalConns())
-		_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"max\"} %d\n", stat.MaxConns())
+		// Omitted rather than zeroed when no pool was injected — the same
+		// "declared or absent" posture every other section here takes, and
+		// the reason a failed backlog read above writes nothing: a gauge
+		// reporting connections it did not measure reads as an idle pool.
+		if pool != nil {
+			stat := pool.Stat()
+			_, _ = fmt.Fprintf(w, "# HELP margince_pgxpool_conns Connection pool state by class.\n")
+			_, _ = fmt.Fprintf(w, "# TYPE margince_pgxpool_conns gauge\n")
+			_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"acquired\"} %d\n", stat.AcquiredConns())
+			_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"idle\"} %d\n", stat.IdleConns())
+			_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"total\"} %d\n", stat.TotalConns())
+			_, _ = fmt.Fprintf(w, "margince_pgxpool_conns{state=\"max\"} %d\n", stat.MaxConns())
+		}
 
 		if extra != nil {
 			extra(w)
+		}
+		if jobStats != nil {
+			if err := jobStats(ctx, w); err != nil {
+				slog.ErrorContext(r.Context(), "metrics: writing the job section failed", "err", err)
+				return
+			}
 		}
 		if overlay != nil {
 			writeOverlayMetrics(r.Context(), w, overlay)

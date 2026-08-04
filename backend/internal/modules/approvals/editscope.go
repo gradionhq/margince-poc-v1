@@ -8,7 +8,7 @@ package approvals
 // ADR-0036 §4 lets a human release a corrected version of a staged action. The
 // correction is CONTENT — a name, an amount, a date, a body. It is not WHICH
 // RECORD the action lands on: that is the approval's identity, and it is what
-// the decide-time row-scope probe (decidable → targetVisible) and the
+// the decide-time target-visibility probe (decidable → targetVisible) and the
 // redemption-time version pin were both evaluated against, before the edit
 // existed.
 //

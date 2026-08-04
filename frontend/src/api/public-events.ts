@@ -488,14 +488,14 @@ export interface components {
         PublicEventActivityUpdated: {
             changed_fields: components["schemas"]["PublicEventActivityChangedFields"];
         };
-        /** @description Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sink.go's emitReply). */
+        /** @description Payload for engagement.reply — CAP-FORMULA-1: an inbound message in a thread we previously wrote outbound in is a reply, feeding the engagement signal scoring (capture/sinkreply.go's emitReply). */
         PublicEventEngagementReply: {
             /**
              * Format: uuid
              * @description The prior outbound activity this inbound message replies to.
              */
             matched_outbound_activity_id: string;
-            /** @description The channel the reply arrived on (today always email). */
+            /** @description The medium the reply arrived on and must be answered on: `email` for the mail connectors (gmail, imap, graph all reach one inbox), the channel provider itself for a messaging connector (e.g. `telegram`). */
             channel: string;
             /**
              * Format: date-time
@@ -506,7 +506,7 @@ export interface components {
             idempotency_key: string;
             /**
              * Format: uuid
-             * @description The already-known person behind the counterparty address (absent when the counterparty resolves only in a follow-up ensure).
+             * @description The already-known person behind the counterparty — resolved from the address on the mail path and from the channel identity on a messaging one (absent when the counterparty resolves only in a follow-up ensure).
              */
             contact_id?: string;
         };

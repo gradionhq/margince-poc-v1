@@ -3,7 +3,9 @@
 
 // The decision-authority predicate: who may see and decide a staged
 // approval. One predicate (decidable) backs List, Get and Decide alike
-// (C3/ADR-0036) — what you cannot see you cannot decide.
+// (C3/ADR-0036) — what you cannot see you cannot decide. Its target half —
+// whether the record a staged row points at is one this human may see — is
+// targetvisibility.go.
 
 package approvals
 
@@ -11,12 +13,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -28,26 +30,26 @@ import (
 // and a typo in any of them would silently ask for a grant nobody holds.
 const objectActivity = "activity"
 
-// objectSignal is the RBAC object the warm-room surface is governed by, spelled
-// once for the same reason objectActivity is.
-const objectSignal = "signal"
-
-// decisionGrants maps each stageable kind onto the RBAC the underlying
-// effect needs; approving requires every one of them.
-var decisionGrants = map[string][]struct {
+// grantRequirement is one RBAC pair approving a staged kind requires. Named
+// rather than anonymous because the derivation below appends to the set and the
+// composition layer's satisfiability gate reads the objects back out of it.
+type grantRequirement struct {
 	Object string
 	Action principal.Action
-}{
+}
+
+// decisionGrants maps each stageable kind onto the RBAC its effect needs given
+// the KIND ALONE; approving requires every one of them. A kind whose grant also
+// depends on what the staging points at carries that half in
+// targetResolvedGrants, and approving then requires the UNION — no kind needs
+// both today, and decisionGrantsFor combines them so one that grows a second half
+// gains authority rather than silently losing the first.
+var decisionGrants = map[string][]grantRequirement{
 	"advance_deal": {{tableDeal, principal.ActionUpdate}},
 	// progress_deal is advance_deal plus a timeline note; the gated effect
 	// is the deal move, so deciding it needs the same grant.
-	"progress_deal":  {{tableDeal, principal.ActionUpdate}},
-	"promote_lead":   {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
-	"archive_record": {}, // resolved from the target's entity type below
-	"merge_records":  {}, // resolved from the target's entity type below
-	"share_record":   {}, // resolved from the target's entity type below
-	"update_record":  {}, // resolved from the target's entity type below (human-edit-precedence stagings)
-	"create_record":  {}, // resolved from the target's entity type below (🟡 creates staged at the transport gate, e.g. createCustomField)
+	"progress_deal": {{tableDeal, principal.ActionUpdate}},
+	"promote_lead":  {{tableLead, principal.ActionUpdate}, {tablePerson, principal.ActionCreate}},
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
@@ -68,8 +70,8 @@ var decisionGrants = map[string][]struct {
 	// A rate refresh proposes an effective-dated row on a workspace-shared
 	// price sheet; deciding it needs the same admin/ops Create grant the
 	// editor's write path requires.
-	"fx_rate_proposal":       {{"fx_rate", principal.ActionCreate}},
-	"ai_model_rate_proposal": {{"ai_model_rate", principal.ActionCreate}},
+	"fx_rate_proposal":       {{targetFxRate, principal.ActionCreate}},
+	"ai_model_rate_proposal": {{targetAIModelRate, principal.ActionCreate}},
 	// Accepting a deep site read writes profile fields and category facts
 	// onto the target organization — the same update authority enrich needs.
 	"deepread": {{tableOrganization, principal.ActionUpdate}},
@@ -90,16 +92,6 @@ var decisionGrants = map[string][]struct {
 	// signature naming their company, with nothing corroborating it) renames
 	// the organization — the same update authority the name editor needs.
 	"org_name_promotion": {{tableOrganization, principal.ActionUpdate}},
-	// Accepting a lifecycle_change proposal (the account-intelligence arc: the
-	// correspondence says the contract ended while the record still reads as
-	// live) moves the account's stage — the same update authority the header's
-	// own stage picker needs.
-	// It also carries the signal's own summary in its payload and settles that
-	// signal on accept, so it needs the signal grant too. Without it an
-	// organization editor could read model-derived correspondence and close a
-	// signal they have no standing to see — the ordinary triage path takes
-	// signal:update and EnsureSignalVisible for exactly that reason.
-	"lifecycle_change": {{tableOrganization, principal.ActionUpdate}, {objectSignal, principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{tableDeal, principal.ActionUpdate}},
@@ -108,6 +100,32 @@ var decisionGrants = map[string][]struct {
 	// may see and decide it (targetVisible), the create grant gates the
 	// write the confirm performs.
 	"deal_follow_up": {{objectActivity, principal.ActionCreate}},
+}
+
+// targetResolvedGrants are the kinds whose decision grant is not fixed by the
+// kind but read off the staged target's own entity type, mapped to the action
+// the release performs on it:
+//
+//   - archive_record deletes the target.
+//   - share_record widens who sees the target, which the direct share path takes
+//     the target type's update grant for.
+//   - merge_records rewrites where records point, and the store maps the merge
+//     verb to update.
+//   - update_record releases a field patch (human-edit precedence,
+//     interfaces.md §2.1) — the grant the patch itself would need.
+//   - create_record releases a new record of the type (a 🟡 create staged at the
+//     transport gate, e.g. createCustomField).
+//
+// ONE table, because two readers derive from it: requireDecisionGrants enforces
+// the pair against a principal, and DecisionGrantObjects reports the objects to
+// the composition layer's satisfiability gate. A second copy would let that gate
+// certify a route whose real decision demands a different object.
+var targetResolvedGrants = map[string]principal.Action{
+	"archive_record": principal.ActionDelete,
+	"share_record":   principal.ActionUpdate,
+	"merge_records":  principal.ActionUpdate,
+	"update_record":  principal.ActionUpdate,
+	"create_record":  principal.ActionCreate,
 }
 
 // decidedEcho builds the approved/rejected payload a kind's decision
@@ -140,6 +158,18 @@ const (
 	targetOffer        = "offer"
 	targetProduct      = "product"
 	targetRelationship = "relationship"
+	targetSavedView    = "saved_view"
+	targetSignal       = "signal"
+	targetTag          = "tag"
+	// The workspace-shared config rows an object grant governs, each named by
+	// both the existence probe and the version-table whitelist.
+	targetOfferTemplate       = "offer_template"
+	targetWebhookSubscription = "webhook_subscription"
+	// The effective-dated rate sheets. Both are named twice — the probe
+	// classification and the decision-grant map — and both are workspace-scoped
+	// config with no row of their own until a proposal is accepted.
+	targetFxRate      = "fx_rate"
+	targetAIModelRate = "ai_model_rate"
 	// The row-scoped record tables. Named as a SET rather than one at a time: this
 	// package spells them in the probe classification, the decision-grant map and
 	// the version-table whitelist, and a typo makes a target undecidable in the
@@ -149,6 +179,7 @@ const (
 	tableDeal         = "deal"
 	tableLead         = "lead"
 	tableProject      = "project"
+	tableList         = "list"
 )
 
 // selfOnlyKinds are the staging kinds whose proposal is nobody's business but
@@ -169,75 +200,27 @@ const (
 // off the workspace fan-out for the same reason.
 var selfOnlyKinds = map[string]bool{"linkedin_match": true}
 
-// targetProbe names HOW a target type's visibility is decided. It exists so the
-// answer "is this target type decidable at all" has ONE source: targetVisible
-// switches on it, and TargetTypeDecidable reports on it.
-//
-// That mattered the moment the tool surface started minting staged rows for types
-// nobody had checked. A type with no rule is not decidable, which means its
-// staged row is invisible in the inbox AND undecidable at the decision — an
-// authority object a human can neither release nor reject, and the fan-out that
-// would have told them about it is dropped for the same reason. The composition
-// layer derives the obligation over the generated policy table
-// (TestEveryConfirmFirstTargetTypeIsDecidable), so a confirm-first verb whose
-// target type has no rule here fails a gate instead of shipping a zombie.
-type targetProbe int
-
-const (
-	// probeNoRule is the zero value on purpose: an unrecognized type falls here
-	// and fails closed.
-	probeNoRule targetProbe = iota
-	// probeOwnScope — the row carries owner_id, so its own row scope answers.
-	probeOwnScope
-	// probeInheritedScope — the row owns no owner_id and inherits from what it
-	// points at: an offer from its deal, a signal from its subject, an activity
-	// from any linked record, an edge from ALL of its endpoints.
-	probeInheritedScope
-	// probeExistence — workspace-shared admin config with no row scope; the
-	// decision-grant check is the authority and existence is the floor.
-	probeExistence
-	// probeActingWorkspace — the target IS a workspace (an effective-dated price
-	// sheet with no row of its own yet), so the floor is that it is THIS one.
-	probeActingWorkspace
-)
-
-func probeFor(targetType string) targetProbe {
-	switch targetType {
-	case tablePerson, tableOrganization, tableDeal, tableLead, tableProject:
-		return probeOwnScope
-	case targetOffer, objectSignal, objectActivity, targetRelationship:
-		return probeInheritedScope
-	case targetProduct, "custom_field":
-		return probeExistence
-	case "fx_rate", "ai_model_rate":
-		return probeActingWorkspace
-	default:
-		return probeNoRule
-	}
-}
-
-// TargetTypeDecidable reports whether a staged row against this target type can
-// be seen and decided at all. Exported for the composition layer's gate: a
-// confirm-first verb whose target type answers false stages authority objects
-// that no human can ever release or reject.
-func TargetTypeDecidable(targetType string) bool {
-	return probeFor(targetType) != probeNoRule
-}
-
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
-// require AND can see the target row under their own/team/all scope. It
+// require AND could read the staged target itself — the object-read grant
+// on its type, then that record's own row rule (targetvisibility.go). It
 // backs List, Get and Decide alike, so triage visibility and the decision
 // gate can never drift apart — you see exactly what you could act on, and
-// what you cannot see you cannot decide (in either direction). An unknown
-// kind (no mapping) or unknown target type is not decidable: fail-closed.
+// what you cannot see you cannot decide (in either direction). Two shapes
+// narrow that to ONE seat, the member the row was staged for: a self-only
+// kind, and a staged create against a table whose rows belong to one human
+// each. An unknown kind (no mapping) or unknown target type is not
+// decidable: fail-closed.
 func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bool, error) {
 	if requireDecisionGrants(p, a) != nil {
 		return false, nil
 	}
-	if selfOnlyKinds[a.Kind] {
-		// Fail-closed on a missing stager: a self-only proposal nobody is
-		// recorded for is one nobody may read, not one everybody may.
+	if selfOnlyKinds[a.Kind] || stagedForStagerOnly(a.TargetType, a.TargetID != nil) {
+		// Two routes to the same predicate: a kind whose subject is one member's
+		// own business, and a staged create against a table whose rows belong to
+		// one human each — where no row exists yet for an ownership probe to ask.
+		// Fail-closed on a missing stager: a proposal nobody is recorded for is
+		// one nobody may read, not one everybody may.
 		if a.OnBehalfOf == nil || p.UserID == ids.Nil || a.OnBehalfOf.UUID != p.UserID {
 			return false, nil
 		}
@@ -245,182 +228,10 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 	return targetVisible(ctx, tx, a.TargetType, a.TargetID)
 }
 
-// targetVisible applies the target row's own/team/all row scope to the
-// approval: holding deal.update does not entitle a rep to see — or
-// decide — a staged change against another team's deal. The probe uses
-// the same platform/auth clauses the owning store's reads use, so the
-// approval surface can never disclose more than the record itself would.
-// A staged row with NEITHER a target type nor a target id (a cold-start
-// proposal, which is about no record yet) is scoped by grants alone; a
-// target the probe errors on stays invisible.
-//
-// A row carrying one half and not the other is neither of those things and
-// is not decidable. An id with no type names a concrete record the probe
-// cannot resolve — treating it as target-less would put that record's
-// summary and proposed change in the inbox of everyone holding the object
-// grant, and let any of them decide a write against a row their own scope
-// hides. A type with no id has nothing to check the scope against.
-//
-// It takes the pair rather than a row because a target-FILTERED read asks the
-// same question about a target the client named, before any row is in hand.
-// An unrecognized type must fail closed there too: auth.VisibleTo errors on a
-// table it does not row-scope, so the switch below — not the caller — is what
-// keeps a made-up target_entity_type from reaching it.
-func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
-	if targetType == nil && targetID == nil {
-		return true, nil
-	}
-	if targetType == nil || targetID == nil {
-		return false, nil
-	}
-	switch probeFor(*targetType) {
-	case probeOwnScope:
-		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
-	case probeInheritedScope:
-		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
-	case probeExistence:
-		return targetExists(ctx, tx, *targetType, *targetID)
-	case probeActingWorkspace:
-		// Effective-dated price sheets are workspace-shared admin config
-		// with no row scope. A refresh proposal targets the workspace (a
-		// brand-new currency/model has no row yet), so existence is not the
-		// floor here — the decision-grant check above (admin/ops Create) is
-		// the authority. The floor that remains is that the shown target IS
-		// the acting workspace: a proposal whose target_id is some other
-		// workspace is not decidable here (its effect would write to this
-		// context's sheet, not the claimed one).
-		wsID, ok := principal.WorkspaceID(ctx)
-		return ok && *targetID == wsID, nil
-	default:
-		return false, nil // no rule for this target type: fail closed
-	}
-}
-
-// targetVisibleThroughParent answers for the target kinds that carry no
-// owner_id of their own and are visible exactly when the record they hang off
-// is — the same anchoring each one's own store applies, so a staged action
-// discloses nothing the record itself would not.
-func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
-	if targetType == targetOffer {
-		var dealID ids.UUID
-		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, targetID).Scan(&dealID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return auth.VisibleTo(ctx, tx, tableDeal, dealID)
-	}
-	var ensure func(context.Context, pgx.Tx, ids.UUID) error
-	switch targetType {
-	case objectSignal:
-		ensure = auth.EnsureSignalVisible
-	case objectActivity:
-		ensure = auth.EnsureActivityVisible
-	case targetRelationship:
-		// An edge inherits the CONJUNCTION of its endpoints' scope, which is one
-		// spelling in platform/auth because people's own reads and this probe are
-		// two readers of the same rule.
-		ensure = auth.EnsureRelationshipVisible
-	default:
-		// TOTAL on purpose. A signal default read as "whatever is left", so a type
-		// added to probeFor's inherited-scope arm — which looks like the whole act
-		// of enrolling one — would have been probed against the SIGNAL table: a
-		// wrong-scope answer rather than a closed one, from the branch that exists
-		// to be closed. probeFor is the one source only if this cannot silently
-		// disagree with it.
-		return false, fmt.Errorf(
-			"crmapprovals: %q is classified as inherited-scope with no parent probe", targetType)
-	}
-	switch err := ensure(ctx, tx, targetID); {
-	case err == nil:
-		return true, nil
-	case errors.Is(err, apperrors.ErrNotFound):
-		return false, nil
-	default:
-		return false, err
-	}
-}
-
-// targetExists is the floor for workspace-shared admin config that carries no
-// row scope at all: the decision-grant check is the authority question, but a
-// staging against a record that does not exist is still not decidable.
-//
-// A retired custom field is deliberately still a target — retire is a status
-// flip that keeps the row live, and a staged edit against a retired field
-// stays decidable — so only the product read excludes archived rows.
-func targetExists(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
-	query := `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`
-	if targetType == targetProduct {
-		query = `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`
-	}
-	var exists bool
-	if err := tx.QueryRow(ctx, query, targetID).Scan(&exists); err != nil {
-		return false, err
-	}
-	return exists, nil
-}
-
 func requireDecisionGrants(p principal.Principal, a row) error {
-	grants, known := decisionGrants[a.Kind]
-	if !known {
-		return fmt.Errorf("crmapprovals: kind %q has no decision-grant mapping", a.Kind)
-	}
-	if a.Kind == "archive_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: archive_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionDelete})
-	}
-	// Sharing widens who sees the target — approving needs the target
-	// type's update grant, exactly like a direct share would.
-	if a.Kind == "share_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: share_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A merge rewrites where records point — the store maps the merge verb to
-	// update, so approving needs update on the target's entity type.
-	if a.Kind == "merge_records" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: merge_records staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A human-edit-precedence staging (interfaces.md §2.1) releases a
-	// field patch — approving needs the update grant the patch itself
-	// would need on the target's entity type.
-	if a.Kind == "update_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: update_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionUpdate})
-	}
-	// A staged 🟡 create (a schema change like createCustomField) releases
-	// a new record of the target type — approving needs the create grant
-	// the write itself would need.
-	if a.Kind == "create_record" {
-		if a.TargetType == nil {
-			return errors.New("crmapprovals: create_record staged without a target type")
-		}
-		grants = append(grants, struct {
-			Object string
-			Action principal.Action
-		}{*a.TargetType, principal.ActionCreate})
+	grants, err := decisionGrantsFor(a.Kind, a.TargetType)
+	if err != nil {
+		return err
 	}
 	for _, g := range grants {
 		if !p.Permissions.Allows(g.Object, g.Action) {
@@ -428,6 +239,51 @@ func requireDecisionGrants(p principal.Principal, a row) error {
 		}
 	}
 	return nil
+}
+
+// decisionGrantsFor derives every grant approving this staging requires: the
+// kind's own, plus — for the kinds whose authority is the target's entity type —
+// that type's. An unmapped kind, and a target-resolved kind staged with no
+// target type, both error: neither can be decided by anyone, and answering an
+// empty grant set for either would make them decidable by everyone.
+func decisionGrantsFor(kind string, targetType *string) ([]grantRequirement, error) {
+	fixed, hasFixed := decisionGrants[kind]
+	action, resolvedFromTarget := targetResolvedGrants[kind]
+	if !hasFixed && !resolvedFromTarget {
+		return nil, fmt.Errorf("crmapprovals: kind %q has no decision-grant mapping", kind)
+	}
+	if !resolvedFromTarget {
+		return fixed, nil
+	}
+	if targetType == nil {
+		return nil, fmt.Errorf("crmapprovals: %s staged without a target type", kind)
+	}
+	// Cloned, not appended in place: fixed is the map's own slice, and appending
+	// into its spare capacity would rewrite what the next caller reads.
+	return append(slices.Clone(fixed), grantRequirement{*targetType, action}), nil
+}
+
+// DecisionGrantObjects reports the RBAC objects approving a staging of this kind
+// against this target type requires.
+//
+// Exported for the composition layer's decidability gate, which has to prove
+// more than that the staged target has a visibility rule: the derived grants must
+// also be SATISFIABLE. An object outside the vocabulary a role document may name
+// is allowed by no principal that can exist, so a staged row demanding it is
+// permanently undecidable — the same dead row as a missing visibility rule,
+// reached from the authority side. This package cannot ask identity for that
+// vocabulary itself (a module never imports a sibling), so it answers what it
+// demands and the composition layer, which imports both, checks it.
+func DecisionGrantObjects(kind, targetType string) ([]string, error) {
+	grants, err := decisionGrantsFor(kind, &targetType)
+	if err != nil {
+		return nil, err
+	}
+	objects := make([]string, 0, len(grants))
+	for _, g := range grants {
+		objects = append(objects, g.Object)
+	}
+	return objects, nil
 }
 
 // humanOnly guards the inbox and the decision: an agent approving its own
@@ -444,11 +300,15 @@ func humanOnly(ctx context.Context) error {
 }
 
 // KindHasDecisionGrants reports whether a stageable kind carries a
-// decision-grant mapping. The composition layer's fitness test calls it
-// for every 🟡/dynamic tool in the registry: a tool that can stage an
-// approval nobody is mapped to decide would strand its stagings in a
-// queue no inbox shows (decidable fails closed on unknown kinds).
+// decision-grant mapping — its own, or one resolved from the staged target's
+// entity type. The composition layer's fitness test calls it for every
+// 🟡/dynamic tool in the registry: a tool that can stage an approval nobody is
+// mapped to decide would strand its stagings in a queue no inbox shows
+// (decidable fails closed on unknown kinds).
 func KindHasDecisionGrants(kind string) bool {
-	_, ok := decisionGrants[kind]
-	return ok
+	if _, ok := decisionGrants[kind]; ok {
+		return true
+	}
+	_, resolvedFromTarget := targetResolvedGrants[kind]
+	return resolvedFromTarget
 }
