@@ -200,6 +200,20 @@ func (c *recordingCompleter) Complete(ctx context.Context, req model.Request) (m
 	return resp, err
 }
 
+// stripper is the credential pass the probed site declared, taken from the last
+// request it actually issued. Nil when no call was made or the site declares
+// none, which stripText reads as "use the default rules".
+//
+//nolint:ireturn // SecretStripper IS the seam: the site chooses the implementation and this only carries it.
+func (c *recordingCompleter) stripper() model.SecretStripper {
+	for i := len(c.calls) - 1; i >= 0; i-- {
+		if s := c.calls[i].Request.SecretStripper; s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
 // probeResult is one probe, whole: what was asked, what each call did, and what
 // the production validator made of the reply.
 type probeResult struct {
@@ -283,7 +297,10 @@ func runProbe(ctx context.Context, stdout io.Writer, census *aitasks.Registry, c
 	res.Calls = recorder.calls
 	// The final output is written to --json like everything else, so it passes
 	// the same credential gate the per-call replies do.
-	output, stripErr := stripText(ctx, nil, trace.Output)
+	// The site's own stripper, not the defaults: a site may declare rules the
+	// default pass does not carry, and the final output must not be redacted
+	// more weakly than the per-call replies it was assembled from.
+	output, stripErr := stripText(ctx, recorder.stripper(), trace.Output)
 	if stripErr != nil {
 		// Reported like any other harness failure, and through the SAME exit —
 		// a bare return here would discard the report, the json result and

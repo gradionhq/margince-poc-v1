@@ -180,3 +180,36 @@ func yamlTags(t reflect.Type) tagSet {
 	}
 	return out
 }
+
+// Decoding JSON into `any` routes every number through float64, which would
+// render a 19-digit id as 1.234567890123457e+18 and silently change the fixture
+// on its way to YAML. A round trip must return the scenario it was given.
+func TestRenderScenarioPreservesExactNumbers(t *testing.T) {
+	reg := census(t)
+	sc := aicert.Scenario{
+		Task: "rate_extract", Site: "pricing",
+		Fixture: aicert.JSONValue(`{"provider":"Aurora AI","page_text":"x","big_id":1234567890123456789,"exact":0.1}`),
+	}
+	body, err := aicert.RenderScenario(sc)
+	if err != nil {
+		t.Fatalf("RenderScenario: %v", err)
+	}
+	if strings.Contains(string(body), "e+18") || strings.Contains(string(body), "1234567890123456800") {
+		t.Errorf("a large id was rendered through float64:\n%s", body)
+	}
+	if !strings.Contains(string(body), "1234567890123456789") {
+		t.Errorf("the id must survive exactly:\n%s", body)
+	}
+
+	path := filepath.Join(t.TempDir(), "s.yaml")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	back, err := aicert.LoadScenarioFile(path, reg)
+	if err != nil {
+		t.Fatalf("the rendered scenario must load back: %v", err)
+	}
+	if !strings.Contains(string(back.Fixture), "1234567890123456789") {
+		t.Errorf("the id did not survive the full round trip: %s", back.Fixture)
+	}
+}

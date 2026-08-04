@@ -207,6 +207,45 @@ func (m modelCostRefresh) run(ctx context.Context) error {
 	return nil
 }
 
+// reduceCatalog narrows a provider's JSON catalog to the models this deployment
+// binds on THAT provider, one passage each.
+//
+// Every refusal here names the file the operator has to change, because each
+// failure has a different cause and a different fix: a key that disagrees with
+// the routing, a catalog with nothing in it, and a binding the vendor no longer
+// lists all look identical downstream — a reply truncated past the output
+// ceiling — and that error points nowhere near any of them.
+func (m modelCostRefresh) reduceCatalog(body string, src pricingSource) (string, error) {
+	wanted, bindsProvider := m.bound[src.Provider]
+	// rates.model_pricing keys and ai-routing.yaml provider names are two
+	// operator-edited files coupled by exact string equality.
+	if !bindsProvider && len(m.bound) > 0 {
+		return "", fmt.Errorf(
+			"extract: rates.model_pricing names provider %q, which ai-routing.yaml does not bind (it binds %s) — the two must use the same spelling",
+			src.Provider, strings.Join(boundProviderNames(m.bound), ", "))
+	}
+	reduced, kept, ok := catalogPassages(body, wanted)
+	switch {
+	case !ok:
+		return "", errors.New("extract: the source served JSON that is not a model catalog")
+	case kept == 0 && len(wanted) == 0:
+		return "", fmt.Errorf("extract: %s served a catalog with no models in it", src.Provider)
+	case kept == 0:
+		// These ids came from the routing file precisely BECAUSE this
+		// deployment calls them, so a vendor rename would otherwise leave
+		// their prices silently stale forever.
+		return "", fmt.Errorf(
+			"extract: none of the %d model(s) bound on %s appears in its catalog — check the ids in ai-routing.yaml against the vendor's own spelling",
+			len(wanted), src.Provider)
+	case kept < len(wanted):
+		m.log.Warn("model-cost refresh: some bound models are absent from the catalog",
+			"provider", src.Provider, "bound", len(wanted), "found", kept)
+	}
+	m.log.Debug("model pricing source served a catalog",
+		"provider", src.Provider, "models", kept, "bytes_before", len(body), "bytes_after", len(reduced))
+	return reduced, nil
+}
+
 // extract fetches one pricing page and returns the evidence-gated models.
 func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]extractedModel, error) {
 	doc, err := m.fetcher.Fetch(ctx, src.URL)
@@ -218,42 +257,10 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	}
 	pageText := doc.Text
 	if doc.IsJSON() {
-		wanted, bindsProvider := m.bound[src.Provider]
-		// rates.model_pricing keys and ai-routing.yaml provider names are two
-		// operator-edited files coupled by exact string equality. When the
-		// routing binds SOMETHING but nothing under this source's key, the key
-		// is spelled wrong — and left alone it would silently disable the
-		// filter, send the whole catalog, and fail downstream with a truncated
-		// reply whose error points nowhere near the real cause.
-		if !bindsProvider && len(m.bound) > 0 {
-			return nil, fmt.Errorf(
-				"extract: rates.model_pricing names provider %q, which ai-routing.yaml does not bind (it binds %s) — the two must use the same spelling",
-				src.Provider, strings.Join(boundProviderNames(m.bound), ", "))
+		reduced, err := m.reduceCatalog(doc.Text, src)
+		if err != nil {
+			return nil, err
 		}
-		reduced, kept, ok := catalogPassages(doc.Text, wanted)
-		if !ok {
-			return nil, errors.New("extract: the source served JSON that is not a model catalog")
-		}
-		if kept == 0 {
-			// Every id this provider binds is absent from its own catalog. That
-			// is never a quiet success: those ids came from the routing file
-			// precisely BECAUSE this deployment calls them, so a vendor rename
-			// or a mis-spelled binding would otherwise leave their prices
-			// silently stale forever. Report it so the job is retried and the
-			// run is visibly failed.
-			return nil, fmt.Errorf(
-				"extract: none of the %d model(s) bound on %s appears in its catalog — check the ids in ai-routing.yaml against the vendor's own spelling",
-				len(wanted), src.Provider)
-		}
-		if len(wanted) > 0 && kept < len(wanted) {
-			// A partial match still refreshes what it found, but the gap is the
-			// operator's to see: a model missing from the catalog can never be
-			// repriced from this source.
-			m.log.Warn("model-cost refresh: some bound models are absent from the catalog",
-				"provider", src.Provider, "bound", len(wanted), "found", kept)
-		}
-		m.log.Debug("model pricing source served a catalog",
-			"provider", src.Provider, "models", kept, "bytes_before", len(doc.Text), "bytes_after", len(reduced))
 		pageText = reduced
 	}
 	resp, err := m.brain.Complete(ctx, rateExtractRequest(pageText))

@@ -336,15 +336,11 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 			routerBrain{router: router, task: ai.TaskSiteTriage},
 			"routing " + routingPath, nil
 	default:
-		provider, modelName, found := strings.Cut(modelOverride, ":")
-		if !found || provider == "" || modelName == "" {
-			return nil, nil, nil, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelOverride)
+		cfg, err := pinnedModelRouting(modelOverride)
+		if err != nil {
+			return nil, nil, nil, "", err
 		}
-		router, err := ai.NewLocalRouter(ai.RoutingConfig{
-			Profile:    ai.ProfileCloudFrontier,
-			Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
-			Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
-		})
+		router, err := ai.NewLocalRouter(cfg)
 		if err != nil {
 			return nil, nil, nil, "", err
 		}
@@ -439,15 +435,27 @@ func taskProbeRouting(routingPath, modelSpec string) (ai.RoutingConfig, string, 
 		}
 		return cfg, "routing " + routingPath, nil
 	}
+	cfg, err := pinnedModelRouting(modelSpec)
+	if err != nil {
+		return ai.RoutingConfig{}, "", err
+	}
+	return cfg, "model override " + modelSpec, nil
+}
+
+// pinnedModelRouting turns a provider:model override into a routing config that
+// binds ONE tier — every task's ladder then falls through to it.
+//
+// Both debug lanes in this file take the same override in the same spelling, so
+// it is parsed and validated once: two copies would let `worker siteread` and
+// `worker aitask` disagree about what `--model` means.
+func pinnedModelRouting(modelSpec string) (ai.RoutingConfig, error) {
 	provider, modelName, found := strings.Cut(modelSpec, ":")
 	if !found || provider == "" || modelName == "" {
-		return ai.RoutingConfig{}, "", fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelSpec)
+		return ai.RoutingConfig{}, fmt.Errorf("--model wants provider:model (e.g. anthropic:claude-sonnet-4-6), got %q", modelSpec)
 	}
-	// One pinned model serves every lane: each task's ladder falls through to
-	// the single bound tier.
 	return ai.RoutingConfig{
 		Profile:    ai.ProfileCloudFrontier,
 		Tiers:      map[ai.Tier]ai.ProviderConfig{ai.TierCheapCloud: {Provider: provider, Model: modelName}},
 		Embeddings: ai.EmbeddingsConfig{ProviderConfig: ai.ProviderConfig{Provider: ai.ProviderFake}},
-	}, "model override " + modelSpec, nil
+	}, nil
 }

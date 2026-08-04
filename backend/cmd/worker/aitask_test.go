@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -197,8 +198,15 @@ func TestAITaskListCarriesTheLadderAndScope(t *testing.T) {
 // exactly the change that would start committing fetched pages.
 func TestTheWorkDirIsActuallyIgnored(t *testing.T) {
 	out, err := exec.Command("git", "-C", "../..", "check-ignore", "-q", workDirDefault+"/probe.txt").CombinedOutput()
-	if err != nil {
-		t.Fatalf("git does not ignore %s (%v): probe artifacts carry whatever the source carried and must never be committable\n%s",
-			workDirDefault, err, out)
+	if err == nil {
+		return // exit 0: the path is ignored, which is what this pins
 	}
+	// check-ignore exits 1 for "not ignored" and anything else for "git could
+	// not answer" — no binary, not a repository, a module-cache copy. Reporting
+	// the second as a security regression would be a false alarm.
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Skipf("git cannot answer here (%v); the ignore rule is unverifiable in this checkout\n%s", err, out)
+	}
+	t.Fatalf("git does not ignore %s: probe artifacts carry whatever the source carried and must never be committable", workDirDefault)
 }
