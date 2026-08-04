@@ -1,0 +1,163 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// Package websearchhttp binds a search provider to the websearch seam
+// (ADR-0081 / A126).
+//
+// It sits beside platform/webread deliberately: that package owns FETCHING a
+// page under robots and caps, this one owns FINDING the page, and the two
+// halves of the same governed capability belong at the same layer.
+//
+// Provider selection is configuration. The operator supplies a key and gets
+// search; supply none and the deployment has none, which is the sovereign
+// zero-egress posture rather than a degraded one. Nothing here decides what
+// may be fetched — that is websearch.MayFetch, in the port, so every consumer
+// inherits one answer.
+package websearchhttp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/websearch"
+)
+
+// defaultMaxResults is what an unbounded query takes. Small on purpose: the
+// questions this product asks are answered by the first few hits, and every
+// extra result is a paid unit that nobody reads.
+const defaultMaxResults = 5
+
+// requestTimeout bounds one provider call. A search that hangs must not hold
+// a background pass open behind it.
+const requestTimeout = 10 * time.Second
+
+// Disabled is the client a deployment gets when it binds no provider. It
+// answers ErrNoProvider so callers degrade to captured data and SAY so,
+// rather than presenting an empty result set as "nothing exists".
+type Disabled struct{}
+
+func (Disabled) Search(context.Context, websearch.Query) ([]websearch.Result, error) {
+	return nil, websearch.ErrNoProvider
+}
+
+func (Disabled) Provider() string { return "none" }
+
+// Brave calls the Brave Search API — an independent index under terms that
+// permit commercial reuse, which is what ADR-0081 §2 requires of any bound
+// provider. A vendor that resells another engine's results page, or whose
+// corpus is bulk-collected auth-walled profiles, does not qualify however
+// convenient its API.
+type Brave struct {
+	key    string
+	client *http.Client
+	now    func() time.Time
+}
+
+// NewBrave binds the adapter to a key. now is injected so a test can pin the
+// read date a stored claim will age against.
+func NewBrave(key string, now func() time.Time) *Brave {
+	return &Brave{
+		key:    key,
+		client: &http.Client{Timeout: requestTimeout},
+		now:    now,
+	}
+}
+
+func (b *Brave) Provider() string { return "brave" }
+
+// Search runs one query and returns what the index asserts.
+//
+// It does NOT fetch any result. That separation is the seam's whole posture:
+// the title and snippet returned here are usable evidence without touching
+// the target site, and whether a URL may additionally be read is a later,
+// separate decision made by websearch.MayFetch.
+func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Result, error) {
+	terms := strings.TrimSpace(q.Terms)
+	if terms == "" {
+		return nil, fmt.Errorf("websearch: a search needs terms")
+	}
+	if q.Site != "" {
+		// Narrowing to one domain is the cheapest and least intrusive form of
+		// the questions this product asks, so it is expressed in the query
+		// rather than by filtering results after paying for them.
+		terms = "site:" + q.Site + " " + terms
+	}
+	limit := q.MaxResults
+	if limit <= 0 {
+		limit = defaultMaxResults
+	}
+
+	endpoint := "https://api.search.brave.com/res/v1/web/search?" + url.Values{
+		"q":     {terms},
+		"count": {strconv.Itoa(limit)},
+	}.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("websearch: building the request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Subscription-Token", b.key)
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("websearch: calling the provider: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		// The status is named without the body: a provider error page can
+		// carry the query back, and the query can carry a person's name.
+		return nil, fmt.Errorf("websearch: the provider answered %s", resp.Status)
+	}
+
+	var payload struct {
+		Web struct {
+			Results []struct {
+				Title       string `json:"title"`
+				URL         string `json:"url"`
+				Description string `json:"description"`
+				PageAge     string `json:"page_age"`
+			} `json:"results"`
+		} `json:"web"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("websearch: reading the provider's answer: %w", err)
+	}
+
+	readAt := b.now().UTC()
+	out := make([]websearch.Result, 0, len(payload.Web.Results))
+	for _, r := range payload.Web.Results {
+		res := websearch.Result{
+			Title:   strings.TrimSpace(r.Title),
+			Snippet: strings.TrimSpace(r.Description),
+			URL:     strings.TrimSpace(r.URL),
+			// Ours, not the provider's: this is what makes a stored claim age
+			// visibly instead of pretending to be current.
+			RetrievedAt: readAt,
+		}
+		if when, err := time.Parse(time.RFC3339, r.PageAge); err == nil {
+			res.PublishedAt = &when
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+// FromEnv binds whichever provider the deployment configured, or Disabled
+// when it configured none.
+//
+// Absence is a valid, supported answer here — the same posture ADR-0020 gives
+// model keys. A deployment that wants no external egress simply sets nothing,
+// and every consumer degrades honestly instead of erroring at request time.
+func FromEnv(now func() time.Time) (websearch.Client, bool) {
+	if key := strings.TrimSpace(os.Getenv("BRAVE_SEARCH_API_KEY")); key != "" {
+		return NewBrave(key, now), true
+	}
+	return Disabled{}, false
+}
