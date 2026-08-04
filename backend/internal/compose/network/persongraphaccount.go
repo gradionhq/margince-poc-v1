@@ -38,6 +38,13 @@ import (
 // The contacts are row-scoped in the query itself rather than probed
 // afterwards: a contact outside the caller's scope must be ABSENT, and
 // fetching then filtering leaks the count through the dropped total.
+// accountContact is one colleague of the contact, as the query returns them.
+type accountContact struct {
+	id    ids.UUID
+	name  string
+	title *string
+}
+
 func (h Reads) addAccountGroup(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -48,25 +55,44 @@ func (h Reads) addAccountGroup(
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return 0, err
 	}
+	contacts, err := readAccountContacts(ctx, tx, personID)
+	if err != nil {
+		return 0, err
+	}
+	dropped := 0
+	if len(contacts) > graphAccountCap {
+		dropped = len(contacts) - graphAccountCap
+		contacts = contacts[:graphAccountCap]
+	}
+	if len(contacts) == 0 {
+		return dropped, nil
+	}
+	return dropped, h.addAccountEdges(ctx, tx, contacts, now, out)
+}
+
+// readAccountContacts finds the other current employees of this contact's
+// employer, row-scoped in the query itself.
+//
+// The employer is whichever organization the contact currently works for, and
+// "currently" is an employment edge nobody has ended. is_current_primary
+// answers a different question — which of several employers is the main one —
+// and keying on it would drop a real colleague who holds a second post.
+//
+// One extra row is fetched beyond the cap so the caller can say how many were
+// dropped without a second count.
+func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]accountContact, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if scope == "" {
 		scope = "true"
 	}
 	limitPos := arg(graphAccountCap + 1)
 
-	// The employer is whichever organization this contact currently works for,
-	// and "currently" is an employment edge nobody has ended. is_current_primary
-	// answers a different question — which of several employers is the main one —
-	// and keying on it would drop a real colleague who holds a second post.
-	//
-	// Colleagues are the OTHER current employees of it: the person themselves is
-	// the anchor and must not appear twice.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT p.id, p.full_name, p.title
 		  FROM relationship theirs
@@ -85,49 +111,48 @@ func (h Reads) addAccountGroup(
 		 ORDER BY p.full_name, p.id
 		 LIMIT $%d`, personPos, personPos, scope, limitPos), args...)
 	if err != nil {
-		return 0, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
+		return nil, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
 	}
 	defer rows.Close()
 
-	type contact struct {
-		id    ids.UUID
-		name  string
-		title *string
-	}
-	var contacts []contact
+	var out []accountContact
 	for rows.Next() {
-		var c contact
+		var c accountContact
 		if err := rows.Scan(&c.id, &c.name, &c.title); err != nil {
-			return 0, fmt.Errorf("network: reading a colleague of a contact: %w", err)
+			return nil, fmt.Errorf("network: reading a colleague of a contact: %w", err)
 		}
-		contacts = append(contacts, c)
+		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("network: reading the colleagues of a contact: %w", err)
+		return nil, fmt.Errorf("network: reading the colleagues of a contact: %w", err)
 	}
-	dropped := 0
-	if len(contacts) > graphAccountCap {
-		dropped = len(contacts) - graphAccountCap
-		contacts = contacts[:graphAccountCap]
-	}
-	if len(contacts) == 0 {
-		return dropped, nil
-	}
+	return out, nil
+}
 
-	ids := make([]ids.UUID, 0, len(contacts))
+// addAccountEdges puts the colleagues on the graph and hangs each one's
+// warmest relationship off it.
+//
+// The edges are read for every account contact at once rather than per
+// contact: the answer is a ranking across all of them, so they are gathered
+// together.
+func (h Reads) addAccountEdges(
+	ctx context.Context,
+	tx pgx.Tx,
+	contacts []accountContact,
+	now time.Time,
+	out *crmcontracts.PersonGraph,
+) error {
+	people := make([]ids.UUID, 0, len(contacts))
 	for _, c := range contacts {
-		ids = append(ids, c.id)
+		people = append(people, c.id)
 	}
-	// One read for every account contact's edges rather than one per contact:
-	// the answer is a ranking across all of them, so they are gathered
-	// together and ranked here.
-	edges, err := search.EdgesForPeople(ctx, tx, ids)
+	edges, err := search.EdgesForPeople(ctx, tx, people)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	names, err := userNames(ctx, tx, edgeUsers(edges))
 	if err != nil {
-		return 0, err
+		return err
 	}
 	for _, c := range contacts {
 		pid := openapi_types.UUID(c.id)
@@ -154,7 +179,7 @@ func (h Reads) addAccountGroup(
 		// route exists; reading the mail is the timeline's decision to make.
 		out.Edges = append(out.Edges, wireEdge(e, userNodeID(e.UserID), personNodeID(e.PersonID), now))
 	}
-	return dropped, nil
+	return nil
 }
 
 // hasNode reports whether a node id is already in the graph.

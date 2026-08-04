@@ -163,21 +163,27 @@ func replayOne(ctx context.Context, tx pgx.Tx, c replayCandidate) (string, error
 	if c.owner == "" {
 		return replayNoOwner, nil
 	}
-	raw, err := decodeStoredOriginal(c.payload)
-	if err != nil {
-		return replayUnreadable, nil
+	// A payload this parser cannot decompose is a VERDICT the pass records and
+	// moves past, which is why neither failure below is returned. These are
+	// years-old provider originals; failing the batch on one of them would
+	// stop the pass reaching every message after it, and the marker is what
+	// makes the attempt not repeat forever.
+	raw, decodeErr := decodeStoredOriginal(c.payload)
+	if decodeErr != nil {
+		return replayUnreadable, nil //nolint:nilerr // unreadable is the recorded outcome, not a fault
 	}
 	var participants []connector.MessageParticipant
+	var parseErr error
 	switch c.source {
 	case sourceGmail, sourceIMAP:
-		participants, err = mailmap.ParticipantsOf(raw, c.owner)
+		participants, parseErr = mailmap.ParticipantsOf(raw, c.owner)
 	case sourceGCal:
-		participants, err = gcal.ParticipantsOf(raw, c.owner)
+		participants, parseErr = gcal.ParticipantsOf(raw, c.owner)
 	default:
 		return replayUnreadable, nil
 	}
-	if err != nil {
-		return replayUnreadable, nil
+	if parseErr != nil {
+		return replayUnreadable, nil //nolint:nilerr // unreadable is the recorded outcome, not a fault
 	}
 	if len(participants) == 0 {
 		return replayFoundNone, nil

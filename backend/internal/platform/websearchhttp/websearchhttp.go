@@ -43,10 +43,14 @@ const requestTimeout = 10 * time.Second
 // rather than presenting an empty result set as "nothing exists".
 type Disabled struct{}
 
+// Search refuses, naming the absence. Callers degrade to captured data and SAY
+// so, rather than presenting an empty result set as "nothing exists".
 func (Disabled) Search(context.Context, websearch.Query) ([]websearch.Result, error) {
 	return nil, websearch.ErrNoProvider
 }
 
+// Provider names the absence honestly, so a run-transparency record shows that
+// no index was asked rather than that one answered nothing.
 func (Disabled) Provider() string { return "none" }
 
 // Brave calls the Brave Search API — an independent index under terms that
@@ -70,6 +74,8 @@ func NewBrave(key string, now func() time.Time) *Brave {
 	}
 }
 
+// Provider names the index that answered. A stored claim carries it in its
+// source ref, so a reader knows whose corpus the citation came from.
 func (b *Brave) Provider() string { return "brave" }
 
 // Search runs one query and returns what the index asserts.
@@ -167,6 +173,10 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 // Absence is a valid, supported answer here — the same posture ADR-0020 gives
 // model keys. A deployment that wants no external egress simply sets nothing,
 // and every consumer degrades honestly instead of erroring at request time.
+// tell a bound provider from Disabled, or it would branch on which one it got
+// instead of on the ErrNoProvider the port defines.
+//
+//nolint:ireturn // the seam IS the return type: a caller must not be able to
 func FromEnv(now func() time.Time) (websearch.Client, bool) {
 	if key := strings.TrimSpace(os.Getenv("BRAVE_SEARCH_API_KEY")); key != "" {
 		return NewBrave(key, now), true

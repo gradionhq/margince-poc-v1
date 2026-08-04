@@ -80,7 +80,7 @@ func NewPersonAutoEnrich(pool *pgxpool.Pool, store *people.Store, approvalsSvc *
 // nothing: a redelivered event re-runs a match that has already been made and
 // changes no row.
 func (g *PersonAutoEnrich) HandleEvent(ctx context.Context, env events.Envelope) error {
-	if env.Entity.ID == ids.Nil || env.Entity.Type != "person" {
+	if env.Entity.ID == ids.Nil || env.Entity.Type != string(recordTypePerson) {
 		return nil
 	}
 	switch env.Type {
@@ -157,7 +157,7 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 			}
 			filled = true
 			g.log.InfoContext(ctx, "person auto-enriched from the employer's site",
-				"person", personID.String(), "organization", orgID.String(),
+				string(recordTypePerson), personID.String(), "organization", orgID.String(),
 				"source", sp.proposal.SourceURL, "proposal_withdrawn", withdrawn)
 		}
 		if filled {

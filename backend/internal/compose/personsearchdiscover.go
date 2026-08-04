@@ -124,11 +124,11 @@ func canonicalProfileURL(raw string) (string, bool) {
 // clip bounds provider-supplied text at a stored length. The evidence
 // snippet is a receipt, not an archive: what the reader checks the value
 // against fits in a sentence or two.
-func clip(s string, max int) string {
-	if len(s) <= max {
+func clip(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	return strings.TrimSpace(s[:max]) + "…"
+	return strings.TrimSpace(s[:limit]) + "…"
 }
 
 // isProfileURL reports whether a result points at a personal profile on one

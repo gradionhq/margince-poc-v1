@@ -58,6 +58,10 @@ const (
 	VerdictConfirmed = "confirmed"
 )
 
+// fieldSubjectType names the input a refusal points at, spelled once so the
+// two refusal sites cannot disagree about which field the caller must fix.
+const fieldSubjectType = "subject_type"
+
 // Subject types the ledger accepts, matching the column's CHECK. They are also
 // the RBAC objects the write is gated on: correcting what the system says
 // about a contact requires the grant to edit that contact.
@@ -73,6 +77,9 @@ type FeedbackStore struct {
 	pool *pgxpool.Pool
 }
 
+// NewFeedbackStore binds the ledger to the pool. It holds no other
+// dependency: consulting a verdict is a read of one table, and recording one
+// is a decision a human has already made.
 func NewFeedbackStore(pool *pgxpool.Pool) *FeedbackStore { return &FeedbackStore{pool: pool} }
 
 // ClaimKey is the stable identity of a logical claim within a subject and
@@ -118,7 +125,7 @@ type RecordInput struct {
 // history is in audit_log, where every other mutation's history lives.
 func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 	if !feedbackSubjects[in.SubjectType] {
-		return &values.ParseError{Field: "subject_type", Code: "invalid_subject_type",
+		return &values.ParseError{Field: fieldSubjectType, Code: "invalid_subject_type",
 			Message: "a claim is about an organization, person, deal or lead"}
 	}
 	if strings.TrimSpace(in.ClaimPath) == "" {
@@ -197,7 +204,7 @@ func (s *FeedbackStore) Record(ctx context.Context, in RecordInput) error {
 // rendered sentence.
 func (s *FeedbackStore) VerdictsForTx(ctx context.Context, tx pgx.Tx, subjectType string, subjectID ids.UUID) (map[string]Verdict, error) {
 	if !feedbackSubjects[subjectType] {
-		return nil, &values.ParseError{Field: "subject_type", Code: "invalid_subject_type",
+		return nil, &values.ParseError{Field: fieldSubjectType, Code: "invalid_subject_type",
 			Message: "a claim is about an organization, person, deal or lead"}
 	}
 	// A read grant on the subject, matching the read this consult decorates.
