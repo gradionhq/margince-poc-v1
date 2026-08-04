@@ -131,7 +131,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}()
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
-	modelPath, boundModels, err := selectModelPath(cfg.routingPath, cfg.fakeBrain, deployCfg.AI.CapturePayloads, pool, logger)
+	modelPath, boundModels, err := selectModelPath(modelPathSpec{
+		routingPath:     cfg.routingPath,
+		fake:            cfg.fakeBrain,
+		capturePayloads: deployCfg.AI.CapturePayloads,
+	}, pool, logger)
 	if err != nil {
 		return err
 	}
@@ -415,14 +419,22 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	}, nil
 }
 
+// modelPathSpec names the boot knobs selectModelPath switches on, so a call
+// site labels each flag instead of passing anonymous booleans.
+type modelPathSpec struct {
+	routingPath     string
+	fake            bool
+	capturePayloads bool
+}
+
 // selectModelPath resolves the model path: a routing config for real
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
+func selectModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
 	switch {
-	case routingPath != "":
-		cfg, err := ai.LoadRoutingFile(routingPath)
+	case spec.routingPath != "":
+		cfg, err := ai.LoadRoutingFile(spec.routingPath)
 		if err != nil {
 			return compose.ModelPath{}, nil, err
 		}
@@ -436,8 +448,8 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		// The bound model ids travel with the path because they describe the
 		// SAME binding: the cost refresh narrows a provider catalog to the
 		// models this deployment actually calls.
-		return modelPathWithBoundModels(cfg, pool, capturePayloads, log)
-	case fake:
+		return modelPathWithBoundModels(cfg, pool, spec.capturePayloads, log)
+	case spec.fake:
 		// A real ModelPath over ai.FakeRoutingConfig() rather than
 		// FakeModelPath's direct client wiring: the worker always has a
 		// pool, so --ai-fake safely rides the real Router (tiering, the
@@ -446,7 +458,7 @@ func selectModelPath(routingPath string, fake, capturePayloads bool, pool *pgxpo
 		// still names the deployment's own posture — cmd/api's
 		// resolveModelPath honors it on this same arm, and two process
 		// roles must never disagree on whether content capture is on.
-		return modelPathWithBoundModels(ai.FakeRoutingConfig(), pool, capturePayloads, log)
+		return modelPathWithBoundModels(ai.FakeRoutingConfig(), pool, spec.capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil, nil
 	}
