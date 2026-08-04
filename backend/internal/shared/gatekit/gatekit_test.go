@@ -401,6 +401,57 @@ func TestARootNamedTwiceIsReportedOnce(t *testing.T) {
 	}
 }
 
+// A fixture under testdata is input to a test, not code that ships, so it is
+// neither swept for subjects nor owed an exemption — inside a root or outside
+// every one of them.
+func TestFilesSweepsNothingUnderTestdata(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go":                   fmt.Sprintf(obligatedSource, "inside"),
+		"inside/testdata/obligated.go":          fmt.Sprintf(obligatedSource, "fixture"),
+		"inside/testdata/nested/obligated.go":   fmt.Sprintf(obligatedSource, "fixture"),
+		"outside/testdata/obligated.go":         fmt.Sprintf(obligatedSource, "fixture"),
+		"outside/testdatafiles/notafixture.txt": "ignored",
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	if got := paths(scope.Files(rec)); got != "inside/obligated.go" {
+		t.Errorf("Files() = %q, want only the product source — a testdata fixture is not swept", got)
+	}
+	if len(rec.errs) != 0 {
+		t.Errorf("a testdata fixture was reported as an unratified subject: %s", rec.joined())
+	}
+}
+
+// A source the sweep cannot parse is a hole in the tree the roots are proven
+// against, so it fails and names the file. Skipping it would return the sweep's
+// verdict over a smaller tree than it claims — the vacuity this package exists
+// to refuse.
+func TestFilesFailsWhenASweptSourceCannotBeParsed(t *testing.T) {
+	tree := writeProbeTree(t, map[string]string{
+		"inside/obligated.go": fmt.Sprintf(obligatedSource, "inside"),
+		"inside/broken.go":    "package inside\n\nfunc (\n",
+	})
+	scope := Scope{
+		Tree:    tree,
+		Roots:   []string{"inside"},
+		Subject: declaresObligatedSite,
+	}
+	rec := &recorder{TB: t}
+	if got := scope.Files(rec); got != nil {
+		t.Errorf("Files() = %v, want no verdict from a tree the sweep could not read whole", paths(got))
+	}
+	if len(rec.errs) != 1 {
+		t.Fatalf("want exactly one unreadable-source report, got %d: %s", len(rec.errs), rec.joined())
+	}
+	if !strings.Contains(rec.errs[0], "inside/broken.go") || !strings.Contains(rec.errs[0], "could not read") {
+		t.Errorf("the report does not name the file it could not read: %s", rec.errs[0])
+	}
+}
+
 func TestAnExemptedOutsideSubjectIsAcceptedAndCountsAsMatched(t *testing.T) {
 	tree := writeProbeTree(t, map[string]string{
 		"inside/obligated.go":  fmt.Sprintf(obligatedSource, "inside"),

@@ -4,13 +4,14 @@
 package gatekit
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -92,7 +93,7 @@ func (s Scope) Files(t testing.TB) []ParsedFile {
 				"gate reading green over an empty tree", root)
 		}
 	}
-	sort.Strings(outside)
+	slices.Sort(outside)
 	for _, path := range outside {
 		if s.Exempt.Waived(t, path) {
 			continue
@@ -158,7 +159,7 @@ func (s Scope) subjectAt(fset *token.FileSet, tree, path string, entry fs.DirEnt
 	}
 	file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
-		return ParsedFile{}, false, err
+		return ParsedFile{}, false, fmt.Errorf("could not read %s, and a source the sweep cannot read may hold a subject the roots are then never proven against: %w", rel, err)
 	}
 	if !s.Subject(rel, file) {
 		return ParsedFile{}, false, nil
@@ -233,9 +234,14 @@ func under(path, root string) bool {
 // isSweptSource reports whether the file is hand-written product source. Tests
 // are excluded because a gate judges what ships; generated files because a
 // finding there is fixed in the generator, and this repo spells generated
-// output "_gen.go" everywhere.
+// output "_gen.go" everywhere; and anything under a testdata directory because
+// the Go toolchain builds nothing there — a file in testdata is a fixture a test
+// reads, so it ships no behaviour for a gate to judge.
 func isSweptSource(path string) bool {
-	return strings.HasSuffix(path, ".go") &&
-		!strings.HasSuffix(path, "_test.go") &&
-		!strings.HasSuffix(path, "_gen.go")
+	if !strings.HasSuffix(path, ".go") ||
+		strings.HasSuffix(path, "_test.go") ||
+		strings.HasSuffix(path, "_gen.go") {
+		return false
+	}
+	return !slices.Contains(strings.Split(path, "/"), "testdata")
 }
