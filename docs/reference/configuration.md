@@ -81,10 +81,11 @@ Operational endpoints (served next to `/v1`):
 
 Two readers over one table, `river_job`, answering two different questions.
 Both are served by `cmd/api`, and both are read at request time rather than
-counted in process — `cmd/worker`, where the dispatchers actually run,
-exposes no HTTP surface at all, so an in-process counter there would be
-invisible to every scrape while the api's own copy reported a truthful
-looking zero.
+counted in process: the job table is fleet-wide, so a counter kept inside
+`cmd/worker` would be invisible to every scrape of the api while the api's own
+copy reported a truthful-looking zero. That stays true — the worker never
+re-serves a job-table gauge, and `--observe-addr` below is about the process,
+not the fleet.
 
 **`/metrics` — is a queue growing?** Nine gauge families over the job table:
 
@@ -283,6 +284,44 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
 | `--deepread-wall` | `MARGINCE_DEEPREAD_WALL` | `0` (= built-in 4m) | deep-read crawl wall clock |
+| `--observe-addr` | `MARGINCE_OBSERVE_ADDR` | — (off) | address to serve this worker's `/healthz`, `/readyz` and `/metrics` on, e.g. `127.0.0.1:9101`. Empty serves nothing — see below |
+
+### The worker's own operator surface
+
+`--observe-addr` gives `cmd/worker` the three operational endpoints the api has
+always had. It answers a question the fleet-wide gauges structurally cannot:
+**which process** is not doing the work. Every job-table gauge is a projection
+of a shared table, so it reads the same whichever replica served the scrape —
+one wedged worker in a pool of three is arithmetically invisible in it.
+
+What this listener carries is therefore only what is **process-local**, and it
+re-serves no fleet-wide reading:
+
+| Family | Meaning |
+|---|---|
+| `margince_process_goroutines` | goroutines in the scraped process |
+| `margince_process_heap_bytes` / `margince_process_heap_sys_bytes` | heap in use, and heap held from the OS |
+| `margince_process_gc_cycles_total` | completed GC cycles since this process started |
+| `margince_pgxpool_conns` | this process's own connection pool, by class |
+| `margince_relay_published_total` | outbox rows *this* relay has shipped since start |
+
+The same `margince_process_*` section is served by `cmd/api` too — it describes
+whichever process answered, which is exactly what makes it worth having on both.
+`margince_outbox_unpublished`, the job-table gauges and the declared catalogue
+stay a **single** reading on the api: two roles answering one fleet number is a
+worse operator surface than one gap.
+
+`/readyz` probes the two dependencies this role cannot work without — Postgres
+and Redis — and answers `503` naming the one that failed. `/healthz` stays a
+dumb liveness answer, so a database outage stops traffic being routed here
+without restart-looping a process the outage did not break.
+
+**Off is the default, and it is not a convenience default.** This surface
+carries workspace ids and has no authentication of its own, exactly like the
+api's `/metrics`: exposing it is an operator decision, and so is the interface
+it binds. Bind it to a loopback or a private interface, never a public one. An
+address that cannot be bound is a **boot error** naming it — a worker that
+could not serve its probes must not carry on looking healthy.
 
 ### `worker siteread` — the deep-read debug loop (no DB)
 

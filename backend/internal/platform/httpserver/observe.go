@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -251,12 +252,25 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 		defer cancel()
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
-		if n, err := backlog(ctx); err == nil {
-			_, _ = fmt.Fprintf(w, "# HELP margince_outbox_unpublished Committed outbox rows the relay has not shipped yet.\n")
-			_, _ = fmt.Fprintf(w, "# TYPE margince_outbox_unpublished gauge\n")
-			_, _ = fmt.Fprintf(w, "margince_outbox_unpublished %d\n", n)
-		} else {
-			slog.ErrorContext(r.Context(), "metrics: outbox backlog query failed", "err", err)
+		// Always first, and never injected: this section measures the
+		// PROCESS answering the scrape, so it is the one part of the
+		// exposition that means something different on every target and
+		// cannot be assembled anywhere but here.
+		writeRuntimeMetrics(w)
+
+		// The backlog is a fleet-wide reading of a shared table, so a role
+		// that would only duplicate another target's copy of it passes nil
+		// rather than querying — the same "declared or absent" posture the
+		// sections below take, and the reason a FAILED read writes nothing:
+		// a gauge reporting rows it did not count reads as a drained outbox.
+		if backlog != nil {
+			if n, err := backlog(ctx); err == nil {
+				_, _ = fmt.Fprintf(w, "# HELP margince_outbox_unpublished Committed outbox rows the relay has not shipped yet.\n")
+				_, _ = fmt.Fprintf(w, "# TYPE margince_outbox_unpublished gauge\n")
+				_, _ = fmt.Fprintf(w, "margince_outbox_unpublished %d\n", n)
+			} else {
+				slog.ErrorContext(r.Context(), "metrics: outbox backlog query failed", "err", err)
+			}
 		}
 
 		_, _ = fmt.Fprintf(w, "# HELP margince_relay_published_total Outbox rows shipped to the bus since process start.\n")
@@ -290,6 +304,44 @@ func Metrics(pool *pgxpool.Pool, backlog func(context.Context) (int64, error), p
 			writeOverlayMetrics(r.Context(), w, overlay)
 		}
 	}
+}
+
+// writeRuntimeMetrics renders what the SCRAPED PROCESS is doing, as opposed
+// to what the installation is doing. Every other section here is a reading of
+// shared state — the outbox table, the job table, the mirror — which any role
+// with a pool answers identically, so a wedged replica is arithmetically
+// invisible in them: the fleet-wide numbers are the same whichever process
+// served the scrape.
+//
+// These four are not. They are read out of THIS runtime, so they differ per
+// target and an operator can tell which process stopped working rather than
+// only that work stopped. That is the whole reason the worker role serves a
+// listener at all: it does the work and, until it did, published nothing about
+// itself.
+//
+// Named margince_process_* rather than Prometheus' conventional go_* because
+// this exposition is hand-rolled: if client_golang is ever adopted it brings
+// its own go_* collector, and two definitions of one series name is a worse
+// outcome than a prefix that says who wrote it.
+func writeRuntimeMetrics(w io.Writer) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_process_goroutines Goroutines running in the scraped process.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_process_goroutines gauge\n")
+	_, _ = fmt.Fprintf(w, "margince_process_goroutines %d\n", runtime.NumGoroutine())
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_process_heap_bytes Heap bytes allocated and in use by the scraped process.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_process_heap_bytes gauge\n")
+	_, _ = fmt.Fprintf(w, "margince_process_heap_bytes %d\n", mem.HeapAlloc)
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_process_heap_sys_bytes Heap bytes obtained from the OS by the scraped process -- with heap_bytes, whether memory is in use or merely held.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_process_heap_sys_bytes gauge\n")
+	_, _ = fmt.Fprintf(w, "margince_process_heap_sys_bytes %d\n", mem.HeapSys)
+
+	_, _ = fmt.Fprintf(w, "# HELP margince_process_gc_cycles_total Completed GC cycles since the scraped process started.\n")
+	_, _ = fmt.Fprintf(w, "# TYPE margince_process_gc_cycles_total counter\n")
+	_, _ = fmt.Fprintf(w, "margince_process_gc_cycles_total %d\n", mem.NumGC)
 }
 
 // writeOverlayMetrics renders the overlay sync-health section — split
