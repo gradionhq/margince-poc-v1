@@ -21,7 +21,10 @@ package backendarch
 //
 // The derivation keys on the parameter's TYPE, not on the function's name
 // shape: a registrar may wire one tool or a family, and the parameter it takes
-// may be called anything.
+// may be called anything and sit at any position in the signature — a registrar
+// that takes its configuration first is still a registrar, and one the
+// derivation misses can be absent from every builder while this gate reads
+// green.
 
 import (
 	"go/ast"
@@ -123,8 +126,7 @@ func toolRegistrars(t *testing.T) (registrars []toolRegistrar, methods []string)
 				}
 				continue
 			}
-			params := fn.Type.Params
-			if params == nil || len(params.List) == 0 || !pointsAtRegistry(params.List[0].Type) {
+			if !takesRegistry(fn.Type.Params) {
 				continue
 			}
 			registrars = append(registrars, toolRegistrar{fn.Name.Name, fset.Position(fn.Pos()).String()})
@@ -133,6 +135,22 @@ func toolRegistrars(t *testing.T) (registrars []toolRegistrar, methods []string)
 	sort.Slice(registrars, func(i, j int) bool { return registrars[i].name < registrars[j].name })
 	sort.Strings(methods)
 	return registrars, methods
+}
+
+// takesRegistry reports whether any parameter of a signature is a *Registry.
+// Every parameter is asked, not just the first: a registrar that leads with its
+// own configuration takes the registry second, and a derivation reading only
+// position 0 never discovers it.
+func takesRegistry(params *ast.FieldList) bool {
+	if params == nil {
+		return false
+	}
+	for _, param := range params.List {
+		if pointsAtRegistry(param.Type) {
+			return true
+		}
+	}
+	return false
 }
 
 // pointsAtRegistry reports whether an expression spells the type *Registry.
