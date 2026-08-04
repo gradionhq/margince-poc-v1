@@ -21,19 +21,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// seedContractEnded writes the open signal the extraction task produces when a
-// thread says the relationship is over.
-func seedContractEnded(t *testing.T, e *Env, org ids.UUID) {
-	t.Helper()
-	SeedRow(t, OwnerConn(t), `INSERT INTO signal
-		(id, workspace_id, kind, source_channel, entity_type, entity_id, resolved_org_id,
-		 resolution_state, severity, summary, status, detected_at, source, captured_by)
-		VALUES ($1, $2, 'contract_ended', 'derived', 'organization', '`+org.String()+`',
-		        '`+org.String()+`', 'resolved', 'warn',
-		        'They wrote that the contract ends on 31 July.', 'open',
-		        '2026-05-20T09:00:00Z', 'signal-scan', 'agent:contract_ended')`, e.WS)
-}
-
 // The failure this whole surface was named for: an account holding a mail that
 // ends the contract, filed under a stage that says the relationship is live.
 //
@@ -48,7 +35,8 @@ func TestTheRecordAndItsOwnMailAreShownToDisagree(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
-	seedContractEnded(t, e, org.UUID)
+	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 	// Advice that would otherwise lead, so leading is a choice this makes and
 	// not the only thing left standing.
 	seedUnansweredOutbound(t, e, org.UUID)
@@ -80,7 +68,8 @@ func TestAnEndedContractDoesNotContradictAnEndedRelationship(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360SignalPerms)
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'former_customer' WHERE id = $1`, org.UUID)
-	seedContractEnded(t, e, org.UUID)
+	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 
 	view, err := svc.Assemble(rep, org)
 	if err != nil {
@@ -112,7 +101,8 @@ func TestTheConflictStaysSilentWithoutTheSignalGrant(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
 	e.WsExec(t, `UPDATE organization SET lifecycle = 'customer' WHERE id = $1`, org.UUID)
-	seedContractEnded(t, e, org.UUID)
+	seedSignal(t, e, org.UUID, "contract_ended", "warn",
+		"They wrote that the contract ends on 31 July.", "2026-05-20T09:00:00Z")
 
 	// org360RepPerms carries no signal grant, which is the point.
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)

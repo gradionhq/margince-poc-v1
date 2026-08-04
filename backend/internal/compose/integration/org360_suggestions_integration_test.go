@@ -9,8 +9,9 @@ package integration
 //
 // The rules themselves are proved without one (org360/suggestions_test.go).
 // What needs the database is the part the rules cannot state: which advice a
-// real account actually raises, in what order the card offers it, and what the
-// rules see past the page caps the read's own sections apply.
+// real account actually raises, in what order the card offers it, and how much
+// of the account the rules still see once the read's own sections have applied
+// their page caps.
 //
 // Every fixture sets its timestamps explicitly. The read's clock is pinned to
 // org360Clock while the database's now() is not, so a fixture on now() would
