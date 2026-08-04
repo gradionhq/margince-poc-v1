@@ -40,7 +40,6 @@ import type {
 import { DecisionScene } from "./decision-scene";
 import { jumpToFindings, NarrationBubble } from "./entries";
 import { gateNoticeFor } from "./gate-notice";
-import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
 import { railStops } from "./rail";
 import { ConversationThread, selectionFor } from "./thread";
@@ -428,23 +427,34 @@ export function CompanyAct({
       ? clarifyRuntime
       : readRuntime;
 
+  // Entries already present at mount are transcript, not news. Freezing their
+  // ids on the first render is what stops a leftover crawl line — which names
+  // fields, and is very often the last thing said before the review appears —
+  // from pulsing and scrolling the board the reader has only just arrived at.
+  const mountedEntryIds = useRef<ReadonlySet<string> | null>(null);
+  if (mountedEntryIds.current === null) {
+    mountedEntryIds.current = new Set(state.thread.map((entry) => entry.id));
+  }
+  const preRendered = mountedEntryIds.current;
   const lastEntry = state.thread.at(-1);
+  // A highlight belongs to the dossier: the review and decision scenes replace
+  // that body outright, so one aimed at a scene no longer on screen would land
+  // on whatever the new one happens to render.
+  const dossierShowing =
+    state.phase !== "co.review" && state.phase !== "co.clarify";
   const highlight = useMemo<FindingHighlight | null>(() => {
     if (
+      dossierShowing &&
       lastEntry?.kind === "narration" &&
+      !preRendered.has(lastEntry.id) &&
       lastEntry.findingIds !== undefined &&
       lastEntry.findingIds.length > 0
     ) {
       return { key: lastEntry.id, ids: lastEntry.findingIds };
     }
     return null;
-  }, [lastEntry]);
+  }, [lastEntry, dossierShowing, preRendered]);
 
-  // The pinned next-step line: open decisions first — the pending thread
-  // question plus the proposal's still-unanswered ones — then the ready
-  // review. The bar renders only while a decision affordance is actually
-  // on the page (the live question card, or the review's clarify list), so
-  // it can always scroll to what it names.
   const pendingId = state.pendingQuestion?.id ?? null;
   // The review card's own "still open" list, recomputed here from the exact
   // same inputs (the proposal's open questions, the pending id, the recorded
@@ -455,8 +465,6 @@ export function CompanyAct({
       question.id !== pendingId &&
       !clarify.answers.some((answer) => answer.clarifyId === question.id),
   );
-  const decisionCount =
-    (pendingId !== null ? 1 : 0) + openReviewQuestions.length;
   // The rail's own two counts: `blockingCount` is what the narration leads
   // with — the still-open decisions count here too, because the live
   // DecisionScene replaces the review outright while one is pending, the
@@ -471,26 +479,6 @@ export function CompanyAct({
     ...openReviewQuestions.map((question) => question.field),
   ];
   const advisoryFindingIds = advisory.map((row) => row.field);
-  let nextStep: { label: string; selector: string } | null = null;
-  if (
-    decisionCount > 0 &&
-    (pendingId !== null || state.phase === "co.review")
-  ) {
-    nextStep = {
-      label:
-        decisionCount === 1
-          ? t("ob.conv.next.decisionOne")
-          : t("ob.conv.next.decisionMany", { count: decisionCount }),
-      // The live decision is the scene on the surface, no longer a card in
-      // the thread; the remaining open ones live in the review card.
-      selector: pendingId !== null ? ".ob-decision" : ".ob-conv-confirm",
-    };
-  } else if (state.phase === "co.review" && reviewProposal !== null) {
-    nextStep = {
-      label: t("ob.conv.next.review"),
-      selector: ".ob-conv-confirm",
-    };
-  }
 
   const presence = presenceFor(state, { read, readBroken });
 
@@ -815,13 +803,6 @@ export function CompanyAct({
           )}
         </ConversationThread>
       </div>
-      {nextStep !== null && (
-        <NextStepBar
-          label={nextStep.label}
-          targetSelector={nextStep.selector}
-          revision={state.seq}
-        />
-      )}
     </ConversationWorkbench>
   );
 }

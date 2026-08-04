@@ -131,8 +131,8 @@ function isBand(state: RowState): state is "high" | "med" | "low" {
 // isWork's set split in two: the banded half (low, med) already reads as a
 // worded mark through ConfidenceMeter; this is the rest of it — the states
 // with no value to grade at all. Required outranks empty in the same order
-// the blocker banner uses, so a row's mark and the banner never disagree
-// about which gap is the urgent one.
+// the nav's blocking cluster uses, so a row's mark and the nav never
+// disagree about which gap is the urgent one.
 function isOutstandingUnbanded(state: RowState): state is "required" | "empty" {
   return state === "required" || state === "empty";
 }
@@ -1301,9 +1301,6 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
     .filter((answer) => answer.dismissed === true)
     .map((answer) => coldFieldLabel(answer.field, t))
     .join(", ");
-  const missingLabels = props.missingRequired
-    .map((field) => coldFieldLabel(field, t))
-    .join(", ");
   // What the bottom bar's progress and gate read: real completion toward
   // being ABLE to continue, not a count of every field the board carries —
   // an optional field left empty or lightly grounded must never subtract
@@ -1328,19 +1325,6 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
         <h2>{t("ob.conv.review.title")}</h2>
       </header>
       <CompanyIdentityCard draft={props.draft} t={t} />
-      {props.missingRequired.length > 0 && (
-        // The blocking gaps as a banner, not a chat line: a count and the
-        // sentence naming the fields — the one place this reaches the
-        // reader above the fold, before any scrolling. No jump of its own
-        // any more: the required rows it names are already open by default
-        // right below it, and the nav's own "Needed to continue" cluster
-        // already jumps to each one by name, so a second control here
-        // would only repeat that click.
-        <div className="ob-triage-blocker" role="status">
-          <b>{props.missingRequired.length}</b>
-          <p>{t("ob.conv.review.missing", { fields: missingLabels })}</p>
-        </div>
-      )}
       <div className="ob-triage-body">
         <SectionNav
           groups={frozen}

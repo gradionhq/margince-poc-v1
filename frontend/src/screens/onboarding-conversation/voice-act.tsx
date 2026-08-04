@@ -1,29 +1,36 @@
 import type { ChangeEvent, Dispatch, RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { components } from "../../api/schema";
-import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import { VOICE_MIN_WORDS } from "../onboarding";
-import { parseVoiceInsights, VoiceInsights } from "../voice-insights";
 import type {
   ConversationEvent,
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
-import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
 import { railStops } from "./rail";
-import { ConversationThread } from "./thread";
+import { ConversationThread, selectionFor } from "./thread";
 import { useVoiceBuild } from "./use-voice-build";
 import { useVoiceCorpus } from "./use-voice-corpus";
+import type { VoiceContinueReason } from "./voice-artifact";
 import { VoiceActArtifact } from "./voice-artifact";
-import { VoiceBuildScene, VoiceCollectScene, VoiceScene } from "./voice-scenes";
+import {
+  VoiceBuildScene,
+  VoiceCollectScene,
+  VoiceResultScene,
+  VoiceSpeakerScene,
+} from "./voice-scenes";
 import { ConversationWorkbench, useConfiguredModel } from "./workbench";
 
 // The voice act driver: intake and ingestion live in useVoiceCorpus, the
 // build lifecycle in useVoiceBuild. Every source — a browsed file, a window
 // drop, a pasted text — lands through the collect scene; the rail beside it
-// narrates and never offers a way to add material of its own.
+// narrates and never offers a way to add material of its own. Every
+// consequence a scene already shows (a source in the sources list, a
+// decision on its own surface, Continue in its own foot) is filtered out of
+// the rail's thread below — a fact live on the surface has no business
+// repeating itself as a rail bubble.
 
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
 
@@ -126,13 +133,25 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
       eyebrow={eyebrow}
       corpus={corpus}
       build={build}
-      collecting={collecting}
       canBuild={canBuild}
       fileRef={fileRef}
       onFiles={onFiles}
+      onAnswer={handleAnswer}
       model={configuredModel}
     />
   );
+
+  // Upload consequences (a source's own word count, the corpus meter, the
+  // speaker decision itself) render on the scene, not twice — an unresolved
+  // question is EVERY caller's own filter (see thread.tsx's `selectionFor`
+  // docstring); the id patterns below are the whole of what useVoiceCorpus
+  // narrates for an ingest already ON the collect scene's sources list.
+  const threadEntries = state.thread.filter((entry, index) => {
+    if (entry.kind === "question") {
+      return selectionFor(state.thread, index) !== null;
+    }
+    return !isSurfaceRedundant(entry.id);
+  });
 
   return (
     <ConversationWorkbench
@@ -148,7 +167,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     >
       <div className={`mw-thread${dragOver ? " ob-conv-dragover" : ""}`}>
         <ConversationThread
-          entries={state.thread}
+          entries={threadEntries}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
         >
@@ -160,53 +179,34 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
               canBuild={canBuild}
             />
           )}
-          {state.phase === "vo.result" && (
-            <ResultControls state={state} dispatch={dispatch} build={build} />
-          )}
-          {state.phase === "vo.skipped" && (
-            <div className="ob-conv-chips">
-              <Button
-                small
-                variant="primary"
-                onClick={() => dispatch({ type: "RESULTS_CONTINUE" })}
-              >
-                {t("ob.conv.results.continue")}
-              </Button>
-            </div>
+          {state.phase === "vo.speaker" && (
+            <NarrationBubble
+              entry={{
+                kind: "narration",
+                id: "voice:guide-speaker",
+                i18nKey: "ob.conv.voice.guideSpeaker",
+              }}
+            />
           )}
         </ConversationThread>
       </div>
-      <VoiceNextStep state={state} canBuild={canBuild} />
     </ConversationWorkbench>
   );
 }
 
-// The pinned next-step line of the voice act: the open speaker decision
-// outranks the build chip once the server corpus clears the floor.
-function VoiceNextStep({
-  state,
-  canBuild,
-}: Readonly<{ state: ConversationState; canBuild: boolean }>) {
-  const t = useT();
-  if (state.pendingQuestion !== null) {
-    return (
-      <NextStepBar
-        label={t("ob.conv.next.decisionOne")}
-        targetSelector="fieldset.ob-conv-question:not([disabled])"
-        revision={state.seq}
-      />
-    );
-  }
-  if (canBuild) {
-    return (
-      <NextStepBar
-        label={t("ob.conv.next.build")}
-        targetSelector=".ob-conv-build-chip"
-        revision={state.seq}
-      />
-    );
-  }
-  return null;
+// Upload consequences the collect scene's own sources list and meter already
+// show: the "Added {name}." turn UPLOAD_ADDED appends, its per-source
+// reaction ("Words kept/counted: …"), and the corpus-growth counter
+// (diffCorpus's stable "words"/"band:<band>" ids). `withEntries` stamps
+// every id with a `<seq>:` prefix, so the match is a suffix test on the
+// SHAPE those three narrations always take, not the reaction's own text.
+function isSurfaceRedundant(id: string): boolean {
+  return (
+    /^\d+:upload:/.test(id) ||
+    /^\d+:react:/.test(id) ||
+    /^\d+:words$/.test(id) ||
+    /^\d+:band:/.test(id)
+  );
 }
 
 // What the machine wants while it collects, and nothing it can press: the
@@ -247,51 +247,45 @@ function CollectingNarration({
   );
 }
 
-// The result of the act: a succeeded build shows what it learned (with the
-// candidate-review note when the version awaits approval), a failed one
-// offers the retry the machine permits, a deferred one has already said so
-// honestly in its outcome — all continue onward the same way.
-function ResultControls({
-  state,
-  dispatch,
-  build,
-}: Readonly<{
-  state: ConversationState;
-  dispatch: Dispatch<ConversationEvent>;
-  build: ReturnType<typeof useVoiceBuild>;
-}>) {
-  const t = useT();
-  return (
-    <>
-      {/* What the build learned is the SCENE's; the rail keeps only the
-          actions, or the same sentences would be on screen twice. */}
-      <div className="ob-conv-chips">
-        {state.lastBuildStatus === "failed" && (
-          <Button
-            small
-            disabled={build.start.isPending}
-            onClick={() => build.start.mutate()}
-          >
-            {t("ob.conv.voice.retryBuild")}
-          </Button>
-        )}
-        <Button
-          small
-          variant="primary"
-          onClick={() => dispatch({ type: "RESULTS_CONTINUE" })}
-        >
-          {t("ob.conv.results.continue")}
-        </Button>
-      </div>
-    </>
-  );
+// The fallback branch's own Continue: `vo.skipped` has nothing left to
+// finish, a failed build offers the retry the machine still permits, a
+// deferred one has already said so honestly in its rail outcome and only
+// waits for the human to move on. Every case shares the one action.
+function continueBarFor(
+  state: ConversationState,
+  build: ReturnType<typeof useVoiceBuild>,
+  dispatch: Dispatch<ConversationEvent>,
+): Readonly<{
+  reason: VoiceContinueReason;
+  onContinue: () => void;
+  retryPending?: boolean;
+  onRetry?: () => void;
+}> | null {
+  const onContinue = () => dispatch({ type: "RESULTS_CONTINUE" });
+  if (state.phase === "vo.skipped") {
+    return { reason: "skipped", onContinue };
+  }
+  if (state.phase === "vo.result" && state.lastBuildStatus === "failed") {
+    return {
+      reason: "failed",
+      onContinue,
+      retryPending: build.start.isPending,
+      onRetry: () => build.start.mutate(),
+    };
+  }
+  if (state.phase === "vo.result" && state.lastBuildStatus === "deferred") {
+    return { reason: "deferred", onContinue };
+  }
+  return null;
 }
 
 /**
  * Which scene the voice act's work surface is showing, and nothing else:
- * collect the writing, watch the model learn it, then read what it learned.
- * Outside those three the corpus dossier stands in. Extracted from the act
- * driver so the driver stays about events, not about staging.
+ * collect the writing, decide who is speaking, watch the model learn it,
+ * then read what it learned. Outside those the corpus dossier stands in,
+ * carrying Continue itself once there is nothing left a scene can own.
+ * Extracted from the act driver so the driver stays about events, not
+ * about staging.
  */
 function VoiceSurface({
   state,
@@ -299,10 +293,10 @@ function VoiceSurface({
   eyebrow,
   corpus,
   build,
-  collecting,
   canBuild,
   fileRef,
   onFiles,
+  onAnswer,
   model,
 }: Readonly<{
   state: ConversationState;
@@ -310,14 +304,14 @@ function VoiceSurface({
   eyebrow: string;
   corpus: ReturnType<typeof useVoiceCorpus>;
   build: ReturnType<typeof useVoiceBuild>;
-  collecting: boolean;
   canBuild: boolean;
   fileRef: RefObject<HTMLInputElement | null>;
   onFiles: (event: ChangeEvent<HTMLInputElement>) => void;
+  onAnswer: (questionId: string, value: string) => void;
   model: string;
 }>) {
   const t = useT();
-  if (collecting) {
+  if (state.phase === "vo.collecting") {
     return (
       <VoiceCollectScene
         eyebrow={eyebrow}
@@ -336,6 +330,15 @@ function VoiceSurface({
       />
     );
   }
+  if (state.phase === "vo.speaker" && state.pendingQuestion !== null) {
+    return (
+      <VoiceSpeakerScene
+        eyebrow={eyebrow}
+        question={state.pendingQuestion}
+        onAnswer={onAnswer}
+      />
+    );
+  }
   if (state.phase === "vo.building") {
     return (
       <VoiceBuildScene
@@ -347,46 +350,26 @@ function VoiceSurface({
     );
   }
   if (state.phase === "vo.result" && state.lastBuildStatus === "succeeded") {
-    const version = build.builtVersion.data ?? null;
     return (
-      <VoiceScene
+      <VoiceResultScene
         eyebrow={eyebrow}
-        title={t("ob.conv.voice.resultTitle")}
-        sub={t("ob.conv.voice.resultSub")}
-      >
-        {build.builtVersion.isPending && (
-          <p className="ob-conv-artifact-empty">
-            {t("ob.conv.voice.resultLoading")}
-          </p>
-        )}
-        {!build.builtVersion.isPending && version === null && (
-          <p className="ob-conv-artifact-empty">
-            {t("ob.conv.voice.resultEmpty")}
-          </p>
-        )}
-        {version !== null && (
-          <>
-            {version.status === "candidate" && (
-              <p className="t-small">{t("ob.conv.voice.candidateNote")}</p>
-            )}
-            <VoiceInsights
-              data={parseVoiceInsights(version)}
-              profileVersion={version.profile_version}
-            />
-          </>
-        )}
-      </VoiceScene>
+        loading={build.builtVersion.isPending}
+        version={build.builtVersion.data ?? null}
+        onContinue={() => dispatch({ type: "RESULTS_CONTINUE" })}
+      />
     );
   }
   // Everything a scene does not own — a failed or deferred build, the skip
-  // — keeps the corpus dossier. The build scene above has already claimed
-  // every building phase, so no tracker runs here.
+  // — keeps the corpus dossier, now carrying its own pinned Continue. The
+  // build scene above has already claimed every building phase, so no
+  // tracker runs here.
   return (
     <VoiceActArtifact
       summary={corpus.summary}
       manifest={corpus.manifest}
       stage={build.stage}
       building={false}
+      continueBar={continueBarFor(state, build, dispatch) ?? undefined}
     />
   );
 }

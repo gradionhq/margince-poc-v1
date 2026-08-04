@@ -1942,6 +1942,16 @@ export const de = {
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
   "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
+  "ob.conv.voice.guideSpeaker":
+    "Rechts wartet eine Sprecherwahl — wähle, welche Person du bist.",
+  "ob.conv.voice.speakerFoot": "Deine Wahl gilt nur für diese Datei.",
+  "ob.conv.voice.speakerContinue": "Diese Person bin ich",
+  "ob.conv.voice.continueSkippedStatus":
+    "Erstmal übersprungen — später in den Einstellungen nachholbar.",
+  "ob.conv.voice.continueFailedStatus":
+    "Deine Materialien sind sicher — versuch es erneut oder mach weiter und komm später zurück.",
+  "ob.conv.voice.continueDeferredStatus":
+    "Hier ist nichts zu tun — mach weiter, der Rest läuft von selbst.",
   "ob.conv.voice.collectAsk":
     "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch.",
   "ob.conv.voice.composer": "Füge hier deinen Text ein",
@@ -2031,8 +2041,6 @@ export const de = {
     "Hier ist alles, was ich gefunden habe. Korrigiere mich.",
   "ob.conv.review.showMore": "Ganzen Text zeigen",
   "ob.conv.review.showLess": "Weniger zeigen",
-  "ob.conv.review.missing":
-    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
   "ob.conv.review.continue": "Weiter",
   "ob.conv.review.progressLabel": "Ausgefüllte Pflichtfelder",
   "ob.conv.review.requiredRemaining.one":
@@ -2099,6 +2107,9 @@ export const de = {
   "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
   "ob.conv.voice.sceneSub":
     "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",
+  "ob.conv.voice.heroKicker": "Warum dieser Schritt zählt",
+  "ob.conv.voice.heroBody":
+    "Ton, Rhythmus und Formulierungen lernt es aus deinen eigenen Texten und trainiert ausschließlich damit, nie mit den Texten anderer.",
   "ob.conv.voice.dropTitle": "Leg deine Texte hier ab",
   "ob.conv.voice.dropSub":
     "Gesendete Mails eignen sich am besten, weil sie zeigen, wie du schreibst, wenn du etwas willst.",
@@ -2217,8 +2228,6 @@ export const de = {
   "ob.conv.connect.artifactEmpty":
     "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
   "ob.conv.next.decisionOne": "1 Entscheidung offen",
-  "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
-  "ob.conv.next.review": "Deine Durchsicht ist bereit",
   "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
 
   // Die Setup-Leiste: fünf Stationen, je ein Wort. Lang genug, den Schritt zu

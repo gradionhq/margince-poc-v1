@@ -455,7 +455,25 @@ describe("the conversational company act", () => {
       name: /Continue/,
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(true);
-    expect(await screen.findByText(/I still need:/)).toBeTruthy();
+    // The nav's "Needed to continue" cluster is the surface that names the
+    // blocking fields (the bottom bar only states the count); it renders
+    // each one from the same `remaining_required_fields` this stub sets. A
+    // section can share its own label with the one field inside it (the
+    // customer section is itself titled "Ideal customer"), so the check
+    // reads the blocking field rows specifically, not any text match.
+    const nav = await screen.findByRole("navigation", {
+      name: "Jump to a section",
+    });
+    const blockingLabels = [
+      ...nav.querySelectorAll(".ob-triage-nav-item[data-blocking='true'] span"),
+    ]
+      .filter((span) => !span.classList.contains("sr-only"))
+      .map((span) => span.textContent);
+    expect(blockingLabels).toEqual([
+      "Company name",
+      "What do you sell?",
+      "Ideal customer",
+    ]);
   });
 
   it("lists every outstanding row the board itself counts in the rail, and a click jumps to and focuses the exact row", async () => {

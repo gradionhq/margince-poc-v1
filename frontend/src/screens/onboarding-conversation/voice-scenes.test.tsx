@@ -105,6 +105,17 @@ describe("VoiceCollectScene", () => {
     expect(screen.queryByLabelText("Paste the text you wrote here")).toBeNull();
   });
 
+  it("shows the payoff band with its copy from the catalog", () => {
+    collectScene({});
+
+    expect(screen.getByText("Why this step matters")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "It learns your tone, rhythm, and phrasing from your own writing, and trains on yours alone — never anyone else's.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("wires the browse button to the same hidden input the scene renders", async () => {
     const fileRef = createRef<HTMLInputElement>();
     collectScene({ fileRef });
@@ -138,6 +149,12 @@ describe("VoiceBuildScene", () => {
       ),
     );
   }
+
+  it("does not carry the collect scene's payoff band", () => {
+    buildScene(null);
+
+    expect(screen.queryByText("Why this step matters")).toBeNull();
+  });
 
   it("creeps toward the reported stage's ceiling instead of jumping to it, and never passes it", () => {
     stubReducedMotion(false);

@@ -339,18 +339,19 @@ describe("the rail's review to-do list", () => {
     expect(boardTotal).toBe(8);
   });
 
-  // The board's own blocker banner (`.ob-triage-blocker b`, confirm-card.tsx)
-  // already counts `missingRequired.length` — the exact same required-empty
-  // rows the rail calls "blocks confirm". Two surfaces, one number: if
+  // The board's own nav badges (`.ob-triage-nav-badge b`, confirm-card.tsx)
+  // already sum to `missingRequired.length` — the exact same required-empty
+  // rows the rail calls "blocks confirm" (both read the same predicate,
+  // `isRequired(field) && value === ""`). Two surfaces, one number: if
   // either drifts from `isRequired`/REQUIRED_FIELDS, this fails.
-  it("counts exactly as many blocking rows as the board's own blocker banner", async () => {
+  it("counts exactly as many blocking rows as the nav's own blocking badges", async () => {
     renderReview(REVIEW_STATE, REVIEW_FIELDS);
     await screen.findByRole("heading", { level: 2, name: /Correct me/ });
 
-    const boardBlocking = Number(
-      (document.querySelector(".ob-triage-blocker b") as HTMLElement)
-        .textContent,
-    );
+    const nav = document.querySelector(".ob-triage-nav") as HTMLElement;
+    const boardBlocking = [
+      ...nav.querySelectorAll(".ob-triage-nav-badge[data-blocking='true'] b"),
+    ].reduce((sum, badge) => sum + Number(badge.textContent), 0);
     const railBlocking = document.querySelectorAll(
       ".ob-conv-attention button[data-kind='blocks']",
     );
@@ -489,5 +490,73 @@ describe("the rail's review to-do list", () => {
 
     expect(document.querySelector(".ob-conv-attention")).toBeNull();
     expect(screen.getByText(/looks clean/)).toBeInTheDocument();
+  });
+});
+
+// Arrival is not an action the reader took: landing on co.review must show
+// the scene from its own top, not wherever a leftover crawl narration last
+// pointed. The bug this guards was CompanyActArtifact's highlight effect
+// pulsing and scrolling to whatever field the LAST thread entry named, even
+// when that entry predates the review scene entirely — a stale finding from
+// the read phase, not anything that happened while the review was on screen.
+describe("arriving at the review scene", () => {
+  it("leaves the board unscrolled and unfocused when a field-naming entry is already the thread's last one by the time the review's own data resolves", async () => {
+    // jsdom has no scrollIntoView; the real DOM always carries one.
+    Element.prototype.scrollIntoView ??= () => {};
+    const scrollSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    installFetchStub(
+      reviewRoutes(REVIEW_FIELDS, reviewProposal(REVIEW_FIELDS)),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const tree = (state: ConversationState) => (
+      <QueryClientProvider client={queryClient}>
+        <LocaleProvider initial="en">
+          <CompanyAct
+            state={state}
+            dispatch={vi.fn()}
+            profile={null}
+            persist={vi.fn(async () => true)}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>
+    );
+    // First render carries the field-naming narration already — the site
+    // read and proposal queries are still in flight, so this first commit
+    // never finds the row: the effect that pulses/scrolls fires once here,
+    // matching nothing.
+    const findingEntry = {
+      kind: "narration" as const,
+      id: "3:field:display_name",
+      i18nKey: "ob.conv.read.learnedField" as const,
+      findingIds: ["display_name"],
+    };
+    const { rerender } = render(
+      tree({ ...REVIEW_STATE, thread: [findingEntry] }),
+    );
+    await screen.findByRole("heading", { level: 2, name: /Correct me/ });
+
+    // A background poll narrates again, live, while the review is already
+    // on screen with the row now actually mounted — a fresh thread array
+    // that still ends on a field-naming entry, exactly the shape a
+    // narrating background poll produces mid-review.
+    rerender(
+      tree({
+        ...REVIEW_STATE,
+        thread: [findingEntry, { ...findingEntry, id: "4:field:display_name" }],
+      }),
+    );
+
+    expect(document.querySelectorAll(".ob-conv-pulse")).toHaveLength(0);
+    expect(document.activeElement === document.body).toBe(true);
+    const row = document.getElementById("ob-triage-row-display_name");
+    expect(row).not.toBeNull();
+    // The thread's own follow-the-bottom behaviour is a separate, legitimate
+    // scroll target; the review board's rows are never among its targets.
+    const scrolled: readonly unknown[] = scrollSpy.mock.instances;
+    expect(scrolled.some((instance) => instance === row)).toBe(false);
   });
 });

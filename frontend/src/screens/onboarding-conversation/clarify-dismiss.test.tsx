@@ -343,7 +343,7 @@ afterEach(() => {
 });
 
 describe("dismissing a clarify in the company act", () => {
-  it("unblocks Continue and the next-step bar, and the census confirm sends no resolution", async () => {
+  it("unblocks Continue, and the census confirm sends no resolution", async () => {
     const read = readyRead([]);
     const calls = stubApi(read, proposalWithQuestion(read));
     render(<OnboardingScreen />);
@@ -353,9 +353,6 @@ describe("dismissing a clarify in the company act", () => {
       await screen.findByRole("heading", {
         name: /Which legal entity is this installation for\?/,
       }),
-    ).toBeTruthy();
-    expect(
-      await screen.findByRole("button", { name: "1 decision open" }),
     ).toBeTruthy();
 
     await userEvent.click(
@@ -368,7 +365,7 @@ describe("dismissing a clarify in the company act", () => {
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(false);
     expect(
-      await screen.findByRole("button", { name: "Your review is ready" }),
+      await screen.findByText(/Your review is ready on the right\./),
     ).toBeTruthy();
     expect(screen.getByText(/You skipped: Registered legal name/)).toBeTruthy();
 

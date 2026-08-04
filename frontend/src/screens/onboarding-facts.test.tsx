@@ -912,6 +912,35 @@ describe("CompanyConfirmCard as a triage surface", () => {
     ).toBeInTheDocument();
   });
 
+  // The nav's blocking cluster and the bottom bar's status sentence are now
+  // the only two places the board states what is missing; a banner reciting
+  // the same gap a third time above the fold was noise, not a third source
+  // of truth, so its absence must never leave the surface silent about why
+  // Continue is disabled.
+  it("renders no blocker banner while a required field is empty, and keeps Continue disabled with the reason visible", () => {
+    render(
+      <CompanyConfirmCard
+        proposal={triageProposal()}
+        draft={EMPTY_DRAFT}
+        answers={[]}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={["display_name", "offer_summary", "icp"]}
+        setField={vi.fn()}
+        onAcceptAll={vi.fn()}
+        pending={false}
+        authorizing={false}
+        error={null}
+      />,
+    );
+
+    expect(document.querySelector(".ob-triage-blocker")).toBeNull();
+    expect(
+      screen.getByText("3 fields needed before you can continue"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  });
+
   // Only display_name, offer_summary and icp ever block confirm (the server
   // 422s on exactly those three); every other empty or weakly-grounded field
   // is advisory, however many of them a section carries.
@@ -1193,6 +1222,33 @@ describe("CompanyConfirmCard as a triage surface", () => {
     expect(advisoryItem.querySelector(".sr-only")).toHaveTextContent(
       "Worth a check",
     );
+  });
+
+  // Arriving at the review is not an action the reader took, so nothing on
+  // the surface may act as though it were: no field grabs focus, and
+  // nothing scrolls to one, on mount. A jump only ever follows a click.
+  it("leaves focus where the document put it on mount, with no field auto-focused or scrolled to", () => {
+    // jsdom carries no real scrollIntoView; stubbing it on the prototype is
+    // the only way to observe whether anything called it. Restored after,
+    // since a global prototype patch would otherwise leak into every other
+    // test in this file.
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      renderTriage(["icp"]);
+
+      // display_name is required and empty — the strongest possible pull
+      // for an old "focus the first blocking row" habit — and its input
+      // still must not be where focus landed.
+      expect(document.activeElement).not.toBe(
+        screen.getByRole("textbox", { name: /Company name/ }),
+      );
+      expect(document.activeElement === document.body).toBe(true);
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
   });
 
   it("lands focus inside the named field's row, ready to type", async () => {

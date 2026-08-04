@@ -1,20 +1,25 @@
-import { Check } from "lucide-react";
+import { Check, Lightbulb } from "lucide-react";
 import type { ChangeEvent, ReactNode, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { MarginceCoreScene } from "../../design-system/margince-core";
 import { usePrefersReducedMotion } from "../../design-system/motion";
 import { useT } from "../../i18n";
 import { ACCEPTED_CORPUS_ATTR, VOICE_MIN_WORDS } from "../onboarding";
-import type { BuildStage } from "./conversation-machine";
+import type { VoiceInsightsData } from "../voice-insights";
+import { parseVoiceInsights } from "../voice-insights";
+import type { BuildStage, ConversationQuestion } from "./conversation-machine";
 import type { CorpusManifestEntry } from "./use-voice-corpus";
 
-// The voice act's work surface, as scenes: collect the writing, watch the
-// model learn it, then read what it learned. One scene at a time, the same
-// rule the company act follows — the rail beside them stays conversation.
+// The voice act's work surface, as scenes: collect the writing, decide who
+// is speaking when a transcript needs it, watch the model learn it, then
+// read what it learned. One scene at a time, the same rule the company act
+// follows — the rail beside them stays conversation, and every scene's own
+// primary action is pinned to ITS foot, never the rail's.
 
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
+type VoiceProfileVersion = components["schemas"]["VoiceProfileVersion"];
 
 const BUILD_STAGES: readonly BuildStage[] = [
   "snapshot",
@@ -97,6 +102,32 @@ export function VoiceScene({
 }
 
 /**
+ * The payoff, stated once, before the mechanics. The scene's own heading and
+ * sub already say the CRM drafts mail in the reader's words; this band adds
+ * the two things that make that credible — where the voice comes from, and
+ * that it stays theirs alone — without repeating either sentence. The Core
+ * sits at the size the brand line uses (`mw-core`'s pattern), not the hero
+ * size the build scene reaches for, because this is context beside copy, not
+ * the scene's own subject.
+ */
+function VoiceHeroBand() {
+  const t = useT();
+  return (
+    <div className="ob-voice-hero">
+      <MarginceCoreScene
+        state="idle"
+        feed={false}
+        className="ob-voice-hero-core"
+      />
+      <div className="ob-voice-hero-copy">
+        <p className="ob-voice-hero-kicker">{t("ob.conv.voice.heroKicker")}</p>
+        <p className="ob-voice-hero-body">{t("ob.conv.voice.heroBody")}</p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The collect scene: the drop target, the sources the server has ingested,
  * and the one action that starts the build. Every number is the server's —
  * the meter counts what was actually kept, not what was handed over. Intake
@@ -138,6 +169,7 @@ export function VoiceCollectScene({
       title={t("ob.conv.voice.sceneTitle")}
       sub={t("ob.conv.voice.sceneSub")}
     >
+      <VoiceHeroBand />
       <div className="ob-voice-drop">
         <input
           ref={fileRef}
@@ -263,6 +295,84 @@ export function VoiceCollectScene({
 }
 
 /**
+ * The speaker decision, as the scene: which voice in a multi-speaker
+ * transcript is the reader's own. This is a decision with options, so it
+ * takes the whole surface the same way the collect and build scenes do —
+ * never a card competing for room in the rail beside it. Every number on a
+ * card (words, turns) is the preview's own count, the same one the collect
+ * scene's sources list uses elsewhere.
+ */
+export function VoiceSpeakerScene({
+  eyebrow,
+  question,
+  onAnswer,
+}: Readonly<{
+  eyebrow: string;
+  question: ConversationQuestion;
+  onAnswer: (questionId: string, value: string) => void;
+}>) {
+  const t = useT();
+  const group = useId();
+  const [picked, setPicked] = useState("");
+  return (
+    <VoiceScene eyebrow={eyebrow} title={t(question.i18nKey, question.params)}>
+      <div role="radiogroup" aria-label={t(question.i18nKey, question.params)}>
+        <div className="ob-voice-speakers">
+          {question.options.map((option) => {
+            const label = option.labelKey
+              ? t(option.labelKey, option.params)
+              : option.label;
+            const detail = option.detailKey
+              ? t(option.detailKey, option.params)
+              : undefined;
+            const checked = picked === option.value;
+            return (
+              <label
+                key={option.value}
+                className={`ob-voice-speaker${checked ? " is-picked" : ""}`}
+              >
+                <input
+                  type="radio"
+                  name={group}
+                  value={option.value}
+                  checked={checked}
+                  onChange={() => setPicked(option.value)}
+                />
+                <span className="ob-voice-speaker-disc" aria-hidden>
+                  {checked && <Check />}
+                </span>
+                <span className="ob-voice-speaker-body">
+                  <b>{label}</b>
+                  {detail !== undefined && <small>{detail}</small>}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+      <div className="ob-voice-foot">
+        <p>{t("ob.conv.voice.speakerFoot")}</p>
+        <div className="ob-voice-foot-acts">
+          <Button
+            variant="primary"
+            disabled={picked === ""}
+            onClick={() => {
+              // The disabled attribute keeps the pointer out; this keeps a
+              // programmatic click from answering with a choice nobody made.
+              if (picked !== "") {
+                onAnswer(question.id, picked);
+              }
+            }}
+          >
+            {t("ob.conv.voice.speakerContinue")}
+          </Button>
+        </div>
+      </div>
+    </VoiceScene>
+  );
+}
+
+/**
  * The build scene: the Core carrying the progress ring with the percentage
  * inside it, and the four pipeline stages as a checklist. The ceiling is
  * DERIVED from the stage the server reports; the displayed number crawls
@@ -324,6 +434,256 @@ export function VoiceBuildScene({
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * The result scene: what a succeeded build learned, with Continue pinned to
+ * its own foot in the `.ob-triage-continue` bar every scene's primary action
+ * now sits in — the rail narrates the build finishing, but acting on that is
+ * this surface's alone. `version` is the built profile once it has arrived;
+ * a candidate version's review note lives IN the bar, next to the action it
+ * actually gates, instead of repeating itself above the insights too.
+ */
+export function VoiceResultScene({
+  eyebrow,
+  loading,
+  version,
+  onContinue,
+}: Readonly<{
+  eyebrow: string;
+  loading: boolean;
+  version: VoiceProfileVersion | null;
+  onContinue: () => void;
+}>) {
+  const t = useT();
+  const candidate = version !== null && version.status === "candidate";
+  return (
+    <VoiceScene
+      eyebrow={eyebrow}
+      title={t("ob.conv.voice.resultTitle")}
+      sub={t("ob.conv.voice.resultSub")}
+    >
+      {loading && (
+        <p className="ob-conv-artifact-empty">
+          {t("ob.conv.voice.resultLoading")}
+        </p>
+      )}
+      {!loading && version === null && (
+        <p className="ob-conv-artifact-empty">
+          {t("ob.conv.voice.resultEmpty")}
+        </p>
+      )}
+      {version !== null && (
+        <VoiceResultInsights data={parseVoiceInsights(version)} />
+      )}
+      <div className="ob-triage-continue">
+        <p className="ob-triage-continue-status" role="status">
+          {candidate ? t("ob.conv.voice.candidateNote") : ""}
+        </p>
+        <div className="ob-voice-continue-acts">
+          <Button small variant="primary" onClick={onContinue}>
+            {t("ob.conv.results.continue")}
+          </Button>
+        </div>
+      </div>
+    </VoiceScene>
+  );
+}
+
+// A dimension bar's fill is decorative scale, not a measured percentage the
+// server returns — the number beside it is the real, honest count; the bar
+// only gives it a shape to compare at a glance. References are generous
+// (rarely full) rather than tight, so filling the bar is the exception that
+// tells the reader something, not the common case.
+const WORDS_REFERENCE = 8000;
+const SENTENCE_REFERENCE = 30;
+const SOURCES_REFERENCE = 8;
+
+function VoiceDimension({
+  label,
+  value,
+  reference,
+}: Readonly<{ label: string; value: number; reference: number }>) {
+  const fill = Math.max(0, Math.min(1, value / reference));
+  return (
+    <div className="ob-voice-dimension">
+      <span className="ob-voice-dimension-label">{label}</span>
+      <span className="ob-voice-dimension-track" aria-hidden>
+        <span
+          className="ob-voice-dimension-fill"
+          style={{ width: `${fill * 100}%` }}
+        />
+      </span>
+    </div>
+  );
+}
+
+// The sample: a real draft in a card of its own, with the reading that
+// explains why it lands the way it does directly underneath it. `identity`
+// is already claimed for this card once one is passed — the caller decides
+// that, so this component never has to guess whether it is also showing
+// up in the thinking card below.
+function VoiceSampleCard({
+  sample,
+  why,
+}: Readonly<{
+  sample: { subject: string; body: string };
+  why: string;
+}>) {
+  const t = useT();
+  return (
+    <div className="ob-voice-result-card ob-voice-sample">
+      <p className="ob-voice-result-label">
+        {t("voice.insights.samplesLabel")}
+      </p>
+      <p className="ob-voice-sample-subject">{sample.subject}</p>
+      <p className="ob-voice-sample-body">{sample.body}</p>
+      <p className="ob-voice-sample-why">{why}</p>
+    </div>
+  );
+}
+
+// The measured dimensions, one bar per number the server actually returned.
+function VoiceDimensionsCard({
+  data,
+}: Readonly<{
+  data: Pick<VoiceInsightsData, "words" | "sources" | "meanSentence">;
+}>) {
+  const t = useT();
+  return (
+    <div className="ob-voice-result-card ob-voice-dimensions">
+      {data.words !== null && (
+        <VoiceDimension
+          label={t("voice.insights.statWords", { count: data.words })}
+          value={data.words}
+          reference={WORDS_REFERENCE}
+        />
+      )}
+      {data.sources !== null && (
+        <VoiceDimension
+          label={t("voice.insights.statSources", { count: data.sources })}
+          value={data.sources}
+          reference={SOURCES_REFERENCE}
+        />
+      )}
+      {data.meanSentence !== null && (
+        <VoiceDimension
+          label={t("voice.insights.statSentence", {
+            count: data.meanSentence,
+          })}
+          value={data.meanSentence}
+          reference={SENTENCE_REFERENCE}
+        />
+      )}
+    </div>
+  );
+}
+
+// The reading: the thinking pattern where the build found one, the identity
+// summary where it has not already introduced the sample above it.
+function VoiceThinkingCard({
+  thinking,
+  identity,
+}: Readonly<{ thinking: string | null; identity: string | null }>) {
+  const t = useT();
+  return (
+    <div className="ob-voice-result-card">
+      {thinking !== null && (
+        <>
+          <p className="ob-voice-result-label">
+            <Lightbulb aria-hidden /> {t("voice.insights.thinkingLabel")}
+          </p>
+          <p>{thinking}</p>
+        </>
+      )}
+      {identity !== null && (
+        <p className="ob-voice-result-identity">{identity}</p>
+      )}
+    </div>
+  );
+}
+
+function VoiceMovesCard({
+  moves,
+}: Readonly<{ moves: VoiceInsightsData["moves"] }>) {
+  const t = useT();
+  return (
+    <div className="ob-voice-result-card">
+      <p className="ob-voice-result-label">{t("voice.insights.movesLabel")}</p>
+      <ul className="ob-voice-moves">
+        {moves.map((move) => (
+          <li key={move.move}>
+            <b>{move.move}</b>
+            <blockquote>{move.quote}</blockquote>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function VoiceAvoidCard({ avoid }: Readonly<{ avoid: readonly string[] }>) {
+  const t = useT();
+  return (
+    <div className="ob-voice-result-card">
+      <p className="ob-voice-result-label">{t("voice.insights.avoidLabel")}</p>
+      <ul className="ob-voice-avoid">
+        {avoid.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * What a succeeded build learned, as cards with a clear hierarchy — this
+ * step's own reading of `VoiceInsightsData`, not the flat stacked text the
+ * Settings screen's shared component renders. Every fact still comes from
+ * `parseVoiceInsights`; this is a second RENDERING of that data, never a
+ * second parser, so the two surfaces can never disagree about what a build
+ * actually produced. A section that has nothing to show renders nothing —
+ * a build that skipped a stage never gets an empty card pretending it ran.
+ */
+function VoiceResultInsights({ data }: Readonly<{ data: VoiceInsightsData }>) {
+  const t = useT();
+  const sample = data.sampleDrafts[0] ?? null;
+  // The identity summary reads as the reason a sample landed the way it did
+  // when there is one to sit under; with no sample it is the lead line of
+  // what the build learned instead — never both, or the same sentence would
+  // print twice.
+  const identityInSample = sample !== null && data.identity !== null;
+  const hasDimensions =
+    data.words !== null || data.sources !== null || data.meanSentence !== null;
+  const hasThinking = data.thinking !== null || data.identity !== null;
+  return (
+    <div className="ob-voice-result">
+      {sample !== null && (
+        <VoiceSampleCard
+          sample={sample}
+          why={
+            identityInSample
+              ? (data.identity ?? "")
+              : t("voice.insights.draftOnly")
+          }
+        />
+      )}
+      {hasDimensions && <VoiceDimensionsCard data={data} />}
+      {hasThinking && (
+        <VoiceThinkingCard
+          thinking={data.thinking}
+          identity={identityInSample ? null : data.identity}
+        />
+      )}
+      {data.moves.length > 0 && <VoiceMovesCard moves={data.moves} />}
+      {data.avoid.length > 0 && <VoiceAvoidCard avoid={data.avoid} />}
+      {data.nextBest !== null && (
+        <p className="ob-voice-result-next">
+          <b>{t("voice.insights.nextBestLabel")}</b> {data.nextBest}
+        </p>
+      )}
     </div>
   );
 }

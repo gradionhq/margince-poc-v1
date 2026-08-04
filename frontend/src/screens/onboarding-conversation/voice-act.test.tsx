@@ -5,6 +5,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -280,15 +281,18 @@ describe("the conversational voice act", () => {
 
     await uploadFile("call.vtt", "WEBVTT transcript content");
 
-    // The attachment turn lands, then the server-derived speaker options.
-    expect(await screen.findByText("Added call.vtt.")).toBeTruthy();
+    // The decision is the whole work surface, not a rail card: the question
+    // and its server-derived speaker options render there.
     expect(
       await screen.findByText(/Which one is you\? Only your own words count/),
     ).toBeTruthy();
     expect(screen.getByText("words: 1240 · turns: 12")).toBeTruthy();
     expect(screen.getByText("words: 4160 · turns: 14")).toBeTruthy();
 
-    await userEvent.click(screen.getByRole("button", { name: /Speaker 1/ }));
+    await userEvent.click(screen.getByRole("radio", { name: /Speaker 1/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Use this speaker" }),
+    );
 
     await waitFor(() => {
       expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
@@ -300,10 +304,8 @@ describe("the conversational voice act", () => {
     expect(body.speaker_label).toBe("Speaker 1");
     expect(body.register).toBe("spoken");
 
-    // The reaction speaks the server's kept-of-total stats, nothing else.
-    expect(
-      await screen.findByText(/Words kept: 1240 of 5400\. Only your turns/),
-    ).toBeTruthy();
+    // The server's kept-of-total stats land on the collect scene's own
+    // sources list, once — never a second copy of the same fact in the rail.
     expect(await screen.findByText(/Kept 1240 of 5400 words/)).toBeTruthy();
   });
 
@@ -316,7 +318,9 @@ describe("the conversational voice act", () => {
 
     await uploadFile("notes.md", "Plain prose I wrote myself.");
 
-    expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
+    // The server's word count lands on the collect scene's own sources
+    // list, not as a second bubble in the rail.
+    expect(await screen.findByText("900 words")).toBeTruthy();
     const body = (await requestsTo(calls, "/sources", "POST")[0]
       .clone()
       .json()) as Record<string, unknown>;
@@ -350,7 +354,7 @@ describe("the conversational voice act", () => {
     window.dispatchEvent(drop);
 
     expect(drop.defaultPrevented).toBe(true);
-    expect(await screen.findByText(/Words counted: 900\./)).toBeTruthy();
+    expect(await screen.findByText("900 words")).toBeTruthy();
     expect(requestsTo(calls, "/sources", "POST").length).toBe(1);
 
     // A text-selection drag is NOT claimed: the composer's native
@@ -526,9 +530,10 @@ describe("the conversational voice act", () => {
     await uploadFile("one.md", "First document.");
     await uploadFile("two.md", "Second document.");
 
-    // Both per-source reactions land regardless of settlement order.
+    // Both sources land in the scene's own list regardless of settlement
+    // order — the rail carries neither reaction.
     await waitFor(() => {
-      expect(screen.getAllByText(/Words counted: 900\./).length).toBe(2);
+      expect(screen.getAllByText("900 words").length).toBe(2);
     });
     expect(await screen.findByText("820 of 800 words kept")).toBeTruthy();
     expect(
@@ -581,5 +586,80 @@ describe("the conversational voice act", () => {
       status: "succeeded",
     });
     expect(afterStale).toBe(retried);
+  });
+});
+
+// The rule this act follows: the work happens on the surface, the rail only
+// narrates. These pin the three places that rule used to break.
+describe("the voice act's surface/rail split", () => {
+  it("keeps the speaker decision and its radio options off the rail", async () => {
+    stubApi({
+      preview: conversationalPreview,
+      ingests: [{ stats: transcriptStats, summary: summaryOf(1240) }],
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("call.vtt", "WEBVTT transcript content");
+    await screen.findByText(/Which one is you\? Only your own words count/);
+
+    const rail = document.querySelector(".ob-conv-thread");
+    expect(rail).not.toBeNull();
+    expect(within(rail as HTMLElement).queryAllByRole("radio").length).toBe(0);
+    // The file's own upload turn and per-source reaction never land in the
+    // rail either — a fact already live on the surface stays there.
+    expect(
+      within(rail as HTMLElement).queryByText(/Added call.vtt/),
+    ).toBeNull();
+  });
+
+  it("renders a skipped voice act's Continue action on the surface, never the rail", () => {
+    stubApi({});
+    render(
+      <VoiceHarness
+        initial={{
+          ...initialConversationState,
+          act: "voice",
+          phase: "vo.skipped",
+        }}
+      />,
+    );
+
+    const rail = document.querySelector(".ob-conv-thread") as HTMLElement;
+    expect(within(rail).queryByRole("button", { name: "Continue" })).toBeNull();
+    const bar = document.querySelector(".ob-triage-continue");
+    expect(bar).not.toBeNull();
+    expect(
+      within(bar as HTMLElement).getByRole("button", { name: "Continue" }),
+    ).toBeTruthy();
+  });
+
+  it("renders the succeeded result as structured sections, each from the same parsed data", async () => {
+    stubApi({
+      preview: documentPreview,
+      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+      builds: {
+        [BUILD_IDS[0]]: [
+          { id: BUILD_IDS[0], status: "succeeded", stage: null },
+        ],
+      },
+    });
+    render(<VoiceHarness initial={collectingState()} />);
+
+    await uploadFile("one.md", "Enough material.");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Build my voice profile/ }),
+    );
+
+    // Every section is its own bordered card, and the Continue action sits
+    // in the surface's own pinned bar beside them, not the rail.
+    const identity = await screen.findByText(/Direct, concrete/);
+    expect(identity.closest(".ob-voice-result-card")).not.toBeNull();
+    const rail = document.querySelector(".ob-conv-thread") as HTMLElement;
+    expect(within(rail).queryByRole("button", { name: "Continue" })).toBeNull();
+    const bar = document.querySelector(".ob-triage-continue");
+    expect(bar).not.toBeNull();
+    expect(
+      within(bar as HTMLElement).getByRole("button", { name: "Continue" }),
+    ).toBeTruthy();
   });
 });

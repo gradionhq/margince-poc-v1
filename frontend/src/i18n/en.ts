@@ -1914,6 +1914,16 @@ export const en = {
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
   "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
+  "ob.conv.voice.guideSpeaker":
+    "A speaker choice is waiting on the right — pick which one is you.",
+  "ob.conv.voice.speakerFoot": "Your choice applies to this file only.",
+  "ob.conv.voice.speakerContinue": "Use this speaker",
+  "ob.conv.voice.continueSkippedStatus":
+    "Skipped for now — add it later in Settings.",
+  "ob.conv.voice.continueFailedStatus":
+    "Your material is safe — retry now, or continue and pick this up later.",
+  "ob.conv.voice.continueDeferredStatus":
+    "No action needed here — continue, and it finishes on its own.",
   "ob.conv.voice.collectAsk":
     "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too.",
   "ob.conv.voice.composer": "Paste the text you wrote here",
@@ -1997,7 +2007,6 @@ export const en = {
   "ob.conv.review.title": "Here is everything I found. Correct me.",
   "ob.conv.review.showMore": "Show full text",
   "ob.conv.review.showLess": "Show less",
-  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
   "ob.conv.review.continue": "Continue",
   "ob.conv.review.progressLabel": "Required fields completed",
   "ob.conv.review.requiredRemaining.one":
@@ -2062,6 +2071,9 @@ export const en = {
   "ob.conv.voice.sceneTitle": "Teach me how you write.",
   "ob.conv.voice.sceneSub":
     "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",
+  "ob.conv.voice.heroKicker": "Why this step matters",
+  "ob.conv.voice.heroBody":
+    "It learns your tone, rhythm, and phrasing from your own writing, and trains on yours alone — never anyone else's.",
   "ob.conv.voice.dropTitle": "Drop your writing here",
   "ob.conv.voice.dropSub":
     "Sent mail works best, because it shows how you write when you want something.",
@@ -2180,8 +2192,6 @@ export const en = {
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
   "ob.conv.next.decisionOne": "1 decision open",
-  "ob.conv.next.decisionMany": "{count} decisions open",
-  "ob.conv.next.review": "Your review is ready",
   "ob.conv.next.build": "Ready to build your voice",
 
   // The setup rail: five stops, one word each. Long enough to name the step,
