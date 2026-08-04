@@ -11,7 +11,10 @@ package aicert
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -94,6 +97,12 @@ func decodePreservingNumbers(raw []byte) (any, error) {
 	if err := dec.Decode(&decoded); err != nil {
 		return nil, err
 	}
+	// A decoder stops at the end of the FIRST value, so anything after it would
+	// be dropped in silence — the fixture rendered would not be the fixture
+	// supplied. json.Unmarshal refuses trailing data; this has to say so too.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("trailing data after the JSON value")
+	}
 	return exactNumbers(decoded), nil
 }
 
@@ -165,24 +174,23 @@ func (n yamlNumber) representable(path string) error {
 	if err != nil {
 		return fmt.Errorf("aicert: %s is the number %s, which the corpus format cannot carry back unchanged", strings.TrimPrefix(path, "."), text)
 	}
-	// A literal that does not survive its own float64 round trip is lossy even
-	// though it parses — say so rather than rounding it silently.
-	if normalizeDecimal(text) != normalizeDecimal(strconv.FormatFloat(f, 'g', -1, 64)) {
+	// Compared as VALUES, not as spellings: 1e-6 and 1e-06 are the same number,
+	// and so are 1.50 and 1.5. A string comparison would refuse a perfectly
+	// representable fixture over how it happens to be written.
+	loaded := strconv.FormatFloat(f, 'g', -1, 64)
+	written, wroteOK := new(big.Rat).SetString(text)
+	readBack, readOK := new(big.Rat).SetString(loaded)
+	if !wroteOK || !readOK {
+		return fmt.Errorf("aicert: %s is the number %s, which the corpus format cannot carry back unchanged", strings.TrimPrefix(path, "."), text)
+	}
+	// Equal values mean the literal survives float64; unequal means it would
+	// load as something else, which is the failure this check exists to name.
+	if written.Cmp(readBack) != 0 {
 		return fmt.Errorf(
 			"aicert: %s is the number %s, whose precision exceeds what the corpus format carries back (it would load as %s) — quote it as a string if the scenario needs it verbatim",
-			strings.TrimPrefix(path, "."), text, strconv.FormatFloat(f, 'g', -1, 64))
+			strings.TrimPrefix(path, "."), text, loaded)
 	}
 	return nil
-}
-
-// normalizeDecimal renders a decimal literal in the one spelling two equal
-// values share, so "1.50" and "1.5" are not reported as a precision loss.
-func normalizeDecimal(text string) string {
-	if !strings.ContainsAny(text, "eE") && strings.Contains(text, ".") {
-		text = strings.TrimRight(text, "0")
-		text = strings.TrimSuffix(text, ".")
-	}
-	return text
 }
 
 // yamlNumber emits a JSON number's own text as a YAML scalar, unquoted, so it

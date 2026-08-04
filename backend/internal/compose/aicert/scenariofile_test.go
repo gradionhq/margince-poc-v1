@@ -270,3 +270,44 @@ func TestRenderScenarioKeepsEveryNumberItAccepts(t *testing.T) {
 		}
 	}
 }
+
+// A decoder stops at the end of the first value, so trailing bytes would be
+// dropped in silence — the fixture rendered would not be the fixture supplied.
+func TestRenderScenarioRefusesTrailingDataAfterTheFixture(t *testing.T) {
+	sc := aicert.Scenario{
+		Task: "rate_extract", Site: "pricing",
+		Fixture: aicert.JSONValue(`{"page_text":"x"} {"page_text":"y"}`),
+	}
+	_, err := aicert.RenderScenario(sc)
+	if err == nil {
+		t.Fatal("trailing data must be refused, not silently dropped")
+	}
+	if !strings.Contains(err.Error(), "trailing data") {
+		t.Errorf("error = %q, want it to name the trailing data", err)
+	}
+}
+
+// Equal numbers written differently are the same number. Comparing spellings
+// would refuse a perfectly representable fixture over how it happens to be
+// written — 1e-6 renders as 1e-06, and 1.50 as 1.5.
+func TestRenderScenarioAcceptsEquivalentNumberSpellings(t *testing.T) {
+	reg := census(t)
+	for _, literal := range []string{"1e-6", "1E-6", "1e3", "1.50", "2.0", "-1e-7"} {
+		sc := aicert.Scenario{
+			Task: "rate_extract", Site: "pricing",
+			Fixture: aicert.JSONValue(`{"page_text":"x","n":` + literal + `}`),
+		}
+		body, err := aicert.RenderScenario(sc)
+		if err != nil {
+			t.Errorf("RenderScenario(%s) refused a representable number: %v", literal, err)
+			continue
+		}
+		path := filepath.Join(t.TempDir(), "s.yaml")
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := aicert.LoadScenarioFile(path, reg); err != nil {
+			t.Errorf("%s rendered a scenario that does not load: %v", literal, err)
+		}
+	}
+}
