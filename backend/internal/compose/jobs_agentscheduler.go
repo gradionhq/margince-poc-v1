@@ -92,8 +92,8 @@ func addAgentSchedulerJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerCo
 	if now == nil {
 		now = time.Now
 	}
-	addGovernedWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool}, 0)
-	addGovernedWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now}, 0)
+	addDeclaredWorker[AgentSchedulerArgs](reg, &agentSchedulerWorker{pool: pool})
+	addDeclaredWorker[AgentSchedulerWorkspaceArgs](reg, &agentSchedulerWorkspaceWorker{svc: cfg.AgentScheduler.Service, now: now})
 	return periodicWhenPositive(cfg.AgentScheduler.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return AgentSchedulerArgs{}, sweepInsertOpts() },
 		// Run-on-start because a restart must not add a whole interval to a due

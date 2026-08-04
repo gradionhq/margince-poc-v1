@@ -26,14 +26,14 @@ func addGraphJobs(reg *jobRegistry, pool *pgxpool.Pool, log *slog.Logger) []*riv
 	// Each pass is a dispatcher plus a workspace worker; only the dispatcher
 	// gets a periodic entry, and the workspace worker reuses its wiring.
 	participants := newParticipantBackfillWorker(pool, log)
-	addGovernedWorker[ParticipantBackfillArgs](reg, participants, 0)
-	addGovernedWorker[ParticipantBackfillWorkspaceArgs](reg, &participantBackfillWorkspaceWorker{participantBackfillWorker: participants}, 0)
+	addDeclaredWorker[ParticipantBackfillArgs](reg, participants)
+	addDeclaredWorker[ParticipantBackfillWorkspaceArgs](reg, &participantBackfillWorkspaceWorker{participantBackfillWorker: participants})
 	graphEdges := newGraphEdgeReconcileWorker(pool, log)
-	addGovernedWorker[GraphEdgeReconcileArgs](reg, graphEdges, 0)
-	addGovernedWorker[GraphEdgeWorkspaceArgs](reg, &graphEdgeWorkspaceWorker{graphEdgeReconcileWorker: graphEdges}, 0)
+	addDeclaredWorker[GraphEdgeReconcileArgs](reg, graphEdges)
+	addDeclaredWorker[GraphEdgeWorkspaceArgs](reg, &graphEdgeWorkspaceWorker{graphEdgeReconcileWorker: graphEdges})
 	rematch := newLinkedInRematchWorker(pool, people.NewStore(pool), identity.NewService(pool), log)
-	addGovernedWorker[LinkedInRematchArgs](reg, rematch, 0)
-	addGovernedWorker[LinkedInRematchWorkspaceArgs](reg, &linkedInRematchWorkspaceWorker{linkedInRematchWorker: rematch}, 0)
+	addDeclaredWorker[LinkedInRematchArgs](reg, rematch)
+	addDeclaredWorker[LinkedInRematchWorkspaceArgs](reg, &linkedInRematchWorkspaceWorker{linkedInRematchWorker: rematch})
 	return []*river.PeriodicJob{
 		// The interaction-participant backfill: daily, run-on-start so an
 		// installation upgrading into ACT-DDL-3 recovers its history on the

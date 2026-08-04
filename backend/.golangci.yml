@@ -4,10 +4,23 @@ linters:
   default: standard
   enable:
     - depguard
+    - forbidigo
     - gosec
     - misspell
     - revive
   settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # The job-registration door, closed here rather than in
+        # .golangci.strict.yml: the strict pass is new-code-only
+        # (new-from-merge-base), and every registration site this binds is
+        # pre-existing. addDeclaredWorker's type parameter is what makes an
+        # undeclared kind unbuildable; a direct AddWorker walks around both
+        # that constraint and the kind list jobs.MustBeTotal reads at boot.
+        - pattern: '^river\.AddWorker$'
+          pkg: '^github\.com/riverqueue/river$'
+          msg: "register through addDeclaredWorker — a kind absent from api/jobs.yaml is not in declaredJobArgs"
     depguard:
       rules:
         # Layer B of the boundary stack (ADR-0014 §3): the module DAG from
@@ -76,6 +89,18 @@ linters:
       # the two passes agree (a nolint would read as unused under strict).
       - path: '_test\.go$'
         linters: [gosec]
+      # platform/jobs' own suites register fixture kinds against a throwaway
+      # river.Workers — kinds api/jobs.yaml will never declare, and no door
+      # into a running fleet. Closing that would leave the declaration
+      # untestable from outside the contract.
+      - path: '_test\.go$'
+        linters: [forbidigo]
+      # jobregistry.go holds the ONE sanctioned river.AddWorker — the shared
+      # body addDeclaredWorker routes into. Excluded by path rather than by a
+      # //nolint, because the strict pass enables forbidigo with different
+      # patterns and its nolintlint would then read the directive as unused.
+      - path: 'internal/compose/jobregistry\.go$'
+        linters: [forbidigo]
 
 formatters:
   enable:

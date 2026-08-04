@@ -8,10 +8,14 @@ package compose
 // methods it happens to carry are unreachable and api/jobs.yaml is what
 // answers River's questions about it.
 //
-// Nothing yet FORCES a registration through this helper — the generated
-// addDeclaredWorker, whose type parameter is constrained to the declared set,
-// is the commit that will. Until then MustBeTotal at the end of assembly is
-// what catches a kind registered without a declaration.
+// This is the shared body, not the door. Every registration is written as the
+// generated addDeclaredWorker (or its with-timeout form), whose type parameter
+// is constrained to the declared set, so a kind api/jobs.yaml has never heard
+// of cannot be named at a call site at all; forbidigo closes the only way
+// around, a direct river.AddWorker. MustBeTotal at the end of assembly is the
+// runtime restatement of the same claim, over the kind list below rather than
+// over the type set — it is what a hand-edited generated file, or a fixture
+// registered through this helper directly, still has to answer to.
 
 import (
 	"time"

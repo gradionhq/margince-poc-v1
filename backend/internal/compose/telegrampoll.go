@@ -91,8 +91,8 @@ func registerTelegramPoll(reg *jobRegistry, periodic []*river.PeriodicJob, pool 
 	if api == nil {
 		api = telegram.NewAPI(nil, "")
 	}
-	addGovernedWorker[TelegramPollSweepArgs](reg, &telegramPollSweepWorker{pool: pool, log: log}, 0)
-	addGovernedWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log), 0)
+	addDeclaredWorker[TelegramPollSweepArgs](reg, &telegramPollSweepWorker{pool: pool, log: log})
+	addDeclaredWorker[TelegramPollArgs](reg, newTelegramPollWorker(pool, vault, api, ambientTelegramEnqueuer{}, log))
 	return append(periodic, river.NewPeriodicJob(
 		river.PeriodicInterval(telegramPollSweepInterval),
 		func() (river.JobArgs, *river.InsertOpts) { return TelegramPollSweepArgs{}, sweepInsertOpts() },

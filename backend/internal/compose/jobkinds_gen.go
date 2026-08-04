@@ -3,6 +3,8 @@
 package compose
 
 import (
+	"time"
+
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -15,13 +17,11 @@ const jobContractHash = "ca4e15c4e69932ea9dadfefe5aadf6fad7c2b7ab0c2a65d510a1f9f
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
-// cannot be passed to addDeclaredWorker below.
+// cannot be passed to either registration function below — and those two
+// are how the runner registers, so an undeclared kind does not compile.
 //
-// Registration does not route through that function yet — the runner has
-// its own unconstrained helper — so what the set buys today is a closed
-// list the compiler checks, not a gate every registration has to pass. The
-// commit that routes registration through it is what makes an undeclared
-// kind unbuildable.
+// A union rather than a marker interface, because a marker is something a
+// new type can declare for itself: the set has to be the file's to state.
 type declaredJobArgs interface {
 	river.JobArgs
 
@@ -80,17 +80,25 @@ type declaredJobArgs interface {
 		WebhookRetryWorkspaceArgs
 }
 
-// addDeclaredWorker registers one worker for a DECLARED kind: its type
-// parameter is constrained to the set above, so a kind api/jobs.yaml does
-// not declare cannot be passed to it.
+// addDeclaredWorker is the sanctioned registration path. Its type parameter
+// is constrained to the declared set, so a kind absent from api/jobs.yaml
+// cannot be named here at all — the error lands on the registration line
+// the author is writing, as `does not satisfy declaredJobArgs`.
 //
-// It is not yet the only way in. The runner registers through a helper of
-// its own whose type parameter is unconstrained, so an undeclared kind can
-// still be registered around this function; the commit that moves every
-// registration onto it is what makes the declared set the set this build
-// can actually work.
-func addDeclaredWorker[T declaredJobArgs](workers *river.Workers, w river.Worker[T]) {
-	river.AddWorker(workers, w)
+// It takes the registry, not river.Workers: River's Workers map is
+// unexported, so the registry is the only thing that can tell MustBeTotal
+// what this build registered.
+func addDeclaredWorker[T declaredJobArgs](reg *jobRegistry, w jobs.WorkOnly[T]) {
+	addGovernedWorker[T](reg, w, 0)
+}
+
+// addDeclaredWorkerWithTimeout serves the kinds whose timeout is an
+// operator's to set, and so is computed at boot rather than stated in
+// api/jobs.yaml. Every other kind takes its wall clock from the file and
+// registers through addDeclaredWorker; jobtimeoutwiring_test.go derives
+// which is which from the declared TimeoutPolicy rather than a list.
+func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.WorkOnly[T], supplied time.Duration) {
+	addGovernedWorker[T](reg, w, supplied)
 }
 
 // The declared dispatchers: each enumerates the fleet and enqueues, and does

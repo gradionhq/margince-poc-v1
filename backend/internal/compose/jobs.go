@@ -224,25 +224,25 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// dossier; the worker role only needs the worker registered. It is also the
 	// one kind whose timeout the file cannot state, because the crawl wall it
 	// is built from is an operator's (deepReadTimeout).
-	addGovernedWorker[SiteDeepReadArgs](reg,
+	addDeclaredWorkerWithTimeout[SiteDeepReadArgs](reg,
 		newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, cfg.DeepReadTriageBrain, log, cfg.DeepReadCaps, cfg.Blobstore),
 		deepReadTimeout(cfg.DeepReadCaps))
 	// The voice build is not periodic — the api enqueues one job per created
 	// build; only the deferred-retry sweep ticks. Both register even with a
 	// nil brain so a queued build fails actionably instead of rotting.
-	addGovernedWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log), 0)
-	addGovernedWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log}, 0)
+	addDeclaredWorker[VoiceBuildArgs](reg, newVoiceBuildWorker(pool, cfg.VoiceBrain, log))
+	addDeclaredWorker[VoiceBuildRetryArgs](reg, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
 	// Each scheduled pass is a dispatcher plus a workspace worker. Only the
 	// dispatcher gets a periodic entry below; the workspace worker is enqueued,
 	// never ticked.
-	addGovernedWorker[CloseDateSweepArgs](reg, &closeDateSweepWorker{pool: pool}, 0)
-	addGovernedWorker[CloseDateWorkspaceArgs](reg, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)}, 0)
-	addGovernedWorker[FollowUpReconcileArgs](reg, &followUpReconcileWorker{pool: pool}, 0)
-	addGovernedWorker[FollowUpWorkspaceArgs](reg, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)}, 0)
-	addGovernedWorker[TimeScanArgs](reg, &timeScanWorker{pool: pool}, 0)
-	addGovernedWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)}, 0)
-	addGovernedWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool}, 0)
-	addGovernedWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)}, 0)
+	addDeclaredWorker[CloseDateSweepArgs](reg, &closeDateSweepWorker{pool: pool})
+	addDeclaredWorker[CloseDateWorkspaceArgs](reg, &closeDateWorkspaceWorker{corrector: NewCloseDateCorrector(pool, log)})
+	addDeclaredWorker[FollowUpReconcileArgs](reg, &followUpReconcileWorker{pool: pool})
+	addDeclaredWorker[FollowUpWorkspaceArgs](reg, &followUpWorkspaceWorker{reconciler: NewFollowUpReconciler(pool, log)})
+	addDeclaredWorker[TimeScanArgs](reg, &timeScanWorker{pool: pool})
+	addDeclaredWorker[TimeScanWorkspaceArgs](reg, &timeScanWorkspaceWorker{scanner: NewTimeScanner(pool, log)})
+	addDeclaredWorker[IdempotencyRetentionArgs](reg, &idempotencyRetentionWorker{pool: pool})
+	addDeclaredWorker[IdempotencyRetentionWorkspaceArgs](reg, &idempotencyRetentionWorkspaceWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
 	// update in the same transaction as the raw capture row; the worker role only
 	// needs the worker registered,
@@ -250,7 +250,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// unconditionally: unlike Gmail/Graph, a channel connection carries its
 	// own per-connection credential (no deployment-wide OAuth app to gate
 	// on), so there is nothing to check for before wiring it up.
-	addGovernedWorker[TelegramIngestArgs](reg, newTelegramIngestWorker(pool, cfg.CaptureConfig, log), 0)
+	addDeclaredWorker[TelegramIngestArgs](reg, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
 	// The embed reindex registers itself the same way, workers only: it is not
 	// periodic, because the api enqueues its dispatcher once per confirmed
 	// reindex (jobs_embedreindex.go).
@@ -258,18 +258,18 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The rate-refresh jobs are not periodic — the api enqueues one per admin
 	// "Refresh from sources" click; the worker registers regardless of whether
 	// a source is configured (a nil brain / empty url no-ops honestly).
-	addGovernedWorker[FxRateRefreshArgs](reg, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log), 0)
-	addGovernedWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log), 0)
+	addDeclaredWorker[FxRateRefreshArgs](reg, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
+	addDeclaredWorker[AiModelRateRefreshArgs](reg, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
 	autoEnrich := newCaptureAutoEnrichSweepWorker(pool, log)
-	addGovernedWorker[CaptureAutoEnrichSweepArgs](reg, autoEnrich, 0)
-	addGovernedWorker[CaptureAutoEnrichWorkspaceArgs](reg, &captureAutoEnrichWorkspaceWorker{sweeper: autoEnrich}, 0)
+	addDeclaredWorker[CaptureAutoEnrichSweepArgs](reg, autoEnrich)
+	addDeclaredWorker[CaptureAutoEnrichWorkspaceArgs](reg, &captureAutoEnrichWorkspaceWorker{sweeper: autoEnrich})
 	// The outbound send is not periodic — the api stages one job per accepted
 	// message, in the same transaction as the activity; this role only needs
 	// the worker registered.
 	if cfg.SendRegistry != nil {
-		addGovernedWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing), 0)
+		addDeclaredWorker[SendEmailArgs](reg, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
 	}
 
 	periodic := []*river.PeriodicJob{
@@ -322,10 +322,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	periodic = append(periodic, addAgentSchedulerJobs(reg, pool, cfg)...)
 
 	if cfg.ClassifyBrain != nil {
-		addGovernedWorker[CaptureClassifyArgs](reg, &captureClassifyWorker{pool: pool}, 0)
-		addGovernedWorker[CaptureClassifyWorkspaceArgs](reg, &captureClassifyWorkspaceWorker{
+		addDeclaredWorker[CaptureClassifyArgs](reg, &captureClassifyWorker{pool: pool})
+		addDeclaredWorker[CaptureClassifyWorkspaceArgs](reg, &captureClassifyWorkspaceWorker{
 			classifier: NewCaptureClassifier(pool, cfg.ClassifyBrain, log),
-		}, 0)
+		})
 		// The hourly catch-up pass (ADR-0063): the nightly suite reruns the
 		// same engine; the backlog index makes an empty pass one cheap probe.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -336,10 +336,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	if cfg.EnrichBrain != nil {
-		addGovernedWorker[CaptureEnrichArgs](reg, &captureEnrichWorker{pool: pool}, 0)
-		addGovernedWorker[CaptureEnrichWorkspaceArgs](reg, &captureEnrichWorkspaceWorker{
+		addDeclaredWorker[CaptureEnrichArgs](reg, &captureEnrichWorker{pool: pool})
+		addDeclaredWorker[CaptureEnrichWorkspaceArgs](reg, &captureEnrichWorkspaceWorker{
 			enricher: NewCaptureEnricher(pool, cfg.EnrichBrain, log),
-		}, 0)
+		})
 		// Daily (the ADR-0063 nightly cadence rides the same job until the
 		// nightly dispatcher lands); run-on-start clears any backlog early.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -354,8 +354,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// enrich pass already wrote, so it needs no model. Gating it on a brain
 		// would leave an AI-less deployment unable to act on signatures it had
 		// already collected.
-		addGovernedWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool}, 0)
-		addGovernedWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)}, 0)
+		addDeclaredWorker[OrgNamePromotionArgs](reg, &orgNamePromotionWorker{pool: pool})
+		addDeclaredWorker[OrgNamePromotionWorkspaceArgs](reg, &orgNamePromotionWorkspaceWorker{promoter: NewOrgNamePromoter(pool, log)})
 		// Daily, after the enrich pass has had a night to collect signatures;
 		// run-on-start so a deployment with a backlog acts on it immediately.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -371,8 +371,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// a brain would mean an AI-less deployment never staged a review for an
 		// existing unsure row and never redacted mail it had already hidden.
 		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
-		addGovernedWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool}, 0)
-		addGovernedWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{engine: verdicts}, 0)
+		addDeclaredWorker[CounterpartyVerdictArgs](reg, &counterpartyVerdictWorker{pool: pool})
+		addDeclaredWorker[CounterpartyVerdictWorkspaceArgs](reg, &counterpartyVerdictWorkspaceWorker{engine: verdicts})
 		// Hourly, like classify: the ledger's due-index makes an empty pass one
 		// cheap probe, and a deferred sender should not wait a day to become a
 		// record. Each workspace's job runs every stage in dependency order —
@@ -391,8 +391,8 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 
 	if cfg.GmailRegistry != nil {
 		digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
-		addGovernedWorker[CaptureDigestArgs](reg, digests, 0)
-		addGovernedWorker[CaptureDigestWorkspaceArgs](reg, &captureDigestWorkspaceWorker{digests: digests}, 0)
+		addDeclaredWorker[CaptureDigestArgs](reg, digests)
+		addDeclaredWorker[CaptureDigestWorkspaceArgs](reg, &captureDigestWorkspaceWorker{digests: digests})
 		// The digest builds daily after the overnight passes; run-on-start
 		// backfills a missed night so mornings are never silently empty.
 		periodic = append(periodic, river.NewPeriodicJob(
@@ -400,11 +400,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureDigestArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
-		addGovernedWorker[GmailSyncArgs](reg, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log}, 0)
-		addGovernedWorker[CaptureSyncArgs](reg, &captureSyncWorker{registry: cfg.GmailRegistry, log: log}, 0)
+		addDeclaredWorker[GmailSyncArgs](reg, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
+		addDeclaredWorker[CaptureSyncArgs](reg, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
 		// Backfill jobs are enqueued by the api (start op); the worker role
 		// only needs the pager registered.
-		addGovernedWorker[CaptureBackfillArgs](reg, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log}, 0)
+		addDeclaredWorker[CaptureBackfillArgs](reg, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
 		// The dispatcher tick is a cheap indexed due-scan; per-connection
 		// pacing lives in the sidecar (next_sync_at = success + interval),
 		// so a frequent scan does not mean frequent provider calls. It scans
@@ -417,12 +417,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 		if cfg.GmailWatch.Topic != "" {
-			addGovernedWorker[GmailWatchArgs](reg, &gmailWatchWorker{
+			addDeclaredWorker[GmailWatchArgs](reg, &gmailWatchWorker{
 				registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
-			}, 0)
-			addGovernedWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
+			})
+			addDeclaredWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
 				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
-			}, 0)
+			})
 			periodic = append(periodic, river.NewPeriodicJob(
 				river.PeriodicInterval(cfg.GmailWatch.Interval),
 				func() (river.JobArgs, *river.InsertOpts) { return GmailWatchArgs{}, sweepInsertOpts() },
@@ -440,17 +440,17 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		if meter == nil {
 			meter = failClosedOverlayMeter()
 		}
-		addGovernedWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log}, 0)
-		addGovernedWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
+		addDeclaredWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log})
+		addDeclaredWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
 			pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
 			newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
-		}, 0)
+		})
 		// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
 		// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one
 		// record through the same store the poller uses. Registered whenever
 		// the overlay vault is present (the receiver only enqueues when the api
 		// role has the app secret wired).
-		addGovernedWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)}, 0)
+		addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(cfg.OverlayInterval),
 			func() (river.JobArgs, *river.InsertOpts) { return OverlayReconcileArgs{}, sweepInsertOpts() },

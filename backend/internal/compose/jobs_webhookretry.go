@@ -81,8 +81,8 @@ func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConf
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
-	addGovernedWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool}, 0)
-	addGovernedWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer}, 0)
+	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool})
+	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
 	return periodicWhenPositive(cfg.WebhookRetry.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
 		// Run-on-start because a restart must not add a whole interval to a

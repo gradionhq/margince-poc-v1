@@ -57,8 +57,8 @@ const embedReindexMaxAttempts = 5
 // can work — the deep-read worker's posture.
 func addEmbedReindexJobs(reg *jobRegistry, pool *pgxpool.Pool, embedder search.Embedder) {
 	store := search.NewStore(pool)
-	addGovernedWorker[EmbedReindexArgs](reg, &embedReindexWorker{pool: pool, store: store}, 0)
-	addGovernedWorker[EmbedReindexWorkspaceArgs](reg, &embedReindexWorkspaceWorker{store: store, embedder: embedder}, 0)
+	addDeclaredWorker[EmbedReindexArgs](reg, &embedReindexWorker{pool: pool, store: store})
+	addDeclaredWorker[EmbedReindexWorkspaceArgs](reg, &embedReindexWorkspaceWorker{store: store, embedder: embedder})
 }
 
 // EmbedReindexArgs schedules one fleet-wide re-embed. Identity is the embed

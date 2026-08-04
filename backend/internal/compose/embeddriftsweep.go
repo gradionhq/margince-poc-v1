@@ -97,8 +97,8 @@ func addEmbedDriftSweepJob(reg *jobRegistry, pool *pgxpool.Pool, embedder search
 	if identity, _ := embedder.EmbedIdentity(); identity == "" {
 		return nil
 	}
-	addGovernedWorker[EmbedDriftSweepArgs](reg, &embedDriftSweepWorker{pool: pool}, 0)
-	addGovernedWorker[EmbedDriftWorkspaceArgs](reg, &embedDriftWorkspaceWorker{store: search.NewStore(pool), embedder: embedder, log: log}, 0)
+	addDeclaredWorker[EmbedDriftSweepArgs](reg, &embedDriftSweepWorker{pool: pool})
+	addDeclaredWorker[EmbedDriftWorkspaceArgs](reg, &embedDriftWorkspaceWorker{store: search.NewStore(pool), embedder: embedder, log: log})
 	return []*river.PeriodicJob{river.NewPeriodicJob(
 		river.PeriodicInterval(embedDriftSweepInterval),
 		func() (river.JobArgs, *river.InsertOpts) { return EmbedDriftSweepArgs{}, sweepInsertOpts() },

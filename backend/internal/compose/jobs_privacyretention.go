@@ -88,8 +88,8 @@ func addPrivacyRetentionJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunner
 		WithEdgeInvalidator(func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
 			return search.RecomputeEdgesForActivities(ctx, tx, []ids.UUID{activityID})
 		})
-	addGovernedWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool}, 0)
-	addGovernedWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention}, 0)
+	addDeclaredWorker[PrivacyRetentionArgs](reg, &privacyRetentionWorker{pool: pool})
+	addDeclaredWorker[PrivacyRetentionWorkspaceArgs](reg, &privacyRetentionWorkspaceWorker{retention: retention})
 	return periodicWhenPositive(cfg.PrivacyRetention.Interval,
 		func() (river.JobArgs, *river.InsertOpts) { return PrivacyRetentionArgs{}, sweepInsertOpts() },
 		// Run-on-start because the interval is an operator's dial and a

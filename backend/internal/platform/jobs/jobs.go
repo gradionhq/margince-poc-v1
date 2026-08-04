@@ -17,14 +17,14 @@
 // registered THROUGH Govern: it wraps a worker in a type River reaches
 // only through Work, so that worker cannot answer for its own wall clock.
 //
-// Registration itself is not yet bound, and that is the whole of the gap.
-// Nothing stops a direct river.AddWorker, and a worker registered that way
-// still answers River's option methods for itself — whether or not its
-// kind is declared — and never reaches the kind list MustBeTotal reads, so
-// the boot-time totality check cannot see it either. MustBeTotal catches
-// the case it can: a kind the composition layer registered through the
-// sanctioned path that the file has never heard of. Closing the rest is
-// the commit that makes the declared type set the only way in.
+// Registration is bound too, and the binding lives one layer up: the
+// composition layer registers only through a generated function whose type
+// parameter is the closed set of DECLARED args types, so a kind
+// api/jobs.yaml has never heard of does not compile, and forbidigo refuses
+// the direct river.AddWorker that would go around it. MustBeTotal is the
+// runtime half — it names any registered kind the file does not declare, and
+// the runner refuses to boot rather than working it at River's silent
+// one-minute default.
 //
 // It owns no domain either way. The boundary with the bus is deliberate:
 // an event announces that something happened (outbox); a job asks for

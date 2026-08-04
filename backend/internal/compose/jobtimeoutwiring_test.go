@@ -45,8 +45,10 @@ func kindByGoType() map[string]string {
 	return byType
 }
 
-// governedRegistration is one addGovernedWorker call site: the args type its
-// type argument names, and the expression passed as the supplied timeout.
+// governedRegistration is one sanctioned registration call site: the args type
+// its type argument names, and the expression passed as the supplied timeout —
+// nil when the site registered through addDeclaredWorker, which has no third
+// argument to pass one through.
 type governedRegistration struct {
 	goType   string
 	supplied ast.Expr
@@ -76,53 +78,65 @@ func parseComposeSources(t *testing.T) []*ast.File {
 	return files
 }
 
-// governedRegistrations finds every addGovernedWorker[T](reg, w, supplied)
-// call in this package.
+// governedRegistrations finds every sanctioned registration call in this
+// package: addDeclaredWorker[T](reg, w), which supplies nothing, and
+// addDeclaredWorkerWithTimeout[T](reg, w, supplied), which supplies the
+// operator's value.
+//
+// Only those two are matched. addGovernedWorker underneath them is the shared
+// body, reached from the generated file and from fixtures that register a kind
+// without asserting anything about its wall clock.
 func governedRegistrations(t *testing.T) []governedRegistration {
 	t.Helper()
 	var found []governedRegistration
 	for _, file := range parseComposeSources(t) {
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 3 {
+			if !ok {
 				return true
 			}
 			// A generic call with one explicit type argument parses as an
-			// IndexExpr: addGovernedWorker[SiteDeepReadArgs](…).
+			// IndexExpr: addDeclaredWorker[SiteDeepReadArgs](…).
 			index, ok := call.Fun.(*ast.IndexExpr)
 			if !ok {
 				return true
 			}
 			fn, ok := index.X.(*ast.Ident)
-			if !ok || fn.Name != "addGovernedWorker" {
+			if !ok {
+				return true
+			}
+			// supplied stays nil for the two-argument form: that is the
+			// whole distinction this gate reads.
+			var supplied ast.Expr
+			switch {
+			case fn.Name == "addDeclaredWorker" && len(call.Args) == 2:
+			case fn.Name == "addDeclaredWorkerWithTimeout" && len(call.Args) == 3:
+				supplied = call.Args[2]
+			default:
 				return true
 			}
 			argsType, ok := index.Index.(*ast.Ident)
 			if !ok {
 				return true
 			}
-			found = append(found, governedRegistration{goType: argsType.Name, supplied: call.Args[2]})
+			found = append(found, governedRegistration{goType: argsType.Name, supplied: supplied})
 			return true
 		})
 	}
 	return found
 }
 
-// isZeroLiteral reports whether e is the untyped literal 0.
-func isZeroLiteral(e ast.Expr) bool {
-	lit, ok := e.(*ast.BasicLit)
-	return ok && lit.Value == "0"
-}
-
 // TestEveryOperatorSuppliedTimeoutIsActuallySuppliedAtItsRegistration is the
 // half a policy test cannot reach. TimeoutPolicy{FromOperator: true} returns
 // whatever it is handed, so the declaration is only as good as the argument —
-// and passing 0 there compiles, reads as "the ordinary case", and silently puts
-// the kind back on River's one-minute default.
+// and registering such a kind through the plain addDeclaredWorker compiles,
+// reads as "the ordinary case", and silently puts the kind back on River's
+// one-minute default.
 //
 // The converse is gated in the same walk: a kind whose policy IGNORES the
-// supplied value must pass 0, because a computed expression there would read as
-// a budget that governs something when Duration never looks at it.
+// supplied value must NOT be registered through the with-timeout form, because
+// a computed expression there would read as a budget that governs something
+// when Duration never looks at it.
 func TestEveryOperatorSuppliedTimeoutIsActuallySuppliedAtItsRegistration(t *testing.T) {
 	byType := kindByGoType()
 	registrations := governedRegistrations(t)
@@ -141,11 +155,11 @@ func TestEveryOperatorSuppliedTimeoutIsActuallySuppliedAtItsRegistration(t *test
 		switch {
 		case spec.Timeout.FromOperator:
 			operatorSupplied++
-			if isZeroLiteral(r.supplied) {
-				t.Errorf("%s declares an operator-supplied timeout but its registration passes 0. TimeoutPolicy.Duration returns what it is handed, so this kind would run at River's one-minute default — pass the value computed from the operator's config.", kind)
+			if r.supplied == nil {
+				t.Errorf("%s declares an operator-supplied timeout but registers through addDeclaredWorker, which supplies nothing. TimeoutPolicy.Duration returns what it is handed, so this kind would run at River's one-minute default — register through addDeclaredWorkerWithTimeout, passing the value computed from the operator's config.", kind)
 			}
-		case !isZeroLiteral(r.supplied):
-			t.Errorf("%s passes a supplied timeout its policy never reads. Only a {operator: …} kind uses the third argument; every other one takes its value from api/jobs.yaml, so this expression governs nothing and reads as if it did.", kind)
+		case r.supplied != nil:
+			t.Errorf("%s supplies a timeout its policy never reads. Only a {operator: …} kind takes addDeclaredWorkerWithTimeout; every other one takes its value from api/jobs.yaml, so this expression governs nothing and reads as if it did.", kind)
 		}
 	}
 
