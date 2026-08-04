@@ -136,3 +136,95 @@ func TestTheAccountTimelineCountsMailCaptureLinkedThroughAPerson(t *testing.T) {
 		t.Fatalf("the account reaches %d messages, want the one captured against its contact", reached)
 	}
 }
+
+// A finding drawn from what messages SAY is only as shareable as the messages.
+//
+// Capture auto-creates contacts owner-private, so a conversation filed against
+// nobody else answers to its capturing user alone. The account it reaches can
+// still be one the whole workspace sees — that is the ordinary state of a
+// promoted account with unpromoted contacts — and the summary the model writes
+// about that conversation would then be readable by everyone while the
+// correspondence behind it is readable by one person. Capture privacy does not
+// yield to row_scope=all, so the summary must not either.
+func TestAModelReadOfPrivateMailIsPrivateEvenOnASharedAccount(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Promoted Co", &e.Rep1)
+	// The account is the workspace's; the contact is not yet.
+	e.WsExec(t, `UPDATE organization SET visibility = 'workspace', lifecycle = 'opportunity'
+		 WHERE id = $1`, org)
+	contact := employeeOf(t, e, org, "Ada Unpromoted")
+	e.WsExec(t, `UPDATE person SET visibility = 'owner', owner_id = $2 WHERE id = $1`,
+		contact, e.Rep1)
+	notice := seedMessage(t, e, contact, "thread-private", "Renewal for 2027",
+		"We have decided not to renew.", "inbound", captureShapeClock.Add(-48*time.Hour))
+
+	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
+		"They wrote that they will not renew.", 0.95)}
+	extractor := compose.NewSignalExtractor(e.Pool, brain,
+		func() time.Time { return captureShapeClock }, slog.Default())
+	if _, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS)); err != nil {
+		t.Fatalf("signal extract: %v", err)
+	}
+
+	var visibility string
+	var owner ids.UUID
+	ctx := e.Admin()
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT visibility, owner_id FROM signal
+			 WHERE resolved_org_id = $1 AND kind = 'contract_ended'`, org).Scan(&visibility, &owner)
+	}); err != nil {
+		t.Fatalf("read the signal's visibility: %v", err)
+	}
+	if visibility != "owner" {
+		t.Fatalf("a summary of owner-private correspondence is %q, want owner — every "+
+			"seat that can see the account would read it", visibility)
+	}
+	if owner != e.Rep1 {
+		t.Fatalf("the signal answers to %s, want the reader whose correspondence it "+
+			"summarizes (%s)", owner, e.Rep1)
+	}
+
+	// And the gate holds on the way out: a colleague who can see the account
+	// cannot read a finding drawn from mail that is not theirs.
+	if kinds := openSignalKindsAs(t, e, e.Rep2, org); len(kinds) != 0 {
+		t.Fatalf("a colleague reads %v on the shared account, want nothing drawn "+
+			"from another person's private mail", kinds)
+	}
+	if kinds := openSignalKindsAs(t, e, e.Rep1, org); len(kinds) != 1 {
+		t.Fatalf("the owner reads %v, want the finding from their own correspondence", kinds)
+	}
+}
+
+// The deterministic half stays shared, and carries no text to share.
+//
+// It states what anyone with the account could count for themselves — we spoke
+// last, and that was N days ago — so it is the whole workspace's, and it CITES
+// the message rather than quoting it. The subject line would be content, and
+// content is what the owner-private half exists to hold back.
+func TestTheGhostedRuleIsSharedAndQuotesNothing(t *testing.T) {
+	e := Setup(t)
+	org := seedAccountAsCaptureWould(t, e)
+	e.WsExec(t, `UPDATE organization SET visibility = 'workspace' WHERE id = $1`, org)
+
+	if pass := ghostedPass(t, e, captureShapeClock); pass.Raised != 1 {
+		t.Fatalf("the rule wrote %d signals, want the one unanswered tail", pass.Raised)
+	}
+
+	var visibility, snippet string
+	ctx := e.Admin()
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT visibility, coalesce(evidence->0->>'snippet', '')
+			 FROM signal WHERE resolved_org_id = $1 AND kind = 'ghosted_thread'`,
+			org).Scan(&visibility, &snippet)
+	}); err != nil {
+		t.Fatalf("read the ghosted signal: %v", err)
+	}
+	if visibility != "workspace" {
+		t.Errorf("a comparison over metadata is %q, want workspace — nothing in it "+
+			"is anyone's private business", visibility)
+	}
+	if snippet != "" {
+		t.Errorf("the shared finding quotes %q from a message its readers may not "+
+			"open; cite the message instead", snippet)
+	}
+}

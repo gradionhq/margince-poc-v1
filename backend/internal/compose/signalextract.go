@@ -305,6 +305,12 @@ func (x *SignalExtractor) readThread(
 				Evidence: []signals.DerivedEvidence{
 					{Snippet: event.Summary, ActivityID: cited},
 				},
+				// As shareable as the conversation it was read from, and no
+				// more. Everything this producer writes is drawn from what
+				// messages SAY, so a summary filed on a workspace-visible
+				// account would hand the whole workspace the contents of
+				// correspondence that answers to one person.
+				PrivateTo: thread.PrivateTo,
 				Audit: map[string]any{
 					paramKind:               event.Kind,
 					"thread_key":            thread.Key,

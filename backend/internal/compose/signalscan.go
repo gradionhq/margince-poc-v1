@@ -49,7 +49,6 @@ const kindGhostedThread = "ghosted_thread"
 type ghostedCandidate struct {
 	OrganizationID ids.UUID
 	ActivityID     ids.UUID
-	Subject        string
 	At             time.Time
 }
 
@@ -77,7 +76,7 @@ func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghoste
 	rows, err := tx.Query(ctx, `
 		WITH newest AS (
 			SELECT DISTINCT ON (ro.organization_id)
-			       ro.organization_id, a.id, a.subject, a.direction, a.occurred_at
+			       ro.organization_id, a.id, a.direction, a.occurred_at
 			  FROM activity a
 			  JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
 			 WHERE a.archived_at IS NULL
@@ -89,7 +88,7 @@ func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghoste
 			   AND a.occurred_at <= $1
 			 ORDER BY ro.organization_id, a.occurred_at DESC, a.id DESC
 		)
-		SELECT n.organization_id, n.id, coalesce(n.subject, ''), n.occurred_at
+		SELECT n.organization_id, n.id, n.occurred_at
 		  FROM newest n
 		  JOIN organization o ON o.id = n.organization_id AND o.archived_at IS NULL
 		 WHERE n.direction = 'outbound'
@@ -106,7 +105,7 @@ func scanGhostedThreads(ctx context.Context, tx pgx.Tx, now time.Time) ([]ghoste
 	var out []ghostedCandidate
 	for rows.Next() {
 		var found ghostedCandidate
-		if err := rows.Scan(&found.OrganizationID, &found.ActivityID, &found.Subject, &found.At); err != nil {
+		if err := rows.Scan(&found.OrganizationID, &found.ActivityID, &found.At); err != nil {
 			return nil, err
 		}
 		out = append(out, found)
@@ -159,10 +158,15 @@ func WriteGhostedSignals(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, n
 			Summary:        fmt.Sprintf("We wrote %d days ago and nobody has answered.", days),
 			Severity:       "warn",
 			Fingerprint:    signalFingerprint(kindGhostedThread, found.OrganizationID, found.ActivityID),
-			Evidence: []signals.DerivedEvidence{
-				{Snippet: found.Subject, ActivityID: found.ActivityID},
-			},
-			Audit: map[string]any{paramKind: kindGhostedThread, "days_silent": days},
+			// The message is CITED, not quoted. This finding is shared with
+			// everyone who can see the account, while the message it points at
+			// may be readable by one person — capture files mail against
+			// contacts it auto-creates owner-private, and this rule reaches the
+			// account through them. Carrying the subject line here would hand
+			// that text to every reader; carrying the id hands them a link that
+			// answers 404 unless it is theirs to open.
+			Evidence: []signals.DerivedEvidence{{ActivityID: found.ActivityID}},
+			Audit:    map[string]any{paramKind: kindGhostedThread, "days_silent": days},
 		}, now)
 		if err != nil {
 			return pass, err

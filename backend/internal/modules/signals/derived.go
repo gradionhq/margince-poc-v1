@@ -53,6 +53,33 @@ type DerivedSignal struct {
 	// Audit carries whatever the producer wants recorded about the derivation
 	// beyond the row itself.
 	Audit map[string]any
+	// PrivateTo is the one reader this finding answers to, or the zero value
+	// when the whole workspace may read it.
+	//
+	// A finding computed from metadata — who spoke last, how long ago — states
+	// nothing the account's own readers could not count for themselves, and is
+	// shared. A finding drawn from what a message SAYS is only as shareable as
+	// that message: capture files mail against contacts it auto-creates
+	// owner-private, and a summary of a private message discloses the message.
+	// The producer knows which of the two it made; this is where it says so.
+	PrivateTo ids.UUID
+}
+
+// visibilityOwner marks a signal its owner alone may read, matching the value
+// person and organization carry for the same reason.
+const visibilityOwner = "owner"
+
+// visibilityWorkspace marks a signal every seat that can see its subject may
+// read, which is what a signal has always been.
+const visibilityWorkspace = "workspace"
+
+// nullableOwner renders the zero id as SQL NULL, so a shared signal names no
+// owner rather than naming the nil one.
+func nullableOwner(owner ids.UUID) any {
+	if owner == (ids.UUID{}) {
+		return nil
+	}
+	return owner
 }
 
 // DerivedEvidence is one citable record behind a derived signal.
@@ -72,18 +99,23 @@ func RecordDerived(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, in Deri
 	if err != nil {
 		return false, fmt.Errorf("encode derived signal evidence: %w", err)
 	}
+	visibility := visibilityWorkspace
+	if in.PrivateTo != (ids.UUID{}) {
+		visibility = visibilityOwner
+	}
 	var signalID ids.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO signal
 		  (workspace_id, kind, entity_type, entity_id, resolved_org_id, summary,
 		   evidence, fingerprint, source_channel, resolution_state, severity,
-		   status, detected_at, source, captured_by)
+		   status, detected_at, source, captured_by, visibility, owner_id)
 		VALUES ($1, $2, 'organization', $3, $3, $4, $5, $6,
-		        'derived', 'resolved', $7, 'open', $8, 'signal-scan', $9)
+		        'derived', 'resolved', $7, 'open', $8, 'signal-scan', $9, $10, $11)
 		ON CONFLICT DO NOTHING
 		RETURNING id`,
 		wsID, in.Kind, in.OrganizationID, in.Summary, evidence, in.Fingerprint,
-		in.Severity, detectedAt, "agent:"+in.Kind).Scan(&signalID)
+		in.Severity, detectedAt, "agent:"+in.Kind,
+		visibility, nullableOwner(in.PrivateTo)).Scan(&signalID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}

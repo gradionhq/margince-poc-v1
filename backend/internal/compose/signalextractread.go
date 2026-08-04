@@ -87,8 +87,17 @@ type settledThread struct {
 	// Count is how many messages the conversation held when this pass read it.
 	// The timestamp alone cannot see a message inserted at the same instant, or
 	// a backfill filling in older ones; the count changes for both.
-	Count    int
-	Messages []threadMessage
+	Count int
+	// PrivateTo is the one reader this conversation answers to, or the zero
+	// value when every message on it is workspace-readable.
+	//
+	// What the model writes about a conversation is only as shareable as the
+	// conversation. Capture auto-creates contacts owner-private, and a message
+	// filed against nobody else is readable by its capturing user alone — so a
+	// summary of it, filed on an account the whole workspace can see, would
+	// disclose exactly what the private contact protects.
+	PrivateTo ids.UUID
+	Messages  []threadMessage
 }
 
 // dueThreads lists the conversations that have settled and have moved since
@@ -132,14 +141,33 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 			       max(a.occurred_at) AS newest,
 			       count(DISTINCT a.id) AS message_count,
 			       min(ro.organization_id::text) AS one_org,
-			       count(DISTINCT ro.organization_id) AS org_count
+			       count(DISTINCT ro.organization_id) AS org_count,
+			       -- Shared only when EVERY message is: the model is shown the
+			       -- whole conversation, so what it writes is as private as the
+			       -- most private thing it read.
+			       bool_and(coalesce(vis.shared, false)) AS shared,
+			       min(vis.private_owner::text) AS private_owner
 			  FROM activity a
 			  LEFT JOIN (`+activities.OrgReachSet()+`) ro ON ro.activity_id = a.id
+			  -- Who may read this message, asked of the records it is filed
+			  -- against. A message is readable when ANY of its links is
+			  -- (auth.ActivityScopeClause), so one workspace-visible link
+			  -- shares it; only an activity whose every link is capture-private
+			  -- belongs to one person, and then that person is its owner.
+			  LEFT JOIN LATERAL (
+			    SELECT bool_or(coalesce(vp.visibility, vo.visibility, 'workspace') <> 'owner') AS shared,
+			           min(vp.owner_id::text) FILTER (WHERE vp.visibility = 'owner') AS private_owner
+			      FROM activity_link vl
+			      LEFT JOIN person vp ON vp.id = vl.person_id
+			      LEFT JOIN organization vo ON vo.id = vl.organization_id
+			     WHERE vl.activity_id = a.id
+			  ) vis ON true
 			 WHERE a.thread_key IS NOT NULL AND a.kind = 'email'
 			   AND a.archived_at IS NULL AND a.captured_by LIKE 'connector:%'
 			 GROUP BY a.thread_key
 		)
-		SELECT c.thread_key, c.one_org::uuid, c.newest, c.message_count
+		SELECT c.thread_key, c.one_org::uuid, c.newest, c.message_count,
+		       CASE WHEN c.shared THEN NULL ELSE c.private_owner::uuid END
 		  FROM conversation c
 		  LEFT JOIN signal_thread_scan s ON s.thread_key = c.thread_key
 		 WHERE c.org_count = 1
@@ -174,9 +202,13 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 	var due []settledThread
 	for rows.Next() {
 		var thread settledThread
+		var privateTo *ids.UUID
 		if err := rows.Scan(&thread.Key, &thread.OrganizationID,
-			&thread.Newest, &thread.Count); err != nil {
+			&thread.Newest, &thread.Count, &privateTo); err != nil {
 			return nil, err
+		}
+		if privateTo != nil {
+			thread.PrivateTo = *privateTo
 		}
 		due = append(due, thread)
 	}

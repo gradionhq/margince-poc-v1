@@ -12,12 +12,14 @@ package integration
 // signal", however loudly its own correspondence said otherwise.
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -152,4 +154,48 @@ func TestGhostedStaysQuietWhenTheyWroteLastOrNobodyIsWorkingTheAccount(t *testin
 	if written := ghostedScan(t, e, now); written != 0 {
 		t.Errorf("the rule fired %d times on accounts it should ignore", written)
 	}
+}
+
+// openSignalKindsAs reads the account's open signals as one named user,
+// through the same scope clause every real reader composes.
+//
+// It grants that user ALL row scope and the signal read object grant on
+// purpose: the only thing left that can withhold a row is the signal's own
+// visibility, so a test using it cannot pass because some other gate happened
+// to fire.
+func openSignalKindsAs(t *testing.T, e *Env, user ids.UUID, org ids.UUID) []string {
+	t.Helper()
+	ctx := e.As(user, []ids.UUID{e.Team1}, AdminWithSignals)
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos := arg(org)
+	clause, err := auth.SignalScopeClause(ctx, "s", arg)
+	if err != nil {
+		t.Fatalf("build the signal scope clause: %v", err)
+	}
+	if clause == "" {
+		clause = "true"
+	}
+	var kinds []string
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, fmt.Sprintf(
+			`SELECT s.kind FROM signal s
+			  WHERE s.resolved_org_id = $%d AND s.status = 'open'
+			    AND s.archived_at IS NULL AND %s`, orgPos, clause), args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var kind string
+			if err := rows.Scan(&kind); err != nil {
+				return err
+			}
+			kinds = append(kinds, kind)
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading signals as %s: %v", user, err)
+	}
+	return kinds
 }
