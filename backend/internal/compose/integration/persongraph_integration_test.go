@@ -272,3 +272,84 @@ func TestPersonGraphServiceReturnsNotFoundForAForeignContact(t *testing.T) {
 		t.Errorf("EdgesForPerson out of scope → %v, want ErrNotFound", err)
 	}
 }
+
+// A colleague can reach the contact directly AND know somebody else at the
+// same company. They are one person and get one node; the two edges hang off
+// it, or the diagram draws the same human twice.
+func TestPersonGraphGivesAColleagueOneNodeAcrossBothArms(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "ScaleCommerce", &e.Rep1)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	coworker := e.SeedPerson(t, "Their Colleague", &e.Rep1)
+
+	for _, p := range []ids.UUID{mine, coworker} {
+		SeedRow(t, owner, `INSERT INTO relationship
+			(id, workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, $2, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`, e.WS)
+	}
+	// The SAME colleague corresponds with both.
+	seedExchange(t, e, e.Rep1, mine, "with Anna")
+	seedExchange(t, e, e.Rep1, coworker, "with their colleague")
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
+	code, graph := readGraph(rep, t, e, mine)
+	if code != http.StatusOK {
+		t.Fatalf("graph → %d, want 200", code)
+	}
+	seen := map[string]int{}
+	for _, n := range graph.Nodes {
+		seen[n.Id]++
+	}
+	for id, n := range seen {
+		if n > 1 {
+			t.Errorf("node %q appears %d times; one human is one node", id, n)
+		}
+	}
+	if len(graph.Edges) != 2 {
+		t.Errorf("edges = %d, want 2 — one per relationship, both hanging off the one node", len(graph.Edges))
+	}
+}
+
+// The account arm shows counts and dates and never the messages. Pooled
+// interaction metadata is disclosable where the correspondence behind it is
+// not, so the absence of receipts here is the rule working, not missing data.
+func TestPersonGraphAccountEdgesCarryCountsAndNoMessages(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	org := e.SeedOrg(t, "ScaleCommerce", &e.Rep1)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	coworker := e.SeedPerson(t, "Their Colleague", &e.Rep1)
+
+	for _, p := range []ids.UUID{mine, coworker} {
+		SeedRow(t, owner, `INSERT INTO relationship
+			(id, workspace_id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, $2, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`, e.WS)
+	}
+	// Nobody knows Anna; somebody knows her coworker. That is exactly the case
+	// the account arm exists for.
+	seedExchange(t, e, e.Rep1, coworker, "with their colleague")
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
+	code, graph := readGraph(rep, t, e, mine)
+	if code != http.StatusOK {
+		t.Fatalf("graph → %d, want 200", code)
+	}
+	if len(graph.Edges) != 1 {
+		t.Fatalf("edges = %d, want the one account edge", len(graph.Edges))
+	}
+	if r := graph.Edges[0].Receipts; r != nil && len(*r) != 0 {
+		t.Errorf("an account edge carried %d message(s); the counts are disclosable and the mail is not", len(*r))
+	}
+	if graph.Edges[0].Interactions90d == 0 {
+		t.Error("the account edge carries no count, so it says nothing at all")
+	}
+	// And the route goes THROUGH the coworker, naming them — otherwise the
+	// reader is told to ask somebody with no idea why.
+	if graph.Route == nil {
+		t.Fatal("nobody knows Anna directly and no indirect route was offered")
+	}
+	if graph.Route.ThroughDisplayName == nil || *graph.Route.ThroughDisplayName != "Their Colleague" {
+		t.Error("the indirect route did not name who it goes through")
+	}
+}
