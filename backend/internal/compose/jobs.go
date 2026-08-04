@@ -256,10 +256,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}, log)
 }
 
-// registerJobWorkers registers the workers this process role serves whatever
-// the deployment configured; the config-gated ones live in addConfiguredJobs
-// (jobs_configured.go). Registering a worker is not scheduling it — what gets
-// scheduled is unconditionalSweeps below.
+// registerJobWorkers registers the workers this process role can serve. Most
+// register whatever the deployment configured — a worker with no work simply
+// never runs — so only the send lane, which needs a registry to dispatch
+// through at all, is gated here; the lanes whose SCHEDULE is deployment-shaped
+// are addConfiguredJobs' (jobs_configured.go). Registering a worker is not
+// scheduling it: NewJobRunner assembles the periodic list.
 func registerJobWorkers(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
