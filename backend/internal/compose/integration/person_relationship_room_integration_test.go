@@ -29,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
 
 // roomFixedNow pins the clock so a decayed strength score cannot flake between
@@ -410,5 +411,83 @@ func TestDismissedMomentDoesNotComeBack(t *testing.T) {
 		if m.ClaimKey == claim {
 			t.Fatalf("the dismissed moment %q came back", claim)
 		}
+	}
+}
+
+// personChanges runs the Tx-scoped derivation in a transaction of its own.
+// There is no pool-level variant, and adding one for a test would be an
+// entry point with no production caller.
+func personChanges(t *testing.T, e *Env, ctx context.Context, personID ids.PersonID) ([]relstrength.Change, error) {
+	t.Helper()
+	var out []relstrength.Change
+	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = e.People.PersonRelationshipChangesTx(ctx, tx, personID, roomFixedNow)
+		return err
+	})
+	return out, err
+}
+
+// The derivation folds the same §4 curve over a window ending in the past, so
+// what it reports comes from the timeline rather than from a stored number —
+// which is the whole reason there is no table.
+func TestRelationshipChangesAreDerivedFromTheTimeline(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+
+	// A long silence, then their reply. roomFixedNow is 2026-08-04, so the
+	// silence the reply broke is 48 days and the reply itself is 3 days old.
+	for _, at := range []string{"2026-06-14T09:00:00Z", "2026-08-01T09:00:00Z"} {
+		id := SeedRow(t, owner, `INSERT INTO activity
+			(id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+			VALUES ($1, $2, 'email', 'thread', '`+at+`', 'inbound', 'manual', 'human:x')`, e.WS)
+		LinkActivity(t, owner, e.WS, id, "person", mine)
+	}
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+	changes, err := personChanges(t, e, rep, ids.From[ids.PersonKind](mine))
+	if err != nil {
+		t.Fatalf("PersonRelationshipChangesTx: %v", err)
+	}
+	var replied bool
+	for _, c := range changes {
+		if c.Kind == relstrength.ChangeRepliedAfterGap {
+			replied = true
+			if c.Days != 48 {
+				t.Errorf("gap = %d days, want 48 — measured to the interaction the reply broke", c.Days)
+			}
+		}
+	}
+	if !replied {
+		t.Errorf("a reply after a seven-week silence was not derived; got %+v", changes)
+	}
+}
+
+// A contact nobody has ever spoken to has not gone quiet — they were never
+// loud. Saying otherwise turns every dormant record into an alert.
+func TestRelationshipChangesSayNothingAboutAContactWithNoHistory(t *testing.T) {
+	e := Setup(t)
+	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+
+	changes, err := personChanges(t, e, rep, ids.From[ids.PersonKind](mine))
+	if err != nil {
+		t.Fatalf("PersonRelationshipChangesTx: %v", err)
+	}
+	if len(changes) != 0 {
+		t.Errorf("a contact with no interactions produced %d change(s): %+v", len(changes), changes)
+	}
+}
+
+// The changes explain a score, and both are reads of the same record — so a
+// contact outside the caller's row scope is a not-found here too.
+func TestRelationshipChangesRefuseAContactOutsideRowScope(t *testing.T) {
+	e := Setup(t)
+	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
+
+	if _, err := personChanges(t, e, rep, ids.From[ids.PersonKind](theirs)); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("changes for another team's contact → %v, want ErrNotFound", err)
 	}
 }
