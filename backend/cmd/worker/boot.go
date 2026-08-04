@@ -102,28 +102,33 @@ type workerLanes struct {
 // startEventLanes starts the lanes this role runs before the job runner exists
 // and resolves what the runner then needs from them, in the order an operator
 // reads at boot.
+//
+// A failure returns the lanes started SO FAR alongside the error, never a zero
+// value: goroutines are already running on that WaitGroup, and handing back a
+// struct whose WaitGroup is nil would leave a caller no way to join them before
+// it closes the bus and the pool they are still using.
 func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, rdb *redis.Client, modelPath compose.ModelPath, logger *slog.Logger, stdout io.Writer) (workerLanes, error) {
 	lanes := workerLanes{background: &sync.WaitGroup{}}
 
 	if err := startRunnerLane(ctx, cfg, pool, rdb, modelPath, &lanes, logger, stdout); err != nil {
-		return workerLanes{}, err
+		return lanes, err
 	}
 	startProjectionLanes(ctx, pool, rdb, modelPath, lanes.background, logger, stdout)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
-		return workerLanes{}, fmt.Errorf("worker: blobstore: %w", err)
+		return lanes, fmt.Errorf("worker: blobstore: %w", err)
 	}
 	if blobConfigured {
 		_, _ = fmt.Fprintln(stdout, "worker storing site-read logos and erasing attachment objects (blobstore configured)")
 	}
 	lanes.blob = blob
 	if err := backfillConnectorCredentials(ctx, pool, stdout, logger); err != nil {
-		return workerLanes{}, err
+		return lanes, err
 	}
 
 	if err := startWebhookLane(ctx, cfg, pool, rdb, &lanes, logger, stdout); err != nil {
-		return workerLanes{}, err
+		return lanes, err
 	}
 	return lanes, nil
 }
