@@ -212,3 +212,129 @@ func TestClassify_leavesUnknownErrorsToTheOpaque500(t *testing.T) {
 		t.Errorf("an unmapped error was classified as %+v, want the unhandled path", fault)
 	}
 }
+
+// A constraint the database enforced and no path translated is the CALLER's
+// mistake, not a server fault. It used to fall through to an opaque 500 whose
+// advice was "Retry" — advice that can never work, since the same call violates
+// the same constraint forever. A UAT agent burned its retries on exactly this
+// and then escalated to a human for a fixable input error.
+func TestClassify_anUntranslatedConstraintIsTheCallersMistakeNotAServerFault(t *testing.T) {
+	for _, tc := range []struct {
+		name, sqlstate, table, constraint, pgMessage, wantCode, wantDetail string
+	}{
+		{
+			name:     "a foreign key names the column that pointed nowhere",
+			sqlstate: "23503", table: "organization", constraint: "organization_owner_id_fkey",
+			pgMessage: `insert or update on table "organization" violates foreign key constraint`,
+			wantCode:  "reference_not_found",
+			wantDetail: "`owner_id` names no record of the kind it references (an owner is a user, a parent " +
+				"an organization). Send an id of the right kind; do not retry unchanged.",
+		},
+		{
+			name:     "a CHECK refuses the value",
+			sqlstate: "23514", table: "organization", constraint: "organization_size_band_check",
+			pgMessage: `new row for relation "organization" violates check constraint`,
+			wantCode:  "value_not_allowed",
+			wantDetail: "a value in this request is outside what its field accepts. Check each value against " +
+				"this operation's schema; do not retry unchanged.",
+		},
+		{
+			name:     "an EXCLUDE refuses the overlap",
+			sqlstate: "23P01", table: "calendar_block", constraint: "calendar_block_no_overlap",
+			pgMessage: `conflicting key value violates exclusion constraint`,
+			wantCode:  "value_not_allowed",
+			wantDetail: "a value in this request is outside what its field accepts. Check each value against " +
+				"this operation's schema; do not retry unchanged.",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fmt.Errorf("writing the row: %w", &pgconn.PgError{
+				Code: tc.sqlstate, TableName: tc.table, ConstraintName: tc.constraint, Message: tc.pgMessage,
+			})
+			fault, ok := Classify(err)
+			if !ok {
+				t.Fatal("the constraint reached the unhandled path, which answers 500 internal")
+			}
+			if fault.Status != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422 — a constraint breach is never a server fault", fault.Status)
+			}
+			if fault.Code != tc.wantCode {
+				t.Errorf("code = %q, want %q", fault.Code, tc.wantCode)
+			}
+			// The EXACT sentence, not a substring: this is the whole of what the
+			// caller reads, and a partial match passes on a message that also
+			// carries something it should not.
+			if fault.Detail != tc.wantDetail {
+				t.Errorf("detail =\n  %q\nwant\n  %q", fault.Detail, tc.wantDetail)
+			}
+			// Each row's OWN metadata, so a leak of this SQLSTATE's constraint or
+			// message cannot ride out under another row's assertions.
+			//
+			// The TABLE is not swept: `organization` is both a table name and an
+			// ordinary word this refusal legitimately uses. The exact-detail
+			// assertion above is the stronger guard anyway — it pins the whole
+			// sentence, so anything riding along fails there first.
+			for _, leak := range []string{tc.constraint, tc.sqlstate, tc.pgMessage} {
+				if strings.Contains(fault.Detail, leak) {
+					t.Errorf("detail leaks %q: %q", leak, fault.Detail)
+				}
+			}
+			if fault.InfraCause == nil {
+				t.Error("the constraint reaches no log — withholding a message is not the same as losing it")
+			}
+		})
+	}
+}
+
+// The net sits UNDER the per-path validations: a module that names the field
+// still wins, or the better message would be replaced by the generic one.
+func TestClassify_aTypedRefusalStillWinsOverTheConstraintNet(t *testing.T) {
+	err := fmt.Errorf("checking the band: %w",
+		Validation("size_band", "invalid_enum", `"banana" is not a size band; expected one of: 1-10, 11-50`))
+	fault, ok := Classify(err)
+	if !ok {
+		t.Fatal("a typed validation refusal was not classified")
+	}
+	if !strings.Contains(fault.Detail, "expected one of") {
+		t.Errorf("the net replaced a refusal that named the field and its values: %q", fault.Detail)
+	}
+}
+
+// The reference refusal names the FIELD whose id pointed nowhere. Its first
+// version named none and told the caller to check their ids "against records
+// this workspace actually has" — advice a UAT agent followed into a dead end,
+// because the field it blamed references a user, which no tool on that surface
+// lists, and a genuinely existing person id came back with byte-identical text.
+func TestClassify_theReferenceRefusalNamesTheFieldWhenTheConstraintYieldsIt(t *testing.T) {
+	for _, tc := range []struct {
+		name, constraint, wantField string
+		wantNamed                   bool
+	}{
+		{"a default-named foreign key yields its column", "organization_owner_id_fkey", "owner_id", true},
+		{"a multi-word column survives whole", "organization_parent_org_id_fkey", "parent_org_id", true},
+		{"a constraint that is not a foreign key names nothing", "organization_display_name_key", "", false},
+		{"a hand-named constraint names nothing rather than guessing", "one_primary_domain", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fmt.Errorf("writing: %w", &pgconn.PgError{Code: "23503", TableName: "organization", ConstraintName: tc.constraint})
+			fault, ok := Classify(err)
+			if !ok || fault.Status != http.StatusUnprocessableEntity {
+				t.Fatalf("fault = %+v, ok = %v, want a 422", fault, ok)
+			}
+			if tc.wantNamed && !strings.Contains(fault.Detail, "`"+tc.wantField+"`") {
+				t.Errorf("detail does not name %q: %q", tc.wantField, fault.Detail)
+			}
+			if !tc.wantNamed && strings.Contains(fault.Detail, "`") {
+				t.Errorf("detail names a field it could not derive: %q", fault.Detail)
+			}
+			// Whichever branch ran, the schema stays behind and the advice never
+			// sends the caller looking for a record kind this surface cannot list.
+			if strings.Contains(fault.Detail, tc.constraint) {
+				t.Errorf("detail leaks the constraint name: %q", fault.Detail)
+			}
+			if strings.Contains(fault.Detail, "records this workspace actually has") {
+				t.Errorf("detail still gives the advice that could not be followed: %q", fault.Detail)
+			}
+		})
+	}
+}

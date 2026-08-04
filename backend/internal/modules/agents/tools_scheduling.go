@@ -15,6 +15,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -72,14 +73,20 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 		Name: "book_meeting", Title: "Book a meeting", Version: toolVersionV1,
 		RequiredScope: principal.ScopeSend, Tier: mcp.TierConfirmationRequired, Egress: true,
 		OpenAPIOp: "bookMeeting",
-		InputSchema: schema(`{"type":"object","required":["start","end"],"properties":{
+		// `links` is REQUIRED by crm.yaml's bookMeeting body and was advertised
+		// as optional, so an agent that read the schema and omitted it was
+		// refused for a rule the schema never stated. Its vocabulary is spliced
+		// from the contract for the same reason log_activity's is: the copy
+		// here had drifted to offer a `project` link the contract refuses.
+		InputSchema: schema(`{"type":"object","required":["start","end","links"],"properties":{
 			"host_user_id":{"type":"string","format":"uuid"},
 			"start":{"type":"string","format":"date-time"` + timestampNote + `},
 			"end":{"type":"string","format":"date-time"` + timestampNote + `},
 			"subject":{"type":"string"},
-			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
-				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},"maxItems":25},
+			"links":{"type":"array","minItems":1,"items":{"type":"object","required":["entity_type","entity_id"],"properties":{
+				"entity_type":{"type":"string","enum":` + activityLinkEntityTypeEnum + `},
+				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false},"maxItems":25,
+				"description":"Who and what the meeting is about; at least one. The booking is refused without it."},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -99,9 +106,9 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 // first-link-only check would wave through.
 //
 // The first link becomes the displayed target and supplies the pin. A booking
-// with no links stages with no target at all, which the approvals engine
-// serves (the pin is simply absent) — a slot on a calendar is a real thing to
-// approve even when it names no record.
+// with NO links is refused before any of that: crm.yaml requires them, and a
+// staged approval with no target is a human asked to release a meeting attached
+// to nothing — nothing to show them, and no version to pin it against.
 func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
@@ -115,6 +122,9 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
 			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
 			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
+	}
+	if err := requireBookingLinks(args); err != nil {
+		return StageInfo{}, err
 	}
 	links, err := bookingLinks(args)
 	if err != nil {
@@ -134,6 +144,22 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		}
 	}
 	return info, nil
+}
+
+// requireBookingLinks enforces what the schema states: at least one link.
+//
+// It is a function rather than a line in StageInfo because the MCP surface does
+// not validate arguments against an InputSchema — that schema is documentation —
+// so the rule holds only where the code puts it, and this verb has two doors: the
+// staging path and the post-approval execute. A rule enforced at one of them is
+// a rule a caller meets only sometimes.
+func requireBookingLinks(args BookMeetingArgs) error {
+	if len(args.Links) > 0 {
+		return nil
+	}
+	return &BadArgsError{Cause: errors.New(
+		"`links` needs at least one entry: a booking names who and what it is about, " +
+			"and one attached to nothing cannot be approved against a record")}
 }
 
 // maxBookingLinks bounds how many records one booking may attach to.
@@ -206,6 +232,12 @@ func describeBooking(args BookMeetingArgs, links []bookingLink) string {
 func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	// Both doors, not just staging. This one is reached with an approval already
+	// redeemed, so a call that skipped StageInfo would otherwise execute a
+	// booking the schema says is impossible.
+	if err := requireBookingLinks(args); err != nil {
 		return nil, err
 	}
 	return t.comms.BookMeeting(ctx, args)

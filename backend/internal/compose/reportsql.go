@@ -68,7 +68,7 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	for _, key := range filterKeys {
 		expr, ok := spec.filters[key]
 		if !ok {
-			return nil, &FieldNotAllowedError{Field: key}
+			return nil, &FieldNotAllowedError{Field: key, Slot: slotFilters, Allowed: allowedReportNames(spec.filters)}
 		}
 		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
 	}
