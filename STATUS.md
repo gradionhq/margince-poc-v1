@@ -371,34 +371,36 @@ What landed, in build order:
 
 ### Gates
 
-`make check-backend` green (build, vet, lint, arch-lint, unit tests, contract
-drift, the 500-LOC cap, composition reproducibility). `make check-fe` green —
-125 files, 1,299 tests. `craft static` diff-scoped: **PASS, 0 blocker**, 8
-advisory long-func majors, every one of them a pre-existing function in a file
-this branch touched.
+`make check` green. `craft static` **PASS, 0 blocker / 0 major / 0 minor** under
+the now-strict bar. `make test-integration` green. On CI: all 12 integration
+shards, UAT + axe, frontend, deterministic-gates, live-boot, govulncheck,
+CodeQL, DCO, craft-residue, docker images — 27 checks passing.
 
-`make test-integration` took five attempts to produce a trustworthy answer,
-and the reason is worth knowing: **a parallel agent session was running the
-same lane against the shared `margince_test` template**, which produced 1,235
-deadlocks (40P01) and a half-migrated schema underneath them. Neither the
-parallel nor the serial lane means anything in that state — check
-`pg_stat_activity` and `ps` for a competing `go test -tags integration` before
-believing any result.
+**SonarCloud's new-code coverage is the one open gate**, and it is a required
+check. It went 29.6% → 76.9% over ten rounds of tests added here; the
+threshold is 80%.
 
-On a quiet machine the lane found exactly one real defect, now fixed:
-`activity_participant_replay.activity_id` needed a row-scope classification in
-`TestFK_rowScopedTargetsHaveVisibilityDecision`. The final run after that fix
-executed all 28 packages with **zero `--- FAIL` lines, zero `--- SKIP` lines,
-and `EXIT 0` from every package**. The wrapper script still printed its red
-banner, and none of its own checks explains why: no package missed its EXIT
-line, the ran/discovered counts reconcile, and nothing skipped. It reads as a
-log-flush race in `scripts/test-integration-parallel.sh` under a loaded
-machine. **Re-run it once on an idle machine before the PR** — the substance
-is green, the wrapper's verdict is not yet.
+Those tests are worth keeping whatever happens to the gate. They pin claims
+that were previously only described in comments: the forged-Cc refusal from
+both sides, the view-ack's monotonicity (a GET that moved the baseline would
+destroy the answer the reader opened the page for), the account arm's
+counts-not-messages disclosure rule asserted as an ABSENCE, merge
+survivorship, and the replay pass's termination argument.
 
-The same contention explains the 7 frontend files that first went red — deals,
-inbox, onboarding ×2, overlay, telegram, onboarding-conversation. All pass on
-a quiet machine.
+What is left uncovered is mostly `return err` propagation and branches that
+need an injected database fault. Reaching those means mocking a boundary the
+craftsmanship rules say to leave alone, which would produce the over-mocked,
+assertion-thin tests the same rules call noise. The recommendation on the
+record is an admin override on that one check rather than a permanent
+threshold change, which would weaken the gate for every later PR to unblock
+one.
+
+**One CI flake to expect, unrelated to this branch.**
+`TestTwoMessagesReportingTheSameRenameAuditItOnce`
+(`ensurechannel_contention_integration_test.go`) fails under shard load with
+"no backend waited on the held row within 20000 probes — the writer never
+reached the lock, so this run proved nothing". It is a lock-contention test
+reporting that its own precondition did not hold. Re-run the shard.
 
 ### Two things worth carrying forward
 
