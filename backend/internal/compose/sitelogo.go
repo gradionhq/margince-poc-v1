@@ -227,19 +227,7 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
-	// Ask before resolving anything: a field a person holds is not going to be
-	// written, so fetching and normalizing a mark for it is work nobody uses.
-	// The write applies the rule again under the row lock — this is the cheap
-	// path, never the authority.
-	held, err := w.people.LogoHeldByHuman(ctx, orgID)
-	if err != nil {
-		w.log.WarnContext(ctx, "reading the organization's logo provenance failed",
-			"read", args.SiteReadID.String(), "err", err)
-		return
-	}
-	if held {
-		w.log.InfoContext(ctx, "logo resolve skipped: a person's own logo holds the field",
-			"read", args.SiteReadID.String())
+	if !w.logoWorthResolving(ctx, args.SiteReadID, orgID) {
 		return
 	}
 
@@ -304,6 +292,26 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		"read", args.SiteReadID.String(), "source", logo.SourceURL,
 		"source_size", fmt.Sprintf("%dx%d", logo.SourceWidth, logo.SourceHeight),
 		"stored_bytes", len(logo.PNG), "candidates", logoAttemptSummary(attempts))
+}
+
+// logoWorthResolving asks before resolving anything: a field a person holds is
+// not going to be written, so fetching and normalizing a mark for it is work
+// nobody uses. The write applies the rule again under the row lock — this is
+// the cheap path, never the authority. A provenance read that fails leaves the
+// field's owner unknown, and the lane stands down rather than guess.
+func (w *siteDeepReadWorker) logoWorthResolving(ctx context.Context, readID ids.UUID, orgID ids.OrganizationID) bool {
+	held, err := w.people.LogoHeldByHuman(ctx, orgID)
+	if err != nil {
+		w.log.WarnContext(ctx, "reading the organization's logo provenance failed",
+			"read", readID.String(), "err", err)
+		return false
+	}
+	if held {
+		w.log.InfoContext(ctx, "logo resolve skipped: a person's own logo holds the field",
+			"read", readID.String())
+		return false
+	}
+	return true
 }
 
 // debugLogo projects a resolve onto the debug report's shape.
