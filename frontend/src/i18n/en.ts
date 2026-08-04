@@ -3053,6 +3053,10 @@ export const en = {
   "person.thin.remediation.employer":
     "Add their employer and Margince can read that company's site for their role.",
   "person.thin.logFirst": "Log the first interaction",
+  "person.timeline.all": "All",
+  "person.timeline.messages": "Messages",
+  "person.timeline.meetings": "Meetings",
+  "person.timeline.tasks": "Tasks",
   "person.enriched.title": "What Margince read",
   "person.enriched.sub":
     "Each value with the text it was read from. Correct one and the correction stands.",

@@ -3074,6 +3074,10 @@ export const de = {
   "person.thin.remediation.employer":
     "Hinterlegen Sie den Arbeitgeber, dann liest Margince dessen Website nach ihrer Rolle.",
   "person.thin.logFirst": "Ersten Kontakt erfassen",
+  "person.timeline.all": "Alle",
+  "person.timeline.messages": "Nachrichten",
+  "person.timeline.meetings": "Termine",
+  "person.timeline.tasks": "Aufgaben",
   "person.enriched.title": "Was Margince gelesen hat",
   "person.enriched.sub":
     "Jeder Wert mit dem Text, aus dem er gelesen wurde. Eine Korrektur bleibt bestehen.",

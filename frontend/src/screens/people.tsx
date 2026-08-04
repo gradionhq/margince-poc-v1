@@ -313,6 +313,50 @@ function timelineKind(kind: string): TimelineEntry["kind"] {
   return known ?? "note";
 }
 
+// The timeline filters. They group by what a reader is LOOKING for rather
+// than by the activity kind vocabulary: someone scanning for "what did we
+// agree" wants tasks whatever their channel, and someone reconstructing a
+// conversation wants mail and chat together.
+const TIMELINE_FILTERS = ["all", "messages", "meetings", "tasks"] as const;
+type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
+
+// MESSAGE_KINDS is every channel a human conversation arrives on. Kept as a
+// list rather than "not a meeting and not a task" so a kind added later is
+// classified deliberately instead of falling into messages by default.
+const MESSAGE_KINDS = ["email", "whatsapp", "telegram", "call"];
+
+/**
+ * useTimelineFilter keeps the filter per RECORD.
+ *
+ * The screen does not remount when the route changes contact, so a plain
+ * useState would carry "tasks only" onto the next person and show them an
+ * empty timeline with no visible reason for it.
+ */
+function useTimelineFilter(
+  recordId: string,
+): [TimelineFilter, (next: TimelineFilter) => void] {
+  const [filter, setFilter] = useState<TimelineFilter>("all");
+  const [filterFor, setFilterFor] = useState(recordId);
+  if (filterFor !== recordId) {
+    setFilterFor(recordId);
+    setFilter("all");
+  }
+  return [filter, setFilter];
+}
+
+function matchesFilter(activity: Activity, filter: TimelineFilter): boolean {
+  switch (filter) {
+    case "messages":
+      return MESSAGE_KINDS.includes(activity.kind);
+    case "meetings":
+      return activity.kind === "meeting";
+    case "tasks":
+      return activity.kind === "task";
+    default:
+      return true;
+  }
+}
+
 // A timeline row is one line, so a body used as its title has its whitespace
 // collapsed and is cut at this many characters.
 const TIMELINE_TITLE_MAX = 140;
@@ -474,6 +518,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const timelineQuery = useTimeline("person", id);
+  const [timelineFilter, setTimelineFilter] = useTimelineFilter(id);
   const view360 = usePerson360(id);
   // The composite is only usable once it carries its mandatory root record.
   // Guarding on the whole payload would let a partial or error-shaped body
@@ -610,7 +655,9 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(
-                    timelineQuery.data.data,
+                    timelineQuery.data.data.filter((a) =>
+                      matchesFilter(a, timelineFilter),
+                    ),
                     viewerId,
                     (activity) => (
                       <TimelineActions
@@ -623,7 +670,23 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   )
                 : []
             }
-            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
+            timelineNotice={
+              overlay ? (
+                <OverlayUnavailable />
+              ) : (
+                <SegmentedControl
+                  options={TIMELINE_FILTERS}
+                  value={timelineFilter}
+                  onChange={setTimelineFilter}
+                  labels={{
+                    all: t("person.timeline.all"),
+                    messages: t("person.timeline.messages"),
+                    meetings: t("person.timeline.meetings"),
+                    tasks: t("person.timeline.tasks"),
+                  }}
+                />
+              )
+            }
             rail={view ? <IdentityRail view={view} /> : undefined}
             aside={
               view ? (
