@@ -76,11 +76,39 @@ func (s Scope) Files(t testing.TB) []ParsedFile {
 		return nil
 	}
 
-	var inside []ParsedFile
-	var outside []string
-	subjectsPerRoot := make([]int, len(roots))
+	inside, outside, subjectsPerRoot, err := s.sweep(tree, roots)
+	if err != nil {
+		t.Errorf("sweeping %s: %v", tree, err)
+		return nil
+	}
+
+	for i, root := range roots {
+		if subjectsPerRoot[i] == 0 {
+			t.Errorf("%s holds no site this gate judges — a root that finds nothing certifies nothing, so "+
+				"either the root is stale or the obligation has moved; correct it rather than leaving the "+
+				"gate reading green over an empty tree", root)
+		}
+	}
+	sort.Strings(outside)
+	for _, path := range outside {
+		if s.Exempt.Waived(t, path) {
+			continue
+		}
+		t.Errorf("%s holds a site this gate must judge but lies outside every root (%s), so the gate never "+
+			"sees it: widen the roots if this tier is in scope, or ratify the file in the scope's Exempt set "+
+			"with the reason it is not this gate's business", path, strings.Join(roots, ", "))
+	}
+	return inside
+}
+
+// sweep parses the swept sources under tree once and partitions the subjects it
+// finds into those a root covers and those no root does, alongside the number of
+// subjects each root holds. A subject under several roots counts for each of
+// them, because every root owes its own evidence of not being vacuous.
+func (s Scope) sweep(tree string, roots []string) (inside []ParsedFile, outside []string, perRoot []int, err error) {
+	perRoot = make([]int, len(roots))
 	fset := token.NewFileSet()
-	err := filepath.WalkDir(tree, func(path string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(tree, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -105,7 +133,7 @@ func (s Scope) Files(t testing.TB) []ParsedFile {
 		covered := false
 		for i, root := range roots {
 			if under(rel, root) {
-				subjectsPerRoot[i]++
+				perRoot[i]++
 				covered = true
 			}
 		}
@@ -116,28 +144,7 @@ func (s Scope) Files(t testing.TB) []ParsedFile {
 		inside = append(inside, ParsedFile{Path: rel, File: file})
 		return nil
 	})
-	if err != nil {
-		t.Errorf("sweeping %s: %v", tree, err)
-		return nil
-	}
-
-	for i, root := range roots {
-		if subjectsPerRoot[i] == 0 {
-			t.Errorf("%s holds no site this gate judges — a root that finds nothing certifies nothing, so "+
-				"either the root is stale or the obligation has moved; correct it rather than leaving the "+
-				"gate reading green over an empty tree", root)
-		}
-	}
-	sort.Strings(outside)
-	for _, path := range outside {
-		if s.Exempt.Waived(t, path) {
-			continue
-		}
-		t.Errorf("%s holds a site this gate must judge but lies outside every root (%s), so the gate never "+
-			"sees it: widen the roots if this tier is in scope, or ratify the file in the scope's Exempt set "+
-			"with the reason it is not this gate's business", path, strings.Join(roots, ", "))
-	}
-	return inside
+	return inside, outside, perRoot, err
 }
 
 // universe resolves the tree the roots are proven against.

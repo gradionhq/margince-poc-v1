@@ -51,12 +51,18 @@ const (
 // fullToolRegistries are the builders that each wire the whole tool surface,
 // named by the function that does the wiring, with what its completeness buys.
 var fullToolRegistries = []struct{ path, builder, claim string }{
-	{"internal/compose/registry.go", "registryWithGate",
-		"the surface a client is served: an unregistered tool does not exist"},
-	{agentsDir + "/conformance_test.go", "fullRegistry",
-		"the encoding walk: an unregistered tool's schema is never checked"},
-	{agentsDir + "/idargs_test.go", "idProbeDispatcher",
-		"the seam walk: an unregistered tool's arguments are never dispatched"},
+	{
+		"internal/compose/registry.go", "registryWithGate",
+		"the surface a client is served: an unregistered tool does not exist",
+	},
+	{
+		agentsDir + "/conformance_test.go", "fullRegistry",
+		"the encoding walk: an unregistered tool's schema is never checked",
+	},
+	{
+		agentsDir + "/idargs_test.go", "idProbeDispatcher",
+		"the seam walk: an unregistered tool's arguments are never dispatched",
+	},
 }
 
 // toolRegistrar is one discovered registrar and where it is declared.
