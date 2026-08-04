@@ -46,6 +46,22 @@ const (
 	// this counts whole readings, not attempts, so three is three escalated
 	// disagreements about the same text.
 	extractRefusalCap = 3
+	// extractParkFor is how long a conversation stays parked before it is
+	// offered again.
+	//
+	// Parking has to expire. What refuses a reading is the pair of a text and a
+	// model, and only one of those is fixed: a routing change, a new model
+	// version, a corrected prompt or a raised cap can all make a conversation
+	// readable that was not readable last week. Parking it until new mail
+	// happens to arrive would drop, permanently and silently, the material
+	// events in every thread that never receives another message — which is
+	// most finished conversations, and a finished conversation is exactly where
+	// "the contract ended" is stated.
+	//
+	// A week: long enough that a poisoned thread costs one reading a week
+	// instead of one an hour, short enough that a fix reaches the backlog
+	// without anybody replaying anything by hand.
+	extractParkFor = 7 * 24 * time.Hour
 )
 
 // threadMessage is one message of a conversation as the prompt sees it.
@@ -102,13 +118,15 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		 WHERE c.org_count = 1
 		   AND c.newest <= $1
 		   -- Parked: this exact conversation state has been refused as often as
-		   -- it may be. The pin is what makes that safe to skip — a message
-		   -- added to the thread changes newest or the count, the pin stops
-		   -- matching, and the conversation is owed fresh attempts because the
-		   -- text is no longer the text that was refused.
+		   -- it may be, recently. Two things release it. A message added to the
+		   -- thread changes newest or the count, so the pin stops matching and
+		   -- the text is no longer the text that was refused. And the park
+		   -- itself expires, because what refused the reading was a text AND a
+		   -- model, and the model changes.
 		   AND NOT (coalesce(s.refusals, 0) >= $3
 		            AND s.refused_activity_at IS NOT DISTINCT FROM c.newest
-		            AND s.refused_message_count IS NOT DISTINCT FROM c.message_count)
+		            AND s.refused_message_count IS NOT DISTINCT FROM c.message_count
+		            AND s.scanned_at > $4)
 		   -- Due when the conversation has MOVED in either way it can. The
 		   -- timestamp misses a message inserted at the same instant and a
 		   -- backfill that adds older ones; the count sees both.
@@ -116,7 +134,7 @@ func dueThreads(ctx context.Context, tx pgx.Tx, now time.Time, limit int) ([]set
 		        OR s.last_activity_at < c.newest
 		        OR s.message_count <> c.message_count)
 		 ORDER BY c.newest DESC
-		 LIMIT $2`, settled, limit, extractRefusalCap)
+		 LIMIT $2`, settled, limit, extractRefusalCap, now.Add(-extractParkFor))
 	if err != nil {
 		return nil, fmt.Errorf("list the threads due for a read: %w", err)
 	}
@@ -179,8 +197,11 @@ func threadMessages(ctx context.Context, tx pgx.Tx, key string) ([]threadMessage
 // failed to read it. Advancing the watermark here would retire the thread and
 // lose whatever it says; counting without pinning would let a growing
 // conversation inherit the refusals of text it no longer contains.
-func recordThreadRefusal(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time) error {
-	if _, err := tx.Exec(ctx, `
+func recordThreadRefusal(
+	ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time,
+) (int, error) {
+	var refusals int
+	if err := tx.QueryRow(ctx, `
 		INSERT INTO signal_thread_scan
 		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
 		   refusals, refused_activity_at, refused_message_count)
@@ -195,11 +216,14 @@ func recordThreadRefusal(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, t
 		         ELSE 1 END,
 		       refused_activity_at = excluded.refused_activity_at,
 		       refused_message_count = excluded.refused_message_count,
-		       scanned_at = excluded.scanned_at`,
-		wsID, thread.Key, thread.Newest, thread.Count, now); err != nil {
-		return fmt.Errorf("count the refused reading: %w", err)
+		       -- scanned_at is when this conversation was last LOOKED at, which
+		       -- is what the park window is measured from.
+		       scanned_at = excluded.scanned_at
+		RETURNING refusals`,
+		wsID, thread.Key, thread.Newest, thread.Count, now).Scan(&refusals); err != nil {
+		return 0, fmt.Errorf("count the refused reading: %w", err)
 	}
-	return nil
+	return refusals, nil
 }
 
 // markThreadScanned records what THIS pass read — the newest instant and the

@@ -506,3 +506,67 @@ func TestARepeatedlyRefusedThreadIsParkedAndUnparkedByNewMail(t *testing.T) {
 			"is lost", brain.calls)
 	}
 }
+
+// A parked conversation that never receives another message must still come
+// back, because parking is a deferral and not a verdict.
+//
+// What refused the reading was a text AND a model, and only the text is fixed.
+// A routing change, a new model version or a corrected prompt can make a
+// conversation readable that was not readable last week — and a thread nobody
+// writes on again is exactly where "the contract ended" is stated. Parked
+// until new mail arrives, those events would be dropped permanently and
+// without a word.
+func TestAParkedThreadIsOfferedAgainOnceTheParkExpires(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	newest := extractClock.Add(-24 * time.Hour)
+	message := seedThread(t, e, org, "thread-poisoned", "Renewal",
+		"We will not be renewing the agreement.", "inbound", newest)
+
+	brain := &validatingBrain{replies: map[string]string{
+		"Renewal": reply(t, "new_opportunity", ids.NewV7(), "Unreadable.", 0.95),
+	}}
+	// The clock the pass runs on, moved by the test rather than by waiting: a
+	// real-clock test of a one-week window is not a test.
+	clock := extractClock
+	extractor := compose.NewSignalExtractor(e.Pool, brain,
+		func() time.Time { return clock }, slog.Default())
+	pass := func() {
+		t.Helper()
+		if _, err := extractor.RunWorkspace(e.Admin(), ids.From[ids.WorkspaceKind](e.WS)); err != nil {
+			t.Fatalf("a refused reading is not the pass's failure: %v", err)
+		}
+	}
+
+	for range 4 {
+		pass()
+	}
+	if brain.calls != 3 {
+		t.Fatalf("the model was asked %d times, want 3 — the thread was not parked", brain.calls)
+	}
+
+	// Still inside the window: nothing has changed, so nothing is retried.
+	clock = clock.Add(6 * 24 * time.Hour)
+	pass()
+	if brain.calls != 3 {
+		t.Errorf("the model was asked %d times six days in, want 3 — the park is "+
+			"not holding, and a poisoned thread costs a reading every pass", brain.calls)
+	}
+
+	// Past it. The conversation is offered again with no new mail on it at all,
+	// and this time the model can read it — which is the whole point: the text
+	// never changed, the model did.
+	clock = clock.Add(2 * 24 * time.Hour)
+	brain.replies = map[string]string{
+		"Renewal": reply(t, "contract_ended", message, "They are not renewing.", 0.95),
+	}
+	pass()
+	if brain.calls != 4 {
+		t.Fatalf("the model was asked %d times after the park expired, want 4 — a "+
+			"conversation nobody writes on again is parked for good, and what it "+
+			"says is lost with it", brain.calls)
+	}
+	if kinds := openSignalKinds(t, e, org); len(kinds) != 1 || kinds[0] != "contract_ended" {
+		t.Errorf("open signals after the recovered read = %v, want [contract_ended]", kinds)
+	}
+}

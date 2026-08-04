@@ -180,7 +180,9 @@ func (x *SignalExtractor) readThread(
 		// the newest extractThreadCap conversations, so a thread that never
 		// settles holds a slot in every pass and the backlog behind it is
 		// never reached. The count parks it after extractRefusalCap readings
-		// of the SAME text, and any new message unparks it.
+		// of the SAME text. Parking is a deferral, not a verdict: a new
+		// message unparks it, and so does time, because the model that could
+		// not read it is not the model that will be asked next week.
 		//
 		// It is not returned as an error either. Nothing here failed that a
 		// retry of the PASS would fix, and faulting the job would re-run every
@@ -190,13 +192,28 @@ func (x *SignalExtractor) readThread(
 		// every echoed token: this error can carry model output, the model read
 		// untrusted mail, and an operator log is not the place for either a
 		// correspondent's chosen volume or their private text.
-		x.log.WarnContext(ctx, "signal extract: refusing the model's reading",
-			"thread_key", thread.Key, "error", clampToken(err.Error()))
+		var refusals int
 		if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-			return recordThreadRefusal(ctx, tx, wsID, thread, now)
+			counted, countErr := recordThreadRefusal(ctx, tx, wsID, thread, now)
+			refusals = counted
+			return countErr
 		}); markErr != nil {
 			return 0, markErr
 		}
+		// Said differently once the attempts are gone, because it means
+		// something different: nobody will look at this conversation again for
+		// a week, and whatever it states is not on the account until then. A
+		// per-refusal line at the same level would bury that in the noise of
+		// the two that preceded it.
+		if refusals >= extractRefusalCap {
+			x.log.WarnContext(ctx, "signal extract: parking a conversation nothing could read",
+				"thread_key", thread.Key, "refusals", refusals,
+				"parked_for", extractParkFor.String(), "error", clampToken(err.Error()))
+			return 0, nil
+		}
+		x.log.InfoContext(ctx, "signal extract: refusing the model's reading, will try again",
+			"thread_key", thread.Key, "refusals", refusals,
+			"of", extractRefusalCap, "error", clampToken(err.Error()))
 		return 0, nil
 	}
 	if err != nil {
