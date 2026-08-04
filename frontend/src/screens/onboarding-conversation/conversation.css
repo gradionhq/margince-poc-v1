@@ -1634,8 +1634,11 @@
   font-weight: 650;
 }
 
+/* Sits at the foot of the scene now, after both sections — the same
+   section-to-section gap the headings above it use, not the tight one it
+   used to need wedged between the mailbox grid and the network heading. */
 .ob-connect-skip-row {
-  margin: var(--space-2) 0 0;
+  margin: var(--space-5) 0 0;
 }
 
 /* ---- the connect dialog: one provider's ask, its own surface ---- */

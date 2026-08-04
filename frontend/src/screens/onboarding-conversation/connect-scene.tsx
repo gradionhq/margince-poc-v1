@@ -224,19 +224,6 @@ export function ConnectScene({
           the caller's to make. */}
       {!dialogShowsResult && returnPanel}
 
-      {showSkip && (
-        <p className="ob-connect-skip-row">
-          <Button
-            small
-            variant="ghost"
-            disabled={skipDisabled}
-            onClick={onSkip}
-          >
-            {t("ob.conv.connect.skip")}
-          </Button>
-        </p>
-      )}
-
       <div className="ob-connect-section-head">
         <h3>
           {t("ob.conv.connect.networkTitle")}
@@ -254,6 +241,28 @@ export function ConnectScene({
         pending={linkedinPending}
         error={linkedinError}
       />
+
+      {/* The escape from the whole step, offered only once both sections
+          (mailbox, then network) have been seen — never partway down with a
+          section still unread below it. Its own row above the continue bar
+          rather than a quiet chip inside that bar: the two live in the same
+          flex row there, which would read as a paired choice with skip and
+          "Enter Margince" as equal alternatives. Kept one row up, in the
+          small ghost button voice (bordered outline, no fill, no shadow)
+          against the primary CTA below, skip stays the one a reader has to
+          notice on purpose, not the one competing for their eye. */}
+      {showSkip && (
+        <p className="ob-connect-skip-row">
+          <Button
+            small
+            variant="ghost"
+            disabled={skipDisabled}
+            onClick={onSkip}
+          >
+            {t("ob.conv.connect.skip")}
+          </Button>
+        </p>
+      )}
 
       {provider && (
         <ConnectDialog
