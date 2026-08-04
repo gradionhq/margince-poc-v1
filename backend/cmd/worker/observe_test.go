@@ -197,21 +197,6 @@ func TestTheWorkerSurfaceSetsTheSameBrowserFacingHeadersAsTheApi(t *testing.T) {
 	}
 }
 
-// TestTheWorkerReadinessBodyOmitsTheLineItWiresNothingFor — the shared probe
-// renders an AI visibility line for the roles that have one. The worker has
-// none, and an empty "ai: " reads as a role whose AI state could not be
-// determined rather than as one that has no AI at all: worse than silence,
-// because an operator has to learn to ignore it.
-func TestTheWorkerReadinessBodyOmitsTheLineItWiresNothingFor(t *testing.T) {
-	// A nil pool makes the postgres check fail, so this is the 503 body — the
-	// one an operator reads when something is wrong, and the one that must
-	// name the failed dependency and nothing it does not wire.
-	_, body := get(t, startForTest(t)+"/readyz")
-	if strings.Contains(body, "ai:") {
-		t.Errorf("the worker reports an AI line it wires nothing for: %q", body)
-	}
-}
-
 // TestTheWorkerMetricsOmitThePoolSectionRatherThanZeroingIt — a role wired
 // without a pool must publish no pool gauges at all. A zero-valued section
 // reads exactly like an idle pool, which is the reading an operator would act

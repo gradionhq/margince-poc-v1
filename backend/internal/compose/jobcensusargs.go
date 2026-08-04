@@ -208,7 +208,7 @@ func argsJSONKeys(args river.JobArgs) ([]string, error) {
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(encoded, &object); err != nil {
-		return nil, fmt.Errorf("its args encode to %s rather than to a JSON object, so river_job.args has no keys to group on", encoded)
+		return nil, fmt.Errorf("its args encode to %s rather than to a JSON object, so river_job.args has no keys to group on: %w", encoded, err)
 	}
 	return slices.Sorted(maps.Keys(object)), nil
 }

@@ -258,19 +258,25 @@ func TestForbidigoIsEnabledInExactlyOneConfig(t *testing.T) {
 // files only would leave them covered by NOTHING, which is where an http.Error
 // or a stray fmt.Print goes unnoticed for longest.
 func TestTheOwningConfigLintsTheTaggedLanes(t *testing.T) {
-	tagged := map[string][]string{}
+	// The owner is DERIVED, not named: this holds whichever config enables
+	// forbidigo to the tags, so moving ownership moves the obligation with it
+	// rather than leaving this passing about a config that no longer runs the
+	// linter. TestForbidigoIsEnabledInExactlyOneConfig is what makes "the"
+	// owner well defined.
+	owner := ""
 	for _, name := range lintConfigs {
-		tagged[name] = readGolangciConfig(t, name).Run.BuildTags
-	}
-	for _, tag := range []string{"integration", "livesmoke"} {
-		var covered []string
-		for name, tags := range tagged {
-			if slices.Contains(tags, tag) {
-				covered = append(covered, name)
-			}
+		if slices.Contains(readGolangciConfig(t, name).Linters.Enable, "forbidigo") {
+			owner = name
+			break
 		}
-		if !slices.Contains(covered, ".golangci.yml") {
-			t.Errorf("no repo-wide pass declares the %q build tag, so the %s-only files are linted by nothing that runs tree-wide", tag, tag)
+	}
+	if owner == "" {
+		t.Fatal("no config enables forbidigo, so there is no owner to hold to anything")
+	}
+	tags := readGolangciConfig(t, owner).Run.BuildTags
+	for _, tag := range []string{"integration", "livesmoke"} {
+		if !slices.Contains(tags, tag) {
+			t.Errorf("%s owns forbidigo but does not declare the %q build tag, so the %s-only files are linted by nothing", owner, tag, tag)
 		}
 	}
 }

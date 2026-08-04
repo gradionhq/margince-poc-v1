@@ -109,9 +109,10 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	// (compose.WebhookRetryConfig.Interval).
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 30*time.Second, "how often the outbound-webhook retry dispatcher fans one due-retry pass out per live workspace")
 	// Off by default, and off means no listener at all rather than one bound
-	// somewhere harmless: this surface carries workspace ids and has no
-	// authentication of its own, exactly like the api's, so exposing it is an
-	// operator's decision and so is the interface it binds.
+	// somewhere harmless. Unlike the api's /metrics it carries no workspace id
+	// and no tenant data — but it is unauthenticated and discloses dependency
+	// health and process capacity, so whether to expose it, and on which
+	// interface, is the operator's decision.
 	fs.StringVar(&cfg.observeAddr, "observe-addr", os.Getenv("MARGINCE_OBSERVE_ADDR"),
 		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")

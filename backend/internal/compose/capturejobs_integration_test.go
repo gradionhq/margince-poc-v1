@@ -92,9 +92,9 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 
 	// The waits above are satisfied by a digest of the right KIND, which the
 	// boot pass also produces — they prove the wiring fires, not WHAT it
-	// fires. What follows is the fix itself, and each half fails silently on a
-	// single-workspace fixture, where a fleet fan-out and a one-off enqueue
-	// produce the same visible outcome.
+	// fires. The two assertions below tell a one-off workspace child from a
+	// fleet dispatcher, which on a single-workspace fixture produce the same
+	// visible outcome and are otherwise indistinguishable.
 
 	// A dispatcher row added here would be one workspace's backfill running
 	// the digest for every workspace in the installation.

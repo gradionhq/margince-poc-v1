@@ -64,6 +64,14 @@ func TestTheWorkerReadinessProbeAnswersFromItsRealDependencies(t *testing.T) {
 	if !strings.HasPrefix(body, "ready") {
 		t.Errorf("GET /readyz body = %q, want it to start with %q", body, "ready")
 	}
+	// The visibility lines the shared probe renders are reached only on the
+	// 200 path — a failing check returns before them — so this is the one
+	// place the omission can be asserted rather than passed over. The worker
+	// wires no AI lane, and an empty "ai: " reads as a state that could not be
+	// DETERMINED rather than as one that does not apply.
+	if strings.Contains(body, "ai:") {
+		t.Errorf("the worker reports an AI line it wires nothing for: %q", body)
+	}
 
 	_, metrics := get(t, base+"/metrics")
 	if !strings.Contains(metrics, "margince_pgxpool_conns") {

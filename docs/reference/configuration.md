@@ -237,7 +237,8 @@ Four things worth knowing before you build an alert on these:
   reports zero failures while a connection is dead. The unit pair counts each
   connection in its own right and reports the failure. Read the workspace pair
   for fleet coverage and the unit pair for whether every unit of a pass ran;
-  neither replaces the other, and no kind is in both.
+  neither replaces the other, and the four finer-grained kinds appear in both —
+  see the note above on never summing them.
 
 **`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
 every workspace's id and every kind, because an operator scraping a service
