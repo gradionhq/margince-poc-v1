@@ -43,15 +43,21 @@ export function LogActivityForm({
   entityType,
   entityId,
   onLogged,
+  initialKind,
 }: Readonly<{
   entityType: EntityKind;
   entityId: string;
   onLogged?: () => void;
+  // The kind the form starts on, when the caller already knows which one the
+  // reader asked for. Absent means note, the ordinary case.
+  initialKind?: "note" | "task";
 }>) {
   const t = useT();
   const formId = useId();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ActivityDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<ActivityDraft>(
+    initialKind ? { ...EMPTY_DRAFT, kind: initialKind } : EMPTY_DRAFT,
+  );
 
   const log = useMutation({
     mutationFn: async (input: ActivityDraft) => {
@@ -207,27 +213,48 @@ export function LogActivity({
 export function LogActivityAction({
   entityType,
   entityId,
-}: Readonly<{ entityType: EntityKind; entityId: string }>) {
+  initialKind,
+  openOnMount,
+  onClose,
+}: Readonly<{
+  entityType: EntityKind;
+  entityId: string;
+  // The kind the form starts on. A suggestion that says "no task says what
+  // happens next" opens straight onto a task rather than making the reader
+  // pick the kind the advice already named.
+  initialKind?: "note" | "task";
+  // Rendered already open, with no trigger button — for a caller that IS the
+  // trigger (a suggestion's action), rather than a toolbar offering the verb.
+  openOnMount?: boolean;
+  onClose?: () => void;
+}>) {
   const t = useT();
   const titleId = useId();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(openOnMount));
   const overlay = useSorMode() === "overlay";
+  const close = () => {
+    setOpen(false);
+    onClose?.();
+  };
   if (overlay) {
     return null;
   }
   return (
     <>
-      <Button small onClick={() => setOpen(true)}>
-        {t("log.title")}
-      </Button>
-      <Modal open={open} onClose={() => setOpen(false)} labelledBy={titleId}>
+      {!openOnMount && (
+        <Button small onClick={() => setOpen(true)}>
+          {t("log.title")}
+        </Button>
+      )}
+      <Modal open={open} onClose={close} labelledBy={titleId}>
         <h2 id={titleId} className="t-h2 modal-title">
           {t("log.title")}
         </h2>
         <LogActivityForm
           entityType={entityType}
           entityId={entityId}
-          onLogged={() => setOpen(false)}
+          initialKind={initialKind}
+          onLogged={close}
         />
       </Modal>
     </>

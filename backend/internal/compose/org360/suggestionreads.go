@@ -33,6 +33,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -316,8 +317,15 @@ type suggestionInputs struct {
 
 	newest    lastMessage
 	hasNewest bool
-	open      pipeline
-	scheduled bool
+	// lifecycle is the stage the record claims. It comes from the organization
+	// row the assembly already holds, not from a read of its own.
+	lifecycle string
+	// contractEnded is whether the account's own correspondence says the
+	// relationship is over. Filled from the shared signal read, so the
+	// contradiction rule and the health section count one query between them.
+	contractEnded bool
+	open          pipeline
+	scheduled     bool
 }
 
 // advisable reports whether this caller can be advised at all. Neither input
@@ -345,8 +353,17 @@ func granted(ctx context.Context, object string) (bool, error) {
 
 // gatherSuggestionInputs reads what the rules need, skipping whatever this
 // caller has no grant for.
+// facts and lifecycle are passed in rather than read here, because the page
+// already holds both and a 360 that re-read them would pay for the same rows
+// twice.
+//
+// They are REQUIRED parameters, not optional fill-in: every input the
+// contradiction rule reads must be supplied by every caller, or the page and
+// the dismissal that answers it judge different suggestions and a dismissal
+// stores nothing. Required, a caller that omits one does not compile.
 func gatherSuggestionInputs(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+	facts signalFacts, lifecycle string,
 ) (suggestionInputs, error) {
 	timeline, err := granted(ctx, "activity")
 	if err != nil {
@@ -376,5 +393,54 @@ func gatherSuggestionInputs(
 		}
 		in.open = open
 	}
+	in.contractEnded = facts.ContractEnded
+	in.lifecycle = lifecycle
 	return in, nil
 }
+
+// organizationLifecycle is the stage the record claims, read where the
+// suggestion inputs are assembled so the contradiction rule fires the same way
+// for the page and for the dismissal that answers it.
+func organizationLifecycle(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (string, error) {
+	var lifecycle *string
+	if err := tx.QueryRow(ctx,
+		`SELECT lifecycle FROM organization WHERE id = $1`, orgID).Scan(&lifecycle); err != nil {
+		return "", fmt.Errorf("read the account's lifecycle: %w", err)
+	}
+	if lifecycle == nil {
+		return "", nil
+	}
+	return *lifecycle, nil
+}
+
+// engagementState is PO-F-4: whose move is it, from the newest message that can
+// answer that question.
+//
+// The order below IS the spec's evaluation order and the states are mutually
+// exclusive — the first match wins, so a silent account reads as dormant rather
+// than as whichever side happened to write last a year ago.
+//
+// waiting_on_them reuses noReplyDays rather than restating it, which is what
+// makes the strip and the no_reply suggestion beneath it agree by construction
+// instead of by coincidence.
+func engagementState(in suggestionInputs, now time.Time) crmcontracts.Organization360StateStripEngagementState {
+	if !in.hasNewest {
+		return "never_contacted"
+	}
+	age := now.Sub(in.newest.At)
+	switch {
+	case age > engagementDormantDays*24*time.Hour:
+		return "dormant"
+	case in.newest.Direction == "outbound" && age >= noReplyDays*24*time.Hour:
+		return "waiting_on_them"
+	case in.newest.Direction == "inbound" && age >= noReplyDays*24*time.Hour:
+		return "waiting_on_us"
+	}
+	return "active"
+}
+
+// engagementDormantDays (PO-PARAM-4) is where "whose move is it" stops being a
+// useful question. Past it the distinction is not actionable, and a strip still
+// saying "waiting on them" after a quarter would be advising a reply to a
+// conversation nobody remembers.
+const engagementDormantDays = 90

@@ -17,6 +17,7 @@ func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params 
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
 		Query:           params.Q,
+		ThreadKey:       params.ThreadKey,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
 	if params.Kind != nil {

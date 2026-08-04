@@ -96,6 +96,47 @@ func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.T
 		e.WS, activityID, org)
 }
 
+// seedRollupDealLinkedActivity files one activity against a DEAL of the
+// given organization and never against the organization itself — the
+// second of the three arms an account's timeline walks.
+func seedRollupDealLinkedActivity(t *testing.T, e *Env, st rollupStages, org ids.UUID, occurredAt time.Time) {
+	t.Helper()
+	dealID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
+		VALUES ($1, $2, 'Deal With Mail', $3, $4, $5, 'open', 'manual', 'human:test')`,
+		dealID, e.WS, st.pipeline, st.open, org)
+	activityID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'deal thread', $3, 'manual', 'human:test')`,
+		activityID, e.WS, occurredAt)
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+		VALUES ($1, $2, 'deal', $3)`,
+		e.WS, activityID, dealID)
+}
+
+// seedRollupPersonLinkedActivity files one activity against a PERSON
+// currently employed by the given organization and never against the
+// organization itself — the third arm, and the one that carries most of a
+// real account's mail, because capture files a message against the person
+// it was with.
+func seedRollupPersonLinkedActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.Time) {
+	t.Helper()
+	personID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Rollup Contact', 'manual', 'human:test')`,
+		personID, e.WS)
+	e.WsExec(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:test')`,
+		ids.NewV7(), e.WS, personID, org)
+	activityID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'contact thread', $3, 'connector:gmail', 'connector:gmail')`,
+		activityID, e.WS, occurredAt)
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`,
+		e.WS, activityID, personID)
+}
+
 // rollupOrgReadPerms is the minimal caller the rollup admits: read on
 // organization, deal, AND activity at the given row-scope tier — the
 // rollup surfaces deal money and activity counts, so it demands the same
@@ -420,5 +461,65 @@ func TestOrgRollupSelfScopeSkipsPruning(t *testing.T) {
 	}
 	if len(res.RestrictedExcluded) != 0 {
 		t.Errorf("self restricted = %+v, want empty — self scope never prunes", res.RestrictedExcluded)
+	}
+}
+
+// TestOrgRollupCounts30dActivityThroughEveryLinkTheTimelineWalks pins the
+// count to the same reachability the timeline uses. The number sits above
+// a list the reader can scroll: when it counted only activities carrying a
+// direct organization link, an account whose mail is filed against its
+// people — which is what capture does — reported a fraction of what the
+// page below it displayed, and the busier the account the wider the gap.
+func TestOrgRollupCounts30dActivityThroughEveryLinkTheTimelineWalks(t *testing.T) {
+	e := Setup(t)
+	st := seedRollupStages(t, e)
+	org := seedRollupOrg(t, e, "Reachable Co", nil, nil)
+	now := time.Now().UTC()
+
+	seedRollupOrgActivity(t, e, org, now.Add(-24*time.Hour))
+	seedRollupDealLinkedActivity(t, e, st, org, now.Add(-48*time.Hour))
+	seedRollupPersonLinkedActivity(t, e, org, now.Add(-72*time.Hour))
+	// Out of window through the same two indirect arms: reachability
+	// widening must not smuggle past the 30-day bound.
+	seedRollupDealLinkedActivity(t, e, st, org, now.AddDate(0, 0, -40))
+	seedRollupPersonLinkedActivity(t, e, org, now.Add(24*time.Hour))
+
+	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, org, "self", fixedClock(now))
+	if err != nil {
+		t.Fatalf("self rollup: %v", err)
+	}
+	if res.ActivityCount30d != 3 {
+		t.Errorf("activity count = %d, want 3 (own link + its deal's + its contact's, in window)", res.ActivityCount30d)
+	}
+}
+
+// TestOrgRollupCountsAnActivityReachingTheTreeTwiceOnlyOnce guards the
+// EXISTS: one message linked to both the account and its deal is one
+// message, and a join would have counted it per link.
+func TestOrgRollupCountsAnActivityReachingTheTreeTwiceOnlyOnce(t *testing.T) {
+	e := Setup(t)
+	st := seedRollupStages(t, e)
+	org := seedRollupOrg(t, e, "Double Linked Co", nil, nil)
+	now := time.Now().UTC()
+
+	dealID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
+		VALUES ($1, $2, 'Both Links', $3, $4, $5, 'open', 'manual', 'human:test')`,
+		dealID, e.WS, st.pipeline, st.open, org)
+	activityID := ids.NewV7()
+	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'email', 'filed twice', $3, 'manual', 'human:test')`,
+		activityID, e.WS, now.Add(-24*time.Hour))
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+		VALUES ($1, $2, 'organization', $3)`, e.WS, activityID, org)
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+		VALUES ($1, $2, 'deal', $3)`, e.WS, activityID, dealID)
+
+	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, org, "self", fixedClock(now))
+	if err != nil {
+		t.Fatalf("self rollup: %v", err)
+	}
+	if res.ActivityCount30d != 1 {
+		t.Errorf("activity count = %d, want 1 (two links, one message)", res.ActivityCount30d)
 	}
 }

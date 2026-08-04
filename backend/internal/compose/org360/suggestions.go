@@ -45,11 +45,15 @@ const noReplyDays = 7
 
 // maxSuggestions is how many rows the card offers.
 //
-// A product bound, not a performance one: advice past a handful is a list a rep
-// learns to scroll past, and a card nobody reads is worth less than a shorter
-// one they act on. What it drops is REPORTED in suggestions_dropped, because a
-// silent cap reads as "that is everything".
-const maxSuggestions = 5
+// A product bound, not a performance one: three is what a reader treats as
+// advice, and a longer list is one they scroll past — a card nobody reads is
+// worth less than a shorter one they act on (AC-company-14). What it drops is
+// REPORTED in suggestions_dropped, because a silent cap reads as "that is
+// everything".
+//
+// The cap is applied HERE and not by the client, so the dropped count and the
+// rows shown can never describe different lists.
+const maxSuggestions = 3
 
 // The suggestion kinds, DERIVED from the contract's enum rather than
 // re-spelled, so a rename upstream fails to compile here instead of laundering
@@ -63,6 +67,7 @@ var (
 	suggestNoReply     = crmcontracts.Organization360SuggestionKindNoReply
 	suggestStalledDeal = crmcontracts.Organization360SuggestionKindStalledDeal
 	suggestNoNextStep  = crmcontracts.Organization360SuggestionKindNoNextStep
+	suggestConflict    = crmcontracts.Organization360SuggestionKindLifecycleConflict
 )
 
 // readSuggestions is the section.
@@ -80,7 +85,10 @@ func (a *assembly) readSuggestions() error {
 	if _, err := actingUser(a.ctx); err != nil {
 		return err
 	}
-	in, err := gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+	// The SAME read the state strip used. Two readings of the newest message
+	// could disagree with each other inside one page — the composite read
+	// exists to make that impossible.
+	in, err := a.suggestionInputsOnce()
 	if err != nil {
 		return err
 	}
@@ -143,6 +151,9 @@ func candidateSuggestions(
 	orgID ids.OrganizationID, now time.Time, in suggestionInputs,
 ) []crmcontracts.Organization360Suggestion {
 	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
+	// First, because a record that contradicts itself outranks any advice about
+	// what to do next: acting on a stage that is wrong is worse than not acting.
+	found = appendIf(found, lifecycleConflict(orgID, in))
 	if in.timeline && in.hasNewest {
 		found = appendIf(found, staleThread(orgID, now, in.newest))
 	}
@@ -196,6 +207,41 @@ func appendIf(
 	return append(into, *one)
 }
 
+// setDraftReply anchors the composer on the message that went unanswered. The
+// rule already holds that activity, so the client is told which one rather than
+// left to infer it from the evidence order — an ordering nobody promised.
+func setDraftReply(out *crmcontracts.Organization360Suggestion, activityID ids.UUID) {
+	id := openapi_types.UUID(activityID)
+	out.Action = newSuggestionAction(crmcontracts.DraftReply)
+	out.Action.ActivityId = &id
+}
+
+// setOpenDeal points at the deal that stalled.
+func setOpenDeal(out *crmcontracts.Organization360Suggestion, dealID ids.UUID) {
+	id := openapi_types.UUID(dealID)
+	out.Action = newSuggestionAction(crmcontracts.OpenDeal)
+	out.Action.DealId = &id
+}
+
+// newSuggestionAction builds the generated anonymous action struct. The shape is
+// spelled here and only here: a second literal would drift the moment the
+// contract gains a field.
+//
+//nolint:staticcheck // ST1003: the field names mirror the oapi-codegen type this must assign to
+func newSuggestionAction(kind crmcontracts.Organization360SuggestionActionKind) *struct {
+	ActivityId *openapi_types.UUID                              `json:"activity_id,omitempty"`
+	DealId     *openapi_types.UUID                              `json:"deal_id,omitempty"`
+	Kind       crmcontracts.Organization360SuggestionActionKind `json:"kind"`
+} {
+	action := new(struct {
+		ActivityId *openapi_types.UUID                              `json:"activity_id,omitempty"`
+		DealId     *openapi_types.UUID                              `json:"deal_id,omitempty"`
+		Kind       crmcontracts.Organization360SuggestionActionKind `json:"kind"`
+	})
+	action.Kind = kind
+	return action
+}
+
 // staleThread fires when the account's most recent message was OURS and nobody
 // answered it.
 //
@@ -219,7 +265,7 @@ func staleThread(
 		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeActivity,
 		EntityId:   openapi_types.UUID(newest.ID),
 	}}
-	return &crmcontracts.Organization360Suggestion{
+	out := &crmcontracts.Organization360Suggestion{
 		Kind: suggestNoReply,
 		// Channel-neutral wording: the newest exchange may have been a call or a
 		// meeting, and "you wrote" would be a small false statement about it.
@@ -227,6 +273,8 @@ func staleThread(
 		Fingerprint: fingerprint(string(suggestNoReply), orgID.String(), evidence),
 		Evidence:    evidence,
 	}
+	setDraftReply(out, newest.ID)
+	return out
 }
 
 // stalledDealSuggestions raises one per stalled open deal. The stall flag is the
@@ -253,6 +301,7 @@ func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization36
 			SubjectId:   &subjectID,
 			Evidence:    evidence,
 		})
+		setOpenDeal(&out[len(out)-1], deal.ID)
 	}
 	return out
 }
@@ -279,13 +328,56 @@ func noNextStepSuggestion(
 	// opening another re-raises this rather than leaving a dismissal in force
 	// over a pipeline the account no longer has — including a change to a deal
 	// no card listed, which a fingerprint built from a fetched page would miss.
-	return &crmcontracts.Organization360Suggestion{
+	out := &crmcontracts.Organization360Suggestion{
 		Kind:        suggestNoNextStep,
 		Reason:      fmt.Sprintf("%d open deal(s) here and no task saying what happens next.", open.OpenCount),
 		Fingerprint: fingerprint(string(suggestNoNextStep), open.OpenDigest, evidence),
 		Evidence:    evidence,
 	}
+	// No deal named: the account has several open, and picking one for the
+	// reader would be a guess dressed as advice.
+	out.Action = newSuggestionAction(crmcontracts.AddTask)
+	return out
 }
+
+// lifecycleConflict fires when the account's own correspondence contradicts the
+// stage it is filed under: a contract_ended signal stands while the record
+// still reads as a live customer or an open opportunity.
+//
+// This is the failure the whole overhaul was named for. One real account held
+// an email ending its contract and a page that said "Prospect", and nothing
+// anywhere put those two facts next to each other.
+//
+// It states the conflict and does NOT resolve it. Which of the two is wrong —
+// the stage, or the reading of the mail — is a judgment only the reader can
+// make, and a rule that picked one would be guessing on a record that matters.
+func lifecycleConflict(
+	orgID ids.OrganizationID, in suggestionInputs,
+) *crmcontracts.Organization360Suggestion {
+	if !in.contractEnded || !liveLifecycles[in.lifecycle] {
+		return nil
+	}
+	evidence := []crmcontracts.OrganizationBriefEvidence{{
+		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization,
+		EntityId:   openapi_types.UUID(orgID.UUID),
+	}}
+	return &crmcontracts.Organization360Suggestion{
+		Kind: suggestConflict,
+		Reason: fmt.Sprintf(
+			"Their correspondence says the contract ended, but this account is still filed as %s.",
+			in.lifecycle),
+		// Keyed on the STAGE as well as the account, so correcting the stage
+		// retires this rather than leaving a dismissal in force over a record
+		// that has since been fixed.
+		Fingerprint: fingerprint(string(suggestConflict), in.lifecycle, evidence),
+		Evidence:    evidence,
+	}
+}
+
+// liveLifecycles are the stages a contract_ended signal contradicts. A stage
+// that already reads as over — former_customer, disqualified — is not in
+// conflict with the mail that says so; it is the mail's conclusion.
+var liveLifecycles = map[string]bool{"prospect": true, "opportunity": true, "customer": true}
 
 // fingerprint identifies a suggestion by what it fired ON, not by what kind
 // it is.

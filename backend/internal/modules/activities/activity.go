@@ -264,7 +264,12 @@ type ListActivitiesInput struct {
 	EntityID *ids.UUID
 	// Query is the contract's `q`: a substring match over the subject and
 	// body a human would recognize the item by.
-	Query           *string
+	Query *string
+	// ThreadKey narrows to ONE provider conversation. The company timeline
+	// groups client-side over the page it holds; a group the page cut off
+	// completes itself through this rather than by widening the page for every
+	// account that has no long thread.
+	ThreadKey       *string
 	IncludeArchived bool
 }
 
@@ -326,7 +331,8 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 
 const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occurred_at, a.direction,
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
-	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`
+	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at,
+	a.thread_key, a.capture_label, a.bulk_mail_attested`
 
 // readActivity is the module's ONE single-row activity read, and it
 // carries the row scope itself. An activity has no owner_id and RLS binds
@@ -427,12 +433,14 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	var id, wsID ids.UUID
 	var assigneeID *ids.UUID
 	var kind string
-	var direction, meetingStatus *string
+	var direction, meetingStatus, threadKey, captureLabel *string
+	var bulkMailAttested bool
 	var version int64
 
 	err := row.Scan(&id, &wsID, &kind, &a.Subject, &a.Body, &a.OccurredAt, &direction,
 		&a.DueAt, &a.RemindAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
-		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt)
+		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt,
+		&threadKey, &captureLabel, &bulkMailAttested)
 	if err != nil {
 		return a, err
 	}
@@ -449,6 +457,12 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 		m := crmcontracts.ActivityMeetingStatus(*meetingStatus)
 		a.MeetingStatus = &m
 	}
+	a.ThreadKey = threadKey
+	if captureLabel != nil {
+		label := crmcontracts.ActivityCaptureLabel(*captureLabel)
+		a.CaptureLabel = &label
+	}
+	a.BulkMailAttested = &bulkMailAttested
 	a.Version = &version
 	return a, nil
 }

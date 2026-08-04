@@ -286,8 +286,8 @@ func TestColdStartRefusesWhenNothingSurvivesTheGate(t *testing.T) {
 	// *unreadableError.
 	if _, err := engine.Propose(ctx, fromURL("https://acme.example")); err == nil {
 		t.Fatal("unparseable model output → nil, want the structured-output pipeline to fail loudly")
-	} else if !strings.Contains(err.Error(), "failed validation") {
-		t.Fatalf("unparseable model output → %v, want error containing 'failed validation'", err)
+	} else if !errors.Is(err, ai.ErrOutputRejected) {
+		t.Fatalf("unparseable model output → %v, want it to wrap ai.ErrOutputRejected", err)
 	}
 	// A page below the readable floor never reaches the model.
 	tiny := &coldStartEngine{extract: evidenceExtractor{fetch: fixturePage("hi"), brain: brain}, approvals: approvals.NewService(e.Pool)}

@@ -32,6 +32,9 @@ const (
 	sectionDeals           = crmcontracts.Organization360SectionsOmitted("deals")
 	sectionStrength        = crmcontracts.Organization360SectionsOmitted("strength")
 	sectionActivities      = crmcontracts.Organization360SectionsOmitted("activities")
+	sectionLastTouch       = crmcontracts.Organization360SectionsOmitted("last_touch")
+	sectionStateStrip      = crmcontracts.Organization360SectionsOmitted("state_strip")
+	sectionHealth          = crmcontracts.Organization360SectionsOmitted("health")
 	sectionTags            = crmcontracts.Organization360SectionsOmitted("tags")
 	sectionListMemberships = crmcontracts.Organization360SectionsOmitted("list_memberships")
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
@@ -93,6 +96,9 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionStrength, a.readStrength},
 		{sectionDeals, a.readDeals},
 		{sectionActivities, a.readTimeline},
+		{sectionLastTouch, a.readLastTouch},
+		{sectionStateStrip, a.readStateStrip},
+		{sectionHealth, a.readHealth},
 		{sectionNextSteps, a.readNextSteps},
 		{sectionTags, a.readTags},
 		{sectionListMemberships, a.readListMemberships},
@@ -133,6 +139,12 @@ type assembly struct {
 
 	contacts      []people.ContactStrength
 	contactsRead  bool
+	advice        suggestionInputs
+	adviceRead    bool
+	adviceErr     error
+	signals       signalFacts
+	signalsRead   bool
+	signalsErr    error
 	staged        []crmcontracts.Approval
 	stagedRead    bool
 	stagedRefused bool
@@ -237,6 +249,46 @@ func (a *assembly) readTimeline() error {
 	}
 	a.out.Activities = &crmcontracts.ActivityListResponse{Data: data, Page: pageInfo(page)}
 	return nil
+}
+
+// suggestionInputsOnce reads the newest message, the open pipeline and the
+// scheduled-task flag ONCE. The state strip and the suggestions are two
+// readings of the same three facts, and reading them twice would let the strip
+// say an account is waiting while the nudge beneath it disagreed — the
+// composite read exists to make that impossible.
+func (a *assembly) suggestionInputsOnce() (suggestionInputs, error) {
+	if !a.adviceRead {
+		// The signal reading comes first so it can be handed down: the
+		// contradiction rule and the health section are one query between
+		// them, and the dismissal path derives its inputs from the same
+		// function with its own reading.
+		var facts signalFacts
+		facts, a.adviceErr = a.signalFactsOnce()
+		if a.adviceErr == nil {
+			// The stage comes off the organization row this assembly already
+			// read, so the page adds no query for it.
+			lifecycle := ""
+			if lc := a.out.Organization.Lifecycle; lc != nil {
+				lifecycle = string(*lc)
+			}
+			a.advice, a.adviceErr = gatherSuggestionInputs(
+				a.ctx, a.tx, a.orgID, a.now, facts, lifecycle)
+		}
+		a.adviceRead = true
+	}
+	return a.advice, a.adviceErr
+}
+
+// signalFactsOnce reads the account's open signals ONCE. The health section
+// counts the commitments and the contradiction rule asks whether the contract
+// ended; both are the same row set, and one read of it is also what keeps the
+// two from describing different instants.
+func (a *assembly) signalFactsOnce() (signalFacts, error) {
+	if !a.signalsRead {
+		a.signals, a.signalsErr = readSignalFacts(a.ctx, a.tx, a.orgID)
+		a.signalsRead = true
+	}
+	return a.signals, a.signalsErr
 }
 
 func (a *assembly) readNextSteps() error {

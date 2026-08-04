@@ -65,14 +65,16 @@ var tableOwners = map[string]string{
 	// The channel identity is a resolution key on the person, not connection
 	// state: it answers "which Person is this Telegram user", so it lives with
 	// the one dedupe implementation that resolves them.
-	"person_channel_identity":    "internal/modules/people",
-	"organization":               "internal/modules/people",
-	"organization_domain":        "internal/modules/people",
-	"relationship":               "internal/modules/people",
-	"partner":                    "internal/modules/people",
-	"lead":                       "internal/modules/people",
-	"organization_profile_field": "internal/modules/people",
-	"person_profile_field":       "internal/modules/people",
+	"person_channel_identity":        "internal/modules/people",
+	"organization":                   "internal/modules/people",
+	"organization_domain":            "internal/modules/people",
+	"organization_relationship_type": "internal/modules/people",
+	"signal_thread_scan":             "internal/compose",
+	"relationship":                   "internal/modules/people",
+	"partner":                        "internal/modules/people",
+	"lead":                           "internal/modules/people",
+	"organization_profile_field":     "internal/modules/people",
+	"person_profile_field":           "internal/modules/people",
 	// The signature pass's per-person read cursor (PO-F-2a): which mail was
 	// already shown to the model, so the same empty signature is not re-read
 	// every night.

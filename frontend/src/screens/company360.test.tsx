@@ -94,7 +94,15 @@ const EMPTY_BRIEF = {
 // otherwise still being served to the next one.
 let briefBody: unknown = EMPTY_BRIEF;
 
-function stub(three60: unknown, status = 200) {
+// partnerOrg is the account that HAS a partner programme, and so carries the
+// second tab. Partnerhood is read off the relationship type rather than the
+// extension row, because the Organization read never selects that row — the
+// two are equivalent, since the store enforces the invariant both ways.
+// The bare fixture deliberately carries neither: a Partner tab on an account
+// with no programme is the thing the tab gate removed.
+const partnerOrg = { ...org, relationship_types: ["partner"] };
+
+function stub(three60: unknown, status = 200, account: unknown = org) {
   // The paths actually requested. A test proves the page did NOT refetch by
   // counting these rather than by trusting that it did not.
   const fetched: string[] = [];
@@ -112,8 +120,27 @@ function stub(three60: unknown, status = 200) {
       if (pathname.endsWith("/brief")) {
         return jsonResponse(briefBody);
       }
+      if (pathname.endsWith("/graph")) {
+        return jsonResponse({
+          nodes: [
+            { id: "u-2", kind: "user", label: "Mira", root: false },
+            { id: "p-1", kind: "person", label: "Dana Buyer", root: false },
+          ],
+          edges: [
+            {
+              from: "u-2",
+              to: "p-1",
+              kind: "in_contact_with",
+              strength: 90,
+              strength_bucket: "strong",
+            },
+          ],
+          groups_omitted: [],
+          dropped_count: 0,
+        });
+      }
       if (pathname.endsWith("/organizations/o-1")) {
-        return jsonResponse(org);
+        return jsonResponse(account);
       }
       if (pathname.endsWith("/pipelines")) {
         // One default pipeline with one OPEN stage — enough for a deal
@@ -370,7 +397,7 @@ describe("company view — consent is per purpose", () => {
 
 describe("company view — the rails belong to the account, not to a tab", () => {
   it("keeps both side columns mounted when the reader switches tab", async () => {
-    stub(view());
+    stub(view(), 200, partnerOrg);
     renderCompany();
 
     await screen.findByRole("complementary", { name: "Business" });
@@ -388,7 +415,7 @@ describe("company view — the rails belong to the account, not to a tab", () =>
   });
 
   it("does not refetch the account when the reader switches tab and back", async () => {
-    const fetched = stub(view());
+    const fetched = stub(view(), 200, partnerOrg);
     renderCompany();
     await screen.findByRole("complementary", { name: "Business" });
     const before = fetched.filter((path) => path.endsWith("/360")).length;
@@ -399,13 +426,17 @@ describe("company view — the rails belong to the account, not to a tab", () =>
     expect(fetched.filter((path) => path.endsWith("/360")).length).toBe(before);
   });
 
-  it("leaves the timeline to the overview rather than repeating it under a form", async () => {
-    stub(view());
+  it("leaves the timeline to its own tab rather than repeating it under a form", async () => {
+    stub(view(), 200, partnerOrg);
     renderCompany();
-    await screen.findByRole("region", { name: "Timeline" });
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The chronology moved off the overview when the page gained its own
+    // History tab, so it is not under the partner form either.
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.getByRole("region", { name: "Timeline" })).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Partner" }));
-
     expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
   });
 });
@@ -1036,4 +1067,350 @@ it("does not offer a role the contact already holds on that deal", async () => {
   expect([...roles.options].map((option) => option.value)).not.toContain(
     "champion",
   );
+});
+
+describe("company view — Partner is not a permanent tab", () => {
+  it("offers the account's own tabs but not Partner on an account with no programme", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // Overview, People and History belong to every account. Partner is a form
+    // about a commercial arrangement almost none of them have.
+    expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "People" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "History" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Partner" })).toBeNull();
+  });
+
+  it("shows both tabs once the account has a programme", async () => {
+    stub(view(), 200, partnerOrg);
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Overview" })).toBeTruthy();
+  });
+
+  it("keeps the setup form reachable, so a first partner row can still be made", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Set up partner programme" }),
+    );
+
+    // Asking for the form is what puts the tab on screen — without this the
+    // hidden tab would have made the first partner row unreachable.
+    expect(screen.getByRole("button", { name: "Partner" })).toBeTruthy();
+  });
+});
+
+describe("company view — the visit baseline", () => {
+  it("acknowledges the visit after the reader has stayed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetched = stub(view());
+      renderCompany();
+      await screen.findByRole("complementary", { name: "Business" });
+      expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await waitFor(() =>
+        expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(true),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not acknowledge a visit the reader bounced straight out of", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const fetched = stub(view());
+      const { unmount } = render(<CompanyScreen id="o-1" />);
+      await screen.findByRole("complementary", { name: "Business" });
+      unmount();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      // Marking unread activity as seen because a record flashed past is the
+      // one failure this baseline must never have.
+      expect(fetched.some((path) => path.endsWith("/view-ack"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("company view — where the account stands, and what it is to us", () => {
+  it("shows the lifecycle and every relationship type as separate badges", async () => {
+    // Not "partner": that type also raises the Partner tab, and the badge and
+    // the tab would then share a label, which tells the test nothing.
+    stub(view(), 200, {
+      ...org,
+      lifecycle: "former_customer",
+      relationship_types: ["customer", "supplier"],
+    });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // The retired classification held ONE value, which is how an account whose
+    // contract had ended still read as "Prospect" while it was also a partner.
+    expect(screen.getByText("Former customer")).toBeTruthy();
+    expect(screen.getByText("Customer")).toBeTruthy();
+    expect(screen.getByText("Supplier")).toBeTruthy();
+  });
+
+  it("draws no badge for an account nobody has assessed", async () => {
+    stub(view(), 200, { ...org, lifecycle: "unknown", relationship_types: [] });
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // 'unknown' is the honest default, and a badge announcing it on every new
+    // record is noise — the old column defaulted to 'prospect' and rendered
+    // that default as though someone had judged it.
+    expect(screen.queryByText("Not assessed")).toBeNull();
+  });
+});
+
+describe("company view — the state strip", () => {
+  it("leads with where the account stands, whose move it is, and what is open", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: {
+            lifecycle: "former_customer",
+            relationship_types: ["partner"],
+          },
+          engagement: {
+            state: "waiting_on_them",
+            last_inbound_at: "2026-04-30T09:00:00Z",
+            last_outbound_at: "2026-07-17T09:00:00Z",
+          },
+          commercial: { open_count: 2, stalled_count: 1 },
+        },
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("region", { name: "Where this account stands" });
+    const strip = screen.getByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Former customer")).toBeTruthy();
+    expect(within(strip).getByText("Waiting on them")).toBeTruthy();
+    expect(within(strip).getByText("2 open")).toBeTruthy();
+    expect(within(strip).getByText("1 stalled")).toBeTruthy();
+  });
+
+  it("states the worst thing standing open, in the words its producer wrote", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+          signal: {
+            kind: "contract_ended",
+            severity: "warn",
+            summary: "They wrote that the contract ends on 31 July.",
+          },
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    expect(within(strip).getByText("Contract ending")).toBeTruthy();
+    // The producer's sentence, not a rephrasing of it: the strip states what
+    // the conversation said, and a reader checks it against the mail itself.
+    expect(
+      within(strip).getByText("They wrote that the contract ends on 31 July."),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about signals when nothing is open", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+          signal: null,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+    // Null covers both "nothing is open" and "you may not read signals", so
+    // the tile is ABSENT rather than reassuring. A strip that told someone who
+    // cannot look that nothing is wrong would be answering a question it has
+    // no standing to answer.
+    expect(within(strip).queryByText("Worth knowing")).toBeNull();
+  });
+
+  it("draws no engagement reading when the caller may not read the mail", async () => {
+    stub(
+      view({
+        state_strip: {
+          account: { lifecycle: "customer", relationship_types: [] },
+          engagement: null,
+          commercial: null,
+        },
+      }),
+    );
+    renderCompany();
+    const strip = await screen.findByRole("region", {
+      name: "Where this account stands",
+    });
+
+    // Scoped to the strip: the header has its own last-touch line, and an
+    // unscoped query would pass on that instead of on what the strip drew.
+    //
+    // Inventing "never contacted" from data the caller was not allowed to see
+    // states a conclusion the page has no basis for — and it is the one a rep
+    // would act on.
+    expect(within(strip).queryByText("Whose move")).toBeNull();
+    expect(within(strip).queryByText("Never contacted")).toBeNull();
+    expect(within(strip).queryByText("Open work")).toBeNull();
+    expect(within(strip).getByText("Customer")).toBeTruthy();
+  });
+});
+
+describe("company view — advice you can act on", () => {
+  it("offers the action the server named, and none where it named none", async () => {
+    stub(
+      view({
+        suggestions: [
+          {
+            kind: "no_reply",
+            fingerprint: "f1",
+            reason: "You reached out 15 days ago and nobody has come back.",
+            evidence: [],
+            action: { kind: "draft_reply", activity_id: "a-1" },
+          },
+          {
+            kind: "no_next_step",
+            fingerprint: "f2",
+            reason: "2 open deal(s) here and no task saying what happens next.",
+            evidence: [],
+            action: null,
+          },
+        ],
+        suggestions_dropped: 0,
+      }),
+    );
+    renderCompany();
+    await screen.findByText(/nobody has come back/);
+
+    expect(screen.getByRole("button", { name: "Draft a reply" })).toBeTruthy();
+    // The second rule named no action, so it advises without a control. A
+    // button that does nothing teaches the reader to stop pressing them.
+    expect(
+      screen.queryByRole("button", { name: "Add the next step" }),
+    ).toBeNull();
+  });
+});
+
+describe("company view — the account's own tabs", () => {
+  it("gives People the whole middle column", async () => {
+    stub(
+      view({
+        people: {
+          data: [
+            {
+              person_id: "p-1",
+              full_name: "Christian Hagemeyer",
+              title: "Managing director",
+              strength: { score: 0, bucket: "dormant" },
+              deal_roles: [],
+              consent: [],
+            },
+          ],
+          page: emptyPage,
+        },
+      }),
+    );
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    await userEvent.click(screen.getByRole("button", { name: "People" }));
+    // The rail's card is a summary; the tab is the roster. Both read the same
+    // section of the one composite read, so they cannot disagree.
+    expect(screen.getAllByText("Christian Hagemeyer").length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  it("keeps Ask on the overview rather than following the history", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+
+    // Asking is a tool for when the page did not answer the question. It
+    // belongs to the account, not to its chronology.
+    expect(screen.getByText("Ask Margince")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    expect(screen.queryByText("Ask Margince")).toBeNull();
+  });
+});
+
+// The connections card asked nobody and answered everybody: a staff directory
+// in the rail of every account, costing a graph read on every page load. The
+// route-in asks the question a rep actually has, about one person, and only
+// when they ask it.
+describe("company view — the way in to one contact", () => {
+  const withContact = () =>
+    view({
+      people: {
+        data: [
+          {
+            person_id: "p-1",
+            full_name: "Dana Buyer",
+            deal_roles: [],
+            consent: {
+              marketing_email: "unknown",
+              product_updates: "unknown",
+            },
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: {
+                recency: 0,
+                frequency: 0,
+                reciprocity: 0,
+                direction: 0,
+              },
+            },
+          },
+        ],
+        page: emptyPage,
+      },
+    });
+
+  it("reads no graph until someone asks for a way in", async () => {
+    const fetched = stub(withContact());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(fetched.filter((path) => path.endsWith("/graph"))).toEqual([]);
+  });
+
+  it("names who here already talks to that person", async () => {
+    const fetched = stub(withContact());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Route in" })[0],
+    );
+
+    await screen.findByText("Mira");
+    expect(screen.getByText("in regular contact")).toBeTruthy();
+    expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
+  });
 });

@@ -62,8 +62,9 @@ type RelationKey =
   | "in_contact_with";
 
 /** useOrganizationGraph reads the account's one-hop connections. */
-export function useOrganizationGraph(id: string) {
+export function useOrganizationGraph(id: string, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["organization-graph", id],
     queryFn: async () => {
       const { data, error } = await api.GET("/organizations/{id}/graph", {
@@ -332,6 +333,79 @@ function strongestContactEdge(
   }
   return best;
 }
+
+/**
+ * routesTo answers "who here already talks to this person", best route first.
+ *
+ * It reads the same in_contact_with edges the connections card reads, from the
+ * other end: the card asks who a COLLEAGUE is in contact with, this asks who
+ * is in contact with a CONTACT. A rep opening an account wants the second, and
+ * before this the page could only answer the first — and only in a standing
+ * card that was showing a staff directory to everyone who never asked.
+ *
+ * A null strength is the "no signal yet" band. It sorts last but is still a
+ * route: someone who has written to them once is a better answer than nobody.
+ */
+export function routesTo(
+  graph: Graph,
+  personId: string,
+): { id: string; label: string; bucket: StrengthBucket }[] {
+  const labels = new Map(graph.nodes.map((node) => [node.id, node.label]));
+  // strength rides along for the ORDER only and is dropped before the return.
+  // The bucket alone cannot rank inside itself, so two colleagues in the same
+  // band came back in payload order and a weaker one could stand above a
+  // stronger one under a heading that promises best-first.
+  const routes: {
+    id: string;
+    label: string;
+    bucket: StrengthBucket;
+    strength: number;
+  }[] = [];
+  for (const edge of graph.edges) {
+    if (edge.kind !== "in_contact_with" || edge.to !== personId) {
+      continue;
+    }
+    const label = labels.get(edge.from);
+    // An edge naming a node the payload did not send is dropped rather than
+    // shown as an identifier: the caps that trimmed the node list are the
+    // reason, and a route the reader cannot put a name to is not a route.
+    if (label === undefined) {
+      continue;
+    }
+    // The SERVER's band, never one derived here from the number. `strength` is
+    // an integer 0-100 and a re-derivation that read it as a fraction would
+    // call every real score strong — and the 0-100 number is the black box
+    // AC-company-3 took off this page, so it does not come back as a threshold
+    // either.
+    routes.push({
+      id: edge.from,
+      label,
+      bucket: edge.strength_bucket ?? "none",
+      // -1, not 0: "no signal yet" sorts below a real score of zero.
+      strength: edge.strength ?? -1,
+    });
+  }
+  routes.sort(
+    (a, b) =>
+      BUCKET_ORDER[b.bucket] - BUCKET_ORDER[a.bucket] ||
+      b.strength - a.strength ||
+      // Ids last, so the order is the same on every read of the same graph.
+      a.id.localeCompare(b.id),
+  );
+  // The 0-100 number stays off this page (AC-company-3): the rows carry their
+  // band and nothing a reader could threshold on.
+  return routes.map(({ id, label, bucket }) => ({ id, label, bucket }));
+}
+
+/** The display bands, worst to best, as the contract declares them. */
+export type StrengthBucket = "none" | "weak" | "moderate" | "strong";
+
+const BUCKET_ORDER: Record<StrengthBucket, number> = {
+  none: 0,
+  weak: 1,
+  moderate: 2,
+  strong: 3,
+};
 
 /**
  * NodeList renders one group of connections, each row reachable by keyboard

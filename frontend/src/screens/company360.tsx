@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -10,6 +10,7 @@ import {
   Modal,
   SectionHeader,
   Skeleton,
+  StatCard,
 } from "../design-system/atoms";
 import { formatDate, formatDateTime, formatMoney } from "../format/format";
 
@@ -17,6 +18,11 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessage } from "./common";
 import "./company360.css";
+import {
+  routesTo,
+  type StrengthBucket,
+  useOrganizationGraph,
+} from "./connections";
 import {
   byReach,
   missingRoles,
@@ -43,14 +49,54 @@ type Signal = components["schemas"]["Signal"];
 // What each signal kind is, in words. The badge rendered the stored enum, so
 // a German reader met `buying_intent` and an English one met an identifier.
 // Typed against the schema union: a kind added upstream fails the build here.
-const SIGNAL_KIND_LABELS: Record<Signal["kind"], MessageKey> = {
+// Keyed by plain string, matching how the value arrives: the strip's signal
+// kind is an open wire string, so a producer added upstream must be able to
+// reach signalKindLabel's fallback rather than failing the index.
+const SIGNAL_KIND_LABELS: Record<string, MessageKey> = {
   stalled_deal: "signal.kind.stalled_deal",
   champion_left: "signal.kind.champion_left",
   reengagement: "signal.kind.reengagement",
   buying_intent: "signal.kind.buying_intent",
   risk: "signal.kind.risk",
   other: "signal.kind.other",
+  contract_ended: "signal.kind.contract_ended",
+  new_opportunity: "signal.kind.new_opportunity",
+  commitment_made: "signal.kind.commitment_made",
+  ghosted_thread: "signal.kind.ghosted_thread",
 };
+
+// The strip's signal kind is an open string on the wire, on purpose: the strip
+// states whatever a producer raised, and a producer added upstream must not
+// make the tile disappear. An unmapped kind renders as its own words rather
+// than as an identifier — the same degradation an unmapped approval kind gets.
+function signalKindLabel(kind: string, t: (key: MessageKey) => string): string {
+  // Own-property only, as dealRoleLabel does below: a wire value named
+  // `toString` would otherwise find something on Object's prototype and pass
+  // the truthy check instead of degrading to its own words.
+  const key = Object.hasOwn(SIGNAL_KIND_LABELS, kind)
+    ? SIGNAL_KIND_LABELS[kind]
+    : undefined;
+  return key ? t(key) : kind.replaceAll("_", " ");
+}
+
+// How serious a signal is, in the strip's own vocabulary of tones. `info` is
+// deliberately untoned: the strip leads with the WORST open signal, and an
+// account whose worst news is a commitment somebody made is an account with no
+// bad news — colouring that would cry wolf on every healthy record.
+const SIGNAL_TONE: Record<string, "warn" | "danger" | undefined> = {
+  info: undefined,
+  warn: "warn",
+  urgent: "danger",
+};
+
+// Severity is a closed enum on the wire, but it arrives as a string like every
+// other wire value: an own-property check keeps a value named `toString` from
+// finding something on Object's prototype and typing as a tone.
+function signalTone(severity: string): "warn" | "danger" | undefined {
+  return Object.hasOwn(SIGNAL_TONE, severity)
+    ? SIGNAL_TONE[severity]
+    : undefined;
+}
 
 // The deal-stakeholder roles worth a word. `role` is free text on the wire
 // (the enum is an unminted contract extension, DEAL-EXT-5), so an unknown
@@ -107,6 +153,51 @@ export function useOrganization360(id: string) {
       return { state: "ready", view: data };
     },
   });
+}
+
+// VIEW_ACK_DWELL_MS is how long the account must stay open before the visit
+// counts. Opening a record and bouncing straight back out is not reading it,
+// and an ack from that would mark unread activity as seen.
+const VIEW_ACK_DWELL_MS = 5_000;
+
+/**
+ * useAcknowledgeOrganizationView advances THIS reader's "last seen" baseline
+ * for the account — the thing that makes "N new since your last visit" mean
+ * anything on the next visit. Without it the server keeps answering with no
+ * baseline at all, so every visit reads as the first one.
+ *
+ * The 360 deliberately does not advance the baseline itself (a prefetch must
+ * not be indistinguishable from a visit), so this is the only caller. Leaving
+ * before the dwell elapses cancels the timer: the baseline moves only for a
+ * visit that actually happened, and when in doubt it stays where it is —
+ * showing an item twice is a smaller wrong than hiding one.
+ *
+ * Success does NOT invalidate the 360. The "new since your last visit" line
+ * describes the visit in progress; refetching it out from under the reader
+ * would erase the very thing they opened the page to see.
+ */
+export function useAcknowledgeOrganizationView(id: string, visited: boolean) {
+  const ack = useMutation({
+    mutationFn: async (organizationId: string) => {
+      const { error } = await api.POST("/organizations/{id}/view-ack", {
+        params: { path: { id: organizationId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+  });
+  // The mutation's own error state holds a failure; nothing renders it. A
+  // baseline that did not move costs the reader one repeated line next time,
+  // which is not worth an error banner over the account they came to read.
+  const fire = ack.mutate;
+  useEffect(() => {
+    if (!visited) {
+      return;
+    }
+    const timer = window.setTimeout(() => fire(id), VIEW_ACK_DWELL_MS);
+    return () => window.clearTimeout(timer);
+  }, [id, visited, fire]);
 }
 
 // isOverlayRefusal distinguishes "this workspace reads elsewhere" from every
@@ -290,12 +381,32 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
+// incompleteGraph says the connection graph this page read is not the whole
+// one: it capped its contact ring, or it withheld groups the caller may not
+// read. Either way the routes below it are a subset, and both the empty answer
+// and the found-someone answer have to say so.
+function incompleteGraph(graph: {
+  groups_omitted?: unknown[];
+  dropped_count?: number;
+}): boolean {
+  return (
+    (graph.groups_omitted?.length ?? 0) > 0 || (graph.dropped_count ?? 0) > 0
+  );
+}
+
 export function PeopleCard({
   view,
   // Whether this account takes writes at all. An archived record is read-only
   // — the page hides every other verb on one — so the role control goes too.
   writable = false,
-}: Readonly<{ view?: Organization360; writable?: boolean }>) {
+  // The account whose connection graph a route-in asks about. Absent on the
+  // loading skeleton, where there is no account to ask about yet.
+  orgId,
+}: Readonly<{
+  view?: Organization360;
+  writable?: boolean;
+  orgId?: string;
+}>) {
   const t = useT();
   const contacts = [...(view?.people?.data ?? [])].sort(byReach);
   const truncated = Boolean(view?.people?.page.has_more);
@@ -347,6 +458,7 @@ export function PeopleCard({
             contact={contact}
             openDeals={openDeals}
             writable={writable}
+            orgId={orgId}
           />
         ))}
       </ul>
@@ -554,8 +666,11 @@ function ContactRow({
   contact,
   openDeals,
   writable,
+  orgId,
 }: Readonly<{
   contact: Contact;
+  // The account this contact belongs to, for the route-in read.
+  orgId?: string;
   // The open deals a role can be recorded against. A role belongs to a DEAL,
   // not to a person: this contact may be the champion on the renewal and
   // nobody on the new business.
@@ -611,8 +726,107 @@ function ContactRow({
             say who is: the roles are set on the deal screen, which is a
             different page and a different task. */}
         {writable && <SetRoleAction contact={contact} openDeals={openDeals} />}
+        {orgId && <RouteInAction orgId={orgId} contact={contact} />}
       </span>
     </li>
+  );
+}
+
+/**
+ * RouteInAction answers one question about one person: who here already talks
+ * to them.
+ *
+ * It replaces the standing connections card, which asked nobody and answered
+ * everybody — a staff directory in the rail of every account, costing a graph
+ * read on every page load. This reads the same endpoint and only when someone
+ * asks, and it asks the question from the end a rep actually has: not "who is
+ * Lars in contact with" but "how do I reach Dana".
+ *
+ * "Nobody yet" is an answer worth giving, so it is given. The alternative — a
+ * button that opens onto nothing — makes the reader wonder whether the read
+ * failed.
+ */
+// The server's own bands, in this surface's words. Derived nowhere: the score
+// behind them is the black box AC-company-3 took off this page.
+const ROUTE_BAND_LABELS: Record<StrengthBucket, MessageKey> = {
+  strong: "co.routeIn.band.strong",
+  moderate: "co.routeIn.band.some",
+  weak: "co.routeIn.band.faint",
+  none: "co.routeIn.band.unknown",
+};
+
+function RouteInAction({
+  orgId,
+  contact,
+}: Readonly<{ orgId: string; contact: Contact }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+  // The read is armed by opening, so a page nobody asks costs no graph query.
+  const query = useOrganizationGraph(orgId, open);
+  const graph = query.data;
+  const readable = Array.isArray(graph?.nodes) ? graph : undefined;
+  const routes = readable ? routesTo(readable, contact.person_id) : [];
+
+  return (
+    <>
+      <button
+        type="button"
+        className="link-button"
+        onClick={() => setOpen(true)}
+      >
+        {t("co.routeIn.open")}
+      </button>
+      {open && (
+        <Modal open onClose={() => setOpen(false)} labelledBy={titleId}>
+          <h2 id={titleId} className="t-h2 modal-title">
+            {t("co.routeIn.title", { name: contact.full_name })}
+          </h2>
+          {query.isPending && <Skeleton width="100%" height={64} />}
+          {/* A failed read is unavailable, never "nobody knows them": the two
+              call for opposite next moves, and only a read that succeeded can
+              say the second. */}
+          {(query.isError || (!query.isPending && !readable)) && (
+            <p className="co-restricted">{t("co.section.unavailable")}</p>
+          )}
+          {/* "Nobody" is a claim about the account, and only a COMPLETE read
+              can make it. The graph caps its contact ring and withholds whole
+              groups the caller may not read, so a page showing 25 contacts can
+              hold a graph that saw 15 — and a rep told "nobody here has
+              written to them" would stop looking. Partial says so instead. */}
+          {readable && routes.length === 0 && (
+            <EmptyState>
+              {t(
+                incompleteGraph(readable)
+                  ? "co.routeIn.partial"
+                  : "co.routeIn.none",
+              )}
+            </EmptyState>
+          )}
+          {/* The same incompleteness, said over a list that DID find someone.
+              Stated only when the list is empty, a page that read 15 of 25
+              contacts presented the routes it happened to see as all of them,
+              and a rep who found one stopped looking for a better one. */}
+          {readable && routes.length > 0 && incompleteGraph(readable) && (
+            <p className="t-caption">{t("co.routeIn.mayBeMore")}</p>
+          )}
+          {readable && routes.length > 0 && (
+            <ul className="co-list">
+              {routes.map((route) => (
+                <li key={route.id} className="co-row">
+                  <span>{route.label}</span>
+                  {/* The strength band, not the number: the score itself is
+                      the black box AC-company-3 took off this page. */}
+                  <span className="co-row-meta">
+                    {t(ROUTE_BAND_LABELS[route.bucket])}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -929,7 +1143,7 @@ export function NextSteps({
   );
 }
 
-type Cited = Brief["sentences"][number]["evidence"][number];
+type Cited = BriefSentence["evidence"][number];
 type CitedKind = Cited["entity_type"];
 
 /**
@@ -1060,9 +1274,10 @@ function SentenceList({
   sentences,
   onOpenRecord,
 }: Readonly<{
-  sentences: Brief["sentences"];
+  sentences: BriefSentence[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
 }>) {
+  const t = useT();
   return (
     <ul className="co-brief-lines">
       {sentences.map((sentence, index) => (
@@ -1070,11 +1285,73 @@ function SentenceList({
         // keying on the text collapses them into one row.
         // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
         <li key={index}>
+          {/* What KIND of claim this is, marked where it is made. A judgment
+              that looked like a stored fact would be the one thing a reader
+              could not check — and the brief is allowed to judge now. */}
+          {sentence.nature && sentence.nature !== "fact" && (
+            <Badge
+              tone={sentence.nature === "recommendation" ? "accent" : undefined}
+            >
+              {t(NATURE_LABELS[sentence.nature])}
+            </Badge>
+          )}{" "}
           {sentence.text}
           <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
         </li>
       ))}
     </ul>
+  );
+}
+
+type BriefSentence = NonNullable<
+  Brief["sections"]
+>[number]["sentences"][number];
+type BriefSectionKind = NonNullable<Brief["sections"]>[number]["kind"];
+
+const NATURE_LABELS: Record<
+  NonNullable<BriefSentence["nature"]>,
+  MessageKey
+> = {
+  fact: "co.brief.nature.fact",
+  assessment: "co.brief.nature.assessment",
+  recommendation: "co.brief.nature.recommendation",
+};
+
+const SECTION_LABELS: Record<BriefSectionKind, MessageKey> = {
+  snapshot: "co.brief.section.snapshot",
+  fit: "co.brief.section.fit",
+  health: "co.brief.section.health",
+  activity: "co.brief.section.activity",
+  next_step: "co.brief.section.next_step",
+};
+
+/**
+ * BriefSections renders the brief under the questions it answers. A section
+ * with nothing to say never arrives, so there is no empty heading to draw —
+ * a heading over silence reads as a finding of nothing.
+ */
+function BriefSections({
+  sections,
+  onOpenRecord,
+}: Readonly<{
+  sections: NonNullable<Brief["sections"]>;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  return (
+    <>
+      {sections.map((section) => (
+        <div key={section.kind} className="co-brief-section">
+          <h3 className="co-brief-section-label t-caption">
+            {t(SECTION_LABELS[section.kind])}
+          </h3>
+          <SentenceList
+            sentences={section.sentences}
+            onOpenRecord={onOpenRecord}
+          />
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -1111,6 +1388,7 @@ export function AccountBrief({
   view,
   enabled,
   onOpenRecord,
+  onPerform,
 }: Readonly<{
   orgId: string;
   // The 360 the page already holds. The brief itself is written server-side;
@@ -1119,6 +1397,7 @@ export function AccountBrief({
   view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -1155,7 +1434,7 @@ export function AccountBrief({
   const written: Brief | undefined = brief.data;
   // A payload without sentences is a brief this build cannot read, not an
   // account with nothing to say — the same distinction every card here keeps.
-  const readable = Array.isArray(written?.sentences) ? written : undefined;
+  const readable = Array.isArray(written?.sections) ? written : undefined;
   return (
     <section className="co-part co-brief" aria-label={t("co.brief.title")}>
       <h2 className="co-part-label">{t("co.brief.title")}</h2>
@@ -1166,12 +1445,12 @@ export function AccountBrief({
       {(brief.isError || (!brief.isPending && !readable)) && (
         <EmptyState>{t("co.brief.unavailable")}</EmptyState>
       )}
-      {readable && readable.sentences.length === 0 && (
+      {readable && readable.sections.length === 0 && (
         <EmptyState>{t("co.brief.empty")}</EmptyState>
       )}
-      {readable && readable.sentences.length > 0 && (
-        <SentenceList
-          sentences={readable.sentences}
+      {readable && readable.sections.length > 0 && (
+        <BriefSections
+          sections={readable.sections}
           onOpenRecord={onOpenRecord}
         />
       )}
@@ -1208,6 +1487,7 @@ export function AccountBrief({
           orgId={orgId}
           view={view}
           onOpenRecord={onOpenRecord}
+          onPerform={onPerform}
         />
       )}
       <BriefFooter view={view} />
@@ -1390,14 +1670,217 @@ export function AskSection({
  * dismissal is theirs alone and is keyed on the evidence, so the same advice
  * stays gone while the situation holds and comes back when it changes.
  */
+type Health = NonNullable<Organization360["health"]>;
+
+/**
+ * HealthCard is how the relationship stands, in the parts a reader can act on
+ * (AC-company-3).
+ *
+ * It replaced a single 0–100 score. That number was the MAX over the account's
+ * contacts of a decayed message count, so one talkative contact spoke for the
+ * whole account and a long, low-volume relationship read as near-dead. Each
+ * line here names a fact instead: "no inbound for 90 days" says what to do,
+ * where "2/100" said only a mood.
+ *
+ * A part the server could not compute is ABSENT, never zero. Zero is a claim
+ * about the account; absence is a fact about the reading.
+ */
+export function HealthCard({ health }: Readonly<{ health?: Health }>) {
+  const t = useT();
+  if (!health) {
+    return null;
+  }
+  const lines: string[] = [];
+  if (health.days_since_last_inbound != null) {
+    lines.push(
+      t("co.health.sinceInbound", { days: health.days_since_last_inbound }),
+    );
+  }
+  if (health.reply_balance != null) {
+    lines.push(
+      t("co.health.replyBalance", {
+        percent: Math.round(health.reply_balance * 100),
+      }),
+    );
+  }
+  if (health.active_contacts != null) {
+    lines.push(
+      t("co.health.activeContacts", { count: health.active_contacts }),
+    );
+  }
+  if (health.open_commitments != null && health.open_commitments > 0) {
+    lines.push(
+      t("co.health.openCommitments", { count: health.open_commitments }),
+    );
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+  return (
+    <SectionCard
+      title={t("co.health.title")}
+      state="ready"
+      // Never reached: the card returns null when it has no line to draw,
+      // because "how it stands: nothing" is not a reading of an account.
+      emptyLabel={t("co.health.title")}
+    >
+      <ul className="co-list">
+        {lines.map((line) => (
+          <li key={line} className="co-row">
+            {line}
+          </li>
+        ))}
+      </ul>
+      {/* The one shape a rep can fix before it costs them the account, so it
+          is said rather than scored. */}
+      {health.single_threaded && (
+        <p className="co-row-meta">
+          <Badge tone="warn">{t("co.health.singleThreaded")}</Badge>
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
+type StateStrip = NonNullable<Organization360["state_strip"]>;
+
+const ENGAGEMENT_LABELS: Record<
+  NonNullable<StateStrip["engagement"]>["state"],
+  MessageKey
+> = {
+  never_contacted: "co.strip.engagement.never_contacted",
+  active: "co.strip.engagement.active",
+  waiting_on_them: "co.strip.engagement.waiting_on_them",
+  waiting_on_us: "co.strip.engagement.waiting_on_us",
+  dormant: "co.strip.engagement.dormant",
+};
+
+// The two states that name a problem rather than a condition. Colouring only
+// these keeps the strip from reading as a dashboard where every tile is lit.
+const ENGAGEMENT_TONE: Partial<
+  Record<NonNullable<StateStrip["engagement"]>["state"], "warn">
+> = {
+  waiting_on_them: "warn",
+  dormant: "warn",
+};
+
+/**
+ * StateStrip is the three readings the overview leads with (AC-company-13):
+ * where the account stands, whose move it is, and what commercial work is open.
+ *
+ * Each half is drawn only when the server answered it. A null engagement means
+ * the caller may not read the account's mail, and inventing "never contacted"
+ * from that would state a business conclusion the page has no basis for — the
+ * one a rep would act on.
+ */
+export function StateStrip({
+  view,
+  lifecycleLabel,
+  relationshipLabels,
+}: Readonly<{
+  view?: Organization360;
+  lifecycleLabel: (value: string) => string;
+  relationshipLabels: (values: readonly string[]) => string;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const strip = view?.state_strip;
+  if (!strip) {
+    return null;
+  }
+  const engagement = strip.engagement;
+  const commercial = strip.commercial;
+  const types = strip.account.relationship_types ?? [];
+  const when = (at?: string | null) =>
+    at ? formatDate(at, locale, RECORD_ZONE) : undefined;
+  return (
+    <section className="co-strip" aria-label={t("co.strip.title")}>
+      <StatCard
+        label={t("co.strip.account")}
+        value={lifecycleLabel(strip.account.lifecycle)}
+        detail={types.length > 0 ? relationshipLabels(types) : undefined}
+      />
+      {engagement && (
+        <StatCard
+          label={t("co.strip.engagement")}
+          value={t(ENGAGEMENT_LABELS[engagement.state])}
+          tone={ENGAGEMENT_TONE[engagement.state]}
+          detail={
+            engagement.last_inbound_at || engagement.last_outbound_at
+              ? t("co.strip.lastBoth", {
+                  inbound:
+                    when(engagement.last_inbound_at) ?? t("co.strip.never"),
+                  outbound:
+                    when(engagement.last_outbound_at) ?? t("co.strip.never"),
+                })
+              : undefined
+          }
+        />
+      )}
+      {strip.signal && (
+        <StatCard
+          label={t("co.strip.signal")}
+          value={signalKindLabel(strip.signal.kind, t)}
+          tone={signalTone(strip.signal.severity)}
+          detail={strip.signal.summary}
+        />
+      )}
+      {commercial && (
+        <StatCard
+          label={t("co.strip.commercial")}
+          value={t("co.strip.openDeals", { count: commercial.open_count })}
+          tone={commercial.stalled_count > 0 ? "warn" : undefined}
+          detail={
+            commercial.stalled_count > 0
+              ? t("co.strip.stalled", { count: commercial.stalled_count })
+              : undefined
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+// What performing a suggestion means. The server names it; this maps the name
+// to the words on the button.
+export type SuggestionAction = NonNullable<Suggestion["action"]>;
+
+const SUGGESTION_ACTION_LABELS: Record<SuggestionAction["kind"], MessageKey> = {
+  draft_reply: "co.suggest.act.draftReply",
+  open_deal: "co.suggest.act.openDeal",
+  add_task: "co.suggest.act.addTask",
+};
+
+// SuggestionActionButton exists so the action is narrowed ONCE, at the call
+// site, rather than re-narrowed inside a callback where TypeScript has already
+// lost it.
+function SuggestionActionButton({
+  action,
+  onPerform,
+}: Readonly<{
+  action: SuggestionAction;
+  onPerform: (action: SuggestionAction) => void;
+}>) {
+  const t = useT();
+  return (
+    <Button small onClick={() => onPerform(action)}>
+      {t(SUGGESTION_ACTION_LABELS[action.kind])}
+    </Button>
+  );
+}
+
 export function SuggestionsSection({
   orgId,
   view,
   onOpenRecord,
+  onPerform,
 }: Readonly<{
   orgId: string;
   view?: Organization360;
   onOpenRecord?: (entityType: string, entityId: string) => void;
+  // Performing the advice is the page's job, not this card's: the composer,
+  // the deal and the task form all live above it.
+  onPerform?: (action: SuggestionAction) => void;
 }>) {
   const t = useT();
   const client = useQueryClient();
@@ -1451,7 +1934,15 @@ export function SuggestionsSection({
                 evidence={suggestion.evidence}
                 onOpenRecord={onOpenRecord}
               />
-
+              {/* What performing the advice means, named by the server. A rule
+                  that could not name one carries null and this renders nothing
+                  rather than a control that does nothing. */}
+              {suggestion.action && onPerform && (
+                <SuggestionActionButton
+                  action={suggestion.action}
+                  onPerform={onPerform}
+                />
+              )}
               <Button
                 small
                 onClick={() => dismiss.mutate(suggestion.fingerprint)}

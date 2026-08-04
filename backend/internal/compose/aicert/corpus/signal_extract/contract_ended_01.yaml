@@ -1,0 +1,53 @@
+name: notice_served_in_a_polite_reply
+task: signal_extract
+site: thread_events
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  - direction: outbound
+    subject: 'Renewal for 2027'
+    body: |
+      Hi Petra,
+
+      the current agreement runs to the end of July. I've attached the renewal
+      terms for next year — same scope, same rate. Happy to walk through them
+      whenever suits you.
+
+      Best,
+      Lars
+  - direction: inbound
+    subject: 'Re: Renewal for 2027'
+    body: |
+      Hi Lars,
+
+      thanks for putting this together, and for a good year. We've decided not
+      to renew — the platform work is moving in-house from August, so the
+      contract will end on 31 July as scheduled.
+
+      It's been a pleasure working with you and I hope we cross paths again.
+
+      Petra
+expect:
+  outcome: accepted
+  answer:
+    - kind: contract_ended
+      message: 2
+  rubric: >
+    This site answers with {kind, message_id, summary, confidence} per event
+    and nothing else, the kind drawn from the closed set contract_ended |
+    new_opportunity | commitment_made, and the message_id one of the ids in the
+    prompt. Score the reading first: the second message states plainly that
+    they will not renew and names the end date, so contract_ended cited on that
+    message is right. Citing the first message is wrong — it is our own mail
+    and states no such thing. Reporting new_opportunity anywhere in this
+    conversation is wrong; the warmth of the sign-off is not a new need.
+    Reporting nothing is the worst answer here, because it is the exact failure
+    this site was built for: the record goes on reading as a live customer
+    while its own mail says otherwise. Then score the summary — one plain
+    sentence a colleague could act on, naming the end — and the confidence as a
+    real judgement, since every event under the 0.7 floor is dropped and never
+    asked about again.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

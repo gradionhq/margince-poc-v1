@@ -14,12 +14,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -464,4 +466,64 @@ func repPermsWithCapture() principal.Permissions {
 	objects["lead"] = principal.ObjectGrant{Create: true, Read: true, Update: true}
 	p.Objects = objects
 	return p
+}
+
+// An account-list filter has ONE input that means "no filter": omitting it.
+// Every other value is a selection, and a value outside the contract's enum is
+// a client mistake — answered as one, not as an empty page. A 200 with no rows
+// tells the reader this workspace has no customers when the question was never
+// one the contract accepts.
+func TestUnknownAccountFilterValuesAreRefusedRatherThanAnsweredEmpty(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+
+	for _, tc := range []struct {
+		name  string
+		field string
+		in    people.ListOrganizationsInput
+	}{
+		{
+			"a stage outside the vocabulary", "lifecycle",
+			people.ListOrganizationsInput{Lifecycle: strPtr("nearly_a_customer")},
+		},
+		{
+			"a relationship type outside the vocabulary", "relationship_type",
+			people.ListOrganizationsInput{RelationshipType: strPtr("frenemy")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := e.People.ListOrganizations(admin, tc.in)
+			var detailed *httperr.DetailedError
+			if !errors.As(err, &detailed) {
+				t.Fatalf("filter %s=%q → %v, want a validation refusal", tc.field, *strPtrValue(tc.in), err)
+			}
+			if detailed.Status != http.StatusUnprocessableEntity {
+				t.Errorf("filter %s → status %d, want 422", tc.field, detailed.Status)
+			}
+			if len(detailed.Fields) != 1 || detailed.Fields[0].Field != tc.field {
+				t.Errorf("filter %s → fields %+v, want the refusal to name the parameter",
+					tc.field, detailed.Fields)
+			}
+		})
+	}
+
+	// The same dials with values the contract DOES define are selections, and
+	// answer normally — a rule that refused everything would pass the test
+	// above and break the feature.
+	for _, in := range []people.ListOrganizationsInput{
+		{Lifecycle: strPtr("customer")},
+		{RelationshipType: strPtr("partner")},
+	} {
+		if _, _, err := e.People.ListOrganizations(admin, in); err != nil {
+			t.Errorf("a filter value the contract defines was refused: %v", err)
+		}
+	}
+}
+
+// strPtrValue names whichever of the two dials the case set, for the message.
+func strPtrValue(in people.ListOrganizationsInput) *string {
+	if in.Lifecycle != nil {
+		return in.Lifecycle
+	}
+	return in.RelationshipType
 }

@@ -1,0 +1,32 @@
+name: nothing_material_was_said
+task: signal_extract
+site: thread_events
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  - direction: inbound
+    subject: 'Re: slides'
+    body: |
+      Got them, thanks! Reading through this afternoon.
+  - direction: outbound
+    subject: 'Re: slides'
+    body: |
+      Great — shout if anything is unclear. Enjoy the sunshine.
+expect:
+  outcome: accepted
+  answer: []
+  rubric: >
+    This site answers with a list of material events, and an EMPTY list is the
+    correct answer for most conversations. Nothing here changes what anyone
+    should do about the account: an acknowledgement and a pleasantry. Score the
+    empty list highest. "Reading through this afternoon" is not a
+    commitment_made — the site records promises of a specific thing to the
+    other side, not someone narrating their own afternoon — so reporting one
+    scores low, and lower the more confidently it is asserted, because an event
+    at or above the 0.7 floor is written straight to a card in front of a rep.
+    Inventing new_opportunity or contract_ended here scores lowest: neither is
+    stated anywhere in the text.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
