@@ -166,10 +166,14 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 		// Nothing filled from the staged pages. Remember what a later
 		// discovery pass would need; it runs after this transaction, because
 		// a network call must never be made with a write transaction open.
-		needsDiscovery, discoverName, discoverEmployer = true, "", ""
-		if n, e, err := g.searchTerms(ctx, tx, personID, orgID); err == nil {
-			discoverName, discoverEmployer = n, e
+		name, employer, err := g.searchTerms(ctx, tx, personID, orgID)
+		if err != nil {
+			// Not swallowed: a failed query has already aborted this
+			// transaction, so continuing past it turns a readable error into
+			// "commit unexpectedly resulted in rollback" somewhere else.
+			return err
 		}
+		needsDiscovery, discoverName, discoverEmployer = true, name, employer
 		return nil
 	}); err != nil {
 		return err
@@ -185,7 +189,7 @@ func (g *PersonAutoEnrich) enrich(ctx context.Context, personID ids.PersonID) er
 // a bare name returns somebody else.
 func (g *PersonAutoEnrich) searchTerms(ctx context.Context, tx pgx.Tx, personID ids.PersonID, orgID ids.OrganizationID) (name, employer string, err error) {
 	err = tx.QueryRow(ctx, `
-		SELECT p.full_name, coalesce(o.name, '')
+		SELECT p.full_name, coalesce(o.display_name, '')
 		FROM person p LEFT JOIN organization o ON o.id = $2
 		WHERE p.id = $1`, personID, orgID).Scan(&name, &employer)
 	return name, employer, err

@@ -66,13 +66,17 @@ func (g *PersonAutoEnrich) discoverProfileURL(ctx context.Context, name, employe
 		if !isProfileURL(r.URL) || !mentionsName(r, name) {
 			continue
 		}
+		canonical, ok := canonicalProfileURL(r.URL)
+		if !ok {
+			continue
+		}
 		return people.DiscoveredField{
 			Field: "linkedin",
-			Value: r.URL,
+			Value: canonical,
 			// The result's own text, verbatim: this is what the reader checks
 			// the address against, and it exists without anyone having opened
 			// the profile.
-			EvidenceSnippet: strings.TrimSpace(r.Title + " — " + r.Snippet),
+			EvidenceSnippet: clip(strings.TrimSpace(r.Title+" — "+r.Snippet), maxSnippetLen),
 			SourceRef: fmt.Sprintf("%s:%s:%s",
 				searchSourceRefPrefix, g.search.Provider(), r.RetrievedAt.Format("2006-01-02")),
 		}, true, nil
@@ -83,6 +87,49 @@ func (g *PersonAutoEnrich) discoverProfileURL(ctx context.Context, name, employe
 // searchSourceRefPrefix names the channel a discovered value came from, so a
 // stored claim can say which index answered and on what date.
 const searchSourceRefPrefix = "web_search"
+
+// The bounds on what a provider may write into a record. The search response
+// is external input on its way to a stored field, so it is validated at this
+// boundary rather than trusted because it arrived over TLS.
+const (
+	maxProfileURLLen = 300
+	maxSnippetLen    = 500
+)
+
+// canonicalProfileURL reduces a result URL to the form worth storing, or
+// refuses it.
+//
+// It keeps scheme, host and path and DROPS everything else. Three reasons,
+// all of them about what ends up on a person's record: a URL carrying
+// userinfo would store credentials, a query string carries the tracking
+// parameters a search result is decorated with rather than anything about
+// the person, and an unbounded string is a write amplification a provider
+// controls. https only — a profile address served over plaintext is not one
+// worth recording.
+func canonicalProfileURL(raw string) (string, bool) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return "", false
+	}
+	if !strings.EqualFold(u.Scheme, "https") || u.User != nil {
+		return "", false
+	}
+	clean := (&url.URL{Scheme: "https", Host: u.Host, Path: u.Path}).String()
+	if len(clean) > maxProfileURLLen {
+		return "", false
+	}
+	return clean, true
+}
+
+// clip bounds provider-supplied text at a stored length. The evidence
+// snippet is a receipt, not an archive: what the reader checks the value
+// against fits in a sentence or two.
+func clip(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return strings.TrimSpace(s[:max]) + "…"
+}
 
 // isProfileURL reports whether a result points at a personal profile on one
 // of the professional platforms — not a company page, a jobs listing or a

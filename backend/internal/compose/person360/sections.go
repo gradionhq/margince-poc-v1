@@ -8,6 +8,7 @@ package person360
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -58,7 +59,11 @@ func (s *Service) employmentsSection(ctx context.Context, tx pgx.Tx, personID id
 			StartedAt:        r.StartedAt,
 			EndedAt:          r.EndedAt,
 		}
-		if name, err := s.organizationName(ctx, tx, *r.OrganizationID); err == nil && name != "" {
+		name, err := s.organizationName(ctx, tx, *r.OrganizationID)
+		if err != nil {
+			return err
+		}
+		if name != "" {
 			e.OrganizationName = &name
 		}
 		data = append(data, e)
@@ -84,8 +89,19 @@ func (s *Service) employmentsSection(ctx context.Context, tx pgx.Tx, personID id
 // company the reader has no grant for.
 func (s *Service) organizationName(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (string, error) {
 	var name string
-	err := tx.QueryRow(ctx, `SELECT name FROM organization WHERE id = $1 AND archived_at IS NULL`, orgID).Scan(&name)
-	return name, err
+	err := tx.QueryRow(ctx, `SELECT display_name FROM organization WHERE id = $1 AND archived_at IS NULL`, orgID).Scan(&name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Archived, or outside this caller's row scope. The edge still shows;
+		// it just does not assert a company name the reader has no grant for.
+		// This is the ONLY tolerated outcome — any other error has already
+		// aborted the transaction, and continuing past it makes the NEXT
+		// section fail with an error that names the wrong cause.
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read employer name: %w", err)
+	}
+	return name, nil
 }
 
 // dealRolesSection lists the stakeholder seats this person holds. The role
