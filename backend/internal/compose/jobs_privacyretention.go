@@ -51,8 +51,7 @@ const (
 //
 // api/jobs.yaml carries the value River is actually handed, so moving this
 // number alone moves no wall clock; the declaration names this constant in its
-// derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant keeps
-// the two equal.
+// derived timeout and the job census keeps the two equal.
 //
 // A var rather than a const because the engine derives its stage count from its
 // own selector table instead of hand-counting it.

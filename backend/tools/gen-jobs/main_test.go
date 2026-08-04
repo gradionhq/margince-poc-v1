@@ -442,3 +442,127 @@ kinds:
 		}
 	}
 }
+
+// A fault block exists only to WAIVE returning a failure, so the rationale is
+// the whole content of it: without one there is nothing to tell an unratified
+// swallowed error from a ratified one.
+func TestParseRejectsAFaultWaiverWithNoRationale(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    fault: {}
+`, "no nil_after_logging rationale")
+}
+
+// A scalar args field is a value the erasure engine cannot reach through the
+// row the job names, so it is admitted only with the argument for it.
+func TestParseRejectsAScalarArgsFieldWithNoReason(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      Snippet: {scalar: true}
+`, "declared a scalar with no reason")
+}
+
+// An empty mapping says nothing the `id` shorthand does not, and is the shape
+// left behind when somebody deletes a rationale or forgets scalar: true.
+func TestParseRejectsAnEmptyArgsFieldMapping(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      Workspace: {}
+`, "says nothing")
+}
+
+// An ID may carry a rationale, and must be able to: a field whose NAME reads
+// like content has something to argue even when it really is a reference, and
+// jobargscontent_test.go refuses such a field without one. A rule that allowed
+// the mapping form only for a scalar would leave that argument nowhere to go.
+func TestParseAcceptsAReasonOnAnIdField(t *testing.T) {
+	c, err := parseContract([]byte(validQueues + `
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      RecipientEmail:
+        reason: the comms_outbound row id, whose name is historical
+`))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	got := c.Kinds["foo"].Args["RecipientEmail"]
+	if got.Scalar {
+		t.Errorf("RecipientEmail parsed as %+v, want an id — a reason must not promote a field to a scalar", got)
+	}
+	if got.Reason == "" {
+		t.Error("RecipientEmail parsed with no reason, so the argument for a content-looking name would be dropped at generation")
+	}
+}
+
+// An args field names an EXPORTED Go field, because River marshals args to
+// JSON and an unexported one never reaches the wire — so a lowercase entry
+// declares a field no job can be carrying.
+func TestParseRejectsAnUnexportedArgsFieldName(t *testing.T) {
+	mustFail(t, validQueues+`
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      workspace: id
+`, `args field "workspace"`)
+}
+
+// The shorthand is the ordinary case and has to survive: a rule that refused
+// `id` would push every field into the mapping form and bury the four that
+// genuinely need one.
+func TestParseAcceptsTheIdShorthandAndAnArguedScalar(t *testing.T) {
+	c, err := parseContract([]byte(validQueues + `
+kinds:
+  foo:
+    role: workspace
+    go_type: FooArgs
+    queue: default
+    timeout: 2m
+    opts_owner: caller
+    args:
+      Workspace: id
+      Provider:
+        scalar: true
+        reason: it names a code path, not a row
+`))
+	if err != nil {
+		t.Fatalf("parsing: %v", err)
+	}
+	args := c.Kinds["foo"].Args
+	if got := args["Workspace"]; got.Scalar || got.Reason != "" {
+		t.Errorf("Workspace parsed as %+v, want a bare id", got)
+	}
+	if got := args["Provider"]; !got.Scalar || got.Reason == "" {
+		t.Errorf("Provider parsed as %+v, want an argued-for scalar", got)
+	}
+}

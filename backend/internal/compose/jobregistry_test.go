@@ -73,29 +73,6 @@ func TestDeepReadTimeoutHoldsItsFloor(t *testing.T) {
 	}
 }
 
-// TestEveryTranscribedTimeoutStillEqualsItsGoConstant keeps the seven values
-// that were a Go constant before api/jobs.yaml existed tied to the constant
-// they came from. Three of them are arithmetic over another module's own limit
-// (privacy.MaxPassDuration and friends), which moves when that module's batch
-// bounds do; the other four are plain numbers whose reasoning lives beside the
-// code that spends them. The declaration restates all seven, and a restatement
-// nothing compares is a copy waiting to go stale.
-func TestEveryTranscribedTimeoutStillEqualsItsGoConstant(t *testing.T) {
-	for kind, constant := range map[string]time.Duration{
-		"capture_backfill":            backfillTimeout,
-		"comms_send_email":            sendTimeout,
-		"telegram_poll":               telegramPollJobTimeout,
-		"voice_build":                 voiceBuildTimeout,
-		"agent_scheduler_workspace":   agentSchedulerPassTimeout,
-		"privacy_retention_workspace": privacyRetentionPassTimeout,
-		"webhook_retry_workspace":     webhookRetrySweepTimeout,
-	} {
-		if got := declaredTimeout(t, kind, 0); got != constant {
-			t.Errorf("%s declares %v but the Go constant it restates is %v — update api/jobs.yaml and run `make gen`", kind, got, constant)
-		}
-	}
-}
-
 // TestAddGovernedWorkerRecordsTheKindItRegistered is what makes MustBeTotal at
 // boot mean anything: River keeps its own registry unexported, so a kind that
 // went in without being recorded here would be invisible to the totality check

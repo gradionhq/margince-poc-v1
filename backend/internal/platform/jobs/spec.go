@@ -132,6 +132,42 @@ type Registration struct {
 	AbsentRegistersAnyway bool
 }
 
+// FaultPolicy is what a kind's worker does with a failure it meets. River
+// records whatever a Work method returns, so a worker that logs the failure and
+// returns nil turns a tenant's failed pass into a green row.
+//
+// NilAfterLogging is the ratified exception and carries the durable retry
+// policy that makes such a success honest — the sidecar backoff, the run row,
+// the deferred-retry sweep. The empty string is the strict posture: the worker
+// returns its failure. Omission is therefore never a licence, which is why the
+// field says what is WAIVED rather than what is required.
+type FaultPolicy struct {
+	NilAfterLogging string
+}
+
+// ArgField is one field of a kind's args struct, and what it is allowed to
+// carry. River persists args verbatim in a table with no workspace column and
+// no RLS, so a field holding a message body or an address would be a second
+// store of subject data that Art. 17 erasure never reaches: a job names a row
+// and the worker reads it.
+//
+// Scalar is the ratified exception — a value that is not an id and could not
+// be one — and Reason is what a reader is owed for it. Generation refuses a
+// scalar with no reason, and the census refuses an args struct whose fields
+// and declaration disagree, so between them every compiled field is an id or
+// an argued-for scalar.
+//
+// Reason also stands on an ID, and there it answers a different question: a
+// field whose NAME reads like content (Body, Subject, RecipientEmail) has
+// something to argue even when it really is a reference, and the content gate
+// is what demands the argument. So Reason is not a synonym for Scalar — it is
+// "somebody wrote down why this is safe", which both cases can need.
+type ArgField struct {
+	Name   string
+	Scalar bool
+	Reason string
+}
+
 // Spec is one declared job kind: everything api/jobs.yaml says about it that
 // the running system reads. It is data — the wiring stays composition's, and
 // this package never learns what a kind's worker actually does.
@@ -152,6 +188,12 @@ type Spec struct {
 	OptsOwner    OptsOwner
 	Cadence      Cadence
 	Registration Registration
+	Fault        FaultPolicy
+	// Args is the kind's declared args fields in field-name order, and is
+	// empty for the fieldless dispatchers. An omitted declaration is not a
+	// waiver: the census compares this list against the compiled struct, so a
+	// field nobody declared fails there rather than passing unnoticed.
+	Args []ArgField
 }
 
 // SpecFor returns the declaration for one kind. The bool is the whole point:

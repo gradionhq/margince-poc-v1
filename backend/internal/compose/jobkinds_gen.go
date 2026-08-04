@@ -13,7 +13,7 @@ import (
 // jobContractHash is the sha256 of api/jobs.yaml this file was generated
 // from — the same fingerprint jobs.JobContractHash carries, so a stale
 // half of the pair is visible without diffing the two tables.
-const jobContractHash = "900503c0e272e21e3b3006ddfc5b5990c449eb2fd088c1427e93921f05cae5d4"
+const jobContractHash = "ef8ca87ac1fe0b58f81df22519973a969e38be05663a5f347648b33f487686b8"
 
 // declaredJobArgs is every args type api/jobs.yaml declares, and nothing
 // else. A job kind the file has never heard of cannot satisfy it, so it
@@ -97,8 +97,14 @@ func addDeclaredWorker[T declaredJobArgs](reg *jobRegistry, w jobs.WorkOnly[T]) 
 // api/jobs.yaml. Every other kind takes its wall clock from the file and
 // registers through addDeclaredWorker; jobtimeoutwiring_test.go derives
 // which is which from the declared TimeoutPolicy rather than a list.
+//
+// The mark it leaves lets the census check that same claim against the
+// wiring it built rather than against the source: passing through here is
+// the only way a kind's wall clock comes from anywhere but the file.
 func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.WorkOnly[T], supplied time.Duration) {
 	addGovernedWorker[T](reg, w, supplied)
+	var zero T
+	reg.markOperatorSupplied(zero.Kind())
 }
 
 // The declared dispatchers: each enumerates the fleet and enqueues, and does

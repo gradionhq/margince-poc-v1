@@ -66,8 +66,8 @@ const voiceBuildDeferral = 6 * time.Hour
 // clock — so it must not drift below what that wall clock actually is.
 //
 // api/jobs.yaml carries the value River is actually handed, so moving this
-// number alone moves no wall clock; the two are kept equal by
-// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
+// number alone moves no wall clock; the declaration names this constant in its
+// derived timeout and the job census keeps the two equal.
 const voiceBuildTimeout = 10 * time.Minute
 
 // The live voice_build row states the worker distinguishes when a claim is

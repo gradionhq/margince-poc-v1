@@ -47,10 +47,40 @@ import (
 type jobRegistry struct {
 	workers *river.Workers
 	kinds   []string
+	// wired is what this build put in, keyed by kind. MustBeTotal needs only
+	// the kind list above; the census needs the two things a kind string
+	// cannot carry — the args value its type parameter named, whose fields the
+	// declaration has to match, and the worker behind it, whose type name is
+	// the only join between a declared fault posture and the receiver the
+	// fault gate reads off the source.
+	wired map[string]wiredWorker
+}
+
+// wiredWorker is one registration as the census reads it back.
+type wiredWorker struct {
+	args   river.JobArgs
+	worker any
+	// operatorSupplied records that the registration passed a wall clock
+	// rather than leaving it to the file. Only addDeclaredWorkerWithTimeout
+	// sets it, and only a {operator: …} policy reads what it passes, so the
+	// two sets have to be the same one.
+	operatorSupplied bool
 }
 
 func newJobRegistry() *jobRegistry {
-	return &jobRegistry{workers: river.NewWorkers()}
+	return &jobRegistry{workers: river.NewWorkers(), wired: map[string]wiredWorker{}}
+}
+
+// markOperatorSupplied records that this kind's wall clock was computed at its
+// registration. It is called AFTER the registration that recorded the kind, so
+// there is always an entry to mark.
+func (r *jobRegistry) markOperatorSupplied(kind string) {
+	entry, registered := r.wired[kind]
+	if !registered {
+		panic("compose: marking " + kind + " operator-supplied before it was registered")
+	}
+	entry.operatorSupplied = true
+	r.wired[kind] = entry
 }
 
 // addGovernedWorker registers one worker under its DECLARED options.
@@ -65,6 +95,7 @@ func addGovernedWorker[T river.JobArgs](reg *jobRegistry, w jobs.WorkOnly[T], su
 	var zero T
 	kind := zero.Kind()
 	reg.kinds = append(reg.kinds, kind)
+	reg.wired[kind] = wiredWorker{args: zero, worker: w}
 	// An undeclared kind is recorded and registered under the zero Spec rather
 	// than rejected on the spot: MustBeTotal names every missing kind at once
 	// at the end of assembly, which is a better report than the first one hit,

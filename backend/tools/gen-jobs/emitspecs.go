@@ -22,9 +22,13 @@ func emitSpecs(c contract, contractHash string) (string, error) {
 	b.WriteString("package jobs\n\n")
 	b.WriteString("import \"time\"\n\n")
 
-	b.WriteString("// JobContractHash is the sha256 of api/jobs.yaml at generation time: a\n")
-	b.WriteString("// build fingerprint a census can compare against a freshly hashed\n")
-	b.WriteString("// contract file to catch a stale generated table.\n")
+	b.WriteString("// JobContractHash is the sha256 of api/jobs.yaml at generation time.\n")
+	b.WriteString("// One run of gen-jobs writes this table and compose's, so both carry the\n")
+	b.WriteString("// same fingerprint and the census compares the two: a mismatch is a pair\n")
+	b.WriteString("// where one half was regenerated and the other was not, which the compiler\n")
+	b.WriteString("// would believe. It says nothing about the file on disk — a pair\n")
+	b.WriteString("// regenerated TOGETHER from a stale contract matches here, and the drift\n")
+	b.WriteString("// gate is what catches that.\n")
 	fmt.Fprintf(&b, "const JobContractHash = %q\n\n", contractHash)
 
 	b.WriteString("// specs is every declared kind. A kind absent from this table is a kind\n")
@@ -68,7 +72,39 @@ func writeSpec(b *strings.Builder, name string, def kindDef) {
 	if lit := registrationLiteral(def.Registration); lit != "" {
 		fmt.Fprintf(b, "\t\tRegistration: %s,\n", lit)
 	}
+	if def.Fault != nil {
+		fmt.Fprintf(b, "\t\tFault: FaultPolicy{NilAfterLogging: %q},\n", def.Fault.NilAfterLogging)
+	}
+	if lit := argsLiteral(def); lit != "" {
+		fmt.Fprintf(b, "\t\tArgs: %s,\n", lit)
+	}
 	b.WriteString("\t},\n")
+}
+
+// argsLiteral renders a kind's declared args fields in field-name order, and
+// returns "" for the fieldless dispatchers. The order is the emitter's because
+// the census reports on it: a diff in a generated table should read as the
+// change somebody made, not as a map that happened to walk differently.
+func argsLiteral(def kindDef) string {
+	if len(def.Args) == 0 {
+		return ""
+	}
+	fields := make([]string, 0, len(def.Args))
+	for _, name := range def.sortedArgs() {
+		arg := def.Args[name]
+		switch {
+		case arg.Scalar:
+			fields = append(fields, fmt.Sprintf("{Name: %q, Scalar: true, Reason: %q}", name, arg.Reason))
+		case arg.Reason != "":
+			// An id that argued for itself, because its name reads like
+			// content. The reason is carried rather than dropped: it is what
+			// the content gate demands of such a field.
+			fields = append(fields, fmt.Sprintf("{Name: %q, Reason: %q}", name, arg.Reason))
+		default:
+			fields = append(fields, fmt.Sprintf("{Name: %q}", name))
+		}
+	}
+	return "[]ArgField{" + strings.Join(fields, ", ") + "}"
 }
 
 func roleConst(role string) string {

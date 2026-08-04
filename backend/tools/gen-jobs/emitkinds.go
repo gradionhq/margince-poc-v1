@@ -91,8 +91,14 @@ func writeAddDeclaredWorker(b *strings.Builder) {
 	b.WriteString("// api/jobs.yaml. Every other kind takes its wall clock from the file and\n")
 	b.WriteString("// registers through addDeclaredWorker; jobtimeoutwiring_test.go derives\n")
 	b.WriteString("// which is which from the declared TimeoutPolicy rather than a list.\n")
+	b.WriteString("//\n")
+	b.WriteString("// The mark it leaves lets the census check that same claim against the\n")
+	b.WriteString("// wiring it built rather than against the source: passing through here is\n")
+	b.WriteString("// the only way a kind's wall clock comes from anywhere but the file.\n")
 	b.WriteString("func addDeclaredWorkerWithTimeout[T declaredJobArgs](reg *jobRegistry, w jobs.WorkOnly[T], supplied time.Duration) {\n")
 	b.WriteString("\taddGovernedWorker[T](reg, w, supplied)\n")
+	b.WriteString("\tvar zero T\n")
+	b.WriteString("\treg.markOperatorSupplied(zero.Kind())\n")
 	b.WriteString("}\n\n")
 }
 

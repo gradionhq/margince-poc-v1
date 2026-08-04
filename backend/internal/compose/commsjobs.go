@@ -68,16 +68,6 @@ const sendMaxAttempts = 10
 // against the very provider the policy is pacing us for.
 const minSendSnooze = time.Second
 
-// sendTimeout is the reasoning behind comms_send_email's declared timeout: one
-// attempt unseals a credential from the vault, refreshes an OAuth token, may
-// run the connector's prior-send lookup, and then transmits — four network
-// round trips, each of which can be slow before it is wrong.
-//
-// api/jobs.yaml carries the value River is actually handed, so moving this
-// number alone moves no wall clock; the two are kept equal by
-// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
-const sendTimeout = 5 * time.Minute
-
 // sendInsertOpts is the enqueue policy for one delivery, and the ONE place the
 // ladder length is declared — the dispatcher's exhaustion guard reads its bound
 // from here (newSendWorker) rather than from a second copy of the constant.

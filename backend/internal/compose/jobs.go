@@ -23,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
@@ -233,6 +232,30 @@ type JobRunnerConfig struct {
 // which is why they read as one list rather than as a schedule hidden inside
 // each block. They are leader-elected, so replicas never double-dispatch.
 func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobs.Runner, error) {
+	reg, periodic := wireJobs(pool, log, cfg)
+
+	// A kind this role would work but api/jobs.yaml does not declare has no
+	// timeout, no attempt cap and no queue anyone chose — it would run at
+	// River's silent one-minute default. Refusing the boot is the point: an
+	// undeclared kind is indistinguishable from the default this contract
+	// exists to remove, and a process that started anyway would hide it.
+	if err := jobs.MustBeTotal(reg.kinds); err != nil {
+		return nil, err
+	}
+
+	return jobs.New(pool, jobs.Config{
+		Queues:       jobQueues(),
+		Workers:      reg.workers,
+		PeriodicJobs: periodic,
+	}, log)
+}
+
+// wireJobs is NewJobRunner's assembly with the River client left off the end.
+// It is separate because the census builds the same wiring in order to READ it
+// — which kinds this configuration registers, under which args types, behind
+// which workers — and a client would need a live pool for a question that has
+// nothing to do with a database.
+func wireJobs(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*jobRegistry, []*river.PeriodicJob) {
 	reg := newJobRegistry()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered. It is also the
@@ -317,53 +340,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		engine: NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log),
 	})
 
-	if cfg.GmailRegistry != nil {
-		digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
-		addDeclaredWorker[CaptureDigestArgs](reg, digests)
-		addDeclaredWorker[CaptureDigestWorkspaceArgs](reg, &captureDigestWorkspaceWorker{digests: digests})
-		addDeclaredWorker[GmailSyncArgs](reg, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
-		// The sync dispatcher scans every registered connector, so a Google
-		// Calendar connection (the same Google OAuth app) syncs on the identical
-		// per-connection path a mailbox does — there is no gcal-specific job.
-		// Per-connection pacing lives in the registry's scheduling sidecar
-		// (next_sync_at = success + --gmail-sync-interval), which is why the
-		// dispatcher's own cadence can be frequent without meaning frequent
-		// provider calls.
-		addDeclaredWorker[CaptureSyncArgs](reg, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
-		// Backfill jobs are enqueued by the api (start op); the worker role
-		// only needs the pager registered.
-		addDeclaredWorker[CaptureBackfillArgs](reg, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
-		if cfg.GmailWatch.Topic != "" {
-			addDeclaredWorker[GmailWatchArgs](reg, &gmailWatchWorker{
-				registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
-			})
-			addDeclaredWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
-				registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
-			})
-		}
-	}
+	addGmailCaptureJobs(reg, pool, cfg, log)
 
-	if cfg.OverlayVault != nil {
-		ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
-		// cmd/worker built the meter over the shared Redis (so the poller's
-		// spend and the api's force-fresh spend land on ONE count); fall back
-		// to a fail-closed meter if a role wired the poller without one.
-		meter := cfg.OverlayMeter
-		if meter == nil {
-			meter = failClosedOverlayMeter()
-		}
-		addDeclaredWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log})
-		addDeclaredWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
-			pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
-			newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
-		})
-		// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
-		// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one
-		// record through the same store the poller uses. Registered whenever
-		// the overlay vault is present (the receiver only enqueues when the api
-		// role has the app secret wired).
-		addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log, newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit)})
-	}
+	addOverlayJobs(reg, pool, cfg, log)
 
 	periodic := slices.Concat(
 		// The passes that register themselves: each helper wires its own
@@ -396,18 +375,5 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		periodicFor(cfg, OverlayReconcileArgs{}),
 	)
 
-	// A kind this role would work but api/jobs.yaml does not declare has no
-	// timeout, no attempt cap and no queue anyone chose — it would run at
-	// River's silent one-minute default. Refusing the boot is the point: an
-	// undeclared kind is indistinguishable from the default this contract
-	// exists to remove, and a process that started anyway would hide it.
-	if err := jobs.MustBeTotal(reg.kinds); err != nil {
-		return nil, err
-	}
-
-	return jobs.New(pool, jobs.Config{
-		Queues:       jobQueues(),
-		Workers:      reg.workers,
-		PeriodicJobs: periodic,
-	}, log)
+	return reg, periodic
 }

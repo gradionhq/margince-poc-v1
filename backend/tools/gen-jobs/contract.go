@@ -140,20 +140,72 @@ func (r *registrationDef) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+// faultDef is a kind's ratified departure from returning its failure. It has
+// one form and no shorthand, because the strict posture is the ABSENCE of this
+// block: a kind that declares nothing must return what went wrong.
+type faultDef struct {
+	NilAfterLogging string `yaml:"nil_after_logging"`
+}
+
+// argFieldDef is one args field: an id, or a scalar somebody argued for.
+type argFieldDef struct {
+	Scalar bool
+	Reason string
+	// argued records that the entry took the mapping form. It is what lets
+	// validate tell the shorthand `id` apart from a mapping that forgot
+	// scalar: true — both leave Scalar false, and only the second is a
+	// mistake — while keeping the message where it can name the kind.
+	argued bool
+}
+
+// UnmarshalYAML accepts the bare `id` alongside the mapping, because an id is
+// what almost every field is and spelling it as a mapping would bury the four
+// that are not.
+func (a *argFieldDef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		if node.Value != argID {
+			return fmt.Errorf("args field: want %q or a {scalar: true, reason: …} mapping, got %q", argID, node.Value)
+		}
+		return nil
+	}
+	var raw struct {
+		Scalar bool   `yaml:"scalar"`
+		Reason string `yaml:"reason"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return fmt.Errorf("args field: %w", err)
+	}
+	a.Scalar, a.Reason, a.argued = raw.Scalar, raw.Reason, true
+	return nil
+}
+
 // kindDef is one kinds.<name> entry.
 type kindDef struct {
-	Role         string           `yaml:"role"`
-	GoType       string           `yaml:"go_type"`
-	Queue        string           `yaml:"queue"`
-	Timeout      *timeoutDef      `yaml:"timeout"`
-	MaxAttempts  *int             `yaml:"max_attempts"`
-	FansOutTo    string           `yaml:"fans_out_to"`
-	FanOutUnit   string           `yaml:"fan_out_unit"`
-	OptsOwner    string           `yaml:"opts_owner"`
-	Cadence      *cadenceDef      `yaml:"cadence"`
-	Registration *registrationDef `yaml:"registration"`
-	Reason       string           `yaml:"reason"`
-	DerivesFrom  string           `yaml:"derives-from"`
+	Role         string                 `yaml:"role"`
+	GoType       string                 `yaml:"go_type"`
+	Queue        string                 `yaml:"queue"`
+	Timeout      *timeoutDef            `yaml:"timeout"`
+	MaxAttempts  *int                   `yaml:"max_attempts"`
+	FansOutTo    string                 `yaml:"fans_out_to"`
+	FanOutUnit   string                 `yaml:"fan_out_unit"`
+	OptsOwner    string                 `yaml:"opts_owner"`
+	Cadence      *cadenceDef            `yaml:"cadence"`
+	Registration *registrationDef       `yaml:"registration"`
+	Fault        *faultDef              `yaml:"fault"`
+	Args         map[string]argFieldDef `yaml:"args"`
+	Reason       string                 `yaml:"reason"`
+	DerivesFrom  string                 `yaml:"derives-from"`
+}
+
+// sortedArgs is the deterministic order the emitted args list walks; Go map
+// iteration is not stable and an unsorted emitter drifts the drift gate.
+func (k kindDef) sortedArgs() []string {
+	names := make([]string, 0, len(k.Args))
+	for name := range k.Args {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // contract is the parsed jobs.yaml. Both members are YAML mappings, and Go map

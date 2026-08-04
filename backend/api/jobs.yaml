@@ -26,13 +26,53 @@
 #                                     the tree; value is what Govern hands
 #                                     River and the census proves the two still
 #                                     agree, so the declaration tracks the
-#                                     constant instead of freezing a copy
+#                                     constant instead of freezing a copy. Use
+#                                     it ONLY where the constant is read by
+#                                     something other than the census's own
+#                                     lookup table — otherwise the check
+#                                     compares this file against a private copy
+#                                     of itself and the number lives twice. A
+#                                     duration nothing else consumes is a
+#                                     literal above. reason: is optional and
+#                                     states the arithmetic where the kind's
+#                                     own reason: does not.
 #   {operator: Field}                 computed at registration from a config
 #                                     field; not knowable here at all
 #   {none: true, reason:}             a deliberate absence — the pass is bounded
 #                                     by a backlog rather than a wall clock, and
 #                                     a negative River timeout takes the row out
 #                                     of the rescuer on purpose
+#
+# fault: and args: are both declared by EXCEPTION, and both are read that way
+# on purpose — an omission is the strict posture, never a licence.
+#
+#   fault: {nil_after_logging: …}     this worker logs a failure and returns
+#                                     nil, and the text is the durable retry
+#                                     policy that makes a green River row
+#                                     honest. Omitted, the worker must return
+#                                     what went wrong; the fault gate refuses
+#                                     any other shape.
+#   args: {Field: id | {scalar: true, reason: …} | {reason: …}}
+#                                     what each field of the kind's args struct
+#                                     carries. River persists args verbatim in
+#                                     a table with no workspace column and no
+#                                     RLS, so a job names a row and the worker
+#                                     reads it — a value that is NOT an id is
+#                                     admitted only with a reason. An omitted
+#                                     field is not waived: the census compares
+#                                     this list against the compiled struct, so
+#                                     a field nobody declared fails there.
+#
+#                                     The third form is an ID that still owes
+#                                     an argument, because its NAME reads like
+#                                     content (Body, Subject, RecipientEmail).
+#                                     jobargscontent_test.go matches names
+#                                     against a word list and refuses such a
+#                                     field without a reason — it cannot decide
+#                                     whether the field is safe, only insist
+#                                     that somebody said so. A reason on a name
+#                                     the list does not flag is stale prose and
+#                                     fails the same gate.
 #
 # max_attempts is declared ONLY for opts_owner: fan_out, and REQUIRED there,
 # because that is the only case the file actually governs it: compose's
@@ -122,6 +162,8 @@ kinds:
     max_attempts: 1
     opts_owner: fan_out
     registration: {when: [AgentScheduler.Service], absent: registers_nothing}
+    args:
+      Workspace: id
     reason: >-
       One attempt, not three: this kind's retry is the dispatcher's own tick,
       which is tens of seconds while a single attempt may run for the timeout
@@ -137,6 +179,9 @@ kinds:
     queue: rate_refresh
     timeout: 20m
     opts_owner: caller
+    args:
+      Workspace: id
+      RequestedBy: id
     reason: >-
       One fetch-and-extract per configured pricing source, run in series: each
       is a page crawl plus one model call with the reasoning ladder's own retry
@@ -166,6 +211,8 @@ kinds:
     timeout: 5m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       Database-only: the pass reserves a budget slot and queues a deep read per
       due org, and never crawls anything itself. autoEnrichDailyCap bounds it at
@@ -179,6 +226,16 @@ kinds:
     timeout: 8m
     opts_owner: caller
     registration: {when: [GmailRegistry], absent: registers_nothing}
+    fault:
+      nil_after_logging: >-
+        the backfill ROW owns the outcome: RunBackfillStep ends the run and
+        records the fault class on the row against its own give-up cap, on a
+        context detached from the job because the job context dying mid-page
+        is the commonest fault. A River retry would re-page a run the engine
+        already ended.
+    args:
+      Workspace: id
+      BackfillID: id
     reason: >-
       One page of up to 100 large real messages fetched serially over the
       network, then a snooze. Without the headroom the job context dies mid-page
@@ -208,6 +265,8 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [ClassifyBrain], absent: registers_nothing}
+    args:
+      Workspace: id
     reason: >-
       Up to fifty serial model calls (classifyCatchUpCap 500 labels, ten
       messages per prompt). The engine commits per batch, so the cap decides how
@@ -238,6 +297,8 @@ kinds:
     timeout: 20m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       Up to verdictCatchUpCap (200) senders judged one model call each, then
       five database-only stages that must all run in dependency order. The
@@ -266,6 +327,8 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [GmailRegistry], absent: registers_nothing}
+    args:
+      Workspace: id
     reason: >-
       A database-only assembly, one digest per connected user — this worker
       holds no model lane at all, which is also why it fans out onto default
@@ -293,6 +356,8 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [EnrichBrain], absent: registers_nothing}
+    args:
+      Workspace: id
     reason: >-
       One model call per candidate signature, up to enrichPassLimit (100) in
       series — more calls than the classify pass makes, though each is smaller.
@@ -306,6 +371,23 @@ kinds:
     max_attempts: 25
     opts_owner: fan_out
     registration: {when: [GmailRegistry], absent: registers_nothing}
+    fault:
+      nil_after_logging: >-
+        the connector sidecar owns the retry: a failed sync leaves
+        next_sync_at unadvanced, so the dispatcher re-enqueues it on the
+        next scan — the job row's success means 'this attempt is
+        concluded', not 'the sync succeeded'.
+    args:
+      Workspace: id
+      ConnectionID: id
+      Provider:
+        scalar: true
+        reason: >-
+          the connector family the connection belongs to (gmail, gcal). It
+          selects the sync path before any row is read, so the job cannot
+          resolve it from the connection it names without first knowing
+          which connector owns that row. A member of a fixed set this build
+          compiles, and a fact about a code path rather than about anyone.
     reason: >-
       One incremental provider pull with full message downloads behind it — the
       same species of work capture_backfill pages through, so the same eight
@@ -332,6 +414,8 @@ kinds:
     timeout: 5m
     max_attempts: 5
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       A database-only hygiene pass over one tenant's deals with past close
       dates, each correction its own audited write. Five attempts rather than
@@ -346,6 +430,9 @@ kinds:
     timeout: 5m
     opts_owner: caller
     registration: {when: [SendRegistry], absent: registers_nothing}
+    args:
+      Workspace: id
+      DeliveryID: id
     reason: >-
       One attempt unseals a credential from the vault, refreshes an OAuth token,
       may run the connector's prior-send lookup, and then transmits — four
@@ -378,6 +465,8 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [Embedder], absent: registers_nothing}
+    args:
+      Workspace: id
 
   embed_reindex:
     role: dispatcher
@@ -389,6 +478,18 @@ kinds:
     registration: {when: [Embedder], absent: registers_anyway}
     fans_out_to: embed_reindex_workspace
     fan_out_unit: workspace
+    args:
+      Run: id
+      Identity:
+        scalar: true
+        reason: >-
+          the embed binding in force when the confirm claimed the run --
+          model, dimension and revision folded into one string. Carried so a
+          mid-flight configuration change is detectable as drift
+          (search.ErrIdentityDrift) instead of the fleet silently re-
+          embedding under whatever it now reports; that comparison is
+          against the value AT CLAIM TIME, which no row still holds by the
+          time the job runs.
     reason: >-
       The one dispatcher with no clock behind it: a reindex is a human's confirm
       at the transport, never a cadence. Its fan-out seeds the run's pending set
@@ -409,6 +510,19 @@ kinds:
     max_attempts: 5
     opts_owner: fan_out
     registration: {when: [Embedder], absent: registers_anyway}
+    args:
+      Workspace: id
+      Run: id
+      Identity:
+        scalar: true
+        reason: >-
+          the embed binding in force when the confirm claimed the run --
+          model, dimension and revision folded into one string. Carried so a
+          mid-flight configuration change is detectable as drift
+          (search.ErrIdentityDrift) instead of the fleet silently re-
+          embedding under whatever it now reports; that comparison is
+          against the value AT CLAIM TIME, which no row still holds by the
+          time the job runs.
     reason: >-
       Five attempts rather than three because this kind has NO tick to fall
       back on: nothing re-enqueues a lost workspace until a human confirms a
@@ -434,6 +548,8 @@ kinds:
     timeout: 5m
     max_attempts: 5
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       A database-only overnight pass over one tenant's open follow-ups, staging
       what it proposes rather than acting. Five attempts for the reason
@@ -446,6 +562,9 @@ kinds:
     queue: rate_refresh
     timeout: 10m
     opts_owner: caller
+    args:
+      Workspace: id
+      RequestedBy: id
     reason: >-
       One page fetch and ONE reasoning-ladder model call, then a staged proposal
       per changed currency. Ten minutes clears a slow rung of that ladder; the
@@ -486,6 +605,9 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [GmailRegistry, GmailWatch.Topic], absent: registers_nothing}
+    args:
+      Workspace: id
+      ConnectionID: id
     reason: >-
       One users.watch call against Gmail for one connection, and the write that
       advances watch_expires_at behind it.
@@ -512,6 +634,8 @@ kinds:
     timeout: 15m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       The whole interaction projection cleared and refilled in ONE transaction,
       so a reader never sees an empty graph — which also means a pass cut short
@@ -539,6 +663,8 @@ kinds:
     timeout: 5m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       An indexed delete of one tenant's claims past the 24h replay window —
       database-only, and hourly, so a pass never faces more than an hour's
@@ -566,6 +692,8 @@ kinds:
     timeout: 10m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       A company-key renormalize and merge, then a match plus a staging pass per
       ghost owner. Database-only, but sized by an uploaded export rather than by
@@ -592,6 +720,8 @@ kinds:
     timeout: 5m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       A database-only walk over the org_name evidence the enrich pass collected;
       it needs no model, which is why it registers even where enrich does not.
@@ -623,6 +753,18 @@ kinds:
     max_attempts: 1
     opts_owner: fan_out
     registration: {when: [OverlayVault], absent: registers_nothing}
+    fault:
+      nil_after_logging: >-
+        two nil paths, neither a swallowed sweep failure. The disconnect
+        fence: every fenced write aborted with ErrConnectionGone, so there
+        is nothing to retry and nothing to back off. And a failed
+        RecordSweepSuccess, which leaves the previous backoff in place --
+        the next due-scan is simply later than it needed to be, never
+        earlier. A genuine sweep failure IS returned; the row fails and
+        stays failed, because this kind takes a single attempt and its retry
+        is the backoff the worker just recorded.
+    args:
+      Workspace: id
     reason: >-
       The longest outbound pass in the tree — the owners directory, the
       email-mapping revalidation, and every object class paged over the network.
@@ -647,6 +789,16 @@ kinds:
     timeout: 2m
     opts_owner: caller
     registration: {when: [OverlayVault], absent: registers_nothing}
+    args:
+      Workspace: id
+      IncumbentClass:
+        scalar: true
+        reason: >-
+          the incumbent's object class (contacts, companies, deals, leads).
+          It is half the coalescing key River dedupes these re-fetches by --
+          the args ARE that key — so it cannot be resolved at work time; it
+          names a class of record in another system, never a record.
+      ExternalID: id
     reason: >-
       One record read from the incumbent and one ingest — the smallest outbound
       unit in the overlay lane. A signal is an optimization and the poller heals
@@ -673,6 +825,8 @@ kinds:
     timeout: 10m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       participantBackfillBatchesPerTick (25) write transactions of
       participantBackfillBatch (500) activities each — 12,500 rows, deliberately
@@ -702,6 +856,8 @@ kinds:
         covers the policy read and the per-stage due-list reads between records.
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
 
   site_deep_read:
     role: workspace
@@ -710,6 +866,18 @@ kinds:
     timeout: {operator: DeepReadCaps}
     opts_owner: caller
     registration: {when: [DeepReadBrain], absent: registers_anyway}
+    args:
+      Workspace: id
+      OrganizationID: id
+      SiteReadID: id
+      RequestedBy: id
+      MaxPages:
+        scalar: true
+        reason: >-
+          this run's page ceiling, or zero for the deployment's own. The
+          worker clamps it against the configured cap, so it can only ever
+          narrow what an operator set, and a crawl budget states nothing
+          about a subject.
     reason: >-
       The crawl wall an operator configured, plus the parallel extraction
       budget, plus the logo lane's own bounded spend, plus a minute for the
@@ -723,6 +891,11 @@ kinds:
     queue: default
     timeout: 2m
     opts_owner: caller
+    args:
+      Workspace: id
+      ConnectionID: id
+      BotID: id
+      RawCaptureID: id
     reason: >-
       One raw payload read back, normalized, and put through the capture sink —
       database-only, one update at a time, with no provider call in it at all.
@@ -731,9 +904,12 @@ kinds:
     role: workspace
     go_type: TelegramPollArgs
     queue: default
-    timeout: 2m
+    timeout: {derived: telegramPollJobTimeout, value: 2m}
     opts_owner: args
     registration: {when: [ChannelVault], absent: registers_nothing}
+    args:
+      Workspace: id
+      ConnectionID: id
     reason: >-
       It must EXCEED the 25-second long poll plus the headroom the client adds
       around it: a poll cancelled by its own job timeout returns nothing, so its
@@ -772,6 +948,8 @@ kinds:
     timeout: 10m
     max_attempts: 3
     opts_owner: fan_out
+    args:
+      Workspace: id
     reason: >-
       A coarse activity pre-filter, then one automation dispatch per matched
       clock-triggered instance. Database-only — the actions in the closed
@@ -782,9 +960,19 @@ kinds:
     role: workspace
     go_type: VoiceBuildArgs
     queue: default
-    timeout: 10m
+    timeout: {derived: voiceBuildTimeout, value: 10m}
     opts_owner: caller
     registration: {when: [VoiceBrain], absent: registers_anyway}
+    fault:
+      nil_after_logging: >-
+        the build ROW owns its state: every model failure lands on the row
+        as deferred or failed, never as a River retry loop, and the
+        deferred-retry sweep re-enqueues what is due.
+    args:
+      Workspace: id
+      ProfileID: id
+      BuildID: id
+      RequestedBy: id
     reason: >-
       One builder call plus fifteen evaluation drafts and five judge calls, each
       small, with validator retry headroom.
@@ -827,3 +1015,5 @@ kinds:
     max_attempts: 3
     opts_owner: fan_out
     registration: {when: [WebhookRetry.Deliverer], absent: registers_nothing}
+    args:
+      Workspace: id

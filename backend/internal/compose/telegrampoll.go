@@ -65,8 +65,8 @@ const (
 	// progress. Asserted rather than assumed — telegrampoll_test.go.
 	//
 	// api/jobs.yaml carries the value River is actually handed, so moving this
-	// number alone moves no wall clock; the two are kept equal by
-	// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and the job census keeps the two equal.
 	telegramPollJobTimeout = 2 * time.Minute
 )
 

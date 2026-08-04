@@ -4,10 +4,14 @@ package jobs
 
 import "time"
 
-// JobContractHash is the sha256 of api/jobs.yaml at generation time: a
-// build fingerprint a census can compare against a freshly hashed
-// contract file to catch a stale generated table.
-const JobContractHash = "900503c0e272e21e3b3006ddfc5b5990c449eb2fd088c1427e93921f05cae5d4"
+// JobContractHash is the sha256 of api/jobs.yaml at generation time.
+// One run of gen-jobs writes this table and compose's, so both carry the
+// same fingerprint and the census compares the two: a mismatch is a pair
+// where one half was regenerated and the other was not, which the compiler
+// would believe. It says nothing about the file on disk — a pair
+// regenerated TOGETHER from a stale contract matches here, and the drift
+// gate is what catches that.
+const JobContractHash = "ef8ca87ac1fe0b58f81df22519973a969e38be05663a5f347648b33f487686b8"
 
 // specs is every declared kind. A kind absent from this table is a kind
 // nobody declared, and MustBeTotal is what names them: the runner calls it
@@ -35,6 +39,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  1,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"AgentScheduler.Service"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"ai_model_rate_refresh": {
 		Kind:      "ai_model_rate_refresh",
@@ -43,6 +48,7 @@ var specs = map[string]Spec{
 		Queue:     "rate_refresh",
 		Timeout:   TimeoutPolicy{Fixed: 20 * time.Minute},
 		OptsOwner: OptsCaller,
+		Args:      []ArgField{{Name: "RequestedBy"}, {Name: "Workspace"}},
 	},
 	"capture_auto_enrich_sweep": {
 		Kind:       "capture_auto_enrich_sweep",
@@ -63,6 +69,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"capture_backfill": {
 		Kind:         "capture_backfill",
@@ -72,6 +79,8 @@ var specs = map[string]Spec{
 		Timeout:      TimeoutPolicy{Fixed: 8 * time.Minute},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"GmailRegistry"}},
+		Fault:        FaultPolicy{NilAfterLogging: "the backfill ROW owns the outcome: RunBackfillStep ends the run and records the fault class on the row against its own give-up cap, on a context detached from the job because the job context dying mid-page is the commonest fault. A River retry would re-page a run the engine already ended."},
+		Args:         []ArgField{{Name: "BackfillID"}, {Name: "Workspace"}},
 	},
 	"capture_classify": {
 		Kind:         "capture_classify",
@@ -94,6 +103,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"ClassifyBrain"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"capture_counterparty_verdict": {
 		Kind:       "capture_counterparty_verdict",
@@ -114,6 +124,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 20 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"capture_digest": {
 		Kind:         "capture_digest",
@@ -136,6 +147,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"GmailRegistry"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"capture_enrich": {
 		Kind:         "capture_enrich",
@@ -158,6 +170,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"EnrichBrain"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"capture_sync": {
 		Kind:         "capture_sync",
@@ -168,6 +181,8 @@ var specs = map[string]Spec{
 		MaxAttempts:  25,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"GmailRegistry"}},
+		Fault:        FaultPolicy{NilAfterLogging: "the connector sidecar owns the retry: a failed sync leaves next_sync_at unadvanced, so the dispatcher re-enqueues it on the next scan — the job row's success means 'this attempt is concluded', not 'the sync succeeded'."},
+		Args:         []ArgField{{Name: "ConnectionID"}, {Name: "Provider", Scalar: true, Reason: "the connector family the connection belongs to (gmail, gcal). It selects the sync path before any row is read, so the job cannot resolve it from the connection it names without first knowing which connector owns that row. A member of a fixed set this build compiles, and a fact about a code path rather than about anyone."}, {Name: "Workspace"}},
 	},
 	"close_date_sweep": {
 		Kind:       "close_date_sweep",
@@ -188,6 +203,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 5,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"comms_send_email": {
 		Kind:         "comms_send_email",
@@ -197,6 +213,7 @@ var specs = map[string]Spec{
 		Timeout:      TimeoutPolicy{Fixed: 5 * time.Minute},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"SendRegistry"}},
+		Args:         []ArgField{{Name: "DeliveryID"}, {Name: "Workspace"}},
 	},
 	"embed_drift_sweep": {
 		Kind:         "embed_drift_sweep",
@@ -219,6 +236,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"Embedder"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"embed_reindex": {
 		Kind:         "embed_reindex",
@@ -231,6 +249,7 @@ var specs = map[string]Spec{
 		OptsOwner:    OptsCaller,
 		Cadence:      Cadence{OnDemand: true},
 		Registration: Registration{When: []string{"Embedder"}, AbsentRegistersAnyway: true},
+		Args:         []ArgField{{Name: "Identity", Scalar: true, Reason: "the embed binding in force when the confirm claimed the run -- model, dimension and revision folded into one string. Carried so a mid-flight configuration change is detectable as drift (search.ErrIdentityDrift) instead of the fleet silently re- embedding under whatever it now reports; that comparison is against the value AT CLAIM TIME, which no row still holds by the time the job runs."}, {Name: "Run"}},
 	},
 	"embed_reindex_workspace": {
 		Kind:         "embed_reindex_workspace",
@@ -241,6 +260,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  5,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"Embedder"}, AbsentRegistersAnyway: true},
+		Args:         []ArgField{{Name: "Identity", Scalar: true, Reason: "the embed binding in force when the confirm claimed the run -- model, dimension and revision folded into one string. Carried so a mid-flight configuration change is detectable as drift (search.ErrIdentityDrift) instead of the fleet silently re- embedding under whatever it now reports; that comparison is against the value AT CLAIM TIME, which no row still holds by the time the job runs."}, {Name: "Run"}, {Name: "Workspace"}},
 	},
 	"follow_up_reconcile": {
 		Kind:       "follow_up_reconcile",
@@ -261,6 +281,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 5,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"fx_rate_refresh": {
 		Kind:      "fx_rate_refresh",
@@ -269,6 +290,7 @@ var specs = map[string]Spec{
 		Queue:     "rate_refresh",
 		Timeout:   TimeoutPolicy{Fixed: 10 * time.Minute},
 		OptsOwner: OptsCaller,
+		Args:      []ArgField{{Name: "RequestedBy"}, {Name: "Workspace"}},
 	},
 	"gmail_sync": {
 		Kind:         "gmail_sync",
@@ -303,6 +325,7 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"GmailRegistry", "GmailWatch.Topic"}},
+		Args:         []ArgField{{Name: "ConnectionID"}, {Name: "Workspace"}},
 	},
 	"graph_edge_reconcile": {
 		Kind:       "graph_edge_reconcile",
@@ -323,6 +346,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 15 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"idempotency_retention": {
 		Kind:       "idempotency_retention",
@@ -343,6 +367,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"linkedin_rematch": {
 		Kind:       "linkedin_rematch",
@@ -363,6 +388,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"org_name_promotion": {
 		Kind:       "org_name_promotion",
@@ -383,6 +409,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 5 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"overlay_reconcile": {
 		Kind:         "overlay_reconcile",
@@ -405,6 +432,8 @@ var specs = map[string]Spec{
 		MaxAttempts:  1,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"OverlayVault"}},
+		Fault:        FaultPolicy{NilAfterLogging: "two nil paths, neither a swallowed sweep failure. The disconnect fence: every fenced write aborted with ErrConnectionGone, so there is nothing to retry and nothing to back off. And a failed RecordSweepSuccess, which leaves the previous backoff in place -- the next due-scan is simply later than it needed to be, never earlier. A genuine sweep failure IS returned; the row fails and stays failed, because this kind takes a single attempt and its retry is the backoff the worker just recorded."},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 	"overlay_refetch": {
 		Kind:         "overlay_refetch",
@@ -414,6 +443,7 @@ var specs = map[string]Spec{
 		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"OverlayVault"}},
+		Args:         []ArgField{{Name: "ExternalID"}, {Name: "IncumbentClass", Scalar: true, Reason: "the incumbent's object class (contacts, companies, deals, leads). It is half the coalescing key River dedupes these re-fetches by -- the args ARE that key — so it cannot be resolved at work time; it names a class of record in another system, never a record."}, {Name: "Workspace"}},
 	},
 	"participant_backfill": {
 		Kind:       "participant_backfill",
@@ -434,6 +464,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"privacy_retention": {
 		Kind:       "privacy_retention",
@@ -454,6 +485,7 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 16300 * time.Second, DerivedFrom: "privacyRetentionPassTimeout"},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"site_deep_read": {
 		Kind:         "site_deep_read",
@@ -463,6 +495,7 @@ var specs = map[string]Spec{
 		Timeout:      TimeoutPolicy{FromOperator: true},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"DeepReadBrain"}, AbsentRegistersAnyway: true},
+		Args:         []ArgField{{Name: "MaxPages", Scalar: true, Reason: "this run's page ceiling, or zero for the deployment's own. The worker clamps it against the configured cap, so it can only ever narrow what an operator set, and a crawl budget states nothing about a subject."}, {Name: "OrganizationID"}, {Name: "RequestedBy"}, {Name: "SiteReadID"}, {Name: "Workspace"}},
 	},
 	"telegram_ingest": {
 		Kind:      "telegram_ingest",
@@ -471,15 +504,17 @@ var specs = map[string]Spec{
 		Queue:     "default",
 		Timeout:   TimeoutPolicy{Fixed: 2 * time.Minute},
 		OptsOwner: OptsCaller,
+		Args:      []ArgField{{Name: "BotID"}, {Name: "ConnectionID"}, {Name: "RawCaptureID"}, {Name: "Workspace"}},
 	},
 	"telegram_poll": {
 		Kind:         "telegram_poll",
 		GoType:       "TelegramPollArgs",
 		Role:         Workspace,
 		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute},
+		Timeout:      TimeoutPolicy{Fixed: 2 * time.Minute, DerivedFrom: "telegramPollJobTimeout"},
 		OptsOwner:    OptsArgs,
 		Registration: Registration{When: []string{"ChannelVault"}},
+		Args:         []ArgField{{Name: "ConnectionID"}, {Name: "Workspace"}},
 	},
 	"telegram_poll_sweep": {
 		Kind:         "telegram_poll_sweep",
@@ -512,15 +547,18 @@ var specs = map[string]Spec{
 		Timeout:     TimeoutPolicy{Fixed: 10 * time.Minute},
 		MaxAttempts: 3,
 		OptsOwner:   OptsFanOut,
+		Args:        []ArgField{{Name: "Workspace"}},
 	},
 	"voice_build": {
 		Kind:         "voice_build",
 		GoType:       "VoiceBuildArgs",
 		Role:         Workspace,
 		Queue:        "default",
-		Timeout:      TimeoutPolicy{Fixed: 10 * time.Minute},
+		Timeout:      TimeoutPolicy{Fixed: 10 * time.Minute, DerivedFrom: "voiceBuildTimeout"},
 		OptsOwner:    OptsCaller,
 		Registration: Registration{When: []string{"VoiceBrain"}, AbsentRegistersAnyway: true},
+		Fault:        FaultPolicy{NilAfterLogging: "the build ROW owns its state: every model failure lands on the row as deferred or failed, never as a River retry loop, and the deferred-retry sweep re-enqueues what is due."},
+		Args:         []ArgField{{Name: "BuildID"}, {Name: "ProfileID"}, {Name: "RequestedBy"}, {Name: "Workspace"}},
 	},
 	"voice_build_retry": {
 		Kind:       "voice_build_retry",
@@ -554,5 +592,6 @@ var specs = map[string]Spec{
 		MaxAttempts:  3,
 		OptsOwner:    OptsFanOut,
 		Registration: Registration{When: []string{"WebhookRetry.Deliverer"}},
+		Args:         []ArgField{{Name: "Workspace"}},
 	},
 }

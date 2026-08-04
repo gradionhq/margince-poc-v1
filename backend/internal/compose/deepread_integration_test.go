@@ -120,7 +120,6 @@ func startDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteR
 		Workspace:      e.WS,
 		OrganizationID: org,
 		SiteReadID:     read.ID,
-		SeedURL:        read.SeedURL,
 		RequestedBy:    read.RequestedBy,
 	}
 }
@@ -679,9 +678,8 @@ func TestDeepReadStartQueuesOnceAndAReClickJoinsWithoutASecondInsert(t *testing.
 		t.Fatalf("enqueued %T, want SiteDeepReadArgs", inserter.inserts[0])
 	}
 	if args.Workspace != e.WS || args.OrganizationID != org ||
-		args.SiteReadID != ids.UUID(first.ReadId) ||
-		args.SeedURL != "https://acme.example" || args.RequestedBy != "human:"+e.Rep1.String() {
-		t.Fatalf("job args = %+v, want the dossier's own identity and the org's domain as seed", args)
+		args.SiteReadID != ids.UUID(first.ReadId) || args.RequestedBy != "human:"+e.Rep1.String() {
+		t.Fatalf("job args = %+v, want the dossier's own identity and the human who asked", args)
 	}
 
 	// A second click while the read is in flight joins it: same read id,

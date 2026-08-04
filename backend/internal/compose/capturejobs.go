@@ -261,16 +261,6 @@ type captureBackfillWorker struct {
 // starve the next of its deadline — and the meter climbs per page.
 const backfillPagesPerTick = 1
 
-// backfillTimeout is the reasoning behind capture_backfill's declared
-// timeout: one page of large real messages fetched serially over the network
-// needs real headroom, or the job context dies mid-page and both the fetch and
-// the failure-recording write fail as a spurious "unreachable".
-//
-// api/jobs.yaml carries the value River is actually handed, so moving this
-// number alone moves no wall clock; the two are kept equal by
-// TestEveryTranscribedTimeoutStillEqualsItsGoConstant.
-const backfillTimeout = 8 * time.Minute
-
 func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[CaptureBackfillArgs]) error {
 	bfID, err := ids.Parse(job.Args.BackfillID)
 	if err != nil {

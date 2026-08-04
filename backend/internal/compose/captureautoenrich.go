@@ -248,7 +248,6 @@ func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
 				Workspace:      storekit.MustWorkspace(ctx),
 				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
-				SeedURL:        read.SeedURL,
 				RequestedBy:    read.RequestedBy,
 				// Declared in the payload as well as enforced at the worker: a
 				// job carries what it was queued to cost, so an operator

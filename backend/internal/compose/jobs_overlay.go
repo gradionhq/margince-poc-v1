@@ -23,6 +23,44 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// addOverlayJobs registers the three workers the incumbent mirror needs, and
+// registers none of them without a vault: every one of them opens by unsealing
+// a connection's token, so a role with no custodian could only fail whatever it
+// picked up. The dispatcher's schedule stays in the runner's own list, the
+// posture the embed-reindex wiring takes — it is periodicFor's to resolve from
+// the same declaration this gate reads.
+//
+// The mirror store and the budget meter are built once and shared by the two
+// workers that use them, which is why this is a block rather than three lines
+// in the runner.
+func addOverlayJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
+	if cfg.OverlayVault == nil {
+		return
+	}
+	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
+	// cmd/worker built the meter over the shared Redis (so the poller's spend
+	// and the api's force-fresh spend land on ONE count); fall back to a
+	// fail-closed meter if a role wired the poller without one.
+	meter := cfg.OverlayMeter
+	if meter == nil {
+		meter = failClosedOverlayMeter()
+	}
+	addDeclaredWorker[OverlayReconcileArgs](reg, &overlayReconcileWorker{pool: pool, log: log})
+	addDeclaredWorker[OverlayReconcileWorkspaceArgs](reg, &overlayReconcileWorkspaceWorker{
+		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+	})
+	// The webhook-as-signal re-fetch worker (OVA-WIRE-10): consumes the
+	// coalesced OverlayRefetchArgs the receiver enqueues, refreshing one record
+	// through the same store the poller uses. Registered whenever the overlay
+	// vault is present (the receiver only enqueues when the api role has the
+	// app secret wired).
+	addDeclaredWorker[OverlayRefetchArgs](reg, &overlayRefetchWorker{
+		pool: pool, vault: cfg.OverlayVault, ms: ms, meter: meter, log: log,
+		newIncumbent: overlayIncumbentFactory(cfg.OverlayBackfillLimit),
+	})
+}
+
 // OverlayReconcileArgs schedules one incremental reconcile pass across
 // every workspace running in overlay mode (design.md §4.4: "Pull always
 // runs" — branch 1's one continuous-sync trigger; the webhook-as-signal

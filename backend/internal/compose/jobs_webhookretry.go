@@ -41,8 +41,7 @@ const (
 	//
 	// api/jobs.yaml carries the value River is actually handed, so moving this
 	// number alone moves no wall clock; the declaration names this constant in
-	// its derived timeout and TestEveryTranscribedTimeoutStillEqualsItsGoConstant
-	// keeps the two equal.
+	// its derived timeout and the job census keeps the two equal.
 	webhookRetrySweepTimeout = webhooks.MaxSweepDuration + 5*time.Minute
 )
 

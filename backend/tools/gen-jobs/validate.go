@@ -38,6 +38,10 @@ const (
 	absentRegistersNothing = "registers_nothing"
 	absentRegistersAnyway  = "registers_anyway"
 
+	// argID is the shorthand for the ordinary args field: a reference to a row,
+	// which is all a job is meant to carry.
+	argID = "id"
+
 	// riverDefaultQueue is river.QueueDefault's string value, spelled here
 	// because this tool does not import River. It is the one queue that owes
 	// no justification: every other entry exists because work was split out
@@ -61,6 +65,9 @@ var (
 	configFieldRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*(\.[A-Z][A-Za-z0-9]*)*$`)
 	// goConstRE is the name of the Go constant a {derived: …} timeout tracks.
 	goConstRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
+	// argFieldRE is an args struct's Go field name — exported, because River
+	// marshals args to JSON and an unexported field never reaches the wire.
+	argFieldRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 )
 
 // validate enforces every invariant the contract can decide on its own. Each
@@ -135,7 +142,57 @@ func (c contract) validateKind(name string, def kindDef) error {
 	if err := c.validateCadence(name, def); err != nil {
 		return err
 	}
-	return validateRegistration(name, def.Registration)
+	if err := validateRegistration(name, def.Registration); err != nil {
+		return err
+	}
+	if err := validateFault(name, def.Fault); err != nil {
+		return err
+	}
+	return validateArgs(name, def)
+}
+
+// validateFault keeps the one departure from returning a failure honest. The
+// block exists only to waive, so a waiver with nothing to say is the whole
+// error: what makes a green row for a failed pass acceptable is the durable
+// retry policy elsewhere, and unstated it is indistinguishable from the
+// swallowed error this fleet removes.
+func validateFault(name string, f *faultDef) error {
+	if f == nil {
+		return nil
+	}
+	if f.NilAfterLogging == "" {
+		return fmt.Errorf("kind %q: declares a fault block with no nil_after_logging rationale — the block exists only to waive returning a failure, and an unstated waiver is a swallowed error with a heading", name)
+	}
+	return nil
+}
+
+// validateArgs holds each declared field to the shapes it may take.
+//
+// A scalar is a payload the erasure engine cannot reach through the row the job
+// names, so it is admitted only with a reason. An id ordinarily needs none and
+// is spelled with the bare shorthand — but it may take the mapping form to
+// carry one, because a field whose NAME reads like content (Body, Subject,
+// RecipientEmail) has something to argue even when it really is a reference,
+// and jobargscontent_test.go is what demands the argument. What the mapping
+// form may never be is empty: a shape with neither scalar: true nor a reason
+// says nothing the shorthand does not.
+func validateArgs(name string, def kindDef) error {
+	for _, field := range def.sortedArgs() {
+		if !argFieldRE.MatchString(field) {
+			return fmt.Errorf("kind %q: args field %q must match %s — it names an exported field of %s", name, field, argFieldRE, def.GoType)
+		}
+		arg := def.Args[field]
+		if !arg.Scalar {
+			if arg.argued && arg.Reason == "" {
+				return fmt.Errorf("kind %q: args field %q takes the mapping form and says nothing — an id with nothing to argue is spelled %q; the mapping form carries scalar: true, or the reason a field whose name reads like content really is a reference", name, field, argID)
+			}
+			continue
+		}
+		if arg.Reason == "" {
+			return fmt.Errorf("kind %q: args field %q is declared a scalar with no reason — River persists args verbatim in a table with no workspace column and no RLS, so a value that is not an id has to say why it is safe there", name, field)
+		}
+	}
+	return nil
 }
 
 // validateTimeout holds the rule this whole contract exists for: every kind

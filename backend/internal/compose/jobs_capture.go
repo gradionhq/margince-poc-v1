@@ -15,12 +15,54 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// addGmailCaptureJobs registers every worker that reaches a Google mailbox,
+// and registers none of them without the connector registry: each one resolves
+// a connection and its credentials through it, so a role with no OAuth app
+// configured could only fail whatever it picked up. The push-watch pair takes a
+// SECOND condition — a Pub/Sub topic — because a watch registered against no
+// topic notifies nobody; a deployment that never opted into push keeps the
+// poll, which is the rest of this block.
+//
+// The dispatchers' schedules stay in the runner's own list, the posture the
+// overlay and embed-reindex wiring take: periodicFor resolves them from the
+// same declaration this gate reads.
+func addGmailCaptureJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig, log *slog.Logger) {
+	if cfg.GmailRegistry == nil {
+		return
+	}
+	digests := &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log}
+	addDeclaredWorker[CaptureDigestArgs](reg, digests)
+	addDeclaredWorker[CaptureDigestWorkspaceArgs](reg, &captureDigestWorkspaceWorker{digests: digests})
+	addDeclaredWorker[GmailSyncArgs](reg, &gmailSyncWorker{registry: cfg.GmailRegistry, log: log})
+	// The sync dispatcher scans every registered connector, so a Google
+	// Calendar connection (the same Google OAuth app) syncs on the identical
+	// per-connection path a mailbox does — there is no gcal-specific job.
+	// Per-connection pacing lives in the registry's scheduling sidecar
+	// (next_sync_at = success + --gmail-sync-interval), which is why the
+	// dispatcher's own cadence can be frequent without meaning frequent
+	// provider calls.
+	addDeclaredWorker[CaptureSyncArgs](reg, &captureSyncWorker{registry: cfg.GmailRegistry, log: log})
+	// Backfill jobs are enqueued by the api (start op); the worker role only
+	// needs the pager registered.
+	addDeclaredWorker[CaptureBackfillArgs](reg, &captureBackfillWorker{registry: cfg.GmailRegistry, log: log})
+	if cfg.GmailWatch.Topic == "" {
+		return
+	}
+	addDeclaredWorker[GmailWatchArgs](reg, &gmailWatchWorker{
+		registry: cfg.GmailRegistry, renewWithin: cfg.GmailWatch.RenewWithin, log: log,
+	})
+	addDeclaredWorker[GmailWatchRenewArgs](reg, &gmailWatchRenewWorker{
+		registry: cfg.GmailRegistry, topic: cfg.GmailWatch.Topic,
+	})
+}
 
 // GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is
 // the Pub/Sub topic Gmail publishes change notifications to (empty disables the

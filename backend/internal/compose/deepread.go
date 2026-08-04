@@ -41,15 +41,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
-// SiteDeepReadArgs is one queued deep read. The args carry everything the
-// worker role needs to run without a request context: the tenant, the
-// target, the dossier to advance, and the requesting human for the staged
-// proposal's provenance.
+// SiteDeepReadArgs is one queued deep read. The args carry what the worker
+// role needs to run without a request context: the tenant, the target, the
+// dossier to advance, and the requesting human for the staged proposal's
+// provenance until the claim yields the authoritative one.
+//
+// The seed URL is NOT among them. The worker crawls claim.SeedURL — the
+// dossier row is the authority on what is read, exactly as it is on who asked
+// — so a copy in the args would be an address sitting in a table with no
+// workspace column and no RLS that no code path ever reads.
 type SiteDeepReadArgs struct {
 	Workspace      ids.UUID `json:"workspace_id"`
 	OrganizationID ids.UUID `json:"organization_id"`
 	SiteReadID     ids.UUID `json:"site_read_id"`
-	SeedURL        string   `json:"seed_url"`
 	RequestedBy    string   `json:"requested_by"`
 	// MaxPages is this run's page ceiling, or 0 for the deployment's own. It
 	// can only ever narrow: the worker clamps it against the configured cap, so
