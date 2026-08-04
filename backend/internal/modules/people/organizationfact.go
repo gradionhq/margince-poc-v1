@@ -185,6 +185,26 @@ func validDeepReadFact(f DeepReadFact) error {
 	return nil
 }
 
+// validatedDeepReadFields vets an accepted proposal and renders its
+// profile-field half as the cold-start input the shared fill-empty machinery
+// takes. A proposal with neither half is a staging defect, not an empty write:
+// it would burn the approval and change nothing.
+func validatedDeepReadFields(in DeepReadProposal) ([]ColdStartFieldInput, error) {
+	if len(in.Fields) == 0 && len(in.Facts) == 0 {
+		return nil, errors.New("people: an accepted deepread proposal carries no fields and no facts")
+	}
+	for _, f := range in.Facts {
+		if err := validDeepReadFact(f); err != nil {
+			return nil, err
+		}
+	}
+	fields := make([]ColdStartFieldInput, 0, len(in.Fields))
+	for _, f := range in.Fields {
+		fields = append(fields, ColdStartFieldInput(f))
+	}
+	return fields, nil
+}
+
 // ApplyDeepRead executes an ACCEPTED deepread proposal: the profile-field
 // half through the shared fill-empty-plus-evidence machinery (source
 // "deepread"), the category facts upserted into organization_fact — both
@@ -207,18 +227,9 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return err
 	}
-	if len(in.Fields) == 0 && len(in.Facts) == 0 {
-		return errors.New("people: an accepted deepread proposal carries no fields and no facts")
-	}
-	for _, f := range in.Facts {
-		if err := validDeepReadFact(f); err != nil {
-			return err
-		}
-	}
-
-	fields := make([]ColdStartFieldInput, 0, len(in.Fields))
-	for _, f := range in.Fields {
-		fields = append(fields, ColdStartFieldInput(f))
+	fields, err := validatedDeepReadFields(in)
+	if err != nil {
+		return err
 	}
 
 	wsID := workspaceID(ctx)

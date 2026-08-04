@@ -125,26 +125,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		return nil, err
 	}
 
-	resolve := func() (mcp.TierResolverInput, error) {
-		return mcp.TierResolverInput{Args: args}, nil
-	}
-	if dyn, ok := t.(dynamicTool); ok {
-		// The argument checks run HERE, and only for a dynamic tool, because a
-		// dynamic tool decides its own tier by READING the record an argument names:
-		// a zero deal_id would reach the stage lookup and come back as a bare
-		// not-found from inside the gate, where no downstream check can reach it.
-		// Admit calls resolve after scope and seat, so this still sits behind the
-		// authority checks that do not depend on arguments. Static-tier tools are
-		// covered by the call after Admit — Admit never invokes resolve for them.
-		resolve = func() (mcp.TierResolverInput, error) {
-			if err := r.requireDeclaredArgs(name, args); err != nil {
-				return mcp.TierResolverInput{}, err
-			}
-			return dyn.ResolverInput(ctx, args)
-		}
-	}
-
-	admitted, err := r.gate.Admit(ctx, spec, resolve)
+	admitted, err := r.gate.Admit(ctx, spec, r.tierResolverFor(ctx, t, name, args))
 	// Static-tier tools, whose resolver Admit never runs. After authority and
 	// before staging, and both halves matter: a caller the gate turns away learns
 	// nothing about arguments, while a caller it would send to the approval queue
@@ -183,30 +164,64 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		}
 		return t.Handle(marked, args)
 	default:
-		stageable, ok := t.(stageableTool)
-		if !ok {
-			return nil, err
-		}
-		info, infoErr := stageable.StageInfo(ctx, args)
-		if infoErr != nil {
-			// The staging read failed (bad args, out-of-scope target) —
-			// that is the real answer, not "needs approval".
-			return nil, infoErr
-		}
-		id, stageErr := r.approvals.Stage(ctx, StageRequest{
-			Tool:           spec.Name,
-			ProposedChange: args,
-			DiffHash:       diffHash,
-			TargetType:     info.TargetType,
-			TargetID:       info.TargetID,
-			TargetVersion:  info.TargetVersion,
-			Summary:        info.Summary,
-		})
-		if stageErr != nil {
-			return nil, stageErr
-		}
-		return nil, &workflow.StagedApprovalError{ApprovalID: id}
+		return nil, r.stageRefusedCall(ctx, t, spec.Name, args, diffHash, err)
 	}
+}
+
+// tierResolverFor builds the resolver Admit consults for the call's tier. A
+// static-tier tool needs nothing but its own arguments; Admit never invokes
+// the resolver for one at all.
+//
+// A dynamic tool's argument checks run HERE, and only for a dynamic tool,
+// because a dynamic tool decides its own tier by READING the record an
+// argument names: a zero deal_id would reach the stage lookup and come back
+// as a bare not-found from inside the gate, where no downstream check can
+// reach it. Admit calls the resolver after scope and seat, so this still sits
+// behind the authority checks that do not depend on arguments. Static-tier
+// tools are covered by the call after Admit.
+func (r *Registry) tierResolverFor(ctx context.Context, t mcp.Tool, name string, args json.RawMessage) func() (mcp.TierResolverInput, error) {
+	dyn, ok := t.(dynamicTool)
+	if !ok {
+		return func() (mcp.TierResolverInput, error) {
+			return mcp.TierResolverInput{Args: args}, nil
+		}
+	}
+	return func() (mcp.TierResolverInput, error) {
+		if err := r.requireDeclaredArgs(name, args); err != nil {
+			return mcp.TierResolverInput{}, err
+		}
+		return dyn.ResolverInput(ctx, args)
+	}
+}
+
+// stageRefusedCall parks a 🟡 call the gate refused as a staged approval, so
+// the human decision the refusal asks for has somewhere to land; a retry
+// carrying its approval_id redeems it. A tool that cannot describe its own
+// staging target has nothing to park, so the refusal stands as the answer.
+func (r *Registry) stageRefusedCall(ctx context.Context, t mcp.Tool, tool string, args json.RawMessage, diffHash string, refusal error) error {
+	stageable, ok := t.(stageableTool)
+	if !ok {
+		return refusal
+	}
+	info, err := stageable.StageInfo(ctx, args)
+	if err != nil {
+		// The staging read failed (bad args, out-of-scope target) —
+		// that is the real answer, not "needs approval".
+		return err
+	}
+	id, err := r.approvals.Stage(ctx, StageRequest{
+		Tool:           tool,
+		ProposedChange: args,
+		DiffHash:       diffHash,
+		TargetType:     info.TargetType,
+		TargetID:       info.TargetID,
+		TargetVersion:  info.TargetVersion,
+		Summary:        info.Summary,
+	})
+	if err != nil {
+		return err
+	}
+	return &workflow.StagedApprovalError{ApprovalID: id}
 }
 
 // Spec returns the registered spec for name — the REST admission path
