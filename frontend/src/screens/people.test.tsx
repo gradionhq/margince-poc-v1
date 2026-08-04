@@ -771,7 +771,9 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
 
     // Both directions, never folded: which way went last is the fact a rep
     // acts on, and one "last touch" date hides it.
-    await waitFor(() => expect(screen.getByText("They last wrote")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("They last wrote")).toBeTruthy(),
+    );
     expect(screen.getByText("We last wrote")).toBeTruthy();
 
     // The score is computed and inspectable, but it does not lead: nothing
@@ -794,9 +796,7 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(
-          "Nobody here has a recorded exchange with them yet.",
-        ),
+        screen.getByText("Nobody here has a recorded exchange with them yet."),
       ).toBeTruthy(),
     );
     // A bare 0 is the absence inventory this state exists to replace.

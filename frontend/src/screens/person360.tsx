@@ -6,9 +6,9 @@ import type { components } from "../api/schema";
 import { Badge, Card, Disclosure, SectionHeader } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
 import type { ConfidenceLevel } from "../design-system/trust";
-import { EntityRef } from "./entityref";
-import { problemMessage, provenanceOf } from "./common";
 import { useT } from "../i18n";
+import { problemMessage, provenanceOf } from "./common";
+import { EntityRef } from "./entityref";
 
 export type Person360 = components["schemas"]["Person360"];
 type ProfileField = components["schemas"]["PersonProfileField"];
@@ -79,7 +79,7 @@ export function ThinState({
 
   return (
     <Card>
-      <div style={{ padding: 20 }}>
+      <div style={{ padding: "var(--space-6)" }}>
         <SectionHeader title={t("person.thin.title")} />
         <p style={{ margin: "8px 0 0", lineHeight: 1.55 }}>
           {t("person.thin.known", {
@@ -94,7 +94,7 @@ export function ThinState({
           <button
             type="button"
             className="btn"
-            style={{ marginTop: 14 }}
+            style={{ marginTop: "var(--space-3)" }}
             onClick={onLogActivity}
           >
             {t("person.thin.logFirst")}
@@ -124,14 +124,15 @@ export function RelationshipPulse({ view }: Readonly<{ view: Person360 }>) {
 
   return (
     <Card>
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: "var(--space-4)" }}>
         <SectionHeader title={t("person.pulse.title")} />
         <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
           {warmest
             ? t("person.pulse.warmestIs", { name: warmest.display_name })
             : t("person.pulse.nobodyYet")}
         </p>
-        <dl className="fact-list" style={{ marginTop: 12 }}>
+        <RelationshipChanges view={view} />
+        <dl className="fact-list" style={{ marginTop: "var(--space-3)" }}>
           <div>
             <dt>{t("person.pulse.lastInbound")}</dt>
             <dd>
@@ -167,6 +168,61 @@ export function RelationshipPulse({ view }: Readonly<{ view: Person360 }>) {
 }
 
 /**
+ * RelationshipChanges says what HAPPENED to the relationship, beneath what it
+ * currently is.
+ *
+ * The two belong together and are deliberately not folded. "Warm" is a
+ * description the reader can already infer from the two dates above; "they
+ * replied after 41 quiet days" is what makes those dates mean something.
+ */
+function RelationshipChanges({ view }: Readonly<{ view: Person360 }>) {
+  const t = useT();
+  const changes = view.relationship_changes ?? [];
+  if (changes.length === 0) {
+    return null;
+  }
+  return (
+    <ul
+      style={{
+        margin: "var(--space-2) 0 0",
+        padding: 0,
+        listStyle: "none",
+        display: "grid",
+        gap: "var(--space-1)",
+      }}
+    >
+      {changes.map((c) => (
+        <li key={c.kind} style={{ fontSize: "0.9rem", opacity: 0.85 }}>
+          {changeSentence(c, t)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * changeSentence writes each derived change as a sentence. A band move names
+ * BOTH bands: "the relationship moved" without saying from what to what is a
+ * claim the reader has to take on trust.
+ */
+function changeSentence(
+  c: components["schemas"]["PersonRelationshipChange"],
+  t: ReturnType<typeof useT>,
+): string {
+  const days = String(c.days ?? 0);
+  if (c.kind === "replied_after_gap") {
+    return t("person.change.repliedAfterGap", { days });
+  }
+  if (c.kind === "went_quiet") {
+    return t("person.change.wentQuiet", { days });
+  }
+  return t(`person.change.${c.kind}`, {
+    from: t(`person.band.${c.from_bucket ?? "none"}`),
+    to: t(`person.band.${c.to_bucket ?? "none"}`),
+  });
+}
+
+/**
  * IdentityRail is what the record IS: contact methods, current employment,
  * buying roles, and the career history that a re-read must never overwrite.
  *
@@ -189,7 +245,7 @@ export function IdentityRail({
   return (
     <>
       <Card>
-        <div style={{ padding: 16 }}>
+        <div style={{ padding: "var(--space-4)" }}>
           <SectionHeader title={t("person.identity.title")} />
           <dl className="fact-list">
             {view.person.emails?.map((e) => (
@@ -241,11 +297,14 @@ export function IdentityRail({
 
       {former.length > 0 && (
         <Card>
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: "var(--space-4)" }}>
             <SectionHeader title={t("person.career.title")} />
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
+            <ul style={{ margin: 0, paddingLeft: "var(--space-4)" }}>
               {former.map((e) => (
-                <li key={e.relationship_id} style={{ marginTop: 6 }}>
+                <li
+                  key={e.relationship_id}
+                  style={{ marginTop: "var(--space-1)" }}
+                >
                   {e.organization_name ?? "—"}
                   {e.role && <> · {e.role}</>}
                 </li>
@@ -275,7 +334,7 @@ function ConsentGuard({ view }: Readonly<{ view: Person360 }>) {
   const blocked = view.consent.state.filter((s) => s.state !== "granted");
   return (
     <Card>
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: "var(--space-4)" }}>
         <SectionHeader title={t("person.consent.title")} />
         <p style={{ margin: "8px 0 0", lineHeight: 1.5 }}>
           {granted.length > 0
@@ -345,7 +404,7 @@ export function WhoKnowsThem({ view }: Readonly<{ view: Person360 }>) {
   }
   return (
     <Card>
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: "var(--space-4)" }}>
         <SectionHeader title={t("person.network.title")} />
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {colleagues.map((c) => (

@@ -42,16 +42,17 @@ import {
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
-import { RelationshipsTab } from "./relationships";
-import { ShareAction } from "./share";
 import {
   IdentityRail,
   RelationshipPulse,
   ThinState,
-  WhoKnowsThem,
   thinRecord,
   usePerson360,
+  WhoKnowsThem,
 } from "./person360";
+import { PersonMoments } from "./personmoments";
+import { RelationshipsTab } from "./relationships";
+import { ShareAction } from "./share";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -643,6 +644,12 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             </div>
+            {/* First on the page, above everything the record IS: the reason
+                to be here. Deterministic, so it paints with the rest rather
+                than arriving later behind a spinner. */}
+            {tab === "overview" && view && (
+              <PersonMoments personId={id} view={view} />
+            )}
             {tab === "overview" && thinRecord(view) && view && (
               <ThinState view={view} />
             )}
