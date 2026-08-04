@@ -18,6 +18,14 @@ package backendarch
 // authority on what the database does, and not from any module's write shape —
 // a table whose writers issue bare UPDATEs still bumps, because the trigger
 // fires anyway.
+//
+// What the database ends up with is the FINAL state of the migrations, so that
+// is what is derived: they are read in apply order — core then custom, each
+// namespace by ascending version, which is how dbmigrate applies them — and
+// each statement is applied to a per-trigger state. A CREATE TRIGGER records
+// the function that trigger executes; a DROP TRIGGER removes that record. A
+// table qualifies when a trigger still attached after the last migration fires
+// before an UPDATE and executes the bump function.
 
 import (
 	"go/ast"
@@ -47,23 +55,45 @@ const approvalsDir = "internal/modules/approvals"
 const versionPinnedTableFloor = 14
 
 var (
-	// triggerAttachment captures the table a CREATE TRIGGER fires on. Applied
-	// per STATEMENT, never per line: the CREATE TRIGGER clause, the FOR EACH
-	// ROW / WHEN clauses and the EXECUTE FUNCTION clause sit on different
-	// lines, so a line-scoped match would find no attachment at all — a gate
-	// reading green off zero subjects.
-	triggerAttachment = regexp.MustCompile(`(?is)\bCREATE\s+TRIGGER\b.*?\bBEFORE\s+UPDATE\s+ON\s+([a-z_]+)`)
+	// triggerAttachment captures a CREATE TRIGGER's name, its event list and the
+	// table it fires on. Applied per STATEMENT, never per line: the name, the
+	// event list, the FOR EACH ROW / WHEN clauses and the EXECUTE clause sit on
+	// different lines, so a line-scoped match would find no attachment at all —
+	// a gate reading green off zero subjects.
+	triggerAttachment = regexp.MustCompile(`(?is)\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+([a-z_][a-z0-9_]*)\s+(BEFORE|AFTER|INSTEAD\s+OF)\s+(.*?)\bON\s+([a-z_][a-z0-9_]*)`)
 
-	// triggerDrop captures the table a DROP TRIGGER statement detaches from. It
-	// does not name the function it dropped, which is exactly why it matters
-	// here: this scan reads the migrations as a SET, so a drop it cannot order
-	// against the attachment invalidates the conclusion for that table.
-	triggerDrop = regexp.MustCompile(`(?is)\bDROP\s+TRIGGER\b[^;]*?\bON\s+([a-z_]+)`)
+	// triggerExecutes captures the function named in the EXECUTE clause — the
+	// only part of a CREATE TRIGGER that says what the trigger runs. A statement
+	// that merely mentions a function elsewhere, in its own trigger name or
+	// beside a different EXECUTE clause, executes something else.
+	triggerExecutes = regexp.MustCompile(`(?is)\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([a-z_][a-z0-9_]*)\s*\(`)
 
-	// sqlLineComment strips `-- …` so prose naming the bump function is never
-	// read as an attachment of it.
+	// triggerDrop captures the trigger name and table a DROP TRIGGER detaches:
+	// PostgreSQL scopes a trigger name to its table, so the pair is what the
+	// statement removes, and a drop of one trigger says nothing about the others
+	// on the same table.
+	triggerDrop = regexp.MustCompile(`(?is)\bDROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?([a-z_][a-z0-9_]*)\s+ON\s+([a-z_][a-z0-9_]*)`)
+
+	// updateEvent finds the UPDATE event in a trigger's event list. A trigger
+	// declared for several events fires on each of them, so an event list
+	// naming UPDATE alongside others fires before an update too.
+	updateEvent = regexp.MustCompile(`(?i)\bUPDATE\b`)
+
+	// sqlLineComment strips `-- …` so prose in a comment is never read as a
+	// statement the database runs.
 	sqlLineComment = regexp.MustCompile(`--[^\n]*`)
 )
+
+// attachedTrigger identifies one trigger by the pair PostgreSQL identifies it
+// by: its name, scoped to the table it is attached to.
+type attachedTrigger struct{ name, table string }
+
+// triggerBody is what a CREATE TRIGGER declared — the function the trigger
+// executes, and whether it fires before an UPDATE.
+type triggerBody struct {
+	function     string
+	beforeUpdate bool
+}
 
 func TestEveryVersionPinnedTableBumpsItsVersion(t *testing.T) {
 	pinned := versionPinnedTables(t)
@@ -72,27 +102,22 @@ func TestEveryVersionPinnedTableBumpsItsVersion(t *testing.T) {
 			len(pinned), versionPinnedTableFloor, approvalsDir)
 	}
 
-	bumped, dropped := versionBumpAttachments(t)
+	bumped := versionBumpingTables(t)
 	if len(bumped) == 0 {
-		t.Fatalf("no %s attachment found in the migrations: the SQL derivation broke, not the subject — the scan must be statement-scoped, since the CREATE TRIGGER and EXECUTE FUNCTION clauses sit on different lines",
+		t.Fatalf("no table is left with a BEFORE UPDATE trigger executing %s: the SQL derivation broke, not the subject — the scan must be statement-scoped and take the function from the EXECUTE clause, since a trigger's name, its event list and that clause sit on different lines",
 			bumpFunction)
 	}
 	versioned := versionedTables(t) // reused from updateguard_test.go
 
 	for _, table := range sortedNames(pinned) {
-		if at, ok := dropped[table]; ok {
-			t.Errorf("approvals.versionTables pins %s, and %s drops a trigger on it: this derivation reads the migrations as a set and cannot tell whether the %s attachment survived the drop, so the pin can no longer be shown to bind anything. Re-attach %s BEFORE UPDATE on %s in a later migration, so one CREATE TRIGGER statement carries the attachment on its own, or drop %s from versionTables in %s/redeem.go and leave TargetVersion nil for that type",
-				table, at, bumpFunction, bumpFunction, table, table, approvalsDir)
-			continue
-		}
-		if _, ok := bumped[table]; ok {
+		if bumped[table] {
 			continue
 		}
 		column := "the table has no version column at all"
 		if versioned[table] {
 			column = "the table carries a version column that nothing moves"
 		}
-		t.Errorf("approvals.versionTables pins %s but no migration attaches %s BEFORE UPDATE on it — %s, so the staged pin, the redemption re-check and the released call's If-Match all compare a constant. Attach the trigger in a new migration under migrations/core, or drop %s from versionTables in %s/redeem.go and leave TargetVersion nil for that type",
+		t.Errorf("approvals.versionTables pins %s but the migrations leave no BEFORE UPDATE trigger on it executing %s — %s, so the staged pin, the redemption re-check and the released call's If-Match all compare a constant. Attach the trigger in a new migration under migrations/core, or drop %s from versionTables in %s/redeem.go and leave TargetVersion nil for that type",
 			table, bumpFunction, column, table, approvalsDir)
 	}
 }
@@ -136,13 +161,15 @@ func versionPinnedTables(t *testing.T) map[string]bool {
 	return tables
 }
 
-// versionBumpAttachments derives, per table, where the migrations attach the
-// bump trigger and where they drop a trigger from it. Statement-scoped over
-// both migration namespaces (ADR-0017), because the fork seam may attach its
-// own.
-func versionBumpAttachments(t *testing.T) (bumped, dropped map[string]string) {
+// versionBumpingTables derives the tables the migrations leave with a live
+// BEFORE UPDATE attachment of the bump function. Statement-scoped over both
+// migration namespaces (ADR-0017), because the fork seam may attach its own.
+func versionBumpingTables(t *testing.T) map[string]bool {
 	t.Helper()
-	bumped, dropped = map[string]string{}, map[string]string{}
+	live := map[attachedTrigger]triggerBody{}
+	// Namespace order and, inside each, the walk's lexical order are the order
+	// dbmigrate applies the files in: every version is a fixed-width sequence
+	// number or a timestamp, so ascending version and ascending name agree.
 	for _, root := range []string{"migrations/core", "migrations/custom"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".up.sql") {
@@ -152,35 +179,47 @@ func versionBumpAttachments(t *testing.T) (bumped, dropped map[string]string) {
 			if err != nil {
 				return err
 			}
-			text := sqlLineComment.ReplaceAllString(string(raw), "")
-			line := 1
-			for _, stmt := range strings.Split(text, ";") {
-				// Splitting on ";" leaves the newlines that FOLLOW the previous
-				// statement at the head of this one. They belong to the gap, so
-				// they are counted before the position is taken — counting them
-				// afterwards reports every statement at the preceding ";".
-				body := strings.TrimLeft(stmt, " \t\r\n")
-				line += strings.Count(stmt[:len(stmt)-len(body)], "\n")
-				at := path + ":" + strconv.Itoa(line)
-				line += strings.Count(body, "\n")
-				if m := triggerDrop.FindStringSubmatch(stmt); m != nil {
-					dropped[m[1]] = at
-					continue
-				}
-				if !strings.Contains(stmt, bumpFunction) {
-					continue
-				}
-				if m := triggerAttachment.FindStringSubmatch(stmt); m != nil {
-					bumped[m[1]] = at
-				}
-			}
+			applyTriggerStatements(sqlLineComment.ReplaceAllString(string(raw), ""), live)
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("walking %s: %v", root, err)
 		}
 	}
-	return bumped, dropped
+
+	bumped := map[string]bool{}
+	for trigger, body := range live {
+		if body.beforeUpdate && body.function == bumpFunction {
+			bumped[trigger.table] = true
+		}
+	}
+	return bumped
+}
+
+// applyTriggerStatements folds one migration's trigger statements into the live
+// attachment state: a CREATE TRIGGER records what that trigger executes, a DROP
+// TRIGGER removes the record. A re-attachment therefore heals a drop, and a drop
+// of one trigger leaves every other trigger on the same table standing.
+func applyTriggerStatements(text string, live map[attachedTrigger]triggerBody) {
+	for _, stmt := range strings.Split(text, ";") {
+		if m := triggerDrop.FindStringSubmatch(stmt); m != nil {
+			delete(live, attachedTrigger{name: m[1], table: m[2]})
+			continue
+		}
+		m := triggerAttachment.FindStringSubmatch(stmt)
+		if m == nil {
+			continue
+		}
+		// An attachment whose EXECUTE clause the scan cannot read runs a function
+		// this derivation cannot name, so it is recorded as executing nothing —
+		// it replaces whatever the same trigger executed before, rather than
+		// leaving that reading in place.
+		body := triggerBody{beforeUpdate: strings.EqualFold(m[2], "BEFORE") && updateEvent.MatchString(m[3])}
+		if executes := triggerExecutes.FindStringSubmatch(stmt); executes != nil {
+			body.function = executes[1]
+		}
+		live[attachedTrigger{name: m[1], table: m[4]}] = body
+	}
 }
 
 // parsePackageDir parses the hand-written Go files of ONE package directory,
