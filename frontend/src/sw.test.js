@@ -24,7 +24,7 @@ async function loadServiceWorker() {
   // resetModules drops sw.js from vitest's module cache, so this import
   // re-evaluates the file (and so re-registers its listeners) every time.
   vi.resetModules();
-  await import("./sw.js");
+  await import("../public/sw.js");
   return listeners;
 }
 
