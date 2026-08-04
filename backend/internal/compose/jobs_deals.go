@@ -69,28 +69,20 @@ func (FollowUpWorkspaceArgs) Kind() string { return "follow_up_workspace" }
 // WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
 func (a FollowUpWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
-// dealsSweepMaxAttempts is larger than the shared default because both deals
-// passes tick DAILY: a workspace that failed a transient blip would otherwise
-// wait a full day for its next chance, and River's ladder spans minutes at
-// these rungs — comfortably inside one tick.
-const dealsSweepMaxAttempts = 5
-
 // closeDateSweepWorker is the dispatcher: it enumerates and enqueues, and
 // touches no tenant data itself.
 type closeDateSweepWorker struct {
-	river.WorkerDefaults[CloseDateSweepArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *closeDateSweepWorker) Work(ctx context.Context, _ *river.Job[CloseDateSweepArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, dealsSweepMaxAttempts),
+		workspaceSweepOpts(CloseDateWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return CloseDateWorkspaceArgs{Workspace: ws} }))
 }
 
 // closeDateWorkspaceWorker runs one workspace's pass.
 type closeDateWorkspaceWorker struct {
-	river.WorkerDefaults[CloseDateWorkspaceArgs]
 	corrector *deals.CloseDateCorrector
 }
 
@@ -106,19 +98,17 @@ func (w *closeDateWorkspaceWorker) Work(ctx context.Context, job *river.Job[Clos
 
 // followUpReconcileWorker is the dispatcher for the overnight pass.
 type followUpReconcileWorker struct {
-	river.WorkerDefaults[FollowUpReconcileArgs]
 	pool *pgxpool.Pool
 }
 
 func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowUpReconcileArgs]) error {
 	return jobs.FaultContext(ctx, dispatchPerWorkspace(ctx, w.pool,
-		workspaceSweepOpts(river.QueueDefault, dealsSweepMaxAttempts),
+		workspaceSweepOpts(FollowUpWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return FollowUpWorkspaceArgs{Workspace: ws} }))
 }
 
 // followUpWorkspaceWorker runs one workspace's overnight pass.
 type followUpWorkspaceWorker struct {
-	river.WorkerDefaults[FollowUpWorkspaceArgs]
 	reconciler *deals.FollowUpReconciler
 }
 

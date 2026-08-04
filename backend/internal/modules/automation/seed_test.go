@@ -16,6 +16,8 @@ import (
 // pinnedSeededNames is UAT.md:72's six, name-for-name — this test fails
 // the moment a seeded entry's Name drifts from the pinned copy, same as
 // a key drift.
+// gatekit:fixture the pinned name each seeded entry is compared against —
+// expected data, not an exception granted to a template.
 var pinnedSeededNames = map[string]string{
 	noActivityReminderName: "No-activity reminder",
 	renewalReminderName:    "Renewal reminder",

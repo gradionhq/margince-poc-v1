@@ -4,10 +4,44 @@ linters:
   default: standard
   enable:
     - depguard
+    - forbidigo
     - gosec
     - misspell
     - revive
   settings:
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # The job-registration door, closed here rather than in
+        # .golangci.strict.yml: the strict pass is new-code-only
+        # (new-from-merge-base), and every registration site this binds is
+        # pre-existing. addDeclaredWorker's type parameter is what makes an
+        # undeclared kind unbuildable; any direct registration walks around
+        # that constraint, around jobs.Govern (so the worker answers River's
+        # option methods for itself again), and around the kind list
+        # jobs.MustBeTotal reads at boot.
+        #
+        # ALL THREE of River's registration spellings, not just AddWorker:
+        # AddWorkerArgs and AddWorkerSafely are equally unconstrained and
+        # equally direct, and AddWorkerSafely is already idiom in this tree.
+        - pattern: '^river\.AddWorker(Args|Safely)?$'
+          pkg: '^github\.com/riverqueue/river$'
+          msg: "register through addDeclaredWorker — a kind absent from api/jobs.yaml is not in declaredJobArgs, and a direct registration also escapes jobs.Govern and the boot-time totality check"
+        # The other schedule door: River's RUNTIME periodic-job bundle. Every
+        # tick this fleet places is built by periodicFor from the declared
+        # cadence, and its type parameter is the declared set — but a client
+        # resolved inside a Work body hands out this bundle, whose Add and
+        # Remove methods take any args and any schedule, unconstrained and
+        # invisible to a census that reads the file.
+        #
+        # The whole TYPE rather than today's method names: every exported
+        # method on it mutates the running schedule, so a method a River
+        # upgrade adds is closed on arrival. river.ClientFromContext itself
+        # stays allowed — seven dispatchers resolve the client inside a worker
+        # to insert transactionally, which is the sanctioned path.
+        - pattern: '^river\.PeriodicJobBundle\.'
+          pkg: '^github\.com/riverqueue/river$'
+          msg: "a periodic tick is api/jobs.yaml's to declare — give the kind a cadence: and let periodicFor build it; the bundle mutates the running schedule with an args type and an interval nothing in the contract has seen"
     depguard:
       rules:
         # Layer B of the boundary stack (ADR-0014 §3): the module DAG from
@@ -76,6 +110,18 @@ linters:
       # the two passes agree (a nolint would read as unused under strict).
       - path: '_test\.go$'
         linters: [gosec]
+      # platform/jobs' own suites register fixture kinds against a throwaway
+      # river.Workers — kinds api/jobs.yaml will never declare, and no door
+      # into a running fleet. Closing that would leave the declaration
+      # untestable from outside the contract.
+      - path: '_test\.go$'
+        linters: [forbidigo]
+      # jobregistry.go holds the ONE sanctioned river.AddWorker — the shared
+      # body addDeclaredWorker routes into. Excluded by path rather than by a
+      # //nolint, because the strict pass enables forbidigo with different
+      # patterns and its nolintlint would then read the directive as unused.
+      - path: 'internal/compose/jobregistry\.go$'
+        linters: [forbidigo]
 
 formatters:
   enable:

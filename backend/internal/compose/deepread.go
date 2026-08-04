@@ -41,15 +41,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
-// SiteDeepReadArgs is one queued deep read. The args carry everything the
-// worker role needs to run without a request context: the tenant, the
-// target, the dossier to advance, and the requesting human for the staged
-// proposal's provenance.
+// SiteDeepReadArgs is one queued deep read. The args carry what the worker
+// role needs to run without a request context: the tenant, the target, the
+// dossier to advance, and the requesting human for the staged proposal's
+// provenance until the claim yields the authoritative one.
+//
+// The seed URL is NOT among them. The worker crawls claim.SeedURL — the
+// dossier row is the authority on what is read, exactly as it is on who asked
+// — so a copy in the args would be an address sitting in a table with no
+// workspace column and no RLS that no code path ever reads.
 type SiteDeepReadArgs struct {
 	Workspace      ids.UUID `json:"workspace_id"`
 	OrganizationID ids.UUID `json:"organization_id"`
 	SiteReadID     ids.UUID `json:"site_read_id"`
-	SeedURL        string   `json:"seed_url"`
 	RequestedBy    string   `json:"requested_by"`
 	// MaxPages is this run's page ceiling, or 0 for the deployment's own. It
 	// can only ever narrow: the worker clamps it against the configured cap, so
@@ -89,7 +93,6 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // with no model path it fails the read honestly instead of leaving it
 // queued forever.
 type siteDeepReadWorker struct {
-	river.WorkerDefaults[SiteDeepReadArgs]
 	people  *people.Store
 	crawler *siteCrawler
 	extract evidenceExtractor
@@ -153,14 +156,22 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain, triageBrain com
 // escalate headroom.
 const extractLaneBudget = 90 * time.Second
 
-// Timeout overrides River's 1-minute default: the crawl wall, plus the
-// parallel extraction budget, plus the logo lane's own bounded spend, plus a
-// minute for the staging and dossier writes — floored at eight minutes so a
-// tightened cap never squeezes the terminal writes. Every lane that can hold
-// the job is counted here, or a slow one silently eats the allowance the
-// terminal write depends on.
-func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + extractLaneBudget + logoLaneBudget + time.Minute
+// deepReadTimeout is the one declared timeout in the tree that cannot be a
+// number in api/jobs.yaml: the crawl wall is an operator's, so the file
+// declares {operator: DeepReadCaps} and the value is computed here and handed
+// over at registration.
+//
+// It is the crawl wall, plus the parallel extraction budget, plus the logo
+// lane's own bounded spend, plus a minute for the staging and dossier writes —
+// floored at eight minutes so a tightened cap never squeezes the terminal
+// writes. Every lane that can hold the job is counted here, or a slow one
+// silently eats the allowance the terminal write depends on.
+//
+// It defaults the caps first, so a caller passing the zero CrawlCaps gets the
+// budget the crawler will actually spend rather than one derived from a wall
+// of zero.
+func deepReadTimeout(caps CrawlCaps) time.Duration {
+	budget := caps.withDefaults().Wall + extractLaneBudget + logoLaneBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}
@@ -171,7 +182,7 @@ func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration
 // A replacement worker may reclaim only after the prior worker has exceeded
 // both its configured crawl budget and the time reserved to close the dossier.
 func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
-	return w.Timeout(nil) + time.Minute
+	return deepReadTimeout(w.caps) + time.Minute
 }
 
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
@@ -186,55 +197,13 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		}
 		return fmt.Errorf("site deep read %s: begin: %w", args.SiteReadID, err)
 	}
-	// Before ANY spend: an operator who turned auto-enrich off gets no further
-	// crawling and no further model calls, including from work queued while it
-	// was on. Only the automatic lane is gated — a human who asked for a read
-	// is not governed by the automatic-enrichment setting.
-	// Everything past the claim runs as the requester the ROW names, so the
+	// Everything past the claim runs as the requester the ROW names — the
+	// dossier row is the authority on who asked, never the job payload — so the
 	// provenance on what this read writes is the row's answer too.
 	ctx = withClaimedRequester(ctx, claim.RequestedBy, args.SiteReadID)
 
-	// claim.RequestedBy, never args: the dossier row is the authority on who
-	// asked for this read, and the job payload is metadata that travelled
-	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
-	// the row — a payload disagreeing with it must not buy a wider budget or
-	// skip a confirm-first proposal.
-	if isSystemRead(claim.RequestedBy) {
-		enabled, err := w.autoEnrichEnabled(ctx)
-		if err != nil {
-			// Recorded, not returned raw: the read is already claimed, so a
-			// bare error would leave it running until the reclaim window
-			// expires. Every other fault on this path records itself, and the
-			// sweep re-enqueues the org on its next pass.
-			return w.fail(ctx, args.SiteReadID,
-				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
-		}
-		if !enabled {
-			// A triage read may not simply stop here. Its domain is a question
-			// somebody's mail already asked, and abandoning it would leave that
-			// question open forever — no organization for that domain, ever.
-			// Answering it from what the workspace already knows is the honest
-			// close, and it is what the operator's "don't crawl" actually means.
-			if isDomainTriageRequest(claim.RequestedBy) {
-				return w.triageWithoutLooking(ctx, args, claim)
-			}
-			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
-		}
-	}
-	// The domain-triage lane runs before its subject exists: it decides whether
-	// an organization should be created at all, so it cannot share the path
-	// below, which assumes one to enrich. A role with no model path answers it
-	// the same way a disabled setting does, rather than failing a question the
-	// sweep would then re-ask forever.
-	if isDomainTriageRequest(claim.RequestedBy) {
-		if w.triageBrain == nil || w.extract.brain == nil {
-			return w.triageWithoutLooking(ctx, args, claim)
-		}
-		return w.runTriage(ctx, args, claim)
-	}
-	if w.extract.brain == nil {
-		return w.fail(ctx, args.SiteReadID,
-			errors.New("site deep read: worker has no model path — configure --ai-routing (or --ai-fake) on the worker role"))
+	if settled, err := w.routeClaimedRead(ctx, args, claim); settled || err != nil {
+		return err
 	}
 
 	if err := w.people.UpdateSiteReadProgress(ctx, args.SiteReadID, "crawling", nil); err != nil {
@@ -268,75 +237,62 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// dies outright.
 	w.resolveLogo(ctx, args, claim, crawl)
 
-	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
-		return deferErr
-	}
-	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
-	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
-	w.extract.reportDrops(ctx, laneLegal, legalDrops)
-	if legalConflict {
-		w.log.WarnContext(ctx, legalWarningMultipleEntities,
-			"read", args.SiteReadID.String(), "seed", claim.SeedURL)
-	}
-	factCount := len(mergedFields) + len(extraction.merged.facts)
-	if extraction.err != nil && factCount == 0 && len(extraction.merged.people) == 0 && len(extraction.merged.entities) == 0 {
-		// Every lane died before anything was evidenced: nothing honest
-		// to report but the failure itself.
-		return w.fail(ctx, args.SiteReadID, extraction.err)
-	}
+	return w.reportRead(ctx, args, claim, crawl, extraction)
+}
 
-	readPages := crawl.Pages
-	status := "done"
-	if crawl.Stopped != nil {
-		status = "partial"
-	}
-	if extraction.err != nil {
-		// Part of the fan-out died with evidence already in hand: what
-		// completed is the read, staged below like any other — a partial
-		// that keeps what was honestly read, never a failure that discards
-		// it. The terminal status makes returned-error retry churn
-		// pointless, so the cause is logged instead.
-		status = "partial"
-		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed in part",
-			"read", args.SiteReadID.String(), "err", extraction.err)
-	}
-
-	var proposalIDs []ids.UUID
-	if claim.OrganizationID != nil {
-		if isAutoEnrichRequest(claim.RequestedBy) {
-			// The auto-enrich lane applies the org's fields + facts directly
-			// (fill-empty, human-precedence) instead of staging a confirm-first
-			// proposal — the system chose to enrich this company, so there is no
-			// human to confirm. Site people still stage as leads (strangers stay
-			// staged, NEVER-8). Applied under the worker's PrincipalSystem ctx,
-			// which ApplyDeepReadTx's auth.Require accepts.
-			proposalIDs, err = w.autoApply(ctx, args, claim, mergedFields, extraction.merged.facts, extraction.merged.people)
-		} else {
-			proposalIDs, err = w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
-		}
+// routeClaimedRead dispatches a claimed read to the lane that owns it, before
+// any spend: the disabled-auto-enrich close, the domain-triage lane (which
+// decides whether an organization should exist at all, so it cannot share the
+// enrichment path, which assumes one to enrich), or the honest failure of a
+// worker role with no model path. It reports whether it settled the read; not
+// settled is the ordinary enrichment read, which the caller crawls itself.
+func (w *siteDeepReadWorker) routeClaimedRead(ctx context.Context, args SiteDeepReadArgs, claim people.SiteReadClaim) (bool, error) {
+	// Before ANY spend: an operator who turned auto-enrich off gets no further
+	// crawling and no further model calls, including from work queued while it
+	// was on. Only the automatic lane is gated — a human who asked for a read
+	// is not governed by the automatic-enrichment setting.
+	//
+	// claim.RequestedBy, never args: the dossier row is the authority on who
+	// asked for this read, and the job payload is metadata that travelled
+	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
+	// the row — a payload disagreeing with it must not buy a wider budget or
+	// skip a confirm-first proposal.
+	if isSystemRead(claim.RequestedBy) {
+		enabled, err := w.autoEnrichEnabled(ctx)
 		if err != nil {
-			return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
+			// Recorded, not returned raw: the read is already claimed, so a
+			// bare error would leave it running until the reclaim window
+			// expires. Every other fault on this path records itself, and the
+			// sweep re-enqueues the org on its next pass.
+			return true, w.fail(ctx, args.SiteReadID,
+				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
+		}
+		if !enabled {
+			// A triage read may not simply stop here. Its domain is a question
+			// somebody's mail already asked, and abandoning it would leave that
+			// question open forever — no organization for that domain, ever.
+			// Answering it from what the workspace already knows is the honest
+			// close, and it is what the operator's "don't crawl" actually means.
+			if isDomainTriageRequest(claim.RequestedBy) {
+				return true, w.triageWithoutLooking(ctx, args, claim)
+			}
+			return true, w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
 		}
 	}
-	warnings := make([]string, 0, 2)
-	if legalConflict {
-		warnings = append(warnings, legalWarningMultipleEntities)
+	// A role with no model path answers a triage the same way a disabled
+	// setting does, rather than failing a question the sweep would then
+	// re-ask forever.
+	if isDomainTriageRequest(claim.RequestedBy) {
+		if w.triageBrain == nil || w.extract.brain == nil {
+			return true, w.triageWithoutLooking(ctx, args, claim)
+		}
+		return true, w.runTriage(ctx, args, claim)
 	}
-	if extraction.err != nil {
-		warnings = append(warnings, "Some pages could not be extracted; the grounded findings that completed are still available.")
+	if w.extract.brain == nil {
+		return true, w.fail(ctx, args.SiteReadID,
+			errors.New("site deep read: worker has no model path — configure --ai-routing (or --ai-fake) on the worker role"))
 	}
-	draftFields := deepReadFields(mergedFields)
-	draftPeople := siteReadPeople(extraction.merged.people)
-	draftEntities := siteReadLegalEntities(extraction.merged.entities)
-	proposalHash, err := siteReadProposalHash(draftFields, extraction.merged.facts, draftPeople, draftEntities)
-	if err != nil {
-		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: hashing the draft: %w", args.SiteReadID, err))
-	}
-	// Zero surviving findings is an honest empty read — done, fact_count 0,
-	// no proposal — not an error: the site simply evidenced nothing.
-	return w.finish(ctx, args.SiteReadID, status, readPages, crawl, factCount, proposalIDs,
-		draftFields, extraction.merged.facts, draftPeople, draftEntities,
-		warnings, proposalHash)
+	return false, nil
 }
 
 func (w *siteDeepReadWorker) progressiveCallbacks(ctx context.Context, readID ids.UUID) (func(string, []crawlPage), func(pageFactsResult)) {

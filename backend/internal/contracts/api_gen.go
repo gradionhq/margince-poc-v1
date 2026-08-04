@@ -39,6 +39,30 @@ func (e AcceptedExtractionFieldProvenance) Valid() bool {
 	}
 }
 
+// Defines values for ActivityCaptureLabel.
+const (
+	ActivityCaptureLabelCommitment  ActivityCaptureLabel = "commitment"
+	ActivityCaptureLabelLessThannil ActivityCaptureLabel = "<nil>"
+	ActivityCaptureLabelMeeting     ActivityCaptureLabel = "meeting"
+	ActivityCaptureLabelNoise       ActivityCaptureLabel = "noise"
+)
+
+// Valid indicates whether the value is a known member of the ActivityCaptureLabel enum.
+func (e ActivityCaptureLabel) Valid() bool {
+	switch e {
+	case ActivityCaptureLabelCommitment:
+		return true
+	case ActivityCaptureLabelLessThannil:
+		return true
+	case ActivityCaptureLabelMeeting:
+		return true
+	case ActivityCaptureLabelNoise:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityDirection.
 const (
 	ActivityDirectionInbound     ActivityDirection = "inbound"
@@ -819,6 +843,24 @@ func (e AuditLogEntryActorType) Valid() bool {
 	case AuditLogEntryActorTypeHuman:
 		return true
 	case AuditLogEntryActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AuthorizationSeatType.
+const (
+	AuthorizationSeatTypeFull AuthorizationSeatType = "full"
+	AuthorizationSeatTypeRead AuthorizationSeatType = "read"
+)
+
+// Valid indicates whether the value is a known member of the AuthorizationSeatType enum.
+func (e AuthorizationSeatType) Valid() bool {
+	switch e {
+	case AuthorizationSeatTypeFull:
+		return true
+	case AuthorizationSeatTypeRead:
 		return true
 	default:
 		return false
@@ -1613,16 +1655,16 @@ func (e CompanySiteReadComparisonCurrentSource) Valid() bool {
 
 // Defines values for CompanySiteReadComparisonValueKind.
 const (
-	Fact         CompanySiteReadComparisonValueKind = "fact"
-	ProfileField CompanySiteReadComparisonValueKind = "profile_field"
+	CompanySiteReadComparisonValueKindFact         CompanySiteReadComparisonValueKind = "fact"
+	CompanySiteReadComparisonValueKindProfileField CompanySiteReadComparisonValueKind = "profile_field"
 )
 
 // Valid indicates whether the value is a known member of the CompanySiteReadComparisonValueKind enum.
 func (e CompanySiteReadComparisonValueKind) Valid() bool {
 	switch e {
-	case Fact:
+	case CompanySiteReadComparisonValueKindFact:
 		return true
-	case ProfileField:
+	case CompanySiteReadComparisonValueKindProfileField:
 		return true
 	default:
 		return false
@@ -3717,6 +3759,72 @@ func (e OrganizationClassification) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationLifecycle.
+const (
+	OrganizationLifecycleCustomer       OrganizationLifecycle = "customer"
+	OrganizationLifecycleDisqualified   OrganizationLifecycle = "disqualified"
+	OrganizationLifecycleFormerCustomer OrganizationLifecycle = "former_customer"
+	OrganizationLifecycleOpportunity    OrganizationLifecycle = "opportunity"
+	OrganizationLifecycleProspect       OrganizationLifecycle = "prospect"
+	OrganizationLifecycleTarget         OrganizationLifecycle = "target"
+	OrganizationLifecycleUnknown        OrganizationLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationLifecycle enum.
+func (e OrganizationLifecycle) Valid() bool {
+	switch e {
+	case OrganizationLifecycleCustomer:
+		return true
+	case OrganizationLifecycleDisqualified:
+		return true
+	case OrganizationLifecycleFormerCustomer:
+		return true
+	case OrganizationLifecycleOpportunity:
+		return true
+	case OrganizationLifecycleProspect:
+		return true
+	case OrganizationLifecycleTarget:
+		return true
+	case OrganizationLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationRelationshipTypes.
+const (
+	OrganizationRelationshipTypesCompetitor       OrganizationRelationshipTypes = "competitor"
+	OrganizationRelationshipTypesCustomer         OrganizationRelationshipTypes = "customer"
+	OrganizationRelationshipTypesInvestor         OrganizationRelationshipTypes = "investor"
+	OrganizationRelationshipTypesOther            OrganizationRelationshipTypes = "other"
+	OrganizationRelationshipTypesPartner          OrganizationRelationshipTypes = "partner"
+	OrganizationRelationshipTypesPortfolioCompany OrganizationRelationshipTypes = "portfolio_company"
+	OrganizationRelationshipTypesSupplier         OrganizationRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationRelationshipTypes enum.
+func (e OrganizationRelationshipTypes) Valid() bool {
+	switch e {
+	case OrganizationRelationshipTypesCompetitor:
+		return true
+	case OrganizationRelationshipTypesCustomer:
+		return true
+	case OrganizationRelationshipTypesInvestor:
+		return true
+	case OrganizationRelationshipTypesOther:
+		return true
+	case OrganizationRelationshipTypesPartner:
+		return true
+	case OrganizationRelationshipTypesPortfolioCompany:
+		return true
+	case OrganizationRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationSizeBand.
 const (
 	OrganizationSizeBandLessThannil OrganizationSizeBand = "<nil>"
@@ -3757,11 +3865,14 @@ func (e OrganizationSizeBand) Valid() bool {
 const (
 	Organization360SectionsOmittedActivities       Organization360SectionsOmitted = "activities"
 	Organization360SectionsOmittedDeals            Organization360SectionsOmitted = "deals"
+	Organization360SectionsOmittedHealth           Organization360SectionsOmitted = "health"
+	Organization360SectionsOmittedLastTouch        Organization360SectionsOmitted = "last_touch"
 	Organization360SectionsOmittedListMemberships  Organization360SectionsOmitted = "list_memberships"
 	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
 	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
+	Organization360SectionsOmittedStateStrip       Organization360SectionsOmitted = "state_strip"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
 	Organization360SectionsOmittedSuggestions      Organization360SectionsOmitted = "suggestions"
 	Organization360SectionsOmittedTags             Organization360SectionsOmitted = "tags"
@@ -3774,6 +3885,10 @@ func (e Organization360SectionsOmitted) Valid() bool {
 		return true
 	case Organization360SectionsOmittedDeals:
 		return true
+	case Organization360SectionsOmittedHealth:
+		return true
+	case Organization360SectionsOmittedLastTouch:
+		return true
 	case Organization360SectionsOmittedListMemberships:
 		return true
 	case Organization360SectionsOmittedNextSteps:
@@ -3783,6 +3898,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedPeople:
 		return true
 	case Organization360SectionsOmittedSinceLastVisit:
+		return true
+	case Organization360SectionsOmittedStateStrip:
 		return true
 	case Organization360SectionsOmittedStrength:
 		return true
@@ -3837,16 +3954,154 @@ func (e Organization360DealStatus) Valid() bool {
 	}
 }
 
+// Defines values for Organization360StateStripAccountLifecycle.
+const (
+	Organization360StateStripAccountLifecycleCustomer       Organization360StateStripAccountLifecycle = "customer"
+	Organization360StateStripAccountLifecycleDisqualified   Organization360StateStripAccountLifecycle = "disqualified"
+	Organization360StateStripAccountLifecycleFormerCustomer Organization360StateStripAccountLifecycle = "former_customer"
+	Organization360StateStripAccountLifecycleOpportunity    Organization360StateStripAccountLifecycle = "opportunity"
+	Organization360StateStripAccountLifecycleProspect       Organization360StateStripAccountLifecycle = "prospect"
+	Organization360StateStripAccountLifecycleTarget         Organization360StateStripAccountLifecycle = "target"
+	Organization360StateStripAccountLifecycleUnknown        Organization360StateStripAccountLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripAccountLifecycle enum.
+func (e Organization360StateStripAccountLifecycle) Valid() bool {
+	switch e {
+	case Organization360StateStripAccountLifecycleCustomer:
+		return true
+	case Organization360StateStripAccountLifecycleDisqualified:
+		return true
+	case Organization360StateStripAccountLifecycleFormerCustomer:
+		return true
+	case Organization360StateStripAccountLifecycleOpportunity:
+		return true
+	case Organization360StateStripAccountLifecycleProspect:
+		return true
+	case Organization360StateStripAccountLifecycleTarget:
+		return true
+	case Organization360StateStripAccountLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripAccountRelationshipTypes.
+const (
+	Organization360StateStripAccountRelationshipTypesCompetitor       Organization360StateStripAccountRelationshipTypes = "competitor"
+	Organization360StateStripAccountRelationshipTypesCustomer         Organization360StateStripAccountRelationshipTypes = "customer"
+	Organization360StateStripAccountRelationshipTypesInvestor         Organization360StateStripAccountRelationshipTypes = "investor"
+	Organization360StateStripAccountRelationshipTypesOther            Organization360StateStripAccountRelationshipTypes = "other"
+	Organization360StateStripAccountRelationshipTypesPartner          Organization360StateStripAccountRelationshipTypes = "partner"
+	Organization360StateStripAccountRelationshipTypesPortfolioCompany Organization360StateStripAccountRelationshipTypes = "portfolio_company"
+	Organization360StateStripAccountRelationshipTypesSupplier         Organization360StateStripAccountRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripAccountRelationshipTypes enum.
+func (e Organization360StateStripAccountRelationshipTypes) Valid() bool {
+	switch e {
+	case Organization360StateStripAccountRelationshipTypesCompetitor:
+		return true
+	case Organization360StateStripAccountRelationshipTypesCustomer:
+		return true
+	case Organization360StateStripAccountRelationshipTypesInvestor:
+		return true
+	case Organization360StateStripAccountRelationshipTypesOther:
+		return true
+	case Organization360StateStripAccountRelationshipTypesPartner:
+		return true
+	case Organization360StateStripAccountRelationshipTypesPortfolioCompany:
+		return true
+	case Organization360StateStripAccountRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripEngagementState.
+const (
+	Organization360StateStripEngagementStateActive         Organization360StateStripEngagementState = "active"
+	Organization360StateStripEngagementStateDormant        Organization360StateStripEngagementState = "dormant"
+	Organization360StateStripEngagementStateNeverContacted Organization360StateStripEngagementState = "never_contacted"
+	Organization360StateStripEngagementStateWaitingOnThem  Organization360StateStripEngagementState = "waiting_on_them"
+	Organization360StateStripEngagementStateWaitingOnUs    Organization360StateStripEngagementState = "waiting_on_us"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripEngagementState enum.
+func (e Organization360StateStripEngagementState) Valid() bool {
+	switch e {
+	case Organization360StateStripEngagementStateActive:
+		return true
+	case Organization360StateStripEngagementStateDormant:
+		return true
+	case Organization360StateStripEngagementStateNeverContacted:
+		return true
+	case Organization360StateStripEngagementStateWaitingOnThem:
+		return true
+	case Organization360StateStripEngagementStateWaitingOnUs:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360StateStripSignalSeverity.
+const (
+	Organization360StateStripSignalSeverityInfo   Organization360StateStripSignalSeverity = "info"
+	Organization360StateStripSignalSeverityUrgent Organization360StateStripSignalSeverity = "urgent"
+	Organization360StateStripSignalSeverityWarn   Organization360StateStripSignalSeverity = "warn"
+)
+
+// Valid indicates whether the value is a known member of the Organization360StateStripSignalSeverity enum.
+func (e Organization360StateStripSignalSeverity) Valid() bool {
+	switch e {
+	case Organization360StateStripSignalSeverityInfo:
+		return true
+	case Organization360StateStripSignalSeverityUrgent:
+		return true
+	case Organization360StateStripSignalSeverityWarn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360SuggestionActionKind.
+const (
+	AddTask    Organization360SuggestionActionKind = "add_task"
+	DraftReply Organization360SuggestionActionKind = "draft_reply"
+	OpenDeal   Organization360SuggestionActionKind = "open_deal"
+)
+
+// Valid indicates whether the value is a known member of the Organization360SuggestionActionKind enum.
+func (e Organization360SuggestionActionKind) Valid() bool {
+	switch e {
+	case AddTask:
+		return true
+	case DraftReply:
+		return true
+	case OpenDeal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Organization360SuggestionKind.
 const (
-	Organization360SuggestionKindNoNextStep  Organization360SuggestionKind = "no_next_step"
-	Organization360SuggestionKindNoReply     Organization360SuggestionKind = "no_reply"
-	Organization360SuggestionKindStalledDeal Organization360SuggestionKind = "stalled_deal"
+	Organization360SuggestionKindLifecycleConflict Organization360SuggestionKind = "lifecycle_conflict"
+	Organization360SuggestionKindNoNextStep        Organization360SuggestionKind = "no_next_step"
+	Organization360SuggestionKindNoReply           Organization360SuggestionKind = "no_reply"
+	Organization360SuggestionKindStalledDeal       Organization360SuggestionKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the Organization360SuggestionKind enum.
 func (e Organization360SuggestionKind) Valid() bool {
 	switch e {
+	case Organization360SuggestionKindLifecycleConflict:
+		return true
 	case Organization360SuggestionKindNoNextStep:
 		return true
 	case Organization360SuggestionKindNoReply:
@@ -3886,6 +4141,7 @@ func (e Organization360SuggestionSubjectType) Valid() bool {
 const (
 	OrganizationBriefEvidenceEntityTypeActivity     OrganizationBriefEvidenceEntityType = "activity"
 	OrganizationBriefEvidenceEntityTypeDeal         OrganizationBriefEvidenceEntityType = "deal"
+	OrganizationBriefEvidenceEntityTypeFact         OrganizationBriefEvidenceEntityType = "fact"
 	OrganizationBriefEvidenceEntityTypeOrganization OrganizationBriefEvidenceEntityType = "organization"
 	OrganizationBriefEvidenceEntityTypePerson       OrganizationBriefEvidenceEntityType = "person"
 )
@@ -3897,9 +4153,59 @@ func (e OrganizationBriefEvidenceEntityType) Valid() bool {
 		return true
 	case OrganizationBriefEvidenceEntityTypeDeal:
 		return true
+	case OrganizationBriefEvidenceEntityTypeFact:
+		return true
 	case OrganizationBriefEvidenceEntityTypeOrganization:
 		return true
 	case OrganizationBriefEvidenceEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationBriefSectionKind.
+const (
+	OrganizationBriefSectionKindActivity OrganizationBriefSectionKind = "activity"
+	OrganizationBriefSectionKindFit      OrganizationBriefSectionKind = "fit"
+	OrganizationBriefSectionKindHealth   OrganizationBriefSectionKind = "health"
+	OrganizationBriefSectionKindNextStep OrganizationBriefSectionKind = "next_step"
+	OrganizationBriefSectionKindSnapshot OrganizationBriefSectionKind = "snapshot"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefSectionKind enum.
+func (e OrganizationBriefSectionKind) Valid() bool {
+	switch e {
+	case OrganizationBriefSectionKindActivity:
+		return true
+	case OrganizationBriefSectionKindFit:
+		return true
+	case OrganizationBriefSectionKindHealth:
+		return true
+	case OrganizationBriefSectionKindNextStep:
+		return true
+	case OrganizationBriefSectionKindSnapshot:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationBriefSentenceNature.
+const (
+	Assessment     OrganizationBriefSentenceNature = "assessment"
+	Fact           OrganizationBriefSentenceNature = "fact"
+	Recommendation OrganizationBriefSentenceNature = "recommendation"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefSentenceNature enum.
+func (e OrganizationBriefSentenceNature) Valid() bool {
+	switch e {
+	case Assessment:
+		return true
+	case Fact:
+		return true
+	case Recommendation:
 		return true
 	default:
 		return false
@@ -4011,6 +4317,36 @@ func (e OrganizationFactSource) Valid() bool {
 	case OrganizationFactSourceMigration:
 		return true
 	case OrganizationFactSourceSiteRead:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationFactSuspectReason.
+const (
+	OrganizationFactSuspectReasonLessThannil         OrganizationFactSuspectReason = "<nil>"
+	OrganizationFactSuspectReasonNotAPhone           OrganizationFactSuspectReason = "not_a_phone"
+	OrganizationFactSuspectReasonNotASize            OrganizationFactSuspectReason = "not_a_size"
+	OrganizationFactSuspectReasonNotAYear            OrganizationFactSuspectReason = "not_a_year"
+	OrganizationFactSuspectReasonNotAnEmail          OrganizationFactSuspectReason = "not_an_email"
+	OrganizationFactSuspectReasonPhoneShapedLocation OrganizationFactSuspectReason = "phone_shaped_location"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationFactSuspectReason enum.
+func (e OrganizationFactSuspectReason) Valid() bool {
+	switch e {
+	case OrganizationFactSuspectReasonLessThannil:
+		return true
+	case OrganizationFactSuspectReasonNotAPhone:
+		return true
+	case OrganizationFactSuspectReasonNotASize:
+		return true
+	case OrganizationFactSuspectReasonNotAYear:
+		return true
+	case OrganizationFactSuspectReasonNotAnEmail:
+		return true
+	case OrganizationFactSuspectReasonPhoneShapedLocation:
 		return true
 	default:
 		return false
@@ -5141,12 +5477,16 @@ func (e SignalEntityType) Valid() bool {
 
 // Defines values for SignalKind.
 const (
-	SignalKindBuyingIntent SignalKind = "buying_intent"
-	SignalKindChampionLeft SignalKind = "champion_left"
-	SignalKindOther        SignalKind = "other"
-	SignalKindReengagement SignalKind = "reengagement"
-	SignalKindRisk         SignalKind = "risk"
-	SignalKindStalledDeal  SignalKind = "stalled_deal"
+	SignalKindBuyingIntent   SignalKind = "buying_intent"
+	SignalKindChampionLeft   SignalKind = "champion_left"
+	SignalKindCommitmentMade SignalKind = "commitment_made"
+	SignalKindContractEnded  SignalKind = "contract_ended"
+	SignalKindGhostedThread  SignalKind = "ghosted_thread"
+	SignalKindNewOpportunity SignalKind = "new_opportunity"
+	SignalKindOther          SignalKind = "other"
+	SignalKindReengagement   SignalKind = "reengagement"
+	SignalKindRisk           SignalKind = "risk"
+	SignalKindStalledDeal    SignalKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the SignalKind enum.
@@ -5155,6 +5495,14 @@ func (e SignalKind) Valid() bool {
 	case SignalKindBuyingIntent:
 		return true
 	case SignalKindChampionLeft:
+		return true
+	case SignalKindCommitmentMade:
+		return true
+	case SignalKindContractEnded:
+		return true
+	case SignalKindGhostedThread:
+		return true
+	case SignalKindNewOpportunity:
 		return true
 	case SignalKindOther:
 		return true
@@ -5733,6 +6081,72 @@ func (e UpdateLeadRequestStatus) Valid() bool {
 	}
 }
 
+// Defines values for UpdateOrganizationRequestLifecycle.
+const (
+	UpdateOrganizationRequestLifecycleCustomer       UpdateOrganizationRequestLifecycle = "customer"
+	UpdateOrganizationRequestLifecycleDisqualified   UpdateOrganizationRequestLifecycle = "disqualified"
+	UpdateOrganizationRequestLifecycleFormerCustomer UpdateOrganizationRequestLifecycle = "former_customer"
+	UpdateOrganizationRequestLifecycleOpportunity    UpdateOrganizationRequestLifecycle = "opportunity"
+	UpdateOrganizationRequestLifecycleProspect       UpdateOrganizationRequestLifecycle = "prospect"
+	UpdateOrganizationRequestLifecycleTarget         UpdateOrganizationRequestLifecycle = "target"
+	UpdateOrganizationRequestLifecycleUnknown        UpdateOrganizationRequestLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the UpdateOrganizationRequestLifecycle enum.
+func (e UpdateOrganizationRequestLifecycle) Valid() bool {
+	switch e {
+	case UpdateOrganizationRequestLifecycleCustomer:
+		return true
+	case UpdateOrganizationRequestLifecycleDisqualified:
+		return true
+	case UpdateOrganizationRequestLifecycleFormerCustomer:
+		return true
+	case UpdateOrganizationRequestLifecycleOpportunity:
+		return true
+	case UpdateOrganizationRequestLifecycleProspect:
+		return true
+	case UpdateOrganizationRequestLifecycleTarget:
+		return true
+	case UpdateOrganizationRequestLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for UpdateOrganizationRequestRelationshipTypes.
+const (
+	UpdateOrganizationRequestRelationshipTypesCompetitor       UpdateOrganizationRequestRelationshipTypes = "competitor"
+	UpdateOrganizationRequestRelationshipTypesCustomer         UpdateOrganizationRequestRelationshipTypes = "customer"
+	UpdateOrganizationRequestRelationshipTypesInvestor         UpdateOrganizationRequestRelationshipTypes = "investor"
+	UpdateOrganizationRequestRelationshipTypesOther            UpdateOrganizationRequestRelationshipTypes = "other"
+	UpdateOrganizationRequestRelationshipTypesPartner          UpdateOrganizationRequestRelationshipTypes = "partner"
+	UpdateOrganizationRequestRelationshipTypesPortfolioCompany UpdateOrganizationRequestRelationshipTypes = "portfolio_company"
+	UpdateOrganizationRequestRelationshipTypesSupplier         UpdateOrganizationRequestRelationshipTypes = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the UpdateOrganizationRequestRelationshipTypes enum.
+func (e UpdateOrganizationRequestRelationshipTypes) Valid() bool {
+	switch e {
+	case UpdateOrganizationRequestRelationshipTypesCompetitor:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesCustomer:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesInvestor:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesOther:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesPartner:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesPortfolioCompany:
+		return true
+	case UpdateOrganizationRequestRelationshipTypesSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpdateOrganizationRequestSizeBand.
 const (
 	UpdateOrganizationRequestSizeBandLessThannil UpdateOrganizationRequestSizeBand = "<nil>"
@@ -5771,19 +6185,19 @@ func (e UpdateOrganizationRequestSizeBand) Valid() bool {
 
 // Defines values for UpdateSignalRequestSeverity.
 const (
-	UpdateSignalRequestSeverityInfo   UpdateSignalRequestSeverity = "info"
-	UpdateSignalRequestSeverityUrgent UpdateSignalRequestSeverity = "urgent"
-	UpdateSignalRequestSeverityWarn   UpdateSignalRequestSeverity = "warn"
+	Info   UpdateSignalRequestSeverity = "info"
+	Urgent UpdateSignalRequestSeverity = "urgent"
+	Warn   UpdateSignalRequestSeverity = "warn"
 )
 
 // Valid indicates whether the value is a known member of the UpdateSignalRequestSeverity enum.
 func (e UpdateSignalRequestSeverity) Valid() bool {
 	switch e {
-	case UpdateSignalRequestSeverityInfo:
+	case Info:
 		return true
-	case UpdateSignalRequestSeverityUrgent:
+	case Urgent:
 		return true
-	case UpdateSignalRequestSeverityWarn:
+	case Warn:
 		return true
 	default:
 		return false
@@ -6080,31 +6494,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -7143,6 +7557,72 @@ func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
 	}
 }
 
+// Defines values for ListOrganizationsParamsLifecycle.
+const (
+	ListOrganizationsParamsLifecycleCustomer       ListOrganizationsParamsLifecycle = "customer"
+	ListOrganizationsParamsLifecycleDisqualified   ListOrganizationsParamsLifecycle = "disqualified"
+	ListOrganizationsParamsLifecycleFormerCustomer ListOrganizationsParamsLifecycle = "former_customer"
+	ListOrganizationsParamsLifecycleOpportunity    ListOrganizationsParamsLifecycle = "opportunity"
+	ListOrganizationsParamsLifecycleProspect       ListOrganizationsParamsLifecycle = "prospect"
+	ListOrganizationsParamsLifecycleTarget         ListOrganizationsParamsLifecycle = "target"
+	ListOrganizationsParamsLifecycleUnknown        ListOrganizationsParamsLifecycle = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsLifecycle enum.
+func (e ListOrganizationsParamsLifecycle) Valid() bool {
+	switch e {
+	case ListOrganizationsParamsLifecycleCustomer:
+		return true
+	case ListOrganizationsParamsLifecycleDisqualified:
+		return true
+	case ListOrganizationsParamsLifecycleFormerCustomer:
+		return true
+	case ListOrganizationsParamsLifecycleOpportunity:
+		return true
+	case ListOrganizationsParamsLifecycleProspect:
+		return true
+	case ListOrganizationsParamsLifecycleTarget:
+		return true
+	case ListOrganizationsParamsLifecycleUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationsParamsRelationshipType.
+const (
+	ListOrganizationsParamsRelationshipTypeCompetitor       ListOrganizationsParamsRelationshipType = "competitor"
+	ListOrganizationsParamsRelationshipTypeCustomer         ListOrganizationsParamsRelationshipType = "customer"
+	ListOrganizationsParamsRelationshipTypeInvestor         ListOrganizationsParamsRelationshipType = "investor"
+	ListOrganizationsParamsRelationshipTypeOther            ListOrganizationsParamsRelationshipType = "other"
+	ListOrganizationsParamsRelationshipTypePartner          ListOrganizationsParamsRelationshipType = "partner"
+	ListOrganizationsParamsRelationshipTypePortfolioCompany ListOrganizationsParamsRelationshipType = "portfolio_company"
+	ListOrganizationsParamsRelationshipTypeSupplier         ListOrganizationsParamsRelationshipType = "supplier"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsRelationshipType enum.
+func (e ListOrganizationsParamsRelationshipType) Valid() bool {
+	switch e {
+	case ListOrganizationsParamsRelationshipTypeCompetitor:
+		return true
+	case ListOrganizationsParamsRelationshipTypeCustomer:
+		return true
+	case ListOrganizationsParamsRelationshipTypeInvestor:
+		return true
+	case ListOrganizationsParamsRelationshipTypeOther:
+		return true
+	case ListOrganizationsParamsRelationshipTypePartner:
+		return true
+	case ListOrganizationsParamsRelationshipTypePortfolioCompany:
+		return true
+	case ListOrganizationsParamsRelationshipTypeSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetOrganizationHierarchyRollupParamsScope.
 const (
 	GetOrganizationHierarchyRollupParamsScopeSelf GetOrganizationHierarchyRollupParamsScope = "self"
@@ -7516,6 +7996,12 @@ type Activity struct {
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
 	Body       *string             `json:"body,omitempty"`
 
+	// BulkMailAttested This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply.
+	BulkMailAttested *bool `json:"bulk_mail_attested,omitempty"`
+
+	// CaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
+	CaptureLabel *ActivityCaptureLabel `json:"capture_label,omitempty"`
+
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
 	CapturedBy *string   `json:"captured_by,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -7551,9 +8037,12 @@ type Activity struct {
 	SourceId *string `json:"source_id,omitempty"`
 
 	// SourceSystem gmail/gcal/outlook/transcript — idempotency key part.
-	SourceSystem *string   `json:"source_system,omitempty"`
-	Subject      *string   `json:"subject,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	SourceSystem *string `json:"source_system,omitempty"`
+	Subject      *string `json:"subject,omitempty"`
+
+	// ThreadKey The provider's own conversation id (Gmail threadId, Graph conversationId, the RFC822 References root), stamped by capture. It is what makes a thread a thread: grouping by subject would merge two unrelated "Re: Update" exchanges and split one that was renamed mid-conversation. Null on anything capture did not thread — a note, a task, a message whose provider offered none.
+	ThreadKey *string   `json:"thread_key,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -7563,6 +8052,9 @@ type Activity struct {
 	Version     *RowVersion        `json:"version,omitempty"`
 	WorkspaceId openapi_types.UUID `json:"workspace_id"`
 }
+
+// ActivityCaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
+type ActivityCaptureLabel string
 
 // ActivityDirection inbound/outbound for email/call; null for note/task.
 type ActivityDirection string
@@ -8174,6 +8666,20 @@ type AuthCapabilities struct {
 	// PasswordReset The A74 reset flow can complete end to end (outbound email configured + healthy).
 	PasswordReset bool `json:"password_reset"`
 }
+
+// Authorization What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
+// Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
+// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
+type Authorization struct {
+	// Objects Effective grants keyed by RbacObject. An absent key denies — the server resolves an unknown object to the zero grant, and a client must do the same rather than treat a missing entry as unrestricted.
+	Objects map[string]RbacObjectGrant `json:"objects"`
+
+	// SeatType The licensing seat. A read seat may read but never mutate over REST, whatever its role grants. A client that cannot read a recognized value MUST assume a read seat: the ceiling fails closed, so an omission never buys the ability to mutate.
+	SeatType AuthorizationSeatType `json:"seat_type"`
+}
+
+// AuthorizationSeatType The licensing seat. A read seat may read but never mutate over REST, whatever its role grants. A client that cannot read a recognized value MUST assume a read seat: the ceiling fails closed, so an omission never buys the ability to mutate.
+type AuthorizationSeatType string
 
 // Automation A configured automation instance (feedback/14).
 type Automation struct {
@@ -10264,10 +10770,16 @@ type LoginRequest struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
+	// Authorization What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
+	// Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
+	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
+	Authorization *Authorization `json:"authorization,omitempty"`
+
 	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
 	NonProduction bool `json:"non_production"`
 
-	// Passport Present when the principal is an agent acting under an Agent Seat Passport.
+	// Passport Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.
+	// Deprecated: Always null — an agent cannot reach this endpoint, so the claim can never be populated. Ask the MCP tools/list surface for a passport's scopes instead.
 	Passport *struct {
 		OnBehalfOf *openapi_types.UUID         `json:"on_behalf_of,omitempty"`
 		PassportId *openapi_types.UUID         `json:"passport_id,omitempty"`
@@ -10801,7 +11313,8 @@ type Organization struct {
 	// CapturedBy Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
-	// Classification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+	// Classification RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	Classification *OrganizationClassification `json:"classification,omitempty"`
 
 	// ComputedFields S-E15.8c formula-field display rows (RD-AC-6/RD-AC-7/RD-AC-N-1). Populated on
@@ -10814,6 +11327,9 @@ type Organization struct {
 	Id             openapi_types.UUID    `json:"id"`
 	Industry       *string               `json:"industry,omitempty"`
 	LegalName      *string               `json:"legal_name,omitempty"`
+
+	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
 
 	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
 	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
@@ -10834,10 +11350,13 @@ type Organization struct {
 	// A68/ADR-0053 adds the relationship-in-flight layer: lifecycle stage, relationship health,
 	// partner fit, next step, and served segments. Behavior is Fast-follow, but the V1 schema is
 	// forward-compatible.
-	Partner  *Partner                `json:"partner,omitempty"`
-	Raw      *map[string]interface{} `json:"raw,omitempty"`
-	SizeBand *OrganizationSizeBand   `json:"size_band,omitempty"`
-	Source   string                  `json:"source"`
+	Partner *Partner                `json:"partner,omitempty"`
+	Raw     *map[string]interface{} `json:"raw,omitempty"`
+
+	// RelationshipTypes WHAT THE COMPANY IS to us (PO-DDL-4b, ADR-0079/A124). Multi-valued, because a company is legitimately several things at once — the partner program is built on companies that are simultaneously partners and customers. An org IS a partner iff it carries `partner` here AND has a `partner` row; removing the type while that row lives is refused (422).
+	RelationshipTypes *[]OrganizationRelationshipTypes `json:"relationship_types,omitempty"`
+	SizeBand          *OrganizationSizeBand            `json:"size_band,omitempty"`
+	Source            string                           `json:"source"`
 
 	// Strength Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.
 	Strength  *RelationshipStrength `json:"strength,omitempty"`
@@ -10853,8 +11372,14 @@ type Organization struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
-// OrganizationClassification An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+// OrganizationClassification RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
 type OrganizationClassification string
+
+// OrganizationLifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+type OrganizationLifecycle string
+
+// OrganizationRelationshipTypes defines model for Organization.RelationshipTypes.
+type OrganizationRelationshipTypes string
 
 // OrganizationSizeBand defines model for Organization.SizeBand.
 type OrganizationSizeBand string
@@ -10868,8 +11393,25 @@ type Organization360 struct {
 	AsOf time.Time `json:"as_of"`
 
 	// Deals The account's open deals plus the two lifetime figures the header needs.
-	Deals           *Organization360Deals `json:"deals,omitempty"`
-	ListMemberships *[]List               `json:"list_memberships,omitempty"`
+	Deals *Organization360Deals `json:"deals,omitempty"`
+
+	// Health How the relationship stands, in the parts a reader can act on (AC-company-3).
+	//
+	// It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+	// contacts, so one talkative contact spoke for the whole account and a long, low-volume
+	// relationship read as near-dead. Each part below names a fact instead: "no inbound for
+	// 90 days" tells a rep what to do, where "2/100" told them only a mood.
+	//
+	// Every part is nullable and absent when it cannot be computed — never zero, which would
+	// be a claim about the account rather than about what was readable.
+	Health *Organization360Health `json:"health,omitempty"`
+
+	// LastInboundAt When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+	LastInboundAt *time.Time `json:"last_inbound_at,omitempty"`
+
+	// LastOutboundAt When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
+	LastOutboundAt  *time.Time `json:"last_outbound_at,omitempty"`
+	ListMemberships *[]List    `json:"list_memberships,omitempty"`
 	NextSteps       *struct {
 		Data []Organization360NextStep `json:"data"`
 		Page PageInfo                  `json:"page"`
@@ -10892,6 +11434,12 @@ type Organization360 struct {
 	// SinceLastVisit What changed on this account since the caller last acknowledged seeing it. Read-only:
 	// the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
 	SinceLastVisit *Organization360SinceLastVisit `json:"since_last_visit,omitempty"`
+
+	// StateStrip The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+	// independently gated: a caller who may read the account but not its mail gets the account
+	// half and a null engagement, because a state inferred from data they were not allowed to see
+	// would be a conclusion the page has no basis for — and it is the one a rep would act on.
+	StateStrip *Organization360StateStrip `json:"state_strip,omitempty"`
 
 	// Strength Relationship strength for an ACCOUNT: the §4 score of its strongest current
 	// contact (one strong relationship makes an account warm; an average would dilute
@@ -10989,6 +11537,33 @@ type Organization360Deals struct {
 	WonLifetime Money `json:"won_lifetime"`
 }
 
+// Organization360Health How the relationship stands, in the parts a reader can act on (AC-company-3).
+//
+// It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+// contacts, so one talkative contact spoke for the whole account and a long, low-volume
+// relationship read as near-dead. Each part below names a fact instead: "no inbound for
+// 90 days" tells a rep what to do, where "2/100" told them only a mood.
+//
+// Every part is nullable and absent when it cannot be computed — never zero, which would
+// be a claim about the account rather than about what was readable.
+type Organization360Health struct {
+	// ActiveContacts How many people here have interacted at all — the account's real surface.
+	ActiveContacts *int `json:"active_contacts,omitempty"`
+
+	// DaysSinceLastInbound Null when they have never written, which is different from writing long ago.
+	DaysSinceLastInbound *int       `json:"days_since_last_inbound,omitempty"`
+	LastMeetingAt        *time.Time `json:"last_meeting_at,omitempty"`
+
+	// OpenCommitments Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals.
+	OpenCommitments *int `json:"open_commitments,omitempty"`
+
+	// ReplyBalance Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured.
+	ReplyBalance *float32 `json:"reply_balance,omitempty"`
+
+	// SingleThreaded The whole relationship rests on one contact. Named as a fact rather than scored, because it is the one shape a rep can fix before it costs them the account.
+	SingleThreaded *bool `json:"single_threaded,omitempty"`
+}
+
 // Organization360NextStep One open task on the account, ordered overdue → due → undated.
 type Organization360NextStep struct {
 	ActivityId     openapi_types.UUID  `json:"activity_id"`
@@ -11017,12 +11592,80 @@ type Organization360SinceLastVisit struct {
 	PendingProposals *int `json:"pending_proposals,omitempty"`
 }
 
+// Organization360StateStrip The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+// independently gated: a caller who may read the account but not its mail gets the account
+// half and a null engagement, because a state inferred from data they were not allowed to see
+// would be a conclusion the page has no basis for — and it is the one a rep would act on.
+type Organization360StateStrip struct {
+	Account struct {
+		Lifecycle         Organization360StateStripAccountLifecycle           `json:"lifecycle"`
+		RelationshipTypes []Organization360StateStripAccountRelationshipTypes `json:"relationship_types"`
+	} `json:"account"`
+
+	// Commercial Null when the caller has no deal grant.
+	Commercial *struct {
+		OpenCount    int `json:"open_count"`
+		StalledCount int `json:"stalled_count"`
+	} `json:"commercial,omitempty"`
+
+	// Engagement Null when the caller has no activity grant — not assessed, as distinct from never contacted.
+	Engagement *struct {
+		LastInboundAt  *time.Time `json:"last_inbound_at,omitempty"`
+		LastOutboundAt *time.Time `json:"last_outbound_at,omitempty"`
+
+		// State PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+		State Organization360StateStripEngagementState `json:"state"`
+	} `json:"engagement,omitempty"`
+
+	// Signal The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it.
+	Signal *struct {
+		// Kind The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise.
+		Kind     string                                  `json:"kind"`
+		Severity Organization360StateStripSignalSeverity `json:"severity"`
+
+		// Summary The signal's one sentence, in the words its producer wrote — the strip does not rephrase what a conversation said.
+		Summary string `json:"summary"`
+	} `json:"signal,omitempty"`
+}
+
+// Organization360StateStripAccountLifecycle defines model for Organization360StateStrip.Account.Lifecycle.
+type Organization360StateStripAccountLifecycle string
+
+// Organization360StateStripAccountRelationshipTypes defines model for Organization360StateStrip.Account.RelationshipTypes.
+type Organization360StateStripAccountRelationshipTypes string
+
+// Organization360StateStripEngagementState PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+type Organization360StateStripEngagementState string
+
+// Organization360StateStripSignalSeverity defines model for Organization360StateStrip.Signal.Severity.
+type Organization360StateStripSignalSeverity string
+
 // Organization360Suggestion One deterministic next-step suggestion. It is derived, not decided: the rule
 // that fired, the records it fired on, and nothing the reader cannot check.
 //
 // Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
 // it offers are the same governed endpoints the rep would have used anyway.
 type Organization360Suggestion struct {
+	// Action What performing this advice means, named by the server rather than inferred by the
+	// client from the evidence order (AC-company-14). A rule that cannot name an action
+	// carries null and the card advises without offering a button, which is honest — a
+	// control that does nothing teaches the reader to stop pressing them.
+	//
+	// Nothing here stages or sends. Each kind opens a governed surface the rep would have
+	// used anyway, prefilled from the evidence the rule fired on.
+	Action *struct {
+		// ActivityId The unanswered outbound message a `draft_reply` anchors on.
+		ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
+
+		// DealId The deal an `open_deal` opens, and the optional link an `add_task` carries.
+		DealId *openapi_types.UUID `json:"deal_id,omitempty"`
+
+		// Kind `draft_reply` — open the composer on the message that went unanswered.
+		// `open_deal` — open the deal that stalled.
+		// `add_task` — log the next step this account does not have.
+		Kind Organization360SuggestionActionKind `json:"kind"`
+	} `json:"action,omitempty"`
+
 	// Evidence The records the rule fired on — always ones this reader can open.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
 
@@ -11038,6 +11681,10 @@ type Organization360Suggestion struct {
 	// Kind `no_reply` — an outbound message on a thread nobody answered.
 	// `stalled_deal` — an open deal idle past the 60-day stall window.
 	// `no_next_step` — an active account with no open task on it.
+	// `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+	// filed under: a `contract_ended` signal stands while the record still reads as a live
+	// customer or an open opportunity. The page states the conflict rather than resolving
+	// it, because which of the two is wrong is a judgment only the reader can make.
 	Kind Organization360SuggestionKind `json:"kind"`
 
 	// Reason The rule that fired, in the words the rep reads. Never a score.
@@ -11046,9 +11693,18 @@ type Organization360Suggestion struct {
 	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
 }
 
+// Organization360SuggestionActionKind `draft_reply` — open the composer on the message that went unanswered.
+// `open_deal` — open the deal that stalled.
+// `add_task` — log the next step this account does not have.
+type Organization360SuggestionActionKind string
+
 // Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
 // `stalled_deal` — an open deal idle past the 60-day stall window.
 // `no_next_step` — an active account with no open task on it.
+// `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+// filed under: a `contract_ended` signal stands while the record still reads as a live
+// customer or an open opportunity. The page states the conflict rather than resolving
+// it, because which of the two is wrong is a judgment only the reader can make.
 type Organization360SuggestionKind string
 
 // Organization360SuggestionSubjectType defines model for Organization360Suggestion.SubjectType.
@@ -11096,8 +11752,11 @@ type OrganizationBrief struct {
 	GeneratedBy    WrittenBy          `json:"generated_by"`
 	OrganizationId openapi_types.UUID `json:"organization_id"`
 
-	// Sentences The brief itself, one claim per entry.
-	Sentences []OrganizationBriefSentence `json:"sentences"`
+	// Sections The brief, in the order a reader asks its questions: what this company is and why it
+	// matters to us, how the relationship stands, what happened lately, and what to do next.
+	// A section with nothing to say is ABSENT rather than empty — a heading over silence
+	// reads as a finding of nothing, which is a different claim.
+	Sections []OrganizationBriefSection `json:"sections"`
 }
 
 // OrganizationBriefEvidence One record a brief sentence was written from.
@@ -11109,13 +11768,55 @@ type OrganizationBriefEvidence struct {
 // OrganizationBriefEvidenceEntityType defines model for OrganizationBriefEvidence.EntityType.
 type OrganizationBriefEvidenceEntityType string
 
+// OrganizationBriefSection defines model for OrganizationBriefSection.
+type OrganizationBriefSection struct {
+	// Kind `snapshot` — what this company is.
+	// `fit` — why it matters to US, read against our own company profile.
+	// `health` — how the relationship stands.
+	// `activity` — what actually happened.
+	// `next_step` — what to do about it.
+	Kind      OrganizationBriefSectionKind `json:"kind"`
+	Sentences []OrganizationBriefSentence  `json:"sentences"`
+}
+
+// OrganizationBriefSectionKind `snapshot` — what this company is.
+// `fit` — why it matters to US, read against our own company profile.
+// `health` — how the relationship stands.
+// `activity` — what actually happened.
+// `next_step` — what to do about it.
+type OrganizationBriefSectionKind string
+
 // OrganizationBriefSentence defines model for OrganizationBriefSentence.
 type OrganizationBriefSentence struct {
 	// Evidence The records this sentence was written from — always records the reader can
 	// already open, because the brief was assembled under their own row scope.
 	Evidence []OrganizationBriefEvidence `json:"evidence"`
-	Text     string                      `json:"text"`
+
+	// Nature What KIND of claim this is, so the reader can tell a record from a reading of it.
+	// Absent means `fact` — the shape every sentence had before assessments existed.
+	//
+	// `fact` — the summary said it; the sentence restates it and cites the record.
+	// `assessment` — a judgment drawn by combining the account with our own company
+	// profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+	// records that support it.
+	// `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+	// that motivates it; the "why us" half cites nothing, because our own profile is not a
+	// record the reader can open and pretending otherwise would invent a citation.
+	Nature *OrganizationBriefSentenceNature `json:"nature,omitempty"`
+	Text   string                           `json:"text"`
 }
+
+// OrganizationBriefSentenceNature What KIND of claim this is, so the reader can tell a record from a reading of it.
+// Absent means `fact` — the shape every sentence had before assessments existed.
+//
+// `fact` — the summary said it; the sentence restates it and cites the record.
+// `assessment` — a judgment drawn by combining the account with our own company
+// profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+// records that support it.
+// `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+// that motivates it; the "why us" half cites nothing, because our own profile is not a
+// record the reader can open and pretending otherwise would invent a citation.
+type OrganizationBriefSentenceNature string
 
 // OrganizationDomain defines model for OrganizationDomain.
 type OrganizationDomain struct {
@@ -11147,11 +11848,17 @@ type OrganizationFact struct {
 	Confidence      *float32                 `json:"confidence,omitempty"`
 	EvidenceSnippet *string                  `json:"evidence_snippet,omitempty"`
 	Field           OrganizationFactField    `json:"field"`
-	Source          OrganizationFactSource   `json:"source"`
-	SourceUrl       *string                  `json:"source_url,omitempty"`
-	UpdatedAt       time.Time                `json:"updated_at"`
-	Value           string                   `json:"value"`
-	ValueKey        string                   `json:"value_key"`
+
+	// Id The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
+	Id        *openapi_types.UUID    `json:"id,omitempty"`
+	Source    OrganizationFactSource `json:"source"`
+	SourceUrl *string                `json:"source_url,omitempty"`
+
+	// SuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+	SuspectReason *OrganizationFactSuspectReason `json:"suspect_reason,omitempty"`
+	UpdatedAt     time.Time                      `json:"updated_at"`
+	Value         string                         `json:"value"`
+	ValueKey      string                         `json:"value_key"`
 }
 
 // OrganizationFactCategory defines model for OrganizationFact.Category.
@@ -11162,6 +11869,9 @@ type OrganizationFactField string
 
 // OrganizationFactSource defines model for OrganizationFact.Source.
 type OrganizationFactSource string
+
+// OrganizationFactSuspectReason Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+type OrganizationFactSuspectReason string
 
 // OrganizationFactListResponse defines model for OrganizationFactListResponse.
 type OrganizationFactListResponse struct {
@@ -12269,6 +12979,14 @@ type QuotaListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// RbacObjectGrant One object's effective CRUD grant, already merged across every role the principal holds (any role allowing an action allows it).
+type RbacObjectGrant struct {
+	Create bool `json:"create"`
+	Delete bool `json:"delete"`
+	Read   bool `json:"read"`
+	Update bool `json:"update"`
+}
+
 // RecordConsentRequest defines model for RecordConsentRequest.
 type RecordConsentRequest struct {
 	// DoubleOptInToken Required to make a grant effective when the purpose has requires_double_opt_in=true.
@@ -12699,7 +13417,13 @@ type Signal struct {
 	// Evidence Per-claim evidence (evidence-or-omit, features/07 §11 gate 1).
 	Evidence []SignalEvidence   `json:"evidence"`
 	Id       openapi_types.UUID `json:"id"`
-	Kind     SignalKind         `json:"kind"`
+
+	// Kind The first six are what a human files by hand. The last four are what the producers
+	// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+	// out of a settled conversation by the `signal_extract` site, each citing the message
+	// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+	// interaction is ours, nobody answered it, and the account is one worth chasing.
+	Kind SignalKind `json:"kind"`
 
 	// RawRef Pointer to the raw source payload the resolver works from: an email address/handle, a domain, a URL, or a company mention.
 	RawRef               *string  `json:"raw_ref,omitempty"`
@@ -12734,7 +13458,11 @@ type Signal struct {
 // SignalEntityType The subject record the signal is about; null until a raw signal resolves (both entity fields set together).
 type SignalEntityType string
 
-// SignalKind defines model for Signal.Kind.
+// SignalKind The first six are what a human files by hand. The last four are what the producers
+// raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+// out of a settled conversation by the `signal_extract` site, each citing the message
+// it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+// interaction is ours, nobody answered it, and the account is one worth chasing.
 type SignalKind string
 
 // SignalResolutionState The raw→entity match outcome: an ambiguous match is `low_confidence` (surfaced, never silently asserted); an unattributable one is `dropped`.
@@ -13145,14 +13873,26 @@ type UpdateOrganizationRequest struct {
 	DisplayName *string  `json:"display_name,omitempty"`
 
 	// Domains Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains.
-	Domains              *[]OrganizationDomainInput         `json:"domains,omitempty"`
-	Industry             *string                            `json:"industry,omitempty"`
-	LegalName            *string                            `json:"legal_name,omitempty"`
-	OwnerId              *openapi_types.UUID                `json:"owner_id,omitempty"`
-	ParentOrgId          *openapi_types.UUID                `json:"parent_org_id,omitempty"`
-	SizeBand             *UpdateOrganizationRequestSizeBand `json:"size_band,omitempty"`
-	AdditionalProperties map[string]interface{}             `json:"-"`
+	Domains   *[]OrganizationDomainInput `json:"domains,omitempty"`
+	Industry  *string                    `json:"industry,omitempty"`
+	LegalName *string                    `json:"legal_name,omitempty"`
+
+	// Lifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
+	Lifecycle   *UpdateOrganizationRequestLifecycle `json:"lifecycle,omitempty"`
+	OwnerId     *openapi_types.UUID                 `json:"owner_id,omitempty"`
+	ParentOrgId *openapi_types.UUID                 `json:"parent_org_id,omitempty"`
+
+	// RelationshipTypes Replace-set of what the company is to us (add new, archive removed), the same shape as `domains`. Absent = untouched; an empty array clears every type. Removing `partner` while the org still has a `partner` extension row is refused with 422 — the invariant binds both ways, and an invariant nothing enforces is a comment.
+	RelationshipTypes    *[]UpdateOrganizationRequestRelationshipTypes `json:"relationship_types,omitempty"`
+	SizeBand             *UpdateOrganizationRequestSizeBand            `json:"size_band,omitempty"`
+	AdditionalProperties map[string]interface{}                        `json:"-"`
 }
+
+// UpdateOrganizationRequestLifecycle Where the account stands with us (ADR-0079/A124). Absent = untouched.
+type UpdateOrganizationRequestLifecycle string
+
+// UpdateOrganizationRequestRelationshipTypes defines model for UpdateOrganizationRequest.RelationshipTypes.
+type UpdateOrganizationRequestRelationshipTypes string
 
 // UpdateOrganizationRequestSizeBand defines model for UpdateOrganizationRequest.SizeBand.
 type UpdateOrganizationRequestSizeBand string
@@ -13774,6 +14514,9 @@ type ListActivitiesParams struct {
 	// AssigneeId Open tasks for an assignee.
 	AssigneeId *openapi_types.UUID `form:"assignee_id,omitempty" json:"assignee_id,omitempty"`
 	Q          *string             `form:"q,omitempty" json:"q,omitempty"`
+
+	// ThreadKey One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread.
+	ThreadKey *string `form:"thread_key,omitempty" json:"thread_key,omitempty"`
 }
 
 // ListActivitiesParamsKind defines parameters for ListActivities.
@@ -15193,11 +15936,23 @@ type ListOrganizationsParams struct {
 
 	// Domain Lookup by normalized domain (the employer-inference index).
 	Domain *string `form:"domain,omitempty" json:"domain,omitempty"`
-	Q      *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Lifecycle Where the account stands with us (DM-VOCAB-2, ADR-0079/A124).
+	Lifecycle *ListOrganizationsParamsLifecycle `form:"lifecycle,omitempty" json:"lifecycle,omitempty"`
+
+	// RelationshipType Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both.
+	RelationshipType *ListOrganizationsParamsRelationshipType `form:"relationship_type,omitempty" json:"relationship_type,omitempty"`
+	Q                *string                                  `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListOrganizationsParamsCapturedByKind defines parameters for ListOrganizations.
 type ListOrganizationsParamsCapturedByKind string
+
+// ListOrganizationsParamsLifecycle defines parameters for ListOrganizations.
+type ListOrganizationsParamsLifecycle string
+
+// ListOrganizationsParamsRelationshipType defines parameters for ListOrganizations.
+type ListOrganizationsParamsRelationshipType string
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
@@ -19984,6 +20739,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["lifecycle"]; found {
+		err = json.Unmarshal(raw, &a.Lifecycle)
+		if err != nil {
+			return fmt.Errorf("error reading 'lifecycle': %w", err)
+		}
+		delete(object, "lifecycle")
+	}
+
 	if raw, found := object["logo_url"]; found {
 		err = json.Unmarshal(raw, &a.LogoUrl)
 		if err != nil {
@@ -20030,6 +20793,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'raw': %w", err)
 		}
 		delete(object, "raw")
+	}
+
+	if raw, found := object["relationship_types"]; found {
+		err = json.Unmarshal(raw, &a.RelationshipTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'relationship_types': %w", err)
+		}
+		delete(object, "relationship_types")
 	}
 
 	if raw, found := object["size_band"]; found {
@@ -20168,6 +20939,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Lifecycle != nil {
+		object["lifecycle"], err = json.Marshal(a.Lifecycle)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'lifecycle': %w", err)
+		}
+	}
+
 	if a.LogoUrl != nil {
 		object["logo_url"], err = json.Marshal(a.LogoUrl)
 		if err != nil {
@@ -20207,6 +20985,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	if a.RelationshipTypes != nil {
+		object["relationship_types"], err = json.Marshal(a.RelationshipTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'relationship_types': %w", err)
 		}
 	}
 
@@ -21917,6 +22702,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["lifecycle"]; found {
+		err = json.Unmarshal(raw, &a.Lifecycle)
+		if err != nil {
+			return fmt.Errorf("error reading 'lifecycle': %w", err)
+		}
+		delete(object, "lifecycle")
+	}
+
 	if raw, found := object["owner_id"]; found {
 		err = json.Unmarshal(raw, &a.OwnerId)
 		if err != nil {
@@ -21931,6 +22724,14 @@ func (a *UpdateOrganizationRequest) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'parent_org_id': %w", err)
 		}
 		delete(object, "parent_org_id")
+	}
+
+	if raw, found := object["relationship_types"]; found {
+		err = json.Unmarshal(raw, &a.RelationshipTypes)
+		if err != nil {
+			return fmt.Errorf("error reading 'relationship_types': %w", err)
+		}
+		delete(object, "relationship_types")
 	}
 
 	if raw, found := object["size_band"]; found {
@@ -21995,6 +22796,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Lifecycle != nil {
+		object["lifecycle"], err = json.Marshal(a.Lifecycle)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'lifecycle': %w", err)
+		}
+	}
+
 	if a.OwnerId != nil {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
@@ -22006,6 +22814,13 @@ func (a UpdateOrganizationRequest) MarshalJSON() ([]byte, error) {
 		object["parent_org_id"], err = json.Marshal(a.ParentOrgId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'parent_org_id': %w", err)
+		}
+	}
+
+	if a.RelationshipTypes != nil {
+		object["relationship_types"], err = json.Marshal(a.RelationshipTypes)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'relationship_types': %w", err)
 		}
 	}
 
@@ -25493,6 +26308,19 @@ func (siw *ServerInterfaceWrapper) ListActivities(w http.ResponseWriter, r *http
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "thread_key" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "thread_key", r.URL.Query(), &params.ThreadKey, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "thread_key"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "thread_key", Err: err})
 		}
 		return
 	}
@@ -32151,6 +32979,32 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "domain"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "domain", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "lifecycle" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lifecycle", r.URL.Query(), &params.Lifecycle, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lifecycle"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lifecycle", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "relationship_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "relationship_type", r.URL.Query(), &params.RelationshipType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "relationship_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "relationship_type", Err: err})
 		}
 		return
 	}

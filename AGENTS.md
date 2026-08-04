@@ -13,7 +13,11 @@ session-pickup point; update it at the end of every working session.
 Route findings as you work: implementation decisions are recorded in the
 commit and PR that makes the change (git history is the record); spec/ticket
 defects are reconciled upstream against the spec (contract-first, P3), never
-worked around in this source.
+worked around in this source; a finding you are NOT fixing now (bug, gap,
+follow-up task — engineer's call) becomes a GitHub issue in this repo.
+This repo is public — never put private spec paths or local machine paths
+in an issue. Team-internal issue tracking beyond this repo: see the spec
+repo's `tooling/delivery-board.md`.
 
 ## Build / test / seed
 
@@ -146,8 +150,9 @@ check monitoring. Read-only working-tree inspection (`git status`, `git diff`,
 3. **Local gates BEFORE pushing**: `make check` (the merge gate — build,
    vet, lint, arch-lint, unit tests, contract drift); add
    `make frontend-check` when `frontend/` changed. The pre-push hook
-   (installed once via `make hooks`) runs `craft static` diff-scoped on
-   top — a BLOCKER finding stops the push; fix it, never bypass the hook.
+   (installed once via `make hooks`) runs `craft static --strict` diff-scoped
+   on top — a BLOCKER or MAJOR finding stops the push; fix it, never bypass
+   the hook.
 4. **Push the branch and open a PR** (`gh pr create`).
 5. **Watch the GitHub gates and fix red**: CI, DCO, CodeRabbit, and
    SonarCloud must all pass (`gh pr checks <n> --watch`). Fix failures
@@ -323,14 +328,19 @@ legibility is the product, not polish.
   surrounding file? do the errors say what-went-wrong *and* what-to-do? would a stranger
   find where this change lives without a guide? is this the smallest diff that does the job?
 
-**The gate runs before every push (diff-scoped).** `.githooks/pre-push` runs the
-deterministic arm — `craft static` (the repo's `cli/craft` tool, ADR-0045) — over the
-backend Go files **this push changes vs `origin/main`**. New/touched
-code must be clean; the pre-existing backlog is *not* gated. So write it right the first
-time — a swallowed error or a sleep in a test you add will block your push.
+**The gate runs before every push (diff-scoped), and it is STRICT.**
+`.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
+`cli/craft` tool, ADR-0045) — over the backend Go files **this push changes vs
+`origin/main`**. New/touched
+code must be clean. There is no pre-existing backlog to exempt: the whole tree was
+cleared to zero findings before this bar was armed. So write it right the first time
+— a swallowed error, a sleep in a test, a bare `any` in a signature, or an 81-line
+function you add will block your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
-- Full manual sweep of the whole backend: **`make craft-static`** (still red on the backlog).
-- Only `BLOCKER` findings (`swallowed-errors`, `test-sleep`) block; `MAJOR`/`MINOR` are advisory.
+- Full manual sweep of the whole backend: **`make craft-static`** — green, and the CI
+  `craftsmanship` job runs the same bar as a required check.
+- `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
+  80 body lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 

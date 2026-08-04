@@ -51,6 +51,16 @@ rates:
     # alongside config/ai-routing.openrouter.example.yaml. The key is the generic
     # adapter's name: it refreshes whichever broker openai_compatible is bound to,
     # so change the URL if that is not OpenRouter.
+    #
+    # A JSON catalog is read one passage PER MODEL and narrowed to the models
+    # ai-routing.yaml binds ON THIS PROVIDER — a broker lists hundreds, and
+    # asking for all of them overruns the extraction's output ceiling. Two
+    # consequences worth knowing: a model you do not bind is never repriced from
+    # here (its seeded rate in ai.SeedModelRates stands), and if NONE of this
+    # provider's bound ids appears in the catalog the refresh fails loudly rather
+    # than reporting a successful no-op — that means an id here disagrees with
+    # the vendor's own spelling. Debug it with `make ai-probe`
+    # (docs/how-to/debug-an-ai-task.md).
     # openai_compatible: https://openrouter.ai/api/v1/models
 
 # Remote MCP connector (Gate 1). On means /mcp and /oauth/* are served, so any

@@ -19,34 +19,50 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
 
-// A booking with no links stages with no target. The approvals engine serves
-// that (the pin is simply absent), and a slot on a calendar is a real thing to
-// approve even when it names no record.
-func TestABookingThatNamesNoRecordStillStages(t *testing.T) {
-	approvals := &recordingApprovals{}
-	registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
-	RegisterCommsTools(registry, &recordingComms{}, &multiLinkProvider{})
+// A booking with no links is refused, at BOTH doors.
+//
+// crm.yaml's bookMeeting body requires `links`, and this surface advertises it
+// as required with minItems 1 — but an InputSchema on the MCP surface is
+// documentation, never validation, so the rule holds only where the code puts
+// it. It used to stage instead: an approval with no target, which is a human
+// asked to release a meeting attached to nothing, with no record to show them
+// and no version to pin it against.
+//
+// The execute door is covered too, because it is reached with an approval
+// already redeemed — a call that never passed staging would otherwise book.
+func TestABookingThatNamesNoRecordIsRefusedAtBothDoors(t *testing.T) {
+	const noLinks = `{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z"}`
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"staging", sendCtx()},
+		{"after an approval was redeemed", withApprovalRedeemed(sendCtx())},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approvals := &recordingApprovals{}
+			comms := &recordingComms{}
+			registry := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
+			RegisterCommsTools(registry, comms, &multiLinkProvider{})
 
-	_, err := registry.Invoke(sendCtx(), "book_meeting",
-		json.RawMessage(`{"start":"2026-08-03T09:00:00Z","end":"2026-08-03T09:30:00Z"}`))
+			_, err := registry.Invoke(tc.ctx, "book_meeting", json.RawMessage(noLinks))
 
-	var staged *workflow.StagedApprovalError
-	if !errors.As(err, &staged) {
-		t.Fatalf("Invoke err = %v, want a StagedApprovalError", err)
-	}
-	if len(approvals.staged) != 1 {
-		t.Fatalf("staged %d approvals, want 1", len(approvals.staged))
-	}
-	got := approvals.staged[0]
-	if got.TargetType != "" || !got.TargetID.IsZero() || got.TargetVersion != nil {
-		t.Errorf("staged target = %q/%v/%v, want none — the booking names no record",
-			got.TargetType, got.TargetID, got.TargetVersion)
-	}
-	if got.Summary != `Book "(no subject)" from 2026-08-03T09:00:00Z to 2026-08-03T09:30:00Z` {
-		t.Errorf("Summary = %q, want the slot named with a placeholder subject", got.Summary)
+			var badArgs *BadArgsError
+			if !errors.As(err, &badArgs) {
+				t.Fatalf("Invoke err = %v, want a BadArgsError naming `links`", err)
+			}
+			if !strings.Contains(err.Error(), "`links`") {
+				t.Errorf("err = %v, want it to name the field", err)
+			}
+			if len(approvals.staged) != 0 {
+				t.Errorf("staged %d approvals, want none — nothing was approvable", len(approvals.staged))
+			}
+			if comms.booked != nil {
+				t.Error("a booking attached to nothing reached the comms seam")
+			}
+		})
 	}
 }
 

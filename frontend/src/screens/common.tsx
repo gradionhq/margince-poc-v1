@@ -58,6 +58,12 @@ export function useMe() {
   return useQuery({
     queryKey: ["me"],
     staleTime: 5 * 60_000,
+    // A role change does not revoke live sessions, so this snapshot is the one
+    // cache entry that must not sit stale for its full staleTime: the UI now
+    // scopes affordances by the grants it carries. "always" rather than `true`
+    // deliberately — `true` refetches on focus only once the entry is already
+    // stale, which is exactly the five-minute window this needs to close.
+    refetchOnWindowFocus: "always",
     retry: false,
     queryFn: async () => {
       const result = await api.GET("/me").catch(() => null);
@@ -142,49 +148,6 @@ export function useLogout() {
       await queryClient.resetQueries({ queryKey: ["me"] });
     },
   });
-}
-
-// Automation (and pipeline) config is admin/ops-owned in the seeded role
-// policies — manager and rep hold read-only grants. This
-// mirror gates AFFORDANCES only (UX honesty: no buttons that can only 403);
-// the server's auth.Require gate stays the authority on every mutation.
-export function canConfigureAutomations(
-  roles: readonly string[] | undefined,
-): boolean {
-  return (roles ?? []).some((role) => role === "admin" || role === "ops");
-}
-
-// custom_field CRUD is admin/ops-owned in the seeded role matrix
-// (identity/internal/policy/policy.go: custom_field grant is crud for
-// admin/ops, read-only for manager/rep/read_only). The server enforces it;
-// this predicate keeps the builder and lifecycle controls honestly disabled
-// for a role whose call could only 403.
-export function canManageCustomFields(
-  roles: readonly string[] | undefined,
-): boolean {
-  return (roles ?? []).some((role) => role === "admin" || role === "ops");
-}
-
-// fx_rate + ai_model_rate are admin/ops-owned config surfaces (the seeded
-// role matrix grants CRUD to admin/ops, nothing to other roles). The server
-// enforces it; this predicate keeps the rate-editor write controls honestly
-// disabled for a role whose call could only 403.
-export function canManageRates(roles: readonly string[] | undefined): boolean {
-  return (roles ?? []).some((role) => role === "admin" || role === "ops");
-}
-
-// overlay_connection is admin/ops-owned in the seeded role matrix
-// (identity/internal/policy/policy.go: connecting/disconnecting the
-// workspace's incumbent binding is destructive workspace-wide config — it
-// purges the mirror and flips sor_mode for everyone — so create/update/
-// delete are admin/ops-only; every role may still read the connection
-// status). The server enforces it; this predicate keeps the connect/
-// reconnect/disconnect/reconcile controls honestly disabled for a role
-// whose call could only 403.
-export function canManageOverlay(
-  roles: readonly string[] | undefined,
-): boolean {
-  return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
 // The minimal read surface QueryGate/QueryStates need. A real react-query

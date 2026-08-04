@@ -240,7 +240,7 @@ func TestPrivacyRetentionDispatchRepeatsOnItsConfiguredInterval(t *testing.T) {
 	kind := compose.PrivacyRetentionArgs{}.Kind()
 	first, second := awaitTwoDispatchArrivals(waitCtx, t, completed, kind)
 	if gap := second.Sub(first); gap > dispatchGapBound {
-		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and dispatchScanInterval is the one that would look exactly like this",
+		t.Fatalf("the two %s dispatches were %s apart, over the %s bound — the schedule is not the configured %s interval but some larger constant, and the gmail_sync dispatcher's declared 30s scan is the one that would look exactly like this",
 			kind, gap, dispatchGapBound, dispatchInterval)
 	}
 }

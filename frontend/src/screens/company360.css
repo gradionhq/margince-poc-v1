@@ -282,3 +282,31 @@
 .co-prep-foot:empty {
   display: none;
 }
+
+/* A fact whose value contradicts its field. It sits beside the value rather
+   than replacing it: the reader needs to see what was extracted to judge it. */
+.co-fact-suspect {
+  display: inline-block;
+  margin-inline-start: 0.4rem;
+}
+
+/* The three readings, side by side above everything else. They wrap rather
+   than shrink: a reading squeezed to two words stops being one. */
+.co-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.6rem;
+  margin-block-end: 0.9rem;
+}
+
+/* The brief under the questions it answers. Sections are separated by space
+   rather than rules: a boxed heading reads as a card, and these are parts of
+   one reading. */
+.co-brief-section + .co-brief-section {
+  margin-block-start: 0.7rem;
+}
+
+.co-brief-section-label {
+  color: var(--textMeta);
+  margin-block-end: 0.2rem;
+}

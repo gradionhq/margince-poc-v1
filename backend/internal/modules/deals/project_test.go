@@ -15,12 +15,6 @@ import (
 
 func projectStr(s string) *string { return &s }
 
-// typeName and asError keep the table-driven assertions readable without
-// repeating a type switch per case.
-func typeName(v any) string { return fmt.Sprintf("%T", v) }
-
-func asError(err error, target any) bool { return errors.As(err, target) }
-
 // A phase move must announce itself as a phase move. Emitting the generic
 // update envelope instead would leave every consumer reconstructing a
 // transition from a diff — and a consumer that guesses wrong about the
@@ -114,7 +108,7 @@ func TestProjectCheckErrorNamesEachRule(t *testing.T) {
 		if got == nil {
 			t.Fatalf("%s produced no error", tc.constraint)
 		}
-		if gotType, wantType := typeName(got), typeName(tc.want); gotType != wantType {
+		if gotType, wantType := fmt.Sprintf("%T", got), fmt.Sprintf("%T", tc.want); gotType != wantType {
 			t.Errorf("%s produced %s, want %s", tc.constraint, gotType, wantType)
 		}
 	}
@@ -123,7 +117,7 @@ func TestProjectCheckErrorNamesEachRule(t *testing.T) {
 	// typed error naming the rule — never an opaque server fault.
 	fallback := projectCheckError("project_some_future_rule", "")
 	var unnamed *ProjectConstraintError
-	if !asError(fallback, &unnamed) {
+	if !errors.As(fallback, &unnamed) {
 		t.Fatalf("an unmapped constraint produced %T, want *ProjectConstraintError", fallback)
 	}
 	if unnamed.Constraint != "project_some_future_rule" {
@@ -140,7 +134,7 @@ func TestProjectCreateInputRequiresAName(t *testing.T) {
 		Source:         "ui",
 	})
 	var missing *RequiredFieldError
-	if !asError(err, &missing) {
+	if !errors.As(err, &missing) {
 		t.Fatalf("a nameless project produced %v, want a required-field error", err)
 	}
 	if missing.Field != "name" {

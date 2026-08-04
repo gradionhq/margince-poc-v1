@@ -29,47 +29,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// fleetDispatchers is every args type in this package that declares
-// jobs.FleetWide — the CLOSED set of kinds whose rows carry no workspace
-// and are still an admin's business to see.
+// dispatcherKinds answers the untenanted kinds the job-health read admits:
+// every kind api/jobs.yaml declares as a dispatcher.
 //
-// It is a slice of the marker interface rather than a slice of strings so
-// a kind that is not actually fleet-wide cannot be added by hand, and
-// TestEveryFleetWideArgsTypeIsDeclaredAsADispatcherKind derives the
-// expected membership from the tree rather than restating it: a new
-// dispatcher that never reaches this list would otherwise be invisible on
-// the surface an admin uses to notice a dispatcher is not running.
-var fleetDispatchers = []jobs.FleetWide{
-	AgentSchedulerArgs{},
-	CaptureAutoEnrichSweepArgs{},
-	CaptureClassifyArgs{},
-	CaptureDigestArgs{},
-	CaptureEnrichArgs{},
-	CloseDateSweepArgs{},
-	CounterpartyVerdictArgs{},
-	EmbedDriftSweepArgs{},
-	EmbedReindexArgs{},
-	FollowUpReconcileArgs{},
-	GmailSyncArgs{},
-	GmailWatchArgs{},
-	GraphEdgeReconcileArgs{},
-	IdempotencyRetentionArgs{},
-	LinkedInRematchArgs{},
-	OrgNamePromotionArgs{},
-	OverlayReconcileArgs{},
-	ParticipantBackfillArgs{},
-	PrivacyRetentionArgs{},
-	TelegramPollSweepArgs{},
-	TimeScanArgs{},
-	VoiceBuildRetryArgs{},
-	WebhookRetryArgs{},
-}
-
-// dispatcherKinds answers the untenanted kinds the job-health read admits.
+// river_job has no workspace column and so no RLS, which is why this arm
+// exists at all — a dispatcher's rows carry no workspace, and the scope has
+// to name them to admit them. Naming them by DERIVING the set is what keeps
+// the arm honest: the contract's `role: dispatcher` also generates the
+// `jobs.FleetWide` assertion each args type must satisfy, so a kind cannot
+// be a dispatcher in the tree and something else here without failing to
+// compile.
+//
+// It admits the kinds only. Which ROWS of those kinds are returned is the
+// read's own untenanted test, not this list's.
 func dispatcherKinds() []string {
-	kinds := make([]string, 0, len(fleetDispatchers))
-	for _, d := range fleetDispatchers {
-		kinds = append(kinds, d.Kind())
+	var kinds []string
+	for kind, spec := range jobs.Declared() {
+		if spec.Role == jobs.Dispatcher {
+			kinds = append(kinds, kind)
+		}
 	}
 	return kinds
 }

@@ -81,8 +81,8 @@ func TestContractFieldNamesReadsTheWireNames(t *testing.T) {
 // makes that lean safe instead of lucky.
 func TestDescriptionsCarryNoControlCharacters(t *testing.T) {
 	for name, desc := range map[string]string{
-		"create": describeRecordFields(createShapes),
-		"update": describeRecordFields(updateShapes),
+		"create": describeRecordFields(createShapes, createRecordShapes),
+		"update": describeRecordFields(updateShapes, updateRecordShapes),
 	} {
 		for i, r := range desc {
 			if r < 0x20 || r == 0x7f {
@@ -358,8 +358,8 @@ func recordTypeEnum(t *testing.T, tool string, raw json.RawMessage) []string {
 // maps carry that key — so the patch tool shipped the create tool's pairing rule
 // and the sentence written for the patch tool was unreachable.
 func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
-	create := describeRecordFields(createShapes)
-	patch := describeRecordFields(updateShapes)
+	create := describeRecordFields(createShapes, createRecordShapes)
+	patch := describeRecordFields(updateShapes, updateRecordShapes)
 
 	// The pairing rule is create-only: naming a pair is a thing only a create can
 	// do. Keyed on the stable CLAIM, not on the sentence — a reworded advisory is
@@ -391,6 +391,29 @@ func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
 		t.Error("create_record's description says an activity's links are NOT patchable — create_record " +
 			"and log_activity both ACCEPT links, so it is advice against a field the tool takes")
 	}
+
+	// The two advisories about a field whose NAME misleads about what supplying it
+	// does. Both are create-only for the same reason as the pair above — the field
+	// exists on one shape map — and both were unkeyed prose once, handing the
+	// create tool's advice to the patch tool.
+	const provenanceStamp = "stamps its own provenance"
+	if !strings.Contains(create, provenanceStamp) {
+		t.Errorf("create_record's description does not warn that `source` is overwritten, so a caller "+
+			"that sets it believes a provenance it did not write: %q", create)
+	}
+	if strings.Contains(patch, provenanceStamp) {
+		t.Error("update_record's description warns that `source` is overwritten, but no update request " +
+			"type carries the field at all — it is REFUSED as unknown, which is the opposite advice")
+	}
+	const pipelineSource = "come from list_pipelines"
+	if !strings.Contains(create, pipelineSource) {
+		t.Errorf("create_record's description does not say where a deal's pipeline_id and stage_id come "+
+			"from, which is what made create_record/deal unusable: %q", create)
+	}
+	if strings.Contains(patch, pipelineSource) {
+		t.Error("update_record's description tells a caller where to get ids it is not required to " +
+			"supply, which is advice about a problem the patch tool does not have")
+	}
 }
 
 // The closing custom-field sentence must not promise carriage the surface
@@ -403,8 +426,8 @@ func TestTheCreateAndPatchDescriptionsDisagreeAboutEndpoints(t *testing.T) {
 // an agent following the description writes a key the strict decoder refuses.
 func TestTheCustomFieldSentenceNamesTheTypesThatTakeNone(t *testing.T) {
 	for name, description := range map[string]string{
-		"create": describeRecordFields(createShapes),
-		"update": describeRecordFields(updateShapes),
+		"create": describeRecordFields(createShapes, createRecordShapes),
+		"update": describeRecordFields(updateShapes, updateRecordShapes),
 	} {
 		if !strings.Contains(description, "cf_<slug>") {
 			t.Fatalf("%s: the description no longer mentions the custom-field key shape at all: %q",

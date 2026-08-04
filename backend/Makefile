@@ -43,10 +43,14 @@ export MARGINCE_ENV          ?= dev
 # workspace — it must work before the composition exists.
 COMPOSITION_DIR := $(abspath ../build/composition)
 GOWORK_COMPOSED := GOWORK=$(COMPOSITION_DIR)/go.work
+# The root workspace, which is what every backend/tools generator runs under:
+# the tools are a separate module, and their resolution must not depend on
+# what the caller exported.
+GOWORK_ROOT := GOWORK=$(abspath ../go.work)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
+.PHONY: help check build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial lint arch-lint vet gen gen-workflow drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy dev infra-down infra-logs infra-reset clean vuln tools tools-go hooks
 
 help: ## List targets with their descriptions (the default goal)
 	@grep -hE '^[a-zA-Z][a-zA-Z0-9_-]*:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-18s %s\n", $$1, $$2}'
@@ -72,10 +76,10 @@ check: ## The merge gate: everything a PR must pass
 # the separate backend/tools module, so a caller-exported GOWORK (off, or
 # an unrelated workspace) would break resolution before anything builds.
 composition: ## Materialize build/composition/ from the enabled set under extensions/ (every build lane depends on this)
-	@GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
+	@$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 check-composition: composition ## Reproducibility gate: a clean regeneration must reproduce composition.json byte-for-byte
-	@$(GO) run ./tools/gen-composition -verify
+	@$(GOWORK_ROOT) $(GO) run ./tools/gen-composition -verify
 	@echo "OK: composition reproducible"
 
 # EXT_COVER_OUT (optional): merge every unit's -coverprofile into ONE
@@ -175,6 +179,21 @@ e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model +
 e2e-ai-report: ## Print the certification readiness report — every shipped site, its band, and whether its record is current, stale or absent — from internal/compose/aicert/{corpus,records}/.
 	$(GO) run ./internal/compose/aicert/reportcmd
 
+# ai-probe drives ONE invocation site against input an operator supplies, through
+# the same certification case `make e2e-ai` drives. It answers a different
+# question: e2e-ai asks whether a model is good enough for a prompt, this asks
+# whether a site survives THIS input — which is how a site can be certified and
+# still fail in the field.
+#
+# The paths are absolute because ARGS is the operator's and cwd is backend/,
+# while the corpus is under it and .tmp/ is above it. list/scaffold/fetch cost
+# nothing; only `run` calls a model, and --ai-fake makes even that free.
+# Artifacts land in the gitignored .tmp/aitask — a fetched page carries whatever
+# the source carried.
+ai-probe: composition ## Probe one AI task site against real input (free except `run`, which calls a model). BYOK key auto-loaded from .env.local. ARGS='list' | ARGS='scaffold <task>/<variant>' | ARGS='fetch <url>' | ARGS='run --site <task>/<variant> --fixture f.json --ai-routing ../config/ai-routing.yaml'
+	$(LOAD_ENV_LOCAL) $(GOWORK_COMPOSED) $(GO) run ./cmd/worker aitask $(ARGS) \
+	  --corpus $(CURDIR)/internal/compose/aicert/corpus --work-dir $(CURDIR)/../.tmp/aitask
+
 test-db-up: ## (Re)build the migrated margince_test template the parallel lane clones from
 	@bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && build_template && echo "test-db-up: template $$TEMPLATE_NAME migrated to head"'
 
@@ -255,12 +274,25 @@ arch-lint: ## Import-boundary lint (go-arch-lint over .go-arch-lint.yml)
 # The stub and agent-policy generators run here explicitly (not via
 # `go generate ./...`): internal/compose is generated INTO, and its own
 # generate directives would need the tools resolvable from that package.
+#
+# EVERY line below runs pinned to the ROOT workspace, for the reason
+# gen-composition already did: the generators live in the separate
+# backend/tools module — including the two the contracts package's own
+# directives shell out to — so what a caller happens to export as GOWORK (off,
+# or the composed workspace, or an unrelated one) decides which module graph
+# resolves their dependencies. Generated files are committed and drift-gated,
+# so a generator whose own build inputs move with the caller's environment
+# turns a clean checkout into a red gate on somebody else's machine.
 gen: ## Regenerate everything derived from the contract
-	$(GO) generate ./internal/contracts
-	$(GO) run ./tools/gen-stubs
-	$(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
-	$(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
-	GOWORK=$(abspath ../go.work) $(GO) run ./tools/gen-composition
+	$(GOWORK_ROOT) $(GO) generate ./internal/contracts
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-stubs
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-agentpolicy -in api/crm.yaml -out internal/compose/agentpolicy_gen.go
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-recordfields -in api/crm.yaml -out internal/modules/agents/recordshapes_gen.go
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-aitasks -contract api/ai-tasks.yaml -out-go internal/modules/ai/tasks_gen.go -out-schema ../config/ai-routing.schema.json
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-jobs -contract api/jobs.yaml \
+		-out-specs internal/platform/jobs/specs_gen.go \
+		-out-kinds internal/compose/jobkinds_gen.go
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-composition
 
 drift: gen ## Fail when any generated file drifted from the contract
 	# gen regenerates the committed per-unit manifests too (via composition);
@@ -279,7 +311,7 @@ drift: gen ## Fail when any generated file drifted from the contract
 # new pair of files per invocation.
 gen-workflow: ## Scaffold a new workflow.Handler: make gen-workflow NAME=flag_idle_deals
 	@test -n "$(NAME)" || { echo "gen-workflow: usage: make gen-workflow NAME=<snake_case_handler_name>"; exit 1; }
-	$(GO) run ./tools/gen-workflow $(NAME)
+	$(GOWORK_ROOT) $(GO) run ./tools/gen-workflow $(NAME)
 
 # The scan runs in CI (.github/workflows/ci.yml), not in the local
 # `make check`, so a missing network never blocks a local build. The

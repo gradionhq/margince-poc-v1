@@ -23,6 +23,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // auditOnlyWrites are the ratified audit-without-event functions, keyed
@@ -31,7 +33,7 @@ import (
 // entry without a rationale is a finding, not a pass. When the spec's
 // events.md gains the missing event types, wiring storekit.Emit into
 // these mutations removes the entries.
-var auditOnlyWrites = map[string]string{
+var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/modules/activities:RedactCapturedNoiseTx":  "the ADR-0072 noise redaction nulls content on a row that is ALREADY archived, and the one consumer that would not have reacted to the archive — the embedding lane — is handled directly: the redaction deletes the vectors itself, so no subscriber is left holding derived content. The closed catalog (events.md \u00a75) defines no activity.redacted type, and re-announcing an invisible row's content change would tell the rest nothing they can act on",
 	"internal/modules/activities:auditIdentityReKey":     "the outbound-send reconcile moves a sent message onto the transport identity its provider actually stamped. activity.updated is the only candidate event and its changed_fields is a REQUIRED, typed, BOUNDED delta over the fields a human patches (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done, a relinked target) — the natural key is not among them and cannot be expressed as one, so emitting it would publish an empty required delta: an event that says a change happened and cannot say what. The closed catalog (events.md §5, shared/kernel/events/catalog.go) defines no transport-identity verb either, and the closed-verb law forbids inventing one build-side. Recorded upstream (P3): the fix is a contract change — a typed identity delta or a discrete reconciliation event — not a build-side substitute",
 	"internal/modules/collections:CreateSavedView":       "saved views are per-user view state, not record facts — events.md §5.3c ratifies this config family as audit-only and defines no saved_view.* type",
@@ -81,6 +83,7 @@ var auditOnlyWrites = map[string]string{
 	"internal/modules/identity:mintPassport":             "minting an Agent Seat Passport is ratified audit-only \u2014 the closed catalog (events.md \u00a75.6a) defines passport.revoked and NO issuance counterpart, so the only bus-visible passport fact is its death. That asymmetry is deliberate on the consumer side (a long-lived holder must drop a credential that died; nobody has to react to one being born) and the closed-verb law forbids inventing passport.issued build-side. The mint is attributable via its audit row; the missing type is raised upstream (P3)",
 	"internal/modules/identity:auditLend":                "the record of WHICH passport a human lent to a client is ratified audit-only — the closed catalog (events.md §5) defines no consent or lend fact at all, and the one type that would fit structurally, audit.appended, is declared in the contract as having no emit site and an EMPTY payload, so it could name neither the passport nor the client. It sits beside issueGrant and mintPassport, the two credential writes this same lend produces when the code is redeemed, and carries the same waiver for the same reason; the addition (an OAuth-consent verb covering the lend, the issuance and the revoke cascade) is raised upstream (P3)",
 	"internal/modules/identity:issueGrant":               "the OAuth consent record is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no oauth_grant.* type, and passport.revoked is the one identity-credential verb it does define. The grant it records issues a passport that carries the same waiver, so nothing on the bus is lost that the passport's own lifecycle would not already carry; the addition (an issuance verb, and oauth.grant_revoked for the revoke cascade) is raised upstream (P3)",
+	"internal/modules/signals:AcknowledgeTx":             "the same ratified audit-only posture as UpdateSignal, whose triage path this is the approval-effect twin of \u2014 events.md \u00a75.11 defines only signal.detected/signal.resolved, no signal.updated, and the closed-verb law forbids inventing one build-side",
 	"internal/modules/signals:UpdateSignal":              "human triage (status/severity) is ratified audit-only \u2014 events.md \u00a75.11 defines only signal.detected/signal.resolved (raw\u2192entity attribution, emitted by the resolver), no signal.updated, and the closed-verb law forbids inventing one build-side",
 	"internal/modules/signals:ArchiveSignal":             "signal archive is ratified audit-only \u2014 events.md \u00a75.11 defines no signal.archived type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/activities:UploadAttachment":       "attachments are ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no attachment.* type and a polymorphic attachment has no single stream to ride; the closed-verb law forbids inventing one build-side",
@@ -113,15 +116,10 @@ var auditOnlyWrites = map[string]string{
 	// WriteFiltered no longer belongs here: the bulk export is a non-entity
 	// operational event, so it moved from storekit.Audit to storekit.LogSystem
 	// (system_log, 0074) \u2014 it writes no audit_log row at all now.
-}
+})
 
 func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
-	for fn, rationale := range auditOnlyWrites {
-		if strings.TrimSpace(rationale) == "" {
-			t.Errorf("auditOnlyWrites[%s] has no rationale — a waiver must say why the event is missing", fn)
-		}
-	}
-	used := map[string]bool{}
+	defer auditOnlyWrites.AssertAllMatched(t)
 	emissionPathsByDir := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	for _, root := range []string{"internal/modules", "internal/compose"} {
@@ -170,8 +168,7 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 				})
 				if audits && !emits {
 					key := filepath.ToSlash(filepath.Dir(path)) + ":" + fn.Name.Name
-					if _, ratified := auditOnlyWrites[key]; ratified {
-						used[key] = true
+					if auditOnlyWrites.Waived(t, key) {
 						continue
 					}
 					t.Errorf("%s: %s calls storekit.Audit without storekit.Emit — every audited mutation ships its event, or the exception is ratified in auditOnlyWrites",
@@ -182,11 +179,6 @@ func TestEveryAuditedMutationEmitsAnEvent(t *testing.T) {
 		})
 		if err != nil {
 			t.Fatal(err)
-		}
-	}
-	for key := range auditOnlyWrites {
-		if !used[key] {
-			t.Errorf("auditOnlyWrites[%s] matches no audit-only function — stale waiver, remove it", key)
 		}
 	}
 }

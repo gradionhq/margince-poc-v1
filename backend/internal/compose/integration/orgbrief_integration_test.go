@@ -98,7 +98,7 @@ func TestOrganizationBriefCachesUntilTheAccountChanges(t *testing.T) {
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org.UUID)
 
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"One open deal.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"One open deal.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	first, err := svc.Get(reader, org, false)
@@ -146,7 +146,7 @@ func TestOrganizationBriefRefreshIgnoresAMatchingCache(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"Nothing open.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"Nothing open.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	if _, err := svc.Get(reader, org, false); err != nil {
@@ -166,7 +166,7 @@ func TestOrganizationBriefRefreshIgnoresAMatchingCache(t *testing.T) {
 func TestOrganizationBriefIsCachedPerReader(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	lane := &countingLane{reply: `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	svc := briefService(e, lane, "routing-1")
 
 	if _, err := svc.Get(e.As(e.Rep1, nil, briefReaderPerms), org, false); err != nil {
@@ -210,9 +210,9 @@ func TestOrganizationBriefDescribesOnlyWhatItsReaderCanSee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("brief for an unbounded reader: %v", err)
 	}
-	if !cites(unbounded.Sentences, hidden) {
+	if !cites(briefSentences(unbounded), hidden) {
 		t.Errorf("the unbounded reader's brief never cites the deal they can see: %q",
-			briefText(unbounded.Sentences))
+			briefText(briefSentences(unbounded)))
 	}
 
 	scoped := briefReaderPerms
@@ -223,17 +223,28 @@ func TestOrganizationBriefDescribesOnlyWhatItsReaderCanSee(t *testing.T) {
 	}
 	// A clickable reference to a record the reader would be refused is the
 	// disclosure, whatever the sentence around it says.
-	if cites(restricted.Sentences, hidden) {
+	if cites(briefSentences(restricted), hidden) {
 		t.Errorf("the brief cites deal %v, which this reader cannot open", hidden)
 	}
 	// The two readers' briefs must actually differ. Without this, both
 	// assertions above would also hold for a writer that said nothing at all.
-	if briefText(restricted.Sentences) == briefText(unbounded.Sentences) {
-		t.Errorf("both readers got the same brief: %q", briefText(restricted.Sentences))
+	if briefText(briefSentences(restricted)) == briefText(briefSentences(unbounded)) {
+		t.Errorf("both readers got the same brief: %q", briefText(briefSentences(restricted)))
 	}
 }
 
 // cites reports whether any sentence names one record as its evidence.
+// briefSentences flattens a sectioned brief. Every assertion below is about
+// what the WHOLE brief says or cites, and which heading a claim landed under
+// is a different question from whether the reader was allowed to see it.
+func briefSentences(brief crmcontracts.OrganizationBrief) []crmcontracts.OrganizationBriefSentence {
+	var out []crmcontracts.OrganizationBriefSentence
+	for _, section := range brief.Sections {
+		out = append(out, section.Sentences...)
+	}
+	return out
+}
+
 func cites(sentences []crmcontracts.OrganizationBriefSentence, id ids.UUID) bool {
 	for _, sentence := range sentences {
 		for _, cited := range sentence.Evidence {
@@ -262,7 +273,7 @@ func TestOrganizationBriefRewritesWhenTheLaneIsRepointed(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	reply := `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`
+	reply := `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`
 
 	before := &countingLane{reply: reply}
 	if _, err := briefService(e, before, "routing-1").Get(reader, org, false); err != nil {
@@ -293,18 +304,18 @@ func TestOrganizationBriefServesTheFloorWithoutALane(t *testing.T) {
 	if brief.GeneratedBy != "deterministic" {
 		t.Errorf("generated_by = %q, want deterministic", brief.GeneratedBy)
 	}
-	if len(brief.Sentences) == 0 {
+	if len(briefSentences(brief)) == 0 {
 		t.Fatal("no sentences: the floor must always produce a brief")
 	}
 	// The floor cites too, so the card links the same records either way.
 	// Asserted on the citation rather than the wording: the floor reports a
 	// pipeline COUNT and leaves naming the deal to the card, which has the
 	// id it needs from here.
-	if len(brief.Sentences[0].Evidence) == 0 {
+	if len(briefSentences(brief)[0].Evidence) == 0 {
 		t.Error("a deterministic sentence carries no evidence")
 	}
-	if !cites(brief.Sentences, deal) {
-		t.Errorf("the floor never cites the open deal: %q", briefText(brief.Sentences))
+	if !cites(briefSentences(brief), deal) {
+		t.Errorf("the floor never cites the open deal: %q", briefText(briefSentences(brief)))
 	}
 }
 
@@ -352,7 +363,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	reader := e.As(e.Rep1, nil, briefReaderPerms)
-	lane := &countingLane{reply: `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	lane := &countingLane{reply: `{"sections":[{"kind":"snapshot","sentences":[{"text":"An account.","nature":"fact","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}]}`}
 	handlers := orgbrief.NewHandlers(briefService(e, lane, "routing-1"), nativeMode)
 	path := "/v1/organizations/" + org.String() + "/brief"
 
@@ -366,7 +377,7 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding the brief: %v", err)
 	}
-	if len(body.Sentences) == 0 {
+	if len(briefSentences(body)) == 0 {
 		t.Error("the served brief carries no sentences")
 	}
 
@@ -383,9 +394,9 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &cachedBody); err != nil {
 		t.Fatalf("decoding the cached brief: %v", err)
 	}
-	if len(cachedBody.Sentences) != len(body.Sentences) {
+	if len(briefSentences(cachedBody)) != len(briefSentences(body)) {
 		t.Errorf("the cached brief has %d sentences, the first had %d",
-			len(cachedBody.Sentences), len(body.Sentences))
+			len(briefSentences(cachedBody)), len(briefSentences(body)))
 	}
 	if lane.calls != 1 {
 		t.Errorf("model calls = %d after a second GET, want the cache to answer", lane.calls)
@@ -428,7 +439,7 @@ func TestOrganizationBriefTransportRefusesOutOfScope(t *testing.T) {
 func TestOrganizationBriefTransportRefusesAnOverlayWorkspace(t *testing.T) {
 	e := Setup(t)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	lane := &countingLane{reply: `{"sentences":[]}`}
+	lane := &countingLane{reply: `{"sections":[]}`}
 	handlers := orgbrief.NewHandlers(briefService(e, lane, "routing-1"),
 		func(context.Context) (bool, error) { return true, nil })
 

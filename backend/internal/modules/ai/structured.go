@@ -11,6 +11,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -18,6 +19,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
+
+// ErrOutputRejected is the §5.2 policy exhausted: three attempts, the last one
+// escalated, and the validator still refused the text.
+//
+// It is TERMINAL for this input. A caller that retries the same request buys
+// the same three calls and the same refusal, so the distinction matters to
+// anything with a watermark or a queue: a provider outage is owed a retry, a
+// reply this site will not act on is owed a decision.
+var ErrOutputRejected = errors.New("ai: model output rejected by the validator")
 
 // Validator judges one completion's text; the returned error is fed
 // back verbatim on the retry so the model sees WHY it failed.
@@ -71,7 +81,7 @@ func (r *Router) CompleteStructured(ctx context.Context, task Task, req model.Re
 	if finalErr := validate(resp.Text); finalErr != nil {
 		r.forgetCached(ctx, task, escalated)
 		return model.Response{}, info, fmt.Errorf(
-			"ai: %s output failed validation after retry and escalation: %w", task, finalErr,
+			"%w: %s after retry and escalation: %w", ErrOutputRejected, task, finalErr,
 		)
 	}
 	return resp, info, nil

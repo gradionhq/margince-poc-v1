@@ -38,33 +38,11 @@ import (
 func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners []OwnerRef) error {
 	// Ambiguity guard (design.md §4.6: "zero OR ambiguous match
 	// → no row"). HubSpot allows two owners to carry the same email
-	// (a deactivated owner recreated under a new id), so group owners by
-	// normalized email and drop any email more than one owner claims:
-	// seeding a user to "whichever owner the directory listed last" would
-	// be a nondeterministic remap that revokes the prior owner's records
-	// every sweep. Only an email owned by exactly one owner is seedable.
-	// Track the DISTINCT owner ids per normalized email as a set, not a raw
-	// occurrence count: a paginated owners directory can list the SAME owner
-	// twice (overlapping pages), and counting that as two owners would
-	// misclassify one legitimate owner as ambiguous — revoking and
-	// withholding a user's visibility over duplicate input rather than a
-	// genuine two-owner collision. Ambiguity is "more than one DISTINCT
-	// owner claims this email."
-	byEmail := make(map[string]OwnerRef)
-	ownersByEmail := make(map[string]map[string]struct{})
-	for _, owner := range owners {
-		email := normalizeEmail(owner.Email)
-		if owner.ExternalID == "" || email == "" {
-			continue
-		}
-		if ownersByEmail[email] == nil {
-			ownersByEmail[email] = make(map[string]struct{})
-		}
-		ownersByEmail[email][owner.ExternalID] = struct{}{}
-		if _, seen := byEmail[email]; !seen {
-			byEmail[email] = owner
-		}
-	}
+	// (a deactivated owner recreated under a new id), so only an email owned
+	// by exactly one owner is seedable: seeding a user to "whichever owner
+	// the directory listed last" would be a nondeterministic remap that
+	// revokes the prior owner's records every sweep.
+	byEmail, ownersByEmail := groupOwnersByEmail(owners)
 
 	var errs []error
 
@@ -75,14 +53,7 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 	// re-seed below is not enough — the stale row would keep granting access
 	// through a match that is no longer unique, so the row and its
 	// visibility grants must be dropped.
-	var ambiguousOwners []string
-	for _, ownerIDs := range ownersByEmail {
-		if len(ownerIDs) > 1 {
-			for id := range ownerIDs {
-				ambiguousOwners = append(ambiguousOwners, id)
-			}
-		}
-	}
+	ambiguousOwners := ambiguousOwnerIDs(ownersByEmail)
 	if len(ambiguousOwners) > 0 {
 		if err := s.revokeEmailMappingsForOwners(ctx, incumbent, ambiguousOwners); err != nil {
 			errs = append(errs, fmt.Errorf("overlay: revoking mappings for now-ambiguous owner emails: %w", err))
@@ -121,6 +92,54 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ownerIDsByEmail maps a normalized owner email to the set of DISTINCT
+// incumbent owner ids claiming it.
+type ownerIDsByEmail map[string]map[string]struct{}
+
+// groupOwnersByEmail buckets the incumbent's owners directory by normalized
+// email: one representative owner per email (the first the directory listed),
+// alongside every DISTINCT owner id claiming that email. An owner with no
+// external id or no email is dropped — nothing about it is seedable.
+//
+// The ids are a SET, not a raw occurrence count: a paginated owners directory
+// can list the SAME owner twice (overlapping pages), and counting that as two
+// owners would misclassify one legitimate owner as ambiguous — revoking and
+// withholding a user's visibility over duplicate input rather than a genuine
+// two-owner collision. Ambiguity is "more than one DISTINCT owner claims this
+// email."
+func groupOwnersByEmail(owners []OwnerRef) (map[string]OwnerRef, ownerIDsByEmail) {
+	byEmail := make(map[string]OwnerRef)
+	ownersByEmail := make(ownerIDsByEmail)
+	for _, owner := range owners {
+		email := normalizeEmail(owner.Email)
+		if owner.ExternalID == "" || email == "" {
+			continue
+		}
+		if ownersByEmail[email] == nil {
+			ownersByEmail[email] = make(map[string]struct{})
+		}
+		ownersByEmail[email][owner.ExternalID] = struct{}{}
+		if _, seen := byEmail[email]; !seen {
+			byEmail[email] = owner
+		}
+	}
+	return byEmail, ownersByEmail
+}
+
+// ambiguousOwnerIDs lists every owner id that shares its email with another
+// DISTINCT owner — the owners no email-sourced mapping may point at.
+func ambiguousOwnerIDs(ownersByEmail ownerIDsByEmail) []string {
+	var ambiguous []string
+	for _, ownerIDs := range ownersByEmail {
+		if len(ownerIDs) > 1 {
+			for id := range ownerIDs {
+				ambiguous = append(ambiguous, id)
+			}
+		}
+	}
+	return ambiguous
 }
 
 // revokeEmailMappingsForOwners drops every email-sourced mirror_user_map

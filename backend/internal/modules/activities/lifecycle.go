@@ -165,115 +165,16 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		if err := auth.EnsureLinkTarget(ctx, tx, in.EntityType, in.EntityID); err != nil {
 			return err
 		}
-		// The people this relink actually displaced, taken from the delete
-		// itself. Inferring them instead — "whoever is a participant but no
-		// longer linked" — sweeps up participants that were never linked in the
-		// first place, and repoints conversations the correction never mentioned.
 		var displaced []ids.UUID
 		if in.ReplaceExistingOfType {
-			// Replace only the links this caller can SEE. An activity's own
-			// visibility derives from its links, so an unscoped delete lets
-			// someone who reached this activity through one link cut another —
-			// dropping a team's sight of a record by rewriting an association
-			// they were never shown.
-			//
-			// A link outside the caller's scope survives instead. For `project`
-			// that leaves a residual worth naming rather than glossing: at most
-			// one project link may exist, so the insert then hits the partial
-			// index and refuses, and the difference between that refusal and a
-			// success tells the caller a project link they cannot see is there.
-			// One bit escapes, and it cannot be closed from here — hiding the
-			// link's existence and enforcing one-per-activity are the same
-			// question asked twice. Its CONTENT stays hidden, which is what the
-			// scope is for, and losing the link outright would be worse.
-			var args []any
-			arg := func(v any) int { args = append(args, v); return len(args) }
-			idPos, typePos := arg(id), arg(in.EntityType)
-			scope, err := auth.ScopeClauseFor(ctx, in.EntityType, "t", arg)
+			var err error
+			displaced, err = deleteVisibleLinksOfType(ctx, tx, id, in.EntityType, column)
 			if err != nil {
 				return err
 			}
-			visible := "true"
-			if scope != "" {
-				visible = scope
-			}
-			rows, err := tx.Query(ctx, storekit.SQLf(`
-				DELETE FROM activity_link
-				WHERE activity_id = $%d AND entity_type = $%d
-				  AND EXISTS (SELECT 1 FROM %s t WHERE t.id = activity_link.%s AND %s)
-				RETURNING person_id`,
-				idPos, typePos, in.EntityType, column, visible), args...)
-			if err != nil {
-				return err
-			}
-			// Every id this delete actually removed. A link row of another
-			// entity type returns NULL here and contributes nothing.
-			displaced, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (ids.UUID, error) {
-				var pid *ids.UUID
-				if err := r.Scan(&pid); err != nil {
-					return ids.Nil, err
-				}
-				if pid == nil {
-					return ids.Nil, nil
-				}
-				return *pid, nil
-			})
-			if err != nil {
-				return err
-			}
-			displaced = slices.DeleteFunc(displaced, func(id ids.UUID) bool { return id == ids.Nil })
 		}
-		// A relink to a PERSON is a human saying "this conversation was
-		// actually with someone else", so the participant row naming the old
-		// contact is now wrong (ACT-DDL-3). Repointing it keeps the
-		// participants and the links telling one story.
-		//
-		// KNOWN GAP, stated rather than papered over: the graph consumer
-		// derives its affected (user, person) pairs from the participant rows,
-		// and by the time it runs they name the NEW contact — so the OLD
-		// edge is not recomputed and keeps counting an interaction that no
-		// longer points at it. The nightly rebuild clears it, which bounds the
-		// staleness to the same 24h the window counts already carry, but it is
-		// a bound and not a fix.
-		//
-		// The fix is the additive `relinked_from` reference ADR-0078 specifies
-		// on the activity.updated relink payload: the consumer needs the
-		// displaced id, and this module cannot recompute the edge itself
-		// because search is a sibling. That is a public-event contract change
-		// and belongs in its own slice.
 		if in.EntityType == linkEntityPerson && in.ReplaceExistingOfType && len(displaced) > 0 {
-			// The DISPLACED person carries the row scope too. The relink
-			// already gated the new target; without this the old one is
-			// rewritten sight unseen, so a caller could repoint a participant
-			// naming a contact they cannot read — including an owner-private
-			// captured one. The link delete above scopes for the same reason;
-			// this is its participant twin.
-			var pargs []any
-			parg := func(v any) int { pargs = append(pargs, v); return len(pargs) }
-			idPos, targetPos, displacedPos := parg(id), parg(in.EntityID), parg(displaced)
-			visible, err := auth.ScopeClauseFor(ctx, linkEntityPerson, "op", parg)
-			if err != nil {
-				return err
-			}
-			if visible == "" {
-				// An unbounded caller narrows nothing.
-				visible = "true"
-			}
-			if _, err := tx.Exec(ctx, storekit.SQLf(`
-				UPDATE activity_participant ap
-				   SET person_id = $%d
-				 WHERE ap.activity_id = $%d
-				   -- Exactly the people the link delete above removed, and no
-				   -- others. A participant can name somebody who was never
-				   -- linked at all, and inferring the displaced set from "no
-				   -- longer linked" would rewrite them too.
-				   AND ap.person_id = ANY($%d::uuid[])
-				   AND ap.person_id <> $%d
-				   AND EXISTS (SELECT 1 FROM person op WHERE op.id = ap.person_id AND (`+visible+`))
-				   AND NOT EXISTS (
-				       SELECT 1 FROM activity_participant other
-				        WHERE other.activity_id = ap.activity_id AND other.person_id = $%d)`,
-				targetPos, idPos, displacedPos, targetPos, targetPos), pargs...); err != nil {
+			if err := repointDisplacedParticipants(ctx, tx, id, in.EntityID, displaced); err != nil {
 				return err
 			}
 		}
@@ -309,6 +210,119 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
 	return out, err
+}
+
+// deleteVisibleLinksOfType drops the activity's links of one entity type and
+// answers the person ids that delete actually displaced. Those ids come from
+// the delete ITSELF. Inferring them instead — "whoever is a participant but no
+// longer linked" — sweeps up participants that were never linked in the first
+// place, and repoints conversations the correction never mentioned.
+//
+// Only the links this caller can SEE are replaced. An activity's own
+// visibility derives from its links, so an unscoped delete lets someone who
+// reached this activity through one link cut another — dropping a team's sight
+// of a record by rewriting an association they were never shown.
+//
+// A link outside the caller's scope survives instead. For `project` that
+// leaves a residual worth naming rather than glossing: at most one project
+// link may exist, so the insert then hits the partial index and refuses, and
+// the difference between that refusal and a success tells the caller a project
+// link they cannot see is there. One bit escapes, and it cannot be closed from
+// here — hiding the link's existence and enforcing one-per-activity are the
+// same question asked twice. Its CONTENT stays hidden, which is what the scope
+// is for, and losing the link outright would be worse.
+func deleteVisibleLinksOfType(ctx context.Context, tx pgx.Tx, id ids.ActivityID, entityType, column string) ([]ids.UUID, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos, typePos := arg(id), arg(entityType)
+	scope, err := auth.ScopeClauseFor(ctx, entityType, "t", arg)
+	if err != nil {
+		return nil, err
+	}
+	visible := "true"
+	if scope != "" {
+		visible = scope
+	}
+	rows, err := tx.Query(ctx, storekit.SQLf(`
+		DELETE FROM activity_link
+		WHERE activity_id = $%d AND entity_type = $%d
+		  AND EXISTS (SELECT 1 FROM %s t WHERE t.id = activity_link.%s AND %s)
+		RETURNING person_id`,
+		idPos, typePos, entityType, column, visible), args...)
+	if err != nil {
+		return nil, err
+	}
+	// Every id this delete actually removed. A link row of another
+	// entity type returns NULL here and contributes nothing.
+	displaced, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ids.UUID, error) {
+		var pid *ids.UUID
+		if err := r.Scan(&pid); err != nil {
+			return ids.Nil, err
+		}
+		if pid == nil {
+			return ids.Nil, nil
+		}
+		return *pid, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(displaced, func(personID ids.UUID) bool { return personID == ids.Nil }), nil
+}
+
+// repointDisplacedParticipants moves the displaced contacts' participant rows
+// onto the relink target. A relink to a PERSON is a human saying "this
+// conversation was actually with someone else", so the participant row naming
+// the old contact is now wrong (ACT-DDL-3). Repointing it keeps the
+// participants and the links telling one story.
+//
+// The DISPLACED person carries the row scope too. The relink already gated the
+// new target; without this the old one is rewritten sight unseen, so a caller
+// could repoint a participant naming a contact they cannot read — including an
+// owner-private captured one. The link delete scopes for the same reason; this
+// is its participant twin.
+//
+// KNOWN GAP, stated rather than papered over: the graph consumer derives its
+// affected (user, person) pairs from the participant rows, and by the time it
+// runs they name the NEW contact — so the OLD edge is not recomputed and keeps
+// counting an interaction that no longer points at it. The nightly rebuild
+// clears it, which bounds the staleness to the same 24h the window counts
+// already carry, but it is a bound and not a fix.
+//
+// The fix is the additive `relinked_from` reference ADR-0078 specifies on the
+// activity.updated relink payload: the consumer needs the displaced id, and
+// this module cannot recompute the edge itself because search is a sibling.
+// That is a public-event contract change and belongs in its own slice.
+func repointDisplacedParticipants(ctx context.Context, tx pgx.Tx, id ids.ActivityID, target ids.UUID, displaced []ids.UUID) error {
+	var pargs []any
+	parg := func(v any) int { pargs = append(pargs, v); return len(pargs) }
+	idPos, targetPos, displacedPos := parg(id), parg(target), parg(displaced)
+	visible, err := auth.ScopeClauseFor(ctx, linkEntityPerson, "op", parg)
+	if err != nil {
+		return err
+	}
+	if visible == "" {
+		// An unbounded caller narrows nothing.
+		visible = "true"
+	}
+	if _, err := tx.Exec(ctx, storekit.SQLf(`
+		UPDATE activity_participant ap
+		   SET person_id = $%d
+		 WHERE ap.activity_id = $%d
+		   -- Exactly the people the link delete removed, and no
+		   -- others. A participant can name somebody who was never
+		   -- linked at all, and inferring the displaced set from "no
+		   -- longer linked" would rewrite them too.
+		   AND ap.person_id = ANY($%d::uuid[])
+		   AND ap.person_id <> $%d
+		   AND EXISTS (SELECT 1 FROM person op WHERE op.id = ap.person_id AND (`+visible+`))
+		   AND NOT EXISTS (
+		       SELECT 1 FROM activity_participant other
+		        WHERE other.activity_id = ap.activity_id AND other.person_id = $%d)`,
+		targetPos, idPos, displacedPos, targetPos, targetPos), pargs...); err != nil {
+		return err
+	}
+	return nil
 }
 
 func updateDelta(in UpdateActivityInput) map[string]any {

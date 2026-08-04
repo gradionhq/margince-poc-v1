@@ -28,6 +28,8 @@ const (
 	TaskOfferDraft Task = "offer_draft"
 	// TaskRateExtract is extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer. Two sites — the pricing-page pass and the FX pass — a distinction the build has carried unnamed (two prompt builders, two byte-pin tests, three corpus scenarios) since it was written.
 	TaskRateExtract Task = "rate_extract"
+	// TaskSignalExtract is SIG-F-3: read the material events out of a settled thread — contract_ended, new_opportunity, commitment_made — each citing the message it came from. Floor 0.7; below it the event is dropped, never guessed. An event is an OBSERVATION and is written directly; what follows from one is a structural claim and stages for a human.
+	TaskSignalExtract Task = "signal_extract"
 	// TaskSiteExtract is premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung. Its response schema is built PER CALL (the citation enum is that call's passage ids), which is why ADR-0074 leaves answer schemas in code.
 	TaskSiteExtract Task = "site_extract"
 	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads. Its response schema varies in SHAPE per call with the page menu (ADR-0074).
@@ -66,7 +68,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "ab33ae477426873d6665dc8f928941d1d2adb9901b29ea761984c658bae3f60a"
+const TaskContractHash = "2b16b8b80804ab54e0fd2586210eb87523396924ac613adbc19dacc1d6479de3"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -85,6 +87,7 @@ func AllTasks() []Task {
 		TaskNlSearch,
 		TaskOfferDraft,
 		TaskRateExtract,
+		TaskSignalExtract,
 		TaskSiteExtract,
 		TaskSiteFactExtract,
 		TaskSiteTriage,
@@ -109,6 +112,7 @@ var taskLadders = map[Task][]Tier{
 	TaskNlSearch:                   {TierCheapCloud, TierPremium},
 	TaskOfferDraft:                 {TierCheapCloud, TierPremium},
 	TaskRateExtract:                {TierPremium, TierCheapCloud},
+	TaskSignalExtract:              {TierCheapCloud, TierPremium},
 	TaskSiteExtract:                {TierPremium},
 	TaskSiteFactExtract:            {TierCheapCloud, TierPremium},
 	TaskSiteTriage:                 {TierCheapCloud, TierPremium},
@@ -141,6 +145,7 @@ var taskExecutionModes = map[Task]ExecutionMode{
 	TaskNlSearch:                   ExecutionModeInteractive,
 	TaskOfferDraft:                 ExecutionModeInteractive,
 	TaskRateExtract:                ExecutionModeBackground,
+	TaskSignalExtract:              ExecutionModeBackground,
 	TaskSiteExtract:                ExecutionModeBackground,
 	TaskSiteFactExtract:            ExecutionModeBackground,
 	TaskSiteTriage:                 ExecutionModeBackground,
@@ -180,6 +185,7 @@ var taskStatus = map[Task]string{
 	TaskNlSearch:                   "planned",
 	TaskOfferDraft:                 "shipped",
 	TaskRateExtract:                "shipped",
+	TaskSignalExtract:              "shipped",
 	TaskSiteExtract:                "shipped",
 	TaskSiteFactExtract:            "shipped",
 	TaskSiteTriage:                 "shipped",
@@ -242,6 +248,9 @@ var taskSites = map[Task][]Site{
 		{Name: "pricing", Kind: "one_shot"},
 		{Name: "fx", Kind: "one_shot"},
 	},
+	TaskSignalExtract: {
+		{Name: "thread_events", Kind: "one_shot"},
+	},
 	TaskSiteExtract: {
 		{Name: "profile", Kind: "one_shot"},
 	},
@@ -300,6 +309,7 @@ var taskCompanyContext = map[Task]CompanyContextPolicy{
 	TaskNlSearch:                   {Scopes: []string{"offer", "market"}, TokenBudget: 600, Conditional: false},
 	TaskOfferDraft:                 {Scopes: []string{"offer", "positioning", "proof"}, TokenBudget: 1600, Conditional: false},
 	TaskRateExtract:                {TokenBudget: 0, Conditional: false},
+	TaskSignalExtract:              {TokenBudget: 0, Conditional: false},
 	TaskSiteExtract:                {TokenBudget: 0, Conditional: false},
 	TaskSiteFactExtract:            {TokenBudget: 0, Conditional: false},
 	TaskSiteTriage:                 {TokenBudget: 0, Conditional: false},

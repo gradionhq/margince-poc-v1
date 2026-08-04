@@ -288,3 +288,11 @@ checklist. Two are worth knowing by name while authoring, because they read the
 |---|---|
 | `TestEveryCorpusScenarioPreparesAgainstItsSite` | a fixture that is not the shape the site takes, or an expectation its validator could never satisfy — caught without a model, before a paid run |
 | `TestEachAbstentionScenarioCatchesTheFabricationItTargets` | an abstention scenario that grades the right answer and the fabrication it exists to catch the same way, and so would pass whatever the model did |
+
+## Probe it before you commit it
+
+A scenario is cheaper to get right before it enters the corpus. `make ai-probe`
+runs one against its site through the same `Prepare`/`Run`/`Evaluate` path, from a
+scratch file that never leaves the gitignored `.tmp/aitask/` — including
+`--ai-fake`, which costs nothing and still exercises the fixture shape and the
+production validator. See [debug an AI task](debug-an-ai-task.md).

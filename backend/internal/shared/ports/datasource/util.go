@@ -119,6 +119,13 @@ func StrictDecode(raw json.RawMessage, into any) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {
+		// Which field, and what shape it wanted. The decoder answers neither
+		// for a generated UnmarshalJSON (see fieldshape.go), and the transport
+		// left with an unnamed shape failure says "the payload must be a JSON
+		// object" about a payload that IS one.
+		if shape := LocalizeFieldFault(raw, into, err, strictProbe); shape != nil {
+			return &FieldDecodeError{Cause: shape}
+		}
 		return &FieldDecodeError{Cause: err}
 	}
 	return nil

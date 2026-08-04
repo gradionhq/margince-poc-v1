@@ -172,7 +172,13 @@ var (
 		},
 		RowScope: principal.RowScopeAll,
 	}
-	AdminPerms = principal.Permissions{
+	// AdminWithSignals is AdminPerms plus the warm-room signal grants the real
+	// admin role holds (identity/internal/policy.go). It is separate rather
+	// than folded in because several tests read AdminPerms as "an admin who
+	// cannot see signals" to prove a section is withheld — a fixture that
+	// granted everything would make those pass without testing anything.
+	AdminWithSignals = withFullSignalGrant(AdminPerms)
+	AdminPerms       = principal.Permissions{
 		RoleKeys: []string{"admin"},
 		Objects: map[string]principal.ObjectGrant{
 			"person":       {Create: true, Read: true, Update: true, Delete: true},
@@ -466,4 +472,20 @@ func ApplyRiverSchema(t *testing.T) {
 	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
 		t.Fatalf("applying the river schema: %v", err)
 	}
+}
+
+// withFullSignalGrant copies a permission set and adds the whole signal grant,
+// which is what the real admin role holds (identity/internal/policy.go). It is
+// a copy because principal.Permissions carries a map, and mutating the shared
+// fixture would grant signals to every test in the package at once.
+func withFullSignalGrant(base principal.Permissions) principal.Permissions {
+	out := base
+	out.Objects = make(map[string]principal.ObjectGrant, len(base.Objects)+1)
+	for object, grant := range base.Objects {
+		out.Objects[object] = grant
+	}
+	out.Objects["signal"] = principal.ObjectGrant{
+		Create: true, Read: true, Update: true, Delete: true,
+	}
+	return out
 }

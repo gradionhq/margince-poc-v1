@@ -35,14 +35,16 @@ func (h Handlers) MergeOrganization(w http.ResponseWriter, r *http.Request, id c
 
 func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, params crmcontracts.ListOrganizationsParams) {
 	in := ListOrganizationsInput{
-		Cursor:          params.Cursor,
-		Limit:           params.Limit,
-		Query:           params.Q,
-		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
-		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
-		AiWritten:       params.AiWritten,
-		Sort:            params.Sort,
-		CustomFilters:   httperr.CustomFieldFilters(r),
+		Cursor:           params.Cursor,
+		Limit:            params.Limit,
+		Query:            params.Q,
+		IncludeArchived:  params.IncludeArchived != nil && *params.IncludeArchived,
+		CapturedByKind:   capturedByKindArg(params.CapturedByKind),
+		AiWritten:        params.AiWritten,
+		Sort:             params.Sort,
+		CustomFilters:    httperr.CustomFieldFilters(r),
+		Lifecycle:        enumArg(params.Lifecycle),
+		RelationshipType: enumArg(params.RelationshipType),
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 
@@ -182,4 +184,15 @@ func (h Handlers) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, org)
+}
+
+// enumArg reads an optional generated enum query parameter as the plain string
+// the store filters on. A nil parameter stays nil: an omitted filter is not a
+// filter, never an empty-string match.
+func enumArg[T ~string](v *T) *string {
+	if v == nil {
+		return nil
+	}
+	s := string(*v)
+	return &s
 }

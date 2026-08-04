@@ -199,6 +199,11 @@ var erasureCascadeFiles = []string{
 	// transaction, so it counts here; leaving it off would let a table look
 	// uncovered the moment its purge moved file.
 	"internal/modules/privacy/erasuretimeline.go",
+	// The subject's traces in the relationship graph — the interaction
+	// participants, the imported LinkedIn ghosts, and the projection folded out
+	// of both. Same Art. 17 transaction, its own file for the same size reason
+	// the timeline has one.
+	"internal/modules/privacy/erasure_graph.go",
 	// Retention’s graph invalidation — same Art. 17/retention transaction.
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
@@ -217,6 +222,7 @@ var erasureCascadeFiles = []string{
 var retentionSweepFiles = []string{
 	"internal/modules/privacy/retention.go",
 	"internal/modules/privacy/retentionai.go",
+	"internal/modules/privacy/retention_graph.go",
 }
 
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {

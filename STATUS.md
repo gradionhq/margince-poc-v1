@@ -12,6 +12,53 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open — the brief's omitted sections are prompt-enforced, not code-enforced
+
+`Input.SectionsOmitted` names what a reader could not see, and the writer is
+told to stay silent about those subjects
+([orgbrief/write.go](backend/internal/compose/orgbrief/write.go) briefSystem,
+last line). That instruction is the only thing enforcing it. The grounding
+filter cannot: `knownRecords` always contains the organization itself, so a
+sentence citing the organization is grounded whatever was withheld, and a model
+that ignores the instruction can put a claim about a withheld section in front
+of a restricted reader.
+
+Closing it needs a mapping from the 360's omitted section names onto the
+brief's own section kinds (`snapshot`/`fit`/`health`/`activity`/`next_step`) —
+two different vocabularies — and then dropping any section whose source was
+withheld. That is a boundary decision, not a filter tweak, which is why it is
+here rather than in PR #392.
+
+## Open defect — a backfill of OLDER messages leaves those messages unread
+
+`threadMessages` ([signalextractread.go](backend/internal/compose/signalextractread.go))
+always reads the newest `extractThreadMessages` (6) messages of a conversation.
+`signal_thread_scan` notices a backfill because the message COUNT changes, so
+the thread becomes due again — but the window it re-reads is the same newest
+six, and `markThreadScanned` then records the new count. The inserted older
+messages are never sent to the model, and the thread now looks read.
+
+Widening the tail by the count delta only fixes it for short threads: on a long
+one the backfilled messages sit far outside any bounded window from the newest
+end. The fix is a scan cursor over the unread range — a design change to
+`signal_thread_scan`, not an edit to this read.
+
+Two things found alongside it, both bigger than one change:
+
+- **13 `*.down.sql` migrations DELETE rows without lifting RLS.** Fourteen
+  core down migrations contain a `DELETE`; `0176_signal_material_events` is the
+  only one that lifts the policy around it. The migration role is
+  `NOSUPERUSER NOBYPASSRLS`
+  ([scripts/deploy/db-bootstrap.sql](scripts/deploy/db-bootstrap.sql)), so FORCE
+  RLS binds it and the other thirteen match zero rows in a real deployment —
+  each leaving its own migration half-applied wherever the rows it meant to
+  remove would violate a restored constraint. A fitness test asserting the
+  pairing is the right guard, and cannot be added until they are fixed.
+- **`margince_owner` is SUPERUSER + BYPASSRLS in the dev container** but
+  `NOSUPERUSER NOBYPASSRLS` in `db-bootstrap.sql`. Migration-time RLS behaviour
+  is therefore untested locally and in the integration lane, which is why the
+  `0176` bug reproduced only against a hand-built non-bypass role.
+
 ## Open defect — capture_counterparty repeats the version-pin failure
 
 `capture_counterparty` stages with a pinned `activity` version, and the classify
@@ -207,35 +254,19 @@ together, and warm paths and the matrix fall out of it as queries. That is a
 schema addition, a capture change, a backfill, and a spec raise against
 ADR-0021 and NEVER-10. Contract-first: the spec decides first.
 
-## Open defect — the graph cannot answer "who do I know here"
+## Resolved — the graph can answer "who do I know here" (PR #355)
 
-The `in_contact_with` edge exists in the contract and is implemented
-(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+The `in_contact_with` edge used to join on who TYPED the activity
+(`a.captured_by = 'human:' || u.id::text`). Connector-captured mail is stamped
+`connector:gmail`, so the join matched nothing and the edge was never drawn —
+on precisely the accounts with the most correspondence. PR #355 replaced it
+with the interaction projection folded from the participant rows capture
+stamps, and `compose/org360/graphourside.go:113` now says so in its own
+comment.
 
-```sql
-JOIN app_user u ON a.captured_by = 'human:' || u.id::text
-```
-
-Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
-never matches and no edge is drawn. In a product whose premise is that capture
-means nobody types anything, the condition excludes essentially all real data:
-on a live account with three contacts and a year of correspondence, the graph
-returns only `owns` and `employment`, and "who on our side has a way in" is
-unanswerable.
-
-The authorship the edge wants is on the row already: `direction`
-(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
-`counterparty_email` (`migrations/core/0123`) says who the other end was. The
-edge should be derived from the mailbox the activity came through and its
-participants, not from who entered it.
-
-Related contract gap: `counterparty_email` is stored and used by the capture
-sweeps but is not on the `Activity` schema, so no client can see who a
-captured mail was actually with. `direction` IS on the wire and unused by the
-UI today.
-
-Both block the coverage matrix (their buying committee × our team, cells by
-relationship strength) agreed as the company page's centrepiece.
+Still open from that entry: `counterparty_email` is stored and used by the
+capture sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with.
 
 ## Open items left by the consent screen (PR #345)
 
@@ -284,6 +315,186 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
+
+## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
+
+**`backend/api/jobs.yaml` is now the declaration every River job kind is built
+from**, and `tools/gen-jobs` compiles it into two tables: a kind-keyed `Spec`
+in `internal/platform/jobs` and, in `internal/compose`, the closed type set a
+worker may be registered under. 55 kinds; 45 of them got a chosen timeout for
+the first time, where River's silent one-minute default had been standing in.
+
+What the declaration now decides, rather than each site deciding for itself:
+
+- **The timeout.** `jobs.Govern` wraps a worker in a type River reaches only
+  through `Work`, so a worker cannot answer for its own wall clock — the
+  declared value is what River is handed. A kind with no chosen timeout fails
+  generation.
+- **Registration.** `addDeclaredWorker`'s type parameter is a generated union
+  of the declared args types, so a kind the file has never heard of does not
+  compile; `forbidigo` bans River's three direct registration spellings outside
+  one file, and `jobs.MustBeTotal` refuses the boot on anything left. What that
+  boot check reads is every kind River will WORK — `Kind()` plus any
+  `KindAliases()`, which River registers a worker under just the same — so a
+  rename cannot answer to a kind the file never named.
+- **The fan-out.** `workspaceSweepOpts` and `dispatchOne` are the only two
+  paths, both read the child's declared queue and attempt cap, and both stamp
+  the sweep tag — so a dispatcher cannot forget it.
+- **The schedule.** `periodicFor` resolves cadence and registration posture per
+  kind from the file, so moving a wiring site cannot quietly move a schedule.
+  River's RUNTIME periodic-job bundle is the door beside it — a client resolved
+  inside a `Work` body hands one out, and its `Add`/`Remove` take any args at
+  any interval — so `forbidigo` closes the whole type, derived from River's own
+  method set rather than from today's four names.
+- **The fleet surfaces** enumerate what is DECLARED rather than what happens to
+  have rows, which is what tells an idle kind apart from one nobody wired.
+
+**`compose.NewJobCensus` is what holds the two ends together.** It assembles a
+maximally-configured runner — every vault, registry and model seam supplied,
+because which kinds are wired is deployment-dependent — and asserts eight
+things no compiler can: that the two generated halves came from one revision of
+the file, declared-vs-registered totality both ways, that each `{derived: …}`
+timeout still equals the Go constant it names, that exactly the `{operator: …}`
+kinds pass a value at registration, that the declared args fields and the
+compiled struct's fields are the same set, that an args-owned kind's own
+`InsertOpts()` inserts on its declared queue, that no args type answers to a
+second kind through River's `KindAliases`, and that the declared `queues:`
+block and compose's `jobQueues()` agree on names and bounds both ways. It
+refuses to build at all when its own configuration has fallen behind a declared
+dependency, so it cannot quietly measure less than it claims.
+
+**What the file governs and what it only records, stated rather than implied.**
+The queue SET is bound — the census compares every name and `max_workers`
+against `jobQueues()`, so a bound that moved in one place makes the number
+operators read a lie, and a queue declared but never built (rows inserted onto a
+pool no client works) fails the gate. Which queue a ROW lands on is bound only
+where the file supplies the options: `fan_out` kinds take theirs from the
+declaration and `args` kinds are compared against their own `InsertOpts()`,
+while an `opts_owner: caller` kind's `queue` is documentation for the readers —
+its enqueue sites decide. `max_attempts` is likewise declared only for `fan_out`
+kinds, because that is the only case anything reads it.
+
+**Two hand-maintained lists were retired into the file.** The
+nil-after-logging waivers are now `fault:` declarations keyed by kind, joined
+to the worker receiver the fault gate reads by the registration itself; the
+transcribed timeouts are `{derived: …}` declarations the census resolves. The
+`{derived: …}` form is for a constant something ELSE reads — two durations that
+had no other reader are literals in the contract now, and their constants are
+deleted, because a declaration derived from a private copy of itself compares
+nothing and puts the number in two places.
+
+**`jobargscontent_test.go` grew the arm its own comment said would be the
+proof, and kept the one it had.** It now has two, and neither subsumes the
+other. COVERAGE reflects over every registered args struct and requires each
+field to be declared an id or waived as a scalar with a reason — total over the
+fields that exist, so `Snippet`, `Note` and `Domain` are in scope, which the
+word list admitted it missed. SUSPICION keeps that word list as a second arm:
+a field whose NAME reads like content owes a written reason even when it is
+declared an id, because `Body: id` passing in silence is exactly the line a
+reviewer should have to argue for. A word list cannot decide whether a field is
+safe; it can insist that somebody said so. Coverage's first run found one:
+`SiteDeepReadArgs` carried a `SeedURL` no product code read (the worker crawls
+`claim.SeedURL`, because the dossier row is the authority), which is now
+deleted rather than waived.
+
+**Carried forward from job observability Phase 1 C, restated.** Items 1 and 2
+are closed STRUCTURALLY rather than by a test: a worker has nowhere to write a
+timeout any more, and the sweep tag is stamped at a chokepoint the declaration
+drives. Item 3 is partly closed — every worker return is gated syntactically
+and the four ratified exceptions are declared, though the vetted-vocabulary
+substitution at the endpoint is still what makes the surface safe. Items 4, 5
+and 6 are unchanged and are now filed as issues: #430 (`cmd/worker` serves no
+`/metrics`), #431 (the per-connection sweep masking, a product decision), and
+#432 (`enqueueDigest` fanning the fleet out for one tenant). Two unrelated
+findings were filed alongside them: #428 (`//nolint:forbidigo` is unusable
+tree-wide, so the only available waiver is a path exclusion) and #429 (a
+`STATUS.md` pointer left in a source comment).
+
+**What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
+`craft static` only, so the forbidigo bans on direct River registration and on
+`ClientFromContext` are held at `make check` and in CI, not before the push.
+
+## Session pickup — 2026-08-04 (the company page overhaul, PR #392, merged)
+
+**The page answers what an account is, where it stands, and what to do about
+it.** Merged as PR #392 (squashed), which strictly contained the P0 half in
+PR #371 — #371 was closed unmerged rather than landed twice.
+
+The review cost more than the build. Cubic raised 72 findings across three
+passes; two review subagents and three Codex stop-gate rounds followed. Two
+things are worth carrying forward from that:
+
+- **Every tenant-isolation finding against this diff was a false positive**,
+  four times over. The pattern each time: a query with no `workspace_id`
+  predicate, read as a cross-tenant leak. It never was — the callers run inside
+  `database.WithWorkspaceTx`, the tables carry FORCE RLS, and `margince_app` is
+  `NOSUPERUSER NOBYPASSRLS`. Check those three before spending time on the next
+  one.
+- **Three consecutive stop-gate rounds each found a defect in the previous
+  round's fix**, and each fix had traded one failure for another: retiring a
+  refused conversation stopped queue starvation but lost its signal; leaving it
+  due stopped the loss but let it hold a queue slot forever; bounding the
+  attempts stopped that but made parking permanent. It settled only once
+  refusals were counted against a pinned conversation state AND the park was
+  given an expiry (migration 0178).
+
+**The page answers what an account is, where it stands, and what to do about
+it.** 26 commits on `feat/company-page-p1`, based on P0's PR #371 (still open).
+`make check`, `make check-fe` and the touched integration lanes are green. Not
+yet pushed: a Codex review of the full diff is the gate, then a rebase onto
+`origin/main` (which has since taken #378, #379 and #381).
+
+What the failure was: the ScaleCommerce record held an email ending the
+contract on 31 July while the page read "Prospect", and nothing anywhere put
+those two facts next to each other. `organization.classification` was
+`NOT NULL DEFAULT 'prospect'` and **never had a writer** — ADR-0032 promised
+enrichment would set it and that was never built — so "Prospect" was the
+column's default rendered as a finding.
+
+Built, in the order it ships:
+
+- **P0** — `classification` splits into an `organization.lifecycle` column and
+  an `organization_relationship_type` child table (ADR-0079, migration 0175);
+  the partner invariant is enforced in both directions. The 30-day activity
+  count now uses the same three-arm link walk the timeline uses. The header
+  shows last-inbound and last-outbound instead of a 0–100 score. Enrichment
+  audit rows carry per-column before/after images.
+- **P1** — the state strip, the sectioned brief (fact | assessment |
+  recommendation, parsed and enforced per section), ranked suggestions that
+  carry their action, client-side thread grouping, and the People/Timeline
+  tabs.
+- **P2** — two signal producers where there were none: the deterministic
+  `ghosted_thread` rule and the `signal_extract` model site that reads
+  `contract_ended`, `new_opportunity` and `commitment_made` out of a settled
+  conversation (migration 0176, four corpus scenarios including a
+  prompt-injection one). The `lifecycle_conflict` card states the disagreement
+  the record has with its own mail. The `lifecycle_change` reconciler offers
+  the fix to a human — nothing structural is written before their yes, a
+  refusal is remembered against the account and the stage, and a stale accept
+  is refused rather than overwriting an edit someone made by hand.
+
+Two things a reader should know:
+
+1. `Signal.kind` on the wire declared only the six kinds a human files by hand
+   while the producers had been writing four more since 0176 — the API was
+   serving values outside its own enum. Fixed in the same branch.
+2. `contract_ended` proposes `former_customer` from every live stage,
+   including `prospect`. That was open question 7 in the plan; the founder's
+   own example is a record reading Prospect whose mail ends a contract, so the
+   mail is the fact whether or not the record ever said customer. Worth
+   confirming.
+
+Deliberately not built: `deal_from_thread` and `task_from_commitment` staged
+proposals. They add cards to the approvals panel and change nothing the page
+shows today; deal creation also has no source-key replay, so its executor needs
+a new idempotent deals-store method rather than a copy of the task effect.
+
+Two things owed to `main` at merge time: the `margince` database records
+`org_legal_name_trgm` as version 0169 while `origin/main` has it at 0170
+(`UPDATE schema_migrations_core SET version='0170' WHERE version='0169' AND
+name='org_legal_name_trgm';`), and a stray seed of "Demo GmbH" plus three
+people landed in the founder's own `margince` database from a `scripts/seed-dev.sh`
+run that ignores `DEV_SLUG` and hard-defaults to `localhost:8080`.
 
 ## Session pickup — 2026-08-03/04 (job observability, Phase 0 + Phase 1 A/B/C — Phase 1 COMPLETE)
 
@@ -359,24 +570,31 @@ them: [Reading the job surfaces](docs/reference/configuration.md#reading-the-job
 highest-value work left in this topic:
 
 1. **No fitness test asserts a workspace worker declares a `Timeout`** — see
-   the paragraph below; unchanged by C and still the blocker #390 shipped.
+   the paragraph below. CLOSED structurally by `feat/job-contract`: a worker
+   has nowhere to write a timeout any more, so there is no longer a rule for a
+   test to hold.
 2. **No fitness test asserts a fan-out site tags its children.** C tags all six
    call sites, but the only registry of which sites exist is a comment — and the
    adversarial review of C found a real missed site (`overlayReconcileWorker`)
-   whose absence would have silently emptied the overlay sweep series. Deriving
-   "this insert is a fan-out" needs a static notion the tree does not support
-   today; until it does, that comment is load-bearing code.
+   whose absence would have silently emptied the overlay sweep series. CLOSED
+   structurally by `feat/job-contract`: the tag is stamped at the two chokepoints
+   the declaration drives, and both refuse a child no dispatcher declares.
 3. **Not every worker routes its failure through `jobs.Fault`.** The endpoint is
    safe regardless — it allowlists against the vocabulary and substitutes
    otherwise — but the underlying obligation, that a raw provider error naming
    an address must not reach a fleet-visible column, is held by no gate.
+   PARTLY closed by `feat/job-contract`: every worker return is now gated
+   syntactically and the four log-and-return-nil exceptions are declared per
+   kind, so the vocabulary substitution is a second line rather than the only one.
 4. **`cmd/worker` exposes no `/metrics`**, against OPS-MET-8's "every service".
+   Filed as #430.
 5. **A per-connection dispatcher can mask a failed connection** in the sweep
    pair: the pair counts distinct workspaces, so a workspace whose second
    connection succeeded later is not reported as failing. Stated in the docs;
-   whether it wants its own metric is a product decision.
+   whether it wants its own metric is a product decision. Filed as #431.
 6. **`captureBackfillWorker.enqueueDigest` enqueues dispatcher args with no
    uniqueness**, so one tenant's backfill triggers a whole-fleet digest fan-out.
+   Filed as #432.
 
 **Phase 2's screen stays blocked upstream on U2** (`margince-foundation#1225`,
 still open). The endpoint is the layer underneath it and is built now; the SPA

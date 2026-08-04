@@ -18,10 +18,16 @@ import (
 // filled with the defaults in withDefaults, so callers can set only what they
 // care about.
 type Config struct {
-	MaxFileLines int    // largeFile threshold (0 → default 500)
-	MaxFuncLines int    // longFunc threshold (0 → default 80)
-	DomainMarker string // path substring marking a domain module (default "internal/modules/")
-	Strict       bool   // when true, MAJOR findings also block the merge
+	MaxFileLines int // largeFile threshold (0 → default 500)
+	MaxFuncLines int // longFunc threshold (0 → default 80)
+	// Test files get their own, higher size ceilings: a long scenario test
+	// that sets up, acts, and asserts in one honest sequence is not the
+	// god-function smell the prod thresholds hunt — but a cap remains so a
+	// suite still splits once it stops being navigable.
+	MaxTestFileLines int    // largeFile threshold for *_test.go (0 → default 1000)
+	MaxTestFuncLines int    // longFunc threshold for *_test.go (0 → default 160)
+	DomainMarker     string // path substring marking a domain module (default "internal/modules/")
+	Strict           bool   // when true, MAJOR findings also block the merge
 }
 
 func (c Config) withDefaults() Config {
@@ -30,6 +36,12 @@ func (c Config) withDefaults() Config {
 	}
 	if c.MaxFuncLines == 0 {
 		c.MaxFuncLines = 80
+	}
+	if c.MaxTestFileLines == 0 {
+		c.MaxTestFileLines = 1000
+	}
+	if c.MaxTestFuncLines == 0 {
+		c.MaxTestFuncLines = 160
 	}
 	if c.DomainMarker == "" {
 		c.DomainMarker = "internal/modules/"

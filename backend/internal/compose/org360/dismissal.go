@@ -109,7 +109,17 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 func (s *Service) raisesSuggestion(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, fingerprint string,
 ) (bool, error) {
-	in, err := gatherSuggestionInputs(ctx, tx, orgID, now)
+	facts, err := readSignalFacts(ctx, tx, orgID)
+	if err != nil {
+		return false, err
+	}
+	// The dismissal has no assembled page to take the stage from, so it reads
+	// it — off the hot path, and once.
+	lifecycle, err := organizationLifecycle(ctx, tx, orgID)
+	if err != nil {
+		return false, err
+	}
+	in, err := gatherSuggestionInputs(ctx, tx, orgID, now, facts, lifecycle)
 	if err != nil {
 		return false, err
 	}

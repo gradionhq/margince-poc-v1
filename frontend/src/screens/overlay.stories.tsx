@@ -4,6 +4,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
+import { meFixture } from "../app/mefixture";
 import { OverlayCard } from "./overlay";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
@@ -21,11 +22,13 @@ type Budget = components["schemas"]["OverlayBudget"];
 
 function admin() {
   return () =>
-    jsonResponse({
-      user: { email: "ada@acme.test" },
-      roles: ["admin"],
-      teams: [],
-    });
+    jsonResponse(
+      meFixture({
+        allow: {
+          overlay_connection: ["read", "create", "update", "delete"],
+        },
+      }),
+    );
 }
 
 const activeConnection: Connection = {

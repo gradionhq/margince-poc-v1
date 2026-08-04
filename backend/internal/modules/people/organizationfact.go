@@ -185,6 +185,26 @@ func validDeepReadFact(f DeepReadFact) error {
 	return nil
 }
 
+// validatedDeepReadFields vets an accepted proposal and renders its
+// profile-field half as the cold-start input the shared fill-empty machinery
+// takes. A proposal with neither half is a staging defect, not an empty write:
+// it would burn the approval and change nothing.
+func validatedDeepReadFields(in DeepReadProposal) ([]ColdStartFieldInput, error) {
+	if len(in.Fields) == 0 && len(in.Facts) == 0 {
+		return nil, errors.New("people: an accepted deepread proposal carries no fields and no facts")
+	}
+	for _, f := range in.Facts {
+		if err := validDeepReadFact(f); err != nil {
+			return nil, err
+		}
+	}
+	fields := make([]ColdStartFieldInput, 0, len(in.Fields))
+	for _, f := range in.Fields {
+		fields = append(fields, ColdStartFieldInput(f))
+	}
+	return fields, nil
+}
+
 // ApplyDeepRead executes an ACCEPTED deepread proposal: the profile-field
 // half through the shared fill-empty-plus-evidence machinery (source
 // "deepread"), the category facts upserted into organization_fact — both
@@ -207,24 +227,36 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return err
 	}
-	if len(in.Fields) == 0 && len(in.Facts) == 0 {
-		return errors.New("people: an accepted deepread proposal carries no fields and no facts")
-	}
-	for _, f := range in.Facts {
-		if err := validDeepReadFact(f); err != nil {
-			return err
-		}
-	}
-
-	fields := make([]ColdStartFieldInput, 0, len(in.Fields))
-	for _, f := range in.Fields {
-		fields = append(fields, ColdStartFieldInput(f))
+	fields, err := validatedDeepReadFields(in)
+	if err != nil {
+		return err
 	}
 
 	wsID := workspaceID(ctx)
 	// The target is a KNOWN row; row-scope is re-checked here so a
 	// leaked org id buys nothing (existence-hiding 404).
 	if err := auth.EnsureVisible(ctx, tx, "organization", in.OrganizationID.UUID); err != nil {
+		return err
+	}
+	// Taken here when — and only when — this apply carries a name, on the same
+	// condition applyEvidenceFieldsWithOverwrite uses further down. Two rules
+	// meet at this line. The name lock is workspace-wide and held to COMMIT, so
+	// taking it for a batch of industry or address facts would serialize every
+	// organization write in the installation behind an apply that cannot rename
+	// anything. And when it IS taken it must come before the row lock the image
+	// read below takes, or this path holds the row and waits for the name while
+	// a human rename holds the name and waits for the row. An apply carrying no
+	// name takes neither lock in that pair, so no order exists to invert.
+	if carriesOrgName(fields) {
+		if err := lockOrgNameWrites(ctx, tx); err != nil {
+			return err
+		}
+	}
+	// The columns as they stand before the apply — see applyColdStartTx: the
+	// write reports only that it changed something, so the before image has to
+	// be read, or field history has no diff to project.
+	before, err := readColdStartColumnImages(ctx, tx, in.OrganizationID)
+	if err != nil {
 		return err
 	}
 	appliedFields, err := applyEvidenceFields(ctx, tx, wsID, in.OrganizationID, companySourceSiteRead, by, fields)
@@ -235,7 +267,16 @@ func (s *Store) ApplyDeepReadTx(ctx context.Context, tx pgx.Tx, in DeepReadPropo
 	if err != nil {
 		return err
 	}
-	auditID, err := storekit.Audit(ctx, tx, "update", "organization", in.OrganizationID.UUID, nil, map[string]any{
+	after, err := readColdStartColumnImages(ctx, tx, in.OrganizationID)
+	if err != nil {
+		return err
+	}
+	before, after = changedColumnsOnly(before, after)
+	// The facts and the profile-field evidence are NOT column images — they
+	// live in their own sidecar tables — so they ride the evidence column with
+	// the rest of the operation's metadata. Only what changed on the
+	// organization row itself belongs in before/after.
+	auditID, err := storekit.AuditWithEvidence(ctx, tx, "update", "organization", in.OrganizationID.UUID, before, after, map[string]any{
 		auditKeySource: companySourceSiteRead, auditKeySourceURL: in.SourceURL,
 		auditKeyFields: appliedFields, auditKeyFacts: appliedFacts,
 	})

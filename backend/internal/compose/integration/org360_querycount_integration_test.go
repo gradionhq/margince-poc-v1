@@ -118,10 +118,15 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 			"the composite read must be flat in the size of the account, or it is the round-trip stack it replaced",
 			largeCost, smallCost)
 	}
-	// A ceiling as well as a shape: nine sections, a handful of queries
-	// each at most. If this ever needs raising, the reason belongs in the
-	// commit that raises it.
-	const budget = 25
+	// A ceiling as well as a shape: ten sections, a handful of queries each
+	// at most. If this ever needs raising, the reason belongs in the commit
+	// that raises it.
+	//
+	// Raised 25 → 27 for the last_touch section (ADR-0079 arc): it is a new
+	// section, and it costs its own grant check and its own read. Two rather
+	// than one because the read is gated like every other section — a caller
+	// without the activity grant gets silence, not a timestamp.
+	const budget = 27
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

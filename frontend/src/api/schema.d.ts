@@ -6654,7 +6654,15 @@ export interface components {
             readonly computed_fields?: components["schemas"]["ComputedField"][];
             domains?: components["schemas"]["OrganizationDomain"][];
             /**
-             * @description An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK.
+             * @description WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
+             * @enum {string}
+             */
+            lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+            /** @description WHAT THE COMPANY IS to us (PO-DDL-4b, ADR-0079/A124). Multi-valued, because a company is legitimately several things at once — the partner program is built on companies that are simultaneously partners and customers. An org IS a partner iff it carries `partner` here AND has a `partner` row; removing the type while that row lives is refused (422). */
+            relationship_types?: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
+            /**
+             * @deprecated
+             * @description RETIRED (ADR-0079/A124) — superseded by `lifecycle` + `relationship_types`, which split the two questions this one value tried to answer at once. Carried one release, written by nothing; read it for migration comparison only.
              * @enum {string|null}
              */
             classification?: null | "prospect" | "customer" | "agency" | "reseller" | "tech_vendor" | "platform" | "partner" | "competitor" | "other";
@@ -6722,6 +6730,13 @@ export interface components {
             parent_org_id?: string | null;
             /** @description Replace-set of the org's live domains (add new, archive removed, flip is_primary). Absent = untouched; an empty array clears all domains. */
             domains?: components["schemas"]["OrganizationDomainInput"][];
+            /**
+             * @description Where the account stands with us (ADR-0079/A124). Absent = untouched.
+             * @enum {string}
+             */
+            lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+            /** @description Replace-set of what the company is to us (add new, archive removed), the same shape as `domains`. Absent = untouched; an empty array clears every type. Removing `partner` while the org still has a `partner` extension row is refused with 422 — the invariant binds both ways, and an invariant nothing enforces is a comment. */
+            relationship_types?: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
         } & {
             [key: string]: unknown;
         };
@@ -6782,7 +6797,24 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             generated_by: components["schemas"]["WrittenBy"];
-            /** @description The brief itself, one claim per entry. */
+            /**
+             * @description The brief, in the order a reader asks its questions: what this company is and why it
+             *     matters to us, how the relationship stands, what happened lately, and what to do next.
+             *     A section with nothing to say is ABSENT rather than empty — a heading over silence
+             *     reads as a finding of nothing, which is a different claim.
+             */
+            sections: components["schemas"]["OrganizationBriefSection"][];
+        };
+        OrganizationBriefSection: {
+            /**
+             * @description `snapshot` — what this company is.
+             *     `fit` — why it matters to US, read against our own company profile.
+             *     `health` — how the relationship stands.
+             *     `activity` — what actually happened.
+             *     `next_step` — what to do about it.
+             * @enum {string}
+             */
+            kind: "snapshot" | "fit" | "health" | "activity" | "next_step";
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         /**
@@ -6827,6 +6859,20 @@ export interface components {
         OrganizationBriefSentence: {
             text: string;
             /**
+             * @description What KIND of claim this is, so the reader can tell a record from a reading of it.
+             *     Absent means `fact` — the shape every sentence had before assessments existed.
+             *
+             *     `fact` — the summary said it; the sentence restates it and cites the record.
+             *     `assessment` — a judgment drawn by combining the account with our own company
+             *     profile ("their hosting base matches who we sell to"). Labelled, and still cites the
+             *     records that support it.
+             *     `recommendation` — a concrete next move. Labelled, and cites the ACCOUNT-side record
+             *     that motivates it; the "why us" half cites nothing, because our own profile is not a
+             *     record the reader can open and pretending otherwise would invent a citation.
+             * @enum {string}
+             */
+            nature?: "fact" | "assessment" | "recommendation";
+            /**
              * @description The records this sentence was written from — always records the reader can
              *     already open, because the brief was assembled under their own row scope.
              */
@@ -6835,7 +6881,7 @@ export interface components {
         /** @description One record a brief sentence was written from. */
         OrganizationBriefEvidence: {
             /** @enum {string} */
-            entity_type: "deal" | "activity" | "person" | "organization";
+            entity_type: "deal" | "activity" | "person" | "organization" | "fact";
             /** Format: uuid */
             entity_id: string;
         };
@@ -6847,6 +6893,70 @@ export interface components {
             entity_id: string;
             /** Format: date-time */
             last_viewed_at: string;
+        };
+        /**
+         * @description How the relationship stands, in the parts a reader can act on (AC-company-3).
+         *
+         *     It replaces a single 0–100 score. That number was PO-F-3's MAX over the account's
+         *     contacts, so one talkative contact spoke for the whole account and a long, low-volume
+         *     relationship read as near-dead. Each part below names a fact instead: "no inbound for
+         *     90 days" tells a rep what to do, where "2/100" told them only a mood.
+         *
+         *     Every part is nullable and absent when it cannot be computed — never zero, which would
+         *     be a claim about the account rather than about what was readable.
+         */
+        Organization360Health: {
+            /** @description Null when they have never written, which is different from writing long ago. */
+            days_since_last_inbound?: number | null;
+            /** @description Of the interactions in the strength window, the share that came from them. 0.5 is an even exchange; near 0 is us talking to ourselves. Null when nothing was captured. */
+            reply_balance?: number | null;
+            /** Format: date-time */
+            last_meeting_at?: string | null;
+            /** @description How many people here have interacted at all — the account's real surface. */
+            active_contacts?: number | null;
+            /** @description The whole relationship rests on one contact. Named as a fact rather than scored, because it is the one shape a rep can fix before it costs them the account. */
+            single_threaded?: boolean | null;
+            /** @description Open `commitment_made` signals — things one side said they would do. Null when the caller cannot read signals. */
+            open_commitments?: number | null;
+        };
+        /**
+         * @description The three readings a company page leads with (AC-company-13, PO-F-4). Each half is
+         *     independently gated: a caller who may read the account but not its mail gets the account
+         *     half and a null engagement, because a state inferred from data they were not allowed to see
+         *     would be a conclusion the page has no basis for — and it is the one a rep would act on.
+         */
+        Organization360StateStrip: {
+            account: {
+                /** @enum {string} */
+                lifecycle: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+                relationship_types: ("customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other")[];
+            };
+            /** @description Null when the caller has no activity grant — not assessed, as distinct from never contacted. */
+            engagement?: {
+                /**
+                 * @description PO-F-4, evaluated in the order the spec fixes so the states stay mutually exclusive. `waiting_on_them` shares its threshold and its inputs with the `no_reply` suggestion by construction, so the strip and the nudge below it cannot disagree about whether an account is waiting.
+                 * @enum {string}
+                 */
+                state: "never_contacted" | "active" | "waiting_on_them" | "waiting_on_us" | "dormant";
+                /** Format: date-time */
+                last_inbound_at?: string | null;
+                /** Format: date-time */
+                last_outbound_at?: string | null;
+            } | null;
+            /** @description Null when the caller has no deal grant. */
+            commercial?: {
+                open_count: number;
+                stalled_count: number;
+            } | null;
+            /** @description The most serious thing standing open about this account, or null when nothing is open — and also null when the caller has no signal grant, because a strip that said "nothing" to someone who may not look would be answering a question it cannot answer. Exactly one: the strip states the worst, the signals card lists them all, and a reader who needs the rest opens it. */
+            signal?: {
+                /** @description The signal's own kind, from the open vocabulary in SIG-DDL-1 — not re-narrowed here, because the strip states whatever the producers can raise. */
+                kind: string;
+                /** @enum {string} */
+                severity: "info" | "warn" | "urgent";
+                /** @description The signal's one sentence, in the words its producer wrote — the strip does not rephrase what a conversation said. */
+                summary: string;
+            } | null;
         };
         /** @description One current employee of the account, as the company view shows them. */
         Organization360Contact: {
@@ -6929,9 +7039,13 @@ export interface components {
              * @description `no_reply` — an outbound message on a thread nobody answered.
              *     `stalled_deal` — an open deal idle past the 60-day stall window.
              *     `no_next_step` — an active account with no open task on it.
+             *     `lifecycle_conflict` — the account's own correspondence contradicts the stage it is
+             *     filed under: a `contract_ended` signal stands while the record still reads as a live
+             *     customer or an open opportunity. The page states the conflict rather than resolving
+             *     it, because which of the two is wrong is a judgment only the reader can make.
              * @enum {string}
              */
-            kind: "no_reply" | "stalled_deal" | "no_next_step";
+            kind: "no_reply" | "stalled_deal" | "no_next_step" | "lifecycle_conflict";
             /**
              * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
              *     kind, the subject and the records it fired on. Dismissing a suggestion stores
@@ -6950,6 +7064,34 @@ export interface components {
             subject_id?: string | null;
             /** @description The records the rule fired on — always ones this reader can open. */
             evidence: components["schemas"]["OrganizationBriefEvidence"][];
+            /**
+             * @description What performing this advice means, named by the server rather than inferred by the
+             *     client from the evidence order (AC-company-14). A rule that cannot name an action
+             *     carries null and the card advises without offering a button, which is honest — a
+             *     control that does nothing teaches the reader to stop pressing them.
+             *
+             *     Nothing here stages or sends. Each kind opens a governed surface the rep would have
+             *     used anyway, prefilled from the evidence the rule fired on.
+             */
+            action?: {
+                /**
+                 * @description `draft_reply` — open the composer on the message that went unanswered.
+                 *     `open_deal` — open the deal that stalled.
+                 *     `add_task` — log the next step this account does not have.
+                 * @enum {string}
+                 */
+                kind: "draft_reply" | "open_deal" | "add_task";
+                /**
+                 * Format: uuid
+                 * @description The unanswered outbound message a `draft_reply` anchors on.
+                 */
+                activity_id?: string | null;
+                /**
+                 * Format: uuid
+                 * @description The deal an `open_deal` opens, and the optional link an `add_task` carries.
+                 */
+                deal_id?: string | null;
+            } | null;
         };
         /**
          * @description What changed on this account since the caller last acknowledged seeing it. Read-only:
@@ -6983,8 +7125,20 @@ export interface components {
              */
             as_of: string;
             organization: components["schemas"]["Organization"];
+            /**
+             * Format: date-time
+             * @description When they last wrote to us, over the same three-link walk the timeline uses (the activity's own link, its deal's organization, the employer of the contact it is filed against). Null means nothing inbound was ever captured — which is a fact about the account, not a missing field. Absent entirely when the caller has no activity grant, named in `sections_omitted` as `last_touch`.
+             */
+            last_inbound_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When we last wrote to them, same walk. Shown BESIDE last_inbound_at rather than folded into one "last touch": which direction went last is the whole question — an account we mailed a fortnight ago with no reply is not the same as one that just wrote to us.
+             */
+            last_outbound_at?: string | null;
+            state_strip?: components["schemas"]["Organization360StateStrip"];
+            health?: components["schemas"]["Organization360Health"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions" | "last_touch" | "state_strip" | "health")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
@@ -7899,6 +8053,15 @@ export interface components {
              * @enum {string|null}
              */
             direction?: null | "inbound" | "outbound";
+            /** @description The provider's own conversation id (Gmail threadId, Graph conversationId, the RFC822 References root), stamped by capture. It is what makes a thread a thread: grouping by subject would merge two unrelated "Re: Update" exchanges and split one that was renamed mid-conversation. Null on anything capture did not thread — a note, a task, a message whose provider offered none. */
+            readonly thread_key?: string | null;
+            /**
+             * @description What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
+             * @enum {string|null}
+             */
+            readonly capture_label?: null | "commitment" | "meeting" | "noise";
+            /** @description This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply. */
+            readonly bulk_mail_attested?: boolean;
             /**
              * @description Set only when kind=meeting.
              * @enum {string|null}
@@ -8278,8 +8441,15 @@ export interface components {
             id: string;
             /** Format: uuid */
             workspace_id: string;
-            /** @enum {string} */
-            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
+            /**
+             * @description The first six are what a human files by hand. The last four are what the producers
+             *     raise (SIG-F-3): `contract_ended`, `new_opportunity` and `commitment_made` are read
+             *     out of a settled conversation by the `signal_extract` site, each citing the message
+             *     it is stated in; `ghosted_thread` is a comparison rather than a judgment — the newest
+             *     interaction is ours, nobody answered it, and the account is one worth chasing.
+             * @enum {string}
+             */
+            kind: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other" | "contract_ended" | "new_opportunity" | "commitment_made" | "ghosted_thread";
             /**
              * @description Where the raw signal came from.
              * @default derived
@@ -8814,7 +8984,11 @@ export interface components {
                 /** @enum {string} */
                 mode: "native" | "overlay";
             };
-            /** @description Present when the principal is an agent acting under an Agent Seat Passport. */
+            authorization?: components["schemas"]["Authorization"];
+            /**
+             * @deprecated
+             * @description Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.
+             */
             passport?: {
                 /** Format: uuid */
                 passport_id?: string;
@@ -8822,6 +8996,41 @@ export interface components {
                 on_behalf_of?: string;
                 scopes?: ("read_only" | "draft_only" | "act_with_approval" | "auto_execute_low_risk")[];
             } | null;
+        };
+        /**
+         * @description The closed set of RBAC-governed object types (features/04 §1).
+         *     The web client types every capability check against this enum, which openapi-typescript renders as a string union — so a misspelled object is a compile error there.
+         *     The SERVER does not derive from it. `identity/internal/policy.coreObjects` is maintained separately (oapi-codegen emits nothing for a top-level standalone string enum, so there are no generated Go constants to derive from), and a typo there is an ordinary runtime value, not a compile error. What keeps the two honest is a merge-blocking parity test, `backend/rbacvocabulary_test.go`, which holds this enum equal to that list. Editing this enum alone changes what clients can express, never what the server enforces — change both, and the gate will say so if you do not.
+         * @enum {string}
+         */
+        RbacObject: "person" | "organization" | "deal" | "lead" | "activity" | "pipeline" | "list" | "tag" | "relationship" | "partner" | "automation" | "voice_profile" | "product" | "offer" | "signal" | "saved_view" | "custom_field" | "computed_field" | "quota" | "offer_template" | "overlay_connection" | "embedding_reindex" | "webhook_subscription" | "fx_rate" | "ai_model_rate" | "capture_settings" | "project" | "channel_connection" | "import_run";
+        /**
+         * @description The four object-level verbs a grant carries (data-model §2.4). These are RBAC actions, not HTTP methods: the seat ceiling is clamped on the method independently, and the two diverge in both directions — a read-seat GET that the object grants, and a mutating route whose RBAC action is `read`.
+         * @enum {string}
+         */
+        RbacAction: "create" | "read" | "update" | "delete";
+        /** @description One object's effective CRUD grant, already merged across every role the principal holds (any role allowing an action allows it). */
+        RbacObjectGrant: {
+            create: boolean;
+            read: boolean;
+            update: boolean;
+            delete: boolean;
+        };
+        /**
+         * @description What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
+         *     Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
+         *     This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
+         */
+        Authorization: {
+            /**
+             * @description The licensing seat. A read seat may read but never mutate over REST, whatever its role grants. A client that cannot read a recognized value MUST assume a read seat: the ceiling fails closed, so an omission never buys the ability to mutate.
+             * @enum {string}
+             */
+            seat_type: "full" | "read";
+            /** @description Effective grants keyed by RbacObject. An absent key denies — the server resolves an unknown object to the zero grant, and a client must do the same rather than treat a missing entry as unrestricted. */
+            objects: {
+                [key: string]: components["schemas"]["RbacObjectGrant"];
+            };
         };
         JobHealth: {
             /**
@@ -9472,6 +9681,11 @@ export interface components {
             updated_at: string;
         };
         OrganizationFact: {
+            /**
+             * Format: uuid
+             * @description The stored row, so a brief sentence written from this fact can cite something the reader can open. Without it a fact-derived claim had to cite the organization, which told the reader where to look but not at what.
+             */
+            readonly id: string;
             /** @enum {string} */
             category: "company" | "offering" | "market" | "signal";
             /** @enum {string} */
@@ -9485,6 +9699,11 @@ export interface components {
             /** Format: uri */
             source_url?: string | null;
             confidence?: number | null;
+            /**
+             * @description Why this fact's VALUE contradicts its FIELD, or null when it does not. The extractor picks the field from a closed per-page menu and the category follows the field, so a phone number on a contact page can land as `location` and a register number as `employee_range` — the row is well-formed and still wrong. Computed at read from the value's shape; it never gates the fact, because a heuristic that hid data would be worse than one that flags it.
+             * @enum {string|null}
+             */
+            readonly suspect_reason?: null | "phone_shaped_location" | "not_a_phone" | "not_a_year" | "not_an_email" | "not_a_size";
             /** Format: date-time */
             updated_at: string;
         };
@@ -12496,6 +12715,10 @@ export interface operations {
                 owner_id?: string;
                 /** @description Lookup by normalized domain (the employer-inference index). */
                 domain?: string;
+                /** @description Where the account stands with us (DM-VOCAB-2, ADR-0079/A124). */
+                lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
+                /** @description Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both. */
+                relationship_type?: "customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other";
                 q?: string;
             };
             header?: never;
@@ -14410,6 +14633,8 @@ export interface operations {
                 /** @description Open tasks for an assignee. */
                 assignee_id?: string;
                 q?: string;
+                /** @description One provider conversation. The company view's timeline groups by thread client-side over the page it holds, so a group cut off by that page completes itself through this rather than by widening the page for every account that has no long thread. */
+                thread_key?: string;
             };
             header?: never;
             path?: never;

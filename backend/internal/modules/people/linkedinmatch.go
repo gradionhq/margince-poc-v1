@@ -192,32 +192,10 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UU
 	return int(tag.RowsAffected()), nil
 }
 
-// suggestGhostsByNameAndEmployer proposes the ghosts whose normalized name and
-// employer agree with a contact's — and stops there.
-//
-// It requires BOTH, and it requires the employment to be live. Name alone is
-// not a match in any market and least of all in this one; the employer is what
-// turns a common name into a plausible identification, and it is still only
-// plausible. A human confirms.
-//
-// It also refuses to propose a person some other ghost is already confirmed
-// against: one contact cannot be two different LinkedIn connections of the
-// same colleague, and offering that choice invites a wrong click.
-func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UUID) (int, error) {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	ownerPos := arg(nullableOwner(owner))
-	personPos := arg(nullableOwner(onlyPerson))
-	// Same reason as the email arm: a suggestion against an invisible contact
-	// both creates a link the uploader may not make and reports its existence.
-	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
-	if err != nil {
-		return 0, err
-	}
-	if visible == "" {
-		visible = sqlAlwaysVisible
-	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+// suggestNameEmployerMatchSQL renders the proposal in one statement, over three
+// parameter positions: the owner filter, the person row scope, and the
+// single-person narrowing.
+const suggestNameEmployerMatchSQL = `
 		WITH pair AS (
 		    -- DISTINCT pairs FIRST. A contact with two live employment rows at
 		    -- one account (a role change recorded as a second row) joins twice
@@ -254,7 +232,7 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		       -- a per-person call cannot suggest a link the sweep would have
 		       -- refused as ambiguous. It filters the RESULT, not the pairs.
 		       AND (%[2]s)
-		       AND `+ghostOwnerCapturePrivacy+`
+		       AND ` + ghostOwnerCapturePrivacy + `
 		       AND g.matched_org_id IS NOT NULL
 		       AND r.organization_id = g.matched_org_id
 		       AND NOT EXISTS (
@@ -293,7 +271,34 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		   -- pair set above: the ambiguity count must still see every
 		   -- same-named candidate, or a per-person call would suggest a link
 		   -- the workspace-wide sweep correctly refuses.
-		   AND ($%[3]d::uuid IS NULL OR c.person_id = $%[3]d)`, ownerPos, visible, personPos), args...)
+		   AND ($%[3]d::uuid IS NULL OR c.person_id = $%[3]d)`
+
+// suggestGhostsByNameAndEmployer proposes the ghosts whose normalized name and
+// employer agree with a contact's — and stops there.
+//
+// It requires BOTH, and it requires the employment to be live. Name alone is
+// not a match in any market and least of all in this one; the employer is what
+// turns a common name into a plausible identification, and it is still only
+// plausible. A human confirms.
+//
+// It also refuses to propose a person some other ghost is already confirmed
+// against: one contact cannot be two different LinkedIn connections of the
+// same colleague, and offering that choice invites a wrong click.
+func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UUID) (int, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	ownerPos := arg(nullableOwner(owner))
+	personPos := arg(nullableOwner(onlyPerson))
+	// Same reason as the email arm: a suggestion against an invisible contact
+	// both creates a link the uploader may not make and reports its existence.
+	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return 0, err
+	}
+	if visible == "" {
+		visible = sqlAlwaysVisible
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(suggestNameEmployerMatchSQL, ownerPos, visible, personPos), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: suggesting LinkedIn connection matches: %w", err)
 	}
@@ -355,9 +360,9 @@ func OrganizationLinkedInReach(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 // nullableOwner renders the zero id as SQL NULL, which the scoping clauses
 // read as "every owner". A zero uuid would otherwise match nobody and turn a
 // workspace-wide sweep into a silent no-op.
-func nullableOwner(owner ids.UUID) any {
+func nullableOwner(owner ids.UUID) *ids.UUID {
 	if owner == ids.Nil {
 		return nil
 	}
-	return owner
+	return &owner
 }

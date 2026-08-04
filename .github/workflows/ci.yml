@@ -20,9 +20,6 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 # One live run per ref: a new push to the same branch/PR cancels the stale
 # run instead of queueing behind it. Runs on main are never cancelled — a
 # merge must not kill the in-flight check of the previous merge.
@@ -46,14 +43,18 @@ jobs:
   #   frontend = frontend/ + backend/api (the contract drives FE types) —
   #              gates the frontend lane + UAT
   #   e2e      = backend/ + frontend/ + infra — gates the full-stack live-boot
+  #   docker   = the root Dockerfile.* + .dockerignore — gates the image builds
   changes:
     name: changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -87,6 +88,9 @@ jobs:
               - 'extensions/**'
               - 'fixtures/**'
               - 'composition/**'
+            docker:
+              - 'Dockerfile.*'
+              - '.dockerignore'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.
   # PR-only: the direct-to-main workflow signs off at push time, and history
@@ -95,6 +99,8 @@ jobs:
     name: dco
     if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -117,6 +123,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -205,6 +213,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -260,6 +270,8 @@ jobs:
     needs: [deterministic-gates, changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -268,7 +280,7 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: craft static (blocker-only)
+      - name: craft static (strict — blocker + major)
         working-directory: .
         run: make craft-static
 
@@ -279,6 +291,8 @@ jobs:
     # CRAFT-FIX/CRAFT-DISPUTE marker in any file fails the merge.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -310,6 +324,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       # A red shard must not cancel its siblings: one CI run should report
       # every failing test, not the first shard to trip.
@@ -363,6 +379,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -400,6 +418,8 @@ jobs:
       && needs.changes.outputs.backend == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -432,11 +452,70 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  # The root Dockerfiles (api, web, worker) are consumed only by downstream
+  # deploy tooling — no other job builds them, so without this gate a FROM
+  # bump (Renovate's dockerfile manager auto-merges when green) or a stage
+  # restructure would ship untested: the change matches no other classifier
+  # scope, every meaningful job skips, and the PR looks green. The
+  # `docker-images` fan-in below is the required check; a build the deploy
+  # pipeline would reject fails the merge here instead.
+  docker-image:
+    name: docker image (${{ matrix.role }})
+    needs: [changes]
+    if: needs.changes.outputs.docker == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      # A broken web image must not hide whether api/worker still build.
+      fail-fast: false
+      matrix:
+        # `role`, not `image`: the check-image-pins gate key-anchors every
+        # `image:` in a workflow as a container reference to digest-check.
+        role: [api, web, worker]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Build the image
+        run: docker build -f Dockerfile.${{ matrix.role }} .
+
+  # The fan-in — the single required "docker images" context. Static-named
+  # because a path-skipped matrix job reports ONE check run under its
+  # unexpanded name ("docker image (${{ matrix.role }})"), so the expanded
+  # leg names can never be required contexts. Same shape as the integration
+  # fan-in: it must RUN and FAIL when a leg fails — `needs` alone would leave
+  # it skipped, and a skipped required check counts as passing.
+  docker-images:
+    name: docker images (api + web + worker)
+    needs: [changes, docker-image]
+    if: >-
+      !cancelled()
+      && needs.changes.outputs.docker == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Every image built
+        env:
+          BUILD_RESULT: ${{ needs.docker-image.result }}
+        run: |
+          [ "$BUILD_RESULT" = "success" ] || { echo "docker image builds: $BUILD_RESULT"; exit 1; }
+
   vuln:
     name: govulncheck
     needs: [changes]
     if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -490,6 +569,8 @@ jobs:
       && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
@@ -542,6 +623,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.e2e == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
@@ -619,6 +702,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .
@@ -668,6 +753,8 @@ jobs:
     needs: [changes, frontend]
     if: needs.changes.outputs.frontend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: .

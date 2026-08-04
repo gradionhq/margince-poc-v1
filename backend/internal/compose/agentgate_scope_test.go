@@ -26,7 +26,7 @@ func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 	// registered tool that declares egress. Deriving it is what makes closing a
 	// hole at the wrong scope fail here rather than pass quietly.
 	outbound := map[string]bool{}
-	for verb := range outboundHoles {
+	for _, verb := range outboundHoles.Subjects() {
 		outbound[verb] = true
 	}
 	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
@@ -45,7 +45,7 @@ func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 			// ScopeSend here. TestThePinsDescribeVerbsThatStillExist covers
 			// the other half: it fails the moment the verb gains a tool,
 			// which is when this branch starts asserting on it instead.
-			if _, pinned := outboundHoles[pol.Tool]; !pinned {
+			if !outboundHoles.Waived(t, pol.Tool) {
 				t.Errorf("%s (%s) is derived as outbound but is neither registered nor a pinned hole", pol.Tool, route)
 			}
 			continue

@@ -33,11 +33,15 @@ const (
 	// endpoint hangs to its full attempt budget must not hold every other
 	// tenant's due retries behind it.
 	webhookRetryMaxWorkers = 3
-	// webhookRetrySweepTimeout bounds one workspace's pass. River's
-	// whole-job default of a minute is far too short: webhooks.MaxSweepDuration
-	// is the pass's own ceiling (its batch bound times its per-attempt
-	// bound), and the margin covers the per-delivery database round trips
-	// between attempts, which the pool bounds rather than this cap.
+	// webhookRetrySweepTimeout is the arithmetic behind
+	// webhook_retry_workspace's declared timeout: webhooks.MaxSweepDuration is
+	// the pass's own ceiling (its batch bound times its per-attempt bound), and
+	// the margin covers the per-delivery database round trips between attempts,
+	// which the pool bounds rather than this cap.
+	//
+	// api/jobs.yaml carries the value River is actually handed, so moving this
+	// number alone moves no wall clock; the declaration names this constant in
+	// its derived timeout and the job census keeps the two equal.
 	webhookRetrySweepTimeout = webhooks.MaxSweepDuration + 5*time.Minute
 )
 
@@ -54,10 +58,11 @@ type WebhookRetryConfig struct {
 	// tick inserts one row per live workspace whether or not that workspace has
 	// anything due, which is why its DEFAULT is tens of seconds rather than the
 	// few a single tenant's ticker could afford. That default happens to equal
-	// dispatchScanInterval and is not derived from it — the two are separate
-	// passes with separate costs, and moving one does not move the other.
+	// the gmail_sync dispatcher's declared scan and is not derived from it — the
+	// two are separate passes with separate costs, and moving one does not move
+	// the other.
 	//
-	// Non-positive schedules no retry dispatch (periodicWhenPositive).
+	// Non-positive schedules no retry dispatch; api/jobs.yaml declares it.
 	Interval time.Duration
 	// Deliverer is the delivery engine one workspace's pass re-attempts
 	// through — the SAME instance the role's cg:webhooks consumer fans out
@@ -70,20 +75,16 @@ type WebhookRetryConfig struct {
 }
 
 // addWebhookRetryJobs registers the retry workers and returns the dispatcher's
-// periodic schedule for the caller to append. A non-positive interval registers
-// the workers but no schedule, for periodicWhenPositive's reasons.
-func addWebhookRetryJobs(workers *river.Workers, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
+// periodic schedule for the caller to append. A non-positive interval
+// registers the workers but no schedule — the posture the declaration states
+// and jobschedule.go resolves.
+func addWebhookRetryJobs(reg *jobRegistry, pool *pgxpool.Pool, cfg JobRunnerConfig) []*river.PeriodicJob {
 	if cfg.WebhookRetry.Deliverer == nil {
 		return nil
 	}
-	river.AddWorker(workers, &webhookRetryWorker{pool: pool})
-	river.AddWorker(workers, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
-	return periodicWhenPositive(cfg.WebhookRetry.Interval,
-		func() (river.JobArgs, *river.InsertOpts) { return WebhookRetryArgs{}, sweepInsertOpts() },
-		// Run-on-start because a restart must not add a whole interval to a
-		// backoff that already elapsed: the deliveries parked when the process
-		// went down are due the moment it is back.
-		&river.PeriodicJobOpts{RunOnStart: true})
+	addDeclaredWorker[WebhookRetryArgs](reg, &webhookRetryWorker{pool: pool})
+	addDeclaredWorker[WebhookRetryWorkspaceArgs](reg, &webhookRetryWorkspaceWorker{deliverer: cfg.WebhookRetry.Deliverer})
+	return periodicFor(cfg, WebhookRetryArgs{})
 }
 
 // WebhookRetryArgs schedules one fleet-wide pass over due retries.
@@ -101,7 +102,6 @@ func (WebhookRetryArgs) FleetWide() {}
 // nobody is listening on any more, so re-attempting it spends outbound
 // attempts on work nobody wants.
 type webhookRetryWorker struct {
-	river.WorkerDefaults[WebhookRetryArgs]
 	pool *pgxpool.Pool
 }
 
@@ -110,7 +110,7 @@ func (w *webhookRetryWorker) Work(ctx context.Context, _ *river.Job[WebhookRetry
 		// The dispatcher's tick is the real retry cadence for a failed
 		// workspace — it re-enqueues the tenant on the next pass — so River's
 		// ladder is here only to ride out a transient blip inside one tick.
-		workspaceSweepOpts(webhookRetryQueue, sweepWorkspaceMaxAttempts),
+		workspaceSweepOpts(WebhookRetryWorkspaceArgs{}.Kind()),
 		func(ws ids.UUID) river.JobArgs { return WebhookRetryWorkspaceArgs{Workspace: ws} }))
 }
 
@@ -127,12 +127,7 @@ func (a WebhookRetryWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
 
 // webhookRetryWorkspaceWorker sweeps one workspace.
 type webhookRetryWorkspaceWorker struct {
-	river.WorkerDefaults[WebhookRetryWorkspaceArgs]
 	deliverer *webhooks.Deliverer
-}
-
-func (w *webhookRetryWorkspaceWorker) Timeout(*river.Job[WebhookRetryWorkspaceArgs]) time.Duration {
-	return webhookRetrySweepTimeout
 }
 
 // Work binds the tenant and nothing else: the sweep re-sends deliveries that

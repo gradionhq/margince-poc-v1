@@ -444,7 +444,7 @@ func (h backfillHandlers) writeBackfillError(w http.ResponseWriter, r *http.Requ
 // header has to be set before the status is written — net/http sniffs an
 // undeclared body into text/plain, and a typed client reading a JSON run row
 // under that content type is the transport lying about what it sent.
-func writeBackfillJSON(w http.ResponseWriter, status int, v any) {
+func writeBackfillJSON[T any](w http.ResponseWriter, status int, v T) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	//craft:ignore swallowed-errors terminal response encode; the client sees a broken body, retrying changes nothing

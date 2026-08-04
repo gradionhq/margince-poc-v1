@@ -8,12 +8,12 @@ import {
   StoryProviders,
 } from "../screens/story-utils";
 import { EmbedReindexBanner } from "./embedreindexbanner";
+import { meFixture } from "./mefixture";
 
 function admin(overrides: Record<string, unknown> = {}) {
   return () =>
     jsonResponse({
-      user: { id: "u1", email: "admin@example.test", display_name: "Admin" },
-      roles: ["admin"],
+      ...meFixture({ allow: { embedding_reindex: ["read"] } }),
       ...overrides,
     });
 }
@@ -59,8 +59,7 @@ export const HiddenForNonOpsRole: Story = {
     installFetchStub({
       "GET /me": () =>
         jsonResponse({
-          user: { id: "u2", email: "rep@example.test", display_name: "Rep" },
-          roles: ["rep"],
+          ...meFixture({ roles: ["rep"] }),
         }),
       "GET /embeddings/reindex/status": () =>
         jsonResponse({

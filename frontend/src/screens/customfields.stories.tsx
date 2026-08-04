@@ -128,7 +128,7 @@ export const TableWithFields: Story = {
       <FieldTable
         object="deal"
         fields={dealFields}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={noop}
         onArchive={noop}
@@ -143,7 +143,7 @@ export const EmptyObject: Story = {
       <FieldTable
         object="person"
         fields={[]}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={noop}
         onArchive={noop}
@@ -165,7 +165,7 @@ export const Retired: Story = {
             status: "retired",
           }),
         ]}
-        canManage
+        canEdit
         meUserId="u1"
         onRename={noop}
         onArchive={noop}
@@ -180,7 +180,7 @@ export const NoPermission: Story = {
       <FieldTable
         object="deal"
         fields={[field()]}
-        canManage={false}
+        canEdit={false}
         meUserId="u1"
         onRename={noop}
         onArchive={noop}

@@ -109,7 +109,6 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 				Workspace:      storekit.MustWorkspace(ctx),
 				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
-				SeedURL:        read.SeedURL,
 				RequestedBy:    read.RequestedBy,
 			}, siteDeepReadInsertOpts())
 		})

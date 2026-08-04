@@ -16,21 +16,18 @@ package backendarch
 // helpers, injected inserters and store transactions — so it is not honestly
 // AST-checkable, and a gate that pretended otherwise would be lying about what
 // it verified. This one is a CLOSED ALLOWLIST instead: a dispatcher's Work must
-// contain a call from the sanctioned fan-out set, spelled one of exactly two
-// ways.
+// contain a call to one of compose's three fan-out helpers —
+// dispatchPerWorkspace, dispatchWith or dispatchOne.
 //
-//  1. A compose fan-out helper: dispatchPerWorkspace or dispatchWith. Both take
-//     the fleet and one argsFor closure and do a single atomic InsertMany.
-//  2. A direct River insert: Insert, InsertMany or InsertManyTx, alongside a
-//     resolution of the River client (river.ClientFromContext, or the Safely
-//     variant). The pairing is what keeps the method names from matching any
-//     store's own Insert. It is checked across the whole inspected closure, not
-//     within one body, so a dispatcher that resolves the client in Work and
-//     inserts in its helper still passes — deliberately, since this side only
-//     grants a pass and never withholds one.
-//
-// A dispatcher that fans out some third way is a finding on purpose: adding a
-// third spelling is then a deliberate act with a reviewer attached.
+// The set is the whole allowlist, and a direct River Insert is deliberately
+// NOT in it. Those three are where a fan-out child's insert options are built,
+// which is where the sweep tag is stamped and where the child's declared queue
+// and attempt cap are read; a dispatcher that inserts around them enqueues a
+// child that is invisible to both sweep gauges and carries whatever numbers
+// its author typed. That is not hypothetical — it is what shipped, in the one
+// dispatcher a hand-maintained comment forgot to list. A fourth spelling is a
+// finding on purpose: adding one is then a deliberate act with a reviewer
+// attached.
 //
 // # Which arm carries the weight
 //
@@ -63,33 +60,18 @@ import (
 )
 
 // fleetWideDispatcherFloor guards against a vacuous pass. This gate resolves an
-// association across two types — args declare FleetWide, a separate worker
-// embeds river.WorkerDefaults[Args] and owns Work — so a walker that matched no
-// files, or a resolution step that silently stopped associating the two, would
-// inspect nothing and report green. The tree declares 23 FleetWide args types
+// association across two types — args declare FleetWide, a separate worker owns
+// a Work over *river.Job[Args] — so a walker that matched no files, or a
+// resolution step that silently stopped associating the two, would inspect
+// nothing and report green. The tree declares 23 FleetWide args types
 // today, every one of them resolving to a worker; the floor sits at 20 so
 // retiring a pass or two does not drag the gate along, while any wholesale
 // failure to resolve still trips it.
 const fleetWideDispatcherFloor = 20
 
 // fanOutHelpers are the compose helpers that ARE a fan-out. See the allowlist
-// above for why the set is closed.
-var fanOutHelpers = []string{"dispatchPerWorkspace", "dispatchWith"}
-
-// riverInsertMethods are the River client's own enqueue methods. They count as
-// a fan-out only alongside riverClientResolverPrefix, so a store method that
-// happens to be called Insert cannot satisfy this gate.
-var riverInsertMethods = []string{"Insert", "InsertMany", "InsertManyTx"}
-
-// riverClientResolverPrefix is how a Work body gets hold of the River client it
-// inserts through. Matched as a PREFIX, because River offers two spellings and
-// the tree uses both: ClientFromContext panics when there is none, so a
-// dispatcher that may run without a client resolves ClientFromContextSafely
-// instead — and two dispatchers carry comments steering the next author to that
-// variant. Pinning the exact name would report those authors' correct code as
-// "never fans out", which is the false positive that gets a gate weakened by
-// the person it blocked.
-const riverClientResolverPrefix = "ClientFromContext"
+// above for why the set is closed and why a direct River insert is not in it.
+var fanOutHelpers = []string{"dispatchPerWorkspace", "dispatchWith", "dispatchOne"}
 
 // fleetWideDispatcher is one resolved args→worker→Work association and what
 // the gate found in it.
@@ -119,41 +101,56 @@ func fleetWideArgsTypes(files []*ast.File) map[string]bool {
 }
 
 // workerByArgs maps an args type name to the worker type that works it, read
-// off the embedded river.WorkerDefaults[Args]. This is the association a
-// method-name index cannot make: the marker is on the args, the behaviour is on
-// the worker, and the generic embed is the only thing joining them.
+// off the Work method's own *river.Job[Args] parameter. This is the
+// association a method-name index cannot make: the marker is on the args, the
+// behaviour is on the worker, and that generic parameter is the only thing
+// joining them — a worker embeds nothing now that jobs.Govern supplies River's
+// option methods, so the Work signature is the whole of what names its kind.
 func workerByArgs(files []*ast.File) map[string]string {
 	byArgs := map[string]string{}
 	for _, file := range files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			spec, ok := n.(*ast.TypeSpec)
-			if !ok {
-				return true
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Name.Name != "Work" {
+				continue
 			}
-			structType, ok := spec.Type.(*ast.StructType)
-			if !ok {
-				return true
+			recv := receiverTypeName(fn)
+			if recv == "" {
+				continue
 			}
-			for _, field := range structType.Fields.List {
-				if len(field.Names) > 0 {
-					continue
-				}
-				index, ok := field.Type.(*ast.IndexExpr)
-				if !ok {
-					continue
-				}
-				sel, ok := index.X.(*ast.SelectorExpr)
-				if !ok || sel.Sel.Name != "WorkerDefaults" {
-					continue
-				}
-				if args, ok := index.Index.(*ast.Ident); ok {
-					byArgs[args.Name] = spec.Name.Name
-				}
+			if args := riverJobParamType(fn); args != "" {
+				byArgs[args] = recv
 			}
-			return true
-		})
+		}
 	}
 	return byArgs
+}
+
+// riverJobParamType reads the T out of a Work method's *river.Job[T]
+// parameter, or "" when it has none — which is what a same-named method on
+// something that is not a River worker looks like.
+func riverJobParamType(fn *ast.FuncDecl) string {
+	if fn.Type.Params == nil {
+		return ""
+	}
+	for _, param := range fn.Type.Params.List {
+		star, ok := param.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		index, ok := star.X.(*ast.IndexExpr)
+		if !ok {
+			continue
+		}
+		sel, ok := index.X.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Job" {
+			continue
+		}
+		if args, ok := index.Index.(*ast.Ident); ok {
+			return args.Name
+		}
+	}
+	return ""
 }
 
 // methodDeclsByType indexes every method body by its receiver type, so the gate
@@ -216,54 +213,32 @@ func dispatchBodies(work *ast.FuncDecl, methods map[string]*ast.FuncDecl) []*ast
 	return bodies
 }
 
-// callNames returns the plain function names and the selector method names
-// called anywhere in bodies.
-func callNames(bodies []*ast.BlockStmt) (plain map[string]bool, selected map[string]bool) {
-	plain, selected = map[string]bool{}, map[string]bool{}
+// callNames returns the plain function names called anywhere in bodies. Only
+// plain idents, because every sanctioned fan-out is a package-level helper
+// called by its bare name: a selector would be someone else's method, which is
+// exactly what must not count.
+func callNames(bodies []*ast.BlockStmt) map[string]bool {
+	called := map[string]bool{}
 	for _, body := range bodies {
 		ast.Inspect(body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			switch fun := call.Fun.(type) {
-			case *ast.Ident:
-				plain[fun.Name] = true
-			case *ast.SelectorExpr:
-				selected[fun.Sel.Name] = true
-			case *ast.IndexExpr:
-				// river.ClientFromContext[pgx.Tx](ctx) — a generic
-				// instantiation, whose callee is the index expression.
-				if sel, ok := fun.X.(*ast.SelectorExpr); ok {
-					selected[sel.Sel.Name] = true
-				}
+			if fun, ok := call.Fun.(*ast.Ident); ok {
+				called[fun.Name] = true
 			}
 			return true
 		})
 	}
-	return plain, selected
+	return called
 }
 
 // fansOut reports whether bodies contain a call from the sanctioned fan-out set.
 func fansOut(bodies []*ast.BlockStmt) bool {
-	plain, selected := callNames(bodies)
+	called := callNames(bodies)
 	for _, helper := range fanOutHelpers {
-		if plain[helper] {
-			return true
-		}
-	}
-	resolved := false
-	for name := range selected {
-		if strings.HasPrefix(name, riverClientResolverPrefix) {
-			resolved = true
-			break
-		}
-	}
-	if !resolved {
-		return false
-	}
-	for _, method := range riverInsertMethods {
-		if selected[method] {
+		if called[helper] {
 			return true
 		}
 	}
@@ -359,11 +334,11 @@ func checkFleetWideDispatchers(t *testing.T, dir string) {
 	fset, files := parseGoFilesUnder(t, dir)
 	dispatchers, orphans := analyzeFleetWide(fset, files)
 	for _, args := range orphans {
-		t.Errorf("%s declares FleetWide() but no worker embeds river.WorkerDefaults[%s] with a Work method: a dispatcher nothing runs enqueues nothing, and every tenant it was to fan out to is silently never swept.", args, args)
+		t.Errorf("%s declares FleetWide() but no worker has a Work method over *river.Job[%s]: a dispatcher nothing runs enqueues nothing, and every tenant it was to fan out to is silently never swept.", args, args)
 	}
 	for _, d := range dispatchers {
 		if !d.fansOut {
-			t.Errorf("%s:%d: %s works FleetWide args %s but never fans out. A dispatcher enqueues one workspace-scoped job per tenant, through dispatchPerWorkspace, dispatchWith, or the River client's own Insert. If it does tenant work instead, it is WorkspaceScoped and its args must carry the workspace.",
+			t.Errorf("%s:%d: %s works FleetWide args %s but never fans out. A dispatcher enqueues one job per unit of its fan-out, through dispatchPerWorkspace, dispatchWith or dispatchOne — those three build the child's insert options, so a direct River insert around them loses the sweep tag and the declared attempt cap. If it does tenant work instead, it is WorkspaceScoped and its args must carry the workspace.",
 				d.pos.Filename, d.pos.Line, d.worker, d.args)
 		}
 		for _, verb := range d.writes {

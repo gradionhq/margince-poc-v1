@@ -42,6 +42,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // composeImportPath is the package whose ModelPath the roles hand around.
@@ -57,11 +58,12 @@ const composeImportPath = modulePath + "/internal/compose"
 // renamed upstream therefore stops matching its exemption — and lands on the
 // "owns no lane" error asking for one, which is the direction a stale
 // exemption should fail in.
-var laneWiringExemptions = map[string]string{
+var laneWiringExemptions = gatekit.Waive(map[string]string{
 	"cert_judge": "the rubric judge is built by the certification runner on its own pinned binding (aicert/runner.go), never by a process role — a judge on the candidate's lane would let a model grade itself",
-}
+})
 
 func TestEveryCensusedSiteRidesALaneAProcessRoleWires(t *testing.T) {
+	defer laneWiringExemptions.AssertAllMatched(t)
 	census, err := compose.NewTaskCensus()
 	if err != nil {
 		t.Fatalf("building the task census: %v", err)
@@ -74,10 +76,7 @@ func TestEveryCensusedSiteRidesALaneAProcessRoleWires(t *testing.T) {
 	for _, site := range census.All() {
 		task := string(site.Task)
 		lane, hasLane := laneNameFor(task)
-		if reason, exempt := laneWiringExemptions[task]; exempt {
-			if strings.TrimSpace(reason) == "" {
-				t.Errorf("site %s/%s is exempted from the wiring rule with no reason — state why no process role runs it, or drop the exemption", site.Task, site.Variant)
-			}
+		if laneWiringExemptions.Waived(t, task) {
 			if hasLane {
 				t.Errorf("site %s/%s is exempted as laneless, but ModelPath.%s exists — drop the exemption and let the rule hold it", site.Task, site.Variant, lane)
 			}

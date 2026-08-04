@@ -18,7 +18,11 @@ import {
   SegmentedControl,
   Skeleton,
 } from "../design-system/atoms";
-import { RecordView, type TimelineEntry } from "../design-system/composed";
+import {
+  RecordView,
+  type TimelineEntry,
+  type TimelineGroup,
+} from "../design-system/composed";
 import {
   EvidenceMark,
   type EvidenceMarkSource,
@@ -50,20 +54,29 @@ import {
 import {
   AccountBrief,
   DealsCard,
+  HealthCard,
   NextSteps,
   type Org360Result,
   OverlayFallback,
   PeopleCard,
   RECORD_ZONE,
   SignalsCard,
+  StateStrip,
+  type SuggestionAction,
   TagsCard,
+  useAcknowledgeOrganizationView,
   useOrganization360,
 } from "./company360";
 import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
-import { TimelineActions } from "./compose";
-import { ConnectionsCard } from "./connections";
-import { CreateAction, type CreateField, type FormRows } from "./create";
+import { ComposeModal, TimelineActions } from "./compose";
+import {
+  CreateAction,
+  type CreateField,
+  type FormRows,
+  joinMultiselectValue,
+  splitMultiselectValue,
+} from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
@@ -90,6 +103,7 @@ import {
   TaskQuickActions,
   useTaskUpdate,
 } from "./taskactions";
+import { groupChronology } from "./timelinegroups";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -99,22 +113,31 @@ import {
 // firmographics card, and timeline stay exactly as they were.
 
 type Organization = components["schemas"]["Organization"];
-type Classification = NonNullable<Organization["classification"]>;
 
-// How the classification column reads to a person. The column stores the
-// enum; printing the enum itself put "prospect" in front of a German reader
-// and told an English one only slightly more. Typed against the schema union,
-// so a value added upstream fails the build here rather than leaking raw.
-const CLASSIFICATION_LABELS: Record<Classification, MessageKey> = {
-  prospect: "org.class.prospect",
-  customer: "org.class.customer",
-  agency: "org.class.agency",
-  reseller: "org.class.reseller",
-  tech_vendor: "org.class.tech_vendor",
-  platform: "org.class.platform",
-  partner: "org.class.partner",
-  competitor: "org.class.competitor",
-  other: "org.class.other",
+// Where the account stands with us, and what it is to us (ADR-0079/A124).
+// Typed against the schema unions, so a value added upstream fails the build
+// here rather than reaching a reader as a raw enum.
+type Lifecycle = NonNullable<Organization["lifecycle"]>;
+type RelationshipType = NonNullable<Organization["relationship_types"]>[number];
+
+const LIFECYCLE_LABELS: Record<Lifecycle, MessageKey> = {
+  unknown: "org.lifecycle.unknown",
+  target: "org.lifecycle.target",
+  prospect: "org.lifecycle.prospect",
+  opportunity: "org.lifecycle.opportunity",
+  customer: "org.lifecycle.customer",
+  former_customer: "org.lifecycle.former_customer",
+  disqualified: "org.lifecycle.disqualified",
+};
+
+const RELATIONSHIP_TYPE_LABELS: Record<RelationshipType, MessageKey> = {
+  customer: "org.relType.customer",
+  partner: "org.relType.partner",
+  supplier: "org.relType.supplier",
+  investor: "org.relType.investor",
+  portfolio_company: "org.relType.portfolio_company",
+  competitor: "org.relType.competitor",
+  other: "org.relType.other",
 };
 type CreateOrganizationRequest =
   components["schemas"]["CreateOrganizationRequest"];
@@ -270,6 +293,21 @@ export function mapOrgUpdate(
   if (!sameDomainSet(desired, current)) {
     body.domains = desired;
   }
+  const lifecycle = stringField(values.lifecycle).trim();
+  if (lifecycle) {
+    body.lifecycle = lifecycle as NonNullable<
+      UpdateOrganizationRequest["lifecycle"]
+    >;
+  }
+  // Always sent when the field was rendered, even empty: this is a replace-set,
+  // and "the user cleared every type" is an edit, not an absence. The form
+  // channel joins a multiselect into one comma string, so an empty string is
+  // the honest empty set.
+  if (values.relationship_types !== undefined) {
+    body.relationship_types = splitMultiselectValue(
+      stringField(values.relationship_types),
+    ) as NonNullable<UpdateOrganizationRequest["relationship_types"]>;
+  }
   return body;
 }
 
@@ -296,14 +334,39 @@ const companyCreateFields: CreateField[] = [
 // The edit form, built per-render because the owner options are the live user
 // roster.
 //
-// Classification is NOT here. `UpdateOrganizationRequest` carries no such
-// field — the value is set by the partner extension and by confirmed
-// proposals — so a select for it would collect an answer and drop it. The
-// badge names the value; changing it needs a contract that does not exist
-// yet (raised in STATUS.md).
+// Stage and relationship types ARE here now: the retired classification could
+// not be edited from anywhere, because the update contract carried no such
+// field.
+// The two vocabularies that replaced classification (ADR-0079/A124): where the
+// account stands with us, and what it is to us. Kept in wire order so the
+// select reads as a progression rather than an alphabet.
+export const LIFECYCLE_OPTIONS = [
+  "unknown",
+  "target",
+  "prospect",
+  "opportunity",
+  "customer",
+  "former_customer",
+  "disqualified",
+] as const;
+
+export const RELATIONSHIP_TYPE_OPTIONS = [
+  "customer",
+  "partner",
+  "supplier",
+  "investor",
+  "portfolio_company",
+  "competitor",
+  "other",
+] as const;
+
+// t is threaded in because the option LABELS are catalog keys, not words: the
+// field renderer prints option.label as given, so an untranslated key reaches
+// the reader as "org.lifecycle.customer".
 export function companyEditFields(
   owners: readonly { id: string; display_name: string }[],
   hasOwner: boolean,
+  t: (key: MessageKey) => string,
 ): CreateField[] {
   return [
     { key: "display_name", label: "create.displayName", required: true },
@@ -333,6 +396,27 @@ export function companyEditFields(
       options: owners.map((user) => ({
         value: user.id,
         label: user.display_name,
+      })),
+    },
+    // Where the account stands, and what it is to us — the two questions the
+    // retired classification tried to answer with one value, and the reason
+    // neither was editable from this page at all.
+    {
+      key: "lifecycle",
+      label: "org.lifecycle",
+      type: "select",
+      options: LIFECYCLE_OPTIONS.map((value) => ({
+        value,
+        label: t(LIFECYCLE_LABELS[value]),
+      })),
+    },
+    {
+      key: "relationship_types",
+      label: "org.relationshipTypes",
+      type: "multiselect",
+      options: RELATIONSHIP_TYPE_OPTIONS.map((value) => ({
+        value,
+        label: t(RELATIONSHIP_TYPE_LABELS[value]),
       })),
     },
     {
@@ -429,12 +513,13 @@ export function CompaniesScreen() {
               },
               {
                 key: "class",
-                header: t("org.classification"),
+                header: t("org.lifecycle"),
+                // classification is retired and no longer written by anything,
+                // so a column reading it would show whatever it happened to
+                // hold when the split shipped, forever.
                 render: (org: Organization) =>
-                  org.classification ? (
-                    <Badge>
-                      {t(CLASSIFICATION_LABELS[org.classification])}
-                    </Badge>
+                  org.lifecycle && org.lifecycle !== "unknown" ? (
+                    <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
                   ) : null,
               },
               {
@@ -1078,6 +1163,19 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
 
 // One fact row: the value carries its own evidence mark, the same
 // affordance every derived value on this page uses.
+// Why a fact looks wrong, in the words a reader can act on. Typed against the
+// schema union, so a rule added upstream fails the build here rather than
+// rendering a raw reason code.
+type FactSuspectReason = NonNullable<OrganizationFact["suspect_reason"]>;
+
+const FACT_SUSPECT_LABELS: Record<FactSuspectReason, MessageKey> = {
+  phone_shaped_location: "co.factSuspect.phoneShapedLocation",
+  not_a_phone: "co.factSuspect.notAPhone",
+  not_a_year: "co.factSuspect.notAYear",
+  not_an_email: "co.factSuspect.notAnEmail",
+  not_a_size: "co.factSuspect.notASize",
+};
+
 function FactRow({
   fact,
   onOpenHistory,
@@ -1093,6 +1191,17 @@ function FactRow({
           source={derivedSource(fact, locale)}
           onOpenHistory={onOpenHistory}
         />
+        {/* The value contradicts its own field — a phone number filed as a
+            location, a register number filed as a headcount. The fact is still
+            shown with its evidence: hiding it would be a worse answer than
+            flagging it, and the reader is the one who can tell. */}
+        {fact.suspect_reason && (
+          <span className="co-fact-suspect">
+            <Badge tone="warn">
+              {t(FACT_SUSPECT_LABELS[fact.suspect_reason])}
+            </Badge>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1193,8 +1302,32 @@ function FactsCard({
 // header's overflow menu. A tab of equal weight beside the account's story
 // said the two were the same kind of question. Partner stays a tab: it is a
 // form, not a reading of this account.
-const COMPANY_TABS = ["overview", "partner"] as const;
+const COMPANY_TABS = ["overview", "people", "timeline", "partner"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
+
+// Partner is not a permanent tab. It renders the partner programme —
+// certification, role, margin tier — which is a form about a commercial
+// arrangement the overwhelming majority of accounts do not have. A tab that
+// is empty on nearly every record teaches the reader to skip the tab strip.
+//
+// It shows for an account that HAS a partner programme, and for the reader
+// who just asked to set one up (the overflow menu switches the tab, which is
+// what `tab` already carries) — so the only path to a first partner row is
+// still open, and the form stops greeting everyone else.
+function companyTabsFor(
+  org: Organization,
+  tab: CompanyTab,
+): readonly CompanyTab[] {
+  // Gated on the relationship type, not on `org.partner`: the Organization
+  // read does not select the extension row, so that field is always absent
+  // and every partner would lose the tab. The type is equivalent and IS
+  // returned — an org carries it exactly when it has a programme, which the
+  // store enforces in both directions (ADR-0079/A124).
+  const isPartner = (org.relationship_types ?? []).includes("partner");
+  return isPartner || tab === "partner"
+    ? COMPANY_TABS
+    : (["overview", "people", "timeline"] as const);
+}
 
 // Which slice of the account's chronology is on screen. Activities is what
 // happened WITH them, changes is what happened TO the record; a reader who
@@ -1238,7 +1371,7 @@ function CompanyEditAction({
       label={t("record.edit")}
       notice={overlay ? t("overlay.partialWriteBack") : undefined}
       fields={[
-        ...companyEditFields(owners, Boolean(org.owner_id)),
+        ...companyEditFields(owners, Boolean(org.owner_id), t),
         ...cf.formFields,
       ]}
       record={{
@@ -1249,6 +1382,12 @@ function CompanyEditAction({
         legal_name: org.legal_name ?? "",
         industry: org.industry ?? "",
         size_band: org.size_band ?? "",
+        // Both stage fields prefill from the live record. relationship_types
+        // is a REPLACE-SET: an unseeded multiselect collects as the empty
+        // string, which mapOrgUpdate reads as the honest empty set, so saving
+        // an unrelated field would clear every type the account has.
+        lifecycle: org.lifecycle ?? "",
+        relationship_types: joinMultiselectValue(org.relationship_types ?? []),
         // The repeatable domains field prefills from the org's live set;
         // its rows are string-keyed, so the primary flag stringifies to
         // match the "true"/"" the primary radio writes.
@@ -1287,7 +1426,12 @@ function CompanyEditAction({
 function CompanyActionBadges({
   org,
   onOpenHistory,
-}: Readonly<{ org: Organization; onOpenHistory: () => void }>) {
+  onSetUpPartner,
+}: Readonly<{
+  org: Organization;
+  onOpenHistory: () => void;
+  onSetUpPartner: () => void;
+}>) {
   const t = useT();
   const overlay = useSorMode() === "overlay";
   // An archived record is read-only: the backend rejects edit/merge/archive
@@ -1297,11 +1441,19 @@ function CompanyActionBadges({
   const writable = !org.archived_at;
   return (
     <>
-      {org.classification && (
-        <span title={t("org.class.explain")}>
-          <Badge>{t(CLASSIFICATION_LABELS[org.classification])}</Badge>
-        </span>
+      {/* Where the account stands, then what it is to us. Two badges, because
+          they answer two questions — the retired classification held one value
+          and so could answer only one, which is how an account whose contract
+          had ended still read as "Prospect". `unknown` is not drawn: a badge
+          saying nobody has assessed this yet is noise on every new record. */}
+      {org.lifecycle && org.lifecycle !== "unknown" && (
+        <Badge>{t(LIFECYCLE_LABELS[org.lifecycle])}</Badge>
       )}
+      {(org.relationship_types ?? []).map((relType) => (
+        <Badge key={relType} tone="accent">
+          {t(RELATIONSHIP_TYPE_LABELS[relType])}
+        </Badge>
+      ))}
       {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
       {/* An archived record read from a mirror offers nothing at all: every
           write is refused and the history is a native read the mirror has no
@@ -1370,6 +1522,17 @@ function CompanyActionBadges({
           {writable && !overlay && (
             <ShareAction recordType="organization" recordId={org.id} />
           )}
+          {/* The way in to the partner programme for an account that has none.
+            The tab only shows once there IS one, so without this the first
+            partner row would be unreachable — this is the same form, asked
+            for rather than offered. */}
+          {writable &&
+            !overlay &&
+            !(org.relationship_types ?? []).includes("partner") && (
+              <Button small onClick={onSetUpPartner}>
+                {t("org.partnerSetUp")}
+              </Button>
+            )}
           {/* The audit spine: who changed this record and when. It reads as an
             inspection of the record rather than part of its story, so it sits
             with the other rare verbs instead of beside the account's own
@@ -1393,6 +1556,10 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
   const view = useOrganization360(id);
+  // Only an assembled 360 counts as a visit: in overlay mode there is no
+  // baseline to advance, and a page that never rendered the account is not
+  // one the reader saw.
+  useAcknowledgeOrganizationView(id, view.data?.state === "ready");
   // The account itself still comes from its own read: the 360 refuses
   // entirely in overlay mode, and the header must render either way.
   const orgQuery = useQuery({
@@ -1443,19 +1610,26 @@ function CompanyRecord({
   // workspace that flipped mode after this page cached its read would
   // otherwise keep serving a native-looking company view.
   const overlay = view.data?.state === "overlay" || sorMode === "overlay";
-  const tabs = (
-    <div className="co-tabs">
-      <SegmentedControl
-        options={COMPANY_TABS}
-        value={tab}
-        onChange={onTab}
-        labels={{
-          overview: t("tab.overview"),
-          partner: t("tab.partner"),
-        }}
-      />
-    </div>
-  );
+  const visibleTabs = companyTabsFor(org, tab);
+  // One tab is not a choice. A segmented control with a single option is a
+  // button that does nothing, so the strip disappears entirely rather than
+  // asking the reader to pick the page they are already on.
+  const tabs =
+    visibleTabs.length > 1 ? (
+      <div className="co-tabs">
+        <SegmentedControl
+          options={visibleTabs}
+          value={tab}
+          onChange={onTab}
+          labels={{
+            overview: t("tab.overview"),
+            people: t("tab.people"),
+            timeline: t("tab.timeline"),
+            partner: t("tab.partner"),
+          }}
+        />
+      </div>
+    ) : null;
 
   // Both tabs render inside ONE page. Partner used to be a different
   // component tree with no rails, so switching tab unmounted both side
@@ -1510,28 +1684,38 @@ function CompanyPulse({
   const { locale } = useLocale();
   const viewerId = useViewerId();
   const strength = view?.strength;
-  // The strength section is what carries BOTH the score and the last touch.
-  // Withheld or absent, the line says nothing about either: "never
-  // contacted" read off missing data is a business conclusion the page has
-  // no basis for, and it is the one a rep would act on.
-  const strengthKnown = Boolean(
-    view && !view.sections_omitted?.includes("strength"),
+  // Withheld or absent, the line says nothing at all: "never contacted" read
+  // off missing data is a business conclusion the page has no basis for, and
+  // it is the one a rep would act on.
+  const touchKnown = Boolean(
+    view && !view.sections_omitted?.includes("last_touch"),
   );
+  const inbound = view?.last_inbound_at;
+  const outbound = view?.last_outbound_at;
+  const when = (at: string) => formatDateTime(at, locale, RECORD_ZONE);
   return (
     <>
       {strength && <StrengthPulse strength={strength} />}
-      {strengthKnown && (
-        <span>
-          {strength?.last_interaction
-            ? t("co.pulse.lastTouch", {
-                when: formatDateTime(
-                  strength.last_interaction,
-                  locale,
-                  RECORD_ZONE,
-                ),
-              })
-            : t("co.pulse.neverTouched")}
-        </span>
+      {/* Both directions, side by side. Folding them into one "last touch"
+          hides the only distinction a reader acts on: an account we mailed a
+          fortnight ago with no reply and one that wrote to us this morning
+          have the same last-touch date and opposite meanings. */}
+      {touchKnown && !inbound && !outbound && (
+        <span>{t("co.pulse.neverTouched")}</span>
+      )}
+      {touchKnown && (inbound || outbound) && (
+        <>
+          <span>
+            {inbound
+              ? t("co.pulse.lastInbound", { when: when(inbound) })
+              : t("co.pulse.noInbound")}
+          </span>
+          <span>
+            {outbound
+              ? t("co.pulse.lastOutbound", { when: when(outbound) })
+              : t("co.pulse.noOutbound")}
+          </span>
+        </>
       )}
       {/* The owner, named as the owner. Unlabelled it read as one more
           person in a row of people, and the reader had no way to tell the
@@ -1561,11 +1745,20 @@ function CompanyPulse({
   );
 }
 
-// StrengthPulse renders the score and, when there is one, the contact who
-// carries it. The contributor's NAME is a live lookup, so the sentence is
-// assembled from two translated halves around it rather than interpolating
-// an empty placeholder and appending the name after the full stop — which
-// broke word order in English and worse in German.
+// StrengthPulse names the contact who carries the relationship — the way in —
+// and no longer renders a 0-100 score (AC-company-2, ADR-0079 arc).
+//
+// The number was PO-F-3's MAX over the account's contacts, and PO-F-3 is a
+// decayed count of recent two-way messages. So one talkative contact spoke for
+// the whole account, a long low-volume relationship scored near zero, and the
+// header showed "Relationship 2/100" as though it were a verdict. The factors
+// are still computed and still shown in the relationship detail, where each is
+// traceable to the messages behind it; only the single number is withheld.
+//
+// The contributor's NAME is a live lookup, so the sentence is assembled from
+// two translated halves around it rather than interpolating an empty
+// placeholder and appending the name after the full stop — which broke word
+// order in English and worse in German.
 function StrengthPulse({
   strength,
 }: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
@@ -1575,18 +1768,15 @@ function StrengthPulse({
     // relationship to attribute and no number worth leading with.
     return <span>{t("co.pulse.noStrength")}</span>;
   }
-  // The person, then the number — and the number says what it measures.
-  // "2 · via Christian Hagemeyer of 3 contacts" led with a bare score nobody
-  // could scale and buried the one fact a rep acts on: who the way in is.
   return (
-    <span title={t("co.pulse.strengthExplain")}>
+    <span>
       {t("co.pulse.strongestLead")}{" "}
       <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
       {t(
         strength.contact_count === 1
           ? "co.pulse.strengthTail.one"
           : "co.pulse.strengthTail.other",
-        { count: strength.contact_count, score: strength.score },
+        { count: strength.contact_count },
       )}
     </span>
   );
@@ -1702,6 +1892,59 @@ function useAccountChronology({
 // filter above it, the load-more and disclosure below it, and the notice that
 // replaces the list when there is nothing honest to draw. Assembled here so
 // the page's render reads as a layout rather than as four nested ternaries.
+// useResetOnRecord is the chronology filter, owned by the ACCOUNT being read
+// rather than by the session. When both records are already cached the route
+// swaps one company for another without ever unmounting this component, so a
+// reader who checked Changes once met Changes on every account afterwards.
+function useResetOnRecord(
+  recordId: string,
+): [TimelineFilter, (next: TimelineFilter) => void] {
+  const [filter, setFilter] = useState<TimelineFilter>("activities");
+  const [filterFor, setFilterFor] = useState(recordId);
+  if (filterFor !== recordId) {
+    setFilterFor(recordId);
+    setFilter("activities");
+  }
+  return [filter, setFilter];
+}
+
+type ChronologySlots = {
+  timeline?: TimelineEntry[];
+  timelineGroups?: readonly TimelineGroup[];
+  timelineHeader?: ReactNode;
+  timelineFooter?: ReactNode;
+  timelineNotice?: ReactNode;
+  onOpenThread?: (threadKey: string) => void;
+};
+
+// ChronologyFilter narrows the account's own history. It sits ABOVE the list
+// rather than in the page's tab strip: it scopes this section, and a control
+// that looks like a tab reads as a different page.
+function ChronologyFilter({
+  filter,
+  onFilter,
+}: Readonly<{
+  filter: TimelineFilter;
+  onFilter: (next: TimelineFilter) => void;
+}>) {
+  const t = useT();
+  return (
+    <div className="co-tabs">
+      <SegmentedControl
+        options={TIMELINE_FILTERS}
+        value={filter}
+        onChange={onFilter}
+        label={t("co.chronology.label")}
+        labels={{
+          activities: t("co.chronology.activities"),
+          changes: t("co.chronology.changes"),
+          all: t("co.chronology.all"),
+        }}
+      />
+    </div>
+  );
+}
+
 function useChronologySlots({
   org,
   view,
@@ -1719,25 +1962,11 @@ function useChronologySlots({
   // so it renders no timeline rather than an empty one.
   active: boolean;
 }>): {
-  slots: {
-    timeline?: TimelineEntry[];
-    timelineHeader?: ReactNode;
-    timelineFooter?: ReactNode;
-    timelineNotice?: ReactNode;
-  };
+  slots: ChronologySlots;
   showChanges: () => void;
 } {
   const t = useT();
-  const [filter, setFilter] = useState<TimelineFilter>("activities");
-  // The filter belongs to the account being read, not to the session. When
-  // both records are already cached the route swaps one company for another
-  // without ever unmounting this component, so a reader who checked Changes
-  // once met Changes on every account they opened afterwards.
-  const [filterFor, setFilterFor] = useState(org.id);
-  if (filterFor !== org.id) {
-    setFilterFor(org.id);
-    setFilter("activities");
-  }
+  const [filter, setFilter] = useResetOnRecord(org.id);
 
   const history = useAccountChronology({
     orgId: org.id,
@@ -1773,26 +2002,14 @@ function useChronologySlots({
     showChanges,
     slots: {
       timeline: history.entries,
-      // Above the list rather than in the page's tab strip: it narrows this
-      // section, and a control that looks like a tab reads as a new page.
-      timelineHeader: (
-        <div className="co-tabs">
-          <SegmentedControl
-            options={TIMELINE_FILTERS}
-            value={filter}
-            onChange={setFilter}
-            label={t("co.chronology.label")}
-            labels={{
-              activities: t("co.chronology.activities"),
-              changes: t("co.chronology.changes"),
-              all: t("co.chronology.all"),
-            }}
-          />
-        </div>
+      // Conversations, not messages. The account's timeline is where the same
+      // exchange showed up three times — a product update to three contacts
+      // was three rows, and a five-message thread was five.
+      timelineGroups: groupChronology(
+        history.entries,
+        view?.activities?.page.has_more ?? false,
       ),
-      // Asking sits UNDER the account's own story, not above it: it is a tool
-      // for when the page did not already answer the question, and standing
-      // between the brief and the timeline it took the place of content.
+      timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
       timelineFooter: (
         <>
           {/* Where the merged view stops being complete, said out loud.
@@ -1814,7 +2031,6 @@ function useChronologySlots({
             (filter === "all" && history.changesAreTheLimit)) && (
             <LoadMoreButton query={history.changes} />
           )}
-          <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
         </>
       ),
       timelineNotice: chronologyNotice(
@@ -1872,6 +2088,13 @@ function CompanyPage({
 }>) {
   const t = useT();
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  // The two surfaces a suggestion's action opens. Held here because both are
+  // page-level: the composer anchors on a timeline message, and the task form
+  // is the account's own log-activity surface.
+  const [replyToActivityId, setReplyToActivityId] = useState<string | null>(
+    null,
+  );
+  const [taskFormOpen, setTaskFormOpen] = useState(false);
   const [decisionsOpen, setDecisionsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   // A task written or completed from this page changes the account's timeline,
@@ -1883,10 +2106,12 @@ function CompanyPage({
     overlay,
     loading,
     failed,
-    active: tab === "overview",
+    active: tab === "timeline",
   });
+  // An evidence mark asks where a value came from, and the answer is the
+  // record's change history — which now lives on its own tab.
   const showChanges = () => {
-    onTab("overview");
+    onTab("timeline");
     filterToChanges();
   };
   return (
@@ -1899,6 +2124,7 @@ function CompanyPage({
         <CompanyActionBadges
           org={org}
           onOpenHistory={() => setAuditOpen(true)}
+          onSetUpPartner={() => onTab("partner")}
         />
       }
       pulse={
@@ -1970,7 +2196,30 @@ function CompanyPage({
       {tab === "overview" && failed && (
         <EmptyState>{t("co.partial")}</EmptyState>
       )}
-      {/* The brief leads: what this account looks like right now, before the
+      {/* The strip leads, before any prose: where the account stands, whose
+          move it is, and what work is open. Three readings a rep can act on
+          without reading a sentence — and the one that replaced a number
+          nobody could scale. */}
+      {tab === "overview" && view && (
+        <StateStrip
+          view={view}
+          lifecycleLabel={(value) =>
+            t(LIFECYCLE_LABELS[value as keyof typeof LIFECYCLE_LABELS])
+          }
+          relationshipLabels={(values) =>
+            values
+              .map((value) =>
+                t(
+                  RELATIONSHIP_TYPE_LABELS[
+                    value as keyof typeof RELATIONSHIP_TYPE_LABELS
+                  ],
+                ),
+              )
+              .join(" · ")
+          }
+        />
+      )}
+      {/* Then the brief: what this account looks like right now, before the
           cards that report it field by field. It absorbed the standalone
           "since your last visit" block, because two cards each claiming to
           say what the state is made the reader arbitrate between them. */}
@@ -1980,6 +2229,12 @@ function CompanyPage({
           view={view}
           enabled={!overlay}
           onOpenRecord={openCitation}
+          onPerform={(action) =>
+            performSuggestion(action, {
+              compose: setReplyToActivityId,
+              logTask: () => setTaskFormOpen(true),
+            })
+          }
         />
       )}
       {tab === "overview" && view && (
@@ -1994,6 +2249,41 @@ function CompanyPage({
             />
           )}
         />
+      )}
+      {/* The composer, anchored on the message a draft_reply suggestion named.
+          It is the same modal the timeline's own Reply opens — the advice
+          shortcuts to it rather than inventing a second way to answer. */}
+      {replyToActivityId && (
+        <ComposeModal
+          activityId={replyToActivityId}
+          entityType="organization"
+          entityId={org.id}
+          kind="email"
+          open
+          onClose={() => setReplyToActivityId(null)}
+        />
+      )}
+      {taskFormOpen && (
+        <LogActivityAction
+          entityType="organization"
+          entityId={org.id}
+          initialKind="task"
+          openOnMount
+          onClose={() => setTaskFormOpen(false)}
+        />
+      )}
+      {/* The People tab gives the account team the whole middle column. The
+          rail's card is a summary; this is the roster, with room for the title
+          and the last exchange beside each name. */}
+      {/* Asking sits UNDER the account's own story: it is the tool for when the
+          page did not already answer the question. It belongs to the account
+          rather than to its history, so it stays on the overview instead of
+          following the chronology onto its own tab. */}
+      {tab === "overview" && (
+        <AssistantPanel orgId={org.id} enabled onOpenRecord={openCitation} />
+      )}
+      {tab === "people" && (
+        <PeopleCard view={view} writable={!org.archived_at} orgId={org.id} />
       )}
       {openTaskId && (
         <TaskDetailModal
@@ -2033,6 +2323,33 @@ function CompanyPage({
       </Modal>
     </RecordView>
   );
+}
+
+// performSuggestion carries out the advice the server named.
+//
+// It routes rather than acts: each kind opens the governed surface a rep would
+// have reached for anyway, prefilled from the evidence the rule fired on.
+// Nothing here writes, and nothing is staged — the card advises, the surface
+// it opens is where the human decides.
+//
+// draft_reply and add_task both land on the account's own timeline surfaces,
+// which is why the page owns this handler rather than the card: the composer
+// and the log-activity form live here.
+function performSuggestion(
+  action: SuggestionAction,
+  open: { compose: (activityId: string) => void; logTask: () => void },
+) {
+  if (action.kind === "open_deal" && action.deal_id) {
+    openCitation("deal", action.deal_id);
+    return;
+  }
+  if (action.kind === "draft_reply" && action.activity_id) {
+    open.compose(action.activity_id);
+    return;
+  }
+  if (action.kind === "add_task") {
+    open.logTask();
+  }
 }
 
 // openCitation routes a cited record to its own screen. The brief, the
@@ -2084,7 +2401,7 @@ function businessRail({
             the account is filed rather than anything about the account. */}
         {/* Roles are a write, so the card offers them on the same terms as
             every other verb on this page: never on an archived record. */}
-        <PeopleCard view={view} writable={!readOnly} />
+        <PeopleCard view={view} writable={!readOnly} orgId={org.id} />
         <DealsCard
           view={view}
           // The verb sits under the list it changes: a rep who has just read
@@ -2096,10 +2413,17 @@ function businessRail({
             )
           }
         />
+        {/* How the relationship stands, in parts — the decomposition that
+            replaced the header's 0-100 score. */}
+        <HealthCard health={view?.health} />
         <SignalsCard orgId={org.id} />
-        <Disclosure summary={t("co.connections.title")}>
-          <ConnectionsCard orgId={org.id} />
-        </Disclosure>
+        {/* Connections is deliberately not here. It listed the account owner
+            and the same employees the People card already names, against two
+            different strength scales and a bare "2" nobody could read — the
+            page's own answer to a question no reader had asked. The graph read
+            stays (connections.tsx, GET /organizations/{id}/graph): it returns
+            as a per-contact "find a route in", which is the question that IS
+            worth asking, and only where a route actually exists. */}
         <Disclosure summary={t("co.tags.title")}>
           <TagsCard
             view={view}
@@ -2136,9 +2460,6 @@ function businessRail({
   return (
     <>
       <PeopleCard />
-      {/* The connections card reads its own endpoint, so a failed 360 tells it
-          nothing — it still tries, and says so itself if its own read fails. */}
-      <ConnectionsCard orgId={org.id} />
       <DealsCard />
       <SignalsCard orgId={org.id} />
       <TagsCard />

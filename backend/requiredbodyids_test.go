@@ -33,6 +33,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 const generatedContract = "internal/contracts/api_gen.go"
@@ -65,7 +67,7 @@ var probedRequiredIDBodies = map[string]bool{
 // id added upstream therefore lands here as a failure until someone decides which
 // it is, which is the difference between having fixed eleven things and having
 // closed the class.
-var unguardedRequiredIDBodies = map[string]string{
+var unguardedRequiredIDBodies = gatekit.Waive(map[string]string{
 	// Not a request body at all: the GDPR data-subject-request ENTITY, whose `id`
 	// is its own primary key rather than a caller-supplied reference. Waived
 	// because the name heuristic above cannot tell the two apart, and narrowing
@@ -77,7 +79,7 @@ var unguardedRequiredIDBodies = map[string]string{
 	// refuses it as a 422 naming the field. It cannot become a zero UUID reaching
 	// a lookup, which is the only hazard this gate is about.
 	"UploadAttachmentMultipartBody": "multipart; FormValue + ids.Parse already refuses an absent part as a 422",
-}
+})
 
 func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {
 	bodies := contractBodiesWithARequiredID(t)
@@ -85,6 +87,9 @@ func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {
 		t.Fatalf("no request body in %s declares a required non-pointer UUID — the walk is reading "+
 			"the wrong shape", generatedContract)
 	}
+	// Registered only past the vacuity guard: on that Fatal every entry would
+	// report as unmatched, burying the one failure that explains all of them.
+	defer unguardedRequiredIDBodies.AssertAllMatched(t)
 
 	names := make([]string, 0, len(bodies))
 	for name := range bodies {
@@ -92,7 +97,7 @@ func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if probedRequiredIDBodies[name] || unguardedRequiredIDBodies[name] != "" {
+		if probedRequiredIDBodies[name] || unguardedRequiredIDBodies.Waived(t, name) {
 			continue
 		}
 		t.Errorf("%s declares required id(s) %v and is neither probed nor waived. An absent key "+
@@ -101,14 +106,8 @@ func TestEveryContractBodyWithARequiredIDIsAccountedFor(t *testing.T) {
 			"transports share and probe it, or add it to unguardedRequiredIDBodies with a reason.",
 			name, bodies[name])
 	}
-	// A stale entry on either list is a failure: it would outlive the thing it
-	// describes and make the gap look different from what it is.
-	for name := range unguardedRequiredIDBodies {
-		if _, still := bodies[name]; !still {
-			t.Errorf("unguardedRequiredIDBodies names %s, which no longer declares a required "+
-				"non-pointer UUID — drop the entry", name)
-		}
-	}
+	// A stale entry is a failure: it would outlive the thing it describes and
+	// make the gap look different from what it is.
 	for name := range probedRequiredIDBodies {
 		if _, still := bodies[name]; !still {
 			t.Errorf("probedRequiredIDBodies names %s, which no longer declares a required "+
