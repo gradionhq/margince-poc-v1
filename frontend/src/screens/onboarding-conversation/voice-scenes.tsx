@@ -516,11 +516,20 @@ export function VoiceResultScene({
 }>) {
   const t = useT();
   const candidate = version !== null && version.status === "candidate";
+  const data = version !== null ? parseVoiceInsights(version) : null;
+  // A version with no reserved held-out samples (the starter-corpus case:
+  // too few sources to spare any) never carries a sample draft — the reader
+  // must not be told to read one that was never generated.
+  const hasSample = data !== null && data.sampleDrafts.length > 0;
   return (
     <VoiceScene
       eyebrow={eyebrow}
       title={t("ob.conv.voice.resultTitle")}
-      sub={t("ob.conv.voice.resultSub")}
+      sub={t(
+        data !== null && !hasSample
+          ? "ob.conv.voice.resultSubNoSample"
+          : "ob.conv.voice.resultSub",
+      )}
     >
       {loading && (
         <p className="ob-conv-artifact-empty">
@@ -532,9 +541,7 @@ export function VoiceResultScene({
           {t("ob.conv.voice.resultEmpty")}
         </p>
       )}
-      {version !== null && (
-        <VoiceResultBoard data={parseVoiceInsights(version)} />
-      )}
+      {data !== null && <VoiceResultBoard data={data} />}
       <div className="ob-triage-continue">
         <p className="ob-triage-continue-status" role="status">
           {candidate ? t("ob.conv.voice.candidateNote") : ""}
@@ -801,13 +808,18 @@ function VoiceResultBoard({ data }: Readonly<{ data: VoiceInsightsData }>) {
     data.moves.length > 0
       ? data.moves.map((move) => move.move).join(", ")
       : t("voice.insights.draftOnly");
+  const hasSample = data.sampleDrafts.length > 0;
   return (
-    <div className="ob-voice-board">
-      <div className="ob-voice-board-col">
-        {data.sampleDrafts.length > 0 && (
+    <div
+      className={
+        hasSample ? "ob-voice-board" : "ob-voice-board ob-voice-board-single"
+      }
+    >
+      {hasSample && (
+        <div className="ob-voice-board-col">
           <VoiceSampleCard drafts={data.sampleDrafts} why={why} />
-        )}
-      </div>
+        </div>
+      )}
       <div className="ob-voice-board-col">
         {dimensions.length > 0 && (
           <VoiceDimensionsCard

@@ -1122,6 +1122,13 @@
   }
 }
 
+/* No sample yet (the starter-corpus case): one column, capped so a single
+   card doesn't stretch full-bleed across the surface a two-card board owned. */
+.ob-voice-board-single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 34rem;
+}
+
 .ob-voice-result-card {
   padding: var(--space-4);
   border: 1px solid var(--borderSubtle);

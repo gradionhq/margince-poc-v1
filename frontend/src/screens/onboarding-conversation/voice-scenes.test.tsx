@@ -9,9 +9,66 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
 import { VOICE_MIN_WORDS } from "../onboarding";
-import { VoiceBuildScene, VoiceCollectScene } from "./voice-scenes";
+import {
+  VoiceBuildScene,
+  VoiceCollectScene,
+  VoiceResultScene,
+} from "./voice-scenes";
 
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
+type VoiceProfileVersion = components["schemas"]["VoiceProfileVersion"];
+
+// A minimal but contract-complete VoiceProfileVersion; profileJSON carries
+// only what the result board actually reads, `sample_drafts` swapped per
+// test between the starter-corpus empty array and a real held-out draft.
+function resultVersion(
+  profileJSON: Record<string, unknown>,
+): VoiceProfileVersion {
+  return {
+    id: "v-1",
+    profile_id: "p-1",
+    profile_version: 1,
+    status: "active",
+    voice_profile_md: "# Voice DNA",
+    profile_json: profileJSON,
+    stats_json: {
+      word_count: 3994,
+      mean_sentence_words: 18.93,
+      sample_count: 1,
+    },
+    source_hash: "h",
+    source_count: 1,
+    reason: "onboarding",
+    predecessor_version: null,
+    activation_policy_version: "2",
+    model_provider: "routed",
+    model_name: "gemini-3.1-flash-lite",
+    builder_version: "voicebuilder/1",
+    source: "ui",
+    captured_by: "agent:voice-builder",
+    evaluation: {
+      held_out_prompts: 5,
+      repeats_per_prompt: 3,
+      active_median_voice_score: null,
+      candidate_median_voice_score: 0,
+      anti_ai_hard_failures: 0,
+      structured_output_valid: true,
+      corpus_citations_valid: true,
+      identity_word_jaccard: 1,
+      signature_set_jaccard: 1,
+      removed_avoid_rules: 0,
+      removed_register_rules: 0,
+      classification: "routine",
+      passed: true,
+    },
+    review_reasons: [],
+    version: 1,
+    created_at: "2026-08-05T00:00:00Z",
+    updated_at: "2026-08-05T00:00:00Z",
+    archived_at: null,
+    activated_at: "2026-08-05T00:00:00Z",
+  };
+}
 
 function summaryOf(totalWords: number): CorpusSummary {
   return {
@@ -303,5 +360,56 @@ describe("VoiceBuildScene", () => {
     // No further motion: the ceiling did not change, so the reading must not
     // have either.
     expect(pct()).toBe(20);
+  });
+});
+
+describe("VoiceResultScene", () => {
+  it("renders the sample the build reserved, and points the reader at it", () => {
+    const version = resultVersion({
+      inference: { signature_moves: [] },
+      sample_drafts: [
+        { subject: "Re: kickoff", body: "The plan holds.", voice_score: 0.9 },
+      ],
+      guidance: {},
+    });
+    withLocale(
+      <VoiceResultScene
+        eyebrow="Voice"
+        loading={false}
+        version={version}
+        onContinue={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText("Read the sample first.", { exact: false }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("The plan holds.")).toBeInTheDocument();
+  });
+
+  it("never tells the reader to read a sample the starter corpus could not reserve", () => {
+    const version = resultVersion({
+      inference: { signature_moves: [] },
+      sample_drafts: [],
+      guidance: {},
+    });
+    withLocale(
+      <VoiceResultScene
+        eyebrow="Voice"
+        loading={false}
+        version={version}
+        onContinue={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.queryByText("Read the sample first.", { exact: false }),
+    ).toBeNull();
+    expect(screen.queryByText("Sample, not sent")).toBeNull();
+    expect(
+      screen.getByText("too small yet to hold out a sample draft", {
+        exact: false,
+      }),
+    ).toBeInTheDocument();
   });
 });

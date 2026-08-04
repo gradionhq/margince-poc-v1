@@ -2122,6 +2122,8 @@ export const en = {
   "ob.conv.voice.buildingMeta": "{words} words, {sources} sources",
   "ob.conv.voice.resultSub":
     "Read the sample first. If it lands, confirm. If it is off, add more sources and I rebuild.",
+  "ob.conv.voice.resultSubNoSample":
+    "Your corpus is too small yet to hold out a sample draft. Here is what the build learned about how you write — add more sources for a sample.",
   "ob.conv.voice.resultContinue": "That is my voice",
   "ob.conv.voice.sampleEyebrow": "Sample, not sent",
   "ob.conv.voice.sampleAnother": "Another scenario",

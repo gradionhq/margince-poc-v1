@@ -2158,6 +2158,8 @@ export const de = {
   "ob.conv.voice.buildingMeta": "{words} Wörter, {sources} Quellen",
   "ob.conv.voice.resultSub":
     "Lies zuerst das Beispiel. Passt es, bestätige. Passt es nicht, gib mir mehr Quellen und ich baue neu.",
+  "ob.conv.voice.resultSubNoSample":
+    "Dein Korpus ist noch zu klein, um ein Beispiel zurückzuhalten. Hier ist, was der Aufbau über deinen Schreibstil gelernt hat — für ein Beispiel brauche ich mehr Quellen.",
   "ob.conv.voice.resultContinue": "Das bin ich",
   "ob.conv.voice.sampleEyebrow": "Beispiel, nicht gesendet",
   "ob.conv.voice.sampleAnother": "Anderes Szenario",
