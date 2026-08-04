@@ -12,11 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"unicode/utf8"
-
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -300,6 +297,13 @@ func Classify(err error) (Fault, bool) {
 		}
 	}
 
+	// A constraint the DATABASE enforced that no path above translated. Last,
+	// so every typed refusal a module wrote wins over this — it is the net, not
+	// the answer.
+	if fault, ok := constraintFault(err); ok {
+		return fault, true
+	}
+
 	return Fault{}, false
 }
 
@@ -313,7 +317,11 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	if fault.InfraCause != nil {
-		slog.ErrorContext(r.Context(), "sentinel wrapped an infrastructure error",
+		// Two shapes reach here — a sentinel that wrapped an infrastructure
+		// failure, and a constraint the schema enforced — and the line says what
+		// is true of both: the caller got a sentence we wrote, and the operator
+		// gets the one the infrastructure wrote.
+		slog.ErrorContext(r.Context(), "infrastructure cause withheld from the caller",
 			"method", r.Method, "path", r.URL.Path, "err", fault.InfraCause)
 	}
 	// A refusal that masked a library's own sentence still owes the operator
@@ -342,15 +350,6 @@ func Write(w http.ResponseWriter, r *http.Request, err error) {
 		Detail:  fault.Detail,
 		Details: details,
 	})
-}
-
-// infrastructureCause reports whether err's chain contains a raw
-// infrastructure failure (Postgres, network) whose message is meant for
-// operators, not clients.
-func infrastructureCause(err error) bool {
-	var pgErr *pgconn.PgError
-	var netErr net.Error
-	return errors.As(err, &pgErr) || errors.As(err, &netErr)
 }
 
 // FieldError is one per-field refusal inside a validation fault: which input

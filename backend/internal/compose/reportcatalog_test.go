@@ -4,8 +4,13 @@
 package compose
 
 import (
+	"encoding/json"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // The catalog is published so an agent can call run_report without guessing, so
@@ -112,5 +117,72 @@ func TestReportDefaultsRenderEachHalfOnlyWhenItExists(t *testing.T) {
 				t.Errorf("defaults = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// An unknown report key is a CLIENT mistake about a static catalog, not a
+// missing tenant record. It used to answer the row-scope not-found sentence,
+// which told a caller their permissions might be at fault and named nothing
+// available — a UAT agent read it and could not tell a typo from a denial.
+func TestUnknownReportKeyNamesTheOnesThatExist(t *testing.T) {
+	engine := &reportEngine{}
+	_, err := engine.Run(t.Context(), "revenue-by-quarter", reportRequest{})
+	if err == nil {
+		t.Fatal("a report key the catalog does not serve was accepted")
+	}
+	if errors.Is(err, apperrors.ErrNotFound) {
+		t.Error("an unknown catalog key still answers the row-scope not-found sentence")
+	}
+	var unknown *UnknownReportError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("err = %v, want an UnknownReportError", err)
+	}
+	_, message := unknown.MessageFault()
+	for report := range prebuiltReports {
+		if !strings.Contains(message, report) {
+			t.Errorf("the refusal never names the served report %q: %s", report, message)
+		}
+	}
+}
+
+// A vocabulary refusal carries the vocabulary. It used to point at "the
+// report's documented dimensions, filters and measures", which named something
+// no tool on this surface yielded — so a caller guessed names until one worked.
+func TestVocabularyRefusalCarriesTheVocabulary(t *testing.T) {
+	spec := prebuiltReports["deals-by-stage"]
+	refusal := &FieldNotAllowedError{Field: "owner_id", Allowed: allowedReportNames(spec.dimensions)}
+	_, message := refusal.MessageFault()
+	if !strings.Contains(message, "expected one of:") {
+		t.Errorf("the refusal names no vocabulary: %s", message)
+	}
+	for dimension := range spec.dimensions {
+		if !strings.Contains(message, dimension) {
+			t.Errorf("the refusal omits the legal dimension %q: %s", dimension, message)
+		}
+	}
+	// A site with no vocabulary in hand says so plainly rather than pointing at
+	// documentation that does not exist.
+	bare := &FieldNotAllowedError{Field: "fn=median"}
+	if _, message := bare.MessageFault(); strings.Contains(message, "documented") {
+		t.Errorf("a refusal still points at documentation this surface does not serve: %s", message)
+	}
+}
+
+// A plan argument the engine does not serve is refused, not dropped. crm.yaml
+// declares `as_of_date` on the runReport body and this engine has no field for
+// it, so a lenient decode answered a request for a historical snapshot with
+// current state and no warning.
+func TestReportPlanRefusesAnArgumentTheEngineDoesNotServe(t *testing.T) {
+	var plan reportRequest
+	err := strictDecodeReportPlan(json.RawMessage(`{"as_of_date":"2026-01-31"}`), &plan)
+	if err == nil {
+		t.Fatal("as_of_date was accepted and silently dropped")
+	}
+	if !strings.Contains(err.Error(), "as_of_date") {
+		t.Errorf("the refusal does not name the key it refused: %v", err)
+	}
+	// The arguments it DOES serve still decode.
+	if err := strictDecodeReportPlan(json.RawMessage(`{"group_by":["stage_id"]}`), &plan); err != nil {
+		t.Fatalf("a served plan argument was refused: %v", err)
 	}
 }

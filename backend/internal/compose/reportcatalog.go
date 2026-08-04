@@ -11,11 +11,17 @@ package compose
 // only one concern in it.
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // reportToolCatalog publishes the prebuilt catalog to the run_report tool: the
@@ -75,4 +81,34 @@ func describeReportDefaults(spec reportSpec) string {
 	default:
 		return ""
 	}
+}
+
+// strictDecodeReportPlan decodes the tool's plan arguments, refusing a key the
+// engine does not serve rather than dropping it.
+//
+// Separate from the REST body decode on purpose: that path decodes the contract
+// type, which HAS `as_of_date`, and forwarding an unserved key there is the
+// transport's own question. This is the tool seam, whose caller cannot see a
+// response body it did not think to re-read.
+func strictDecodeReportPlan(planArgs json.RawMessage, into *reportRequest) error {
+	dec := json.NewDecoder(bytes.NewReader(planArgs))
+	dec.DisallowUnknownFields()
+	return dec.Decode(into)
+}
+
+// uuidShape distinguishes a saved-report id from a prebuilt key (the
+// contract's collision rule).
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func (e *reportEngine) Run(ctx context.Context, report string, req reportRequest) (reportOutcome, error) {
+	if uuidShape.MatchString(report) {
+		// Saved reports are a later slice; an unknown id is absent, not
+		// half-supported.
+		return reportOutcome{}, fmt.Errorf("saved report %s: %w", report, apperrors.ErrNotFound)
+	}
+	spec, ok := prebuiltReports[report]
+	if !ok {
+		return reportOutcome{}, &UnknownReportError{Report: report, Served: slices.Sorted(maps.Keys(prebuiltReports))}
+	}
+	return e.runSpec(ctx, report, spec, req)
 }

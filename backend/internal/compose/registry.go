@@ -122,7 +122,13 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 	return func(ctx context.Context, report string, planArgs json.RawMessage) (json.RawMessage, error) {
 		var req reportRequest
 		if len(planArgs) > 0 {
-			if err := json.Unmarshal(planArgs, &req); err != nil {
+			// STRICT: a plan argument this engine does not serve is refused by
+			// name, not dropped. crm.yaml's runReport body declares `as_of_date`
+			// and this engine has no field for it, so a lenient decode answered
+			// an agent's request for a historical snapshot with current state and
+			// no warning — a silent wrong answer, which is worse than a refusal
+			// because nothing tells the caller to look again.
+			if err := strictDecodeReportPlan(planArgs, &req); err != nil {
 				// Server-authored. The REST twin forwards the decoder's own text
 				// under the field `body`, which is wrong here twice over: this tool
 				// has no `body` argument, and the Go decoder names internal types

@@ -212,3 +212,64 @@ func TestClassify_leavesUnknownErrorsToTheOpaque500(t *testing.T) {
 		t.Errorf("an unmapped error was classified as %+v, want the unhandled path", fault)
 	}
 }
+
+// A constraint the database enforced and no path translated is the CALLER's
+// mistake, not a server fault. It used to fall through to an opaque 500 whose
+// advice was "Retry" — advice that can never work, since the same call violates
+// the same constraint forever. A UAT agent burned its retries on exactly this
+// and then escalated to a human for a fixable input error.
+func TestClassify_anUntranslatedConstraintIsTheCallersMistakeNotAServerFault(t *testing.T) {
+	for _, tc := range []struct {
+		name, sqlstate, wantCode string
+	}{
+		{"a foreign key names a record that does not exist", "23503", "reference_not_found"},
+		{"a CHECK refuses the value", "23514", "value_not_allowed"},
+		{"an EXCLUDE refuses the overlap", "23P01", "value_not_allowed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := fmt.Errorf("writing the row: %w",
+				&pgconn.PgError{
+					Code: tc.sqlstate, ConstraintName: "organization_owner_id_fkey",
+					Message: `insert or update on table "organization" violates foreign key constraint`,
+				})
+			fault, ok := Classify(err)
+			if !ok {
+				t.Fatal("the constraint reached the unhandled path, which answers 500 internal")
+			}
+			if fault.Status != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422 — a constraint breach is never a server fault", fault.Status)
+			}
+			if fault.Code != tc.wantCode {
+				t.Errorf("code = %q, want %q", fault.Code, tc.wantCode)
+			}
+			if strings.Contains(strings.ToLower(fault.Detail), "retry the call unchanged") &&
+				!strings.Contains(fault.Detail, "do not retry") {
+				t.Errorf("detail tells the caller to retry a deterministic failure: %q", fault.Detail)
+			}
+			// The constraint name is SCHEMA — our table and column names — so it
+			// goes to the operator and never to the caller.
+			for _, leak := range []string{"organization_owner_id_fkey", "insert or update on table", "23503"} {
+				if strings.Contains(fault.Detail, leak) {
+					t.Errorf("detail leaks %q: %q", leak, fault.Detail)
+				}
+			}
+			if fault.InfraCause == nil {
+				t.Error("the constraint reaches no log — withholding a message is not the same as losing it")
+			}
+		})
+	}
+}
+
+// The net sits UNDER the per-path validations: a module that names the field
+// still wins, or the better message would be replaced by the generic one.
+func TestClassify_aTypedRefusalStillWinsOverTheConstraintNet(t *testing.T) {
+	err := fmt.Errorf("checking the band: %w",
+		Validation("size_band", "invalid_enum", `"banana" is not a size band; expected one of: 1-10, 11-50`))
+	fault, ok := Classify(err)
+	if !ok {
+		t.Fatal("a typed validation refusal was not classified")
+	}
+	if !strings.Contains(fault.Detail, "expected one of") {
+		t.Errorf("the net replaced a refusal that named the field and its values: %q", fault.Detail)
+	}
+}

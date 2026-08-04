@@ -174,6 +174,16 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 	// maps carry activity, so a record-type test put this patch-only advice on the
 	// create tool too, which DOES accept links. Same mistake as the endpoint
 	// advisory above, in its sibling.
+	// An activity is not searchable either, and only the EDGE was ever told
+	// this. search_records' record_type enum has no activity, so an activity is
+	// retrievable afterwards only through the id its write returned — the same
+	// hazard the relationship advisory names, on the record type this surface
+	// creates far more often. Keyed on the create shapes (which carry `links`),
+	// because it is the write that hands out the only handle.
+	if describesField(shapes, "links") {
+		b.WriteString("An activity is not searchable — search_records does not serve it — so keep the id ")
+		b.WriteString("an activity write returns; read_record answers it by that id. ")
+	}
 	_, hasActivity := shapes[datasource.EntityActivity]
 	if hasActivity && !describesField(shapes, "links") {
 		// Says what is true and stops. Naming the relink action would be
@@ -184,9 +194,19 @@ func writeFieldAdvisories(b *strings.Builder, shapes map[datasource.EntityType]r
 		b.WriteString("An activity's links are NOT patchable, here or by any tool on this surface: ")
 		b.WriteString("this tool changes what an activity says, never who it is about. ")
 	}
-	b.WriteString("Extra keys are read as custom-field values and must be named cf_<slug> for a ")
-	b.WriteString("custom field ACTIVE in this workspace; any other key is silently discarded, ")
-	b.WriteString("so re-read the record if you are unsure a value landed.")
+	// Two different fates, and the sentence used to describe neither. It said
+	// every extra key is "silently discarded", which is wrong in both
+	// directions: a key that is not cf_-prefixed is REFUSED by name (this file's
+	// rejectUnknownFields), so an agent was told to distrust a success it would
+	// never receive — while the one case that IS silently dropped, a cf_ key
+	// whose custom field is not active, was the half the sentence glossed over.
+	// A UAT run found exactly that: cf_employee_count answered 200 with a full
+	// record body and the value nowhere in it.
+	b.WriteString("Extra keys must be named cf_<slug> and are read as custom-field values; ")
+	b.WriteString("any other key is REFUSED by name, so an unknown field is never a silent ")
+	b.WriteString("loss. A cf_ key whose custom field is not ACTIVE in this workspace is the ")
+	b.WriteString("one that is: the write reports success and drops the value, so re-read the ")
+	b.WriteString("record if you are unsure a cf_ value landed.")
 	// …but not for every record type, and the exception is this surface's own
 	// decision: a type takes custom fields only if its contract shape carries the
 	// additionalProperties bag a cf_ value travels in, and activity and

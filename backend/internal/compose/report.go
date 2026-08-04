@@ -25,7 +25,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -213,23 +212,6 @@ func newReportEngine(pool *pgxpool.Pool) *reportEngine {
 	return &reportEngine{pool: pool}
 }
 
-// uuidShape distinguishes a saved-report id from a prebuilt key (the
-// contract's collision rule).
-var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-
-func (e *reportEngine) Run(ctx context.Context, report string, req reportRequest) (reportOutcome, error) {
-	if uuidShape.MatchString(report) {
-		// Saved reports are a later slice; an unknown id is absent, not
-		// half-supported.
-		return reportOutcome{}, fmt.Errorf("saved report %s: %w", report, apperrors.ErrNotFound)
-	}
-	spec, ok := prebuiltReports[report]
-	if !ok {
-		return reportOutcome{}, fmt.Errorf("report %q: %w", report, apperrors.ErrNotFound)
-	}
-	return e.runSpec(ctx, report, spec, req)
-}
-
 // runSpec executes one validated vocabulary; Run (prebuilt catalog) and
 // runAdHocPlan (schema-descriptor vocabulary) both land here.
 func (e *reportEngine) runSpec(ctx context.Context, report string, spec reportSpec, req reportRequest) (reportOutcome, error) {
@@ -280,7 +262,7 @@ func buildSelectList(spec reportSpec, groupBy []string, aggregates []reportAggre
 	for _, dim := range groupBy {
 		expr, ok := spec.dimensions[dim]
 		if !ok {
-			return nil, nil, &FieldNotAllowedError{Field: dim}
+			return nil, nil, &FieldNotAllowedError{Field: dim, Allowed: allowedReportNames(spec.dimensions)}
 		}
 		selects = append(selects, fmt.Sprintf("%s AS %s", expr, dim))
 		columns = append(columns, dim)
@@ -313,7 +295,7 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 	if name == reservedDerivationColumn {
 		// The transport injects this key into every aggregate row; an
 		// alias squatting on it would make the handle ambiguous.
-		return "", "", &FieldNotAllowedError{Field: name}
+		return "", "", &FieldNotAllowedError{Field: name, Allowed: allowedReportNames(spec.measures)}
 	}
 	switch agg.Fn {
 	case "count":
@@ -321,7 +303,7 @@ func aggregateSelect(spec reportSpec, agg reportAggregate) (name, sel string, er
 	case "sum", "avg", "min", "max":
 		expr, ok := spec.measures[agg.Field]
 		if !ok {
-			return "", "", &FieldNotAllowedError{Field: agg.Field}
+			return "", "", &FieldNotAllowedError{Field: agg.Field, Allowed: allowedReportNames(spec.measures)}
 		}
 		return name, fmt.Sprintf("%s(%s) AS %s", agg.Fn, expr, quoteIdent(name)), nil
 	default:
@@ -370,7 +352,7 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	for _, key := range filterKeys {
 		expr, ok := spec.filters[key]
 		if !ok {
-			return nil, &FieldNotAllowedError{Field: key}
+			return nil, &FieldNotAllowedError{Field: key, Allowed: allowedReportNames(spec.filters)}
 		}
 		where = append(where, fmt.Sprintf("%s = $%d", expr, arg(req.Filters[key])))
 	}

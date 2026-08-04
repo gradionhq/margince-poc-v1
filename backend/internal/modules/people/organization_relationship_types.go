@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -55,7 +56,7 @@ func dedupeRelationshipTypes(desired []string) ([]string, error) {
 	for _, t := range desired {
 		if !validRelationshipTypes[t] {
 			return nil, httperr.Validation("relationship_types", "invalid_enum",
-				fmt.Sprintf("%q is not a relationship type", t))
+				fmt.Sprintf("%q is not a relationship type; %s", t, vocabularyOf(validRelationshipTypes)))
 		}
 		if seen[t] {
 			continue
@@ -290,5 +291,53 @@ func checkLifecycle(value string) error {
 		return nil
 	}
 	return httperr.Validation("lifecycle", "invalid_enum",
-		fmt.Sprintf("%q is not a lifecycle", value))
+		fmt.Sprintf("%q is not a lifecycle; %s", value, vocabularyOf(validLifecycles)))
+}
+
+// checkSizeBand refuses a value outside the vocabulary, before the database
+// sees it.
+//
+// It exists because the sibling checks did and this one did not: `size_band` is
+// a closed vocabulary enforced only by a CHECK, so `"banana"` reached Postgres
+// and came back as an untranslated 500 telling the caller to retry a call that
+// can never succeed. The transport now nets that (httperr.constraintFault), but
+// a net answers "some value is wrong" — this answers WHICH, and with what.
+func checkSizeBand(value string) error {
+	if validSizeBands[value] {
+		return nil
+	}
+	return httperr.Validation("size_band", "invalid_enum",
+		fmt.Sprintf("%q is not a size band; %s", value, vocabularyOf(validSizeBands)))
+}
+
+// validSizeBands is the closed vocabulary, read off the generated contract so it
+// cannot drift from crm.yaml the way a hand-copied list would.
+var validSizeBands = map[string]bool{
+	string(crmcontracts.OrganizationSizeBandN110):      true,
+	string(crmcontracts.OrganizationSizeBandN1150):     true,
+	string(crmcontracts.OrganizationSizeBandN51200):    true,
+	string(crmcontracts.OrganizationSizeBandN201500):   true,
+	string(crmcontracts.OrganizationSizeBandN5011000):  true,
+	string(crmcontracts.OrganizationSizeBandN10015000): true,
+	string(crmcontracts.OrganizationSizeBandN5000):     true,
+}
+
+// vocabularyOf renders a closed vocabulary for a refusal to carry.
+//
+// A refusal that names the field and withholds the values is the one a caller
+// can least act on: they already know which field they got wrong — that is why
+// they are reading — and cannot tell a casing slip from a wrong word entirely. A
+// UAT agent recovered from `"Customer"` only because an earlier read happened to
+// show the lowercase form in its payload, which is not a recovery path that
+// generalises.
+//
+// Sorted, because map iteration is not, and a refusal that reorders itself
+// between two identical requests reads as a changed rule.
+func vocabularyOf(valid map[string]bool) string {
+	values := make([]string, 0, len(valid))
+	for value := range valid {
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return "expected one of: " + strings.Join(values, ", ")
 }
