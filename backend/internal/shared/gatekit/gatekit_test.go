@@ -88,20 +88,6 @@ func TestSubjectsEnumeratesInADeterministicOrder(t *testing.T) {
 	}
 }
 
-// Reading a reason is relying on the waiver, so it counts as a match — a gate
-// that reports its waivers must not then be told they are all stale.
-func TestReasonMarksTheSubjectMatched(t *testing.T) {
-	w := Waive(map[string]string{"a": "ratified for the reason stated right here in full"})
-	rec := &recorder{TB: t}
-	if _, ok := w.Reason(rec, "a"); !ok {
-		t.Fatal("Reason did not find a ratified subject")
-	}
-	w.AssertAllMatched(rec)
-	if len(rec.errs) != 0 {
-		t.Errorf("reading a reason left the subject unmatched: %s", rec.joined())
-	}
-}
-
 // A nil set behaves as an empty one. Gates hold these in case tables where a
 // nil map means "no exceptions", and Go lets them read a nil map freely — the
 // type has to preserve that, or converting such a gate replaces a passing test
@@ -111,9 +97,6 @@ func TestANilWaiversBehavesAsAnEmptySet(t *testing.T) {
 	rec := &recorder{TB: t}
 	if w.Waived(rec, "anything") {
 		t.Error("a nil waiver set ratified a subject")
-	}
-	if _, ok := w.Reason(rec, "anything"); ok {
-		t.Error("a nil waiver set produced a reason")
 	}
 	if got := w.Subjects(); len(got) != 0 {
 		t.Errorf("Subjects() on a nil set = %v, want empty", got)

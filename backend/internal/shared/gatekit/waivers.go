@@ -61,28 +61,25 @@ func Waive[K comparable](entries map[K]string) *Waivers[K] {
 // separate validation step is one more call a new gate can omit, and a waiver
 // whose reason nothing checks is exactly the gap this package closes.
 func (w *Waivers[K]) Waived(t testing.TB, subject K) bool {
+	// The reason floor below reports through t, and Helper marking is
+	// per-function: without this the failure is attributed to gatekit's own line
+	// rather than to the gate that relied on the waiver.
 	t.Helper()
 	if w == nil {
 		return false
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.waivedLocked(t, subject)
-}
-
-// Reason returns the ratified reason, for a gate that reports its own waivers.
-// Reading a reason is relying on the waiver, so it counts as a match.
-func (w *Waivers[K]) Reason(t testing.TB, subject K) (string, bool) {
-	t.Helper()
-	if w == nil {
-		return "", false
+	reason, ratified := w.reasons[subject]
+	if !ratified {
+		return false
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if !w.waivedLocked(t, subject) {
-		return "", false
+	w.matched[subject] = true
+	if len(reason) < minReason {
+		t.Errorf("waiver %v carries no usable reason (%q): state what it costs, so the next "+
+			"reader can judge whether the cost is still worth paying", subject, reason)
 	}
-	return w.reasons[subject], true
+	return true
 }
 
 // Subjects returns every ratified subject in a deterministic order, for the
@@ -130,22 +127,4 @@ func (w *Waivers[K]) AssertAllMatched(t testing.TB) {
 		t.Errorf("waiver %s matched no subject: delete it, or correct the key if the subject "+
 			"was renamed", subject)
 	}
-}
-
-// waivedLocked is the shared body of Waived and Reason. mu is held.
-func (w *Waivers[K]) waivedLocked(t testing.TB, subject K) bool {
-	// Helper marking is per-function, and the reason-floor Errorf lives here:
-	// without this the failure is reported at gatekit's own line rather than at
-	// the gate that relied on the waiver.
-	t.Helper()
-	reason, ratified := w.reasons[subject]
-	if !ratified {
-		return false
-	}
-	w.matched[subject] = true
-	if len(reason) < minReason {
-		t.Errorf("waiver %v carries no usable reason (%q): state what it costs, so the next "+
-			"reader can judge whether the cost is still worth paying", subject, reason)
-	}
-	return true
 }
