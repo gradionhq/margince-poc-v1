@@ -30,24 +30,27 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // auditActionDBOnly: verbs the audit_log_action_check CHECK allows that the
 // contract does not (yet) define. Each carries a one-line reason.
-var auditActionDBOnly = map[string]string{
+var auditActionDBOnly = gatekit.Waive(map[string]string{
 	// live in signal_resolution writes (migration 0047); flagged upstream
 	// for spec adoption (see migration 0053's note).
 	"resolve": "signal_resolution writes (0047); flagged upstream for spec adoption",
-}
+})
 
 func TestAuditLogEnumCoherence(t *testing.T) {
+	defer auditActionDBOnly.AssertAllMatched(t)
 	contractAction, contractActorType := auditLogContractEnums(t)
 	ddl := tableCheckSets(t) // reused from enumsync_test.go (last-wins over migrations)
 
 	cases := []struct {
 		column   string
 		contract []string
-		dbOnly   map[string]string
+		dbOnly   *gatekit.Waivers[string]
 	}{
 		{"audit_log.action", contractAction, auditActionDBOnly},
 		{"audit_log.actor_type", contractActorType, nil},
@@ -75,13 +78,13 @@ func TestAuditLogEnumCoherence(t *testing.T) {
 			if _, ok := conSet[v]; ok {
 				continue
 			}
-			if _, waived := c.dbOnly[v]; waived {
+			if c.dbOnly.Waived(t, v) {
 				continue
 			}
 			t.Errorf("%s: DDL CHECK allows %q but the contract does not define it — add it to crm.yaml (P3), or record it in auditActionDBOnly with a reason", c.column, v)
 		}
 		// The waiver is a ratchet: a waived verb must genuinely be DB-only.
-		for v := range c.dbOnly {
+		for _, v := range c.dbOnly.Subjects() {
 			if _, ok := ddlSet[v]; !ok {
 				t.Errorf("%s: stale waiver %q — no DDL CHECK allows it; remove it from auditActionDBOnly", c.column, v)
 			}

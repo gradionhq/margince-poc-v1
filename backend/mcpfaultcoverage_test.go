@@ -33,10 +33,11 @@ package backendarch
 // into the tool registry. Any tier the tool surface can reach owes the same
 // obligation, so the scope is "reachable", not "is a module".
 //
-// That makes the path list a load-bearing claim rather than configuration: it
-// asserts where obligated code lives, and it needs re-checking whenever a new
-// tier starts serving the surface. A gate reading the wrong tree reads green for
-// a reason nobody is looking at.
+// That path list is a load-bearing claim rather than configuration: it asserts
+// where obligated code lives. So it is not asserted here — it is PROVEN, by
+// gatekit.Scope sweeping the whole module for files that import the seam and
+// reporting any that lie outside both roots. A new tier that starts serving the
+// surface fails this gate instead of quietly falling out of its reach.
 
 import (
 	"go/ast"
@@ -47,6 +48,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 const modulesDir = "internal/modules"
@@ -60,6 +63,35 @@ const composeDir = "internal/compose"
 
 // seamReachableRoots are the trees an MCP tool call can reach code in.
 var seamReachableRoots = []string{modulesDir, composeDir}
+
+// seamScope proves seamReachableRoots: every file in the module that imports the
+// datasource seam either lives under one of those roots, or is ratified below as
+// not this gate's business.
+var seamScope = gatekit.Scope{
+	Roots:   seamReachableRoots,
+	Subject: importsDatasourceSeam,
+	Exempt:  seamOutsideRoots,
+}
+
+// seamOutsideRoots ratifies the files that import the seam yet owe no unit
+// verdict. They are all one of two things: a shared PORT, which borrows
+// datasource's entity vocabulary to type its own interfaces, or the platform
+// CLASSIFIER, which names datasource's typed errors to give them one wire shape.
+// Neither owns a store, a transport branch, or an error of its own, so there is
+// nothing here for a FieldFault to carry.
+//
+// Narrowing the subject to "is a capability tier" would have silenced these
+// instead, and it is the wrong instrument: a subject predicate that consults the
+// roots can never contradict them, and the sweep would collapse back into the
+// assertion it replaces.
+var seamOutsideRoots = gatekit.Waive(map[string]string{
+	"internal/platform/httperr/httperr.go":         "httperr IS the one classifier both surfaces run: it names datasource's own FieldDecodeError and UnsupportedEntityError so each gets a single wire verdict. It declares no domain error and maps none of its own to a 422 — obligating the classifier would invert the rule this gate enforces",
+	"internal/platform/httperr/wire.go":            "the same classifier's decode helper, calling datasource.RejectNonCanonicalKeys so every surface refuses an unknown key identically; a platform package owns no domain, so it has no error type of its own to carry a verdict",
+	"internal/platform/httperr/decoderefusal.go":   "the classifier's decode-refusal half, naming datasource.UnknownFieldError and FieldDecodeError to render one refusal shape for both surfaces; it maps no error IT declares to a 422",
+	"internal/shared/ports/connector/connector.go": "a seam DEFINITION rather than a capability: it borrows datasource's EntityType and EntityRef to type the connector port's signatures. A Tier-0 shared port has no store, no transport and no error of its own",
+	"internal/shared/ports/retrieval/retrieval.go": "the same posture: the retrieval port's signatures are typed in datasource's EntityRef vocabulary, and a frozen interface declaration has no transport branch to remove",
+	"internal/shared/ports/workflow/workflow.go":   "the same posture: the workflow port types its trigger and action shapes with datasource.EntityRef; it declares interfaces and value shapes only, never an error it maps to a 422",
+})
 
 // seamImportPath is the datasource seam — the MCP surface's door into a
 // module's stores. Importing it is the marker, deliberately BROADER than
@@ -79,6 +111,22 @@ type moduleSource struct {
 	files map[string]*ast.File
 }
 
+// unitOf names the unit a path under one of the roots belongs to. Under
+// modules, the first path segment is the isolation boundary and so the unit;
+// compose is one unit whatever its subpackages.
+func unitOf(path string) (name, dir string) {
+	rest, isModule := strings.CutPrefix(path, modulesDir+"/")
+	if !isModule {
+		return "compose", composeDir
+	}
+	name, _, _ = strings.Cut(rest, "/")
+	return name, modulesDir + "/" + name
+}
+
+// parseModules groups every non-test, non-generated file under the roots into
+// its unit. A unit is judged as a whole because the type that carries a verdict
+// and the transport branch that maps it to a 422 routinely sit in different
+// files of the same package.
 func parseModules(t *testing.T) []moduleSource {
 	t.Helper()
 	byUnit := map[string]*moduleSource{}
@@ -94,15 +142,7 @@ func parseModules(t *testing.T) []moduleSource {
 				strings.HasSuffix(path, "_gen.go") {
 				return nil
 			}
-			// Under modules, the first path segment is the isolation boundary
-			// and so the unit. compose is one unit whatever its subpackages.
-			name := "compose"
-			dir := composeDir
-			if root == modulesDir {
-				rest := strings.TrimPrefix(path, modulesDir+"/")
-				name, _, _ = strings.Cut(rest, "/")
-				dir = modulesDir + "/" + name
-			}
+			name, dir := unitOf(path)
 			file, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 			if parseErr != nil {
 				return parseErr
@@ -117,20 +157,6 @@ func parseModules(t *testing.T) []moduleSource {
 			t.Fatalf("walking %s: %v", root, err)
 		}
 	}
-	// Both roots must have produced something: a rename that emptied either one
-	// would otherwise shrink this gate's reach in silence.
-	for _, root := range seamReachableRoots {
-		found := false
-		for _, unit := range byUnit {
-			if strings.HasPrefix(unit.dir, root) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("no source found under %s — the gate is reading the wrong tree", root)
-		}
-	}
 	out := make([]moduleSource, 0, len(byUnit))
 	for _, unit := range byUnit {
 		out = append(out, *unit)
@@ -139,17 +165,26 @@ func parseModules(t *testing.T) []moduleSource {
 	return out
 }
 
-// touchesDatasourceSeam reports whether the module imports the seam, i.e.
-// whether an MCP tool call can reach its code at all.
-func (m moduleSource) touchesDatasourceSeam() bool {
-	for _, file := range m.files {
-		for _, imp := range file.Imports {
-			if imp.Path != nil && strings.Trim(imp.Path.Value, `"`) == seamImportPath {
-				return true
-			}
+// importsDatasourceSeam reports whether the file imports the seam, i.e. whether
+// an MCP tool call can reach the code around it at all.
+func importsDatasourceSeam(_ string, file *ast.File) bool {
+	for _, imp := range file.Imports {
+		if imp.Path != nil && strings.Trim(imp.Path.Value, `"`) == seamImportPath {
+			return true
 		}
 	}
 	return false
+}
+
+// seamReachableUnits are the units the sweep found seam-importing code in.
+func seamReachableUnits(t *testing.T) map[string]bool {
+	t.Helper()
+	units := map[string]bool{}
+	for _, src := range seamScope.Files(t) {
+		name, _ := unitOf(src.Path)
+		units[name] = true
+	}
+	return units
 }
 
 // faultMethods are the three shapes a module error may use to carry its own
@@ -392,12 +427,13 @@ func isUnprocessableEntity(expr ast.Expr) bool {
 }
 
 func TestSeamReachableModulesCarryTheirOwnFieldVerdict(t *testing.T) {
-	obligated := 0
+	defer seamOutsideRoots.AssertAllMatched(t)
+
+	reachable := seamReachableUnits(t)
 	for _, module := range parseModules(t) {
-		if !module.touchesDatasourceSeam() {
+		if !reachable[module.name] {
 			continue
 		}
-		obligated++
 		carries := module.implementsFieldFault()
 		mapped := module.validationMappedTypes(module.helpersReturning422())
 
@@ -416,8 +452,5 @@ func TestSeamReachableModulesCarryTheirOwnFieldVerdict(t *testing.T) {
 				"agent to retry it. Add FieldFault() to the type and delete the transport branch.",
 				module.dir, module.name, name)
 		}
-	}
-	if obligated == 0 {
-		t.Fatalf("no module imports %s — the marker is stale and this gate is asserting nothing", seamImportPath)
 	}
 }

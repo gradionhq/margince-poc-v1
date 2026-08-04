@@ -68,6 +68,8 @@ var frozenLegacyObjects = []string{
 // migration that grants it to existing installations. TestEveryNamedBackfill
 // below proves each named migration exists AND writes that object's JSON path;
 // the parity test in backend/migrations executes the five newest end to end.
+// gatekit:fixture the migration each object's grant is looked up in — the value
+// is the identifier the assertion resolves, not the cost of an exception
 var objectBackfills = map[string]string{
 	"ai_model_rate":        "0117",
 	"automation":           "0035",
@@ -95,6 +97,8 @@ var objectBackfills = map[string]string{
 // customNamespaceBackfills are objects whose backfill lives in the fork-owned
 // custom/ namespace rather than core/ (ADR-0017). Same obligation, different
 // directory.
+// gatekit:fixture the custom-namespace migration each object's grant is looked
+// up in — the value is the identifier the assertion resolves, not a cost
 var customNamespaceBackfills = map[string]string{
 	"import_run":         "20260730130000",
 	"overlay_connection": "20260716130000",

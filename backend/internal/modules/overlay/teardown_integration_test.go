@@ -42,18 +42,36 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 		t.Fatalf("Connect: %v", err)
 	}
 
-	// Seed a mirror row + association edge + an owner mapping directly
-	// through the store — the same real path the sync engine would use,
-	// and the same fixture shape as
-	// provider_integration_test.go's TestProviderReadServesFromTheMirror:
-	// UpsertUserMap BEFORE Ingest (with a matching OwnerExternalID) is
-	// what actually lands a mirror_visibility row — Ingest's
-	// null-owner rule (visibility.go's ProjectOwnerVisibility) writes
-	// NO visibility row at all for an unowned record, which would make
-	// a post-teardown "visibility count == 0" assertion vacuously true
-	// even without Disconnect ever running.
 	const objectClass = "person"
 	const externalID = "5551234"
+	seedConnectedWorkspaceMirrorState(ctx, t, store, objectClass, externalID)
+	assertMirrorFixtureLanded(ctx, t, pool, ws)
+	unrelatedAudit := seedUnrelatedAuditRow(ctx, t, pool, ws)
+	connectAudit := readConnectionCreateAudit(ctx, t, pool, ws)
+
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	assertConnectionRowRevokedNotDeleted(ctx, t, pool, ws)
+	assertWorkspaceFlippedBackToNative(ctx, t, pool, ws)
+	assertCredentialSecretDeleted(ctx, t, pool, vault, ws)
+	assertEveryIncumbentDerivedTablePurged(ctx, t, pool, ws)
+	assertTombstoneWrittenForThePurgedRow(ctx, t, pool, ws, objectClass, externalID)
+	assertAuditTrailRetained(ctx, t, pool, ws, unrelatedAudit, connectAudit)
+}
+
+// seedConnectedWorkspaceMirrorState writes a mirror row + association edge +
+// an owner mapping directly through the store — the same real path the sync
+// engine would use, and the same fixture shape as provider_integration_test.go's
+// TestProviderReadServesFromTheMirror: UpsertUserMap BEFORE Ingest (with a
+// matching OwnerExternalID) is what actually lands a mirror_visibility row —
+// Ingest's null-owner rule (visibility.go's ProjectOwnerVisibility) writes NO
+// visibility row at all for an unowned record, which would make a post-teardown
+// "visibility count == 0" assertion vacuously true even without Disconnect ever
+// running.
+func seedConnectedWorkspaceMirrorState(ctx context.Context, t *testing.T, store *MirrorStore, objectClass, externalID string) {
+	t.Helper()
 	const incumbentOwnerID = "owner-1"
 	actor, ok := principal.Actor(ctx)
 	if !ok {
@@ -89,12 +107,14 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	if err := store.SaveReconcileWatermark(ctx, incumbentClass, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), fixtureConnectedAt); err != nil {
 		t.Fatalf("seeding the reconcile-watermark fixture: %v", err)
 	}
+}
 
-	// Confirm the fixture actually landed rows in every table the
-	// post-teardown assertion checks — otherwise a bug that makes
-	// Ingest/UpsertUserMap/SaveBackfillCursor/SaveReconcileWatermark
-	// silently no-op would make that assertion vacuously pass, exactly
-	// the gap being closed here.
+// assertMirrorFixtureLanded confirms the fixture actually landed rows in every
+// table the post-teardown assertion checks — otherwise a bug that makes
+// Ingest/UpsertUserMap/SaveBackfillCursor/SaveReconcileWatermark silently no-op
+// would make that assertion vacuously pass, exactly the gap being closed here.
+func assertMirrorFixtureLanded(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
+	t.Helper()
 	var seededVisibility, seededUserMap, seededCursor, seededWatermark int
 	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_visibility WHERE workspace_id = $1`, []any{ws}, &seededVisibility)
 	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map WHERE workspace_id = $1`, []any{ws}, &seededUserMap)
@@ -104,39 +124,53 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 		t.Fatalf("fixture is broken: seeded mirror_visibility=%d mirror_user_map=%d overlay_backfill_cursor=%d overlay_reconcile_watermark=%d, want all > 0",
 			seededVisibility, seededUserMap, seededCursor, seededWatermark)
 	}
+}
 
-	// A second audit_log row, unrelated to overlay entirely (a plain
-	// person create), proves teardown does not reach for audit_log at
-	// all — it is immutable by construction
-	// (migrations/core/0012_audit_log.up.sql's trg_audit_no_mutate), so
-	// this row's survival untouched is the negative-space proof that
-	// Disconnect never attempts what the trigger would reject anyway.
-	var unrelatedAuditID ids.UUID
-	var unrelatedBefore, unrelatedAfter []byte
+// auditImage is one audit_log row's identity together with the before/after
+// images it held before teardown ran, so a re-read afterwards can prove they
+// are unchanged byte-for-byte.
+type auditImage struct {
+	id            ids.UUID
+	before, after []byte
+}
+
+// seedUnrelatedAuditRow writes a second audit_log row, unrelated to overlay
+// entirely (a plain person create), which proves teardown does not reach for
+// audit_log at all — it is immutable by construction
+// (migrations/core/0012_audit_log.up.sql's trg_audit_no_mutate), so this row's
+// survival untouched is the negative-space proof that Disconnect never attempts
+// what the trigger would reject anyway.
+func seedUnrelatedAuditRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) auditImage {
+	t.Helper()
+	var row auditImage
 	queryRowWS(ctx, t, pool, `
 		INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id, before, after)
 		VALUES ($1, $2, 'human', 'human:test', 'create', 'person', $3, NULL, '{"first_name":"Grace"}'::jsonb)
 		RETURNING id, before, after`,
-		[]any{ids.NewV7(), ws, ids.NewV7()}, &unrelatedAuditID, &unrelatedBefore, &unrelatedAfter)
+		[]any{ids.NewV7(), ws, ids.NewV7()}, &row.id, &row.before, &row.after)
+	return row
+}
 
-	// The connection lifecycle audit row (from Connect above) must survive
-	// teardown untouched — find it now so the post-teardown assertion has
-	// something to compare against.
-	var connectionAuditID ids.UUID
-	var beforeConnect, afterConnect []byte
+// readConnectionCreateAudit finds the connection lifecycle audit row Connect
+// wrote, which must survive teardown untouched — reading it before Disconnect
+// is what gives the post-teardown assertion something to compare against.
+func readConnectionCreateAudit(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) auditImage {
+	t.Helper()
+	var row auditImage
 	queryRowWS(ctx, t, pool, `
 		SELECT id, before, after FROM audit_log
 		WHERE workspace_id = $1 AND entity_type = 'incumbent_connection' AND action = 'create'`,
-		[]any{ws}, &connectionAuditID, &beforeConnect, &afterConnect)
-	if len(afterConnect) == 0 {
+		[]any{ws}, &row.id, &row.before, &row.after)
+	if len(row.after) == 0 {
 		t.Fatal("connect audit row has no after image to begin with — fixture is broken")
 	}
+	return row
+}
 
-	if err := svc.Disconnect(ctx); err != nil {
-		t.Fatalf("Disconnect: %v", err)
-	}
-
-	// The connection row itself: revoked, not deleted.
+// assertConnectionRowRevokedNotDeleted proves the connection row itself is revoked,
+// not deleted.
+func assertConnectionRowRevokedNotDeleted(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
+	t.Helper()
 	var status string
 	var revokedAt *time.Time
 	queryRowWS(ctx, t, pool,
@@ -144,8 +178,12 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	if status != "revoked" || revokedAt == nil {
 		t.Errorf("connection = (status=%s, revoked_at=%v), want (revoked, non-nil)", status, revokedAt)
 	}
+}
 
-	// The workspace flip reverses: back to native, incumbent cleared.
+// assertWorkspaceFlippedBackToNative proves the workspace flip reverses — back to
+// native, incumbent cleared.
+func assertWorkspaceFlippedBackToNative(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
+	t.Helper()
 	var sorMode string
 	var incumbentCol *string
 	queryRowWS(ctx, t, pool,
@@ -153,29 +191,34 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	if sorMode != "native" || incumbentCol != nil {
 		t.Errorf("workspace mode = (%s, %v), want (native, nil)", sorMode, incumbentCol)
 	}
+}
 
-	// The vault secret is gone: resolving the connection's own
-	// credential_ref now answers ErrNotFound.
+// assertCredentialSecretDeleted proves the vault secret is gone — resolving the
+// connection's own credential_ref now answers ErrNotFound.
+func assertCredentialSecretDeleted(ctx context.Context, t *testing.T, pool *pgxpool.Pool, vault keyvault.Vault, ws ids.UUID) {
+	t.Helper()
 	var credentialRef string
 	queryRowWS(ctx, t, pool,
 		`SELECT credential_ref FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &credentialRef)
 	if _, err := vault.Get(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(credentialRef)); !errors.Is(err, keyvault.ErrNotFound) {
 		t.Errorf("vault.Get after Disconnect = %v, want keyvault.ErrNotFound (the secret must be deleted)", err)
 	}
+}
 
-	// EVERY workspace-scoped table the overlay migrations own is empty
-	// for this workspace — the table list is DERIVED from the live
-	// catalog (overlayWorkspaceTables), not hand-enumerated, so a future
-	// overlay migration cannot add an incumbent-derived table that
-	// teardown silently leaves behind: a new table must either purge on
-	// disconnect or be added to retainedByDesign with a written reason.
-	// overlay_write_ledger is deliberately NOT retained: reserved for
-	// branch 2, its branch-1 emptiness is asserted rather than assumed,
-	// and the branch that first populates it must decide purge-or-retain
-	// here.
+// assertEveryIncumbentDerivedTablePurged proves EVERY workspace-scoped table the
+// overlay migrations own is empty for this workspace — the table list is
+// DERIVED from the live catalog (overlayWorkspaceTables), not hand-enumerated,
+// so a future overlay migration cannot add an incumbent-derived table that
+// teardown silently leaves behind: a new table must either purge on disconnect
+// or be added to retainedByDesign with a written reason. overlay_write_ledger
+// is deliberately NOT retained: reserved for branch 2, its branch-1 emptiness
+// is asserted rather than assumed, and the branch that first populates it must
+// decide purge-or-retain here.
+func assertEveryIncumbentDerivedTablePurged(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
+	t.Helper()
 	retainedByDesign := map[string]string{
-		"incumbent_connection": "the revoked lifecycle row IS the retention (asserted above: status=revoked, never deleted)",
-		"overlay_tombstone":    "teardown WRITES tombstones — PII-free erasure markers (asserted non-empty below)",
+		"incumbent_connection": "the revoked lifecycle row IS the retention (asserted separately: status=revoked, never deleted)",
+		"overlay_tombstone":    "teardown WRITES tombstones — PII-free erasure markers (asserted non-empty separately)",
 	}
 	tables := overlayWorkspaceTables(ctx, t, pool)
 	for _, seeded := range []string{
@@ -198,9 +241,12 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 			t.Errorf("%s holds %d row(s) for the workspace after teardown, want 0 — every incumbent-derived table purges on disconnect", table, count)
 		}
 	}
+}
 
-	// A tombstone was written for the purged mirror row — a later sweep
-	// can never resurrect it.
+// assertTombstoneWrittenForThePurgedRow proves a tombstone was written for the purged
+// mirror row — a later sweep can never resurrect it.
+func assertTombstoneWrittenForThePurgedRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID, objectClass, externalID string) {
+	t.Helper()
 	var tombstoneCount int
 	queryRowWS(ctx, t, pool,
 		`SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1 AND object_class = $2 AND external_id = $3`,
@@ -208,24 +254,30 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	if tombstoneCount != 1 {
 		t.Errorf("tombstone count = %d, want exactly 1 for the purged mirror row", tombstoneCount)
 	}
+}
 
+// assertAuditTrailRetained proves the audit trail teardown must leave alone — the
+// unrelated row byte-for-byte, the connection's own lifecycle row byte-for-byte,
+// and this disconnect's own row written and retained.
+func assertAuditTrailRetained(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID, unrelated, connectAudit auditImage) {
+	t.Helper()
 	// The unrelated audit row is untouched, byte-for-byte.
 	var reReadBefore, reReadAfter []byte
 	queryRowWS(ctx, t, pool,
-		`SELECT before, after FROM audit_log WHERE id = $1`, []any{unrelatedAuditID}, &reReadBefore, &reReadAfter)
-	if string(reReadAfter) != string(unrelatedAfter) || string(reReadBefore) != string(unrelatedBefore) {
+		`SELECT before, after FROM audit_log WHERE id = $1`, []any{unrelated.id}, &reReadBefore, &reReadAfter)
+	if string(reReadAfter) != string(unrelated.after) || string(reReadBefore) != string(unrelated.before) {
 		t.Errorf("unrelated audit row changed: before=%s after=%s, want before=%s after=%s",
-			reReadBefore, reReadAfter, unrelatedBefore, unrelatedAfter)
+			reReadBefore, reReadAfter, unrelated.before, unrelated.after)
 	}
 
 	// The connection lifecycle audit row is RETAINED byte-for-byte — the
 	// one record OVA-AC-1 requires teardown to keep.
 	var retainedBefore, retainedAfter []byte
 	queryRowWS(ctx, t, pool,
-		`SELECT before, after FROM audit_log WHERE id = $1`, []any{connectionAuditID}, &retainedBefore, &retainedAfter)
-	if string(retainedAfter) != string(afterConnect) {
+		`SELECT before, after FROM audit_log WHERE id = $1`, []any{connectAudit.id}, &retainedBefore, &retainedAfter)
+	if string(retainedAfter) != string(connectAudit.after) {
 		t.Errorf("connect audit row's after image changed: got %s, want %s (it must be retained untouched)",
-			retainedAfter, afterConnect)
+			retainedAfter, connectAudit.after)
 	}
 
 	// A disconnect audit row was written for THIS disconnect too, and it

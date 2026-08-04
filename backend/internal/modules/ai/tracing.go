@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -59,6 +60,28 @@ func servedIdentity(provider, configuredModel, respServedModel string) (servedMo
 		return configuredModel, servedIdentitySourceConfigured
 	}
 	return respServedModel, servedSource[provider]
+}
+
+// newAttemptTrace opens the ai_call row for one completion attempt with
+// everything known before the route is walked: the request-level identity
+// (task, fingerprint, company-context binding), the ambient correlation and
+// agent-run ids the trace is joined on, and the reason this attempt exists.
+// ContextScopes is copied because the trace outlives the caller's request
+// and must record the scopes as they were at attempt time.
+func (r *Router) newAttemptTrace(ctx context.Context, task Task, key, reason string, req model.Request) Call {
+	trace := Call{
+		Task: task, Kind: callKindCompletion, RequestFingerprint: key,
+		ContextScopes: append([]string(nil), req.ContextScopes...), ContextFingerprint: req.ContextFingerprint,
+		ContextBytes: req.ContextBytes, ContextTokensEstimate: req.ContextTokensEstimate,
+		AttemptReason: reason, CacheOff: r.cacheOff,
+	}
+	if cid, ok := principal.CorrelationID(ctx); ok {
+		trace.CorrelationID = &cid
+	}
+	if rid, ok := principal.AgentRunID(ctx); ok {
+		trace.AgentRunID = &rid
+	}
+	return trace
 }
 
 // finalizeAttempt completes trace from this attempt's outcome — latency,

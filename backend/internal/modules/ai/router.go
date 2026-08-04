@@ -204,18 +204,7 @@ func (r *Router) serveAttempt(ctx context.Context, lc *logicalCall, task Task, l
 	// built and are not traced (no RLS-writable row exists yet, and no
 	// route was attempted).
 	start := r.now()
-	trace := Call{
-		Task: task, Kind: callKindCompletion, RequestFingerprint: key,
-		ContextScopes: append([]string(nil), req.ContextScopes...), ContextFingerprint: req.ContextFingerprint,
-		ContextBytes: req.ContextBytes, ContextTokensEstimate: req.ContextTokensEstimate,
-		AttemptReason: reason, CacheOff: r.cacheOff,
-	}
-	if cid, ok := principal.CorrelationID(ctx); ok {
-		trace.CorrelationID = &cid
-	}
-	if rid, ok := principal.AgentRunID(ctx); ok {
-		trace.AgentRunID = &rid
-	}
+	trace := r.newAttemptTrace(ctx, task, key, reason, req)
 	defer func() {
 		r.finalizeAttempt(ctx, lc, &trace, req, resp, err, start)
 	}()
