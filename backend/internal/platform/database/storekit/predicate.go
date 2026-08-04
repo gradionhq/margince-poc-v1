@@ -297,6 +297,8 @@ var comparisonSQL = map[string]string{
 // inOperand validates an `in` list: a non-empty, bounded array of
 // scalars each valid for the field's type, returned as a uniformly
 // typed slice pgx can bind as one array parameter.
+//
+//craft:ignore naked-any the return is a bind parameter — []float64 or []string per field type, decided at runtime by the field catalog
 func inOperand(p Predicate, field Field) (any, error) {
 	raw, ok := p.Value.([]any)
 	if !ok || len(raw) == 0 {
@@ -338,6 +340,8 @@ func inOperand(p Predicate, field Field) (any, error) {
 // scalarOperand validates one scalar against the field type and returns
 // the value to bind. JSON numbers arrive as float64; integers are
 // accepted too so hand-built Go trees read naturally.
+//
+//craft:ignore naked-any value is a decoded JSON filter operand and the return a bind parameter — both inherently span the SQL scalar types
 func scalarOperand(value any, field Field, name, op string) (any, error) {
 	invalid := func(want string) error {
 		return &PredicateError{

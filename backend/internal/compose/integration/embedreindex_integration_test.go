@@ -242,6 +242,8 @@ func embedPreview(t *testing.T, e *env) (int, embedReindexPreviewWire, embedRein
 // map, which would marshal to the 4-byte literal "null" instead of an
 // empty body — harmless to the handler's own decode either way, but this
 // keeps the ContentLength==0 path genuinely exercised).
+//
+//craft:ignore naked-any a type parameter would box the literal-nil body a bare confirm depends on (see above)
 func embedConfirm(t *testing.T, e *env, body any) (int, embedReindexStatusWire, embedReindexProblem) {
 	t.Helper()
 	return embedReindexDecode[embedReindexStatusWire](t, e, "POST", "/v1/embeddings/reindex", body)
@@ -253,6 +255,8 @@ func embedConfirm(t *testing.T, e *env, body any) (int, embedReindexStatusWire, 
 // decide-on-status-first pattern in this package (a problem envelope's
 // numeric `status` field would fail to unmarshal into a mismatched
 // success shape, so the status code must pick the target type first).
+//
+//craft:ignore naked-any body passes embedConfirm's nil-preserving contract through to the harness call
 func embedReindexDecode[T any](t *testing.T, e *env, method, path string, body any) (int, T, embedReindexProblem) {
 	t.Helper()
 	var raw json.RawMessage

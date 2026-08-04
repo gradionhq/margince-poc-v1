@@ -10,7 +10,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 )
 
-func fixtureJSON(t *testing.T, v any) json.RawMessage {
+func fixtureJSON[T any](t *testing.T, v T) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(v)
 	if err != nil {

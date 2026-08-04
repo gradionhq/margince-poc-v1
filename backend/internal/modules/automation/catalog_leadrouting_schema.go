@@ -99,6 +99,7 @@ func validateLeadRoutingParams(params map[string]any) error {
 	return nil
 }
 
+//craft:ignore naked-any value is an undecoded params entry — this validator is the type check
 func validateRoutingOwners(value any) error {
 	list, ok := value.([]any)
 	if !ok {
@@ -112,6 +113,7 @@ func validateRoutingOwners(value any) error {
 	return nil
 }
 
+//craft:ignore naked-any value is an undecoded params entry — this validator is the type check
 func validateRoutingCap(value any) error {
 	n, ok := value.(float64) // decoded JSON numbers arrive as float64
 	if !ok || n != math.Trunc(n) {
@@ -123,6 +125,7 @@ func validateRoutingCap(value any) error {
 	return nil
 }
 
+//craft:ignore naked-any value is an undecoded params entry — this validator is the type check
 func validateRoutingRules(value any) error {
 	list, ok := value.([]any)
 	if !ok {
@@ -136,6 +139,7 @@ func validateRoutingRules(value any) error {
 	return nil
 }
 
+//craft:ignore naked-any item is an undecoded rules[] element — this validator is the type check
 func validateRoutingRule(i int, item any) error {
 	at := func(field string) string { return fmt.Sprintf("params.rules[%d].%s", i, field) }
 	rule, ok := item.(map[string]any)
@@ -169,6 +173,7 @@ func validateRoutingRule(i int, item any) error {
 	return nil
 }
 
+//craft:ignore naked-any value is an undecoded params entry — this predicate is the type check
 func isUUIDString(value any) bool {
 	s, ok := value.(string)
 	if !ok {
