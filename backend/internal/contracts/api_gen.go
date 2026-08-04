@@ -5244,12 +5244,15 @@ func (e RecordGrantSubjectType) Valid() bool {
 // Defines values for RecordViewAckEntityType.
 const (
 	RecordViewAckEntityTypeOrganization RecordViewAckEntityType = "organization"
+	RecordViewAckEntityTypePerson       RecordViewAckEntityType = "person"
 )
 
 // Valid indicates whether the value is a known member of the RecordViewAckEntityType enum.
 func (e RecordViewAckEntityType) Valid() bool {
 	switch e {
 	case RecordViewAckEntityTypeOrganization:
+		return true
+	case RecordViewAckEntityTypePerson:
 		return true
 	default:
 		return false

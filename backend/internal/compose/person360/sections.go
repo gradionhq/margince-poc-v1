@@ -100,7 +100,7 @@ func (s *Service) dealRolesSection(ctx context.Context, tx pgx.Tx, personID ids.
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
-	dealScope, err := auth.ScopeClause(ctx, "deal", "d", arg)
+	dealScope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
 	if err != nil {
 		return err
 	}

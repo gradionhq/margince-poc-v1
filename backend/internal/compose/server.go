@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/network"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
+	"github.com/gradionhq/margince/backend/internal/compose/person360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -93,6 +94,7 @@ type Server struct {
 	dataResetHandlers
 	jobHealthHandlers
 	org360Handlers
+	person360Handlers
 	orgBriefHandlers
 
 	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
@@ -407,6 +409,12 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
 		srv.org360Svc,
+		srv.sorDispatch.isOverlay,
+	)
+	// The person record page, the organization page's sibling: same one-tx
+	// assembly, same omitted-and-named sections, same overlay refusal.
+	srv.person360Handlers = person360.NewHandlers(
+		person360.NewService(pool, srv.peopleStore, consent.NewStore(pool), time.Now),
 		srv.sorDispatch.isOverlay,
 	)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries

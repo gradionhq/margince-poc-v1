@@ -135,6 +135,23 @@ func (h Reads) GetDealCoverage(w http.ResponseWriter, r *http.Request, id crmcon
 // wireColleague renders one edge. A `none` band carries NO number: "we have
 // never spoken" and "we spoke and it went cold" are different facts, and a
 // zero renders them identically.
+// WireColleague renders one interaction edge for the wire. Exported so the
+// person composite read renders a colleague exactly as this endpoint does —
+// two spellings of the same row would let the network card and the record
+// page disagree about who is warmest.
+func WireColleague(e search.InteractionEdge, name string, now time.Time) crmcontracts.PersonNetworkColleague {
+	return wireColleague(e, name, now)
+}
+
+// UserNames resolves display names for the users an edge set names.
+// Exported for the same reason as WireColleague.
+func UserNames(ctx context.Context, tx pgx.Tx, users []ids.UUID) (map[ids.UUID]string, error) {
+	return userNames(ctx, tx, users)
+}
+
+// EdgeUsers lists the users an edge set names, for UserNames.
+func EdgeUsers(edges []search.InteractionEdge) []ids.UUID { return edgeUsers(edges) }
+
 func wireColleague(e search.InteractionEdge, name string, now time.Time) crmcontracts.PersonNetworkColleague {
 	score := e.StrengthOf(now)
 	out := crmcontracts.PersonNetworkColleague{
@@ -142,6 +159,13 @@ func wireColleague(e search.InteractionEdge, name string, now time.Time) crmcont
 		DisplayName:     name,
 		StrengthBucket:  crmcontracts.PersonNetworkColleagueStrengthBucket(score.Bucket),
 		Interactions90d: e.Count90d,
+		// The direction split, from the same projection the score reads.
+		// Without it a surface can say "6 exchanges" but not "6 two-way
+		// exchanges" or "replied 2 days ago", and cannot tell a live
+		// correspondence from six unanswered sends — which is the
+		// distinction that decides whether this colleague is a route in.
+		Inbound90d:  &e.InCount90d,
+		Outbound90d: &e.OutCount90d,
 	}
 	if score.Bucket != relstrength.BucketNone {
 		strength := score.Strength
@@ -149,6 +173,10 @@ func wireColleague(e search.InteractionEdge, name string, now time.Time) crmcont
 	}
 	last := e.LastAt
 	out.LastAt = &last
+	// Null means it never happened in that direction, which is not the same
+	// as "long ago" — the projection keeps them distinct and so does the wire.
+	out.LastInboundAt = e.LastInboundAt
+	out.LastOutboundAt = e.LastOutbound
 	return out
 }
 
