@@ -135,3 +135,23 @@ func (e *EmptyReportPlanError) MessageFault() (code, message string) {
 	return reportFieldNotAllowedCode,
 		e.Error() + " — name at least one `group_by` dimension or one entry in `aggregates`"
 }
+
+// ReservedAliasError refuses an aggregate alias that would collide with the
+// column the transport injects into every row.
+//
+// Its own type rather than a FieldNotAllowedError, because the two refuse
+// opposite things. A field name is checked against a CLOSED vocabulary, so
+// naming that vocabulary is the fix. An alias is OPEN — the caller invents it,
+// and every name but this one is accepted — so a message quoting a list would
+// state a rule that does not exist.
+type ReservedAliasError struct{ Alias string }
+
+func (e *ReservedAliasError) Error() string {
+	return fmt.Sprintf("report: %q is reserved for the drill-through handle this surface adds to every row", e.Alias)
+}
+
+// MessageFault reuses the contract's one declared 422 code, for the reason
+// EmptyReportPlanError records below.
+func (e *ReservedAliasError) MessageFault() (code, message string) {
+	return reportFieldNotAllowedCode, e.Error() + " — name the aggregate anything else"
+}

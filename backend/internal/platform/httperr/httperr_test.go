@@ -220,18 +220,37 @@ func TestClassify_leavesUnknownErrorsToTheOpaque500(t *testing.T) {
 // and then escalated to a human for a fixable input error.
 func TestClassify_anUntranslatedConstraintIsTheCallersMistakeNotAServerFault(t *testing.T) {
 	for _, tc := range []struct {
-		name, sqlstate, wantCode string
+		name, sqlstate, table, constraint, pgMessage, wantCode, wantDetail string
 	}{
-		{"a foreign key names a record that does not exist", "23503", "reference_not_found"},
-		{"a CHECK refuses the value", "23514", "value_not_allowed"},
-		{"an EXCLUDE refuses the overlap", "23P01", "value_not_allowed"},
+		{
+			name:     "a foreign key names the column that pointed nowhere",
+			sqlstate: "23503", table: "organization", constraint: "organization_owner_id_fkey",
+			pgMessage: `insert or update on table "organization" violates foreign key constraint`,
+			wantCode:  "reference_not_found",
+			wantDetail: "`owner_id` names no record of the kind it references (an owner is a user, a parent " +
+				"an organization). Send an id of the right kind; do not retry unchanged.",
+		},
+		{
+			name:     "a CHECK refuses the value",
+			sqlstate: "23514", table: "organization", constraint: "organization_size_band_check",
+			pgMessage: `new row for relation "organization" violates check constraint`,
+			wantCode:  "value_not_allowed",
+			wantDetail: "a value in this request is outside what its field accepts. Check each value against " +
+				"this operation's schema; do not retry unchanged.",
+		},
+		{
+			name:     "an EXCLUDE refuses the overlap",
+			sqlstate: "23P01", table: "calendar_block", constraint: "calendar_block_no_overlap",
+			pgMessage: `conflicting key value violates exclusion constraint`,
+			wantCode:  "value_not_allowed",
+			wantDetail: "a value in this request is outside what its field accepts. Check each value against " +
+				"this operation's schema; do not retry unchanged.",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := fmt.Errorf("writing the row: %w",
-				&pgconn.PgError{
-					Code: tc.sqlstate, ConstraintName: "organization_owner_id_fkey",
-					Message: `insert or update on table "organization" violates foreign key constraint`,
-				})
+			err := fmt.Errorf("writing the row: %w", &pgconn.PgError{
+				Code: tc.sqlstate, TableName: tc.table, ConstraintName: tc.constraint, Message: tc.pgMessage,
+			})
 			fault, ok := Classify(err)
 			if !ok {
 				t.Fatal("the constraint reached the unhandled path, which answers 500 internal")
@@ -242,13 +261,20 @@ func TestClassify_anUntranslatedConstraintIsTheCallersMistakeNotAServerFault(t *
 			if fault.Code != tc.wantCode {
 				t.Errorf("code = %q, want %q", fault.Code, tc.wantCode)
 			}
-			if strings.Contains(strings.ToLower(fault.Detail), "retry the call unchanged") &&
-				!strings.Contains(fault.Detail, "do not retry") {
-				t.Errorf("detail tells the caller to retry a deterministic failure: %q", fault.Detail)
+			// The EXACT sentence, not a substring: this is the whole of what the
+			// caller reads, and a partial match passes on a message that also
+			// carries something it should not.
+			if fault.Detail != tc.wantDetail {
+				t.Errorf("detail =\n  %q\nwant\n  %q", fault.Detail, tc.wantDetail)
 			}
-			// The constraint name is SCHEMA — our table and column names — so it
-			// goes to the operator and never to the caller.
-			for _, leak := range []string{"organization_owner_id_fkey", "insert or update on table", "23503"} {
+			// Each row's OWN metadata, so a leak of this SQLSTATE's constraint or
+			// message cannot ride out under another row's assertions.
+			//
+			// The TABLE is not swept: `organization` is both a table name and an
+			// ordinary word this refusal legitimately uses. The exact-detail
+			// assertion above is the stronger guard anyway — it pins the whole
+			// sentence, so anything riding along fails there first.
+			for _, leak := range []string{tc.constraint, tc.sqlstate, tc.pgMessage} {
 				if strings.Contains(fault.Detail, leak) {
 					t.Errorf("detail leaks %q: %q", leak, fault.Detail)
 				}

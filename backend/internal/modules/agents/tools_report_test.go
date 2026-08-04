@@ -5,6 +5,7 @@ package agents
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -42,33 +43,27 @@ func TestRunReportClosesTheReportArgumentToTheCatalog(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		catalog  []ReportCatalogEntry
-		wantEnum []any
+		wantEnum []string
 	}{
-		{"a catalog closes the argument", probeReportCatalog, []any{"deals-by-stage"}},
+		{"a catalog closes the argument", probeReportCatalog, []string{"deals-by-stage"}},
 		{"an empty catalog omits the enum rather than emitting an unsatisfiable one", nil, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var parsed map[string]any
+			// Decoded into a checked shape rather than walked with bare type
+			// assertions: a schema regression should FAIL this test, not panic
+			// inside it, and a panic reports the wrong thing about the wrong line.
+			var parsed struct {
+				Properties struct {
+					Report struct {
+						Enum []string `json:"enum"`
+					} `json:"report"`
+				} `json:"properties"`
+			}
 			if err := json.Unmarshal(runReport{catalog: tc.catalog}.Spec().InputSchema, &parsed); err != nil {
-				t.Fatalf("InputSchema is not valid JSON: %v", err)
+				t.Fatalf("InputSchema is not valid JSON, or `report` is not the shape this asserts: %v", err)
 			}
-			report, ok := parsed["properties"].(map[string]any)["report"].(map[string]any)
-			if !ok {
-				t.Fatal("InputSchema declares no report property")
-			}
-			enum, present := report["enum"]
-			if tc.wantEnum == nil {
-				if present {
-					t.Errorf("enum = %v, want none — an empty enum is a schema no value satisfies", enum)
-				}
-				return
-			}
-			values, isList := enum.([]any)
-			if !isList {
-				t.Fatalf("enum = %v, want a JSON array", enum)
-			}
-			if len(values) != len(tc.wantEnum) || values[0] != tc.wantEnum[0] {
-				t.Errorf("enum = %v, want %v", values, tc.wantEnum)
+			if !slices.Equal(parsed.Properties.Report.Enum, tc.wantEnum) {
+				t.Errorf("report enum = %v, want %v", parsed.Properties.Report.Enum, tc.wantEnum)
 			}
 		})
 	}

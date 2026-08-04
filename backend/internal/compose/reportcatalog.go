@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"regexp"
@@ -93,7 +94,16 @@ func describeReportDefaults(spec reportSpec) string {
 func strictDecodeReportPlan(planArgs json.RawMessage, into *reportRequest) error {
 	dec := json.NewDecoder(bytes.NewReader(planArgs))
 	dec.DisallowUnknownFields()
-	return dec.Decode(into)
+	if err := dec.Decode(into); err != nil {
+		return err
+	}
+	// Exactly one JSON value. DisallowUnknownFields says nothing about what
+	// follows the object, and a plan with a second value after it is a caller
+	// who thinks they sent something this never read.
+	if dec.More() {
+		return errors.New("trailing content after the plan arguments")
+	}
+	return nil
 }
 
 // uuidShape distinguishes a saved-report id from a prebuilt key (the

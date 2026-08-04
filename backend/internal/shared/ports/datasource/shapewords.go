@@ -254,6 +254,12 @@ func pluralize(phrase string) string {
 	case "email address":
 		return "email addresses"
 	}
+	// A nested array pluralizes its HEAD, not its tail: [][]string wants
+	// "arrays of strings", and the trailing-s shortcut alone answered "array of
+	// strings" — which the caller then reads as "an array of array of strings".
+	if rest, nested := strings.CutPrefix(bare, "array of "); nested {
+		return "arrays of " + rest
+	}
 	if strings.HasSuffix(bare, "s") {
 		return bare
 	}

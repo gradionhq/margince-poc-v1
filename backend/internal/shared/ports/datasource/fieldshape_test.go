@@ -242,3 +242,24 @@ func TestLocalizeFieldFault_namesTheSameFieldEveryTime(t *testing.T) {
 		t.Errorf("named %q, want the first key in sorted order", first)
 	}
 }
+
+// A nested array names itself once. `[][]string` pluralized only its tail, so
+// the refusal read "an array of array of strings" — a shape no caller could map
+// onto what they sent.
+func TestStrictDecode_namesANestedArrayWithoutRepeatingItself(t *testing.T) {
+	type nested struct {
+		Grid *[][]string `json:"grid,omitempty"`
+	}
+	var into nested
+	err := StrictDecode(json.RawMessage(`{"grid":"not a grid"}`), &into)
+	if err == nil {
+		t.Fatal("a string where a nested array belongs was accepted")
+	}
+	var refusal *FieldShapeError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("err = %v, want a FieldShapeError", err)
+	}
+	if want := "`grid` must be an array of arrays of strings, not a string"; refusal.Error() != want {
+		t.Errorf("refusal = %q, want %q", refusal.Error(), want)
+	}
+}

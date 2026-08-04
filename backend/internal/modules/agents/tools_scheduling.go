@@ -15,6 +15,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -105,9 +106,9 @@ func (t bookMeetingTool) Spec() mcp.ToolSpec {
 // first-link-only check would wave through.
 //
 // The first link becomes the displayed target and supplies the pin. A booking
-// with no links stages with no target at all, which the approvals engine
-// serves (the pin is simply absent) — a slot on a calendar is a real thing to
-// approve even when it names no record.
+// with NO links is refused before any of that: crm.yaml requires them, and a
+// staged approval with no target is a human asked to release a meeting attached
+// to nothing — nothing to show them, and no version to pin it against.
 func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (StageInfo, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
@@ -121,6 +122,9 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		return StageInfo{}, &BadArgsError{Cause: fmt.Errorf(
 			"`end` (%s) does not follow `start` (%s); a booking with no duration would be refused after approval",
 			args.End.Format(time.RFC3339), args.Start.Format(time.RFC3339))}
+	}
+	if err := requireBookingLinks(args); err != nil {
+		return StageInfo{}, err
 	}
 	links, err := bookingLinks(args)
 	if err != nil {
@@ -140,6 +144,22 @@ func (t bookMeetingTool) StageInfo(ctx context.Context, in json.RawMessage) (Sta
 		}
 	}
 	return info, nil
+}
+
+// requireBookingLinks enforces what the schema states: at least one link.
+//
+// It is a function rather than a line in StageInfo because the MCP surface does
+// not validate arguments against an InputSchema — that schema is documentation —
+// so the rule holds only where the code puts it, and this verb has two doors: the
+// staging path and the post-approval execute. A rule enforced at one of them is
+// a rule a caller meets only sometimes.
+func requireBookingLinks(args BookMeetingArgs) error {
+	if len(args.Links) > 0 {
+		return nil
+	}
+	return &BadArgsError{Cause: errors.New(
+		"`links` needs at least one entry: a booking names who and what it is about, " +
+			"and one attached to nothing cannot be approved against a record")}
 }
 
 // maxBookingLinks bounds how many records one booking may attach to.
@@ -212,6 +232,12 @@ func describeBooking(args BookMeetingArgs, links []bookingLink) string {
 func (t bookMeetingTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args BookMeetingArgs
 	if err := decodeArgs(in, &args); err != nil {
+		return nil, err
+	}
+	// Both doors, not just staging. This one is reached with an approval already
+	// redeemed, so a call that skipped StageInfo would otherwise execute a
+	// booking the schema says is impossible.
+	if err := requireBookingLinks(args); err != nil {
 		return nil, err
 	}
 	return t.comms.BookMeeting(ctx, args)

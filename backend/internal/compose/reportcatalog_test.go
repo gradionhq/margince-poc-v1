@@ -186,3 +186,31 @@ func TestReportPlanRefusesAnArgumentTheEngineDoesNotServe(t *testing.T) {
 		t.Fatalf("a served plan argument was refused: %v", err)
 	}
 }
+
+// A case-folded plan key is refused by NAME, not matched onto the field it
+// case-folds towards. encoding/json matches struct fields case-insensitively,
+// so `GROUP_BY` would decode into GroupBy and DisallowUnknownFields would never
+// see it — the exact-key check has to run first, and this proves it does.
+func TestReportPlanRefusesACaseFoldedArgument(t *testing.T) {
+	for _, key := range []string{"GROUP_BY", "Group_By", "FILTERS", "Aggregates"} {
+		unserved := unservedPlanArguments(json.RawMessage(`{"` + key + `":[]}`))
+		if len(unserved) != 1 || !strings.Contains(unserved[0], key) {
+			t.Errorf("%q was not refused by name: %v", key, unserved)
+		}
+	}
+	// The byte-exact spellings are served.
+	for _, key := range []string{slotGroupBy, slotFilters, slotAggregates} {
+		if unserved := unservedPlanArguments(json.RawMessage(`{"` + key + `":[]}`)); len(unserved) != 0 {
+			t.Errorf("the served argument %q was refused: %v", key, unserved)
+		}
+	}
+}
+
+// Exactly one JSON value. A second one after the plan object is a caller who
+// believes they sent something this never read.
+func TestReportPlanRefusesTrailingContent(t *testing.T) {
+	var plan reportRequest
+	if err := strictDecodeReportPlan(json.RawMessage(`{"group_by":["stage_id"]} {"group_by":["status"]}`), &plan); err == nil {
+		t.Fatal("a second JSON value after the plan was ignored")
+	}
+}
