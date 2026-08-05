@@ -16,6 +16,7 @@ import {
   Modal,
   SearchField,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -368,9 +369,8 @@ function AddRelationshipAction({
             <label className="t-label" htmlFor={`${headingId}-kind`}>
               {t("rel.kind")}
             </label>
-            <select
+            <Select
               id={`${headingId}-kind`}
-              className="input"
               value={kind}
               onChange={(event) => {
                 const value = event.target.value;
@@ -383,7 +383,7 @@ function AddRelationshipAction({
                   {t(KIND_LABELS[option.kind])}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
           <div className="field">
             <label className="t-label" htmlFor={`${headingId}-role`}>

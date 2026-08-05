@@ -8,6 +8,7 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Textarea,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
@@ -210,8 +211,7 @@ function PersonalityEditor({
   return (
     <div className="vdna-composer">
       <div className="vdna-label">{t("settings.voice.personalityLabel")}</div>
-      <textarea
-        className="textarea"
+      <Textarea
         rows={4}
         value={text}
         placeholder={t("settings.voice.personalityPlaceholder")}
@@ -352,8 +352,7 @@ function CorpusSources({
       {/* The first sample is the one a user pastes a whole email into, so it
           opens tall enough to show one without scrolling; a later addition to
           an established corpus is a smaller act and gets a smaller box. */}
-      <textarea
-        className="textarea"
+      <Textarea
         rows={first ? 8 : 4}
         value={paste}
         placeholder={t("settings.voice.addPlaceholder")}

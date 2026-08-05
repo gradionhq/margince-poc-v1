@@ -2,7 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
 import { navigate, type Route } from "../app/router";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Checkbox,
+  Modal,
+  Radio,
+  Select,
+  TextInput,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ProblemError, problemExistingId, useSorMode } from "./common";
@@ -243,9 +250,8 @@ export function fieldControl(
 ): ReactNode {
   if (field.type === "select") {
     return (
-      <select
+      <Select
         id={fieldId}
-        className="input"
         value={value}
         required={field.required}
         onChange={(event) => setValue(event.target.value)}
@@ -256,7 +262,7 @@ export function fieldControl(
             {option.label}
           </option>
         ))}
-      </select>
+      </Select>
     );
   }
   return (
@@ -360,18 +366,13 @@ function RepeatableRowsField({
               );
             })}
             {primaryKey && (
-              <label
+              <Radio
                 className="t-label"
-                style={{ display: "flex", alignItems: "center", gap: 4 }}
-              >
-                <input
-                  type="radio"
-                  name={`${formId}-${field.key}-primary`}
-                  checked={row[primaryKey] === "true"}
-                  onChange={() => markPrimary(index)}
-                />
-                {t("field.primary")}
-              </label>
+                name={`${formId}-${field.key}-primary`}
+                checked={row[primaryKey] === "true"}
+                onChange={() => markPrimary(index)}
+                label={t("field.primary")}
+              />
             )}
             <Button small type="button" onClick={() => removeRow(index)}>
               {t("field.removeRow")}
@@ -433,24 +434,14 @@ function MultiselectField({
       {(field.options ?? []).map((option) => {
         const optionId = `${formId}-${field.key}-${option.value}`;
         return (
-          <label
+          <Checkbox
             key={option.value}
             className="t-label"
-            htmlFor={optionId}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-1)",
-            }}
-          >
-            <input
-              id={optionId}
-              type="checkbox"
-              checked={selected.includes(option.value)}
-              onChange={() => toggle(option.value)}
-            />
-            {option.label}
-          </label>
+            id={optionId}
+            checked={selected.includes(option.value)}
+            onChange={() => toggle(option.value)}
+            label={option.label}
+          />
         );
       })}
     </fieldset>

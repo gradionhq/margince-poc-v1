@@ -18,6 +18,8 @@ import {
   SearchField,
   SectionHeader,
   SegmentedControl,
+  Select,
+  Textarea,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDate } from "../format/format";
@@ -525,9 +527,8 @@ function ShareScreenBody({
             <label className="t-label" htmlFor={`${headingId}-expiry`}>
               {t("share.expiry")}
             </label>
-            <select
+            <Select
               id={`${headingId}-expiry`}
-              className="input"
               value={expiryDays}
               onChange={(event) => {
                 setExpiryDays(Number(event.target.value));
@@ -539,16 +540,16 @@ function ShareScreenBody({
                   {t(option.key)}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div className="field">
             <label className="t-label" htmlFor={`${headingId}-reason`}>
               {t("share.reason")}
             </label>
-            <textarea
+            <Textarea
               id={`${headingId}-reason`}
-              className="input share-reason"
+              className="share-reason"
               value={reason}
               onChange={(event) => {
                 setReason(event.target.value);

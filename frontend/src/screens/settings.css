@@ -203,7 +203,6 @@
 }
 
 .company-context-field .textarea {
-  width: 100%;
   min-height: 78px;
 }
 
@@ -323,9 +322,6 @@
 }
 
 .company-context-resolutions label {
-  display: inline-flex;
-  gap: 5px;
-  align-items: center;
   color: var(--textSecondary);
   font-size: 12px;
 }

@@ -14,6 +14,7 @@ import {
   Card,
   EmptyState,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -109,9 +110,8 @@ function OverlayConnectForm({
         <label className="t-label" htmlFor="overlay-region">
           {t("overlay.region")}
         </label>
-        <select
+        <Select
           id="overlay-region"
-          className="input"
           value={region}
           onChange={(event) => {
             const value = event.target.value;
@@ -123,7 +123,7 @@ function OverlayConnectForm({
               {t(regionLabel[r])}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field">
         <label className="t-label" htmlFor="overlay-token">

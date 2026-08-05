@@ -10,6 +10,7 @@ import {
   DataTable,
   Modal,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -194,9 +195,8 @@ function EditOfferHeaderModal({
         <span className="t-label" id="offer-currency-label">
           {t("offer.currency")}
         </span>
-        <select
+        <Select
           aria-labelledby="offer-currency-label"
-          className="input"
           value={values.currency}
           onChange={(event) =>
             setValues((prev) => ({ ...prev, currency: event.target.value }))
@@ -207,7 +207,7 @@ function EditOfferHeaderModal({
               {c}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field" style={{ marginTop: 10 }}>
         <span className="t-label" id="offer-valid-until-label">
@@ -243,9 +243,8 @@ function EditOfferHeaderModal({
         <span className="t-label" id="offer-template-label">
           {t("offer.template")}
         </span>
-        <select
+        <Select
           aria-labelledby="offer-template-label"
-          className="input"
           value={values.template_id ?? ""}
           onChange={(event) =>
             setValues((prev) => ({
@@ -260,7 +259,7 @@ function EditOfferHeaderModal({
               {template.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field" style={{ marginTop: 10 }}>
         <span className="t-label" id="offer-intro-label">

@@ -6,7 +6,10 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Checkbox,
   SectionHeader,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -149,14 +152,12 @@ export function RelinkModal({
           onPick={setTarget}
           selected={target}
         />
-        <label className="t-body compose-check">
-          <input
-            type="checkbox"
-            checked={replace}
-            onChange={(event) => setReplace(event.target.checked)}
-          />{" "}
-          {t("compose.relinkReplace")}
-        </label>
+        <Checkbox
+          className="t-body"
+          label={t("compose.relinkReplace")}
+          checked={replace}
+          onChange={(event) => setReplace(event.target.checked)}
+        />
         <p className="t-caption">{t("compose.relinkReplaceHint")}</p>
       </div>
     </ConfirmModal>
@@ -840,8 +841,8 @@ export function ComposeModal({
             rejectionInFlight={rejectionInFlight}
           />
         )}
-        <textarea
-          className="textarea compose-body"
+        <Textarea
+          className="compose-body"
           aria-label={t("compose.body")}
           placeholder={t("compose.body")}
           value={body}
@@ -863,8 +864,7 @@ export function ComposeModal({
 
         <label className="t-body compose-check">
           {t("compose.purpose")}
-          <select
-            className="input"
+          <Select
             aria-label={t("compose.purpose")}
             value={purpose}
             onChange={(event) => setPurpose(event.target.value)}
@@ -875,7 +875,7 @@ export function ComposeModal({
                 {option.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 

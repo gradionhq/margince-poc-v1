@@ -3,6 +3,8 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
   useEffect,
   useId,
   useRef,
@@ -136,6 +138,74 @@ export function SearchField(props: InputHTMLAttributes<HTMLInputElement>) {
       />
     </span>
   );
+}
+
+/**
+ * Select and Textarea carry no label of their own, exactly like TextInput: the
+ * label is composed outside them, by the `.field` wrapper a form uses or by a
+ * screen's own richer shell. What they own is the ONE spelling of the control's
+ * surface, so a dropdown in a create form and one in settings cannot drift.
+ *
+ * A `select` reads `.input` rather than a class of its own — the two controls
+ * are the same field on screen, and `select.input` in atoms.css adds only the
+ * pointer cursor a native dropdown needs.
+ */
+export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select {...props} className={`input ${props.className ?? ""}`.trim()} />
+  );
+}
+
+export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={`textarea ${props.className ?? ""}`.trim()}
+    />
+  );
+}
+
+/**
+ * Checkbox and Radio DO carry their label, and that is the difference from the
+ * fields above: for a tick the label is not a caption sitting nearby, it is the
+ * other half of the click target. Wrapping the input is what makes the words
+ * clickable and what gives the control its accessible name without an `id` to
+ * thread — which is why seventeen of the twenty hand-rolled sites already wrote
+ * this shape, each with its own wrapper class and its own idea of the gap.
+ *
+ * `label` is a ReactNode, not a string: a consent line carries emphasis and a
+ * settings toggle carries a help line under the name.
+ *
+ * `className` lands on the LABEL, not the input, because that is where every
+ * existing call site puts its layout — a row that needs `align-items:flex-start`
+ * for a two-line label says so there.
+ */
+type ToggleProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  label: ReactNode;
+};
+
+function Toggle({
+  kind,
+  label,
+  className,
+  ...rest
+}: ToggleProps & { kind: "checkbox" | "radio" }) {
+  return (
+    <label
+      className={["checkfield", className ?? ""].filter(Boolean).join(" ")}
+    >
+      <input type={kind} {...rest} />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+export function Checkbox(props: ToggleProps) {
+  return <Toggle kind="checkbox" {...props} />;
+}
+
+export function Radio(props: ToggleProps) {
+  return <Toggle kind="radio" {...props} />;
 }
 
 /**

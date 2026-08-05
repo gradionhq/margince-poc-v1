@@ -471,6 +471,28 @@ select.input {
   cursor: pointer;
 }
 
+/* The Checkbox/Radio row: control, then its words, on one line the whole of
+   which is the click target.
+
+   `--space-2` is the gap because the hand-rolled sites this replaces used six
+   different ones (4px, 6px, 8px, 10px, --space-1, --space-3) for the same row —
+   8px is the on-scale middle, and one value is the point.
+
+   `align-items: center` suits a one-line label, which is nearly all of them. A
+   row whose label wraps to two lines wants the tick beside the FIRST line
+   instead, so it passes a class of its own and overrides this — the atom does
+   not try to guess which it is. */
+.checkfield {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+/* The control keeps its own size when the label is long enough to wrap. */
+.checkfield input {
+  flex: none;
+}
+
 .input-icon {
   position: relative;
   display: inline-flex;
@@ -488,15 +510,27 @@ select.input {
   padding-left: 30px;
 }
 
+/* A textarea is the same field as .input, only taller: the two sit next to each
+   other in the same form, so type size, padding and focus transition are the
+   SAME values, not near ones. Only `resize` differs — that is what makes it a
+   textarea.
+
+   `width: 100%` is part of the atom rather than each caller's job. Without it a
+   textarea falls back to its intrinsic `cols`, which is narrower than the column
+   it sits in — so every caller that noticed re-added the width locally, and the
+   three that did not (the ask panel, the onboarding company form, the activity
+   logger) rendered a short box in a wide field. */
 .textarea {
   font-family: var(--f-body);
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  padding: 8px 11px;
+  padding: 9px 11px;
+  width: 100%;
   outline: none;
+  transition: 0.15s;
   resize: vertical;
 }
 .textarea:focus {

@@ -6,6 +6,8 @@ import {
   Button,
   Modal,
   SectionHeader,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -108,9 +110,8 @@ export function LogActivityForm({
           <label className="t-label" htmlFor={`${formId}-kind`}>
             {t("log.kind")}
           </label>
-          <select
+          <Select
             id={`${formId}-kind`}
-            className="input"
             value={draft.kind}
             onChange={(event) =>
               setField({
@@ -120,7 +121,7 @@ export function LogActivityForm({
           >
             <option value="note">{t("log.kindNote")}</option>
             <option value="task">{t("log.kindTask")}</option>
-          </select>
+          </Select>
         </div>
         {/* Only a task carries a due date, but the field stays in place for a
             note — disabled, not hidden. Mounting it on the kind switch moved
@@ -156,9 +157,8 @@ export function LogActivityForm({
         <label className="t-label" htmlFor={`${formId}-body`}>
           {t("log.body")}
         </label>
-        <textarea
+        <Textarea
           id={`${formId}-body`}
-          className="textarea"
           rows={3}
           value={draft.body}
           onChange={(event) => setField({ body: event.target.value })}

@@ -18,6 +18,8 @@ import {
   Modal,
   SectionHeader,
   SegmentedControl,
+  Select,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -652,8 +654,7 @@ export function ApprovalRow({
                   {entry.label ? t(entry.label) : entry.field}
                 </span>
                 {entry.as === "choice" ? (
-                  <select
-                    className="input"
+                  <Select
                     aria-labelledby={`edit-${approval.id}-${entry.field}`}
                     value={draft[entry.field] ?? ""}
                     onChange={(event) =>
@@ -675,7 +676,7 @@ export function ApprovalRow({
                         </option>
                       );
                     })}
-                  </select>
+                  </Select>
                 ) : (
                   <TextInput
                     aria-labelledby={`edit-${approval.id}-${entry.field}`}
@@ -742,9 +743,8 @@ export function ApprovalRow({
           <label className="t-label" htmlFor={`reject-reason-${approval.id}`}>
             {t("inbox.rejectReason")}
           </label>
-          <textarea
+          <Textarea
             id={`reject-reason-${approval.id}`}
-            className="input"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />

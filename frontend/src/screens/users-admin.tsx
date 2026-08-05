@@ -8,6 +8,7 @@ import {
   Button,
   EmptyState,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -138,8 +139,7 @@ function InviteForm() {
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      <select
-        className="input"
+      <Select
         aria-label={t("users.roleLabel")}
         value={role}
         onChange={(e) => {
@@ -152,7 +152,7 @@ function InviteForm() {
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       <Button variant="primary" small type="submit" disabled={!canInvite}>
         <UserPlus aria-hidden /> {t("users.invite")}
       </Button>
@@ -233,8 +233,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
       </Badge>
       {/* Controlled at "" so the label always resets — re-selecting the same
           role after a failed change still fires onChange. */}
-      <select
-        className="input"
+      <Select
         aria-label={t("users.setRoleFor", { name: member.display_name })}
         value=""
         disabled={pending}
@@ -251,7 +250,7 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
             {t(`users.role.${r}`)}
           </option>
         ))}
-      </select>
+      </Select>
       {member.status === "active" && (
         <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
           {t("users.deactivate")}

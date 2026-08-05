@@ -4,7 +4,13 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import {
+  Button,
+  Modal,
+  Radio,
+  Select,
+  TextInput,
+} from "../design-system/atoms";
 import { useT } from "../i18n";
 import { ArchiveAction } from "./archive";
 import { ProblemError, throwProblem } from "./common";
@@ -171,24 +177,18 @@ function SetTargetModal({
         <fieldset className="field quota-side">
           <legend className="t-label">{t("quotas.side.label")}</legend>
           <div className="quota-side-choices">
-            <label className="quota-side-choice">
-              <input
-                type="radio"
-                name={`${formId}-side`}
-                checked={side === "owner"}
-                onChange={() => pickSide("owner")}
-              />
-              {t("quotas.side.owner")}
-            </label>
-            <label className="quota-side-choice">
-              <input
-                type="radio"
-                name={`${formId}-side`}
-                checked={side === "team"}
-                onChange={() => pickSide("team")}
-              />
-              {t("quotas.side.team")}
-            </label>
+            <Radio
+              name={`${formId}-side`}
+              checked={side === "owner"}
+              onChange={() => pickSide("owner")}
+              label={t("quotas.side.owner")}
+            />
+            <Radio
+              name={`${formId}-side`}
+              checked={side === "team"}
+              onChange={() => pickSide("team")}
+              label={t("quotas.side.team")}
+            />
           </div>
         </fieldset>
 
@@ -196,9 +196,8 @@ function SetTargetModal({
           <label className="t-label" htmlFor={`${formId}-subject`}>
             {side === "owner" ? t("quotas.owner") : t("quotas.team")} *
           </label>
-          <select
+          <Select
             id={`${formId}-subject`}
-            className="input"
             value={subjectId}
             required
             onChange={(event) => setSubjectId(event.target.value)}
@@ -211,7 +210,7 @@ function SetTargetModal({
                 {subjectLabel(entry)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div className="field">

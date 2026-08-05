@@ -9,6 +9,7 @@ import {
   EmptyState,
   Modal,
   SectionHeader,
+  Select,
   Skeleton,
   StatCard,
 } from "../design-system/atoms";
@@ -617,8 +618,7 @@ function SetRoleAction({
         <div className="form-stack">
           <label className="field">
             <span className="t-label">{t("co.role.onDeal")}</span>
-            <select
-              className="input"
+            <Select
               value={dealId}
               onChange={(event) => setDealId(event.target.value)}
             >
@@ -627,12 +627,11 @@ function SetRoleAction({
                   {deal.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="field">
             <span className="t-label">{t("co.role.role")}</span>
-            <select
-              className="input"
+            <Select
               value={picked ?? ""}
               onChange={(event) => setRole(event.target.value)}
             >
@@ -641,7 +640,7 @@ function SetRoleAction({
                   {dealRoleLabel(candidate, t)}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {save.isError && (
             <p className="t-caption form-error">{save.error.message}</p>

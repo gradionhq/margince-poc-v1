@@ -12,6 +12,7 @@ import {
   DataTable,
   EmptyState,
   SectionHeader,
+  Select,
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -235,9 +236,8 @@ function PartnerForm({
         <label className="t-label" htmlFor={`${formId}-role`}>
           {t("partner.role")} *
         </label>
-        <select
+        <Select
           id={`${formId}-role`}
-          className="input"
           required
           value={values.partner_role}
           onChange={(event) =>
@@ -253,15 +253,14 @@ function PartnerForm({
               {t(ROLE_LABELS[role])}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field">
         <label className="t-label" htmlFor={`${formId}-cert`}>
           {t("partner.certStatus")}
         </label>
-        <select
+        <Select
           id={`${formId}-cert`}
-          className="input"
           value={values.cert_status}
           onChange={(event) =>
             setValues({
@@ -276,15 +275,14 @@ function PartnerForm({
               {t(CERT_LABELS[status])}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field">
         <label className="t-label" htmlFor={`${formId}-tier`}>
           {t("partner.marginTier")}
         </label>
-        <select
+        <Select
           id={`${formId}-tier`}
-          className="input"
           value={values.margin_tier}
           onChange={(event) =>
             setValues({
@@ -301,15 +299,14 @@ function PartnerForm({
               {t(MARGIN_TIER_LABELS[tier])}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field">
         <label className="t-label" htmlFor={`${formId}-stage`}>
           {t("partner.stage")}
         </label>
-        <select
+        <Select
           id={`${formId}-stage`}
-          className="input"
           value={values.relationship_stage}
           onChange={(event) =>
             setValues({
@@ -325,7 +322,7 @@ function PartnerForm({
               {t(STAGE_LABELS[stage])}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="field">
         <label className="t-label" htmlFor={`${formId}-next-step`}>

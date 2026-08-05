@@ -10,10 +10,13 @@ import type { components } from "../api/schema";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   SectionHeader,
   SegmentedControl,
+  Select,
   Skeleton,
+  Textarea,
   TextInput,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
@@ -170,17 +173,15 @@ function PurposeCreateForm({ onDone }: Readonly<{ onDone: () => void }>) {
             }}
           />
         </div>
-        <label className="t-caption purpose-doi-check">
-          <input
-            type="checkbox"
-            checked={requiresDoi}
-            onChange={(event) => {
-              setRequiresDoi(event.target.checked);
-              dismissCreateError();
-            }}
-          />
-          {t("privacy.purposeDoi")}
-        </label>
+        <Checkbox
+          className="t-caption"
+          label={t("privacy.purposeDoi")}
+          checked={requiresDoi}
+          onChange={(event) => {
+            setRequiresDoi(event.target.checked);
+            dismissCreateError();
+          }}
+        />
         {create.isError && (
           <p className="t-caption purpose-form-error">
             {honestMessage(create.error)}
@@ -347,9 +348,8 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
           <label className="t-label" htmlFor={kindId}>
             {t("privacy.kind")}
           </label>
-          <select
+          <Select
             id={kindId}
-            className="input"
             value={kind}
             onChange={(event) => {
               const value = event.target.value;
@@ -361,7 +361,7 @@ function NewDsrForm({ onDone }: Readonly<{ onDone: () => void }>) {
                 {humanizeToken(value)}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         {kind === "erasure" ? (
@@ -598,9 +598,8 @@ function DsrRow({
               <label className="t-label" htmlFor={assigneeFieldId}>
                 {t("privacy.assignee")}
               </label>
-              <select
+              <Select
                 id={assigneeFieldId}
-                className="input"
                 value={dsr.assignee_id ?? ""}
                 disabled={patch.isPending}
                 onChange={(event) => {
@@ -620,7 +619,7 @@ function DsrRow({
                     {user.display_name}
                   </option>
                 ))}
-              </select>
+              </Select>
               <p className="t-caption">{t("privacy.assigneeUnassignable")}</p>
               {patch.isPending && (
                 <p className="t-caption">{t("common.saving")}</p>
@@ -645,9 +644,8 @@ function DsrRow({
                   <label className="t-label" htmlFor={resolutionFieldId}>
                     {t("privacy.resolution")}
                   </label>
-                  <textarea
+                  <Textarea
                     id={resolutionFieldId}
-                    className="input"
                     value={resolution}
                     onChange={(event) => {
                       setResolution(event.target.value);

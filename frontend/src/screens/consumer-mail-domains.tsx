@@ -3,7 +3,7 @@ import { Mail, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useCanWrite } from "../app/capability";
-import { SectionHeader } from "../design-system/atoms";
+import { SectionHeader, Select } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
 
@@ -117,7 +117,7 @@ export function ConsumerMailDomainsCard() {
           disabled={!canManage}
           onChange={(e) => setDomain(e.target.value)}
         />
-        <select
+        <Select
           aria-label={t("consumerMail.kindLabel")}
           data-testid="consumer-mail-kind-select"
           value={kind}
@@ -126,7 +126,7 @@ export function ConsumerMailDomainsCard() {
         >
           <option value="extra">{t("consumerMail.kind.extra")}</option>
           <option value="never">{t("consumerMail.kind.never")}</option>
-        </select>
+        </Select>
         <button type="submit" disabled={!canManage || add.isPending}>
           {t("consumerMail.add")}
         </button>
