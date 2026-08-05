@@ -51,7 +51,7 @@ Everything below is the detail behind those five steps:
 - **The contract** (`backend/api/crm.yaml`) defines the surface; the Go is generated from it — [contract-first.md](contract-first.md).
 - **The modules** (`internal/modules/`) are the capabilities; each owns its tables and never imports a sibling — [reference/modules.md](../reference/modules.md).
 - **The platform toolkit** (`internal/platform/`, `internal/shared/`) is the reusable plumbing every module composes — [reference/platform-toolkit.md](../reference/platform-toolkit.md).
-- **The compose layer** (`internal/compose/`) wires the modules into the four binaries and injects every cross-module edge — [composition-layer.md](composition-layer.md).
+- **The compose layer** (`internal/compose/`) wires the modules into the three binaries and injects every cross-module edge — [composition-layer.md](composition-layer.md).
 
 ---
 
@@ -73,7 +73,7 @@ something (or deciding where new code goes):
 | Cross-module wiring, the HTTP `Server`, the MCP registry | `internal/compose/` (**how it boots + the edge map → [composition-layer.md](composition-layer.md)**) |
 | Stdlib-only leaves (ids, principal, apperrors, ports) | `internal/shared/` |
 | SQL migrations | `backend/migrations/core/` (upstream) · `custom/` (fork) |
-| The four process binaries | `backend/cmd/{api,worker,migrate,mcp}/` |
+| The three process binaries | `backend/cmd/{api,worker,migrate}/` |
 | Codegen tools | `backend/tools/` (its own Go module) |
 | The architecture gates (fitness tests) | `backend/*_test.go` (see below) |
 
@@ -120,7 +120,7 @@ handler + store + SQL + tests** (the recipes below).
 
 ## The deployment model (the binaries)
 
-Four process roles, all assembled through `internal/compose`. Flags/env are tabled in
+Three process roles, all assembled through `internal/compose`. Flags/env are tabled in
 [reference/configuration.md](../reference/configuration.md); the shapes to understand:
 
 - **`cmd/api`** — the HTTP surface on `:8080`. By default (`--inline-relay=true`) it *also* ships the
@@ -128,9 +128,11 @@ Four process roles, all assembled through `internal/compose`. Flags/env are tabl
   deployments.
 - **`cmd/worker`** — background consumer (the standalone relay, the River periodic jobs, retention,
   the automation trigger runtime — event dispatch off `cg:workflows` plus the clock time-scan — the
-  Surface-B runner). Only needed for **split deployments**: run `cmd/api --inline-relay=false`
-  alongside one or more workers. River gives leader election, so worker replicas never double-run a
-  job.
+  Surface-B runner). **Not optional.** `cmd/api` runs no River runner at all, so without a worker
+  outbound mail is staged and never sent, a failed webhook delivery sits `retrying` forever and never
+  reaches its dead-letter budget, no GDPR retention pass runs, and no Surface-B brief is scheduled.
+  For a split deployment run `cmd/api --inline-relay=false` alongside one or more workers; run a
+  worker regardless. River gives leader election, so worker replicas never double-run a job.
 - **`cmd/migrate`** — `up`/`down`, connects with the **owner** role (the app role never owns schema).
 - The governed agent tool surface is served by `cmd/api` at `/mcp`; there is no separate MCP binary (SCR-9).
 

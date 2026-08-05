@@ -34,7 +34,15 @@ Two invariants ride on top of that write:
 
 - **connector ≤ human.** A connector's declared scopes must be a subset of the granting human's *live*
   scopes, enforced at connect time (`ErrScopeExceeded`) — exactly the discipline agents follow. Every
-  mail connector declares read-only (`ScopeRead`, tier `TierAutoExecute`); none can write outbound.
+  connector declares `ScopeRead` / `TierAutoExecute` for **capture**: what it pulls in is never more
+  than its granting human may see.
+- **Capture is read-only; transmission is a separate seam.** Two connectors additionally implement an
+  *optional* send seam — Gmail (`connector.EmailSender`, requesting `gmail.send` alongside
+  `gmail.readonly` on one consent, because Google will not add a scope to an existing refresh token)
+  and Telegram (`connector.MessageSender`). Neither is reachable from the capture path: the outbound
+  side is owned by the `comms` module, staged as a durable row, re-checked against the staging human's
+  live seat at transmit time, and gated by consent. See
+  [outbound-messaging.md](outbound-messaging.md).
 - **Connecting is human-only.** Every connector op is `x-agent-access: human-only` (bar the session-less
   OAuth callback). An agent self-granting read of a human's personal mail is precisely what we never
   allow.
@@ -146,17 +154,18 @@ refresh token (see below).
 
 ## The connectors
 
-All four register in `internal/compose/capture.go`; all are read-only and produce `activity`. The
-differences that matter:
+All five register in `internal/compose/capture.go`; every one produces `activity` on the way in, and
+two of them can also transmit. The differences that matter:
 
-| | **Gmail** | **IMAP** | **Graph** (Outlook) | **Calendar** (gcal) |
-|---|---|---|---|---|
-| Auth | OAuth `gmail.readonly` | IMAPS app-password | OAuth `Mail.Read` | OAuth `calendar.readonly` |
-| Connection | standing | standing | standing | standing |
-| Cursor | `historyId` | UID watermark | `deltaLink` | `syncToken` |
-| Push | Pub/Sub 7-day | — (poll) | — (poll) | — (poll) |
-| Backfill | ✔ | — | ✔ | — |
-| Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only |
+| | **Gmail** | **IMAP** | **Graph** (Outlook) | **Calendar** (gcal) | **Telegram** |
+|---|---|---|---|---|---|
+| Auth | OAuth `gmail.readonly` + `gmail.send` | IMAPS app-password | OAuth `Mail.Read` | OAuth `calendar.readonly` | BotFather bot token |
+| Connection | standing, per human | standing, per human | standing, per human | standing, per human | standing, **per workspace** (an admin binds one bot) |
+| Cursor | `historyId` | UID watermark | `deltaLink` | `syncToken` | `getUpdates` offset |
+| Push | Pub/Sub 7-day | — (poll) | — (poll) | — (poll) | — (long poll, exclusive per bot) |
+| Backfill | ✔ | — | ✔ | — | — (the Bot API has no history endpoint) |
+| Send | ✔ (`EmailSender`) | — | — | — | ✔ (`MessageSender`) |
+| Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only | Settings only (its own card) |
 
 ### Gmail — standing OAuth, push-capable
 

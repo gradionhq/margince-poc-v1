@@ -56,9 +56,11 @@ When you are ready to spend, `make e2e-ai TASK=enrich` certifies for real
 
 **A task is not one prompt.** A task is the routing / budget / cost unit: it owns
 a fallback ladder, an execution mode and a budget posture. A **site** is one
-named place in the build that actually calls the model. Today 13 shipped tasks
-carry 19 sites between them — `cold_start` has four, `voice_build` three,
-`rate_extract` two.
+named place in the build that actually calls the model. Today 16 shipped tasks
+carry 23 sites between them — `cold_start` has four, `voice_build` three,
+`summarize` and `rate_extract` two each. (These counts have gone stale across
+several changes; `make e2e-ai` with no `TASK=` prints the current census, which
+is the number to trust.)
 
 | You are adding | Do |
 |---|---|

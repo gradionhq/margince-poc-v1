@@ -11,7 +11,7 @@ wired.
 There are two ways an agent reaches the tool surface, and **both go through the same governed
 registry and the same admission gate** — there is no privileged back door:
 
-- **Surface A** — an *external* agent over MCP (stdio or hosted HTTP), acting under a passport.
+- **Surface A** — an *external* agent over MCP (`/mcp`, Streamable HTTP on the api), acting under a passport.
 - **Surface B** — *our own* runner: the proactive reason-act-observe loop (e.g. the overnight passes).
 
 Both call every action through `agents.Registry.Invoke`, which admits each call through `platform/auth`
@@ -77,8 +77,11 @@ not architecture**. `internal/modules/ai/` owns it:
 - **Automations** (`/v1/automations`) parameterize the workflow engine's closed catalog per workspace;
   mutations are human-only, re-gated at the store on the `automation` RBAC object. (The workflow engine
   itself is covered in [write-backbone.md → who consumes the events](write-backbone.md#5-the-consumer-side--groups--dedupe).)
-- **MCP** serves the *same* tool surface over **A1 stdio** and **A2 hosted HTTP** — one registry, one
-  admission gate, one audit stream. Running it: [how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md);
+- **MCP** serves the tool surface at `/mcp` on the api — one registry, one admission gate, one audit
+  stream, one transport (the A1 stdio server and its `cmd/mcp` binary are retired, SCR-9).
+  `tools/list` is scope-filtered per caller, so the list a client sees is the list its passport can
+  invoke. The catalog itself: [reference/agent-tools.md](../reference/agent-tools.md).
+  Connecting: [how-to/connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md);
   minting the passport: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## Honest gaps

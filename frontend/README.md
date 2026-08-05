@@ -89,16 +89,31 @@ default.
   `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
   `color-mix()` of a canonical token, never a new hex, so it follows the dark
   theme's accent lift automatically and passes the purity gate. Then atoms, the
-  trust primitives (§4 vocabulary: EvidenceChip, ConfidenceMeter, ProvenanceTag,
-  StagingCard, ApprovalGate, StagedProposal), the **Margince Core**
+  **EvidenceMark** (`evidencemark*`) — the ONE §4 provenance affordance: a dotted
+  underline on a value that came from somewhere other than a person typing it,
+  opening to where it came from, how sure we were, the text it was read from, and
+  when. One mark is open across the page at a time, for pointer and keyboard
+  alike. It replaces the stack of three chips that used to sit under every value;
+  the older primitives (EvidenceChip, ConfidenceMeter, ProvenanceTag) now live
+  INSIDE the mark and on the staging surfaces (StagingCard, ApprovalGate,
+  StagedProposal) — never stacked under a field again. The migration is real but
+  partial: the company record page consumes the mark today while the other record
+  screens still render the older primitives directly. Then the **Margince Core**
   (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
   vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
   callers pass `state` and size it through `--coreSize` / `--coreGlass` and
   never restyle it), `motion.ts` (reduced motion jumps to the END state, never
   to nothing), composed surfaces, and `conformance.test.ts` — the drift gates.
-- `src/app/` — shell (WorkspaceRail + top bar), hash router, ⌘K palette,
-  Ask FAB.
-- `src/screens/` — one file per surface; unbuilt routes render the honest
+- `src/app/` — the shell (a labeled sidebar that collapses to the canonical
+  rail, its preference persisted; at phone width the same markup is a bottom bar
+  with a More overflow), the top bar, `nav.ts` (the canonical ten items in three
+  groups — a label is presentation and never a route id: `deals` presents as
+  Pipeline, `inbox` as Approvals, `ai` as Ask Margince), `theme.ts` (light/dark
+  resolved and applied BEFORE React mounts, so an unauthenticated screen can be
+  dark at all), the hash router, the ⌘K palette, and the Ask FAB. See
+  [docs/explanation/frontend-architecture.md](../docs/explanation/frontend-architecture.md).
+- `src/screens/` — one file per surface, or one directory when a surface is a
+  state machine (`onboarding-conversation/`); unbuilt routes render the honest
   pending state.
 - `src/i18n/` — DE (A24 default) + EN catalogs; key parity enforced at
   compile time and runtime.
@@ -106,7 +121,9 @@ default.
   IANA-only zones, FX lineage display (consumes the IR base_value
   verbatim, never multiplies).
 - `src/api/` — `schema.d.ts` is GENERATED (never hand-edit); `client.ts`
-  is the one API seam (session cookie + `X-Workspace-Slug`, `/v1` mount).
+  is the one API seam (the session cookie and the `/v1` mount — no tenant header:
+  one installation serves one organization, and the server binds that singleton
+  itself, so two tests assert the absence of any workspace header).
 - `e2e/` — the Playwright harness: AC-named acceptance tests, the 390px
   no-horizontal-scroll sweep, axe WCAG 2.2 AA on every core screen, the
   PERF-1 <300 ms perceived record-open budget. Runs over a network-edge

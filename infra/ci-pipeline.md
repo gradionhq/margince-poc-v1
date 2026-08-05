@@ -53,12 +53,13 @@ Consequences:
 changes ──┬─> deterministic-gates ──> craftsmanship
           ├─> integration-shards (×12) ─────┬─> integration (fan-in) ──┐
           ├─> integration-unit-coverage ────┘                          │
-          ├─> vuln                                                     │
-          ├─> frontend ──> uat                                         │
-          ├─> live-boot                                                │
-          ├─> docker-image (×3: api, web, worker) ─> docker-images     │
-          v                                                            v
-        deterministic-gates + integration + frontend ──────> sonarcloud
+          ├─> extension-reference ──────────────────────────────────┐  │
+          ├─> vuln                                                  │  │
+          ├─> frontend ──> uat                                      │  │
+          ├─> live-boot                                             │  │
+          ├─> docker-image (×3: api, web, worker) ─> docker-images  │  │
+          v                                                         v  v
+ deterministic-gates + integration + extension-reference + frontend ──> sonarcloud
   dco  (PR-only, independent)
   craft-residue  (every non-draft change, independent)
 ```
@@ -80,7 +81,8 @@ one required check.
 |---|---|
 | `changes` | The scope classifier above (always runs first, on non-draft) |
 | `dco` | Every PR commit carries a Developer Certificate of Origin sign-off (`scripts/check-dco.sh`). PR-only |
-| `deterministic-gates` | `make check-backend`: build, vet, lint (baseline + new-code strict), arch-lint, unit + root fitness tests (incl. `audit_log` enum coherence + the contract `$ref` pre-flight), generated-drift, and the script gates (image pins, contract-breaking, test-lanes, file-length, RLS store-path, jurisdiction isolation). Fetches full history so the diff-scoped gates have a base ref |
+| `deterministic-gates` | `make check-backend`: build, vet, lint (baseline + new-code strict), arch-lint, unit + root fitness tests (incl. `audit_log` enum coherence + the contract `$ref` pre-flight), generated-drift, and the script gates (craft-doc floor, image pins, contract-breaking, test-lanes, file-length, RLS store-path, jurisdiction isolation, and the `backend/pkg` published-surface freeze). Fetches full history so the diff-scoped gates have a base ref |
+| `extension-reference` | The composed-build lane (ADR-0069): proves the **empty** extension set still composes byte-identically to the committed `composition/` stub, then enables the reference fixture and runs the backend build + unit lane + `check-composition` against the composed workspace, plus every enabled unit's own module lane. Emits its own coverage profile — extension units are separate Go modules, unreachable by the shard profiles |
 | `craftsmanship` | `make craft-static` — strict: BLOCKER **and** MAJOR findings fail it, MINOR is advisory. Runs **after** `deterministic-gates` — a red build is never judged on style |
 | `craft-residue` | No unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` markers reach `main` |
 | `integration shard (k/12)` | `make test-integration` with `INTEGRATION_SHARD=k/12`: a deterministic per-test round-robin slice of the whole integration lane. Slices are count-based, not duration-based; the heavy e2e tail lands on whichever shard draws it, and `INTEGRATION_JOBS=16` (the tests wait on Postgres, not cores) lets that shard chew through its slice instead of running minutes over its siblings. Boots the dev compose stack (`make db-up`: digest-pinned Postgres 16 (pgvector) + Redis 7 + MinIO + the app role — one stack definition, no hand-mirrored GH services); each shard builds its own migrated `margince_test` template and clones per package. Uploads its slice manifests + binary coverage pods |
@@ -133,3 +135,20 @@ Wiring details:
   purpose: they diff against `origin/main` and need it to fetch.
 - Every `uses:` and container `image:` is pinned to an immutable SHA (the
   `check-image-pins` gate enforces it).
+
+## The other two workflows
+
+`ci.yml` is the merge gate. Two workflows sit beside it, deliberately outside it:
+
+- **`sbom.yml`** — regenerates and license-gates the source-tree SBOMs whenever a
+  dependency set or the SBOM pipeline itself changes, and signs `main`'s from a
+  separate job that is the sole holder of `id-token: write`. Signing is isolated
+  from all PR-controlled code because a keyless signature lands permanently in a
+  public transparency log and cannot be retracted, so a PR preview must never
+  produce one. Not a required check; the mechanics are in
+  [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
+- **`patch.yml`** — on every push to `main`, runs the release-management CLI over
+  the push's range and uploads the incremental patch as a short-retention
+  artifact for the distribution pipeline. A branch creation or force-push has no
+  ancestor to diff from, so the step falls back to the parent commit; a manual
+  dispatch carries no range and no-ops. Not a gate — it never blocks a merge.

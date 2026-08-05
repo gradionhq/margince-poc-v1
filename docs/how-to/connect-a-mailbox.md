@@ -60,9 +60,15 @@ Connecting is `x-agent-access: human-only` — you must be a signed-in human; an
 refused, by design. Gmail OAuth also needs operator setup that the UI can't do for you:
 
 - **A Google OAuth app** (Google Cloud project → *APIs & Services → Credentials → OAuth client ID → Web
-  application*) with the **Gmail API** enabled, the `.../auth/gmail.readonly` scope on the consent screen
-  (read-only — Margince never requests send/modify), and an **authorized redirect URI** of
+  application*) with the **Gmail API** enabled, **both** the `.../auth/gmail.readonly` and
+  `.../auth/gmail.send` scopes on the consent screen, and an **authorized redirect URI** of
   `<api-base>/v1/connectors/gmail/callback` (dev: `http://localhost:8080/v1/connectors/gmail/callback`).
+  The two scopes ride **one** consent deliberately: Google will not add a scope to an existing refresh
+  token, so a send grant asked for later would mean a second connection for the same mailbox.
+  `gmail.send` transmits only — it cannot read, modify or delete, and there is still no `gmail.modify`,
+  no settings access and no delete. A connection granted read but not send captures normally and
+  refuses every send by name, which is what a mailbox connected before the send scope landed will do
+  until it is reconnected.
 - **The vault key** — the refresh token is sealed at rest; the connect flow refuses without it.
 
 Set these on **both** the api and worker (the api connects, the worker syncs), then `make dev`:
@@ -88,7 +94,7 @@ deployment" instead of redirecting. The full table is
 1. Open the app, go to **Settings → Integrations**, and click **Gmail** in the **Add a connection**
    footer or empty state (or click the **Google** chip on the onboarding connect step, on a fresh
    install).
-2. The page redirects to Google — sign in and consent to the read-only Gmail scope.
+2. The page redirects to Google — sign in and consent to the Gmail read and send scopes.
 3. Google returns you to the app; the panel **proves** the connection by re-reading `GET /connectors`
    and shows a trust pill for the live `gmail` connection. Back in **Settings → Integrations** you'll now
    see a `gmail` row with a **connected** badge.
@@ -119,8 +125,11 @@ that appears right after a Google connect:
 
 1. Pick a **window** — `3m` / `6m` / `12m` (default `6m`). The panel auto-**previews**: it shows the
    estimated message count and estimated AI cost. This is the consent surface and spends nothing.
-2. Click **Start the import**. A live progress bar tracks scanned vs. estimated, with running counts of
-   captured emails, people, and organizations created. **Cancel** keeps everything already captured.
+2. Click **Start the import**. A live progress bar tracks scanned vs. estimated — moving *within* a page,
+   not only at each page commit — with running counts of captured emails, people created, and **domains
+   queued for a company verdict** (the panel labels the third *companies*; capture creates none itself —
+   see [mail-history-import.md](../explanation/mail-history-import.md)). **Cancel** keeps everything
+   already captured.
 
 Windows are **widen-only** (`3m` → `6m` → `12m`).
 
@@ -307,9 +316,14 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
    IMAP included (or `GET /connectors`). IMAP's first messages arrive on the next sweep, not at connect.
 2. **Mail became timeline activities.** Open a captured counterparty's timeline (or `GET /activities`)
    and confirm each message is an email activity, provenance-stamped `connector:<name>`.
-3. **People and organizations were auto-created.** A new external counterparty becomes a person (and, for
-   a non-freemail sender, a domain-named organization + employment edge) through the dedupe chokepoint;
-   a fuzzy near-match lands in the dedupe review queue rather than duplicating.
+3. **People were auto-created; companies were *asked about*.** A new external counterparty becomes a
+   person through the dedupe chokepoint, and a fuzzy near-match lands in the dedupe review queue rather
+   than duplicating. The **company is not created here.** Capture records an open question against the
+   sender's domain (`organization_domain_disposition`, verdict `pending`) and a background site read
+   answers it: `company` creates the organization from what the site states and plants the employment
+   edge, `personal` and `provider` refuse one for good, and `no_site` settles it either way. All four
+   mean the same thing for the next message — stop asking. So a freshly connected mailbox shows people
+   immediately and companies as the crawls land, not in the same tick.
 4. **The credential is never echoed, and disconnect destroys it.** No read surface returns a secret —
    the roster carries only a server-side `credential_ref`, for the IMAP app-password exactly as for an
    OAuth refresh token. Disconnect deletes the sealed secret from the vault, not just the row.
@@ -323,7 +337,7 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
 
 ## Current UI gaps
 
-The connect UI is now live for all four connectors: Gmail, Google Calendar, Graph, and IMAP each have a
+The connect UI is now live for all five connectors. Gmail, Google Calendar, Graph, and IMAP each have a
 first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and IMAP have one from
 **onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The roster and
 backfill panel, though, don't apply everywhere: IMAP and Google Calendar have no backfill, so both sync
