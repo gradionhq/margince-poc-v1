@@ -36,6 +36,7 @@ export const de = {
   "trust.stagedProposal": "vorgemerkter Vorschlag",
   "trust.resolvedValue": "übernommener Wert",
   "trust.editValue": "{description} bearbeiten",
+  "trust.evidenceFrom": "Beleg von {source}",
 
   "history.created": "— angelegt —",
   "history.oldValue": "Vorheriger Wert",
@@ -1535,10 +1536,30 @@ export const de = {
   "ob.ai.awaitingModel": "Nach meinem ersten Modellaufruf sichtbar",
   "ob.ai.notAvailableYet": "Noch nicht verfügbar",
   "ob.ai.runtimeUnavailable": "Laufzeitdetails nicht verfügbar",
+  // Die Laufzeit-Offenlegung ist ein Chip zum Öffnen, kein Dauerband: Kosten
+  // stehen da, WÄHREND sie entstehen, aber wer entscheidet, ob eine
+  // Rechtsform stimmt, soll dafür keine Abrechnungstabelle lesen müssen.
+  "ob.ai.runtimeChip": "Was antwortet, und was es kostet",
+  "ob.ai.answeringNow": "Was gerade antwortet",
+  "ob.ai.runScope": "Nur dieser Lauf. Das ganze Protokoll: Einstellungen → KI.",
   "ob.ai.tier.localSmall": "lokal, schnell",
   "ob.ai.tier.cheapCloud": "Cloud, effizient",
   "ob.ai.tier.premium": "Premium-Reasoning",
   "ob.ai.tier.localLarge": "lokal, erweitert",
+  // Die Klartext-Zeile im Rail-Footer: Die genauen IDs sind einen Klick
+  // entfernt in der Zeile „Konfigurierte KI“ des Laufzeit-Chips — hier steht
+  // nur, was auf den ersten Blick zählt: wie viele Modelle, und wo sie laufen.
+  "ob.ai.summary.cloud.one": "1 Modell, läuft in der Cloud",
+  "ob.ai.summary.cloud.other": "{count} Modelle, laufen in der Cloud",
+  "ob.ai.summary.local.one": "1 Modell, läuft lokal",
+  "ob.ai.summary.local.other": "{count} Modelle, laufen lokal",
+  "ob.ai.summary.hybrid.one": "1 Modell, teils Cloud, teils lokal",
+  "ob.ai.summary.hybrid.other": "{count} Modelle, teils Cloud, teils lokal",
+  "ob.ai.summary.development.one": "1 Modell, Entwicklungsmodus",
+  "ob.ai.summary.development.other": "{count} Modelle, Entwicklungsmodus",
+  "ob.ai.summary.none": "Noch kein Modell konfiguriert",
+  "ob.ai.summaryProviders.one": "1 Provider konfiguriert",
+  "ob.ai.summaryProviders.other": "{count} Provider konfiguriert",
   "ob.ai.readFirst": "Starte zuerst die Firmeneinrichtung.",
   "ob.ai.liveArtifact": "Lebendes, prüfbares Ergebnis",
   "ob.ai.companyKnowledge": "Was ich über dein Unternehmen verstehe",
@@ -1606,7 +1627,7 @@ export const de = {
   "ob.s1.urlPlaceholder": "deinefirma.de",
   "ob.s1.identityLabel": "Rechtliche Organisation",
   "ob.s1.offerLabel": "Produkte und Angebot",
-  "ob.s1.customerLabel": "Idealkunde",
+  "ob.s1.customerLabel": "Kunde",
   "ob.s1.salesLabel": "Positionierung und Vertriebskontext",
   "ob.s1.fieldRequired": "Pflichtfeld.",
   "ob.s1.requiredMissing": "Diese Felder fehlen noch: {fields}",
@@ -1741,7 +1762,7 @@ export const de = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
-  "ob.s4.microsoftBtn": "Microsoft verbinden",
+  "ob.s4.microsoftBtn": "Zugriff auf mein Microsoft erlauben",
   "ob.s4.microsoftHint":
     "Nur-Lese-Zugriff auf E-Mails. Du kannst die Verbindung jederzeit in den Einstellungen trennen.",
   "ob.s4.microsoftUnverified":
@@ -1758,7 +1779,7 @@ export const de = {
     "Öffne Einstellungen → Integrationen, um es erneut zu versuchen.",
   "ob.s4.connectDenied":
     "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
-  "ob.s4.googleBtn": "Mit Google fortfahren",
+  "ob.s4.googleBtn": "Zugriff auf mein Gmail erlauben",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
     "Nur Lesezugriff. Du bestätigst ihn auf Googles eigener Einwilligungsseite — und du kannst die Verbindung jederzeit wieder trennen.",
@@ -1969,13 +1990,14 @@ export const de = {
     "Es wurde nichts gespeichert. Versuch es jederzeit erneut — oder verbinde stattdessen über IMAP.",
   "ob.s4.imapHost": "IMAP-Host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapPort": "Port",
   "ob.s4.imapEmail": "E-Mail",
   "ob.s4.imapPassword": "App-Passwort", // NOSONAR: UI translation string, not a credential
   "ob.s4.imapMailbox": "Postfach",
   "ob.s4.imapMax": "Wie viele aktuelle E-Mails",
   "ob.s4.imapHint":
     "Nutz ein App-spezifisches Passwort (Gmail: Konto → Sicherheit → App-Passwörter). Wir versiegeln es im Credential-Vault und lesen weiter neue Post, bis du die Verbindung trennst — beim Trennen wird es gelöscht.",
-  "ob.s4.imapConnect": "Postfach verbinden",
+  "ob.s4.imapConnect": "Testen und verbinden",
   "ob.s4.connecting": "Sichere Verbindung…",
   "ob.s4.scope1Lead": "Wir lesen — wir müllen nichts voll.",
   "ob.s4.scope1Rest":
@@ -1992,24 +2014,19 @@ export const de = {
     "Lehn dich zurück — dein CRM baut sich von selbst auf. Neue Post trifft hier ein, sobald der erste Durchlauf läuft, meist innerhalb weniger Minuten.",
   "ob.s4.enterCrm": "Ins CRM",
   "ob.s4.connectFailed": "Dieses Postfach ließ sich nicht verbinden",
-  "ob.s4.skipLater": "Erstmal überspringen — später verbinden",
+  "ob.s4.notNow": "Nicht jetzt",
 
   "ob.conv.threadLabel": "Einrichtungsgespräch",
   "ob.conv.welcome":
     "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
   "ob.conv.welcomeMember":
     "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
-  "ob.conv.askUrl":
-    "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
   "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
   "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
   "ob.conv.read.learnedField": "{field} gelernt: {value}",
   "ob.conv.read.extracting":
     "Das Durchsuchen ist fertig. Jetzt werte ich aus, was die Website über dein Geschäft sagt.",
   "ob.conv.read.warning": "Hinweis: {warning}",
-  "ob.conv.read.done": "Fertig gelesen. Belegte Funde: {count}.",
-  "ob.conv.read.partial":
-    "Ich konnte nicht alles lesen. Belegte Funde: {count}.",
   "ob.conv.read.failed":
     "Ich konnte diese Website nicht lesen. Probiere eine andere URL oder sag es mir direkt.",
   "ob.conv.read.pollFailed":
@@ -2025,18 +2042,24 @@ export const de = {
   "ob.conv.company.confirmed":
     "Firmenprofil bestätigt. Alles Gespeicherte trägt seine Quelle.",
   "ob.conv.manual.chosen": "Ich tippe es selbst ein.",
-  "ob.conv.voice.invite":
-    "Soll ich lernen, wie du schreibst? Teile ein paar eigene Texte, dann klingen Entwürfe nach dir.",
-  "ob.conv.voice.optIn": "Ja, lerne meine Stimme.",
   "ob.conv.voice.skipped": "Stimme erstmal überspringen.",
   "ob.conv.voice.uploadAdded": "{name} hinzugefügt.",
   "ob.conv.voice.speakerQuestion":
     "Dieses Transkript hat mehrere Sprecher. Wer davon bist du? Nur deine eigenen Worte zählen.",
   "ob.conv.voice.speakerOptionDetail": "Wörter: {words} · Beiträge: {turns}",
+  "ob.conv.voice.guideSpeaker":
+    "Rechts wartet eine Sprecherwahl — wähle, welche Person du bist.",
+  "ob.conv.voice.speakerFoot": "Deine Wahl gilt nur für diese Datei.",
+  "ob.conv.voice.speakerContinue": "Diese Person bin ich",
+  "ob.conv.voice.continueSkippedStatus":
+    "Erstmal übersprungen — später in den Einstellungen nachholbar.",
+  "ob.conv.voice.continueFailedStatus":
+    "Deine Materialien sind sicher — versuch es erneut oder mach weiter und komm später zurück.",
+  "ob.conv.voice.continueDeferredStatus":
+    "Hier ist nichts zu tun — mach weiter, der Rest läuft von selbst.",
   "ob.conv.voice.collectAsk":
-    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch, und unten kannst du Text einfügen.",
-  "ob.conv.voice.composer": "Füge einen eigenen Text ein oder hänge Dateien an",
-  "ob.conv.voice.attach": "Dateien anhängen",
+    "Schick mir Texte, die du geschrieben hast. Gesprächs-Transkripte sind am besten: .vtt, .srt, .json oder Text mit Sprecher-Labels. Einfache Dokumente gehen auch.",
+  "ob.conv.voice.composer": "Füge hier deinen Text ein",
   "ob.conv.voice.dropHint":
     "Du kannst Dateien auch überall in dieses Gespräch ziehen.",
   "ob.conv.voice.fileSkipped":
@@ -2055,12 +2078,10 @@ export const de = {
     "Ich konnte diese Datei weder als Text noch als Transkript lesen. Nichts wurde gezählt.",
   "ob.conv.voice.ingestFailed":
     "Ich konnte diese Quelle nicht hinzufügen: {detail}",
-  "ob.conv.voice.pasteOffer":
-    "Das liest sich wie Stimm-Material. Soll ich es deinem Korpus hinzufügen?",
+  "ob.conv.voice.ingestUnexpected":
+    "Ich konnte diese Quelle nicht hinzufügen. Versuch es gleich noch einmal.",
   "ob.conv.voice.pasteAdd": "Ja, in meinen Korpus.",
   "ob.conv.voice.pasteDiscard": "Nein, verwerfen.",
-  "ob.conv.voice.pasteTooShort":
-    "Das ist zu kurz, um viel zu lernen. Hänge Dateien an oder füge einen längeren eigenen Text ein.",
   "ob.conv.voice.pasteSource": "Eingefügter Text",
   "ob.conv.voice.buildFloor":
     "Eigene Wörter bisher: {words}. Ich brauche mindestens {min}, bevor ich bauen kann.",
@@ -2105,8 +2126,7 @@ export const de = {
   "ob.conv.consent":
     "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
   "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
-  "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
-  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
+  "ob.conv.composer": "Frag mich, oder gib deine Website ein",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",
@@ -2122,18 +2142,168 @@ export const de = {
   "ob.conv.retry": "Erneut versuchen",
   "ob.conv.connect.persistFailed":
     "Ich konnte den Abschluss nicht speichern. Versuche es erneut.",
-  "ob.conv.review.title": "Firmenprofil, aus Quellen vorbereitet",
-  "ob.conv.review.openQuestions":
-    "Entscheide diese Punkte, bevor ich etwas speichere.",
-  "ob.conv.review.missing":
-    "Mir fehlt noch: {fields}. Ergänze das und ich kann speichern.",
-  "ob.conv.review.acceptAll": "Alles übernehmen",
+  "ob.conv.review.title":
+    "Hier ist alles, was ich gefunden habe. Korrigiere mich.",
+  "ob.conv.review.showMore": "Ganzen Text zeigen",
+  "ob.conv.review.showLess": "Weniger zeigen",
+  "ob.conv.review.continue": "Weiter",
+  "ob.conv.review.progressLabel": "Ausgefüllte Pflichtfelder",
+  "ob.conv.review.requiredRemaining.one":
+    "{count} Feld nötig, bevor du fortfahren kannst",
+  "ob.conv.review.requiredRemaining.other":
+    "{count} Felder nötig, bevor du fortfahren kannst",
+  "ob.conv.review.requiredDone": "Nichts weiter nötig — du kannst fortfahren.",
+  "ob.conv.review.confirmQuestionOpen":
+    "Eine Entscheidung ist noch offen. Beantworte sie, um fortzufahren.",
+  "ob.conv.triage.stateRequired": "erforderlich, noch leer",
+  "ob.conv.triage.stateEmpty": "leer",
+  "ob.conv.triage.stateTyped": "von dir eingetragen",
+  "ob.conv.triage.stateStored": "aus deinem Profil",
+  "ob.conv.triage.emptyHint":
+    "Nicht auf deiner Website gefunden. Trag es ein, wenn es zählt.",
+  "ob.conv.triage.legalNotPublished":
+    "Nicht auf deinem Impressum angegeben. Trag es selbst ein.",
+  "ob.conv.triage.legalNotChecked":
+    "Ich habe kein Impressum auf deiner Website gefunden, das ich prüfen könnte. Trag es selbst ein.",
+  "ob.conv.triage.mapLabel": "Zu einem Abschnitt springen",
+  "ob.conv.triage.sectionBlocking": "{count} nötig, um fortzufahren",
+  "ob.conv.triage.sectionAdvisory": "{count} prüfenswert",
+  "ob.conv.triage.blockingHead": "Nötig, um fortzufahren",
+  "ob.conv.triage.advisoryHead": "Prüfenswert",
+  "ob.conv.triage.sectionSettled": "Hier ist nichts offen",
+  "ob.conv.triage.sectionMore": "+{count} weitere",
+  "ob.conv.triage.restTitle": "Hintergrund, keine Aufgabe",
+  "ob.conv.triage.looksSolid": "Sieht belegt aus · {count}",
+  "ob.conv.triage.companyWebsite": "Website",
+  "ob.conv.triage.sourceCount": "{count} Quelle",
+  "ob.conv.triage.peopleLabel": "Personen",
+  "ob.conv.triage.peopleCount": "{count} gefunden",
+  "ob.conv.triage.peopleEmpty": "Keine Personen auf deiner Website gefunden.",
+  "ob.conv.triage.factsLabel": "Fakten",
+  "ob.conv.triage.factsCount": "{count} gefunden",
+  "ob.rail.spend": "Tokens für dieses Setup",
+  "ob.rail.tokensUnit": "Tok.",
+  "ob.conv.scene.step": "Schritt {n} von {m} · {label}",
+  "ob.conv.scene.detour": "Ein kurzer Umweg",
+  "ob.conv.scene.decisionSub":
+    "Deine Website nennt mehr als eine juristische Einheit, und ich rate nicht, welche deine Verträge unterschreibt: Sie entscheidet, was auf jedem Angebot und jeder Rechnung steht.",
+  "ob.conv.scene.continue": "Weiter",
+  "ob.conv.scene.candidates": "{count} Kandidaten",
+  "ob.conv.connect.sceneTitle": "Verbinde deine Konten.",
+  "ob.conv.connect.sceneSub":
+    "Ich baue deine Kontakte, Firmen und Historie aus dem, was schon in deinem Postfach liegt. Keine Handeingabe, keine CSV-Vorlage.",
+  "ob.conv.connect.mailboxTitle": "Dein Postfach",
+  "ob.conv.connect.mailboxHint":
+    "Wähle eins. Von hier kommen deine Kontakte, Firmen und Historie.",
+  "ob.conv.connect.networkTitle": "Dein Netzwerk",
+  "ob.conv.connect.networkHint":
+    "Optional, aber lohnend. Macht aus Bekannten Accounts und beobachtet sie auf Trigger.",
+  "ob.conv.connect.required": "erforderlich",
+  "ob.conv.connect.recommended": "empfohlen",
+  "ob.conv.connect.gmailBrings": "Mail, Kontakte und Kalender von Google",
+  "ob.conv.connect.microsoftBrings":
+    "Mail, Kontakte und Kalender über die Graph-API",
+  "ob.conv.connect.imapBrings": "Jeder andere Mail-Host, mit App-Passwort",
+  "ob.conv.connect.linkedinAuth": "Profillink, nur lesend",
+  "ob.conv.connect.scopeGoogle": "OAuth, Lese- und Sendeberechtigung",
+  "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
+  "ob.conv.connect.scopeImap": "Jeder andere Anbieter, App-Passwort",
+  "ob.conv.connect.connectCta": "verbinden →",
+  "ob.conv.connect.connectedCta": "verbunden",
+  "ob.conv.connect.blockedCard":
+    "Du hast schon ein Postfach gewählt. Trenne es in den Einstellungen, um zu wechseln.",
+  "ob.conv.connect.guaranteesHeading": "Was Verbinden tatsächlich bedeutet",
+  "ob.conv.connect.railPromise":
+    "Wir lesen nur, und nichts wird ohne deine Freigabe gesendet.",
+  "ob.conv.connect.dialogHeadlineAccess": "Zugriff auf {name} nötig",
+  "ob.conv.connect.dialogHeadlineImap": "Verbinde deinen Mail-Host",
+  "ob.conv.connect.dialogIntro":
+    "{brings}. Ich lese es einmal, um deine Kontakte und Historie aufzubauen, und halte es danach synchron.",
+  "ob.conv.connect.dialogClose": "Schließen",
+  "ob.conv.connect.linkedinName": "LinkedIn",
+  "ob.conv.connect.linkedinConnected": "Verbunden",
+  "ob.conv.connect.linkedinSkippedNote":
+    "Übersprungen: später in den Einstellungen nachholbar",
+  "ob.conv.connect.rosterFailedTitle":
+    "Postfächer konnten nicht geprüft werden",
+  "ob.conv.connect.rosterFailedBody":
+    "Beim Laden deines Verbindungsstatus ist etwas schiefgelaufen. Versuche es erneut, bevor du einen Anbieter auswählst.",
+  "ob.conv.voice.sceneTitle": "Zeig mir, wie du schreibst.",
+  "ob.conv.voice.sceneSub":
+    "Jede Mail, jede Antwort und jeder Nachfass, die dieses CRM entwirft, klingt nach dir, nicht nach einer Vorlage, und ohne deine Freigabe wird nichts versendet.",
+  "ob.conv.voice.heroKicker": "Warum dieser Schritt zählt",
+  "ob.conv.voice.heroBody":
+    "Ton, Rhythmus und Formulierungen lernt es aus deinen eigenen Texten und trainiert ausschließlich damit, nie mit den Texten anderer.",
+  "ob.conv.voice.dropTitle": "Leg deine Texte hier ab",
+  "ob.conv.voice.dropSub":
+    "Gesendete Mails eignen sich am besten, weil sie zeigen, wie du schreibst, wenn du etwas willst.",
+  "ob.conv.voice.browse": "Dateien wählen",
+  "ob.conv.voice.pasteInstead": "Stattdessen Text einfügen",
+  "ob.conv.voice.sourcesTitle": "Quellen",
+  "ob.conv.voice.meterLabel": "Fortschritt zum Minimum von {min} Wörtern",
+  "ob.conv.voice.meterProgress": "{words} von {min} Wörtern",
+  "ob.conv.voice.meterReady":
+    "{words} Wörter — genug für den Aufbau. Mehr schärft es weiter.",
+  "ob.conv.voice.footReady":
+    "Das Training dauert etwa eine Minute. Du siehst ein Beispiel, bevor etwas gespeichert wird.",
+  "ob.conv.voice.footFloor":
+    "Mindestens {min} Wörter. Darunter kopiert das Modell nur Formulierungen.",
+  "ob.conv.voice.buildingTitle": "Ich lerne deine Stimme",
+  "ob.conv.voice.buildingMeta": "{words} Wörter, {sources} Quellen",
+  "ob.conv.voice.resultSub":
+    "Lies zuerst das Beispiel. Passt es, bestätige. Passt es nicht, gib mir mehr Quellen und ich baue neu.",
+  "ob.conv.voice.resultSubNoSample":
+    "Dein Korpus ist noch zu klein, um ein Beispiel zurückzuhalten. Hier ist, was der Aufbau über deinen Schreibstil gelernt hat — für ein Beispiel brauche ich mehr Quellen.",
+  "ob.conv.voice.resultContinue": "Das bin ich",
+  "ob.conv.voice.sampleEyebrow": "Beispiel, nicht gesendet",
+  "ob.conv.voice.sampleAnother": "Anderes Szenario",
+  "ob.conv.voice.sampleSubjectLabel": "Betreff",
+  "ob.conv.voice.sampleWhyTag": "Warum",
+  "ob.conv.voice.dimensionsTitle": "Gemessene Dimensionen",
+  "ob.conv.voice.dimensionsCount": "Gemessen: {count}",
+  "ob.conv.voice.dimSentenceName": "Satzlänge",
+  "ob.conv.voice.dimSentencePoleLow": "Knapp",
+  "ob.conv.voice.dimSentencePoleHigh": "Ausführlich",
+  "ob.conv.voice.dimSentenceMeasured": "Mittel",
+  "ob.conv.voice.dimSentenceEvidence": "Im Schnitt {count} Wörter pro Satz.",
+  "ob.conv.scene.evidence": "Beleg",
+  "ob.conv.scene.hideEvidence": "Beleg ausblenden",
+  "ob.conv.scene.whyThis": "Was ich gelesen habe",
+  "ob.conv.scene.foundOn": "Gefunden auf",
+  "ob.conv.guide.decision":
+    "Ich brauche eine Entscheidung von dir: {question} Sie steht rechts, mit den Belegen zu jeder Option.",
+  "ob.conv.guide.reviewBlocked.one":
+    "Deine Prüfung ist rechts bereit. {count} Feld blockiert die Übernahme.",
+  "ob.conv.guide.reviewBlocked.other":
+    "Deine Prüfung ist rechts bereit. {count} Felder blockieren die Übernahme.",
+  "ob.conv.guide.reviewAdvisory.one":
+    "Deine Prüfung ist rechts bereit. Nichts blockiert dich; {count} Punkt ist einen Blick wert.",
+  "ob.conv.guide.reviewAdvisory.other":
+    "Deine Prüfung ist rechts bereit. Nichts blockiert dich; {count} Punkte sind einen Blick wert.",
+  "ob.conv.guide.reviewClean":
+    "Deine Prüfung ist rechts bereit. Sie sieht sauber aus, prüfe was du willst und übernimm, wenn du bereit bist.",
+  "ob.conv.guide.attentionHeading": "Diese brauchen deine Eingabe",
+  "ob.conv.guide.attentionGroup.blocking": "Nötig, um fortzufahren",
+  "ob.conv.guide.attentionGroup.decisions": "Braucht eine Entscheidung",
+  "ob.conv.guide.attentionGroup.advisory": "Einen Blick wert",
+  "ob.conv.guide.attentionStatus.blocks": "nötig zum Fortfahren",
+  "ob.conv.guide.attentionStatus.empty": "noch leer",
+  "ob.conv.guide.attentionStatus.decision": "braucht eine Entscheidung",
+  "ob.conv.guide.attentionStatus.check": "einen Blick wert",
+  "ob.conv.activity.steps": "{count} Schritte",
+  "ob.conv.showField": "Zeig mir",
   "ob.conv.review.editDirectly": "Felder direkt bearbeiten",
   "ob.conv.review.backToDossier": "Zurück zum Dossier",
   "ob.conv.review.proposalFallback":
     "Ich konnte die vorbereitete Zuordnung nicht laden. Prüfe direkt, was ich gelesen habe. Jedes Feld behält seine Quelle.",
   "ob.conv.review.confirmFailed":
     "Ich konnte noch nicht speichern: {detail} Korrigiere das und übernimm erneut.",
+  "ob.conv.review.confirmVersionSkew":
+    "Deine Prüfung wurde gerade mit neueren Informationen aus dem Read aktualisiert. Schau sie dir an und drücke dann erneut Weiter.",
+  "ob.conv.review.confirmVersionSkewStuck":
+    "Ich habe noch einmal geprüft, aber es hat sich noch nichts geändert. Weiter würde jetzt genauso fehlschlagen. Schau noch einmal nach oder prüfe es gleich erneut.",
+  "ob.conv.review.confirmNotReady":
+    "Dieser Read ist noch nicht bereit zur Bestätigung. Warte, bis er fertig ist, oder starte einen neuen.",
   "ob.conv.artifact.empty":
     "Noch nichts gelesen. Nenn mir eine Website und dieses Panel füllt sich mit belegten Funden.",
   "ob.conv.results.continue": "Weiter",
@@ -2168,13 +2338,8 @@ export const de = {
     "Willkommen zurück. Mein Lesevorgang von {host} pausiert gerade. Nenn mir wieder eine Website oder erzähl es mir direkt.",
   "ob.conv.connect.pick":
     "Wähle einen Anbieter, um genau zu sehen, was das Verbinden tut. Oder überspringe es und verbinde später in den Einstellungen.",
-  "ob.conv.linkedin.why":
-    "Vor deinem Postfach z\u00e4hlt eines mehr: wen dein Team bereits kennt. Deine E-Mails zeigen, mit wem du gesprochen hast. Dein LinkedIn-Netzwerk zeigt, wen du erreichen k\u00f6nntest \u2014 und in einem brandneuen CRM ist genau das der Unterschied zwischen einem Kunden, der kalt wirkt, und einem, bei dem eine Kollegin heute eine Vorstellung machen kann.",
-  "ob.conv.linkedin.ask":
-    "Das Verbinden kostet eine Autorisierung. Ich lese deine Kontaktliste und sonst nichts \u2014 keine Nachrichten, keine Beitr\u00e4ge, keine Aktivit\u00e4ten.",
-  "ob.conv.linkedin.artifactTitle": "LinkedIn-Verbindung",
-  "ob.conv.linkedin.artifactSub":
-    "Damit das CRM dir sagen kann, wer aus deinem Team bereits jemanden beim Kunden kennt.",
+  "ob.conv.linkedin.cardBody":
+    "Macht aus deinem Netzwerk Firmen und Kontakte, und meldet, wenn jemand aus deinem Netzwerk den Job wechselt.",
   "ob.conv.linkedin.scope1Lead": "Deine Kontaktliste \u2014",
   "ob.conv.linkedin.scope1Rest":
     "Name, Position, Unternehmen und das Datum der Vernetzung.",
@@ -2188,14 +2353,14 @@ export const de = {
   "ob.conv.linkedin.scope4Rest":
     "Das Verbinden verschickt keine Einladungen und keine Nachrichten \u2014 nie.",
   "ob.conv.linkedin.neverContacts":
-    "Deine Kontakte werden NICHT zu Kontakten im CRM. Sie erscheinen nie in Suche, Listen oder Kontaktseiten, nichts kann ihnen geschrieben werden, und niemand kann sie anmailen. Sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
+    "Deine Kontakte werden NICHT zu Kontakten im CRM \u2014 sie existieren nur f\u00fcr eine Frage: Kennt hier jemand bereits jemanden bei diesem Unternehmen?",
   "ob.conv.linkedin.profileLabel": "Deine LinkedIn-Profil-URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "N\u00f6tig, damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
+    "Damit das Netzwerk dir namentlich zugeordnet wird \u2014 das CRM sagt \u201eAnna kennt sie\u201c, nie \u201edas Unternehmen kennt sie\u201c.",
   "ob.conv.linkedin.authorize": "Mit LinkedIn autorisieren",
   "ob.conv.linkedin.appPending":
-    "Hinweis: Unsere LinkedIn-Entwickler-App wartet noch auf Freigabe. Deine Zustimmung und dein Profil werden erfasst, es werden aber noch keine Kontakte synchronisiert. Bis dahin kannst du in den Einstellungen deine eigene Connections.csv hochladen \u2014 das funktioniert heute schon.",
+    "Hinweis: Unsere LinkedIn-App wartet noch auf Freigabe, es werden also noch keine Kontakte synchronisiert \u2014 nur deine Zustimmung und dein Profil werden erfasst. Lade dazu in den Einstellungen deine Connections.csv hoch, das funktioniert heute schon.",
   "ob.conv.linkedin.skip": "LinkedIn vorerst \u00fcberspringen",
   "ob.conv.linkedin.connected":
     "LinkedIn autorisiert. Deine Kontakte werden synchronisiert, sobald die App freigegeben ist.",
@@ -2206,34 +2371,255 @@ export const de = {
   "ob.conv.connect.artifactEmpty":
     "Wähle im Gespräch einen Anbieter, dann öffnet sich hier sein Verbindungs-Panel.",
   "ob.conv.next.decisionOne": "1 Entscheidung offen",
-  "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
-  "ob.conv.next.review": "Deine Durchsicht ist bereit",
   "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
 
+  // Die Setup-Leiste: fünf Stationen, je ein Wort. Lang genug, den Schritt zu
+  // benennen, kurz genug, dass fünf davon bei 10px in eine Spalte passen.
+  "ob.rail.read": "Lesen",
+  "ob.rail.confirm": "Bestätigen",
+  "ob.rail.voice": "Stimme",
+  "ob.rail.ready": "Fertig",
+  "ob.rail.connect": "Verbinden",
+
+  // --- das Tor: der erste Screen nach der Anmeldung ----------------------
+  // Eine Frage und sonst nichts. Niemand soll das ganze Werkzeug auf dem
+  // ersten Screen treffen, also nennt das Tor, was es tut, was es den Leser
+  // kostet (zwei Minuten) und wer entscheidet (er selbst) — und fragt dann
+  // einmal.
+  "ob.gate.title": "Hallo {name}, ich bin die Margince-KI.",
+  "ob.gate.titleAnonymous": "Ich bin die Margince-KI.",
+  "ob.gate.sub":
+    "Nenn mir deine Website und ich lese sie: was du verkaufst, wer bei dir kauft, die Menschen dahinter. Du prüfst alles, bevor es gespeichert wird, und ohne dein Ja geht nichts nach draußen. Etwa zwei Minuten.",
+  "ob.gate.field": "Deine Website-Adresse",
+  "ob.gate.placeholder": "deinefirma.de",
+  "ob.gate.submit": "Meine Website lesen",
+  "ob.gate.altPrompt": "Keine Website zur Hand?",
+  "ob.gate.altAction": "Die Angaben selbst eintragen",
+  "ob.gate.invalidUrl":
+    "Das sieht nicht wie eine Web-Adresse aus. Versuch es als deinefirma.de.",
+  // Ein String für zwei Fehler, die für den Leser gleich aussehen: die
+  // Anfrage kam nie an, oder das Lesen begann und wurde nicht fertig.
+  // {detail} ist die Erklärung des Servers und kann leer sein — der Satz muss
+  // also auch ohne sie tragen.
+  "ob.gate.startFailed":
+    "Ich konnte diese Website nicht lesen. {detail} Versuch eine andere Adresse, oder gib die Daten selbst ein.",
+  // Ein aufgeschobenes Lesen ist vertagt, nicht kaputt: der Server kommt darauf
+  // zurück. Der Satz sagt also, was stimmt, und nennt beide Türen, ohne dass
+  // der Leser irgendetwas reparieren soll.
+  "ob.gate.readPaused":
+    "Dieses Lesen ist gerade pausiert. {detail} Es läuft von selbst weiter — oder nenn mir eine andere Adresse, oder gib die Daten selbst ein.",
+
+  // --- das Lese-Theater --------------------------------------------------
+  // Sichtbar gemachtes Volumen. Die Schnittstelle liefert keinen Nenner für
+  // die Seitenzahl, also ist jede Zahl hier ein offener Zähler — nie "14 von
+  // 18", nie ein Balken mit bekanntem Ende, denn die Gesamtzahl zu erfinden
+  // hieße, Daten zu erfinden.
+  "ob.scan.title": "Ich lese {host}",
+  "ob.scan.sub":
+    "Ich gehe die Website jetzt durch. Jeder Fakt behält die Seite, von der er kommt, damit du alles nachprüfen kannst, was ich behaupte.",
+  "ob.scan.doneTitle": "{host} gelesen",
+  "ob.scan.doneSub":
+    "{facts} Fakten und {fields} Profilfelder, jeweils mit der Seite, von der sie kommen. Ich öffne deine Durchsicht.",
+  "ob.scan.phaseCrawling": "Ich hole Seiten",
+  "ob.scan.phaseExtracting": "Ich ermittle, was du verkaufst",
+  "ob.scan.phaseQueued": "In der Warteschlange, startet gleich",
+  "ob.scan.phaseDeferred": "Vorerst pausiert",
+  "ob.scan.pagesRead": "{pages} Seiten gelesen",
+  "ob.scan.pagesSkipped": "{count} übersprungen",
+  "ob.scan.factsSoFar": "{count} Fakten bisher",
+  "ob.scan.stillReading": "lese noch",
+  "ob.scan.pageStripLabel": "Bisher gelesene Seiten",
+  "ob.scan.logLabel": "Die Seiten, die ich gerade durchgehe, neueste zuerst",
+  "ob.scan.pageFetched": "{url} — gelesen",
+  "ob.scan.pageSkipped": "{url} — übersprungen: {reason}",
+  "ob.scan.pageFailed": "{url} — nicht lesbar: {reason}",
+  "ob.scan.pageNoReason": "kein Grund erfasst",
+  "ob.scan.pageStatusFetched": "gelesen",
+  "ob.scan.pageStatusSkipped": "übersprungen: {reason}",
+  "ob.scan.pageStatusFailed": "nicht lesbar: {reason}",
+  "ob.scan.transparency": "Transparenz",
+  "ob.scan.costLine": "{calls} Aufrufe · {tokens} Tokens · {cost}",
+  "ob.scan.costPending": "noch keine Modellaufrufe berechnet",
+  "ob.scan.costUnpriced": " · nicht bepreiste Nutzung vorhanden",
+
+  // --- das Live-Panel: der belegte Datensatz baut sich selbst ------------
+  "ob.live.headReading": "Ich lese {host}",
+  "ob.live.headDone": "{host} gelesen",
+  "ob.live.nothingSaved":
+    "Noch ist nichts gespeichert. Wenn ich fertig bin, zeige ich dir alles.",
+  "ob.live.summaryHeading": "Das habe ich verstanden",
+  "ob.live.summaryYouAre": "Du bist",
+  "ob.live.summaryYouSell": "Du verkaufst",
+  "ob.live.summaryYouSellTo": "Du verkaufst an",
+  "ob.live.summaryVolume":
+    "{facts} Fakten aus {pages} Seiten, schon eingetragen. Öffne einen Abschnitt, um ihn zu prüfen.",
+  "ob.live.stepWebsite": "Aus dem Lesen deiner Website",
+  "ob.live.stepVoice": "Deine Schreibstimme",
+  "ob.live.stepConnect": "Postfach und Kalender",
+  "ob.live.stateDone": "fertig",
+  "ob.live.stateNow": "läuft",
+  "ob.live.stateWaiting": "wartet",
+  "ob.live.review": "Prüfen",
+  "ob.live.hide": "Ausblenden",
+  "ob.live.countFields": "{count} Felder",
+  "ob.live.countFacts": "{count} Fakten",
+  "ob.live.countPeople": "{count} Lead-Vorschläge",
+  "ob.live.countPages": "{read} gelesen · {skipped} übersprungen",
+  "ob.live.cardIdentity": "Firmenidentität",
+  "ob.live.cardPositioning": "Positionierung und Vertriebsansatz",
+  "ob.live.cardPeople": "Gefundene Personen",
+  "ob.live.cardCoverage": "Was ich gelesen und was ich übersprungen habe",
+  "ob.live.cardVoice": "Stimmprofil",
+  "ob.live.cardConnect": "Verbunden",
+  "ob.live.voiceNotBuilt": "noch nicht gebaut",
+  "ob.live.connectNone": "nichts verbunden",
+  "ob.live.noValue": "—",
+  "ob.live.peopleEmpty":
+    "Noch niemand. Ich schlage eine Person nur vor, wenn die Seite Name und Rolle nennt.",
+  "ob.live.coverageWarning": "Hinweis",
+  "ob.live.coverageSkipped": "Übersprungen",
+  "ob.live.coverageFailed": "Nicht lesbar",
+  "ob.live.coverageClean":
+    "Jede Seite, die ich versucht habe, kam zurück. Nichts wurde übersprungen, nichts ist fehlgeschlagen.",
+
+  // --- Fakten: Vorschaukarte und die ganze Tabelle -----------------------
+  "ob.facts.title": "Fakten",
+  "ob.facts.catCompany": "Firma",
+  "ob.facts.catOffering": "Angebot",
+  "ob.facts.catMarket": "Markt",
+  "ob.facts.catSignal": "Signal",
+  "ob.facts.catAll": "Alle",
+  "ob.facts.mixLabel": "Fakten nach Kategorie",
+  "ob.facts.selected": "{selected} von {total} werden gespeichert",
+  "ob.facts.selectAll": "Alle auswählen",
+  "ob.facts.clearAll": "Auswahl aufheben",
+  "ob.facts.previewNote":
+    "Gezeigt werden die {count} Fakten mit der höchsten Konfidenz.",
+  "ob.facts.openTable": "Ganze Tabelle öffnen",
+  "ob.facts.tableTitle": "Alle Fakten, die ich gelesen habe",
+  "ob.facts.search": "Fakten durchsuchen",
+  "ob.facts.hits": "{hits} von {total}",
+  "ob.facts.colSave": "Speichern",
+  "ob.facts.colCategory": "Kategorie",
+  "ob.facts.colFact": "Fakt",
+  "ob.facts.colSource": "Quelle",
+  "ob.facts.colConfidence": "Konfidenz",
+  "ob.facts.rowSave": "Diesen Fakt speichern: {fact}",
+  "ob.facts.noMatch": "Zu dieser Suche passt nichts.",
+  "ob.facts.empty":
+    "Ich habe die Website gelesen, aber keine einzelnen Fakten daraus gezogen. Was ich gelernt habe, steht in den Abschnitten darüber — jeweils mit Quelle.",
+  "ob.facts.close": "Fertig",
+  "ob.facts.closeTable": "Tabelle schließen",
+  "ob.facts.capReached":
+    "Du kannst bis zu {max} Fakten speichern. Nimm einen heraus, um Platz für einen anderen zu machen.",
+
+  // --- der Gegenwert: was zwei Minuten wirklich gebracht haben -----------
+  // Zahlen, kein Applaus. Jede Zelle ist eine echte Zahl von der
+  // Schnittstelle, und eine Zelle ohne Zahl sagt das, statt eine Null zu
+  // zeigen, die wie ein Ergebnis aussieht.
+  "ob.payoff.lead": "Vor wenigen Minuten war das eine leere Installation.",
+  "ob.payoff.leadResumed": "Das hier hat als leere Installation angefangen.",
+  "ob.payoff.factsRead": "Fakten gelesen",
+  "ob.payoff.factsConfirmed": "Fakten bestätigt",
+  "ob.payoff.peopleFound": "Personen gefunden",
+  "ob.payoff.profileFields": "Profilfelder",
+  "ob.payoff.voiceWords": "Wörter deiner Stimme",
+  "ob.payoff.pagesRead": "Seiten gelesen",
+  "ob.payoff.voiceNotTrained": "Stimme noch nicht trainiert",
+  "ob.payoff.body":
+    "Alles darin kannst du korrigieren, und jeder Wert zeigt weiter auf die Seite, von der er kommt.",
+  "ob.payoff.defaults":
+    "Zwei Voreinstellungen, beide änderbar unter Einstellungen → Autonomie: Ich bereite vor und warte auf deine Bestätigung, und ich überschreibe nie ein Feld, das du selbst getippt hast.",
+  "ob.payoff.seats":
+    "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
+  "ob.payoff.understood": "Verstanden",
+
+  // --- die Übergabe in die App ------------------------------------------
+  "ob.enter.cta": "Margince öffnen",
+  "ob.enter.assembling": "Dein Workspace wird zusammengestellt",
+
+  // --- das Zurücklesen des Postfachs -------------------------------------
+  // Ein anderer Vorgang als das Verbinden, und der Text muss die beiden
+  // getrennt halten: Verbinden erteilt Zugriff, das Zurücklesen verbraucht
+  // Budget, um den Verlauf zu lesen. Es liest nur und schreibt nichts,
+  // solange der Leser nicht zustimmt.
+  "ob.backread.heading": "Wie weit soll ich zurücklesen?",
+  "ob.backread.window3m": "3 Monate — aktueller Kontext",
+  "ob.backread.window6m": "6 Monate — empfohlen",
+  "ob.backread.window12m": "12 Monate — ganzer Vertriebszyklus",
+  "ob.backread.estimate": "Etwa {messages} Nachrichten in diesem Zeitraum.",
+  "ob.backread.estimateHeuristic":
+    "Aus dem Postfach geschätzt, noch nicht gezählt.",
+  "ob.backread.estimateCost": "Ungefähr {cost} an Modellaufrufen.",
+  "ob.backread.estimateFailed":
+    "Ich konnte diesen Zeitraum nicht schätzen: {detail} Du kannst trotzdem starten oder einen anderen wählen.",
+  "ob.backread.note":
+    "Beim Zurücklesen wird nur gelesen. Ich importiere Personen, Firmen und Aktivitäten, und ich zeige dir, was ich gefunden habe, bevor etwas geschrieben wird.",
+  "ob.backread.start": "Verbinden und lesen",
+  "ob.backread.startFailed":
+    "Ich konnte das Zurücklesen nicht starten: {detail} Versuch es erneut, oder mach weiter und starte es später in den Einstellungen.",
+  "ob.backread.running": "Ich lese dein Postfach",
+  "ob.backread.runningNote":
+    "Du kannst das laufen lassen und weiterarbeiten. Ich mache dort weiter, wo ich stehen geblieben bin.",
+  "ob.backread.queued": "In der Warteschlange. Es startet gleich.",
+  "ob.backread.progress": "{scanned} von etwa {total} Nachrichten",
+  "ob.backread.progressNoTotal": "{scanned} Nachrichten bisher",
+  "ob.backread.tallyMessages": "Nachrichten gelesen",
+  "ob.backread.tallyCaptured": "behalten",
+  "ob.backread.tallySkipped": "ignoriert",
+  "ob.backread.tallyPeople": "Personen gefunden",
+  "ob.backread.tallyCompanies": "Firmen gefunden",
+  "ob.backread.doneHeading": "Das steckt darin.",
+  "ob.backread.doneNote":
+    "Noch ist nichts geschrieben. Alles, was ich gefunden habe, wartet im Eingang auf deine Prüfung.",
+  "ob.backread.failed":
+    "Das Zurücklesen wurde gestoppt: {detail} Deine Verbindung ist in Ordnung — du kannst es in den Einstellungen erneut starten.",
+  "ob.backread.cancelled":
+    "Ich habe das Lesen gestoppt. Es wurde nichts geschrieben.",
+  "ob.backread.cancelledPartial":
+    "Ich habe das Lesen gestoppt. Was schon erfasst wurde, bleibt erhalten — es wartet im Eingang auf dich.",
+  "ob.backread.cancelFailed":
+    "Ich konnte das Lesen nicht stoppen: {detail} Versuch es erneut — es läuft in der Zwischenzeit weiter.",
+  "ob.backread.detailUnavailable": "Etwas ist unerwartet schiefgelaufen.",
+  "ob.backread.cancel": "Lesen stoppen",
+  "ob.backread.explore": "In der Zeit Margince erkunden",
+  "ob.backread.skip": "Verlauf jetzt nicht lesen",
+
   "auth.title": "Margince",
-  "auth.checking": "Sitzung wird geprüft…",
+  "auth.checking": "Deine Sitzung wird geprüft…",
   "auth.pageTitle": "Anmelden · Margince",
   "auth.loginTitle": "Bei Margince anmelden",
+  // "eine Admin-Person", nicht "deine Administration": eine Administration ist
+  // im Deutschen eine Stelle oder eine Tätigkeit, keine Person — der Rest des
+  // Katalogs sagt durchgehend "Admin-Person". Und der zweite Satz nennt das Verb
+  // statt des Nominalstils ("Eine Selbstregistrierung gibt es nicht").
   "auth.loginSub":
-    "Konten legt deine Administration an. Eine Selbstregistrierung gibt es nicht.",
+    "Konten legt eine Admin-Person an. Selbst registrieren kannst du dich nicht.",
   "auth.coreDisclosure": "Margince · KI-System",
   "auth.coreBoundary":
     "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",
+  // "Postfach", nicht "Mailbox": eine Mailbox ist im Deutschen der
+  // Anrufbeantworter. Auf einer Zeile, die den Umfang des Zugriffs offenlegt,
+  // benennt das eine andere Datenquelle als die englische Fassung.
   "auth.coreScope":
-    "Dieser Kontext ist deine Mailbox, dein Kalender und was ich im offenen Web lesen kann. Nichts anderes, und nichts ohne deine Freigabe.",
+    "Dieser Kontext ist dein Postfach, dein Kalender und was ich öffentlich im Web lesen kann. Nichts anderes und nichts ohne deine Freigabe.",
   "auth.corePermission": "Ich nutze deine Berechtigungen.",
   "auth.coreCites": "Ich belege, was ich finde.",
   "auth.coreWaits": "Vor externen Aktionen warte ich auf deine Freigabe.",
   "auth.coreMarks": "Ich markiere jeden Wert, den ich geschrieben habe.",
   "auth.coreConfigured": "Konfiguriert",
   "auth.coreUnconfigured": "KI nicht konfiguriert",
-  "auth.coreStillWorks": "Das CRM funktioniert weiterhin.",
+  // "auch ohne", nicht "weiterhin": "weiterhin" ist zeitlich und liest sich neben
+  // dem Hinweis "KI nicht konfiguriert" wie "noch, aber nicht mehr lange".
+  "auth.coreStillWorks": "Das CRM funktioniert auch ohne.",
   "auth.coreDevelopment": "Entwicklungs-KI",
   "auth.coreModeCloud": "Cloud-Routing",
   "auth.coreModeLocal": "lokales Routing",
   "auth.coreModeHybrid": "hybrides Routing",
   "auth.coreModeNone": "kein Modell-Routing",
-  "auth.coreModeDevelopment": "Offline-Entwicklungspfad",
+  // Die Nachbarwerte sind alle Betriebsarten; "Modus" ist dafür das deutsche
+  // Wort, "Pfad" die Übersetzung von "path".
+  "auth.coreModeDevelopment": "Offline-Entwicklungsmodus",
   "auth.coreProviderAnthropic": "Anthropic",
   "auth.coreProviderGemini": "Gemini",
   "auth.coreProviderOllama": "Ollama",
@@ -2241,13 +2627,17 @@ export const de = {
   "auth.coreProviderCompatible": "kompatibler Anbieter",
   "auth.coreProviderVllm": "vLLM",
   "auth.email": "E-Mail",
-  "auth.emailPlaceholder": "du@firma.de",
+  // Der lokale Teil einer Adresse ist nie ein Pronomen — "du@" ist "you@"
+  // Zeichen für Zeichen. "beispiel.de" ist im Deutschen, was "example.com" im
+  // Englischen ist, und genau das pinnt die Login-Spec §7.2.
+  "auth.emailPlaceholder": "name@beispiel.de",
   "auth.password": "Passwort",
   "auth.passwordPlaceholder": "Passwort",
   "auth.passwordHint": "mindestens 12 Zeichen",
   "auth.showPassword": "Passwort anzeigen",
   "auth.hidePassword": "Passwort ausblenden",
   "auth.capsLock": "Feststelltaste ist an",
+  "auth.continueWith": "Weiter mit {brand}",
   "auth.orWithEmail": "oder per E-Mail",
   "auth.legalProtected": "Der Zugang zu dieser Organisation ist beschränkt.",
   "auth.legalTerms": "Nutzungsbedingungen",
@@ -2269,25 +2659,50 @@ export const de = {
   "auth.connectionBody":
     "Prüfe deine Verbindung und versuche es erneut. Besteht das Problem weiter, startet der Server womöglich gerade neu.",
   "auth.unavailableTitle": "Installation nicht bereit",
+  // "Betreiber", nicht "Operator": ein Operator ist im Deutschen ein
+  // mathematisches Zeichen oder eine Telefonvermittlung. Und eine Einrichtung
+  // wird korrigiert, nicht repariert — repariert werden Geräte.
   "auth.unavailableBody":
-    "Diese Margince-Installation kann dich noch nicht anmelden. Ein Operator muss die Einrichtung abschließen oder reparieren.",
+    "Diese Margince-Installation kann dich noch nicht anmelden. Ein Betreiber muss die Einrichtung abschließen oder korrigieren.",
   "auth.forgotLink": "Passwort vergessen?",
   "auth.forgotTitle": "Passwort zurücksetzen",
+  // "gibt", nicht "existiert" (Amtsdeutsch), und das Feld will eine Adresse, keine
+  // E-Mail — die E-Mail ist die Nachricht. Was unterwegs ist, ist ebenfalls die
+  // Nachricht, nicht der Link. Die Existenz des Kontos bleibt offen.
   "auth.forgotSub":
-    "Gib deine E-Mail ein. Wenn dazu ein Konto existiert, ist ein Link unterwegs.",
+    "Gib deine E-Mail-Adresse ein. Wenn es dazu ein Konto gibt, schicken wir dir einen Link.",
   "auth.sendResetLink": "Link senden",
   "auth.forgotSentTitle": "Prüfe dein Postfach",
   "auth.forgotSentBody":
-    "Wenn zu dieser Adresse ein Konto existiert, ist ein Link unterwegs. Er läuft in einer Stunde ab.",
+    "Wenn es zu dieser Adresse ein Konto gibt, ist die E-Mail unterwegs. Der Link läuft in einer Stunde ab.",
   "auth.resetTitle": "Neues Passwort wählen",
   "auth.resetSub": "Dein Link ist gültig. Wähle ein neues Passwort.",
   "auth.newPassword": "Neues Passwort",
   "auth.setNewPassword": "Neues Passwort speichern",
-  "auth.resetFailed": "Dieser Link ist ungültig, verbraucht oder abgelaufen.",
+  // "bereits verwendet", nicht "verbraucht": ein Link wird verwendet, nicht
+  // verbraucht wie Kraftstoff.
+  "auth.resetFailed":
+    "Dieser Link ist ungültig, bereits verwendet oder abgelaufen.",
+  // "nicht akzeptiert": abgelehnt werden Anträge und Angebote, nicht Passwörter.
+  // Ein anderes zu wählen IST der neue Versuch, also entfällt der Nachsatz.
+  "auth.resetRejectedPassword":
+    "Dieses Passwort wurde nicht akzeptiert. Wähle ein anderes.",
+  // "speichern", nicht "setzen": gesetzt wird eine Variable, und "speichern" ist
+  // genau das Verb, das auf dem Button darunter steht. Drei Sätze statt eines
+  // Komma-Spleißes zwischen Aussage und Aufforderung.
+  "auth.resetServerFailed":
+    "Wir konnten dein neues Passwort gerade nicht speichern. Dein Link bleibt gültig. Versuche es gleich noch einmal.",
+  // Nicht "setze … erneut": das liest sich als "zurücksetzen", und dieser Schritt
+  // liegt hinter dem Zurücksetzen.
+  "auth.resetRateLimited":
+    "Zu viele Versuche. Warte einen Moment und speichere dein Passwort dann erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
-  "auth.resetDoneTitle": "Passwort aktualisiert",
+  // "geändert", wie im Satz darunter: aktualisiert werden Daten, die veralten.
+  "auth.resetDoneTitle": "Passwort geändert",
+  // "beendet", nicht "abgemeldet": abmelden tut sich eine Person, eine Sitzung
+  // wird beendet.
   "auth.resetDoneBody":
-    "Dein Passwort ist geändert und alle anderen Sitzungen sind abgemeldet. Melde dich mit dem neuen Passwort an.",
+    "Dein Passwort ist geändert und alle anderen Sitzungen sind beendet. Melde dich mit dem neuen Passwort an.",
   "auth.backToLogin": "Zurück zur Anmeldung",
   "auth.langDeutsch": "Deutsch",
   "auth.langEnglish": "English",

@@ -138,7 +138,7 @@ func (h Handlers) sendInvite(r *http.Request, email, rawToken string) {
 	if h.resetMailer == nil || rawToken == "" {
 		return
 	}
-	link := h.resetBaseURL + "/reset-password?token=" + rawToken
+	link := passwordLink(h.resetBaseURL, rawToken)
 	body := "You've been invited to Margince.\n\n" +
 		"Set your password within seven days to sign in:\n\n  " + link + "\n\n" +
 		"If you weren't expecting this, you can ignore this email."

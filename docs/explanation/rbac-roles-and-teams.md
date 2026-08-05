@@ -37,8 +37,9 @@ workspace. Its `permissions` JSONB holds two things:
 
 A fresh workspace is seeded with five **system roles** (`is_system = true`), whose exact grants are
 compiled in and are the source of truth — do not transcribe the full matrix elsewhere, it will
-drift. Read it in **`backend/internal/modules/identity/internal/policy/policy.go`** (`defaults`).
-The shape:
+drift. Read it in **`backend/internal/modules/identity/internal/policy/policy.go`** (`defaults`), or
+cell by cell in [reference/rbac-matrix.md](../reference/rbac-matrix.md), which is rendered from those
+same values by a test and so cannot drift from them. The shape:
 
 | Role | Posture | Row scope |
 |---|---|---|

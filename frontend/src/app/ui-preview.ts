@@ -106,27 +106,27 @@ type OidcProviders =
   components["schemas"]["AuthCapabilities"]["oidc_providers"];
 
 /**
- * The two providers the preview draws.
+ * The two providers the preview draws — as KEYS, with the label supplied by the
+ * caller.
  *
- * These are stand-ins for a SERVER's strings. `oidc_providers[].label` is
- * server-owned copy — the contract documents it as the button text and §11.5
- * says it is never translated — so they deliberately do NOT live in the i18n
- * catalogs, and a German reviewer sees them in English exactly as a real
- * installation's English labels would appear. The wording matches the contract's
- * own example label and the Storybook story, so the preview and the catalog show
- * the same thing.
+ * `oidc_providers[].label` is server-owned copy: crm.yaml documents it as the
+ * button text ("e.g. `Continue with Google`") and nothing in the client composes
+ * it, so a real installation's buttons read in whatever language its operator
+ * configured. That is the product's behaviour and this fixture must not pretend
+ * otherwise.
  *
- * They live in this `.ts` module rather than in `auth.tsx` for a second reason:
- * the no-inline-copy gate (`design-system/conformance.test.ts`) walks JSX text
- * and four user-facing attributes in `.tsx` files. A fixture array is neither,
- * so it would have passed the gate wherever it sat — but keeping it out of the
- * component file means the screen still contains no English string at all, and
- * the gate needs no exemption to say so.
+ * What it CAN do is stand in for the right server. A German installation's
+ * operator writes German labels, so a hard-coded English label stands in for an
+ * English installation — and shows a German reviewer a screen no German
+ * installation serves. Taking the label from the caller, which is the one place
+ * that knows the locale, makes the stand-in follow the reader instead.
+ *
+ * The keys live in this `.ts` module rather than in `auth.tsx` for a second
+ * reason: the no-inline-copy gate (`design-system/conformance.test.ts`) walks JSX
+ * text and four user-facing attributes in `.tsx` files, and a provider key is
+ * neither copy nor translatable.
  */
-const PREVIEW_OIDC_PROVIDERS: OidcProviders = [
-  { key: "google", label: "Continue with Google" },
-  { key: "microsoft", label: "Continue with Microsoft" },
-];
+const PREVIEW_OIDC_PROVIDER_KEYS = ["google", "microsoft"] as const;
 
 let warned = false;
 
@@ -140,9 +140,14 @@ let warned = false;
  * override cannot outlive this call.
  *
  * A non-empty served list always wins: a real installation's providers are the
- * truth, and the preview only ever fills a genuine emptiness.
+ * truth, and the preview only ever fills a genuine emptiness — `label` included,
+ * which is why it is never consulted on that path.
  */
-export function previewedOidcProviders(served: OidcProviders): OidcProviders {
+export function previewedOidcProviders(
+  served: OidcProviders,
+  /** The label a server would have sent for this key, in the reader's language. */
+  label: (providerKey: string) => string,
+): OidcProviders {
   if (served.length > 0 || !uiPreviewOidcEnabled()) {
     return served;
   }
@@ -154,7 +159,7 @@ export function previewedOidcProviders(served: OidcProviders): OidcProviders {
       "[ui-preview] VITE_UI_PREVIEW_OIDC is on: the federated sign-in buttons are drawn for design review. This installation serves no OIDC providers and these buttons complete no sign-in.",
     );
   }
-  return PREVIEW_OIDC_PROVIDERS;
+  return PREVIEW_OIDC_PROVIDER_KEYS.map((key) => ({ key, label: label(key) }));
 }
 
 const NO_UNAVAILABLE_PROVIDERS: ReadonlySet<string> = new Set();

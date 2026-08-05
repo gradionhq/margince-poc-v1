@@ -176,6 +176,20 @@ export function useVoiceCorpus({
     [dispatch],
   );
 
+  // ingest/classifyUpload never THROW for a server refusal — that path
+  // narrates through refusalEntry (problemMessage, already safe) and
+  // resolves normally. Anything a .catch below actually receives is a
+  // client-side bug that ran before the server had a chance to explain
+  // itself, so its message is never trusted in front of the reader: it is
+  // logged, and the narration says only that adding the source failed.
+  const sayUnexpectedFailure = useCallback(
+    (id: string, err: unknown) => {
+      console.error("voice corpus ingest failed unexpectedly", err);
+      say(id, "ob.conv.voice.ingestUnexpected");
+    },
+    [say],
+  );
+
   // Concurrent ingests can settle out of order; each request is stamped at
   // issue time and only the newest-by-request-order summary may drive the
   // meter and the word-growth narration. Every response's summary is
@@ -335,12 +349,9 @@ export function useVoiceCorpus({
           .then((text) => classifyUpload(file.name, text))
           .catch((err: unknown) => {
             if (mounted.current) {
-              say(
+              sayUnexpectedFailure(
                 `refuse:onboarding:upload:${file.name}`,
-                "ob.conv.voice.ingestFailed",
-                {
-                  detail: err instanceof Error ? err.message : String(err),
-                },
+                err,
               );
             }
           })
@@ -351,7 +362,7 @@ export function useVoiceCorpus({
           });
       }
     },
-    [classifyUpload, dispatch, say],
+    [classifyUpload, dispatch, say, sayUnexpectedFailure],
   );
 
   const addPaste = useCallback(
@@ -376,9 +387,7 @@ export function useVoiceCorpus({
       )
         .catch((err: unknown) => {
           if (mounted.current) {
-            say(`refuse:${ref}`, "ob.conv.voice.ingestFailed", {
-              detail: err instanceof Error ? err.message : String(err),
-            });
+            sayUnexpectedFailure(`refuse:${ref}`, err);
           }
         })
         .finally(() => {
@@ -387,7 +396,7 @@ export function useVoiceCorpus({
           }
         });
     },
-    [dispatch, ingest, say],
+    [dispatch, ingest, sayUnexpectedFailure],
   );
 
   // The machine holds ONE pending question, so speaker asks queue here and
@@ -446,9 +455,7 @@ export function useVoiceCorpus({
       )
         .catch((err: unknown) => {
           if (mounted.current) {
-            say(`refuse:${ask.ref}`, "ob.conv.voice.ingestFailed", {
-              detail: err instanceof Error ? err.message : String(err),
-            });
+            sayUnexpectedFailure(`refuse:${ask.ref}`, err);
           }
         })
         .finally(() => {
@@ -457,7 +464,7 @@ export function useVoiceCorpus({
           }
         });
     },
-    [asks, ingest, say],
+    [asks, ingest, sayUnexpectedFailure],
   );
 
   return {

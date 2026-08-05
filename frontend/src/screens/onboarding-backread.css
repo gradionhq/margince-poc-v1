@@ -1,0 +1,195 @@
+/* The mailbox backread step (screens/onboarding-backread.tsx).
+ *
+ * Two rules here are behaviour rather than taste:
+ *
+ *  - the scope region and the progress line hold their own height, so an
+ *    arriving estimate or an incremented count never moves the button someone
+ *    is about to press;
+ *  - every number is mono and tabular, so a tally counting upward changes its
+ *    digits without changing its width.
+ *
+ * Copy never lives here (conformance gate) and no colour is a literal: literals
+ * live only in design-system/tokens.css.
+ */
+
+.ob-backread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(460px, 100%);
+  margin: 0 auto;
+  text-align: left;
+}
+
+.ob-backread-h {
+  font-family: var(--f-display);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.018em;
+  color: var(--textPrimary);
+  text-wrap: balance;
+}
+
+/* ---- the window pick --------------------------------------------------- */
+
+.ob-backread-windows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  padding: var(--space-2);
+}
+
+.ob-backread-window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* A finger target, not a text line. */
+  min-height: 44px;
+  padding: 0 var(--space-2);
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  color: var(--textContent);
+  cursor: pointer;
+}
+
+.ob-backread-window:hover {
+  background: var(--bgHover);
+}
+
+.ob-backread-window:has(input:checked) {
+  color: var(--textPrimary);
+  font-weight: 500;
+}
+
+/* ---- the scope before the spend ---------------------------------------- */
+
+/* Reserves the estimate's own two lines: the panel is laid out before the
+   preview answers, and the answer must not push the actions down the page. */
+.ob-backread-scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 44px;
+  padding: var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+}
+
+.ob-backread-estimate {
+  font-size: 13.5px;
+  color: var(--textPrimary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-backread-qualifier {
+  font-size: 11.5px;
+  color: var(--textMeta);
+}
+
+/* The cost of a machine's work reads in the AI family, never the brand accent:
+   green means the user acts, indigo means the machine cost something. */
+.ob-backread-cost {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--aiText);
+}
+
+.ob-backread-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--textMeta);
+}
+
+.ob-backread-problem {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--danger);
+}
+
+/* ---- the running read -------------------------------------------------- */
+
+.ob-backread-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 34px;
+}
+
+.ob-backread-scanned {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--textPrimary);
+}
+
+/* The bar draws the number stated above it and carries nothing of its own, so
+   it is aria-hidden in the markup. */
+.ob-backread-bar {
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  overflow: hidden;
+}
+
+.ob-backread-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  transition: width 0.18s ease;
+}
+
+.ob-backread-tallies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--space-2);
+}
+
+/* Value above label on screen, label first in the DOM: a description list read
+   aloud as "people found, 47" means something, "47, people found" does not. */
+.ob-backread-tally {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+}
+
+.ob-backread-tally-value {
+  font-family: var(--f-mono);
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--textPrimary);
+}
+
+.ob-backread-tally-label {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}
+
+/* ---- leaving ----------------------------------------------------------- */
+
+.ob-backread-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-backread-bar > span {
+    transition: none;
+  }
+}

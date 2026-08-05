@@ -35,7 +35,7 @@
 }
 .btn-primary {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   box-shadow: 0 2px 8px var(--accentMed);
 }
 .btn-primary:hover {
@@ -44,7 +44,7 @@
 }
 .btn-danger {
   background: var(--danger);
-  color: var(--textOnAccent);
+  color: var(--textOnStatusControl);
   box-shadow: 0 2px 8px var(--dangerBg);
 }
 .btn-danger:hover {

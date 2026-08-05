@@ -1,0 +1,897 @@
+{
+  "admin": {
+    "objects": {
+      "activity": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "ai_model_rate": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "automation": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "capture_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "channel_connection": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "custom_field": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "deal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "embedding_reindex": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "fx_rate": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "import_run": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "lead": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "list": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer_template": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "organization": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "overlay_connection": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "partner": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "person": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "pipeline": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "product": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "project": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "quota": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "relationship": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "saved_view": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "signal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "tag": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "voice_profile": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "webhook_subscription": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      }
+    },
+    "row_scope": "all"
+  },
+  "manager": {
+    "objects": {
+      "activity": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "ai_model_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "automation": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "capture_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "channel_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "custom_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "deal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "embedding_reindex": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "fx_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "import_run": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "lead": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "list": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer_template": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "organization": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "overlay_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "partner": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "person": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "pipeline": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "product": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "project": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "quota": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "relationship": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "saved_view": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "signal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "tag": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "voice_profile": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "webhook_subscription": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      }
+    },
+    "row_scope": "team"
+  },
+  "ops": {
+    "objects": {
+      "activity": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "ai_model_rate": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "automation": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "capture_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "channel_connection": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "custom_field": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "deal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "embedding_reindex": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "fx_rate": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "import_run": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "lead": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "list": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "offer_template": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "organization": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "overlay_connection": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "partner": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "person": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "pipeline": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "product": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "project": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "quota": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "relationship": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "saved_view": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "signal": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "tag": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "voice_profile": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "webhook_subscription": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      }
+    },
+    "row_scope": "all"
+  },
+  "read_only": {
+    "objects": {
+      "activity": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "ai_model_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "automation": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "capture_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "channel_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "custom_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "deal": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "embedding_reindex": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "fx_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "import_run": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "lead": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "list": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "offer": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "offer_template": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "organization": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "overlay_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "partner": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "person": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "pipeline": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "product": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "project": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "quota": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "relationship": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "saved_view": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "signal": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "tag": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "voice_profile": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "webhook_subscription": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      }
+    },
+    "row_scope": "all"
+  },
+  "rep": {
+    "objects": {
+      "activity": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "ai_model_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "automation": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "capture_settings": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "channel_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "computed_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "custom_field": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "deal": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "embedding_reindex": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "fx_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "import_run": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "lead": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "list": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "offer": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "offer_template": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "organization": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "overlay_connection": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "partner": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "person": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "pipeline": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "product": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "project": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "quota": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      },
+      "relationship": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "saved_view": {
+        "create": true,
+        "delete": true,
+        "read": true,
+        "update": true
+      },
+      "signal": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "tag": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "voice_profile": {
+        "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "webhook_subscription": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": false
+      }
+    },
+    "row_scope": "team"
+  }
+}

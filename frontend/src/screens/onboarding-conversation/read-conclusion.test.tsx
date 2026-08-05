@@ -70,6 +70,13 @@ const partialRead: CompanySiteRead = {
   status: "partial",
   phase: null,
   pages_read: 40,
+  // A page the crawl genuinely could not reach — the case most likely to
+  // regress into a rail bubble again. Coverage detail belongs to the
+  // review's own CoverageCard, never restated in the conversation.
+  pages: [
+    ...baseRead.pages,
+    { url: "https://gradion.com/team", status: "skipped", reason: "robots" },
+  ],
   draft_version: 3,
   proposal_hash: "proposal-3",
   profile_fields: [
@@ -228,64 +235,74 @@ afterEach(() => {
 // multi-snapshot polling, with chat interleaved, and across a poll failure
 // that recovers into the terminal (the round-2 re-arm).
 describe("the read conclusion ordering contract", () => {
-  it("a multi-poll partial terminal with zero open questions reaches the confirm card", async () => {
+  // The read skipped a page (robots-blocked) and still reaches the confirm
+  // card with no rail commentary about it at all: the coverage detail lives
+  // on the review's own CoverageCard, and the rail never restates it.
+  it("a multi-poll partial terminal that skipped a page reaches the confirm card with no outcome bubble", async () => {
     stubApi([midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
     const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
+      name: /Your website address/,
     });
     await userEvent.type(composer, "gradion.com{Enter}");
 
     expect(
-      await screen.findByText(/I could not read everything/, undefined, {
-        timeout: 8000,
-      }),
-    ).toBeTruthy();
-    expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },
       ),
     ).toBeTruthy();
+    expect(screen.queryByText(/I could not read/)).toBeNull();
   }, 20000);
 
-  it("chat during the read does not stall the conclusion", async () => {
+  // The read now runs on its own full-screen stage with no composer, so a
+  // question cannot be asked mid-crawl — the tree's own ob.ai.readFirst rule
+  // already says an answer given before the evidence lands is the wrong answer.
+  // What still has to hold is the part that was genuinely at risk: a long run
+  // whose snapshots keep arriving must converge on the review rather than
+  // stalling as the poll count grows. The rail itself never grows a composer
+  // back — the review's own Continue is the surface's action, not the
+  // rail's.
+  it("a long multi-snapshot run converges on the review", async () => {
     stubApi([midRead, midRead, midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
-    const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
-    });
-    await userEvent.type(composer, "gradion.com{Enter}");
-    await screen.findByText(/Reading gradion\.com now/);
-    await userEvent.type(composer, "what did you find so far?{Enter}");
-    expect(await screen.findByText("Noted.")).toBeTruthy();
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: /Your website address/ }),
+      "gradion.com{Enter}",
+    );
+
+    // While it runs, the theatre is the surface and it reports the polled run.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /Reading gradion/ }),
+    ).toBeTruthy();
 
     expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },
       ),
     ).toBeTruthy();
+    expect(document.querySelector(".mw-composer")).toBeNull();
   }, 20000);
 
   it("a poll error mid-read that recovers into the terminal still reaches review", async () => {
     stubApi([midRead, 500, partialRead]);
     render(<OnboardingScreen />);
     const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
+      name: /Your website address/,
     });
     await userEvent.type(composer, "gradion.com{Enter}");
 
     expect(
       await screen.findByRole(
         "button",
-        { name: /Accept all/ },
+        { name: /Continue/ },
         {
           timeout: 8000,
         },

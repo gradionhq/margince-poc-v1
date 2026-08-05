@@ -1,0 +1,194 @@
+/*
+ * The payoff grid — the emphatic moment of onboarding, and still one hairline.
+ *
+ * The hairline is a 1px ring on each cell, laid into a 1px gap. The obvious
+ * cheaper trick — paint the hairline colour on the CONTAINER and let the cells
+ * cover it — cannot be used here: a count with nothing to report is omitted
+ * rather than faked, so the grid legitimately runs short of a full row, and the
+ * container's colour would then show through the empty track as a solid grey
+ * block. Ringing the cells means an uncovered track is just the cell ground.
+ *
+ * Accent, not brand action: the cells sit on `--accentSurface` (the page-wash
+ * step of the ramp) and the numbers stay `--textPrimary`. Green means the user
+ * acts, and a count is not a control.
+ */
+
+/*
+ * The payoff sizes itself against ITS OWN width, not the window's. It renders
+ * inside the conversation's thread column — a fraction of a two-column
+ * workbench — so the viewport says nothing useful about how much room the grid
+ * has: a wide window can hand it 360px while a narrow one, where the artifact
+ * pane has already stacked, hands it the full width. Viewport breakpoints here
+ * fire exactly backwards from the constraint (they tighten the grid where it
+ * has most room and leave it alone where the 10px caps run to three lines in
+ * German). `container-type: inline-size` makes the column the thing measured.
+ */
+.ob-payoff {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Prose, not a heading — the step owning this screen holds the h1. */
+.ob-payoff-lead {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+  color: var(--textPrimary);
+}
+
+.ob-payoff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* The gap the cells' rings meet in — see the file header for why the colour
+     is not here. */
+  gap: 1px;
+  background: var(--accentSurface);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--borderSubtle));
+  border-radius: var(--r-sm);
+  /* Clips the cells' square corners to the container's radius. */
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.ob-payoff-cell {
+  min-width: 0;
+  display: flex;
+  /* `<dt>` before `<dd>` in the DOM (a description list is not negotiable),
+     number above label on screen. Reversing the column is what lets both be
+     true at once. */
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--accentSurface);
+  /* A ring rather than a border, so it costs no layout and cannot shift the
+     digits inside the cell. The container's overflow clips it at the outer
+     edges, where its own border takes over. */
+  box-shadow: 0 0 0 1px var(--borderSubtle);
+}
+
+.ob-payoff-value {
+  margin: 0;
+  font-family: var(--f-mono);
+  /* Every one of these is a number that differs per installation, so the
+     columns line up on the digits rather than on the glyph widths. */
+  font-variant-numeric: tabular-nums;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--textPrimary);
+}
+
+/* Two of the six carry the argument — what was read, and what the reader
+   confirmed — and the other four are the evidence that it was earned. Set at
+   one size the whole grid reads as a scoreboard and the eye goes to whichever
+   number happens to be biggest, which is usually the word count. The step is
+   small on purpose: enough to say which fact leads, not enough to make the
+   supporting counts look like fine print. */
+.ob-payoff-cell.is-argument .ob-payoff-value {
+  font-size: 30px;
+}
+
+.ob-payoff-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  /* --textMeta is the AA floor role for anything under 13px. */
+  color: var(--textMeta);
+}
+
+/* A cell with no number to report. Set as a sentence rather than as a figure:
+   it is a statement about what was not done, and dressing it in the number's
+   type would make an absence look like a measurement. */
+.ob-payoff-note {
+  margin: 0;
+  align-self: center;
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--textMeta);
+}
+.ob-payoff-cell.is-absent {
+  justify-content: center;
+}
+
+.ob-payoff-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--textContent);
+}
+
+/* The two deferrals. Each names its own exit inside its translated sentence,
+   so the well holds prose and never a path assembled from parts. */
+.ob-payoff-next {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+}
+.ob-payoff-next li {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+/* Six cells stay six cells: two columns rather than a dropped row. The width
+   is the COLUMN's (see the container note at the top of the file) — below
+   ~460px the uppercase labels start taking a third line in German. */
+@container (max-width: 460px) {
+  .ob-payoff-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Phone width: the column IS the screen, so the lead takes the treatment it
+   needs there. */
+@container (max-width: 380px) {
+  .ob-payoff-lead {
+    font-size: 19px;
+  }
+  .ob-payoff-cell {
+    padding: var(--space-3);
+  }
+  .ob-payoff-value {
+    font-size: 23px;
+  }
+  .ob-payoff-cell.is-argument .ob-payoff-value {
+    /* The same lead-to-support step, one notch down the scale. */
+    font-size: 25px;
+  }
+}
+
+/* Two columns of ~130px is where the labels lose again. One honest column beats
+   two crowded ones. */
+@container (max-width: 300px) {
+  .ob-payoff-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (forced-colors: active) {
+  .ob-payoff-grid,
+  .ob-payoff-next {
+    forced-color-adjust: auto;
+  }
+  /* A forced palette drops box-shadow entirely, so the seams have to come back
+     as a real border for the grid to keep its structure. */
+  .ob-payoff-cell {
+    border: 1px solid CanvasText;
+  }
+}

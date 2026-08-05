@@ -78,3 +78,8 @@ workspace/
 /*.jpg
 /*.jpeg
 /*.gif
+
+# JetBrains project settings: per-developer IDE state (run configs, local
+# inspection profiles), not a build input. Machine-local, so it never belongs
+# in a commit.
+/.idea/

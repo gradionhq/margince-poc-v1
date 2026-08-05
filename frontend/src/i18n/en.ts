@@ -33,6 +33,7 @@ export const en = {
   "trust.stagedProposal": "staged proposal",
   "trust.resolvedValue": "resolved value",
   "trust.editValue": "Edit {description}",
+  "trust.evidenceFrom": "Evidence from {source}",
 
   "history.created": "— created —",
   "history.oldValue": "Previous value",
@@ -1515,10 +1516,31 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
+  // The runtime disclosure is a chip you can open rather than a permanent
+  // band: cost is stated WHILE it is being spent, but a reader deciding
+  // whether a legal entity is right should not have to read a billing table
+  // to get to it.
+  "ob.ai.runtimeChip": "What is answering, and what it costs",
+  "ob.ai.answeringNow": "What is answering right now",
+  "ob.ai.runScope": "This run only. The full log is in Settings → AI.",
   "ob.ai.tier.localSmall": "local, fast",
   "ob.ai.tier.cheapCloud": "cloud, efficient",
   "ob.ai.tier.premium": "premium reasoning",
   "ob.ai.tier.localLarge": "local, advanced",
+  // The rail footer's plain-language line: the exact ids sit one click away
+  // in the runtime chip's "Configured AI" row, so this says only what a
+  // non-technical reader needs at a glance — how many models, and where.
+  "ob.ai.summary.cloud.one": "1 model, running in the cloud",
+  "ob.ai.summary.cloud.other": "{count} models, running in the cloud",
+  "ob.ai.summary.local.one": "1 model, running locally",
+  "ob.ai.summary.local.other": "{count} models, running locally",
+  "ob.ai.summary.hybrid.one": "1 model, split between cloud and local",
+  "ob.ai.summary.hybrid.other": "{count} models, split between cloud and local",
+  "ob.ai.summary.development.one": "1 model, development mode",
+  "ob.ai.summary.development.other": "{count} models, development mode",
+  "ob.ai.summary.none": "No model configured yet",
+  "ob.ai.summaryProviders.one": "1 provider configured",
+  "ob.ai.summaryProviders.other": "{count} providers configured",
   "ob.ai.readFirst": "Start company setup before asking about it.",
   "ob.ai.liveArtifact": "Live, reviewable artifact",
   "ob.ai.companyKnowledge": "What I understand about your company",
@@ -1586,7 +1608,7 @@ export const en = {
   "ob.s1.urlPlaceholder": "yourcompany.com",
   "ob.s1.identityLabel": "Legal organization",
   "ob.s1.offerLabel": "Products and offer",
-  "ob.s1.customerLabel": "Ideal customer",
+  "ob.s1.customerLabel": "Customer",
   "ob.s1.salesLabel": "Positioning and sales context",
   "ob.s1.fieldRequired": "Required.",
   "ob.s1.requiredMissing": "Fill these in before you continue: {fields}",
@@ -1717,7 +1739,7 @@ export const en = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
-  "ob.s4.microsoftBtn": "Connect Microsoft",
+  "ob.s4.microsoftBtn": "Allow access to my Microsoft",
   "ob.s4.microsoftHint":
     "Read-only mail access. You can disconnect any time from Settings.",
   "ob.s4.microsoftUnverified":
@@ -1732,7 +1754,7 @@ export const en = {
   "ob.s4.connectRetry":
     "Head to Settings → Integrations to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
-  "ob.s4.googleBtn": "Continue with Google",
+  "ob.s4.googleBtn": "Allow access to my Gmail",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Read-only access. You'll approve it on Google's own consent screen, and you can disconnect it again any time.",
@@ -1944,13 +1966,14 @@ export const en = {
     "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
+  "ob.s4.imapPort": "Port",
   "ob.s4.imapEmail": "Email",
   "ob.s4.imapPassword": "App password",
   "ob.s4.imapMailbox": "Mailbox",
   "ob.s4.imapMax": "How many recent emails",
   "ob.s4.imapHint":
     "Use an app-specific password (Gmail: Account → Security → App passwords). We seal it in the credential vault and keep reading new mail until you disconnect — disconnecting deletes it.",
-  "ob.s4.imapConnect": "Connect mailbox",
+  "ob.s4.imapConnect": "Test and connect",
   "ob.s4.connecting": "Connecting securely…",
   "ob.s4.scope1Lead": "We read — we don't clutter.",
   "ob.s4.scope1Rest":
@@ -1966,23 +1989,19 @@ export const en = {
     "Sit back — your CRM is building itself. New mail keeps arriving here as the first sweep runs, usually within a couple of minutes.",
   "ob.s4.enterCrm": "Enter your CRM",
   "ob.s4.connectFailed": "Couldn't connect that mailbox",
-  "ob.s4.skipLater": "Skip for now — I'll connect later",
+  "ob.s4.notNow": "Not now",
 
   "ob.conv.threadLabel": "Onboarding conversation",
   "ob.conv.welcome":
     "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
   "ob.conv.welcomeMember":
     "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
-  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
   "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
   "ob.conv.read.pages": "Pages read so far: {pages}.",
   "ob.conv.read.learnedField": "Learned {field}: {value}",
   "ob.conv.read.extracting":
     "Done crawling. Now extracting what the site says about your business.",
   "ob.conv.read.warning": "Heads up: {warning}",
-  "ob.conv.read.done": "Finished reading. Findings with sources: {count}.",
-  "ob.conv.read.partial":
-    "I could not read everything. Findings with sources: {count}.",
   "ob.conv.read.failed":
     "I could not read that site. Try another URL, or tell me directly.",
   "ob.conv.read.deferred":
@@ -1998,18 +2017,24 @@ export const en = {
   "ob.conv.company.confirmed":
     "Company profile confirmed. Everything I stored carries its source.",
   "ob.conv.manual.chosen": "I will type it in myself.",
-  "ob.conv.voice.invite":
-    "Want me to learn how you write? Share a few texts you wrote and drafts will sound like you.",
-  "ob.conv.voice.optIn": "Yes, learn my voice.",
   "ob.conv.voice.skipped": "Skip voice for now.",
   "ob.conv.voice.uploadAdded": "Added {name}.",
   "ob.conv.voice.speakerQuestion":
     "This transcript has several speakers. Which one is you? Only your own words count.",
   "ob.conv.voice.speakerOptionDetail": "words: {words} · turns: {turns}",
+  "ob.conv.voice.guideSpeaker":
+    "A speaker choice is waiting on the right — pick which one is you.",
+  "ob.conv.voice.speakerFoot": "Your choice applies to this file only.",
+  "ob.conv.voice.speakerContinue": "Use this speaker",
+  "ob.conv.voice.continueSkippedStatus":
+    "Skipped for now — add it later in Settings.",
+  "ob.conv.voice.continueFailedStatus":
+    "Your material is safe — retry now, or continue and pick this up later.",
+  "ob.conv.voice.continueDeferredStatus":
+    "No action needed here — continue, and it finishes on its own.",
   "ob.conv.voice.collectAsk":
-    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too, and you can paste text below.",
-  "ob.conv.voice.composer": "Paste a text you wrote, or attach files",
-  "ob.conv.voice.attach": "Attach files",
+    "Send me things you wrote. Call transcripts are best: .vtt, .srt, .json, or text with speaker labels. Plain documents work too.",
+  "ob.conv.voice.composer": "Paste the text you wrote here",
   "ob.conv.voice.dropHint":
     "You can also drop files anywhere in this conversation.",
   "ob.conv.voice.fileSkipped":
@@ -2027,12 +2052,10 @@ export const en = {
   "ob.conv.voice.refusalUnsupported":
     "I could not parse that file as text or a transcript. Nothing was counted.",
   "ob.conv.voice.ingestFailed": "I could not add that source: {detail}",
-  "ob.conv.voice.pasteOffer":
-    "That reads like voice material. Should I add it to your corpus?",
+  "ob.conv.voice.ingestUnexpected":
+    "I could not add that source. Try again in a moment.",
   "ob.conv.voice.pasteAdd": "Yes, add it to my corpus.",
   "ob.conv.voice.pasteDiscard": "No, discard it.",
-  "ob.conv.voice.pasteTooShort":
-    "That is too short to teach me much. Attach files, or paste a longer text you wrote.",
   "ob.conv.voice.pasteSource": "Pasted text",
   "ob.conv.voice.buildFloor":
     "Own words so far: {words}. I need at least {min} before I can build.",
@@ -2076,8 +2099,7 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
-  "ob.conv.composer": "Type your website address, or ask me a question",
-  "ob.conv.tellInstead": "I would rather tell you directly",
+  "ob.conv.composer": "Ask me, or paste your website",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
@@ -2090,16 +2112,164 @@ export const en = {
   "ob.conv.loadFailed": "I could not check your setup. Please try again.",
   "ob.conv.retry": "Try again",
   "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
-  "ob.conv.review.title": "Company profile, prepared from sources",
-  "ob.conv.review.openQuestions": "Decide these before I save anything.",
-  "ob.conv.review.missing": "I still need: {fields}. Add them and I can save.",
-  "ob.conv.review.acceptAll": "Accept all",
+  "ob.conv.review.title": "Here is everything I found. Correct me.",
+  "ob.conv.review.showMore": "Show full text",
+  "ob.conv.review.showLess": "Show less",
+  "ob.conv.review.continue": "Continue",
+  "ob.conv.review.progressLabel": "Required fields completed",
+  "ob.conv.review.requiredRemaining.one":
+    "{count} field needed before you can continue",
+  "ob.conv.review.requiredRemaining.other":
+    "{count} fields needed before you can continue",
+  "ob.conv.review.requiredDone": "Nothing more needed — you can continue.",
+  "ob.conv.review.confirmQuestionOpen":
+    "A decision is still open. Answer it to continue.",
+  "ob.conv.triage.stateRequired": "required, still empty",
+  "ob.conv.triage.stateEmpty": "empty",
+  "ob.conv.triage.stateTyped": "typed by you",
+  "ob.conv.triage.stateStored": "from your profile",
+  "ob.conv.triage.emptyHint": "Not found on your site. Yours to add.",
+  "ob.conv.triage.legalNotPublished":
+    "Not stated on your legal or imprint page. Yours to add.",
+  "ob.conv.triage.legalNotChecked":
+    "I did not find a legal or imprint page on your site to check. Yours to add.",
+  "ob.conv.triage.mapLabel": "Jump to a section",
+  "ob.conv.triage.sectionBlocking": "{count} needed to continue",
+  "ob.conv.triage.sectionAdvisory": "{count} worth a check",
+  "ob.conv.triage.blockingHead": "Needed to continue",
+  "ob.conv.triage.advisoryHead": "Worth a check",
+  "ob.conv.triage.sectionSettled": "Nothing outstanding here",
+  "ob.conv.triage.sectionMore": "+{count} more",
+  "ob.conv.triage.restTitle": "Background, not work",
+  "ob.conv.triage.looksSolid": "Looks solid · {count}",
+  "ob.conv.triage.companyWebsite": "Website",
+  "ob.conv.triage.sourceCount": "{count} src",
+  "ob.conv.triage.peopleLabel": "People",
+  "ob.conv.triage.peopleCount": "{count} found",
+  "ob.conv.triage.peopleEmpty": "No people found on your site.",
+  "ob.conv.triage.factsLabel": "Facts",
+  "ob.conv.triage.factsCount": "{count} found",
+  "ob.rail.spend": "Tokens this setup",
+  "ob.rail.tokensUnit": "tok",
+  "ob.conv.scene.step": "Step {n} of {m} · {label}",
+  "ob.conv.scene.detour": "A quick detour",
+  "ob.conv.scene.decisionSub":
+    "Your site names more than one legal entity, and I will not guess which one signs your contracts: it decides what appears on every quote and invoice.",
+  "ob.conv.scene.continue": "Continue",
+  "ob.conv.scene.candidates": "{count} candidates",
+  "ob.conv.connect.sceneTitle": "Connect your accounts.",
+  "ob.conv.connect.sceneSub":
+    "I build your contacts, companies and history out of what already exists in your inbox. No manual data entry, no CSV template.",
+  "ob.conv.connect.mailboxTitle": "Your mailbox",
+  "ob.conv.connect.mailboxHint":
+    "Pick one. This is where your contacts, companies and history come from.",
+  "ob.conv.connect.networkTitle": "Your network",
+  "ob.conv.connect.networkHint":
+    "Optional but worth it. Turns who you know into accounts and watches them for triggers.",
+  "ob.conv.connect.required": "required",
+  "ob.conv.connect.recommended": "recommended",
+  "ob.conv.connect.gmailBrings": "Mail, contacts and calendar from Google",
+  "ob.conv.connect.microsoftBrings":
+    "Mail, contacts and calendar over the Graph API",
+  "ob.conv.connect.imapBrings": "Any other mail host, with an app password",
+  "ob.conv.connect.linkedinAuth": "Profile link, read only",
+  "ob.conv.connect.scopeGoogle": "OAuth, read and send scopes",
+  "ob.conv.connect.scopeMicrosoft": "OAuth, Graph API",
+  "ob.conv.connect.scopeImap": "Any other provider, app password",
+  "ob.conv.connect.connectCta": "connect →",
+  "ob.conv.connect.connectedCta": "connected",
+  "ob.conv.connect.blockedCard":
+    "You already picked a mailbox. Disconnect it in Settings to switch.",
+  "ob.conv.connect.guaranteesHeading": "What connecting actually does",
+  "ob.conv.connect.railPromise":
+    "We only read, and nothing sends without your approval.",
+  "ob.conv.connect.dialogHeadlineAccess": "{name} access needed",
+  "ob.conv.connect.dialogHeadlineImap": "Connect your mail host",
+  "ob.conv.connect.dialogIntro":
+    "{brings}. I read it once to build your contacts and history, then keep it in sync.",
+  "ob.conv.connect.dialogClose": "Close",
+  "ob.conv.connect.linkedinName": "LinkedIn",
+  "ob.conv.connect.linkedinConnected": "Connected",
+  "ob.conv.connect.linkedinSkippedNote": "Skipped: add it later in Settings",
+  "ob.conv.connect.rosterFailedTitle": "Could not check your mailboxes",
+  "ob.conv.connect.rosterFailedBody":
+    "Something went wrong loading your connection status. Try again before picking a provider.",
+  "ob.conv.voice.sceneTitle": "Teach me how you write.",
+  "ob.conv.voice.sceneSub":
+    "Every email, reply, and follow-up this CRM drafts goes out in your own words, not template English, and nothing sends until you approve it.",
+  "ob.conv.voice.heroKicker": "Why this step matters",
+  "ob.conv.voice.heroBody":
+    "It learns your tone, rhythm, and phrasing from your own writing, and trains on yours alone — never anyone else's.",
+  "ob.conv.voice.dropTitle": "Drop your writing here",
+  "ob.conv.voice.dropSub":
+    "Sent mail works best, because it shows how you write when you want something.",
+  "ob.conv.voice.browse": "Browse files",
+  "ob.conv.voice.pasteInstead": "Paste text instead",
+  "ob.conv.voice.sourcesTitle": "Sources",
+  "ob.conv.voice.meterLabel": "Progress toward the {min}-word minimum",
+  "ob.conv.voice.meterProgress": "{words} of {min} words",
+  "ob.conv.voice.meterReady":
+    "{words} words — enough to build. More still sharpens it.",
+  "ob.conv.voice.footReady":
+    "Training takes about a minute. You will see a sample before anything is saved.",
+  "ob.conv.voice.footFloor":
+    "{min} words minimum. Below that the model just copies phrasing.",
+  "ob.conv.voice.buildingTitle": "Learning your voice",
+  "ob.conv.voice.buildingMeta": "{words} words, {sources} sources",
+  "ob.conv.voice.resultSub":
+    "Read the sample first. If it lands, confirm. If it is off, add more sources and I rebuild.",
+  "ob.conv.voice.resultSubNoSample":
+    "Your corpus is too small yet to hold out a sample draft. Here is what the build learned about how you write — add more sources for a sample.",
+  "ob.conv.voice.resultContinue": "That is my voice",
+  "ob.conv.voice.sampleEyebrow": "Sample, not sent",
+  "ob.conv.voice.sampleAnother": "Another scenario",
+  "ob.conv.voice.sampleSubjectLabel": "Subject",
+  "ob.conv.voice.sampleWhyTag": "Why",
+  "ob.conv.voice.dimensionsTitle": "Measured dimensions",
+  "ob.conv.voice.dimensionsCount": "Measured: {count}",
+  "ob.conv.voice.dimSentenceName": "Sentence length",
+  "ob.conv.voice.dimSentencePoleLow": "Terse",
+  "ob.conv.voice.dimSentencePoleHigh": "Elaborate",
+  "ob.conv.voice.dimSentenceMeasured": "Measured",
+  "ob.conv.voice.dimSentenceEvidence": "{count} words per sentence on average.",
+  "ob.conv.scene.evidence": "evidence",
+  "ob.conv.scene.hideEvidence": "hide evidence",
+  "ob.conv.scene.whyThis": "What I read",
+  "ob.conv.scene.foundOn": "Found on",
+  "ob.conv.guide.decision":
+    "I need one decision from you: {question} It is on the right, with the evidence for each option.",
+  "ob.conv.guide.reviewBlocked.one":
+    "Your review is ready on the right. {count} field blocks confirm.",
+  "ob.conv.guide.reviewBlocked.other":
+    "Your review is ready on the right. {count} fields block confirm.",
+  "ob.conv.guide.reviewAdvisory.one":
+    "Your review is ready on the right. Nothing blocks you; {count} thing is worth a look.",
+  "ob.conv.guide.reviewAdvisory.other":
+    "Your review is ready on the right. Nothing blocks you; {count} things are worth a look.",
+  "ob.conv.guide.reviewClean":
+    "Your review is ready on the right. It looks clean, check what you want and confirm when ready.",
+  "ob.conv.guide.attentionHeading": "These need your input",
+  "ob.conv.guide.attentionGroup.blocking": "Needed before you can continue",
+  "ob.conv.guide.attentionGroup.decisions": "Needs a decision",
+  "ob.conv.guide.attentionGroup.advisory": "Worth a look",
+  "ob.conv.guide.attentionStatus.blocks": "needed to continue",
+  "ob.conv.guide.attentionStatus.empty": "still empty",
+  "ob.conv.guide.attentionStatus.decision": "needs a decision",
+  "ob.conv.guide.attentionStatus.check": "worth a check",
+  "ob.conv.activity.steps": "{count} steps",
+  "ob.conv.showField": "Show me",
   "ob.conv.review.editDirectly": "Edit fields directly",
   "ob.conv.review.backToDossier": "Back to the dossier",
   "ob.conv.review.proposalFallback":
     "I could not load the prepared mapping. Review what I read directly; every field keeps its source.",
   "ob.conv.review.confirmFailed":
     "I could not save that yet: {detail} Fix it and accept again.",
+  "ob.conv.review.confirmVersionSkew":
+    "Your review just updated with newer information from the read. Have a look, then press Continue again.",
+  "ob.conv.review.confirmVersionSkewStuck":
+    "I checked again, but nothing has changed yet. Pressing Continue now would fail the same way, so have another look or check again in a moment.",
+  "ob.conv.review.confirmNotReady":
+    "This read is not ready to confirm yet. Wait for it to finish, or start a fresh one.",
   "ob.conv.artifact.empty":
     "Nothing read yet. Give me a website and this panel fills with sourced findings.",
   "ob.conv.results.continue": "Continue",
@@ -2135,13 +2305,8 @@ export const en = {
   "ob.conv.connect.pick":
     "Pick a provider to see exactly what connecting does, or skip and connect later in Settings.",
   "ob.conv.connect.skip": "Skip connecting for now",
-  "ob.conv.linkedin.why":
-    "Before your inbox, one thing matters more: who your team already knows. Your mail says who you have spoken to. Your LinkedIn network says who you could reach \u2014 and on a brand-new CRM, that is the difference between an account that looks cold and one where a colleague can make an introduction today.",
-  "ob.conv.linkedin.ask":
-    "Connecting takes one authorization. I read your connection list and nothing else \u2014 no messages, no posts, no activity.",
-  "ob.conv.linkedin.artifactTitle": "LinkedIn connection",
-  "ob.conv.linkedin.artifactSub":
-    "So the CRM can tell you who on your team already knows someone at an account.",
+  "ob.conv.linkedin.cardBody":
+    "Turns your network into accounts and contacts, and flags it when a connection changes jobs.",
   "ob.conv.linkedin.scope1Lead": "Your connection list \u2014",
   "ob.conv.linkedin.scope1Rest":
     "name, position, company and the date you connected.",
@@ -2155,14 +2320,14 @@ export const en = {
   "ob.conv.linkedin.scope4Rest":
     "Connecting sends no invitations and no messages, ever.",
   "ob.conv.linkedin.neverContacts":
-    "Your connections do NOT become contacts. They never appear in search, lists or contact pages, nothing can be written to them, and nobody can email them. They exist only to answer one question: does anyone here already know someone at this company?",
+    "Your connections do NOT become contacts — they exist only to answer one question: does anyone here already know someone at this company?",
   "ob.conv.linkedin.profileLabel": "Your LinkedIn profile URL",
   "ob.conv.linkedin.profilePlaceholder": "https://www.linkedin.com/in/…",
   "ob.conv.linkedin.profileWhy":
-    "Needed so the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
+    "So the network is attributed to you by name \u2014 the CRM says \u201cAnna knows them\u201d, never \u201cthe company knows them\u201d.",
   "ob.conv.linkedin.authorize": "Authorize with LinkedIn",
   "ob.conv.linkedin.appPending":
-    "Heads up: our LinkedIn developer app is still awaiting approval, so this records your consent and profile but no connections sync yet. Until it clears you can upload your own Connections.csv under Settings, which works today.",
+    "Heads up: our LinkedIn app is still awaiting approval, so no connections sync yet — this only records your consent and profile. Upload Connections.csv under Settings, which works today.",
   "ob.conv.linkedin.skip": "Skip LinkedIn for now",
   "ob.conv.linkedin.connected":
     "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
@@ -2172,9 +2337,218 @@ export const en = {
   "ob.conv.connect.artifactEmpty":
     "Pick a provider in the conversation and its connection panel opens here.",
   "ob.conv.next.decisionOne": "1 decision open",
-  "ob.conv.next.decisionMany": "{count} decisions open",
-  "ob.conv.next.review": "Your review is ready",
   "ob.conv.next.build": "Ready to build your voice",
+
+  // The setup rail: five stops, one word each. Long enough to name the step,
+  // short enough that five of them fit a column at 10px.
+  "ob.rail.read": "Read",
+  "ob.rail.confirm": "Confirm",
+  "ob.rail.voice": "Voice",
+  "ob.rail.ready": "Ready",
+  "ob.rail.connect": "Connect",
+
+  // --- the gate: the first screen after sign-in -------------------------
+  // One question and nothing else. Nobody should meet the whole tool on their
+  // first screen, so the gate names what it will do, what it costs the reader
+  // (two minutes), and who decides (they do) — then asks once.
+  "ob.gate.title": "Hi {name}, I am the Margince AI.",
+  "ob.gate.titleAnonymous": "I am the Margince AI.",
+  "ob.gate.sub":
+    "Give me your website and I will read it: what you sell, who buys from you, the people behind it. You review everything before it is saved, and nothing goes out without your yes. About two minutes.",
+  "ob.gate.field": "Your website address",
+  "ob.gate.placeholder": "yourcompany.com",
+  "ob.gate.submit": "Read my site",
+  "ob.gate.altPrompt": "No website handy?",
+  "ob.gate.altAction": "Enter the details yourself",
+  "ob.gate.invalidUrl":
+    "That does not look like a web address. Try it as yourcompany.com.",
+  // One string for two failures that look identical to the reader: the request
+  // to start never landed, or the read started and did not finish. {detail} is
+  // the server's own guidance and may be empty, so the sentence has to stand
+  // without it.
+  "ob.gate.startFailed":
+    "I could not read that site. {detail} Try another address, or enter the details yourself.",
+  // A deferred read is shelved, not broken: the server will come back to it. So
+  // this says what is true and names both doors, without asking the reader to
+  // fix anything.
+  "ob.gate.readPaused":
+    "That read is paused for now. {detail} It resumes on its own — or give me another address, or enter the details yourself.",
+
+  // --- the read theatre -------------------------------------------------
+  // Volume made visible. The wire gives no page-count denominator, so every
+  // number here is an open count — never "14 of 18", never a bar with a known
+  // end, because inventing the total would be inventing data.
+  "ob.scan.title": "Reading {host}",
+  "ob.scan.sub":
+    "I am going through the site now. Every fact keeps the page it came from, so you can check anything I claim.",
+  "ob.scan.doneTitle": "Read {host}",
+  "ob.scan.doneSub":
+    "{facts} facts and {fields} profile fields, each with the page it came from. Opening your review.",
+  "ob.scan.phaseCrawling": "Fetching pages",
+  "ob.scan.phaseExtracting": "Working out what you sell",
+  "ob.scan.phaseQueued": "Queued, starting shortly",
+  "ob.scan.phaseDeferred": "Paused for now",
+  "ob.scan.pagesRead": "{pages} pages read",
+  "ob.scan.pagesSkipped": "{count} skipped",
+  "ob.scan.factsSoFar": "{count} facts so far",
+  "ob.scan.stillReading": "still reading",
+  "ob.scan.pageStripLabel": "Pages read so far",
+  "ob.scan.logLabel": "The pages I am walking, newest first",
+  "ob.scan.pageFetched": "{url} — read",
+  "ob.scan.pageSkipped": "{url} — skipped: {reason}",
+  "ob.scan.pageFailed": "{url} — could not be read: {reason}",
+  "ob.scan.pageNoReason": "no reason recorded",
+  "ob.scan.pageStatusFetched": "read",
+  "ob.scan.pageStatusSkipped": "skipped: {reason}",
+  "ob.scan.pageStatusFailed": "could not be read: {reason}",
+  "ob.scan.transparency": "Transparency",
+  "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
+  "ob.scan.costPending": "no model calls billed yet",
+  "ob.scan.costUnpriced": " · unpriced usage exists",
+
+  // --- the live panel: the sourced record building itself ----------------
+  "ob.live.headReading": "Reading {host}",
+  "ob.live.headDone": "Read {host}",
+  "ob.live.nothingSaved":
+    "Nothing is saved yet. I will show you everything when I am done.",
+  "ob.live.summaryHeading": "Here is what I understood",
+  "ob.live.summaryYouAre": "You are",
+  "ob.live.summaryYouSell": "You sell",
+  "ob.live.summaryYouSellTo": "You sell to",
+  "ob.live.summaryVolume":
+    "{facts} facts from {pages} pages, already filled in. Open any section to check it.",
+  "ob.live.stepWebsite": "From reading your website",
+  "ob.live.stepVoice": "Your writing voice",
+  "ob.live.stepConnect": "Inbox and calendar",
+  "ob.live.stateDone": "done",
+  "ob.live.stateNow": "in progress",
+  "ob.live.stateWaiting": "waiting",
+  "ob.live.review": "Review",
+  "ob.live.hide": "Hide",
+  "ob.live.countFields": "{count} fields",
+  "ob.live.countFacts": "{count} facts",
+  "ob.live.countPeople": "{count} lead proposals",
+  "ob.live.countPages": "{read} read · {skipped} skipped",
+  "ob.live.cardIdentity": "Company identity",
+  "ob.live.cardPositioning": "Positioning and sales angle",
+  "ob.live.cardPeople": "People found",
+  "ob.live.cardCoverage": "What I read, and what I skipped",
+  "ob.live.cardVoice": "Voice profile",
+  "ob.live.cardConnect": "Connected",
+  "ob.live.voiceNotBuilt": "not built yet",
+  "ob.live.connectNone": "nothing connected",
+  "ob.live.noValue": "—",
+  "ob.live.peopleEmpty":
+    "Nobody yet. I only propose a person when the page gives a name and a role.",
+  "ob.live.coverageWarning": "Warning",
+  "ob.live.coverageSkipped": "Skipped",
+  "ob.live.coverageFailed": "Could not read",
+  "ob.live.coverageClean":
+    "Every page I tried came back. Nothing was skipped and nothing failed.",
+
+  // --- facts: preview card and the full table ----------------------------
+  "ob.facts.title": "Facts",
+  "ob.facts.catCompany": "Company",
+  "ob.facts.catOffering": "Offering",
+  "ob.facts.catMarket": "Market",
+  "ob.facts.catSignal": "Signal",
+  "ob.facts.catAll": "All",
+  "ob.facts.mixLabel": "Facts by category",
+  "ob.facts.selected": "{selected} of {total} will be saved",
+  "ob.facts.selectAll": "Select all",
+  "ob.facts.clearAll": "Clear all",
+  "ob.facts.previewNote": "Showing the {count} highest-confidence facts.",
+  "ob.facts.openTable": "Open the full table",
+  "ob.facts.tableTitle": "All facts I read",
+  "ob.facts.search": "Search facts",
+  "ob.facts.hits": "{hits} of {total}",
+  "ob.facts.colSave": "Save",
+  "ob.facts.colCategory": "Category",
+  "ob.facts.colFact": "Fact",
+  "ob.facts.colSource": "Source",
+  "ob.facts.colConfidence": "Confidence",
+  "ob.facts.rowSave": "Save the fact: {fact}",
+  "ob.facts.noMatch": "Nothing matches that search.",
+  // The card only mounts once the read has settled, so its empty state reports a
+  // finished search that found nothing — not one still in progress.
+  "ob.facts.empty":
+    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.",
+  "ob.facts.close": "Done",
+  "ob.facts.closeTable": "Close the table",
+  "ob.facts.capReached":
+    "You can save up to {max} facts. Clear one to make room for another.",
+
+  // --- the payoff: what two minutes actually bought ----------------------
+  // Counts, not congratulation. Every cell is a real number off the wire, and
+  // a cell with no number says so rather than showing a zero that looks earned.
+  // Two leads for one moment. The first is only true when the install really was
+  // empty minutes ago; a setup picked up across days is the supported path, and
+  // the payoff above all else may not overstate.
+  "ob.payoff.lead": "Minutes ago this was an empty install.",
+  "ob.payoff.leadResumed": "This started as an empty install.",
+  "ob.payoff.factsRead": "facts read",
+  "ob.payoff.factsConfirmed": "facts you confirmed",
+  "ob.payoff.peopleFound": "people found",
+  "ob.payoff.profileFields": "profile fields",
+  "ob.payoff.voiceWords": "words in your voice",
+  "ob.payoff.pagesRead": "pages read",
+  "ob.payoff.voiceNotTrained": "voice not trained yet",
+  "ob.payoff.body":
+    "Everything in there is yours to correct, and every value still points at the page it came from.",
+  "ob.payoff.defaults":
+    "Two defaults, both changeable in Settings → Autonomy: I prepare and wait for your confirmation, and I never overwrite a field you typed yourself.",
+  "ob.payoff.seats":
+    "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
+  "ob.payoff.understood": "Understood",
+
+  // --- the handoff into the app -----------------------------------------
+  "ob.enter.cta": "Enter Margince",
+  "ob.enter.assembling": "Assembling your workspace",
+
+  // --- the mailbox backread ---------------------------------------------
+  // A separate operation from connecting, and the copy has to keep them
+  // separate: connecting grants access, the backread spends budget reading
+  // history. Read-only, and it writes nothing until the reader approves.
+  "ob.backread.heading": "How far back should I read?",
+  "ob.backread.window3m": "3 months — recent context",
+  "ob.backread.window6m": "6 months — recommended",
+  "ob.backread.window12m": "12 months — full sales cycle",
+  "ob.backread.estimate": "About {messages} messages in that window.",
+  "ob.backread.estimateHeuristic":
+    "Estimated from the mailbox, not counted yet.",
+  "ob.backread.estimateCost": "Roughly {cost} in model calls.",
+  "ob.backread.estimateFailed":
+    "I could not estimate that window: {detail} You can still start, or pick another.",
+  "ob.backread.note":
+    "The backread is read-only. I import people, companies and activity, and I show you what I found before anything is written.",
+  "ob.backread.start": "Connect and read",
+  "ob.backread.startFailed":
+    "I could not start the backread: {detail} Try again, or continue and start it later in Settings.",
+  "ob.backread.running": "Reading your mailbox",
+  "ob.backread.runningNote":
+    "You can leave this running and keep working. I pick it up where I left off.",
+  "ob.backread.queued": "Queued. It starts in a moment.",
+  "ob.backread.progress": "{scanned} of about {total} messages",
+  "ob.backread.progressNoTotal": "{scanned} messages so far",
+  "ob.backread.tallyMessages": "messages read",
+  "ob.backread.tallyCaptured": "kept",
+  "ob.backread.tallySkipped": "ignored",
+  "ob.backread.tallyPeople": "people found",
+  "ob.backread.tallyCompanies": "companies found",
+  "ob.backread.doneHeading": "Here is what is in there.",
+  "ob.backread.doneNote":
+    "Nothing is written yet. Everything I found waits for your review in the inbox.",
+  "ob.backread.failed":
+    "The backread stopped: {detail} Your connection is fine — you can start it again in Settings.",
+  "ob.backread.cancelled": "I stopped reading. Nothing was written.",
+  "ob.backread.cancelledPartial":
+    "I stopped reading. What was already captured stays — it is waiting for you in the inbox.",
+  "ob.backread.cancelFailed":
+    "I could not stop the read: {detail} Try again — it keeps running meanwhile.",
+  "ob.backread.detailUnavailable": "Something unexpected went wrong.",
+  "ob.backread.cancel": "Stop reading",
+  "ob.backread.explore": "Explore Margince meanwhile",
+  "ob.backread.skip": "Do not read history now",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
@@ -2225,13 +2599,20 @@ export const en = {
   "auth.email": "Email",
   // A placeholder is an EXAMPLE, never an instruction and never the label
   // again. "Enter your email" in a placeholder is a label that disappears.
-  "auth.emailPlaceholder": "you@company.com",
+  // The address is the login spec §7.2's, and the reserved example domain
+  // rather than a plausible one: `company.com` belongs to somebody.
+  "auth.emailPlaceholder": "name@example.com",
   "auth.password": "Password",
   "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
   "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // NOT the label of a served provider button. A real installation's button text
+  // is `oidc_providers[].label` off the wire, server-owned, and the client never
+  // composes it. This is what the ui-preview fixture uses to stand in for that
+  // server in the reader's own language — see app/ui-preview.ts.
+  "auth.continueWith": "Continue with {brand}",
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
   "auth.orWithEmail": "or with email",
@@ -2279,6 +2660,19 @@ export const en = {
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",
+  // The password was refused, not the link — so the link is still good and the
+  // user must not be sent to replace it.
+  "auth.resetRejectedPassword":
+    "That password was refused. Choose a different one and try again.",
+  // Neither the link's fault nor the user's: the token is untouched, so retrying
+  // the same one is the right advice. Two sentences, no dash (VOICE-RULE-5).
+  "auth.resetServerFailed":
+    "We couldn't set your password just now. Your link is still valid, so try again in a moment.",
+  // Its own key rather than auth.errRateLimited, which says "sign-in attempts":
+  // this user is setting a password, not signing in, and copy that names the
+  // wrong action reads as the wrong error.
+  "auth.resetRateLimited":
+    "Too many attempts. Wait a moment, then set your password again.",
   "auth.requestNewLink": "Request a new link",
   "auth.resetDoneTitle": "Password updated",
   "auth.resetDoneBody":

@@ -299,11 +299,22 @@ test("AC-onboarding-1: onboarding is the rail-less conversational shell", async 
   // The onboarding wizard/stepper was replaced by the conversational shell
   // (#217): onboarding is a focused, rail-less flow whose journey is a
   // conversation thread, not a stepper.
+  //
+  // The flow now opens on the gate: one question, centred, before any thread
+  // exists — nobody should meet the whole tool on their first screen. So the AC
+  // asserts what it always meant (rail-less, no stepper) against the surface
+  // that is actually first, and that the single question is the whole ask.
   await page.goto("/#/onboarding");
   await expect(page.locator("nav.rail")).toHaveCount(0);
+  await expect(page.locator(".stepper")).toHaveCount(0);
+  await expect(page.getByLabel("Deine Website-Adresse")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Meine Website lesen" }),
+  ).toBeVisible();
+  // The thread belongs to the working view, not the gate.
   await expect(
     page.getByRole("log", { name: "Einrichtungsgespräch" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("AC-create-1: a contact is created from the list and lands on its 360", async ({
@@ -769,7 +780,10 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
         } else {
           await expect(region).toBeHidden();
           await expect(page.locator("[data-core-state]")).toHaveCount(1);
-          await expect(page.locator("main.auth-task")).toBeVisible();
+          // The class, not the tag: `RaillessFrame` already wraps every
+          // rail-less screen in a `<main>`, so the task region is a `<div>` —
+          // a second `<main>` here would be an invalid, duplicate landmark.
+          await expect(page.locator(".auth-task")).toBeVisible();
           await expect(phoneLine).toBeVisible();
           await expect(phoneLine).not.toBeEmpty();
         }
@@ -787,7 +801,9 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
     ).toBeVisible();
-    const task = await page.locator("main.auth-task").boundingBox();
+    // The class, not the tag: see the note beside the other `.auth-task`
+    // locator above — one `<main>` per screen, and it belongs to the frame.
+    const task = await page.locator(".auth-task").boundingBox();
     const identity = await page.locator("aside.auth-identity").boundingBox();
     expect(task).not.toBeNull();
     expect(identity).not.toBeNull();

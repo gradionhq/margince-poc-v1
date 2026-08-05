@@ -1,0 +1,20 @@
+/*
+ * The fact selection cap notice: the one sentence shared by every surface that
+ * offers a fact toggle (the triage review's grouped list, the classic edit
+ * form's fact grid), so the contract ceiling reads as one rule everywhere it
+ * appears rather than a warning re-styled per call site.
+ */
+
+.ob-facts-cap {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warnBorder);
+  border-radius: var(--r-sm);
+  background: var(--warnSurface);
+  color: var(--textContent);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ob-facts-cap:empty {
+  display: none;
+}

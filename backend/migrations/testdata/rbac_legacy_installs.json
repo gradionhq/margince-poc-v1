@@ -1,0 +1,689 @@
+{
+  "installs": {
+    "initial_commit": {
+      "admin": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "all"
+      },
+      "manager": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          }
+        },
+        "row_scope": "team"
+      },
+      "ops": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "all"
+      },
+      "read_only": {
+        "objects": {
+          "activity": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "deal": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "lead": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "organization": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "person": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          }
+        },
+        "row_scope": "all"
+      },
+      "rep": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          }
+        },
+        "row_scope": "team"
+      }
+    },
+    "midlife": {
+      "admin": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "automation": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "computed_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "custom_field": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer_template": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "product": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "quota": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "signal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "voice_profile": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "all"
+      },
+      "manager": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "automation": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "computed_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "custom_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer_template": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "product": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "quota": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "signal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "voice_profile": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "team"
+      },
+      "ops": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "automation": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "computed_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "custom_field": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "deal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer_template": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "product": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "quota": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "signal": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "voice_profile": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "all"
+      },
+      "read_only": {
+        "objects": {
+          "activity": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "automation": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "computed_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "custom_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "deal": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "lead": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "offer": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "offer_template": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "organization": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "person": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "product": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "quota": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "signal": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "voice_profile": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          }
+        },
+        "row_scope": "all"
+      },
+      "rep": {
+        "objects": {
+          "activity": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "automation": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "computed_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "custom_field": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "deal": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "lead": {
+            "create": true,
+            "delete": true,
+            "read": true,
+            "update": true
+          },
+          "offer": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "offer_template": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "organization": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "person": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "pipeline": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "product": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "quota": {
+            "create": false,
+            "delete": false,
+            "read": true,
+            "update": false
+          },
+          "signal": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          },
+          "voice_profile": {
+            "create": true,
+            "delete": false,
+            "read": true,
+            "update": true
+          }
+        },
+        "row_scope": "team"
+      }
+    }
+  },
+  "legacy_core_version": "0019"
+}

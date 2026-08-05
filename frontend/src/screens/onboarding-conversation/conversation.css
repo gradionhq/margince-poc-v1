@@ -8,25 +8,39 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  gap: var(--space-3);
+  gap: var(--space-4);
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: var(--space-2) 0;
+  /* The transcript is the conversation column's scroller, and it scrolls without
+     drawing a bar across the turns. The bar is what is hidden, never the
+     scrolling: the wheel, the keyboard and the follow-the-latest behaviour are
+     untouched. */
+  scrollbar-width: none;
+}
+.ob-conv-thread::-webkit-scrollbar {
+  display: none;
 }
 
 .ob-conv-narration {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  max-width: 44rem;
+  max-width: 80%;
+  width: fit-content;
 }
 
+/* The asymmetric corner is what tells you who spoke, and it survives a
+ * greyscale screenshot in a way a fill colour does not: the AI's bubble is
+ * notched at the top LEFT, towards its speaker mark, and the reader's is
+ * notched at the bottom right. Nothing about who said what rests on colour. */
 .ob-conv-narration p {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bgCard);
-  border-radius: var(--r-md);
+  padding: 13px var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--space-1) var(--r-lg) var(--r-lg) var(--r-lg);
+  background: var(--bgElevated);
   color: var(--textContent);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  font: 400 0.875rem / 1.55 var(--f-body);
 }
 
 .ob-conv-speaker {
@@ -74,17 +88,18 @@
   justify-content: flex-end;
   gap: var(--space-2);
   align-self: flex-end;
-  max-width: 40rem;
+  max-width: 80%;
+  width: fit-content;
   color: var(--textSecondary);
 }
 
 .ob-conv-user p {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--accentLight);
-  border-radius: var(--r-md);
-  color: var(--textPrimary);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  padding: 11px 15px;
+  border-radius: var(--r-md) var(--r-lg) var(--space-1) var(--r-lg);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+  font: 500 0.875rem / 1.55 var(--f-body);
 }
 
 .ob-conv-user svg {
@@ -133,29 +148,47 @@
   font: 500 0.9375rem / 1.4 var(--f-body);
 }
 
+/* A stacked choice list, not a wrapped chip row: each answer reads its full
+   name and detail rather than truncating into a chip that can spill over its
+   neighbour. */
 .ob-conv-options {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: var(--space-2);
   margin-block-start: var(--space-2);
 }
 
-.ob-conv-option {
-  display: inline-flex;
+/* Scoped under .ob-conv-question rather than bare .ob-conv-option: at equal
+   specificity, source order alone decided the fight with base.css's .btn over
+   align-items and white-space, and .btn was winning — this scope outranks it
+   so the column layout and wrap actually apply. */
+.ob-conv-question .ob-conv-option {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: flex-start;
   gap: var(--space-1);
-  /* Long or translated labels wrap inside a bounded chip instead of forcing
-   * the thread to scroll horizontally. */
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  /* Long or translated labels wrap inside the row instead of forcing the
+     thread to scroll horizontally. */
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: start;
-  max-width: 24rem;
   height: auto;
 }
 
+.ob-conv-option span {
+  color: var(--textPrimary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .ob-conv-option small {
-  color: var(--textSecondary);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
 }
 
 /* Visual clamp only: garbage-length values stay two lines per part; the
@@ -170,22 +203,9 @@
 }
 
 /* The subordinate escape under the options: present, never competing. */
-.ob-conv-question-dismiss {
+.ob-conv-question .ob-conv-question-dismiss {
   margin-block-start: var(--space-2);
   color: var(--textSecondary);
-}
-
-/* A resolved card is fully inert: no hover affordance, no pointer — its
-   moment passed and the recorded choice below is the only live thing. */
-.ob-conv-question[disabled] .btn {
-  pointer-events: none;
-  cursor: default;
-}
-
-/* The choice a resolved card recorded stays visible on the card itself. */
-.ob-conv-option-selected {
-  border-color: var(--success);
-  box-shadow: inset 0 0 0 1px var(--success);
 }
 
 .ob-conv-confirm-skipped {
@@ -223,6 +243,109 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* The review's outstanding points, grouped by tier rather than one flat
+ * list: a heading announces the panel as a to-do (not an error report),
+ * then one labelled group per tier that actually differs — what stops
+ * confirm, what stops it because a decision is pending, and what merely
+ * wants a look. Each group is its own stacked list; unlike a chip set
+ * answering the machine, this is navigation into rows that already exist
+ * on the surface. */
+.ob-conv-attention {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ob-conv-attention-heading {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 600 0.8125rem / 1.4 var(--f-display);
+}
+
+.ob-conv-attention-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The short line naming a tier — "needed before you can continue" versus
+ * "worth a look" — so the shape of the work is legible before any single
+ * row is read, and a row's own text can stay just the field name. */
+.ob-conv-attention-group-label {
+  margin: 0;
+  color: var(--textSecondary);
+  font: 600 0.6875rem / 1.4 var(--f-body);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ob-conv-attention-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-conv-attention-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  cursor: pointer;
+  font: 500 0.8125rem / 1.4 var(--f-body);
+  text-align: start;
+}
+
+.ob-conv-attention-list button:hover {
+  border-color: var(--accent);
+}
+
+/* Colour is a hint, not the only carrier — a screen reader gets the same
+ * distinction through each button's own (visually hidden) status word and
+ * the group label it sits under, never through the dot alone. Danger red is
+ * reserved for the ONE tier that actually stops confirm; that group simply
+ * does not render when nothing blocks, so nothing in the list reads as red
+ * unless something genuinely is. */
+.ob-conv-attention-list button::before {
+  content: "";
+  inline-size: 6px;
+  block-size: 6px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.ob-conv-attention-list button[data-kind="blocks"]::before {
+  background: var(--danger);
+}
+
+.ob-conv-attention-list button[data-kind="decision"]::before {
+  background: var(--accent);
+}
+
+/* The advisory pair: an optional field with no value yet, or one with a
+ * weak-confidence value worth a second look — neither stops the human, and
+ * both recede next to the blocking tier's red. */
+.ob-conv-attention-list button[data-kind="empty"]::before {
+  background: var(--textMuted);
+}
+
+.ob-conv-attention-list button[data-kind="check"]::before {
+  background: var(--warn);
+}
+
+.ob-conv-attention-field {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ob-conv-confirm {
@@ -276,30 +399,2359 @@
   overflow-wrap: anywhere;
 }
 
-.ob-conv-confirm-questions {
+/* The short-value tier: label · value · evidence-or-provenance, one row per
+   field. Each row carries its own grid so every row's columns line up
+   without a display:contents trick on the list itself. */
+.ob-conv-confirm-fields-grid > li {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  width: 100%;
+}
+
+.ob-conv-field-value {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--textPrimary);
+  font: 500 0.9375rem / 1.4 var(--f-body);
+}
+
+@media (max-width: 30rem) {
+  .ob-conv-confirm-fields-grid > li {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-1);
+  }
+  .ob-conv-field-value {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* An expanded collapsed-chip's snippet must not squeeze into the row's
+   third (auto-width) track — it drops to a full-width line under the row
+   instead, the same way the prose tier's evidence does. */
+.ob-conv-confirm-fields-grid > li:has(
+    .evidence-chip-toggle[aria-expanded="true"]
+  )
+  .evidence-chip-collapsed {
+  grid-column: 1 / -1;
+}
+
+/* The prose tier: label above the (possibly previewed) paragraph, an
+   explicit expand toggle (never hover-only) and the evidence-or-provenance
+   marker below it. The preview is a short string, not a CSS clamp, so the
+   rest of a long value stays out of the DOM until the toggle asks for it —
+   the same rule the collapsed EvidenceChip keeps for its own snippet. */
+.ob-conv-field-row-prose p {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 400 0.9375rem / 1.5 var(--f-body);
+  overflow-wrap: anywhere;
+}
+
+.ob-conv-field-expand {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--textMeta);
+  font: 500 0.75rem / 1.2 var(--f-body);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.ob-conv-field-expand:hover {
+  color: var(--textPrimary);
+}
+
+.ob-conv-confirm-missing {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
-.ob-conv-confirm-questions > p {
-  margin: 0;
-  color: var(--textSecondary);
-  font: 500 0.875rem / 1.4 var(--f-body);
-}
-
-.ob-conv-confirm-actions {
+.ob-conv-confirm-missing-row {
   display: flex;
-  /* Long translations must wrap below, never overflow the card. */
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.ob-conv-confirm-missing-row input,
+.ob-conv-confirm-missing-row textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  color: var(--textPrimary);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  outline: 0;
+  background: var(--bgHover);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.ob-conv-confirm-missing-row textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.ob-conv-confirm-missing-row input:focus,
+.ob-conv-confirm-missing-row textarea:focus {
+  border-color: var(--aiText);
+  box-shadow: 0 0 0 3px var(--aiMed);
 }
 
 .ob-conv-artifact-empty {
   margin: 0;
   color: var(--textSecondary);
   font: 400 0.9375rem / 1.5 var(--f-body);
+}
+
+/* ---- scenes ---- */
+/* One scene owns the surface at a time. The eyebrow says where the journey
+   stands; the scene's own headline does the talking. */
+
+.ob-scene {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  /* The scene owns the pane's full width, centred as a reading column: the
+     prototype's move — generous gutters, no dead half-pane. */
+  width: 100%;
+  max-width: 74rem;
+  margin-inline: auto;
+}
+
+.ob-scene-eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.ob-scene-sub {
+  margin: calc(-1 * var(--space-1)) 0 0;
+  max-width: 38rem;
+  color: var(--textSecondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* A decision as the scene: headline, candidate cards, one confirm. A
+   choice list reads best at prose width even when the pane is wider. */
+.ob-decision {
+  max-width: 58rem;
+  padding-top: var(--space-4);
+}
+
+.ob-decision h2 {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 620 1.5rem / 1.15 var(--f-display);
+  letter-spacing: -0.02em;
+}
+
+.ob-decision-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.ob-decision-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.ob-decision-card:hover {
+  border-color: var(--borderStrong);
+}
+
+.ob-decision-card.is-picked {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+
+/* The choice row: disc + the read's lines on the left, the evidence
+   toggle held to the right edge. */
+.ob-decision-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ob-decision-card > .ob-decision-row > label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ob-decision-toggle {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textMeta);
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  text-decoration: underline;
+  text-decoration-color: var(--borderStrong);
+  text-underline-offset: 3px;
+}
+
+.ob-decision-toggle:hover {
+  color: var(--textPrimary);
+}
+
+.ob-decision-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ob-decision-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ob-decision-count {
+  flex: none;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--warnBorder);
+  border-radius: var(--r-full);
+  background: var(--warnBg);
+  color: var(--warn);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+/* The native radio stays for keyboard and AT; the disc is what shows. */
+.ob-decision-card input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.ob-decision-disc {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  margin-top: 1px;
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-full);
+  background: var(--bgElevated);
+  color: var(--textOnAccentControl);
+}
+
+.ob-decision-card.is-picked .ob-decision-disc {
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.ob-decision-card input:focus-visible ~ .ob-decision-disc {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ob-decision-disc svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ob-decision-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ob-decision-body b {
+  color: var(--textPrimary);
+  font-size: 0.9375rem;
+  font-weight: 560;
+}
+
+.ob-decision-body small {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+}
+
+/* The candidate's verbatim signal, in its own recess under the choice
+   row: what I read, and the page it came from. */
+.ob-decision-proof {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-left: calc(20px + var(--space-3));
+  padding: var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+}
+
+.ob-decision-proof-head {
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-decision-proof blockquote {
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+  color: var(--textContent);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.ob-decision-path {
+  align-self: flex-start;
+  padding: 3px var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+/* The escape at the list's foot: present, dashed, never competing. */
+.ob-decision-skip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--borderStrong);
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--textSecondary);
+  cursor: pointer;
+  font: 400 0.875rem / 1.4 var(--f-body);
+  text-align: start;
+}
+
+.ob-decision-skip:hover {
+  border-color: var(--textTertiary);
+  color: var(--textPrimary);
+}
+
+.ob-decision-skip span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-sm);
+  font-family: var(--f-mono);
+}
+
+.ob-decision-acts {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+/* ---- the voice scenes ---- */
+
+.ob-voice-scene {
+  max-width: 58rem;
+  padding-top: var(--space-4);
+}
+
+.ob-voice-scene h2,
+.ob-voice-building h2 {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 620 1.5rem / 1.15 var(--f-display);
+  letter-spacing: -0.02em;
+}
+
+/* The payoff band: why this step is worth doing, read beside the Core rather
+   than inside it — the drop zone below is the action, this is only context,
+   so it stays one compact row and never grows to compete with it. */
+.ob-voice-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
+}
+
+.ob-voice-hero-core {
+  /* Sizing through the Core's documented custom properties (WDS-CORE-1): a
+     `width` here would fight `width: var(--coreSize)` inside it. */
+  --coreSize: 56px;
+  --coreGlass: 46px;
+  flex: none;
+}
+
+.ob-voice-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ob-voice-hero-kicker {
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-voice-hero-body {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* The drop target: the whole window accepts a file, this says where. */
+.ob-voice-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-6);
+  border: 1px dashed var(--borderStrong);
+  border-radius: var(--r-lg);
+  text-align: center;
+}
+
+.ob-voice-drop-title {
+  margin: 0;
+  color: var(--textPrimary);
+  font-size: 0.9375rem;
+  font-weight: 560;
+}
+
+.ob-voice-drop-sub {
+  margin: 0;
+  max-width: 32rem;
+  color: var(--textMeta);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.ob-voice-drop-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Paste text instead: an inline reveal in the drop zone itself, so adding a
+   source stays entirely the scene's — nothing to type into lives in the rail. */
+.ob-voice-paste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+.ob-voice-paste-area {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  font-family: var(--f-body);
+  font-size: 0.875rem;
+  resize: vertical;
+}
+
+/* The floor meter: a real progress element plus the numbers behind it, so
+   the fill is never the only place the count lives. */
+.ob-voice-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.ob-voice-meter-bar {
+  inline-size: 100%;
+  block-size: 6px;
+  accent-color: var(--accent);
+}
+
+.ob-voice-meter-line {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+/* What the server actually kept, one row per source. */
+.ob-voice-sources-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-voice-sources ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-voice-sources li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+}
+
+.ob-voice-source-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ob-voice-source-body b {
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.ob-voice-source-body small {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+.ob-voice-source-check {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--success);
+}
+
+/* The scene's own footer: what the floor is, and the one action. */
+.ob-voice-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.ob-voice-foot p {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-foot-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The speaker decision: one radio card per voice the transcript separated,
+   in the same card language the sources list already uses (bordered,
+   elevated, a check for the picked state) rather than the legal-entity
+   decision's own look — this is the voice step, not a detour into it. */
+.ob-voice-speakers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.ob-voice-speaker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  cursor: pointer;
+}
+
+.ob-voice-speaker.is-picked {
+  border-color: var(--accent);
+}
+
+/* The native input carries the semantics (checked, tab order, the
+   accessible name from its label); it is visually hidden, not display:none,
+   so it keeps focus and keyboard activation. */
+.ob-voice-speaker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
+.ob-voice-speaker-disc {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-full);
+  color: var(--textOnAccentControl);
+}
+
+.ob-voice-speaker.is-picked .ob-voice-speaker-disc {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The input carries focus but is invisibly small, so the ring has to land on
+   the disc it sits beside — the same sibling-selector shape the decision
+   card's own radio uses. */
+.ob-voice-speaker input:focus-visible ~ .ob-voice-speaker-disc {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ob-voice-speaker-disc svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ob-voice-speaker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ob-voice-speaker-body b {
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.ob-voice-speaker-body small {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+/* The continue/retry actions inside a shared `.ob-triage-continue` bar
+   (conversation.css's pinned-foot pattern every scene's primary action now
+   uses): right-aligned whether or not the bar also carries status text. */
+.ob-voice-continue-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* The result scene: the sample on the left, the reading on the right — two
+   columns of bordered cards, each column its own vertical stack. Narrow
+   folds to one column, sample first (it is the payoff), same breakpoint the
+   triage board already collapses at. */
+.ob-voice-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  align-items: start;
+}
+
+.ob-voice-board-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (max-width: 56rem) {
+  .ob-voice-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* No sample yet (the starter-corpus case): one column, capped so a single
+   card doesn't stretch full-bleed across the surface a two-card board owned. */
+.ob-voice-board-single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 34rem;
+}
+
+.ob-voice-result-card {
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
+}
+
+.ob-voice-result-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--space-2);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ob-voice-result-label svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The sample: a real draft in a card of its own — the header names it as a
+   sample and offers the one honest regenerate action (cycling drafts already
+   in hand), the body is the draft, and the footer says what it borrowed. */
+.ob-voice-sample-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.ob-voice-sample-head .ob-voice-result-label {
+  margin: 0;
+}
+
+.ob-voice-sample-subject {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--borderSubtle);
+  color: var(--textPrimary);
+  font-size: 0.9375rem;
+}
+
+.ob-voice-sample-field {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ob-voice-sample-body {
+  margin: 0;
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.ob-voice-sample-why {
+  display: flex;
+  gap: 6px;
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--borderSubtle);
+  color: var(--textMeta);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-sample-why-tag {
+  flex: none;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The measured dimensions: a readout per axis the build actually scored —
+   never a control. Everything a reader could act on lives in real text (the
+   value word, the poles, the evidence sentence); the track and its marker
+   are aria-hidden decoration on top of that text, not a second source of it. */
+.ob-voice-dims-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ob-voice-dims-count {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ob-voice-dims-meta {
+  margin: 0 0 var(--space-3);
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-dims-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ob-voice-dim-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: 6px;
+}
+
+.ob-voice-dim-name {
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  font-weight: 560;
+}
+
+.ob-voice-dim-value {
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-dim-track {
+  position: relative;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--borderSubtle);
+}
+
+/* A dot, not a filled bar: a fill reads as "this much of something", the
+   scale here has no "more" — only a position between two named poles. */
+.ob-voice-dim-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+}
+
+.ob-voice-dim-poles {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  color: var(--textMeta);
+  font-size: 0.6875rem;
+}
+
+.ob-voice-dim-evidence {
+  margin: 6px 0 0;
+  color: var(--textMeta);
+  font-size: 0.75rem;
+}
+
+.ob-voice-result-identity {
+  margin: 0;
+  color: var(--textPrimary);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.ob-voice-moves {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-voice-moves b {
+  color: var(--textPrimary);
+  font-size: 0.875rem;
+  font-weight: 560;
+}
+
+.ob-voice-moves blockquote {
+  margin: 4px 0 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--borderStrong);
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+  font-style: italic;
+}
+
+.ob-voice-avoid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-result-next {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-voice-result-next b {
+  color: var(--textPrimary);
+}
+
+/* The build scene: the Core carries the ring, the percentage sits in it. */
+.ob-voice-building {
+  align-items: center;
+  padding-top: var(--space-6);
+  text-align: center;
+}
+
+.ob-voice-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+/* White, not --textPrimary: the ring behind it is the Core's own dark
+   glass, and the number reads AS the ring's centre, not as text laid over
+   it. */
+.ob-voice-orb-pct {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  color: var(--textOnAccent);
+  font-family: var(--f-display);
+  font-size: 2.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.ob-voice-orb-pct small {
+  color: var(--textOnAccent);
+  opacity: 0.7;
+  font-size: 0.8125rem;
+}
+
+.ob-voice-building-meta {
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.875rem;
+}
+
+.ob-voice-building-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+.ob-voice-building-model i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+}
+
+.ob-voice-building .ob-conv-stages {
+  margin-top: var(--space-4);
+  text-align: start;
+}
+
+/* ---- the connect scene ---- */
+
+.ob-connect {
+  max-width: 62rem;
+  padding-top: var(--space-4);
+}
+
+.ob-connect h2 {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 620 1.5rem / 1.15 var(--f-display);
+  letter-spacing: -0.02em;
+}
+
+/* The four step-level promises: a real two-column grid on this wide surface,
+   the shape the same four sentences could never hold in the rail's ~250px
+   column (T7 — the honest hard case here is width, not content). */
+.ob-connect-guarantees {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+}
+
+.ob-connect-guarantees-head {
+  margin: 0 0 var(--space-3);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ob-connect-guarantees-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-connect-guarantees-grid li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--textContent);
+  font: 400 0.875rem / 1.5 var(--f-body);
+}
+
+.ob-connect-guarantee-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  color: var(--success);
+}
+
+/* A section head that names the group and whether it is optional. */
+.ob-connect-section-head {
+  margin: var(--space-5) 0 0;
+}
+
+.ob-connect-section-head h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--textPrimary);
+  font: 560 0.9375rem / 1.3 var(--f-display);
+}
+
+.ob-connect-section-head p {
+  margin: var(--space-1) 0 0;
+  color: var(--textMeta);
+  font-size: 0.8125rem;
+}
+
+.ob-connect-pill {
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-connect-pill-required {
+  color: var(--danger);
+}
+
+/* Recommended reads calmly next to required's alarm colour — LinkedIn never
+   gates the act, so its tag must not look like one that does. */
+.ob-connect-pill-recommended {
+  color: var(--textMeta);
+}
+
+/* The provider cards: a mark, the name, what the connection actually grants,
+   and a footer naming the auth mechanism plus the tile's own affordance. */
+.ob-connect-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* LinkedIn's own grid holds one card — still a grid, so its card matches the
+   mail tiles' width exactly rather than stretching to the full row. */
+.ob-connect-grid-single {
+  grid-template-columns: minmax(15rem, 22rem);
+}
+
+.ob-connect-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  cursor: pointer;
+  text-align: start;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+
+.ob-connect-card:hover:not(:disabled) {
+  border-color: var(--borderStrong);
+}
+
+.ob-connect-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A connected or blocked tile is disabled, but not the dashed "not
+   available" look of a control that never worked — the honest hard case is
+   "this happens to be settled right now", not "this is broken". */
+.ob-connect-card:disabled {
+  cursor: default;
+  opacity: 0.82;
+}
+
+.ob-connect-card[data-state="connected"] {
+  border-color: var(--success);
+  background: var(--accentLight);
+}
+
+.ob-connect-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ob-connect-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgPage);
+}
+
+.ob-connect-mark .provider-mark {
+  width: 18px;
+  height: 18px;
+}
+
+.ob-connect-card-done {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  background: var(--success);
+  color: var(--textOnStatusControl);
+}
+
+.ob-connect-card-done svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ob-connect-card b {
+  color: var(--textPrimary);
+  font-size: 0.9375rem;
+  font-weight: 560;
+}
+
+.ob-connect-card small {
+  color: var(--textMeta);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.ob-connect-card-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.ob-connect-card-auth {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+.ob-connect-card-cta {
+  color: var(--accent);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+/* Sits at the foot of the scene now, after both sections — the same
+   section-to-section gap the headings above it use, not the tight one it
+   used to need wedged between the mailbox grid and the network heading. */
+.ob-connect-skip-row {
+  margin: var(--space-5) 0 0;
+}
+
+/* ---- the connect dialog: one provider's ask, its own surface ---- */
+
+.ob-connect-dialog-frame {
+  position: relative;
+}
+
+.ob-connect-dialog-close {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgPage);
+  color: var(--textMeta);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.ob-connect-dialog-close:hover {
+  border-color: var(--borderStrong);
+  color: var(--textPrimary);
+}
+
+.ob-connect-dialog-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgPage);
+}
+
+.ob-connect-dialog-mark .provider-mark {
+  width: 28px;
+  height: 28px;
+}
+
+/* The handshake connects the mark to nothing (a single badge, honestly —
+   see connect-dialog.tsx for why this build draws no two-way wire). A
+   future two-mark version keeps its travelling highlight behind
+   no-preference, matching every other decorative motion in this file. */
+@media (prefers-reduced-motion: no-preference) {
+  .ob-connect-dialog-mark {
+    animation: ob-connect-mark-in 0.3s ease-out;
+  }
+}
+
+@keyframes ob-connect-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+.ob-connect-dialog-title {
+  margin: 0;
+  color: var(--textPrimary);
+  font: 620 1.25rem / 1.25 var(--f-display);
+  text-align: center;
+}
+
+.ob-connect-dialog-intro {
+  margin: var(--space-2) 0 0;
+  color: var(--textSecondary);
+  font-size: 0.875rem;
+  line-height: 1.55;
+  text-align: center;
+}
+
+.ob-connect-dialog-body {
+  margin-top: var(--space-4);
+}
+
+.ob-connect-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.ob-connect-dialog-actions .btn {
+  width: 100%;
+}
+
+.ob-connect-dialog-notnow {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textMeta);
+  cursor: pointer;
+  font: 400 0.8125rem / 1.4 var(--f-body);
+}
+
+.ob-connect-dialog-notnow:hover {
+  color: var(--textSecondary);
+}
+
+/* The authorization form itself keeps left-aligned labels — a form reads
+   worse centred — inside the otherwise-centred dialog chrome above it. */
+.ob-connect-linkedin-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: start;
+}
+
+/* ---- the rail's activity fold ---- */
+/* Progress collapses to one line: the latest step, the count, the caret.
+   Open, it is the audit trail; a step that names fields jumps to them. */
+
+.ob-conv-activity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ob-conv-activity > button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--textSecondary);
+  cursor: pointer;
+  font: 400 0.75rem / 1.4 var(--f-body);
+  text-align: start;
+}
+
+.ob-conv-activity > button:hover {
+  background: var(--bgHover);
+}
+
+.ob-conv-activity > button > i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+}
+
+.ob-conv-activity > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ob-conv-activity > button > b {
+  flex: none;
+  margin-left: auto;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.ob-conv-activity > button > svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--textMeta);
+  transition: transform 0.16s ease;
+}
+
+.ob-conv-activity > button[aria-expanded="true"] > svg {
+  transform: rotate(180deg);
+}
+
+.ob-conv-activity > ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  list-style: none;
+}
+
+.ob-conv-activity > ul > li {
+  color: var(--textMeta);
+  font-size: 0.71875rem;
+  line-height: 1.45;
+}
+
+.ob-conv-activity > ul > li > button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-decoration-color: var(--borderStrong);
+  text-underline-offset: 3px;
+}
+
+.ob-conv-activity > ul > li > button:hover {
+  color: var(--textPrimary);
+}
+
+/* The attention jump inside a message bubble. */
+.ob-conv-jump {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font: 500 0.8125rem / 1.4 var(--f-body);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The tail: crawl provenance, not a finding — what the read covered and
+   what it skipped. People and facts both moved onto the board itself as
+   findings in their own right, so this is the one thing left under a
+   heading of its own. */
+.ob-triage-rest-head {
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-triage-readmore {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The dossier cards inside the tail drop their card chrome and their
+   status glyph: a circle in a review reads as a radio nobody can press.
+   They are disclosure rows here, matching the facts summary above them. */
+.ob-triage-readmore .ob-live-card {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.ob-triage-readmore .ob-live-card-head {
+  padding: var(--space-2) 0;
+}
+
+.ob-triage-readmore .ob-live-card-glyph {
+  display: none;
+}
+
+.ob-triage-readmore .ob-live-card-body {
+  padding: 0 0 var(--space-2);
+}
+
+/* ---- the triage review ---- */
+/* The confirm card grown into the work surface: it fills the artifact pane
+   instead of sitting as a bubble in the thread, so the width cap lifts and
+   the card chrome goes. The pane already draws the surface. */
+
+.ob-conv-confirm.ob-triage {
+  max-width: 72rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+/* The card's own headline carries the surface: display face, editorial
+   scale, tight tracking — the pane's eyebrow above it stays the whisper. */
+.ob-conv-confirm.ob-triage h2 {
+  font-size: 1.5rem;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+/* Clears the pinned continue bar's own height before it arrives: without
+   this, the bar's sticky window spends its last stretch of travel floating
+   OVER whatever content precedes it instead of after it, and that content
+   becomes unreachable right when the bar is closest to it. Targets whichever
+   child ends up second-to-last — the bar itself is always the last, but
+   what sits before it varies (the coverage tail, the failed-confirm alert,
+   or nothing past the board itself) — so this survives all of them rather
+   than naming one. Sized generously against the bar's own rendered height
+   (progress + status + button, one padded row) rather than pixel-exact,
+   since a little extra empty scroll is harmless and a little too little
+   hides content. */
+.ob-conv-confirm.ob-triage > :nth-last-child(2) {
+  margin-bottom: calc(var(--space-6) * 3);
+}
+
+/* The identity summary that leads the review: a brand mark and the name,
+   plus the handful of fields that say who this company is. A summary, not
+   a form — its values are jump links into the rows below, not inputs. */
+.ob-company-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-lg);
+  background: var(--bgElevated);
+}
+
+/* `min-width: 0`: the avatar beside this is `flex: none`, so without this
+   the body would refuse to shrink below its own content's intrinsic width
+   — a registered address is read verbatim off the page and can run long. */
+.ob-company-card-body {
+  min-width: 0;
+}
+
+.ob-company-card-body h3 {
+  margin: 0 0 var(--space-1);
+  color: var(--textPrimary);
+  font-family: var(--f-display);
+  font-size: 1.0625rem;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+}
+
+.ob-company-card-facts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  margin: 0;
+}
+
+.ob-company-card-facts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ob-company-card-facts dt {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ob-company-card-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--textSecondary);
+  font-family: var(--f-body);
+  font-size: 0.8125rem;
+}
+
+.ob-company-card-facts dd button {
+  border: 0;
+  background: none;
+  color: var(--textSecondary);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.ob-company-card-facts dd button:hover,
+.ob-company-card-facts dd button:focus-visible {
+  color: var(--accent);
+}
+
+.ob-company-card-facts dd button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* The card assembles top to bottom as it appears: each direct child rises a
+   beat after the one above it. One entrance, on mount only — re-renders keep
+   the animation's end state, so filling a field never replays it. */
+@media (prefers-reduced-motion: no-preference) {
+  .ob-conv-confirm.ob-triage > * {
+    animation: ob-triage-rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  .ob-conv-confirm.ob-triage > :nth-child(2) {
+    animation-delay: 0.05s;
+  }
+  .ob-conv-confirm.ob-triage > :nth-child(3) {
+    animation-delay: 0.1s;
+  }
+  .ob-conv-confirm.ob-triage > :nth-child(4) {
+    animation-delay: 0.16s;
+  }
+  .ob-conv-confirm.ob-triage > :nth-child(5) {
+    animation-delay: 0.22s;
+  }
+  .ob-conv-confirm.ob-triage > :nth-child(n + 6) {
+    animation-delay: 0.28s;
+  }
+}
+
+@keyframes ob-triage-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* The collapsed row's raw score, mono beside the band word. */
+.ob-triage-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* How many sources back the score — always at most one today, since a
+   proposal field carries a single evidence pair, but said as a count
+   rather than assumed. */
+.ob-triage-source {
+  color: var(--textMeta);
+  font-size: 0.625rem;
+}
+
+/* The one action left on the surface, pinned to its foot: a real <progress>
+   (not a decorative div — the browser exposes the progressbar role and
+   value for free), the plain-words reason continuing is blocked, and the
+   button. Sticky rather than fixed: fixed would break out of the two-column
+   grid and cover the section nav too, where sticky respects the surface's
+   own bounds and only ever floats over ITS OWN content. */
+.ob-triage-continue {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--borderSubtle);
+  background: var(--bgElevated);
+}
+
+.ob-triage-continue-bar {
+  inline-size: 8rem;
+  block-size: 6px;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.ob-triage-continue-status {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+/* Narrow: the three pieces stack rather than wrap mid-sentence — a status
+   line broken across two rows reads worse than three short rows in order. */
+@media (max-width: 30rem) {
+  .ob-triage-continue {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ob-triage-continue-bar {
+    inline-size: 100%;
+  }
+}
+
+/* The nav beside the rows: plain section jump links, sticky so it stays
+   readable while the rows scroll. */
+.ob-triage-body {
+  display: grid;
+  grid-template-columns: minmax(11rem, 13rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.ob-triage-nav {
+  position: sticky;
+  top: var(--space-3);
+}
+
+.ob-triage-nav-list {
+  display: flex;
+  flex-direction: column;
+  /* The rhythm that carries hierarchy where no second colour or heading
+     rule will: a full section-to-section gap here, a tight one (on
+     .ob-triage-nav-sublist below) between a section and its own fields.
+     The eye reads the wide gap as "new section" without being told. */
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The section name is the jump to it — the nav navigates, it does not
+   merely label. It reads as a heading over its own fields: full-strength
+   text colour and a heavier weight than the field list below it carries,
+   rather than the muted, same-weight text that made a section and a field
+   indistinguishable before. The one status it carries is whether work
+   remains; a settled section shows no badge at all. Horizontal padding is
+   permanent, not something the active state adds — so the tint below never
+   shifts the row's own layout when it appears or drops. */
+.ob-triage-nav-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 4px var(--space-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--textPrimary);
+  cursor: pointer;
+  font-family: var(--f-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-align: start;
+}
+
+.ob-triage-nav-link:hover {
+  color: var(--textPrimary);
+}
+
+.ob-triage-nav-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* "You are here" is a tint across the whole section entry — its jump
+   button AND the named list under it — rather than a rule against the
+   button alone, which reads as a stray mark once a sub-list sits below it
+   with no rule of its own. One signal, quieter than the outstanding marks
+   above it (the danger icon, the count pill): orientation, not a call to
+   action. Targeting the `<li>` through `:has()` means a settled section
+   (no pill, just the check) and the first/last entries all get the exact
+   same treatment — nothing here depends on what else the row carries. */
+.ob-triage-nav-list > li:has(> .ob-triage-nav-link[aria-current="true"]) {
+  border-radius: var(--r-sm);
+  background: var(--accentLight);
+}
+
+.ob-triage-group {
+  scroll-margin-top: var(--space-3);
+}
+
+/* One digit at most, never words: a narrow column has no room for a phrase
+   beside a section name, in either language. This is the blocking count —
+   the only number that stops confirm — so it is always the danger tint;
+   there is no neutral variant to tell apart from it any more. */
+.ob-triage-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--dangerBg);
+  color: var(--danger);
+  font-family: var(--f-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The advisory count: a section with outstanding work but none of it
+   blocking still marks itself at the section level — the neutral tone,
+   never the danger pill above, since red is reserved for the count that
+   actually stops confirm. Without this, an advisory-only section looked
+   identical to a settled one until the reader read the named list below
+   it. */
+.ob-triage-nav-advisory {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The settled mark: a section with nothing outstanding still says so,
+   rather than rendering nothing where the badge would have sat — "done"
+   and "not built" must never look identical. */
+.ob-triage-nav-settled {
+  display: inline-flex;
+  align-items: center;
+  color: var(--success);
+}
+
+.ob-triage-nav-settled svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+/* What the crawl found (People, Facts), not what still needs the human —
+   no pill, no background: borrowing the blocking/advisory badge's shape
+   would say a find is an obstacle, which it never is. */
+.ob-triage-nav-quantity {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The to-do list itself: a section's outstanding fields, named, each its
+   own jump. Indented under the section it belongs to, quiet enough that a
+   settled section beside it (no sublist at all) reads as the norm, not a
+   gap. Margin sits on top only — the space AFTER a section's own list is
+   .ob-triage-nav-list's gap now, so a settled section (no sublist) and a
+   working one (sublist plus this gap) leave the same distance before the
+   next section either way. */
+.ob-triage-nav-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 3px 0 0;
+  padding-block: 0;
+  /* The button's own inset (space-2) plus a further indent (space-4), so a
+     named field reads as nested under its section rather than merely below
+     it — the same left edge the active tint's padding respects on the
+     other side. */
+  padding-inline: calc(var(--space-2) + var(--space-4)) var(--space-2);
+  list-style: none;
+}
+
+/* Deliberately lighter than .ob-triage-nav-link on every axis (weight,
+   size, colour): a field reads as subordinate prose under its section
+   heading, never a peer of it. */
+.ob-triage-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--textMeta);
+  cursor: pointer;
+  font-family: var(--f-body);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-align: start;
+}
+
+.ob-triage-nav-item svg {
+  inline-size: 12px;
+  block-size: 12px;
+  flex: none;
+}
+
+.ob-triage-nav-item:hover {
+  color: var(--textPrimary);
+}
+
+.ob-triage-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* The blocking shape only: required AND empty is the one case red is for,
+   reserved here rather than spent on every outstanding row. */
+.ob-triage-nav-item[data-blocking="true"] {
+  color: var(--danger);
+}
+
+/* Past the named limit, a plain count rather than a taller list — the nav
+   must not grow past the section it navigates. */
+.ob-triage-nav-more {
+  padding: 2px 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+/* The rows keep the short/prose tiers of the in-thread card; a row's own
+   state mark (icon shape, confidence band word) is what survives being
+   scrolled to out of nav context — nothing here repeats it by colour. */
+.ob-triage-group {
+  margin-bottom: var(--space-6);
+}
+
+/* The group head reads as a section, not a divider line: label at reading
+   size, its filled/total in mono beside it — the same pair the map shows. */
+.ob-triage-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.ob-triage-group-head h3 {
+  margin: 0;
+  color: var(--textPrimary);
+  font-family: var(--f-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ob-triage-group-head span {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cards in a stack, not lines sharing a hairline: the gap between rows IS
+   the separator now, so a row needs no bottom border of its own. */
+.ob-triage-rows {
+  gap: var(--space-2);
+}
+
+/* Every row — collapsed or open — is the same plain card: a uniform border
+   on all four sides, radius on every corner, no coloured edge. Confidence
+   already reads in words and shapes elsewhere on the row (the score, the
+   ConfidenceMeter, the outstanding mark) — a tinted strip on top of those
+   would be decoration repeating a claim already made, not a fourth signal.
+   Collapsed and open rows share this shell so opening a card never swaps
+   its silhouette, only its height. */
+.ob-triage-rows > li {
+  width: 100%;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  transition: background 0.14s ease;
+}
+
+/* The collapsed weight: the row IS its button — a caret, label, preview and
+   meta cluster on one line — and the whole line is the target that opens
+   the card. Padding lives here, on the button, rather than the card shell:
+   the open shape below needs its own, larger padding once it grows past
+   one line. */
+.ob-triage-row-summary {
+  display: grid;
+  grid-template-columns: auto minmax(6rem, 11rem) minmax(0, 1fr) auto;
+  /* Centred, not baseline: the meta cluster can carry a chip taller than the
+     label/value text, and a shared centre line is what keeps a chip and its
+     neighbouring text looking aligned regardless of which one is taller. */
+  align-items: center;
+  column-gap: var(--space-3);
+  width: 100%;
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: start;
+  font: inherit;
+}
+
+.ob-triage-rows > li:has(.ob-triage-row-summary):hover {
+  background: var(--bgHover);
+}
+
+/* The disclosure caret: purely the "there's more" affordance, since the
+   button's own aria-expanded already carries the state for assistive tech. */
+.ob-triage-row-caret {
+  color: var(--textMeta);
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.ob-triage-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: end;
+}
+
+/* The mark on a row with no value to grade: shape is what tells the two
+   apart (a solid warning glyph outranks a hollow ring) — the danger tint on
+   the blocking one is reinforcement, same as the nav's blocking badge, not
+   the only signal; a greyscale check still reads the shape difference. */
+.ob-triage-row-outstanding {
+  display: inline-flex;
+  align-items: center;
+  color: var(--textMeta);
+}
+
+.ob-triage-row-outstanding svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.ob-triage-row-outstanding[data-state="required"] {
+  color: var(--danger);
+}
+
+/* The settled-but-ungraded mark: a quiet pill in the same family as the
+   design system's ProvenanceTag, for the one state that vocabulary has no
+   word for (`stored` — carried in from the profile, not typed this
+   session). */
+.ob-triage-row-provenance {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-2);
+  border-radius: var(--r-full);
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-size: 0.71875rem;
+  font-weight: 600;
+}
+
+/* The expanded weight: the same card, taller — the value editable in
+   place, the state named beside the label, evidence below. The border,
+   radius and band belong to the shared `.ob-triage-rows > li` shell above;
+   this is content padding only. */
+.ob-triage-row-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.ob-triage-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+/* `width: 100%` bounds this to the open row's own padded width — its
+   parent is a column flex with `align-items: flex-start`, which sizes an
+   unconstrained child to its CONTENT rather than the row, so the evidence
+   chip's snippet (raw page text) would otherwise widen past the card
+   instead of wrapping inside it. */
+.ob-triage-row-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+/* The quiet rule between a group's work and its settled tail: a label and a
+   line, never a card — the extra specificity out-ranks the shared row
+   shell's own border so an empty card never appears where this sits. */
+.ob-triage-rows > li.ob-triage-solid-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: var(--space-2) var(--space-3) 2px;
+}
+
+.ob-triage-solid-divider:hover {
+  background: none;
+}
+
+.ob-triage-solid-divider span {
+  flex: none;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.5625rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-triage-solid-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--borderSubtle);
+}
+
+.ob-triage-rows > li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: var(--r-md);
+}
+
+/* An expanded row names its state inside the label, quietly. */
+.ob-triage-rows .ob-conv-confirm-missing-row label em {
+  margin-left: var(--space-2);
+  color: var(--textMeta);
+  font-size: 0.6875rem;
+  font-style: normal;
+}
+
+.ob-triage-rows
+  > li[data-state="required"].ob-conv-confirm-missing-row
+  label
+  em {
+  color: var(--danger);
+}
+
+/* The people section: a plain statement when the read found no one, or a
+   row per person with the same quiet weight the field rows carry — no
+   confidence band, because there is nothing here for a human to grade. */
+.ob-triage-people-empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-triage-people-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The same plain card shell the field rows use, so the board reads as one
+   flat, quiet family — no coloured edge here either. Centred, not baseline,
+   for the same reason as the field row: an evidence chip runs taller than
+   the name/role text beside it, so the row centres on whichever child is
+   tallest instead of aligning everyone to a text baseline the chip has none
+   of. */
+.ob-triage-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+}
+
+.ob-triage-person-name {
+  color: var(--textPrimary);
+  font-family: var(--f-body);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ob-triage-person-role {
+  color: var(--textSecondary);
+  font-size: 0.8125rem;
+}
+
+.ob-triage-person-meta {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+}
+
+/* The facts section: grouped by type, each group a quiet sub-heading over
+   its own dense list — visible content now, not a disclosure a reader has
+   to know to open. */
+.ob-triage-fact-type {
+  margin-top: var(--space-3);
+}
+
+.ob-triage-fact-type:first-of-type {
+  margin-top: var(--space-2);
+}
+
+.ob-triage-fact-type-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 6px;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ob-triage-fact-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One finding, one line: the same card shell the field and person rows
+   use, sized to what a fact actually needs — a value, its confidence, the
+   source, and the save toggle. A hundred of these still reads as a list,
+   not a hundred field-sized cards. Centred, not baseline: the source chip
+   is taller than the check glyph and the value text, so the row centres on
+   the chip's own height rather than aligning the rest to a baseline the
+   chip has none of. */
+.ob-triage-fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+}
+
+.ob-triage-fact-toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--textMeta);
+  cursor: pointer;
+}
+
+.ob-triage-fact-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.ob-triage-fact-toggle:disabled {
+  color: var(--borderStrong);
+  cursor: not-allowed;
+}
+
+.ob-triage-fact-toggle svg {
+  inline-size: 15px;
+  block-size: 15px;
+}
+
+.ob-triage-fact-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--textPrimary);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `flex: 0 1 auto` plus `min-width: 0`, not `flex: none`: the meta column
+   holds the score AND an evidence chip whose expanded snippet is raw page
+   text of arbitrary length. `flex: none` refuses to shrink, so a flex
+   child sizes to that snippet's UNWRAPPED width and drags the whole row
+   past the card's edge with it — capping this column is what makes the
+   chip's own `overflow-wrap` have somewhere to apply. */
+.ob-triage-fact-meta {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 65%;
+  /* Centred against the chip's own height, same as the row it sits in —
+     `flex-start` here was what left the score digit sitting high next to
+     the taller chip. */
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Narrow pane: the map folds above the rows and stops being sticky; two
+   sticky columns in a stack would shadow the rows they map. */
+@media (max-width: 56rem) {
+  .ob-triage-body {
+    grid-template-columns: 1fr;
+  }
+
+  .ob-triage-nav {
+    position: static;
+  }
+
+  .ob-triage-nav-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+
+  /* Each section's named list stays under its own button rather than
+     interleaving with the next section's, so the row-wrapped nav still
+     reads as one to-do list per section. */
+  .ob-triage-nav-list > li {
+    flex-basis: 100%;
+  }
 }
 
 /* ---- Phase 4: voice act pieces ---- */
@@ -470,7 +2922,25 @@
   background: var(--aiMed);
 }
 
-/* The connect act's per-purpose consent list, rendered with the thread. */
+/* The rail's composer, one size smaller than the split variant's: a single
+   input line, and a hint that stays one line — ellipsized, with the full
+   sentence still readable by title and by assistive tech. */
+.ob-conv-page .mw-composer textarea {
+  min-height: 38px;
+  padding: var(--space-2) var(--space-3);
+}
+
+.ob-conv-page .mw-composer > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The connect act's per-purpose consent list, rendered with the thread. Each
+   row's claim and qualifier live in ONE flex item (the `<span>` in the JSX),
+   not two competing ones — two items each shrinking to their own leftover
+   width is what broke "Your connection list —" across three ragged lines;
+   one item wraps as continuous prose instead. */
 .ob-conv-scopes {
   display: grid;
   gap: var(--space-2);
@@ -479,7 +2949,7 @@
 
 .ob-conv-scopes p {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   gap: var(--space-2);
   margin: 0;
   color: var(--textContent);
@@ -490,37 +2960,48 @@
   flex: none;
   width: 14px;
   height: 14px;
+  margin-top: 3px;
   color: var(--success);
-  align-self: center;
 }
 
 /* Keyboard focus on option chips and chip rows reads the same accent-token
  * ring as the atom inputs, not the browser's off-palette native outline. */
 .ob-conv-option:focus-visible,
-.ob-conv-chips .btn:focus-visible {
+.ob-conv-chips .btn:focus-visible,
+.ob-conv-attention-list button:focus-visible {
   outline: 2px solid transparent;
   outline-offset: 2px;
   box-shadow: 0 0 0 3px var(--accentLight);
 }
 
-/* A finding the narration just named lights its dossier card briefly. */
+/* A finding the narration or a jump just landed on lights up unmistakably —
+ * a solid ring that holds for a beat before it fades, calm rather than
+ * alarming (no colour borrowed from the danger/warn palette, no motion
+ * beyond a fade), and never a bare outline: this is a box-shadow
+ * specifically so it layers beside the browser's own focus ring rather
+ * than fighting it for the same CSS property. */
 .ob-conv-pulse {
-  animation: ob-conv-pulse 1.2s ease-out;
+  animation: ob-conv-pulse 1.6s ease-out;
 }
 
 @keyframes ob-conv-pulse {
   0% {
-    box-shadow: 0 0 0 0 var(--aiMed);
+    box-shadow: 0 0 0 3px var(--aiText);
+  }
+  25% {
+    box-shadow: 0 0 0 3px var(--aiText);
   }
   100% {
-    box-shadow: 0 0 0 var(--space-2) transparent;
+    box-shadow: 0 0 0 3px transparent;
   }
 }
 
+/* Reduced motion drops the fade, never the feedback: the ring simply
+ * appears and holds, a static emphasis instead of an animated one. */
 @media (prefers-reduced-motion: reduce) {
   .ob-conv-pulse {
     animation: none;
-    outline: 1px solid var(--aiMed);
+    box-shadow: 0 0 0 2px var(--aiText);
   }
 }
 

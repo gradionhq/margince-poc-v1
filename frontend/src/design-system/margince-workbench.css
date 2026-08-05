@@ -1,39 +1,81 @@
+/*
+ * The Margince workbench: the two-column working surface onboarding runs in.
+ * Left is the conversation — where the AI says what it did and asks what it
+ * cannot decide. Right is the artifact — the record assembling itself, with a
+ * source on every value.
+ *
+ * It is full-viewport rather than a centred card, and that is the design
+ * argument: during setup this IS the application, so a card floating on a page
+ * would frame it as a dialog the reader could dismiss. The two panes scroll
+ * independently, and neither one scrolls the page.
+ *
+ * Copy never lives here — it comes from the i18n catalogs.
+ */
+
 .mw-shell {
-  width: min(1180px, 100%);
-  margin: auto;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
   background: var(--bgElevated);
-  box-shadow: var(--shadow-pop);
+}
+@supports (height: 100dvh) {
+  /* 100vh on mobile Safari measures the viewport with the URL bar collapsed, so
+     the shell runs taller than the screen and the artifact pane begins below the
+     fold. dvh is the height actually available. */
+  .mw-shell {
+    height: 100dvh;
+  }
 }
 
-.mw-header {
+.mw-body {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  height: 100%;
+  min-height: 0;
+}
+
+.mw-body.has-artifact {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+}
+
+/* --- left column: the conversation ----------------------------------- */
+
+.mw-conversation {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  color: var(--railIconActive);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+  overflow: hidden;
   background:
-    radial-gradient(circle at 8% 50%, var(--aiMed), transparent 24%),
-    linear-gradient(110deg, var(--railTop), var(--railBottom));
+    linear-gradient(var(--bgElevated), var(--bgElevated)) padding-box,
+    radial-gradient(circle at 8% -4%, var(--aiLight), transparent 46%);
 }
 
-.mw-core {
-  /* Sizing through the Core's documented custom properties: WDS-CORE-1 allows a
-     caller to size the primitive and nothing else. A `width` here would fight
-     `width: var(--coreSize)` inside it. */
-  --coreSize: 72px;
-  --coreGlass: 60px;
-  min-width: 72px;
+/* --- the step rail ---------------------------------------------------- */
+/* Where the journey is, in five words. Status, never controls: the machine
+   decides what comes next, so no stop may carry the fill, ring and pill
+   geometry of a real control — that recipe belongs to the buttons in the same
+   column, and hue alone is too thin a line between "you may press this" and
+   "this is where you are". State reads as label colour and numeral ring only. */
+
+.mw-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.mw-identity span,
-.mw-configured span,
-.mw-runtime span {
-  display: block;
-  color: var(--textTertiary);
+.mw-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* --textMeta, not --textTertiary: tokens.css names Meta the AA floor for
+     everything under 13px, and every label in this chrome is 9-11px. */
+  color: var(--textMeta);
   font-family: var(--f-mono);
   font-size: 10px;
   font-weight: 650;
@@ -41,29 +83,105 @@
   text-transform: uppercase;
 }
 
+/* The hairline that makes five stops one rail. Drawn, not marked up: a
+   connector element would enter the accessibility tree as content between two
+   stops, and a screen reader would read the gaps. */
+.mw-step + .mw-step::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  flex: none;
+  background: var(--borderStrong);
+}
+
+.mw-step b {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  color: var(--textMeta);
+  /* --borderStrong, matching the connector between stops: the discs and the
+     hairline joining them are one drawing, and two greys made it two. */
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-full);
+  background: var(--bgElevated);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+/* Done carries no label colour of its own: at this size every label needs the
+   AA role, so what separates done from still-to-come is the FILLED numeral
+   below — a difference in shape, not one 2%-apart pair of greys. */
+.mw-step.is-done b {
+  color: var(--textOnAccentControl);
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.mw-step.is-now {
+  color: var(--textPrimary);
+}
+
+.mw-step.is-now b {
+  color: var(--accent);
+  border-color: var(--accentMed);
+}
+
+/* --- the brand line --------------------------------------------------- */
+
+.mw-brand {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.mw-core {
+  /* Sizing through the Core's documented custom properties: WDS-CORE-1 allows a
+     caller to size the primitive and nothing else. A `width` here would fight
+     `width: var(--coreSize)` inside it. */
+  --coreSize: 38px;
+  --coreGlass: 31px;
+  min-width: 38px;
+}
+
+.mw-identity span {
+  display: block;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .mw-identity h1 {
-  margin: var(--space-1) 0 0;
+  margin: 2px 0 0;
+  color: var(--textPrimary);
   font-family: var(--f-display);
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 560;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.018em;
 }
 
 .mw-identity p {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 0;
-  color: var(--railIconHover);
-  font-size: 12px;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--textMeta);
+  font-size: 11.5px;
 }
 
 .mw-identity i {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
+  flex: none;
   border-radius: var(--r-full);
   background: var(--aiText);
-  box-shadow: 0 0 12px var(--aiText);
 }
 
 .mw-identity i[data-state="working"] {
@@ -71,110 +189,179 @@
 }
 
 .mw-identity i[data-state="success"] {
-  background: var(--online);
-  box-shadow: 0 0 12px var(--online);
+  background: var(--success);
 }
 
 .mw-identity i[data-state="error"] {
   background: var(--danger);
-  box-shadow: 0 0 12px var(--danger);
 }
 
-.mw-configured {
-  max-width: 370px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--railHover);
-  border-radius: var(--r-md);
-  background: var(--railHover);
+/* --- the runtime chip ------------------------------------------------- */
+/* The AI-authorship family, never the brand accent: this says "the machine
+   did this and here is the bill", which is not a user action. */
+
+.mw-aistat {
+  position: relative;
+  flex: none;
 }
 
-.mw-configured span {
-  color: var(--railIcon);
+.mw-aistat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--space-2);
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  background: var(--aiLight);
+  cursor: pointer;
+  transition:
+    border-color 0.14s ease,
+    background 0.14s ease;
+}
+.mw-aistat-btn:hover {
+  border-color: var(--ai);
+  background: color-mix(in srgb, var(--ai) 14%, var(--bgElevated));
+}
+.mw-aistat-btn:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--aiLight);
+}
+/* The caret is the only thing that says this opens. It turns with the popover, so
+   the control's state is legible without reading the panel it controls. */
+.mw-aistat-caret {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--aiText);
+  transition: transform 0.16s ease;
+}
+.mw-aistat-btn[aria-expanded="true"] .mw-aistat-caret {
+  transform: rotate(180deg);
 }
 
-.mw-configured strong {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--railIconActive);
+.mw-aistat-btn i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+}
+
+.mw-aistat-btn strong {
+  color: var(--aiText);
   font-family: var(--f-mono);
   font-size: 11px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
-.mw-runtime {
+.mw-aistat-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(340px, 78vw);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+  animation: mw-aistat-in 0.16s ease both;
+}
+@keyframes mw-aistat-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.mw-aistat-h,
+.mw-aistat-f {
+  margin: 0;
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* The popover's subject is the machine, so its header reads the AI family
+   rather than the neutral meta role — the same distinction the chip makes. */
+.mw-aistat-h {
+  color: var(--aiText);
+}
+
+.mw-aistat-f {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--borderSubtle);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.mw-aistat-rows {
+  margin: var(--space-2) 0 0;
+}
+
+.mw-aistat-r {
   display: grid;
-  grid-template-columns:
-    minmax(0, 1.5fr) minmax(0, 1.4fr)
-    repeat(4, minmax(86px, 0.7fr));
-  border-bottom: 1px solid var(--borderSubtle);
-  background: color-mix(in srgb, var(--aiLight) 45%, var(--bgElevated));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: var(--space-2);
+  padding: 5px 0;
+  border-top: 1px solid var(--borderSubtle);
 }
 
-.mw-runtime > div {
-  min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  border-right: 1px solid var(--borderSubtle);
+.mw-aistat-r:first-child {
+  border-top: 0;
 }
 
-.mw-runtime > div:last-child {
-  border-right: 0;
+.mw-aistat-r dt {
+  color: var(--textMeta);
+  font-size: 11px;
 }
 
-.mw-runtime strong {
-  display: block;
-  margin-top: var(--space-1);
-  overflow: hidden;
+.mw-aistat-r dd {
+  margin: 0;
   color: var(--textPrimary);
   font-family: var(--f-mono);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mw-runtime > div:nth-child(-n + 2) strong {
-  overflow: visible;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  text-overflow: clip;
-  white-space: normal;
 }
 
-.mw-runtime span {
-  color: var(--textMeta);
-}
-
-.mw-runtime small {
+.mw-aistat-r dd small {
   display: block;
   margin-top: 2px;
   color: var(--warn);
-  font-size: 9px;
+  font-family: var(--f-body);
+  font-size: 9.5px;
 }
 
-.mw-body {
-  display: grid;
-  min-height: 560px;
-}
+/* --- right column: the artifact --------------------------------------- */
 
-.mw-body.has-artifact {
-  grid-template-columns: minmax(340px, 0.82fr) minmax(440px, 1.18fr);
+/* The artifact sits in a trough, one step darker than the conversation it grew
+   out of. --bgPage against the conversation's --bgElevated is under 1% apart in
+   the light theme, so the split that carries the whole two-pane idea would read
+   as an accident of the border; --bgCard plus the strong border is a recess a
+   reader sees before they read a word of it. */
+/* The artifact pane scrolls without drawing a bar over the content. Only the
+   elements that actually scroll get this: the conversation column is
+   `overflow: hidden` and its transcript owns the scrolling, so the rule belongs
+   there (see .ob-conv-thread) and here — not on the column between them. */
+.mw-artifact {
+  scrollbar-width: none;
 }
-
-.mw-conversation {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding: var(--space-6);
-  background:
-    linear-gradient(var(--bgElevated), var(--bgElevated)) padding-box,
-    radial-gradient(circle at 10% 0, var(--aiLight), transparent 42%);
+.mw-artifact::-webkit-scrollbar {
+  display: none;
 }
 
 .mw-artifact {
   min-width: 0;
-  padding: var(--space-4);
-  overflow: auto;
-  border-left: 1px solid var(--borderSubtle);
-  background: var(--bgPage);
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
+  border-left: 1px solid var(--borderStrong);
+  background: var(--bgCard);
 }
 
 @keyframes mw-pulse {
@@ -183,69 +370,302 @@
   }
 }
 
+/* --- the rail variant --------------------------------------------------- */
+/* The inverted split: the conversation narrows to a narrator rail and the
+   artifact takes the room, because for a dense act (a 16-field review) the
+   surface does the work and the conversation only explains it. Same DOM as
+   the split variant — proportions, stepper direction and chrome density are
+   the whole difference, so everything the tests prove about the chrome holds
+   in both. Desktop only: below 900px the base stacking rules already turn
+   both variants into one column. */
+
+@media (min-width: 901px) {
+  .mw-shell.is-rail .mw-body.has-artifact {
+    grid-template-columns: clamp(300px, 26vw, 380px) minmax(0, 1fr);
+  }
+
+  /* The seam flips sides with the emphasis: the rail closes with the strong
+     border and the artifact loses its trough — as the primary surface it
+     reads the page background, not a recess. */
+  .mw-shell.is-rail .mw-conversation {
+    border-right: 1px solid var(--borderStrong);
+  }
+
+  /* A very quiet colour wash at the top of the work surface: the AI family
+     on the near side, the brand on the far one, both fading out before the
+     first row of content. Decoration only, drawn under everything. The
+     gutters grow with the viewport so a wide pane reads as a centred page,
+     never content pinned to its left edge. */
+  .mw-shell.is-rail .mw-artifact {
+    padding: var(--space-6) clamp(var(--space-6), 5vw, 72px);
+    border-left: 0;
+    background:
+      radial-gradient(42rem 15rem at 12% -4%, var(--aiLight), transparent 58%),
+      radial-gradient(
+        30rem 12rem at 92% -2%,
+        var(--accentLight),
+        transparent 55%
+      ),
+      var(--bgPage);
+    background-attachment: local;
+  }
+}
+
+/* The rail's progress line: one sentence and a segment bar. Two lines that
+   never wrap, where five numbered stops needed two ragged ones. */
+.mw-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+
+.mw-progress-label {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mw-progress-track {
+  display: flex;
+  gap: 4px;
+}
+
+.mw-progress-track i {
+  height: 3px;
+  flex: 1;
+  border-radius: var(--r-full);
+  background: var(--borderStrong);
+  transition: background 0.2s ease;
+}
+
+.mw-progress-track i.is-done,
+.mw-progress-track i.is-now {
+  background: var(--accent);
+}
+
+/* The stop underway is the one still being earned, so it reads as half its
+   width filled rather than as another completed segment. */
+.mw-progress-track i.is-now {
+  background: linear-gradient(
+    to right,
+    var(--accent) 50%,
+    var(--borderStrong) 50%
+  );
+}
+
+/* The stop the journey is standing on breathes, gently: the same claim
+   aria-current makes, said in motion for the eye that is scanning the rail.
+   Behind the numeral (z-index), so the digit never blurs. */
+.mw-shell.is-rail .mw-step.is-now b {
+  position: relative;
+}
+
+.mw-shell.is-rail .mw-step.is-now b::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: var(--r-full);
+  background: var(--accentLight);
+  animation: mw-step-breathe 3.4s ease-in-out infinite;
+}
+
+@keyframes mw-step-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+/* The brand line at rail width holds only the Core and the identity — the
+   runtime chip lives in the spend bar directly below. */
+.mw-shell.is-rail .mw-brand {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+/* The spend bar under the identity: what this run costs, said by the one
+   who is spending it. Full rail width — spend and token count on the left,
+   the disclosure caret on the right. */
+.mw-shell.is-rail .mw-aifooter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+  margin-top: calc(-1 * var(--space-2));
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.mw-shell.is-rail .mw-aifooter-label {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mw-shell.is-rail .mw-aistat,
+.mw-shell.is-rail .mw-aistat-btn {
+  width: 100%;
+}
+
+.mw-shell.is-rail .mw-aistat-btn {
+  justify-content: flex-start;
+  padding: var(--space-2) var(--space-3);
+}
+
+.mw-shell.is-rail .mw-aistat-caret {
+  margin-left: auto;
+}
+
+.mw-aistat-tok {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Plain language under the spend, one quiet line that never wraps — the
+   exact identifiers are one hover (title) or one chip-press away, so this
+   line never has to carry them. Prose, not an id, so body rather than mono. */
+.mw-shell.is-rail .mw-aifooter-model {
+  overflow: hidden;
+  color: var(--textMeta);
+  font-family: var(--f-body);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-shell.is-rail .mw-aistat-pop {
+  right: auto;
+  left: 0;
+  width: 100%;
+}
+
+/* Who is signed in, at the rail's very foot. */
+.mw-shell.is-rail .mw-person {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.mw-shell.is-rail .mw-person-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--mono0Fill);
+  color: var(--mono0Text);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.mw-shell.is-rail .mw-person-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mw-shell.is-rail .mw-person-id b {
+  color: var(--textPrimary);
+  font-size: 12px;
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-shell.is-rail .mw-person-id small {
+  color: var(--textMeta);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Narrow: the artifact stops being a column and becomes the section below the
+   conversation. Both panes then scroll with the page rather than themselves —
+   two independent scrollers inside one phone screen is a trap. */
 @media (max-width: 900px) {
+  .mw-shell,
+  .mw-body {
+    height: auto;
+    overflow: visible;
+  }
+
   .mw-body.has-artifact {
     grid-template-columns: 1fr;
   }
 
+  .mw-conversation {
+    min-height: 100vh;
+    padding: var(--space-4);
+    overflow: visible;
+  }
+
+  /* The transcript is the conversation's OWN scroller at desktop width
+     (thread.tsx relies on it for follow-the-latest), which is exactly what a
+     stacked phone layout must not keep: two independent scrollers on one
+     screen is the trap this breakpoint exists to avoid. Letting it grow with
+     its content hands the one scroll gesture back to the page. */
+  .mw-conversation .ob-conv-thread {
+    flex: none;
+    overflow: visible;
+  }
+
+  /* Same seam, rotated: the trough edge stays the strong border when the split
+     becomes a stack, or the stacked panes lose the boundary the columns have. */
   .mw-artifact {
-    border-top: 1px solid var(--borderSubtle);
+    padding: var(--space-4);
+    overflow: visible;
+    border-top: 1px solid var(--borderStrong);
     border-left: 0;
   }
 }
 
-@media (min-width: 901px) {
-  .mw-body.has-artifact {
-    height: clamp(480px, calc(100vh - 282px), 680px);
-    min-height: 0;
-  }
-
-  .mw-body.has-artifact .mw-conversation,
-  .mw-body.has-artifact .mw-artifact {
-    min-height: 0;
-  }
-
-  .mw-body.has-artifact .mw-conversation {
-    overflow: hidden;
-  }
-}
-
 @media (max-width: 640px) {
-  .mw-header {
+  .mw-brand {
     grid-template-columns: auto minmax(0, 1fr);
-    padding: var(--space-3) var(--space-4);
   }
 
-  .mw-core {
-    --coreSize: 56px;
-    --coreGlass: 46px;
-    min-width: 56px;
-  }
-
-  .mw-configured {
+  .mw-aistat {
     grid-column: 1 / -1;
-    max-width: none;
   }
 
-  .mw-runtime {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .mw-runtime > div:nth-child(even) {
-    border-right: 0;
-  }
-
-  .mw-runtime > div:nth-child(-n + 4) {
-    border-bottom: 1px solid var(--borderSubtle);
-  }
-
-  .mw-conversation {
-    padding: var(--space-4);
+  .mw-aistat-pop {
+    right: auto;
+    left: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mw-identity i[data-state="working"] {
+  .mw-identity i[data-state="working"],
+  .mw-aistat-pop,
+  .mw-shell.is-rail .mw-step.is-now b::after {
     animation: none;
+  }
+  .mw-aistat-caret {
+    transition: none;
   }
 }

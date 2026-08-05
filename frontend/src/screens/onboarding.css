@@ -531,7 +531,7 @@
 }
 .src.added .si {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 .src .si svg {
   width: 17px;
@@ -714,7 +714,7 @@
 }
 .dropzone:hover .dz-ic {
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
 }
 .dz-ic svg {
   width: 19px;
@@ -1019,16 +1019,6 @@
 }
 .wiz-later:hover {
   color: var(--textSecondary);
-}
-
-/* connect step: the skip stands beside the primary CTA at equal visibility */
-.connect-acts {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 18px;
 }
 
 /* spinner (shared inline) */
@@ -1829,20 +1819,46 @@
 }
 
 /* The workbench is Margince's reusable interaction pattern: identity and
-   runtime stay fixed while conversation and the reviewable artifact move. */
+   runtime stay fixed while conversation and the reviewable artifact move.
+   During setup it is full-bleed — see margince-workbench.css for why a centred
+   card would misframe the surface as a dismissible dialog. */
 .ob-workbench-panel {
-  width: min(1180px, calc(100vw - 48px));
-  min-height: calc(100vh - 176px);
-  margin-inline: calc((100% - min(1180px, calc(100vw - 48px))) / 2);
+  display: block;
+  width: 100%;
 }
-.ob-workbench-panel::before {
-  opacity: 0.55;
-}
+/* The conversation column's body. It does NOT scroll: every act puts its turns
+   inside ConversationThread, which owns the transcript scroller and the
+   follow-the-latest behaviour that depends on being the element that scrolls.
+   An `overflow` here would make this the outer of two nested scrollers, and the
+   thread's own scroll handler would stop seeing the reader's scrolls.
+   `min-height: 0` is what lets the thread shrink inside it — without it a flex
+   item in a column floors at its content height and the column overflows. */
 .mw-thread {
   display: flex;
   flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: var(--space-4);
+  overflow: hidden;
+}
+/* Below 900px margince-workbench.css turns the page itself into the scroller
+   (`.mw-shell`/`.mw-body` grow with content) and hands ConversationThread's
+   own root back to document flow (`.mw-conversation .ob-conv-thread`). This
+   wrapper sits between the two: unchanged, its `flex: 1; min-height: 0;
+   overflow: hidden` still fences the thread to whatever bounded height the
+   old fixed-viewport layout gave it, so the transcript scrolls inside that
+   fence instead of the page scrolling past it — the same inner-scroll trap
+   the sibling rule exists to avoid, one level up. */
+@media (max-width: 900px) {
+  .mw-thread {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
+}
+/* The one column body with no ConversationThread inside it, so here the body
+   itself has to be the scroller. */
+.ob-read-thread {
   overflow: auto;
 }
 .mw-message-assistant {
@@ -1894,7 +1910,7 @@
   max-width: 82%;
   align-self: flex-end;
   padding: var(--space-3) var(--space-4);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   border-radius: var(--r-md) 4px var(--r-md) var(--r-md);
   background: var(--accent);
   font-size: 13px;
@@ -1944,6 +1960,43 @@
 .mw-conversation .ob-core-link {
   color: var(--textSecondary);
 }
+/* The manual interview card also renders inside the workbench artifact rail
+ * (.ob-conv-artifact), a light panel rather than the dark scene backdrop
+ * .ob-core-dialog is built for — unlike .mw-conversation above, it stays a
+ * visible card here, so every rail token it inherits needs its content-token
+ * counterpart instead of being flattened away. */
+.ob-conv-artifact .ob-core-dialog {
+  color: var(--textContent);
+  border: 1px solid var(--borderSubtle);
+  background: var(--bgCard);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: none;
+}
+.ob-conv-artifact .ob-core-dialog h1 {
+  color: var(--textPrimary);
+}
+.ob-conv-artifact .ob-core-dialog > p {
+  color: var(--textSecondary);
+}
+.ob-conv-artifact .ob-manual-input {
+  color: var(--textPrimary);
+  border: 1px solid var(--borderStrong);
+  background: var(--bgElevated);
+}
+.ob-conv-artifact .ob-manual-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentMed);
+}
+.ob-conv-artifact .ob-core-link {
+  color: var(--textSecondary);
+}
+.ob-conv-artifact .ob-core-link:hover,
+.ob-conv-artifact .ob-core-link:focus-visible {
+  color: var(--textPrimary);
+}
+.ob-conv-artifact .ob-manual-required {
+  color: var(--textMeta);
+}
 .mw-read-activity {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
@@ -1984,11 +2037,14 @@
 .mw-read-activity b {
   color: var(--textPrimary);
 }
+/* Pinned to the bottom of the conversation column: `flex: none` so a long
+   thread scrolls behind it instead of squeezing the place you type. */
 .mw-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
-  margin-top: var(--space-4);
+  flex: none;
+  margin-top: var(--space-2);
   padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
 }
@@ -2124,6 +2180,18 @@
 .mw-review .core-findings {
   margin-top: 0;
   box-shadow: none;
+}
+/* The workbench pane is the scroller the dossier's head sticks against, and the
+   pane pads its content. The head has to negate the pane's padding as well as
+   the panel's own, or content scrolls past it in the uncovered band. */
+.mw-artifact .ob-live {
+  --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-6));
+}
+@media (max-width: 900px) {
+  /* The pane's padding steps down with it (margince-workbench.css). */
+  .mw-artifact .ob-live {
+    --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-4));
+  }
 }
 .ob-company-review {
   margin-top: var(--space-6);

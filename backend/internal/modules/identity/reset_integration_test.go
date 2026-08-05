@@ -70,8 +70,19 @@ func TestPasswordResetFlowEndToEnd(t *testing.T) {
 	if mail.sent != 1 || mail.to != e.member.Email {
 		t.Fatalf("mail = %+v, want one message to the member", mail)
 	}
-	if !strings.Contains(mail.body, "https://crm.example.test/reset-password?token=") {
+	if !strings.Contains(mail.body, "https://crm.example.test/#/reset-password?token=") {
 		t.Fatalf("mail body carries no reset link: %q", mail.body)
+	}
+	// The token must be in the FRAGMENT, because a query string hands this live
+	// single-use credential to every access log, Referer header and Cache Storage
+	// key on the way in — the shape is a security assertion, not a formatting one.
+	//
+	// Split on '#' rather than searching the whole body: the correct link contains
+	// "/reset-password?token=" too, immediately AFTER the fragment marker, so a
+	// naive substring check fires on the good link and proves nothing.
+	serverVisible, _, _ := strings.Cut(mail.body, "#")
+	if strings.Contains(serverVisible, "token=") {
+		t.Fatalf("reset link puts the token in the server-visible query: %q", mail.body)
 	}
 	match := resetLinkToken.FindStringSubmatch(mail.body)
 	if match == nil {

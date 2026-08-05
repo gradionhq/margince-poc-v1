@@ -118,23 +118,17 @@ const confirmedSteps = new Set<OnboardingState["step"]>([
   "connect",
 ]);
 
-function creatorTarget(
-  state: OnboardingState,
-  voice: VoiceRestoreProbe | null,
-): ResumePoint {
+function creatorTarget(state: OnboardingState): ResumePoint {
   if (state.step === "connect") {
     return "cn.consent";
   }
   if (state.step === "results") {
     return "re.recap";
   }
-  // step "voice": the act is still open. A skip recorded early is honored;
-  // an existing corpus reopens collection instead of re-inviting.
-  if (state.voice_skipped) {
-    return "vo.skipped";
-  }
-  const words = voice?.summary?.total_words ?? 0;
-  return words > 0 ? "vo.collecting" : "vo.invite";
+  // step "voice": the act is still open, and lands straight on the collect
+  // scene. A skip recorded early is honored; otherwise collection reopens
+  // (or starts) with whatever corpus the server already holds.
+  return state.voice_skipped ? "vo.skipped" : "vo.collecting";
 }
 
 function recapEntries(
@@ -190,7 +184,7 @@ function recapEntries(
 }
 
 export function restorePlan(inputs: RestoreInputs): RestorePlan {
-  const { state, profile, voice, read, routeConnect } = inputs;
+  const { state, profile, read, routeConnect } = inputs;
   if (state?.step === "complete") {
     return { kind: "complete" };
   }
@@ -212,7 +206,7 @@ export function restorePlan(inputs: RestoreInputs): RestorePlan {
     };
   }
   const target: ResumePoint =
-    memberPath || routeConnect ? "cn.consent" : creatorTarget(state, voice);
+    memberPath || routeConnect ? "cn.consent" : creatorTarget(state);
   return {
     kind: "start",
     memberPath,

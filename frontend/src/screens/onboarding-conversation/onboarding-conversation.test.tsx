@@ -153,6 +153,18 @@ type StubOptions = {
   /** Error status for the site-read poll GET (resilience tests). */
   pollStatus?: number;
   messageReply?: MessageReply;
+  /** A 409 the confirm POST returns instead of succeeding, RFC-7807-shaped
+   * so `problemCodeOf` reads the same `code` the real backend sentinels
+   * carry (version_skew / conflict). */
+  confirmProblem?: { code: string; detail: string };
+  /** GET /company's answer while a confirmProblem is staged: whether the
+   * confirmation this 409 blocked had, in fact, already landed. */
+  companyAlreadyExists?: boolean;
+  /** What the read/proposal GETs answer once a confirm attempt has actually
+   * gone out — the real backend's own state moving on, for a version_skew
+   * scenario: the retry a rejection triggers must see a genuinely NEW draft,
+   * not the very one the confirm attempt was rejected for. */
+  afterConfirmAttempt?: { read: CompanySiteRead; proposal: Proposal };
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -165,6 +177,11 @@ function jsonResponse(body: unknown, status = 200) {
 function stubApi(options: StubOptions = {}) {
   const calls: Request[] = [];
   let version = 0;
+  // GET /company must still answer "no company yet" for the shell's OWN
+  // startup restore probe — only the confirm attempt itself may have
+  // raced another one home, and only after this session's own POST to
+  // /confirm actually went out.
+  let confirmAttempted = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
@@ -215,6 +232,9 @@ function stubApi(options: StubOptions = {}) {
             options.proposalStatus,
           );
         }
+        if (confirmAttempted && options.afterConfirmAttempt) {
+          return jsonResponse(options.afterConfirmAttempt.proposal);
+        }
         return jsonResponse(options.proposal ?? proposalFor(readyRead));
       }
       if (
@@ -227,6 +247,10 @@ function stubApi(options: StubOptions = {}) {
         return jsonResponse(options.startRead ?? readingRead, 202);
       }
       if (path.includes("/company/site-reads/") && path.endsWith("/confirm")) {
+        confirmAttempted = true;
+        if (options.confirmProblem) {
+          return jsonResponse(options.confirmProblem, 409);
+        }
         return jsonResponse(savedProfile);
       }
       if (path.includes("/company/site-reads/") && request.method === "GET") {
@@ -236,9 +260,26 @@ function stubApi(options: StubOptions = {}) {
             options.pollStatus,
           );
         }
+        // A conflict this driver resolves as "already confirmed" is only
+        // ever trusted from THIS read's own status: the real backend moves
+        // the read itself to "confirmed" the moment its confirmation lands,
+        // so the fixture mirrors that transition once a confirm attempt has
+        // actually gone out, exactly as the recovery's own refetch expects.
+        if (confirmAttempted && options.companyAlreadyExists) {
+          return jsonResponse({
+            ...(options.read ?? readyRead),
+            status: "confirmed",
+          });
+        }
+        if (confirmAttempted && options.afterConfirmAttempt) {
+          return jsonResponse(options.afterConfirmAttempt.read);
+        }
         return jsonResponse(options.read ?? readyRead);
       }
       if (path.endsWith("/company") && request.method === "GET") {
+        if (confirmAttempted && options.companyAlreadyExists) {
+          return jsonResponse(savedProfile);
+        }
         return jsonResponse({ detail: "no company yet" }, 404);
       }
       if (path.endsWith("/company") && request.method === "PUT") {
@@ -264,7 +305,7 @@ function render(ui: ReactNode) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -292,29 +333,33 @@ afterEach(() => {
 });
 
 describe("the conversational company act", () => {
-  it("narrates poll deltas as thread entries before the terminal outcome", async () => {
+  it("folds poll-delta narration into an activity group, and a clean read reaches the confirm card with no terminal bubble", async () => {
     stubApi();
     render(<OnboardingScreen />);
 
     await submitWebsite();
 
     expect(await screen.findByText(/Reading gradion\.com now/)).toBeTruthy();
-    const learned = await screen.findByText(
-      /Learned Registered legal name: Gradion GmbH/,
-    );
-    const outcome = await screen.findByText(
-      /Finished reading\. Findings with sources: 4\./,
-    );
-    // Progress narration lands strictly before the outcome in the thread.
+    // Progress is what the machine did, not a message: it folds to one line
+    // (the latest step and a count) and the full trail opens on demand.
+    const fold = await screen.findByRole("button", { name: /steps/ });
+    await userEvent.click(fold);
     expect(
-      learned.compareDocumentPosition(outcome) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      screen.getByText(/Learned Registered legal name: Gradion GmbH/),
     ).toBeTruthy();
+    // The latest step doubles as the fold's summary line, so the text can
+    // legitimately appear twice: once folded, once in the opened trail.
     expect(
-      await screen.findByText(
+      screen.getAllByText(
         /Learned Ideal customer profile|Learned Ideal customer/,
-      ),
+      ).length,
+    ).toBeGreaterThan(0);
+    // The read concluded silently: no outcome bubble sits between the fold
+    // and the confirm card that follows it.
+    expect(
+      await screen.findByRole("button", { name: /Continue/ }),
     ).toBeTruthy();
+    expect(screen.queryByText(/I could not read/)).toBeNull();
   });
 
   it("asks the proposal's open question and answering posts the authorizing selected_option", async () => {
@@ -363,12 +408,17 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
     expect(
-      await screen.findByText(/Which legal entity is this installation for\?/),
+      await screen.findByRole("heading", {
+        name: /Which legal entity is this installation for\?/,
+      }),
     ).toBeTruthy();
 
+    // The decision scene: choose, then confirm — a candidate is picked as a
+    // radio and only Continue puts it on the record.
     await userEvent.click(
-      screen.getByRole("button", { name: /Gradion Holding GmbH/ }),
+      screen.getByRole("radio", { name: /Gradion Holding GmbH/ }),
     );
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
       expect(
@@ -391,17 +441,21 @@ describe("the conversational company act", () => {
 
     // Only the selection-authorized change lands in the review; the model's
     // extra proposal never auto-applies.
-    await screen.findByText(/Company profile, prepared from sources/);
+    await screen.findByText(/Here is everything I found/);
     const card = confirmCardElement();
+    // "Gradion Holding GmbH" now also names the identity card's jump link to
+    // this same field.
     await waitFor(() => {
-      expect(within(card).getByText("Gradion Holding GmbH")).toBeTruthy();
+      expect(
+        within(card).getAllByText("Gradion Holding GmbH").length,
+      ).toBeGreaterThan(0);
     });
     expect(
       screen.queryByText(/Nonsense the selection never authorized/),
     ).toBeNull();
   });
 
-  it("disables Accept all while required fields are missing and says which", async () => {
+  it("disables Continue while required fields are missing and says which", async () => {
     const thinRead = {
       ...readyRead,
       profile_fields: [
@@ -420,10 +474,179 @@ describe("the conversational company act", () => {
     await submitWebsite();
 
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     expect(accept.disabled).toBe(true);
-    expect(await screen.findByText(/I still need:/)).toBeTruthy();
+    // The nav's own to-do list is the surface that names the blocking
+    // fields (the bottom bar only states the count); it renders each one
+    // from the same `remaining_required_fields` this stub sets. Reading the
+    // blocking rows specifically, not any text match, keeps this from also
+    // catching a section's own jump-link name.
+    const nav = await screen.findByRole("navigation", {
+      name: "Jump to a section",
+    });
+    const blockingLabels = [
+      ...nav.querySelectorAll(".ob-triage-nav-item[data-blocking='true'] span"),
+    ]
+      .filter((span) => !span.classList.contains("sr-only"))
+      .map((span) => span.textContent);
+    expect(blockingLabels).toEqual([
+      "Company name",
+      "What do you sell?",
+      "Ideal customer",
+    ]);
+  });
+
+  it("lists every outstanding row the board itself counts in the rail, and a click jumps to and focuses the exact row", async () => {
+    const thinRead = {
+      ...readyRead,
+      profile_fields: [
+        grounded("legal_name", "Gradion GmbH", "© 2026 Gradion GmbH"),
+      ],
+    } satisfies CompanySiteRead;
+    stubApi({
+      read: thinRead,
+      proposal: {
+        ...proposalFor(thinRead),
+        remaining_required_fields: ["display_name", "offer_summary", "icp"],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    await screen.findByRole("button", { name: /Continue/ });
+
+    // The rail — never the surface — carries this list; it is read from the
+    // SAME rowFor/isWork pair the board's own section nav counts with, so it
+    // names every empty row (not only the ones the confirm gate blocks on),
+    // not just the required trio.
+    const rail = document.querySelector(".mw-thread");
+    expect(rail).not.toBeNull();
+    within(rail as HTMLElement).getByRole("heading", {
+      name: "These need your input",
+    });
+    const attention = (rail as HTMLElement).querySelector(
+      ".ob-conv-attention",
+    ) as HTMLElement;
+    expect(attention).not.toBeNull();
+    const items = within(attention).getAllByRole("button");
+    // Every field but legal_name is empty: 16 fields minus the one grounded.
+    expect(items).toHaveLength(15);
+
+    await userEvent.click(items[0]);
+    const row = document.getElementById("ob-triage-row-display_name");
+    expect(row).not.toBeNull();
+    // The jump lands in the field's own control, not merely on the row that
+    // contains it: a click on a to-do means "let me fill this in", and
+    // display_name's row is already expanded (it is a required, empty
+    // field, open by default), so its input exists right away.
+    expect(document.activeElement?.tagName).toBe("INPUT");
+    expect((row as HTMLElement).contains(document.activeElement)).toBe(true);
+  });
+
+  it("says '1 field blocks confirm', not '1 fields block confirm', when only one required field is empty", async () => {
+    // Every field but icp grounded, so icp is the ONLY row that blocks
+    // confirm — the rest being filled means there is no advisory work to
+    // fold in either.
+    const almostReadyRead = {
+      ...readyRead,
+      profile_fields: [
+        grounded("legal_name", "Gradion GmbH", "© 2026 Gradion GmbH"),
+        grounded("display_name", "Gradion", "Gradion"),
+        grounded(
+          "offer_summary",
+          "Revenue software for manufacturers",
+          "We build revenue software",
+        ),
+        grounded("registered_address", "Berlin, Germany", "Berlin, Germany"),
+        grounded("register_vat", "DE123456789", "DE123456789"),
+        grounded("industry", "Robotics", "We build robots"),
+        grounded("history", "Founded 2019", "Founded 2019"),
+        grounded("value_proposition", "Faster onboarding", "Faster onboarding"),
+        grounded("usp", "AI-native from day one", "AI-native from day one"),
+        grounded(
+          "buying_center",
+          "Ops and RevOps leads",
+          "Ops and RevOps leads",
+        ),
+        grounded(
+          "customer_pains",
+          "Manual onboarding takes weeks",
+          "Manual onboarding takes weeks",
+        ),
+        grounded("desired_outcomes", "Faster ramp", "Faster ramp"),
+        grounded(
+          "buying_intents",
+          "Evaluating CRM replacements",
+          "Evaluating CRM replacements",
+        ),
+        grounded("common_objections", "Migration risk", "Migration risk"),
+        grounded("sales_motion", "Sales-assisted", "Sales-assisted"),
+      ],
+    } satisfies CompanySiteRead;
+    stubApi({
+      read: almostReadyRead,
+      proposal: {
+        ...proposalFor(almostReadyRead),
+        remaining_required_fields: ["icp"],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    await screen.findByRole("button", { name: /Continue/ });
+
+    expect(
+      screen.getByText(
+        "Your review is ready on the right. 1 field blocks confirm.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/1 fields block confirm/)).toBeNull();
+  });
+
+  it("lets a human fill a missing required field right in the thread, enabling Continue", async () => {
+    const thinRead = {
+      ...readyRead,
+      profile_fields: [
+        grounded("legal_name", "Gradion GmbH", "© 2026 Gradion GmbH"),
+      ],
+    } satisfies CompanySiteRead;
+    stubApi({
+      read: thinRead,
+      proposal: {
+        ...proposalFor(thinRead),
+        remaining_required_fields: ["display_name", "offer_summary", "icp"],
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    expect(accept.disabled).toBe(true);
+
+    // By role, not by label text alone: the triage map's jump squares carry
+    // the same field name in their accessible names, and the fill affordance
+    // under test is the text control.
+    const card = confirmCardElement();
+    await userEvent.type(
+      within(card).getByRole("textbox", { name: /Company name/ }),
+      "Gradion",
+    );
+    await userEvent.type(
+      within(card).getByRole("textbox", { name: /What do you sell\?/ }),
+      "Revenue software for manufacturers",
+    );
+    await userEvent.type(
+      within(card).getByRole("textbox", { name: /Ideal customer/ }),
+      "Mid-market manufacturers",
+    );
+
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
   });
 
   it("confirms with the proposal's draft_version and proposal_hash", async () => {
@@ -433,7 +656,7 @@ describe("the conversational company act", () => {
     await submitWebsite();
 
     const accept = (await screen.findByRole("button", {
-      name: /Accept all/,
+      name: /Continue/,
     })) as HTMLButtonElement;
     await waitFor(() => {
       expect(accept.disabled).toBe(false);
@@ -454,10 +677,137 @@ describe("the conversational company act", () => {
       "https://gradion.com",
     );
     expect(await screen.findByText(/Company profile confirmed/)).toBeTruthy();
-    // The machine advanced into the voice act invitation.
+    // The machine advanced straight into the voice act's collect scene.
+    expect(await screen.findByText(/Teach me how you write\./)).toBeTruthy();
+  });
+
+  // The invariant the double-confirm dead end violated: a 409 always leaves
+  // the reader with something they can do, never a live button whose next
+  // press can only fail the same way again — but never a button that
+  // resubmits the very draft the server just rejected, either.
+  it("a stale-draft 409 blocks a retry until the refetched draft is actually new, then lets it succeed", async () => {
+    const evolvedRead = {
+      ...readyRead,
+      draft_version: 3,
+      proposal_hash: "proposal-3",
+    };
+    const calls = stubApi({
+      confirmProblem: { code: "version_skew", detail: "draft changed" },
+      afterConfirmAttempt: {
+        read: evolvedRead,
+        proposal: proposalFor(evolvedRead),
+      },
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    // The dedicated notice, not the raw server detail glued into the
+    // generic "I could not save" sentence.
+    expect(await screen.findByText(/Your review just updated/)).toBeTruthy();
+    expect(screen.queryByText(/draft changed/)).toBeNull();
+    // The read AND the proposal are both re-fetched so the NEXT retry sends
+    // the current draft rather than the same stale one forever — the honest
+    // fix for skew, since the poll that would otherwise catch this already
+    // stopped once the read went terminal. Until that refetch actually
+    // lands a NEW draft, the button stays disabled: retrying blind would
+    // only resubmit exactly what was just rejected.
+    await waitFor(() => {
+      expect(requestsTo(calls, "/company/site-reads/", "GET").length).toBe(2);
+      expect(
+        requestsTo(calls, "/onboarding/company/proposal", "GET").length,
+      ).toBe(2);
+    });
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+  });
+
+  // The other half: a state that is not retryable at all must not be
+  // presented as if it were.
+  it("an already-confirmed 409 moves the reader forward instead of leaving them pressing a dead button", async () => {
+    stubApi({
+      confirmProblem: { code: "conflict", detail: "already confirmed" },
+      companyAlreadyExists: true,
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    // The confirmation this click was blocked from making had, in fact,
+    // already landed (a duplicate submit, or another tab) — the reader is
+    // moved on exactly as a fresh success would, not invited to press
+    // Continue again for a state that can never succeed that way.
+    expect(await screen.findByText(/Company profile confirmed/)).toBeTruthy();
+    expect(await screen.findByText(/Teach me how you write\./)).toBeTruthy();
+    expect(screen.queryByText(/already confirmed/)).toBeNull();
+  });
+
+  // The third server state (read not yet confirmable) shares the same
+  // generic 409 code as "already confirmed"; GET /company is how the two
+  // are told apart, and this is the branch where that check comes back
+  // empty — genuinely nothing to move forward to.
+  it("a not-yet-confirmable 409 says so plainly instead of implying a retry would work", async () => {
+    stubApi({
+      confirmProblem: { code: "conflict", detail: "read not ready" },
+      companyAlreadyExists: false,
+    });
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    await userEvent.click(accept);
+
+    expect(await screen.findByText(/not ready to confirm yet/)).toBeTruthy();
+    expect(screen.queryByText(/read not ready/)).toBeNull();
+    expect(screen.queryByText(/Company profile confirmed/)).toBeNull();
+  });
+
+  it("lets the workbench frame introduce itself once, not once per act", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Continue/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    // The frame's entrance is the class the animation hangs off, and it is worn
+    // by the first shell of the setup.
+    expect(document.querySelector(".ob-workbench-panel")?.className).toContain(
+      "ob-panel",
+    );
+
+    await userEvent.click(accept);
+    await screen.findByText(/Teach me how you write\./);
+
+    // The next act mounts its own shell. The rail, the brand line, the orb and
+    // the runtime chip are already on screen by now — they are the frame, so
+    // re-entering would make the reader's step forward look like a page load.
     expect(
-      await screen.findByText(/Want me to learn how you write\?/),
-    ).toBeTruthy();
+      document.querySelector(".ob-workbench-panel")?.className,
+    ).not.toContain("ob-panel");
   });
 
   it("persists wizard state on read start so the proposal endpoint can join", async () => {
@@ -484,18 +834,19 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
-    // The act never stalls: one honest turn, the outcome, and a review card
-    // built from the site-read snapshot itself.
+    // The act never stalls: one honest turn about the fallback, then a
+    // review card built from the site-read snapshot itself — the read's own
+    // terminal stays silent, exactly as it does when the proposal succeeds.
     expect(
       await screen.findByText(/I could not load the prepared mapping/),
     ).toBeTruthy();
     expect(
-      await screen.findByText(/Finished reading\. Findings with sources: 4\./),
+      await screen.findByRole("button", { name: /Continue/ }),
     ).toBeTruthy();
+    // "Gradion GmbH" names both the identity summary and its own row.
     expect(
-      await screen.findByRole("button", { name: /Accept all/ }),
-    ).toBeTruthy();
-    expect(within(confirmCardElement()).getByText("Gradion GmbH")).toBeTruthy();
+      within(confirmCardElement()).getAllByText("Gradion GmbH").length,
+    ).toBeGreaterThan(0);
   });
 
   it("concludes as failed with the manual path when the poll keeps erroring", async () => {
@@ -504,14 +855,16 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
-    // The act never sits silent: one honest turn, the failed outcome, and
-    // the manual fallback back on offer.
+    // The act never sits silent. The gate carries the cause forward — a lost
+    // poll, not a site that refused — and the terminal turn's own advice ("try
+    // another URL, or tell me directly") is now the two controls in front of
+    // the reader rather than a second sentence repeating them.
     expect(
       await screen.findByText(/I lost the connection while reading/),
     ).toBeTruthy();
-    expect(await screen.findByText(/I could not read that site/)).toBeTruthy();
+    expect(await screen.findByLabelText(/Your website address/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
   });
 
@@ -535,9 +888,158 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
-    await screen.findByText(/Company profile, prepared from sources/);
+    await screen.findByText(/Here is everything I found/);
     const card = confirmCardElement();
-    expect(within(card).getByText("Gradion GmbH")).toBeTruthy();
+    // "Gradion GmbH" names both the identity summary at the top of the card
+    // and its own settled row further down.
+    expect(within(card).getAllByText("Gradion GmbH").length).toBeGreaterThan(0);
     expect(within(card).queryByText("Umbrella Holding AG")).toBeNull();
+  });
+
+  // The rail's one hard rule: every reply is a chip or a jump, never typed
+  // prose. Checked in both post-gate phases the rail can be in — a live
+  // decision (the surface owns the candidate list) and the review (the
+  // surface owns the field edits) — so removing the composer from one and
+  // missing a sibling free-text control in the other cannot slip through.
+  it("offers no free-text control anywhere in the rail, in either post-gate phase", async () => {
+    const entityClarify = {
+      id: "clarify:legal_name:2",
+      question: "Which legal entity is this installation for?",
+      field: "legal_name",
+      options: [
+        {
+          value: "Gradion GmbH",
+          label: "Gradion GmbH",
+          evidence_url: "https://gradion.com/impressum",
+          evidence_snippet: "Gradion GmbH, Berlin",
+          detail: null,
+        },
+      ],
+      allow_free_text: false,
+    };
+    stubApi({
+      proposal: { ...proposalFor(readyRead), open_questions: [entityClarify] },
+    });
+    render(<OnboardingScreen />);
+    await submitWebsite();
+    await screen.findByRole("heading", {
+      name: /Which legal entity is this installation for\?/,
+    });
+
+    const railDuringDecision = document.querySelector(".mw-thread");
+    expect(railDuringDecision).not.toBeNull();
+    expect(
+      within(railDuringDecision as HTMLElement).queryAllByRole("textbox"),
+    ).toHaveLength(0);
+    expect(document.querySelector(".mw-composer")).toBeNull();
+
+    await userEvent.click(screen.getByRole("radio", { name: /Gradion GmbH/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText(/Here is everything I found/);
+
+    const railDuringReview = document.querySelector(".mw-thread");
+    expect(railDuringReview).not.toBeNull();
+    expect(
+      within(railDuringReview as HTMLElement).queryAllByRole("textbox"),
+    ).toHaveLength(0);
+    expect(document.querySelector(".mw-composer")).toBeNull();
+  });
+
+  // The dead-end this guards against: the server can hand back several open
+  // questions, but the machine only ever auto-asks the FIRST one while the
+  // run is still active. Without sequential promotion, the second would
+  // have nowhere to be answered — editing a field does not clear
+  // `open_questions`, only a recorded answer or dismissal does. A field
+  // outside the legal block, so answering the first cannot auto-dismiss the
+  // second as its sibling and mask the gap.
+  it("promotes the second open question to the decision surface once the first is answered", async () => {
+    const nameClarify = {
+      id: "clarify:legal_name:2",
+      question: "Which legal entity is this installation for?",
+      field: "legal_name",
+      options: [
+        {
+          value: "Gradion GmbH",
+          label: "Gradion GmbH",
+          evidence_url: "https://gradion.com/impressum",
+          evidence_snippet: "Gradion GmbH, Berlin",
+          detail: null,
+        },
+      ],
+      allow_free_text: false,
+    };
+    const industryClarify = {
+      id: "clarify:industry:2",
+      question: "Which industry best describes you?",
+      field: "industry",
+      options: [
+        {
+          value: "Robotics",
+          label: "Robotics",
+          evidence_url: "https://gradion.com",
+          evidence_snippet: "We build robots",
+          detail: null,
+        },
+      ],
+      allow_free_text: false,
+    };
+    stubApi({
+      proposal: {
+        ...proposalFor(readyRead),
+        open_questions: [nameClarify, industryClarify],
+      },
+      // Industry starts empty (unlike legal_name, which the fixture already
+      // grounds), so its answer needs a matching authorized change or the
+      // round trip rolls it back as unconfirmed.
+      messageReply: {
+        ...defaultReply,
+        proposed_changes: [
+          { field: "industry", value: "Robotics", reason: "You chose this." },
+        ],
+      },
+    });
+    render(<OnboardingScreen />);
+    await submitWebsite();
+    await screen.findByRole("heading", {
+      name: /Which legal entity is this installation for\?/,
+    });
+    await userEvent.click(screen.getByRole("radio", { name: /Gradion GmbH/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    // The second question takes over the SAME decision surface — never the
+    // review, and never left stranded with no answering control at all.
+    expect(
+      await screen.findByRole("heading", {
+        name: /Which industry best describes you\?/,
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Here is everything I found/)).toBeNull();
+    expect(
+      screen.getByText(
+        "I need one decision from you: Which industry best describes you? It is on the right, with the evidence for each option.",
+      ),
+    ).toBeTruthy();
+
+    // Answering it, too, finally reaches the review — with both decisions
+    // settled. The read only ever grounded 5 of the 16 fields (the fixture's
+    // usual four plus the industry this clarify just filled), and all three
+    // REQUIRED_FIELDS are among those five, so nothing left blocks confirm —
+    // the other 11 rows are advisory only, and the rail says so plainly
+    // rather than calling them an obstacle.
+    await userEvent.click(screen.getByRole("radio", { name: /Robotics/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText(/Here is everything I found/);
+    expect(
+      screen.getByText(
+        "Your review is ready on the right. Nothing blocks you; 11 things are worth a look.",
+      ),
+    ).toBeTruthy();
+    const rail = document.querySelector(".mw-thread");
+    expect(rail).not.toBeNull();
+    expect(
+      within(rail as HTMLElement).getByRole("heading", {
+        name: "These need your input",
+      }),
+    ).toBeTruthy();
   });
 });
