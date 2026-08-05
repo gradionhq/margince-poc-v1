@@ -28,12 +28,17 @@ import (
 // schemaNode is the slice of a component schema this generator reads: property
 // names to their declared enum, or — for an array property — its items' enum.
 type schemaNode struct {
-	Properties map[string]struct {
-		Enum  []string `yaml:"enum"`
-		Items struct {
-			Enum []string `yaml:"enum"`
-		} `yaml:"items"`
-	} `yaml:"properties"`
+	Properties map[string]schemaProperty `yaml:"properties"`
+}
+
+// schemaProperty is one property's declaration: a scalar's own enum, or an
+// array's items' enum. Which one carries the vocabulary depends on the
+// property, so the reader picks (see closedEnum).
+type schemaProperty struct {
+	Enum  []string `yaml:"enum"`
+	Items struct {
+		Enum []string `yaml:"enum"`
+	} `yaml:"items"`
 }
 
 // vocabularySchema names the schema whose properties declare the vocabularies;
@@ -80,26 +85,51 @@ func readVocabulary(schemas map[string]schemaNode) (vocabulary, error) {
 	// The tools listing returns the same tier vocabulary on the wire. Two
 	// declarations of one vocabulary drift; hold them equal here so the drift is
 	// a build failure rather than a wire/gate disagreement.
-	if tool, ok := schemas[toolSchema]; ok {
-		if wire := tool.Properties["tier"].Enum; len(wire) > 0 && !sameSet(wire, v.tier) {
-			return vocabulary{}, fmt.Errorf(
-				"%s.tier declares %v but %s.tier declares %v — one tier vocabulary, two spellings",
-				toolSchema, wire, vocabularySchema, v.tier)
-		}
+	wire, err := closedEnum(schemas, toolSchema, "tier", func(p schemaProperty) []string { return p.Enum })
+	if err != nil {
+		return vocabulary{}, err
+	}
+	if !sameSet(wire, v.tier) {
+		return vocabulary{}, fmt.Errorf(
+			"%s.tier declares %v but %s.tier declares %v — one tier vocabulary, two spellings",
+			toolSchema, wire, vocabularySchema, v.tier)
 	}
 	// The caps an operation may DEMAND and the caps a passport may be GRANTED
 	// have to be the same set. A scope in one and not the other is not a typo
 	// the gate can survive: an operation demanding an ungrantable cap refuses
 	// every caller, and a grantable cap no operation names is authority nobody
 	// can spend.
-	if pass, ok := schemas[passportSchema]; ok {
-		if grantable := pass.Properties["scopes"].Items.Enum; len(grantable) > 0 && !sameSet(grantable, v.scope) {
-			return vocabulary{}, fmt.Errorf(
-				"%s.scopes grants %v but %s.scope demands %v — a cap an operation requires must be one a passport can hold",
-				passportSchema, grantable, vocabularySchema, v.scope)
-		}
+	grantable, err := closedEnum(schemas, passportSchema, "scopes", func(p schemaProperty) []string { return p.Items.Enum })
+	if err != nil {
+		return vocabulary{}, err
+	}
+	if !sameSet(grantable, v.scope) {
+		return vocabulary{}, fmt.Errorf(
+			"%s.scopes grants %v but %s.scope demands %v — a cap an operation requires must be one a passport can hold",
+			passportSchema, grantable, vocabularySchema, v.scope)
 	}
 	return v, nil
+}
+
+// closedEnum reads one schema property's closed set, refusing every way the
+// declaration could go missing. An absent schema, an absent property or an
+// empty enum must not be the same thing as "nothing to check": a comparison
+// that quietly compares against nothing is worse than no comparison, because
+// it reads on the page as an enforced invariant.
+func closedEnum(schemas map[string]schemaNode, schema, field string, enum func(schemaProperty) []string) ([]string, error) {
+	declared, ok := schemas[schema]
+	if !ok {
+		return nil, fmt.Errorf(
+			"components.schemas.%s is missing: %s.%s is held equal to it, and without it the check passes "+
+				"by default instead of holding the two vocabularies together", schema, vocabularySchema, field)
+	}
+	values := enum(declared.Properties[field])
+	if len(values) == 0 {
+		return nil, fmt.Errorf(
+			"components.schemas.%s.%s declares no enum — the vocabulary must be closed to be checkable against %s",
+			schema, field, vocabularySchema)
+	}
+	return values, nil
 }
 
 // violations reports every derived policy carrying a value the contract does not
