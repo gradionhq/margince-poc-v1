@@ -303,6 +303,13 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		), pruned AS (
 		  DELETE FROM field_provenance
 		  WHERE object_type = 'lead' AND object_id IN (SELECT id FROM wiped)
+		), verdicts AS (
+		  -- The correction ledger accepts a lead as a subject, and a lead twin
+		  -- is the same human as the person being erased. Deleting only the
+		  -- person's verdicts would leave a human-typed value about them
+		  -- keyed to the twin, which no later erasure would ever revisit.
+		  DELETE FROM ai_feedback
+		  WHERE subject_type = 'lead' AND subject_id IN (SELECT id FROM wiped)
 		)
 		SELECT id FROM wiped`, nullColumnAssignments(leadCustom)),
 		personID, lowercased(emails))

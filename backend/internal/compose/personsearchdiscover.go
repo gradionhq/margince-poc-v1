@@ -29,21 +29,29 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/websearch"
 )
 
-// profileHosts are the platforms whose /in/ style addresses are worth keeping
-// as a person's public professional profile.
+// profileHosts maps a professional platform to the person_profile_field the
+// addresses on it belong in.
 //
-// It is a SUBSET of websearch's fetch deny-list, not a mirror of it: that list
-// also refuses the consumer social platforms, whose profiles are not
-// professional identity and have no business on a CRM record. What the two
-// share is the posture — every host here is one this product finds by
-// searching and never reads.
-var profileHosts = []string{"linkedin.com", "xing.com"}
+// LinkedIn alone, because `linkedin` is the only profile field the schema
+// admits (migration 0097's CHECK). Xing is deny-listed for FETCHING alongside
+// it, but a Xing URL has no honest home on the record — filing one under
+// `linkedin` would mislabel it, and inventing a column is a contract change,
+// not something this consumer may do on its own.
+//
+// So this is a SUBSET of websearch's fetch deny-list rather than a mirror of
+// it. What the two share is the posture: every host here is one this product
+// finds by searching and never reads.
+var profileHosts = map[string]string{
+	"linkedin.com": "linkedin",
+}
 
 // discoverProfileURL searches for this person and returns the first result
 // that is unmistakably their public professional profile.
@@ -74,8 +82,16 @@ func (g *PersonAutoEnrich) discoverProfileURL(ctx context.Context, name, employe
 		if !ok {
 			continue
 		}
+		// The field is derived from the HOST, never assumed. Storing a
+		// xing.com address under `linkedin` would put a non-LinkedIn URL in
+		// front of a reader who trusts the label, and every consumer treating
+		// that field as a LinkedIn handle would be wrong about it.
+		field := platformField(hostOf(canonical))
+		if field == "" {
+			continue
+		}
 		return people.DiscoveredField{
-			Field: "linkedin",
+			Field: field,
 			Value: canonical,
 			// The result's own text, verbatim: this is what the reader checks
 			// the address against, and it exists without anyone having opened
@@ -125,6 +141,33 @@ func canonicalProfileURL(raw string) (string, bool) {
 	return clean, true
 }
 
+// hostOf reads the hostname back out of an address this package has already
+// canonicalised, so the field lookup and the stored value agree on one host.
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// platformField names the profile field a host's addresses belong in, or ""
+// when the host is not a professional platform.
+//
+// The field is derived from the HOST rather than assumed: storing a xing.com
+// address under `linkedin` would put a non-LinkedIn URL in front of a reader
+// who trusts the label, and every consumer treating that field as a LinkedIn
+// handle would be wrong about it.
+func platformField(hostname string) string {
+	host := strings.ToLower(strings.TrimRight(strings.TrimSpace(hostname), "."))
+	for domain, field := range profileHosts {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return field
+		}
+	}
+	return ""
+}
+
 // clip bounds provider-supplied text at a stored length. The evidence
 // snippet is a receipt, not an archive: what the reader checks the value
 // against fits in a sentence or two.
@@ -132,7 +175,14 @@ func clip(s string, limit int) string {
 	if len(s) <= limit {
 		return s
 	}
-	return strings.TrimSpace(s[:limit]) + "…"
+	// Back off to a rune boundary. Cutting bytes mid-character stores invalid
+	// UTF-8, and this snippet is the evidence a reader checks the value
+	// against — a mangled receipt is worse than a shorter one.
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(s[:cut]) + "…"
 }
 
 // isProfileURL reports whether a result points at a personal profile on one
@@ -143,15 +193,7 @@ func isProfileURL(raw string) bool {
 	if err != nil {
 		return false
 	}
-	host := strings.ToLower(u.Hostname())
-	var onPlatform bool
-	for _, h := range profileHosts {
-		if host == h || strings.HasSuffix(host, "."+h) {
-			onPlatform = true
-			break
-		}
-	}
-	if !onPlatform {
+	if platformField(u.Hostname()) == "" {
 		return false
 	}
 	path := strings.ToLower(u.Path)
@@ -162,17 +204,35 @@ func isProfileURL(raw string) bool {
 }
 
 // mentionsName reports whether the result text actually names this person.
+//
 // It is the guard against confidently filing a stranger's profile onto a
-// contact who happens to share an employer.
+// contact, so it matches whole WORDS rather than substrings. Contains() would
+// accept "Marianna Weberling" for "Anna Weber" — both parts appear inside
+// longer words — and the result is a real LinkedIn URL for a different human
+// stored on this contact's record.
+//
+// Every part must appear, including one-character parts. Skipping those made
+// an initial ("J. Weber") contribute nothing, so the guard reduced to a
+// surname, which matches too many people at one employer to be evidence of
+// identity.
 func mentionsName(r websearch.Result, name string) bool {
-	haystack := strings.ToLower(r.Title + " " + r.Snippet + " " + r.URL)
-	for _, part := range strings.Fields(strings.ToLower(name)) {
-		// Every part of the name has to appear. A surname alone matches too
-		// many people at one company to be evidence of identity.
-		if len(part) < 2 {
+	words := map[string]bool{}
+	for _, w := range strings.FieldsFunc(
+		strings.ToLower(r.Title+" "+r.Snippet+" "+r.URL),
+		func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) },
+	) {
+		words[w] = true
+	}
+	parts := strings.Fields(strings.ToLower(name))
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		part = strings.Trim(part, ".,")
+		if part == "" {
 			continue
 		}
-		if !strings.Contains(haystack, part) {
+		if !words[part] {
 			return false
 		}
 	}
