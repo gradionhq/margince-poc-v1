@@ -110,106 +110,151 @@ GO_DIRS=(backend)
 ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
 JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
 
-# Build the work list: "module_dir|relative_pkg" for every package that carries a
-# //go:build integration file.
-WORK="$(mktemp)"
+# Candidate packages: every directory in the module that holds test files. Which
+# of them belong to THIS lane is decided by the build-constraint scan in
+# discovery below, never by grepping for the tag's spelling: a header comment may
+# name `go:build integration` while pointing at the DB-backed sibling that owns
+# the other half of a proof, and a package whose tagged files declare no Test
+# function has nothing for this lane to run. Deciding membership here, from the
+# text, is what once handed a Postgres clone to packages with no tagged test.
+CANDIDATES="$(mktemp)"
 for d in "${GO_DIRS[@]}"; do
   [[ -d "$d" ]] || continue
-  matches="$(grep -rl "go:build integration" --include="*.go" "$d" 2>/dev/null || true)"
-  [[ -n "$matches" ]] || continue
-  printf '%s\n' "$matches" | xargs -n1 dirname | sort -u | while IFS= read -r pkgdir; do
-    rel="./${pkgdir#"$d"/}"; [[ "$pkgdir" = "$d" ]] && rel="."
-    echo "$d|$rel"
-  done
-done > "$WORK"
+  find "$d" -type f -name '*_test.go' -print0 \
+    | xargs -0 -n1 dirname \
+    | LC_ALL=C sort -u \
+    | while IFS= read -r pkgdir; do
+        rel="./${pkgdir#"$d"/}"; [[ "$pkgdir" = "$d" ]] && rel="."
+        echo "$d|$rel"
+      done
+done > "$CANDIDATES"
 
+WORK="$(mktemp)"
+DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
+OUTDIR="$(mktemp -d)"
+trap 'rm -f "$CANDIDATES" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+
+# Static discovery: every top-level Test function of every integration-TAGGED
+# file, as "module_dir|rel|TestName". TestMain is a fixture, not a test;
+# a lowercase rune after "Test" makes a plain function, not a test — both
+# match `go test`'s own rules, and the ran==assigned teeth below catch any
+# future divergence between this grep and the compiler's view.
+#
+# Untagged files are excluded here, and that exclusion is the whole point:
+# `-tags=integration` is ADDITIVE, so `go test -tags=integration <pkg>` compiles
+# a package's untagged test files too. Without this, the lane re-runs the entire
+# unit suite against real infrastructure — 1862 of 3588 scheduled tests, more
+# than half the lane, proving nothing `make check` had not already proved.
+while IFS='|' read -r d rel; do
+  pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
+  for f in "$pkgdir"/*_test.go; do
+    [[ -e "$f" ]] || continue
+    # Build-constrained files: only allowlisted lone tags are statically
+    # decidable — `integration` is in this lane's build, the manual opt-in
+    # lanes (e2e_llm, livesmoke, voicelive) are not, so those files' tests are skipped
+    # exactly as the compiler skips them. Anything else — an expression
+    # with operators, or a lone tag the allowlist does not know — fails
+    # loudly (on stderr — stdout here feeds the sort) rather than guess:
+    # a satisfied built-in tag (linux, amd64, cgo, …) would compile under
+    # `go test` yet land in no slice, and the ran==assigned teeth cannot
+    # see a test that discovery itself never counted.
+    #
+    # The constraint region is everything ABOVE the `package` clause; the same
+    # scan scripts/check-test-lanes.sh uses. A tag named below it is prose.
+    skip_file=0 tagged=0
+    while IFS= read -r expr; do
+      [[ -n "$expr" ]] || continue
+      case "$expr" in
+        integration) tagged=1 ;;
+        e2e_llm|livesmoke|voicelive) skip_file=1 ;;
+        *)
+          echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
+          echo "  teach the allowlist in scripts/test-integration-parallel.sh or simplify the constraint" >&2
+          exit 1
+          ;;
+      esac
+    done < <(sed -n '/^package /q;p' "$f" | sed -nE 's|^//go:build ||p; s|^// \+build ||p')
+    # An unconstrained file is a unit-lane file. Record what it holds, keyed by
+    # package, so the lane can report what it left to `make check` rather than
+    # silently narrowing — a quieter lane and a broken selector look identical.
+    # Keyed, not summed, because only packages that DO own a tagged test were
+    # ever running these: counting the rest would overstate the exclusion.
+    if (( ! tagged && ! skip_file )); then
+      printf '%s|%s|%s\n' "$d" "$rel" "$({ grep -cE '^func Test[A-Za-z0-9_]*\(' "$f" || true; })" >> "$UNTAGGED"
+      continue
+    fi
+    (( skip_file )) && continue
+    # `|| true`: a helper-only test file with no Test functions is fine.
+    { grep -hE '^func Test[A-Za-z0-9_]*\(' "$f" || true; } \
+      | sed -E 's/^func (Test[A-Za-z0-9_]*)\(.*/\1/' \
+      | while IFS= read -r name; do
+          [[ "$name" = "TestMain" ]] && continue
+          [[ "$name" != "Test" && "${name:4:1}" =~ [a-z] ]] && continue
+          echo "$d|$rel|$name"
+        done
+  done
+done < "$CANDIDATES" | LC_ALL=C sort > "$DISCOVERY"
+
+NTESTS=$(wc -l < "$DISCOVERY" | tr -d ' ')
+
+# The lane's packages are exactly those that produced a tagged test. Deriving
+# the list rather than maintaining it is what stops a package with no tagged
+# test being handed a clone, and it cannot drift from what discovery found.
+cut -d'|' -f1,2 "$DISCOVERY" | LC_ALL=C sort -u > "$WORK"
 NPKGS_DISCOVERED=$(wc -l < "$WORK" | tr -d ' ')
 
-DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)"
-OUTDIR="$(mktemp -d)"
-trap 'rm -f "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+# Untagged tests this lane no longer schedules — counted only inside packages it
+# actually visits, since a package with no tagged test was never its business.
+NUNTAGGED=$(awk -F'|' '
+  NR == FNR { lane[$1 "|" $2] = 1; next }
+  ($1 "|" $2) in lane { n += $3 }
+  END { print n + 0 }
+' "$WORK" "$UNTAGGED")
 
 if (( SHARD_TOTAL > 0 )); then
-  # Static discovery: every top-level Test function of every integration
-  # package, as "module_dir|rel|TestName". TestMain is a fixture, not a test;
-  # a lowercase rune after "Test" makes a plain function, not a test — both
-  # match `go test`'s own rules, and the ran==assigned teeth below catch any
-  # future divergence between this grep and the compiler's view.
-  while IFS='|' read -r d rel; do
-    pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
-    for f in "$pkgdir"/*_test.go; do
-      [[ -e "$f" ]] || continue
-      # Build-constrained files: only allowlisted lone tags are statically
-      # decidable — `integration` is in this lane's build, the manual opt-in
-      # lanes (e2e_llm, livesmoke, voicelive) are not, so those files' tests are skipped
-      # exactly as the compiler skips them. Anything else — an expression
-      # with operators, or a lone tag the allowlist does not know — fails
-      # loudly (on stderr — stdout here feeds the sort) rather than guess:
-      # a satisfied built-in tag (linux, amd64, cgo, …) would compile under
-      # `go test` yet land in no slice, and the ran==assigned teeth cannot
-      # see a test that discovery itself never counted.
-      skip_file=0
-      while IFS= read -r expr; do
-        [[ -n "$expr" ]] || continue
-        case "$expr" in
-          integration) ;;
-          e2e_llm|livesmoke|voicelive) skip_file=1 ;;
-          *)
-            echo "FAIL: $f carries build constraint '$expr' — not one the static shard discovery knows" >&2
-            echo "  teach the allowlist in scripts/test-integration-parallel.sh or simplify the constraint" >&2
-            exit 1
-            ;;
-        esac
-      done < <(sed -n '/^package /q;p' "$f" | sed -nE 's|^//go:build ||p; s|^// \+build ||p')
-      (( skip_file )) && continue
-      # `|| true`: a helper-only test file with no Test functions is fine.
-      { grep -hE '^func Test[A-Za-z0-9_]*\(' "$f" || true; } \
-        | sed -E 's/^func (Test[A-Za-z0-9_]*)\(.*/\1/' \
-        | while IFS= read -r name; do
-            [[ "$name" = "TestMain" ]] && continue
-            [[ "$name" != "Test" && "${name:4:1}" =~ [a-z] ]] && continue
-            echo "$d|$rel|$name"
-          done
-    done
-  done < "$WORK" | LC_ALL=C sort > "$DISCOVERY"
-
-  NTESTS=$(wc -l < "$DISCOVERY" | tr -d ' ')
   if (( NTESTS < SHARD_TOTAL )); then
     echo "FAIL: discovered only $NTESTS integration tests for $SHARD_TOTAL shards — the discovery is broken or the shard count is absurd"
     exit 1
   fi
-
   # Deterministic round-robin over the sorted list: line i goes to shard
   # ((i-1) % N) + 1. Every shard computes the same list from the same commit,
   # so the slices are complete and disjoint by construction — and the fan-in
   # verifies exactly that instead of trusting it.
   awk -v k="$SHARD_IDX" -v n="$SHARD_TOTAL" 'NR % n == k % n' "$DISCOVERY" > "$ASSIGNED"
-
-  # Shrink the work list to this shard's packages. Each package's anchored
-  # -run union of its assigned test names goes to a per-slot FILE, not onto
-  # the work line — hundreds of test names make a regex far past what xargs
-  # -I can carry.
-  GROUPED="$(mktemp)"
-  awk -F'|' '
-    { key = $1 "|" $2; re[key] = (key in re) ? re[key] "|" $3 : $3 }
-    END { for (k in re) print k "|^(" re[k] ")$" }
-  ' "$ASSIGNED" | LC_ALL=C sort > "$GROUPED"
-  REGEX_DIR="$(mktemp -d)"
-  export REGEX_DIR
-  : > "$WORK"
-  slot=0
-  while IFS= read -r line; do
-    slot=$((slot + 1))
-    d="${line%%|*}" rest="${line#*|}"
-    printf '%s|%s\n' "$d" "${rest%%|*}" >> "$WORK"
-    printf '%s' "${rest#*|}" > "$REGEX_DIR/$slot"
-  done < "$GROUPED"
-  rm -f "$GROUPED"
+else
+  # Unsharded: the whole lane is this run's slice. Naming it explicitly is what
+  # lets the -run union and the ran==assigned teeth below serve both modes.
+  cp "$DISCOVERY" "$ASSIGNED"
 fi
 
+# Each package's anchored -run union of its assigned test names goes to a
+# per-slot FILE, not onto the work line — hundreds of test names make a regex
+# far past what xargs -I can carry. The union is also what confines the run to
+# tagged tests, so it is built in BOTH modes, not only when sharding.
+GROUPED="$(mktemp)"
+awk -F'|' '
+  { key = $1 "|" $2; re[key] = (key in re) ? re[key] "|" $3 : $3 }
+  END { for (k in re) print k "|^(" re[k] ")$" }
+' "$ASSIGNED" | LC_ALL=C sort > "$GROUPED"
+REGEX_DIR="$(mktemp -d)"
+export REGEX_DIR
+: > "$WORK"
+slot=0
+while IFS= read -r line; do
+  slot=$((slot + 1))
+  d="${line%%|*}" rest="${line#*|}"
+  printf '%s|%s\n' "$d" "${rest%%|*}" >> "$WORK"
+  printf '%s' "${rest#*|}" > "$REGEX_DIR/$slot"
+done < "$GROUPED"
+rm -f "$GROUPED"
+
 NPKGS=$(wc -l < "$WORK" | tr -d ' ')
+# Say what was left to the unit lane. An unreported exclusion and a broken
+# selector produce the same silence, and this lane's whole contract is that a
+# thinner run must never read as a passing one.
+echo "test-integration-parallel: $NTESTS tagged tests in $NPKGS_DISCOVERED packages; skipped $NUNTAGGED untagged (they run in \`make check\`)"
 if (( SHARD_TOTAL > 0 )); then
-  echo "test-integration-parallel: shard ${SHARD_IDX}/${SHARD_TOTAL} — $(wc -l < "$ASSIGNED" | tr -d ' ') of $(wc -l < "$DISCOVERY" | tr -d ' ') tests across $NPKGS packages, up to $JOBS concurrent (template db=$TEMPLATE_DB)"
+  echo "test-integration-parallel: shard ${SHARD_IDX}/${SHARD_TOTAL} — $(wc -l < "$ASSIGNED" | tr -d ' ') of $NTESTS tests across $NPKGS packages, up to $JOBS concurrent (template db=$TEMPLATE_DB)"
 else
   echo "test-integration-parallel: $NPKGS packages, up to $JOBS concurrent (template db=$TEMPLATE_DB)"
 fi
@@ -272,39 +317,41 @@ for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   cat "$log"
   ran=$((ran + 1))
   grep -q "^EXIT 0$" "$log" || fail=1
-  if (( SHARD_TOTAL > 0 )); then
-    # Top-level results only (subtest lines are indented): "rel|TestName" per
-    # the package this log belongs to, for the ran==assigned check below.
-    idx="${base%.log}"
-    line="$(sed -n "${idx}p" "$WORK")"
-    d="${line%%|*}" rest="${line#*|}"
-    rel="${rest%%|*}"
-    grep -E '^--- (PASS|FAIL): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
-  fi
+  # Top-level results only (subtest lines are indented): "rel|TestName" per
+  # the package this log belongs to, for the ran==assigned check below.
+  idx="${base%.log}"
+  line="$(sed -n "${idx}p" "$WORK")"
+  d="${line%%|*}" rest="${line#*|}"
+  rel="${rest%%|*}"
+  grep -E '^--- (PASS|FAIL): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
 done
 
 # Reconcile against discovery: a green run must have executed every package we
-# found. NPKGS=0 (a go:build-integration selector regression that matches
-# nothing) or a missing log (a worker that never wrote its EXIT line) must read
-# as red — otherwise the "0 skips" sentinel below is a false green.
+# found. NPKGS=0 (a constraint-scan regression that admits no file) or a missing
+# log (a worker that never wrote its EXIT line) must read as red — otherwise the
+# "0 skips" sentinel below is a false green.
 if [[ "$NPKGS_DISCOVERED" -eq 0 ]]; then
-  echo "FAIL: no integration packages discovered — the 'go:build integration' selector matched nothing (regression?)"
+  echo "FAIL: no integration packages discovered — the build-constraint scan admitted no tagged file (regression?)"
   fail=1
 elif [[ "$ran" -ne "$NPKGS" ]]; then
   echo "FAIL: ran $ran package log(s) but discovered $NPKGS — a worker did not report; treating as red"
   fail=1
 fi
 
-# Shard teeth: the tests that actually ran are exactly the assigned slice. A
+# The teeth: the tests that actually ran are exactly the assigned slice. A
 # discovery/compiler divergence (a test the grep saw but go test didn't run, or
-# vice versa) reads as red here, not as a quietly thinner lane.
-if (( SHARD_TOTAL > 0 )); then
-  LC_ALL=C sort -o "$RAN" "$RAN"
-  if ! diff "$ASSIGNED" "$RAN" > /dev/null; then
+# vice versa) reads as red here, not as a quietly thinner lane. These bind in
+# BOTH modes — unsharded runs are confined by the same -run union, so a test
+# discovery failed to see would otherwise be silently dropped rather than run.
+LC_ALL=C sort -o "$RAN" "$RAN"
+if ! diff "$ASSIGNED" "$RAN" > /dev/null; then
+  if (( SHARD_TOTAL > 0 )); then
     echo "FAIL: shard ${SHARD_IDX}/${SHARD_TOTAL} ran a different test set than assigned:"
-    diff "$ASSIGNED" "$RAN" | sed -n 's/^< /  assigned but not run: /p; s/^> /  ran but not assigned: /p' || true
-    fail=1
+  else
+    echo "FAIL: the lane ran a different test set than discovery assigned:"
   fi
+  diff "$ASSIGNED" "$RAN" | sed -n 's/^< /  assigned but not run: /p; s/^> /  ran but not assigned: /p' || true
+  fail=1
 fi
 
 if grep -rq -- '--- SKIP' "$OUTDIR"; then
