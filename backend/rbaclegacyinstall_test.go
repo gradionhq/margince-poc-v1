@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+//go:build !integration
+
 package backendarch
 
 // Every RBAC object must reach an EXISTING installation, not just a fresh one.
@@ -28,7 +30,6 @@ package backendarch
 import (
 	"encoding/json"
 	"errors"
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"maps"
@@ -36,14 +37,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
 
 const (
-	policyFile = "internal/modules/identity/internal/policy/policy.go"
-
 	// legacyCommit is "Initial commit: WP0 foundation + WP1 core spine". Every
 	// installation that predates every backfill started from this vocabulary.
 	legacyCommit = "2cb50021"
@@ -244,66 +242,4 @@ func readLegacyInstalls(t *testing.T) legacyInstalls {
 		t.Fatalf("%s declares no installations", legacyInstallsFixture)
 	}
 	return fixture
-}
-
-// coreObjectsFromSource extracts the string values of policy.go's coreObjects
-// declaration as it stands today. Derived, never restated — a renamed or moved
-// declaration fails loudly rather than silently shrinking a gate's coverage.
-//
-// It deliberately does NOT read identity/internal/policy as a package: that
-// package is import-fenced to internal/modules/identity/**, so this parses the
-// declaration, in the manner of enumsync_test.go.
-func coreObjectsFromSource(t *testing.T) []string {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), policyFile, nil, 0)
-	if err != nil {
-		t.Fatalf("parsing %s: %v", policyFile, err)
-	}
-	objects := coreObjectsIn(t, file)
-	if len(objects) == 0 {
-		t.Fatalf("parsed no objects from %s; the declaration this gate derives from has moved", policyFile)
-	}
-	return objects
-}
-
-func coreObjectsIn(t *testing.T, file *ast.File) []string {
-	t.Helper()
-	var objects []string
-	for _, decl := range file.Decls {
-		gd, ok := decl.(*ast.GenDecl)
-		if !ok || gd.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gd.Specs {
-			vs, ok := spec.(*ast.ValueSpec)
-			if !ok || len(vs.Names) != 1 || vs.Names[0].Name != "coreObjects" {
-				continue
-			}
-			objects = append(objects, stringLiterals(t, vs.Values)...)
-		}
-	}
-	return objects
-}
-
-func stringLiterals(t *testing.T, values []ast.Expr) []string {
-	t.Helper()
-	var out []string
-	for _, value := range values {
-		lit, ok := value.(*ast.CompositeLit)
-		if !ok {
-			continue
-		}
-		for _, element := range lit.Elts {
-			basic, ok := element.(*ast.BasicLit)
-			if !ok || basic.Kind != token.STRING {
-				continue
-			}
-			unquoted, err := strconv.Unquote(basic.Value)
-			if err != nil {
-				t.Fatalf("unquoting %s: %v", basic.Value, err)
-			}
-			out = append(out, unquoted)
-		}
-	}
-	return out
 }
