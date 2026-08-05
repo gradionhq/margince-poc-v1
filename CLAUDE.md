@@ -315,9 +315,10 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships `extensions/de` (the German
-  jurisdiction pack — GoBD calendar-year retention floors), first-party
-  and enabled by default. `make composition` (run by every build lane)
+  enablement. The vanilla tree ships two first-party units, enabled by
+  default: `extensions/de` (the German jurisdiction pack — GoBD
+  calendar-year retention floors) and `extensions/yogi` (one served
+  🟢/read agent tool — the worked example of the governed-tool kind). `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
   the root is the committed vanilla stub so bare go commands resolve.
 

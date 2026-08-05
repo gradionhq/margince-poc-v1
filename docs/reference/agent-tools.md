@@ -26,9 +26,11 @@ live surface differ from the table below:
 - **Extensions register onto the same registry.** `registerComposedTools` runs
   last in `internal/compose/registry.go`, after the core registrars, so an
   extension unit can add verbs (and a name that collides with a core verb fails
-  loudly at boot). A served extension tool is 🟢 and inbound-only — the boot
-  refuses a handler-bearing confirm-first or `send`/`enrich` tool, because
-  neither could be staged for the human this surface has no way to ask. The
+  loudly at boot). A served extension tool declares 🟢 and an inbound cap — the
+  boot refuses a handler-bearing confirm-first or `send`/`enrich` declaration,
+  because neither could be staged for the human this surface has no way to ask.
+  That governs what a unit may CLAIM; what its handler does is bounded by the
+  composed set being a trust boundary, not by the gate. The
   vanilla tree ships two first-party units: `extensions/de` registers no tools,
   and `extensions/yogi` adds `yogi_quote` (🟢/read), so on a vanilla install the
   catalog below plus that one verb is the whole surface.

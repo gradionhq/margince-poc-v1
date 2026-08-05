@@ -46,17 +46,34 @@ func isGenerated(path, text string) bool {
 	return generatedMarker.MatchString(head)
 }
 
-// licensedTrees are the hand-written Go trees the notice rule covers. The
-// backend module is one of them, not all of them: extensions/ and fixtures/
-// are separate modules a `./...` from here never reaches, and a first-party
-// unit ships under the same license as the code it composes into.
-var licensedTrees = []string{".", "../extensions", "../fixtures"}
+// licensedTree is one hand-written Go tree the notice rule covers, and
+// whether that tree is guaranteed to contain a file. The backend module is one
+// tree, not all of them: extensions/ and fixtures/ are separate modules a
+// `./...` from here never reaches, and a first-party unit ships under the same
+// license as the code it composes into.
+//
+// mustHaveFiles is what stops a root from passing by scanning nothing — an
+// aggregate count cannot, because backend/ alone would carry it forever while
+// a unit tree silently escaped the rule. extensions/ is the one root that may
+// legitimately be empty: presence under it IS enablement, so the vanilla lane
+// composes an empty tree on purpose. A root that does not exist at all is
+// still caught, by the walk error below.
+type licensedTree struct {
+	root          string
+	mustHaveFiles bool
+}
+
+var licensedTrees = []licensedTree{
+	{root: ".", mustHaveFiles: true},
+	{root: "../extensions"},
+	{root: "../fixtures", mustHaveFiles: true},
+}
 
 func TestEveryHandWrittenGoFileCarriesTheLicenseHeader(t *testing.T) {
 	var missing []string
-	var checked int
-	walk := func(root string) error {
-		return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	walk := func(root string) (int, error) {
+		checked := 0
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -77,17 +94,16 @@ func TestEveryHandWrittenGoFileCarriesTheLicenseHeader(t *testing.T) {
 			}
 			return nil
 		})
+		return checked, err
 	}
-	for _, root := range licensedTrees {
-		if err := walk(root); err != nil {
-			t.Fatalf("walking %s: %v", root, err)
+	for _, tree := range licensedTrees {
+		checked, err := walk(tree.root)
+		if err != nil {
+			t.Fatalf("walking %s: %v", tree.root, err)
 		}
-	}
-	// A tree that yields no hand-written file passes silently, and silence
-	// here reads exactly like a clean tree — the failure mode a fitness
-	// function must never have.
-	if checked == 0 {
-		t.Fatal("no hand-written Go files found — the notice rule checked nothing")
+		if tree.mustHaveFiles && checked == 0 {
+			t.Fatalf("%s yielded no hand-written Go file — a root that scans nothing passes exactly like a clean one", tree.root)
+		}
 	}
 	if len(missing) > 0 {
 		t.Errorf("%d Go file(s) missing the BUSL-1.1 SPDX header (add it above the package clause, then a blank line):\n\t%s",

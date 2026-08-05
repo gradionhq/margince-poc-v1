@@ -114,9 +114,12 @@ What the surface will and will not serve:
   admission gate the core tools ride, so its tier and scope are enforced on every call.
 - **A served tool is 🟢 only.** `TierConfirmationRequired` is refused for a handler-bearing tool: this
   surface cannot stage an approval, so a confirm-first extension tool would be refused on every call.
-- **A served tool may not leave the workspace.** `ScopeSend` and `ScopeEnrich` are refused for a
+- **A served tool may not DECLARE an outbound cap.** `ScopeSend` and `ScopeEnrich` are refused for a
   handler-bearing tool, because outbound work is confirm-first everywhere else in the product and a
-  🟢 outbound verb would reach a destination nobody approved.
+  🟢 outbound verb would reach a destination nobody approved. This binds the declaration, not the
+  handler: a handler is ordinary Go and could open a socket regardless, which is why the composed set
+  is itself the trust boundary (see
+  [explanation/extensibility.md](../explanation/extensibility.md)) and a unit is added deliberately.
 - **`Title` is optional but not free-form-blank.** A whitespace-only or space-framed title is refused
   at generation; a unit that declares none is listed under its verb.
 - **`RequestedScope` is required** and comes from the closed passport vocabulary (`read`, `draft`,

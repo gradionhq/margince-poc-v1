@@ -113,12 +113,18 @@ func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
 // declaring that this surface may reach outside at all. Both outbound caps,
 // because `send` delivering and `enrich` fetching leave by the same door.
 func TestBuildExtensionToolsRejectsAServedEgressTool(t *testing.T) {
+	// A verb per cap, so each subtest reads as the act it refuses rather than
+	// naming a delivery for the fetch case.
+	outboundVerbs := map[extension.Scope]string{
+		extension.ScopeSend:   "push_webhook",
+		extension.ScopeEnrich: "fetch_profile",
+	}
 	for _, scope := range []extension.Scope{extension.ScopeSend, extension.ScopeEnrich} {
 		t.Run(string(scope), func(t *testing.T) {
 			_, err := buildExtensionTools([]extension.Extension{{
 				Name: "demo", Version: "1.0.0",
 				Tools: []extension.Tool{{
-					Name: "push_webhook", Version: "1.0.0",
+					Name: outboundVerbs[scope], Version: "1.0.0",
 					Tier: extension.TierAutoExecute, RequestedScope: scope,
 					Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
 				}},

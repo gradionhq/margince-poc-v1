@@ -97,6 +97,12 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 	// outbound authority nothing declares, on a call nobody can be asked
 	// about. A handler-LESS outbound tool is fine — it is a manifest request,
 	// not a capability.
+	//
+	// This binds the DECLARATION. A handler is ordinary Go and could reach the
+	// network whatever cap it asks for — that is bounded by the composed set
+	// being the trust boundary (see buildExtensionTools), not by this check.
+	// What the check buys is that a unit cannot ASK for outbound authority and
+	// be granted it silently on the auto-execute tier.
 	if scope.Egresses() {
 		return extensionTool{}, fmt.Errorf(
 			"a served tool spending the outbound %q cap is not yet supported "+
@@ -122,12 +128,9 @@ func adaptExtensionTool(tool extension.Tool) (extensionTool, error) {
 			Tier:          tier,
 			InputSchema:   input,
 			OutputSchema:  tool.OutputSchema,
-			// Derived, never declared: whether a tool leaves the workspace is
-			// a property of the cap it spends, and the operator inventory and
-			// the openWorldHint both read this field. The refusal above means
-			// it resolves false for every tool this surface serves today;
-			// deriving it anyway keeps that an enforced consequence rather
-			// than a hand-set claim.
+			// Derived, never declared: egress is a property of the cap spent,
+			// not something a unit asserts. The refusal above means it is
+			// false for everything this surface serves today.
 			Egress: scope.Egresses(),
 		},
 		handle: tool.Handle,
