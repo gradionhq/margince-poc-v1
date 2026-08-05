@@ -18,7 +18,7 @@ make composition ─▶ build/composition/     generated wiring (ignored); an em
    │                                        tree reproduces the committed stub byte-for-byte
    │  Extensions() []extension.Extension
    ▼
-cmd/{api,worker,mcp} main ─▶ compose.RegisterExtensions(set)
+cmd/{api,worker} main ─▶ compose.RegisterExtensions(set)
    │                              │
    │                   ① validate the WHOLE set   ─▶  ② apply → core registries
    │                      (bad unit → boot aborts)      (nothing applies until all valid)
@@ -208,7 +208,7 @@ the whole path).
 | The jurisdiction-pack contract | `backend/pkg/extension/jurisdiction/jurisdiction.go` |
 | The core-internal jurisdiction registry (aliases the published types) | `backend/internal/shared/ports/jurisdiction/jurisdiction.go` |
 | Boot reconciliation (validate-then-apply) | `backend/internal/compose/extensions.go` |
-| Role-main wiring | `backend/cmd/{api,worker,mcp}/main.go` |
+| Role-main wiring | `backend/cmd/{api,worker}/main.go` |
 | The composition generator | `backend/tools/gen-composition/` |
 | The committed vanilla stub | `composition/extensions_gen.go` |
 | The first-party German pack | `extensions/de/de.go` |

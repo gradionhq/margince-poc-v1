@@ -511,12 +511,16 @@ timeout any more, and the sweep tag is stamped at a chokepoint the declaration
 drives. Item 3 is partly closed — every worker return is gated syntactically
 and the four ratified exceptions are declared, though the vetted-vocabulary
 substitution at the endpoint is still what makes the surface safe. Items 4, 5
-and 6 are unchanged and are now filed as issues: #430 (`cmd/worker` serves no
-`/metrics`), #431 (the per-connection sweep masking, a product decision), and
-#432 (`enqueueDigest` fanning the fleet out for one tenant). Two unrelated
-findings were filed alongside them: #428 (`//nolint:forbidigo` is unusable
-tree-wide, so the only available waiver is a path exclusion) and #429 (a
-`STATUS.md` pointer left in a source comment).
+and 6 are **CLOSED by PR #457**: `--observe-addr` gives `cmd/worker` its own
+`/healthz`, `/readyz` and `/metrics` (#430); `margince_sweep_units_total` /
+`_failed` report the per-connection and per-build dispatchers at their declared
+grain, so a dead connection beside a healthy one is no longer masked (#431); and
+`enqueueDigest` now names the child kind for the workspace it already knows
+instead of enqueueing the fleet dispatcher, held as a class by
+`TestNoScheduledDispatcherIsEnqueuedByHand` (#432). The two findings filed
+alongside them — #428 (`//nolint:forbidigo` unusable tree-wide) and #429 (a
+`STATUS.md` pointer left in a source comment) — closed with them. Nothing from
+Phase 1 C remains open.
 
 **What is deliberately NOT enforced at pre-push.** `.githooks/pre-push` runs
 `craft static` only, so the forbidigo bans on direct River registration and on
