@@ -36,6 +36,21 @@ var tokenIssuers = map[string]string{
 	"CreatePasswordReset":        "reset.go",            // the emailed reset
 }
 
+// memberRowLocks are the ways a statement takes a row lock on the member.
+// Naming only FOR UPDATE would leave the guard green against the very shape
+// redemption uses to acquire that lock — a bare `UPDATE app_user`, which locks
+// the row just as surely as an explicit clause does. A guard that misses the
+// most likely spelling of the defect is worse than none, because it reads as
+// though the invariant were covered.
+var memberRowLocks = []string{
+	"FOR UPDATE",
+	"FOR NO KEY UPDATE",
+	"FOR SHARE",
+	"FOR KEY SHARE",
+	"UPDATE app_user",
+	"DELETE FROM app_user",
+}
+
 var funcStart = regexp.MustCompile(`(?m)^func (?:\([^)]*\) )?(\w+)\(`)
 
 // funcBody returns the source of one top-level function, from its signature to
@@ -65,12 +80,14 @@ func TestSetPasswordTokenIssuersTakeNoRowLockOnTheMember(t *testing.T) {
 	for name, file := range tokenIssuers {
 		body := issuerBody(t, file, name)
 
-		if strings.Contains(body, "FOR UPDATE") {
-			t.Errorf(
-				"%s takes a row lock (FOR UPDATE) while it writes auth_token — redemption "+
-					"locks auth_token FIRST and then writes app_user, so this inverts the order "+
-					"and a redeem racing an issue can deadlock. Serialize with "+
-					"lockMemberForTokenIssue instead.", name)
+		for _, lock := range memberRowLocks {
+			if strings.Contains(body, lock) {
+				t.Errorf(
+					"%s uses %q, which takes a row lock on the member while it writes "+
+						"auth_token — redemption locks auth_token FIRST and then writes "+
+						"app_user, so this inverts the order and a redeem racing an issue can "+
+						"deadlock. Serialize with lockMemberForTokenIssue instead.", name, lock)
+			}
 		}
 		if !strings.Contains(body, "lockMemberForTokenIssue") {
 			t.Errorf(
