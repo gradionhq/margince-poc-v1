@@ -85,6 +85,32 @@ func domainCapturedBy(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids
 	return by
 }
 
+// liveRelationshipTypesOf reads the org's unarchived relationship types.
+func liveRelationshipTypesOf(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx,
+			`SELECT relationship_type FROM organization_relationship_type
+			  WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var rt string
+			if err := rows.Scan(&rt); err != nil {
+				return err
+			}
+			out[rt] = true
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading relationship types: %v", err)
+	}
+	return out
+}
+
 func TestUpdateOrganizationDomainsReplaceSet(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
@@ -241,11 +267,15 @@ func TestUpdateOrganizationKeepingOwnDomainIsNoFalseConflict(t *testing.T) {
 	}
 }
 
-// Both replace-sets in ONE request. Each branch legitimately bumps updated_at,
-// and before storekit.Patch de-duplicated by column that rendered
-// `SET updated_at = $n, updated_at = $m` — Postgres 42601, a 500 on a request
-// the contract allows. Nothing covered the pair, which is why it stayed
-// invisible: each field on its own worked.
+// Both replace-sets in ONE request — the pair nothing covered, and the shape that
+// used to 500: each branch bumped updated_at, and two assignments to one column
+// is a statement Postgres rejects.
+//
+// What this asserts is the endpoint's property, not the patch's: a request naming
+// both sets succeeds, BOTH sets land, and it is a single write. The rendering rule
+// that makes it possible belongs to storekit.Patch and is pinned there
+// (patch_test.go) — which is why this test stays green even if the de-duplication
+// is removed, now that this caller bumps updated_at once.
 func TestUpdateOrganizationAcceptsDomainsAndRelationshipTypesTogether(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.as()
@@ -282,30 +312,4 @@ func TestUpdateOrganizationAcceptsDomainsAndRelationshipTypesTogether(t *testing
 	if n := countOrgUpdatedEvents(ctx, t, e, orgID); n != 1 {
 		t.Errorf("got %d organization.updated events, want exactly 1", n)
 	}
-}
-
-// liveRelationshipTypesOf reads the org's unarchived relationship types.
-func liveRelationshipTypesOf(ctx context.Context, t *testing.T, e *dedupeEnv, orgID ids.OrganizationID) map[string]bool {
-	t.Helper()
-	out := map[string]bool{}
-	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT relationship_type FROM organization_relationship_type
-			  WHERE organization_id = $1 AND archived_at IS NULL`, orgID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var rt string
-			if err := rows.Scan(&rt); err != nil {
-				return err
-			}
-			out[rt] = true
-		}
-		return rows.Err()
-	}); err != nil {
-		t.Fatalf("reading relationship types: %v", err)
-	}
-	return out
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -34,23 +35,35 @@ const (
 type Patch struct {
 	sets []string
 	args []any
-	// slot maps a column to the position it already holds in sets/args. An
-	// assignment list is a SET of columns: two branches of one request can each
+	// slotBySQLName maps an assignment's rendered left-hand side to the position
+	// it already holds in sets and args, which are the same index because both
+	// only ever grow together (the apply paths clone rather than append).
+	//
+	// An assignment list is a SET of columns: two branches of one request can each
 	// want `updated_at` bumped, and appending a second assignment renders
 	// `SET updated_at = $1, updated_at = $2`, which Postgres rejects (42601) —
 	// turning a legal request into a 500. So a repeat lands on the first slot.
-	slot   map[string]int
-	before map[string]any
-	after  map[string]any
+	//
+	// Keyed on the RENDERED name, not the bare column, so the merge only happens
+	// where both writers agree on the identifier. A core column and a catalog
+	// cf_ column that somehow shared a name would keep separate slots and still
+	// fail loudly, rather than one silently overwriting the other's validated
+	// value — or worse, deciding whether the identifier reaches the SQL quoted.
+	slotBySQLName map[string]int
+	before        map[string]any
+	after         map[string]any
 }
 
 func NewPatch() *Patch {
-	return &Patch{slot: map[string]int{}, before: map[string]any{}, after: map[string]any{}}
+	return &Patch{slotBySQLName: map[string]int{}, before: map[string]any{}, after: map[string]any{}}
 }
 
 // Set records one changed column. oldVal comes from the row read inside
-// the same transaction, so the audit diff is exact. Setting the same column
-// twice is safe: the last value wins, in one assignment.
+// the same transaction, so the audit diff is exact.
+//
+// Setting the same column twice is safe: the last value wins, in one assignment,
+// and the FIRST oldVal is the one kept — so the diff spans the whole change
+// rather than its last leg.
 //
 //craft:ignore naked-any column values span every SQL type a module owns; they flow to bind parameters and the schemaless audit diff
 func (p *Patch) Set(column string, oldVal, newVal any) {
@@ -69,10 +82,9 @@ func (p *Patch) setQuoted(column string, oldVal, newVal any) {
 	p.recordAssignment(column, quoteColumnIdentifier(column), oldVal, newVal)
 }
 
-// recordAssignment is the one place an assignment is recorded, so the
-// de-duplication holds
-// for a quoted cf_ column exactly as it does for a core one — both key on the
-// wire name, which is also the audit-diff key.
+// recordAssignment is the one place an assignment is recorded, so a quoted cf_
+// column de-duplicates exactly as a core one does. The audit images stay keyed on
+// the bare wire name; only the slot lookup uses the rendered identifier.
 //
 // A repeat overwrites the bound value and leaves `before` alone: the first Set
 // captured what the row actually held when this transaction read it, while a
@@ -82,14 +94,14 @@ func (p *Patch) setQuoted(column string, oldVal, newVal any) {
 //
 //craft:ignore naked-any same column-value contract as Set
 func (p *Patch) recordAssignment(column, sqlName string, oldVal, newVal any) {
-	if i, seen := p.slot[column]; seen {
+	if i, seen := p.slotBySQLName[sqlName]; seen {
 		p.args[i] = newVal
 		p.sets[i] = fmt.Sprintf("%s = $%d", sqlName, i+1)
 		p.after[column] = newVal
 		return
 	}
 	p.args = append(p.args, newVal)
-	p.slot[column] = len(p.args) - 1
+	p.slotBySQLName[sqlName] = len(p.args) - 1
 	p.sets = append(p.sets, fmt.Sprintf("%s = $%d", sqlName, len(p.args)))
 	p.before[column] = oldVal
 	p.after[column] = newVal
@@ -108,14 +120,16 @@ func (p *Patch) After() map[string]any  { return p.after }
 // client-driven edits, or a held RowLock (ApplyLocked) for internal
 // flows. An unguarded update is not expressible.
 func (p *Patch) ApplyWithVersion(ctx context.Context, tx pgx.Tx, table string, id ids.UUID, version int64) error {
-	p.args = append(p.args, id)
-	where := fmt.Sprintf("id = $%d AND archived_at IS NULL", len(p.args))
-	p.args = append(p.args, version)
-	where += fmt.Sprintf(" AND version = $%d", len(p.args))
+	// The guard's binds are appended to a COPY: p.args must keep holding exactly
+	// the assignments, one per entry, or the slot index above stops naming the
+	// placeholder it renders. That also makes the id and version binds local to
+	// this call rather than accumulating on the patch.
+	args := append(slices.Clone(p.args), id, version)
+	where := fmt.Sprintf("id = $%d AND archived_at IS NULL AND version = $%d", len(args)-1, len(args))
 
 	tag, err := tx.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET %s WHERE %s`, table, strings.Join(p.sets, ", "), where),
-		p.args...)
+		args...)
 	if err != nil {
 		return err
 	}
@@ -241,11 +255,13 @@ func (p *Patch) ApplyLocked(ctx context.Context, tx pgx.Tx, lock RowLock) error 
 	if lock.table == "" {
 		return errors.New("storekit: ApplyLocked requires a lock minted by LockRow or LockPair")
 	}
-	p.args = append(p.args, lock.id)
+	// A copy, for the same reason ApplyWithVersion clones: the assignments and
+	// their bind values stay index-aligned.
+	args := append(slices.Clone(p.args), lock.id)
 	tag, err := tx.Exec(ctx,
 		fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND archived_at IS NULL`,
-			lock.table, strings.Join(p.sets, ", "), len(p.args)),
-		p.args...)
+			lock.table, strings.Join(p.sets, ", "), len(args)),
+		args...)
 	if err != nil {
 		return err
 	}

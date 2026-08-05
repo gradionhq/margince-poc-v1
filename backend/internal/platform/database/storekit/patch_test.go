@@ -10,6 +10,7 @@ package storekit
 // the proof.
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,8 @@ func TestSetTwiceOnOneColumnRendersOneAssignment(t *testing.T) {
 	if got := strings.Count(sql, "updated_at ="); got != 1 {
 		t.Fatalf("updated_at assigned %d times in %q, want exactly 1 — Postgres rejects a duplicate column", got, sql)
 	}
+	// One bind value per assignment is what makes the slot index name the
+	// placeholder it renders; the apply paths clone rather than append to keep it.
 	if len(p.sets) != len(p.args) {
 		t.Fatalf("%d assignments against %d bind values: the placeholders cannot all resolve", len(p.sets), len(p.args))
 	}
@@ -43,16 +46,13 @@ func TestTheLastSetSuppliesTheBoundValue(t *testing.T) {
 	p.Set("updated_at", "t0", "t1")
 	p.Set("updated_at", "t0", "t2")
 
-	for i, want := range []any{"customer", "t2"} {
-		if p.args[i] != want {
-			t.Errorf("args[%d] = %v, want %v", i, p.args[i], want)
-		}
+	if want := []any{"customer", "t2"}; !reflect.DeepEqual(p.args, want) {
+		t.Errorf("args = %v, want %v", p.args, want)
 	}
-	// Each assignment must name its own 1-based placeholder, in order.
-	for i, set := range p.sets {
-		if !strings.HasSuffix(set, "$"+itoa(i+1)) {
-			t.Errorf("assignment %q does not bind $%d, so a repeat rewrote the wrong slot", set, i+1)
-		}
+	// The exact fragments, not a suffix match: "$1" is a suffix of "$21" too, and
+	// a repeat that rewrote the wrong slot is precisely a placeholder mix-up.
+	if want := []string{"lifecycle = $1", "updated_at = $2"}; !reflect.DeepEqual(p.sets, want) {
+		t.Errorf("sets = %v, want %v", p.sets, want)
 	}
 }
 
@@ -82,17 +82,36 @@ func TestSetQuotedDeduplicatesOnTheWireName(t *testing.T) {
 	p.setQuoted("cf_employee_count", 10, 20)
 	p.setQuoted("cf_employee_count", 10, 30)
 
-	if len(p.sets) != 1 {
-		t.Fatalf("%d assignments for one cf_ column: %v", len(p.sets), p.sets)
+	// The rendering matters as much as the count: the overwrite branch re-renders
+	// the left-hand side, and a slip that passed the bare column there would
+	// splice a catalog-derived identifier into the UPDATE unquoted — the one thing
+	// setQuoted exists to prevent.
+	if want := []string{`"cf_employee_count" = $1`}; !reflect.DeepEqual(p.sets, want) {
+		t.Fatalf("sets = %v, want %v", p.sets, want)
 	}
 	if p.args[0] != 30 {
 		t.Errorf("args[0] = %v, want 30 (the last write)", p.args[0])
 	}
+	if got := p.After()["cf_employee_count"]; got != 30 {
+		t.Errorf("after image keys on the bare wire name: got %v for cf_employee_count", got)
+	}
 }
 
-func itoa(n int) string {
-	if n < 10 {
-		return string(rune('0' + n))
+// Two writers that disagree about the identifier are not the same assignment.
+// A core column and a catalog column sharing a name is a programming error, and
+// merging them would either drop a validated value or decide the quoting — so
+// they keep separate slots and the statement still fails loudly, as it did before
+// the merge existed. Unreachable today (every catalog column is cf_-prefixed),
+// which is exactly why it needs pinning rather than trusting.
+func TestADisagreementAboutTheIdentifierIsNotMerged(t *testing.T) {
+	p := NewPatch()
+	p.Set("lifecycle", "prospect", "customer")
+	p.setQuoted("lifecycle", "prospect", "from the catalog")
+
+	if len(p.sets) != 2 {
+		t.Fatalf("sets = %v, want the bare and quoted spellings kept apart", p.sets)
 	}
-	return itoa(n/10) + itoa(n%10)
+	if p.args[0] != "customer" {
+		t.Errorf("the core value was overwritten by the catalog one: args[0] = %v", p.args[0])
+	}
 }
