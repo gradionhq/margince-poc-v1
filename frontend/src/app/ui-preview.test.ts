@@ -16,6 +16,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Stands in for the screen's `t("auth.continueWith", …)`. It records its calls so
+// the pass-through cases can assert the label was never asked for: on a served
+// provider the wire owns the button text, and a preview that consulted this on
+// that path would be composing copy the contract says is the server's.
+function labelFactory() {
+  const asked: string[] = [];
+  return {
+    asked,
+    label: (providerKey: string) => {
+      asked.push(providerKey);
+      return `Weiter mit ${providerKey}`;
+    },
+  };
+}
+
 describe("VITE_UI_PREVIEW_OIDC", () => {
   it("is off with no env var, and passes the server's answer through verbatim", () => {
     expect(import.meta.env.VITE_UI_PREVIEW_OIDC).toBeUndefined();
@@ -23,7 +38,9 @@ describe("VITE_UI_PREVIEW_OIDC", () => {
     // The empty capability the real server serves reaches the screen unchanged,
     // which is what keeps ProviderButtons rendering nothing (§19).
     const served: { key: string; label: string }[] = [];
-    expect(previewedOidcProviders(served)).toBe(served);
+    const { asked, label } = labelFactory();
+    expect(previewedOidcProviders(served, label)).toBe(served);
+    expect(asked).toEqual([]);
   });
 
   it("is off for any value that is not an explicit yes", () => {
@@ -38,9 +55,10 @@ describe("VITE_UI_PREVIEW_OIDC", () => {
     for (const value of ["1", "true"]) {
       vi.stubEnv("VITE_UI_PREVIEW_OIDC", value);
       expect(uiPreviewOidcEnabled()).toBe(true);
-      expect(previewedOidcProviders([]).map((p) => p.key)).toEqual([
-        "google",
-        "microsoft",
+      const { label } = labelFactory();
+      expect(previewedOidcProviders([], label)).toEqual([
+        { key: "google", label: "Weiter mit google" },
+        { key: "microsoft", label: "Weiter mit microsoft" },
       ]);
     }
     // Warned, so a preview build says out loud that it is one. Once, not per
@@ -51,7 +69,10 @@ describe("VITE_UI_PREVIEW_OIDC", () => {
   it("never overrides an installation that does serve providers", () => {
     vi.stubEnv("VITE_UI_PREVIEW_OIDC", "1");
     const served = [{ key: "corp-sso", label: "Anmeldung über Werk-IT" }];
-    expect(previewedOidcProviders(served)).toBe(served);
+    const { asked, label } = labelFactory();
+    expect(previewedOidcProviders(served, label)).toBe(served);
+    // The installation's own wording survives, untouched and unconsulted.
+    expect(asked).toEqual([]);
   });
 
   // The per-provider marker rides the SAME switch, and the empty default is the

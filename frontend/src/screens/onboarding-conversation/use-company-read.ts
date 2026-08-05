@@ -6,7 +6,8 @@ import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
-import { changeDraftField, MAX_SELECTED_FACTS, prefill } from "../onboarding";
+import { changeDraftField, prefill } from "../onboarding";
+import { defaultSelectedFactKeys } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
 import { toMachineQuestion } from "./company-proposal";
 import type {
@@ -17,9 +18,11 @@ import { diffSiteRead, useNarrationQueue } from "./narration";
 
 // The read lifecycle of the company act as one hook: start the read, poll
 // it, narrate poll deltas through the paced queue, prefill the draft per
-// dossier version, and conclude — clarify question first (while the run is
-// still active), then the terminal outcome, then review when nothing is
-// open. Everything the conversation shows goes through machine events.
+// dossier version, and conclude — the first open question while the run is
+// still active, then the terminal outcome, then review. Any FURTHER open
+// question the proposal carries is promoted one at a time once review has
+// none live, so the review card is never reachable while one is stranded.
+// Everything the conversation shows goes through machine events.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
 type Proposal = components["schemas"]["OnboardingCompanyProposal"];
@@ -27,8 +30,31 @@ type Proposal = components["schemas"]["OnboardingCompanyProposal"];
 type ReadTerminal = Readonly<{
   readId: string;
   status: "ready" | "partial";
-  findings: number;
 }>;
+
+// The one failure `startRead`'s mutationFn may report verbatim: an RFC 7807
+// detail/title already run through problemMessage. A network TypeError (the
+// fetch itself never reached the server) throws unclassified and is never
+// wrapped in this — safeStartError below is what keeps that distinction
+// alive for every reader of `startRead.error`.
+class ReadStartError extends Error {}
+
+/**
+ * `startRead.error` narrowed to what is safe to show: the server's own
+ * guidance when the failure is a classified `ReadStartError`, and nothing —
+ * logged instead — for anything else. `ob.gate.startFailed` already reads
+ * correctly with an empty `{detail}`, so an unclassified failure still gets
+ * an honest, catalog-only sentence rather than a raw exception message.
+ */
+export function safeStartError(error: unknown): string {
+  if (error instanceof ReadStartError) {
+    return error.message;
+  }
+  if (error !== null && error !== undefined) {
+    console.error("company site-read start failed unexpectedly", error);
+  }
+  return "";
+}
 
 type UseCompanyReadArgs = Readonly<{
   dispatch: Dispatch<ConversationEvent>;
@@ -94,13 +120,8 @@ export function useCompanyRead({
   // waits for the proposal so a clarify question can precede the outcome.
   const concludeFreshTerminal = useCallback(
     (next: CompanySiteRead) => {
-      const findings = next.profile_fields.length;
       if (next.status === "ready" || next.status === "partial") {
-        pendingTerminal.current = {
-          readId: next.id,
-          status: next.status,
-          findings,
-        };
+        pendingTerminal.current = { readId: next.id, status: next.status };
         setProposalArmed(true);
         return;
       }
@@ -109,7 +130,6 @@ export function useCompanyRead({
           type: "READ_TERMINAL",
           readId: next.id,
           status: next.status,
-          findings,
         });
       }
     },
@@ -140,12 +160,7 @@ export function useCompanyRead({
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
         setDraft((current) => prefill(current, next.profile_fields));
-        setSelectedFactKeys(
-          [...new Set(next.facts.map((fact) => fact.value_key))].slice(
-            0,
-            MAX_SELECTED_FACTS,
-          ),
-        );
+        setSelectedFactKeys(defaultSelectedFactKeys(next.facts));
       }
       // Progress first, outcome second: the flush inside a terminal diff
       // drains every queued bubble before any terminal event is dispatched.
@@ -188,12 +203,7 @@ export function useCompanyRead({
       }
       return changeDraftField(prefilled, "website", adoptedRead.root_url);
     });
-    setSelectedFactKeys(
-      [...new Set(adoptedRead.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
+    setSelectedFactKeys(defaultSelectedFactKeys(adoptedRead.facts));
     if (adoptedRead.status === "ready" || adoptedRead.status === "partial") {
       concludeFreshTerminal(adoptedRead);
     }
@@ -206,7 +216,7 @@ export function useCompanyRead({
         body: { url },
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        throw new ReadStartError(problemMessage(error));
       }
       return data;
     },
@@ -294,7 +304,6 @@ export function useCompanyRead({
       type: "READ_TERMINAL",
       readId: activeReadId,
       status: "failed",
-      findings: prevSnapshot.current?.profile_fields.length ?? 0,
     });
   }, [siteRead.isError, dispatch, machine]);
 
@@ -374,6 +383,42 @@ export function useCompanyRead({
       dispatch({ type: "REVIEW_READY" });
     }
   }, [proposal.data, proposal.isError, proposalJoin, answers, dispatch]);
+
+  // The invariant this effect exists for: a question the server still
+  // considers open always has exactly one place to answer it. The terminal
+  // effect above asks only the FIRST one — it dispatches once, before the
+  // run retires, and never runs again. Every question after that is asked
+  // here instead, one at a time: once co.review has no question live, the
+  // next still-unanswered entry in the proposal's own `open_questions`
+  // (an answer or a dismissal both count — either way the human resolved
+  // it) is promoted the same way, and none is skipped. Legal only from
+  // co.review (conversation-legality.ts), which the machine cannot reach
+  // while another read is active, so this can never ask about a stale run.
+  useEffect(() => {
+    if (
+      machine.current.phase !== "co.review" ||
+      machine.current.pendingQuestion !== null
+    ) {
+      return;
+    }
+    const data = proposal.data;
+    const readId = prevSnapshot.current?.id;
+    if (!data || readId === undefined || readId === null) {
+      return;
+    }
+    const open = (data.open_questions ?? []).filter(
+      (question) => !answers.some((answer) => answer.clarifyId === question.id),
+    );
+    const next = open[0];
+    if (next && !askedClarifies.current.has(next.id)) {
+      askedClarifies.current.add(next.id);
+      dispatch({
+        type: "CLARIFY",
+        readId,
+        question: toMachineQuestion(next, prevSnapshot.current?.comparisons),
+      });
+    }
+  }, [proposal.data, answers, dispatch, machine]);
 
   return { startRead, siteRead, proposal, prevSnapshot };
 }

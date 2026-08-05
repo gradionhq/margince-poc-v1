@@ -20,6 +20,7 @@ import {
   type AuthNotice,
   AuthScreen,
   AvailabilityScreen,
+  RESET_ROUTE,
 } from "./screens/auth";
 import { AutomationsScreen } from "./screens/automations";
 import { BookingScreen } from "./screens/book";
@@ -188,6 +189,26 @@ export function App() {
       <Shell onOpenSearch={() => undefined}>
         <ScreenView screen={route.screen} id={route.id} id2={route.id2} />
       </Shell>
+    );
+  }
+  // The emailed reset link is a bearer credential, not a session check: it
+  // must reach the reset form whether or not this browser already carries a
+  // live cookie, so it is routed here, ahead of AuthedApp's session gate,
+  // rather than left for AuthedApp to reach only when unauthenticated (where
+  // an existing session instead rendered the authenticated shell's fallback
+  // for an unrecognised route).
+  if (route.screen === RESET_ROUTE) {
+    return (
+      <RaillessFrame>
+        {/* A stale or bare reset link has no token, so the embedded form
+            renders as an ordinary login rather than ResetForm — and its own
+            "restore the originally requested route" check (LoginForm's
+            onSuccess) never fires home for a non-empty hash, which this one
+            always is. Without an explicit navigate here, a successful
+            sign-in from this route would leave the reader signed in but
+            still looking at a login form. */}
+        <AuthScreen onAuthed={() => navigate({ screen: "home" })} />
+      </RaillessFrame>
     );
   }
   return <AuthedApp route={route} />;

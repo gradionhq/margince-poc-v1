@@ -81,12 +81,13 @@ Operational endpoints (served next to `/v1`):
 
 Two readers over one table, `river_job`, answering two different questions.
 Both are served by `cmd/api`, and both are read at request time rather than
-counted in process — `cmd/worker`, where the dispatchers actually run,
-exposes no HTTP surface at all, so an in-process counter there would be
-invisible to every scrape while the api's own copy reported a truthful
-looking zero.
+counted in process: the job table is fleet-wide, so a counter kept inside
+`cmd/worker` would be invisible to every scrape of the api while the api's own
+copy reported a truthful-looking zero. That stays true — the worker never
+re-serves a job-table gauge, and `--observe-addr` below is about the process,
+not the fleet.
 
-**`/metrics` — is a queue growing?** Seven gauge families over the job table:
+**`/metrics` — is a queue growing?** Nine gauge families over the job table:
 
 | Family | Labels | Meaning |
 |---|---|---|
@@ -97,8 +98,33 @@ looking zero.
 | `margince_job_oldest_queued_age_seconds` | `queue`, `workspace_id` | how long the oldest runnable-and-unclaimed job has waited |
 | `margince_sweep_workspaces_total` | `sweep` | workspaces with a surviving child of that fleet pass |
 | `margince_sweep_workspaces_failed` | `sweep` | those whose MOST RECENT child is discarded or cancelled |
+| `margince_sweep_units_total` | `sweep`, `unit` | the same reading one grain down, for the dispatchers that fan out per **connection** or per **build**: units with a surviving child |
+| `margince_sweep_units_failed` | `sweep`, `unit` | those whose MOST RECENT child is discarded or cancelled |
 
-An eighth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
+The last two exist because the workspace pair counts each workspace once, and
+four dispatchers fan out below that grain. They report **only** the kinds whose
+declared `fan_out_unit` is finer than a workspace — for the other twenty the
+unit *is* the workspace, so the two pairs would carry the same numbers.
+
+The two families **overlap rather than partition**: a per-connection kind is
+reported by both, at two grains, because its rows carry a workspace id as well
+as a connection id. That is the point — the coarse reading answers *is every
+tenant covered*, the fine one answers *did every unit of the pass run* — but it
+means **never sum them**. `margince_sweep_units_failed{sweep="telegram_poll"}`
+and `margince_sweep_workspaces_failed{sweep="telegram_poll"}` can both be
+non-zero for one dead connection. Alert on whichever grain you mean; use
+`... > 0 or ... > 0` if you want either to page you, never `+`.
+
+The `sweep` label on both pairs is the **child** kind, not the dispatcher's —
+`sweep="telegram_poll"`, not `telegram_poll_sweep` — because the child is what
+the rows hold, and mapping back to the dispatcher would be a hand-kept table.
+That matters for a dashboard: joining a sweep series to
+`margince_job_declared_info` on the kind lands on the CHILD's catalogue entry,
+which carries no `fan_out_unit` — that label is declared on the dispatcher. The
+unit pair carries its grain in its own `unit` label for exactly that reason, so
+no join is needed to read it.
+
+A tenth, `margince_job_unrecognised_state{state,queue,workspace_id}`,
 appears **only when it has something to report**: work sitting in a state
 this exposition does not classify. It is a signal to investigate, not a
 series to graph, which is why it is absent rather than zero the rest of the
@@ -193,14 +219,26 @@ Four things worth knowing before you build an alert on these:
   because the fleet shrank: the cleaner deletes finalized rows on its own
   schedule. An absent series is the honest answer — a fabricated zero would
   be indistinguishable from "the fleet is empty".
-
-One further limit, stated because nothing in the numbers reveals it: a
-dispatcher that fans out per **connection** rather than per workspace (Gmail
-sync, Gmail watch, Telegram poll) still counts each workspace once. If one
-workspace holds two connections and only one of them is failing, that
-workspace's most recent child may be the successful one, and the failure is
-not reflected in `margince_sweep_workspaces_failed`. Per-connection health is
-visible on the endpoint below, by kind.
+- **Both `_failed` halves see only what River sees.** They count rows that ended
+  `discarded` or `cancelled`. A kind whose worker deliberately records its own
+  failure and returns `nil` — declared as `fault.nil_after_logging` in
+  `backend/api/jobs.yaml`, and true of `capture_sync` and `voice_build`, whose
+  retry cadence belongs to their own sidecar rather than to River — completes
+  green, so a handled failure of one of those does not reach either pair. For
+  those kinds a zero here means "River saw no dead rows", not "nothing failed";
+  their own domain state is the authority. This is a property of the sweep
+  reading as a whole, not of the per-unit half.
+- **The per-workspace pair reads one grain too coarse for four dispatchers,**
+  and that is what `margince_sweep_units_*` is for. Gmail sync, Gmail watch and
+  the Telegram poll fan out per **connection**; the voice-build retry fans out
+  per **build**. A workspace holding two connections produces two children per
+  pass, and if the broken one failed before the healthy one succeeded, that
+  workspace's most recent child is the successful one — so the workspace pair
+  reports zero failures while a connection is dead. The unit pair counts each
+  connection in its own right and reports the failure. Read the workspace pair
+  for fleet coverage and the unit pair for whether every unit of a pass ran;
+  neither replaces the other, and the four finer-grained kinds appear in both —
+  see the note above on never summing them.
 
 **`/metrics` is fleet-wide; the endpoint is not.** The exposition carries
 every workspace's id and every kind, because an operator scraping a service
@@ -271,6 +309,55 @@ api's boot line says so; `cmd/worker` is load-bearing for E10 retry. See
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
 | `--deepread-wall` | `MARGINCE_DEEPREAD_WALL` | `0` (= built-in 4m) | deep-read crawl wall clock |
+| `--observe-addr` | `MARGINCE_OBSERVE_ADDR` | — (off) | address to serve this worker's `/healthz`, `/readyz` and `/metrics` on, e.g. `127.0.0.1:9101`. Empty serves nothing — see below |
+
+### The worker's own operator surface
+
+`--observe-addr` gives `cmd/worker` the three operational endpoints the api has
+always had. It answers a question the fleet-wide gauges structurally cannot:
+**which process** is not doing the work. Every job-table gauge is a projection
+of a shared table, so it reads the same whichever replica served the scrape —
+one wedged worker in a pool of three is arithmetically invisible in it.
+
+What this listener carries is therefore only what is **process-local**, and it
+re-serves no fleet-wide reading:
+
+| Family | Meaning |
+|---|---|
+| `margince_process_goroutines` | goroutines in the scraped process |
+| `margince_process_heap_bytes` / `margince_process_heap_sys_bytes` | heap in use, and heap held from the OS |
+| `margince_process_gc_cycles_total` | completed GC cycles since this process started |
+| `margince_pgxpool_conns` | this process's own connection pool, by class |
+| `margince_relay_published_total` | outbox rows *this* relay has shipped since start |
+
+The same `margince_process_*` section is served by `cmd/api` too — it describes
+whichever process answered, which is exactly what makes it worth having on both.
+`margince_outbox_unpublished`, the job-table gauges and the declared catalogue
+stay a **single** reading on the api: two roles answering one fleet number is a
+worse operator surface than one gap.
+
+`/readyz` probes the three things this replica needs before it can do any work
+— **`boot`**, **`postgres`** and **`redis`** — and answers `503` naming the one
+that failed. `boot` is this replica having finished starting its event lanes and
+job runner: the listener comes up before those on purpose, so a probe answers
+during a slow boot, and without that check the ordering would let a rollout
+retire the last working replica in favour of one that had not yet picked up a
+job, and it goes false again the moment shutdown begins — the listener is
+stopped LAST so the drain stays observable, and a draining replica that still
+answered ready would keep being sent work it is putting down. The body carries
+no AI line — unlike the api this role wires none, and an
+empty field reads as a state that could not be determined rather than as one
+that does not apply. `/healthz` stays a dumb liveness answer, so a database
+outage stops traffic being routed here without restart-looping a process the
+outage did not break.
+
+**Off is the default, and it is not a convenience default.** Unlike the api's
+`/metrics` this surface carries no workspace id and no tenant data at all — but
+it is still an unauthenticated operator surface that discloses dependency health
+and process capacity, so exposing it is an operator decision, and so is the
+interface it binds. Bind it to a loopback or a private interface, never a public
+one. An address that cannot be bound is a **boot error** naming it — a worker
+that could not serve its probes must not carry on looking healthy.
 
 ### `worker siteread` — the deep-read debug loop (no DB)
 

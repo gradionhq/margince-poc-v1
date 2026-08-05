@@ -46,6 +46,7 @@ import {
   provenanceOf,
   QueryGate,
   QueryStates,
+  siteReadKindLabel,
   throwProblem,
   useSorMode,
   useViewerId,
@@ -665,20 +666,6 @@ const SITE_READ_SKIP_LABELS: Record<
   unreadable: "deepread.skipUnreadable",
 };
 
-const SITE_READ_KIND_LABELS: Record<
-  components["schemas"]["SiteReadPage"]["kind"],
-  MessageKey
-> = {
-  home: "deepread.kindHome",
-  impressum: "deepread.kindImpressum",
-  about: "deepread.kindAbout",
-  team: "deepread.kindTeam",
-  services: "deepread.kindServices",
-  products: "deepread.kindProducts",
-  contact: "deepread.kindContact",
-  other: "deepread.kindOther",
-};
-
 // Trims the scheme and clamps long paths so the pages/skips lists stay
 // scannable; the full URL survives on the title attribute.
 function shortUrl(url: string): string {
@@ -839,7 +826,7 @@ function SiteReadPanel({
           >
             {report.pages.map((page) => (
               <li key={page.url}>
-                <Badge>{t(SITE_READ_KIND_LABELS[page.kind])}</Badge>{" "}
+                <Badge>{siteReadKindLabel(page.kind, t)}</Badge>{" "}
                 <span className="t-mono" title={page.url}>
                   {shortUrl(page.url)}
                 </span>

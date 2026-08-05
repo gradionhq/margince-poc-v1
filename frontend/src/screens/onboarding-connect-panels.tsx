@@ -5,21 +5,24 @@ import {
   Circle,
   Mail,
   ShieldCheck,
-  SkipForward,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { BackfillPanel } from "./backfill";
 import { problemMessage, throwProblem } from "./common";
 import { imapErrorMessage } from "./imap-connect-form";
+import { OnboardingBackread } from "./onboarding-backread";
 
 // The provider connect panels: real inbox capture, one panel per provider.
 // The conversational connect act renders them in the artifact panel behind
 // the per-purpose consent turn; connecting stays value-before-permission
 // and the panels never claim a connection the server did not confirm.
+//
+// A confirmed OAuth connection hands straight to the backread step: access
+// granted is not history read, and the two are asked separately — the grant
+// costs nothing, reading the history spends budget.
 
 // The OAuth outcomes that no retry can clear: the provider refused the grant,
 // or its API was never enabled for this deployment. Keyed off the server's
@@ -45,7 +48,7 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
   );
 }
 
-type OAuthProvider = "gmail" | "graph";
+export type OAuthProvider = "gmail" | "graph";
 
 const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
 
@@ -55,6 +58,48 @@ const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
 // NOT the same fact as the segment being absent: the caller keeps the two apart.
 function asOAuthProvider(value: string | undefined): OAuthProvider | null {
   return OAUTH_PROVIDERS.find((p) => p === value) ?? null;
+}
+
+// A real "allow" click leaves the page entirely for the provider's own
+// consent screen — this tab's sessionStorage is the only thing that survives
+// that round trip, so it is what tells a genuine return apart from a stale
+// or bookmarked `/connect/ok/...` URL replayed with no live attempt behind
+// it. `sessionStorage` (not `localStorage`) is deliberate: the mark belongs
+// to the ONE tab that started the trip, the same scope the redirect itself
+// stays within.
+const OAUTH_ATTEMPT_KEY = "ob.connect.oauthAttempt";
+
+function markOAuthAttempt(provider: OAuthProvider): void {
+  try {
+    sessionStorage.setItem(OAUTH_ATTEMPT_KEY, provider);
+  } catch {
+    // Storage can be unavailable (private browsing, disabled): the redirect
+    // still happens, and the return trip falls back to showing its result
+    // inline rather than reopening a dialog it has no proof this tab opened.
+  }
+}
+
+/** The provider a real attempt from THIS tab is returning for, or null if
+ * none is recorded — read-only, so the caller decides when the mark is
+ * actually spent (`clearOAuthAttempt`). */
+export function peekOAuthAttempt(): OAuthProvider | null {
+  try {
+    return asOAuthProvider(
+      sessionStorage.getItem(OAUTH_ATTEMPT_KEY) ?? undefined,
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Spends the mark so a reload of the same return URL reads as the stale
+ * link it now is, not a second live attempt. */
+export function clearOAuthAttempt(): void {
+  try {
+    sessionStorage.removeItem(OAUTH_ATTEMPT_KEY);
+  } catch {
+    // Nothing to clear if the write never landed.
+  }
 }
 
 const OAUTH_COPY: Record<
@@ -83,12 +128,30 @@ const OAUTH_COPY: Record<
 // Pre-consent: the server mints the consent URL (and the signed state + CSRF
 // cookie that guard the callback); the browser just goes. One panel serves
 // every OAuth provider — only the copy and the POST path vary.
+//
+// This panel never signals completion itself: a real "allow" click leaves
+// the page for the provider's own consent screen, and the connection is
+// confirmed only once the redirect returns, by `OAuthReturnPanel`. `onDismiss`
+// closes whatever is showing this panel WITHOUT deciding anything — the
+// reader changed their mind about this one provider, not about connecting at
+// all. Skipping the whole required step is a separate, more deliberate
+// action the surface offers beside the provider choice, not a button buried
+// inside one provider's own ask.
 export function OAuthConnectPanel({
   provider,
-  onComplete,
+  onDismiss,
+  onPendingChange,
 }: Readonly<{
   provider: OAuthProvider;
-  onComplete: (skipped: boolean) => Promise<void>;
+  onDismiss: () => void;
+  /**
+   * Told whenever the connect POST's in-flight state changes. The caller
+   * wraps the dialog's own close handler with it: X, Escape, and backdrop
+   * dismissal all resolve to that ONE handler (see `ConnectDialog`), so this
+   * is the one place that lets them honor the same no-dismissal-during-submit
+   * invariant the disabled "Not now" button below already enforces.
+   */
+  onPendingChange?: (pending: boolean) => void;
 }>) {
   const t = useT();
   const copy = OAUTH_COPY[provider];
@@ -105,10 +168,14 @@ export function OAuthConnectPanel({
     },
     onSuccess: (data) => {
       if (data.authorize_url) {
+        markOAuthAttempt(provider);
         globalThis.location.assign(data.authorize_url);
       }
     },
   });
+  useEffect(() => {
+    onPendingChange?.(connect.isPending);
+  }, [connect.isPending, onPendingChange]);
   return (
     <>
       {connect.isError && (
@@ -121,7 +188,7 @@ export function OAuthConnectPanel({
         <ShieldCheck aria-hidden /> {t(copy.hint)}
       </p>
       <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
-      <div className="connect-acts">
+      <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
           disabled={connect.isPending}
@@ -137,9 +204,19 @@ export function OAuthConnectPanel({
             </>
           )}
         </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+        <button
+          type="button"
+          className="ob-connect-dialog-notnow"
+          // Dismissal is a decision NOT to connect, so it must not be
+          // available while the credential POST it would abandon is still
+          // in flight: a success landing after the reader already backed out
+          // would leave a mailbox connected against a "no" the panel already
+          // promised.
+          disabled={connect.isPending}
+          onClick={onDismiss}
+        >
+          {t("ob.s4.notNow")}
+        </button>
       </div>
     </>
   );
@@ -154,11 +231,21 @@ export function OAuthReturnPanel({
   outcome,
   provider,
   onComplete,
+  onConfirmedChange,
 }: Readonly<{
   outcome?: string;
   /** The provider the consent returned for, from the deep-link route. */
   provider?: string;
   onComplete: (skipped: boolean) => Promise<void>;
+  /**
+   * Told whenever this trip's confirmation settles: true only once a live
+   * mailbox for the returning provider is verified in the roster, false for
+   * every other state (still loading, denied, unresolved, or verified
+   * absent). The caller uses it to keep the honest skip/retry exit open
+   * until a mailbox is actually confirmed — an unconfirmed return is not a
+   * finished one, whatever this panel's own "enter" fallback offers.
+   */
+  onConfirmedChange?: (confirmed: boolean) => void;
 }>) {
   const t = useT();
   const connections = useQuery({
@@ -180,6 +267,22 @@ export function OAuthReturnPanel({
   // different fact — a landing URL minted before the provider rode the route —
   // and the roster's first live OAuth mailbox is the best answer there.
   const unresolvedProvider = provider !== undefined && returning === null;
+  // Computed unconditionally (ahead of every early return below) because the
+  // `useEffect` below is a hook and must run on every render before any early
+  // return, so `confirmed` (and the `live` value it derives from) has to be
+  // computed here too, to keep hook order stable. Every outcome besides a
+  // resolved "ok" is `undefined` roster data away from ever finding a live
+  // row, so `live` stays safely undefined for them rather than throwing.
+  const live = connections.data?.data.find((c) =>
+    returning === null
+      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
+      : c.provider === returning && c.status === "connected",
+  );
+  const confirmed =
+    outcome === "ok" && !unresolvedProvider && live !== undefined;
+  useEffect(() => {
+    onConfirmedChange?.(confirmed);
+  }, [confirmed, onConfirmedChange]);
 
   if (outcome === "denied") {
     return (
@@ -216,13 +319,6 @@ export function OAuthReturnPanel({
       />
     );
   }
-  // Past the guard above, a null `returning` can only be the absent segment, so
-  // this is the deploy-skew fallback and nothing else.
-  const live = connections.data?.data.find((c) =>
-    returning === null
-      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
-      : c.provider === returning && c.status === "connected",
-  );
   return (
     <div className="connect-result">
       <div className="cr-h">
@@ -241,7 +337,15 @@ export function OAuthReturnPanel({
           <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
             <ShieldCheck aria-hidden /> {t("ob.s4.connectLive")}
           </span>
-          <BackfillPanel provider={live.provider} />
+          {/* The mailbox is live, so the step is not finished yet: how far back
+              to read it is the next question, and the backread owns the exit
+              from here — its own leave controls finish onboarding, whether or
+              not a read is running. */}
+          <OnboardingBackread
+            provider={live.provider}
+            initial={live.backfill}
+            onFinish={(skipped) => void onComplete(skipped)}
+          />
         </>
       )}
       {!connections.isPending && !live && (
@@ -250,13 +354,15 @@ export function OAuthReturnPanel({
           body={t("ob.s4.connectRetry")}
         />
       )}
-      <Button
-        variant="primary"
-        style={{ marginTop: "var(--space-4)" }}
-        onClick={() => void onComplete(false)}
-      >
-        {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
-      </Button>
+      {!connections.isPending && live === undefined && (
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => void onComplete(false)}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      )}
     </div>
   );
 }
@@ -268,18 +374,32 @@ export function OAuthReturnPanel({
 // provider. The connect call returns BEFORE any mail is read: there is no
 // capture count to show here, honestly — only a live row (last_synced_at)
 // that fills in a few minutes later, once the sweep runs.
-const IMAP_DEFAULT_PORT = 993;
+const IMAP_DEFAULT_PORT = "993";
 
+// `onDismiss` closes the dialog without connecting — see `OAuthConnectPanel`
+// for why that is a distinct action from skipping the whole required step.
 export function ImapConnectPanel({
   onComplete,
-}: Readonly<{ onComplete: (skipped: boolean) => Promise<void> }>) {
+  onDismiss,
+  onPendingChange,
+}: Readonly<{
+  onComplete: (skipped: boolean) => Promise<void>;
+  onDismiss: () => void;
+  /** See `OAuthConnectPanel`'s own `onPendingChange` for what this reports
+   * and why the caller needs it. */
+  onPendingChange?: (pending: boolean) => void;
+}>) {
   const t = useT();
   const qc = useQueryClient();
   const [host, setHostVal] = useState("imap.gmail.com");
+  const [port, setPort] = useState(IMAP_DEFAULT_PORT);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mailbox, setMailbox] = useState("INBOX");
   const [max, setMax] = useState("30");
+
+  const parsedPort =
+    port.trim() === "" ? Number(IMAP_DEFAULT_PORT) : Number(port);
 
   const connect = useMutation({
     mutationFn: async () => {
@@ -288,7 +408,7 @@ export function ImapConnectPanel({
         body: {
           imap: {
             host: host.trim(),
-            port: IMAP_DEFAULT_PORT,
+            port: parsedPort,
             username: email.trim(),
             secret: password,
             mailbox: mailbox.trim() || "INBOX",
@@ -314,10 +434,16 @@ export function ImapConnectPanel({
       setPassword("");
     },
   });
+  useEffect(() => {
+    onPendingChange?.(connect.isPending);
+  }, [connect.isPending, onPendingChange]);
 
   const parsedMax = max.trim() === "" ? 30 : Number(max);
   const ready =
     host.trim() !== "" &&
+    Number.isInteger(parsedPort) &&
+    parsedPort >= 1 &&
+    parsedPort <= 65535 &&
     email.trim() !== "" &&
     password !== "" &&
     Number.isInteger(parsedMax) &&
@@ -347,13 +473,24 @@ export function ImapConnectPanel({
   return (
     <>
       <div className="imap-form">
-        <label className="field full">
+        <label className="field">
           {t("ob.s4.imapHost")}
           <input
             className="input"
             value={host}
             placeholder={t("ob.s4.imapHostPlaceholder")}
             onChange={(e) => setHostVal(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          {t("ob.s4.imapPort")}
+          <input
+            className="input"
+            type="number"
+            min={1}
+            max={65535}
+            value={port}
+            onChange={(e) => setPort(e.target.value)}
           />
         </label>
         <label className="field full">
@@ -411,7 +548,7 @@ export function ImapConnectPanel({
         />
       )}
 
-      <div className="connect-acts">
+      <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
           disabled={!ready || connect.isPending}
@@ -427,9 +564,16 @@ export function ImapConnectPanel({
             </>
           )}
         </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+        <button
+          type="button"
+          className="ob-connect-dialog-notnow"
+          // See `OAuthConnectPanel`'s own `onDismiss` for why the in-flight
+          // POST has to finish before this becomes a real choice again.
+          disabled={connect.isPending}
+          onClick={onDismiss}
+        >
+          {t("ob.s4.notNow")}
+        </button>
       </div>
     </>
   );

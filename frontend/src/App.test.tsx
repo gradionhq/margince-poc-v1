@@ -218,6 +218,205 @@ describe("auth boundary states (login spec §4)", () => {
   });
 });
 
+// The emailed reset link must reach the reset form regardless of whatever
+// session the browser already carries — a stale/live cookie must never turn
+// a password-reset link into the authenticated shell's unrecognised-route
+// fallback, and a token redeemed to completion must not strand the
+// following sign-in off the app's normal post-login redirect.
+describe("password-reset deep link", () => {
+  const supportingRoutes = async (input: Request | string | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/v1/auth/capabilities")) {
+      return new Response(
+        JSON.stringify({ oidc_providers: [], password: true }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (url.endsWith("/v1/assistant/profile")) {
+      return new Response(
+        JSON.stringify({
+          name: "Margince",
+          kind: "ai",
+          state: "unconfigured",
+          inference_mode: "none",
+          providers: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return null;
+  };
+
+  const mount = () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <App />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+  };
+
+  it("opens the reset form for an already-signed-in browser, not the pending screen", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const supporting = await supportingRoutes(input);
+        if (supporting) return supporting;
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return new Response(
+            JSON.stringify({ user: { id: "u1" }, roles: [], teams: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    window.location.hash = "#/reset-password?token=live-session-token";
+    mount();
+    expect(await screen.findByLabelText("New password")).toBeTruthy();
+  });
+
+  it("reaches home on the sign-in that follows a completed reset", async () => {
+    // No session at the start: the ordinary case for a password reset. Once
+    // the login below succeeds, /v1/me flips to authenticated — proving the
+    // sign-in actually completed the redirect rather than getting stuck
+    // because the reset route was still sitting in the hash.
+    let authenticated = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const supporting = await supportingRoutes(input);
+        if (supporting) return supporting;
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return authenticated
+            ? new Response(
+                JSON.stringify({ user: { id: "u1" }, roles: [], teams: [] }),
+                {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                },
+              )
+            : new Response(JSON.stringify({ code: "unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/problem+json" },
+              });
+        }
+        if (url.endsWith("/v1/auth/reset-password")) {
+          return new Response(null, { status: 204 });
+        }
+        if (url.endsWith("/v1/auth/login")) {
+          authenticated = true;
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith("/v1/company")) {
+          return new Response(
+            JSON.stringify({ organization_id: "o1", display_name: "Acme" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    window.location.hash = "#/reset-password?token=completed-reset-token";
+    mount();
+
+    await userEvent.type(
+      await screen.findByLabelText("New password"),
+      "an entirely new password{enter}",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Back to sign in" }),
+    );
+    await waitFor(() =>
+      expect(window.location.hash).not.toContain("reset-password"),
+    );
+    await userEvent.type(await screen.findByLabelText("Email"), "a@b.com");
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "an entirely new password{enter}",
+    );
+    // The rail is proof the app reached home, not proof merely that /v1/me
+    // now resolves — a stale reset hash would instead leave login re-rendered
+    // with nowhere for the post-login redirect to go.
+    expect(await screen.findByRole("navigation")).toBeTruthy();
+  });
+
+  it("reaches home on a sign-in from a bare reset link that never carried a token", async () => {
+    // No query string at all — a stale or hand-typed "#/reset-password" with
+    // nothing to reset. resetTokenFromLocation finds no token, so this mounts
+    // straight into the ordinary login form (never ResetForm, and never the
+    // "Back to sign in" step that would otherwise have cleared the hash) — the
+    // hash stays exactly "#/reset-password" through the whole sign-in.
+    let authenticated = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: Request | string | URL) => {
+        const supporting = await supportingRoutes(input);
+        if (supporting) return supporting;
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.endsWith("/v1/me")) {
+          return authenticated
+            ? new Response(
+                JSON.stringify({ user: { id: "u1" }, roles: [], teams: [] }),
+                {
+                  status: 200,
+                  headers: { "Content-Type": "application/json" },
+                },
+              )
+            : new Response(JSON.stringify({ code: "unauthorized" }), {
+                status: 401,
+                headers: { "Content-Type": "application/problem+json" },
+              });
+        }
+        if (url.endsWith("/v1/auth/login")) {
+          authenticated = true;
+          return new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.endsWith("/v1/company")) {
+          return new Response(
+            JSON.stringify({ organization_id: "o1", display_name: "Acme" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({ data: [], page: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    window.location.hash = "#/reset-password";
+    mount();
+
+    await userEvent.type(await screen.findByLabelText("Email"), "a@b.com");
+    await userEvent.type(
+      screen.getByLabelText("Password"),
+      "an entirely new password{enter}",
+    );
+    // The rail is proof the sign-in actually landed the reader on the app —
+    // the non-empty "#/reset-password" hash LoginForm's own redirect check
+    // preserves would otherwise leave this render stuck on the login form.
+    expect(await screen.findByRole("navigation")).toBeTruthy();
+  });
+});
+
 // The onboarding gate (A107/ADR-0061 + the 0082 anchor): an installation that
 // has not saved its own company has nothing for any other screen to show, so
 // the shell sends the human to the company form. GET /company 404s until a

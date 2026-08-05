@@ -36,6 +36,7 @@ import {
 import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
+import { applyTheme, persistTheme, resolveTheme, type Theme } from "./theme";
 import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
@@ -50,7 +51,6 @@ export type ShellCounts = Partial<Record<string, number>>;
 const COLLAPSE_KEY = "margince.sidebarCollapsed";
 // Comfortably past --shellAnim (0.36s) in shell.css: the two must not disagree.
 const SETTLE_MS = 420;
-const THEME_KEY = "margince.theme";
 
 // Storage is unavailable in some embedded contexts; a missing preference is a
 // default, never an error.
@@ -390,26 +390,21 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : screen;
 }
 
-function useTheme(): readonly ["light" | "dark", () => void] {
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = readStored(THEME_KEY);
-    if (stored === "light" || stored === "dark") {
-      return stored;
-    }
-    const prefersDark =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    return prefersDark ? "dark" : "light";
-  });
+// Owns CHANGING the theme. Deciding and applying it live in app/theme.ts,
+// because the boot path needs both before this component exists — every
+// unauthenticated surface renders without a TopBar, and used to render without a
+// theme.
+function useTheme(): readonly [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(resolveTheme);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    applyTheme(theme);
   }, [theme]);
 
   const toggle = useCallback(() => {
     setTheme((current) => {
       const next = current === "light" ? "dark" : "light";
-      writeStored(THEME_KEY, next);
+      persistTheme(next);
       return next;
     });
   }, []);

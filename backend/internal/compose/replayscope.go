@@ -43,7 +43,7 @@ import (
 // every retry refused), and the HTTP method does not carry it either, since
 // `POST /v1/deals/{id}/advance`, `/merge` and `/offers/{id}/send` are updates.
 // Guessing it turns legitimate retries into 403s, which is a worse failure
-// than the gap. STATUS.md carries what closing it needs.
+// than the gap.
 type replayTarget struct {
 	object      string // RBAC object governing the body (recorded, not yet re-checked)
 	objectNote  string // …or why no object grant governs it

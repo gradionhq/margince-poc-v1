@@ -25,6 +25,18 @@
      move together; labels cross-fade with it. */
   transition: grid-template-columns var(--shellAnim) var(--shellEase);
 }
+/* The frame every screen sits in, INCLUDING the rail-less auth surface — which
+   sizes itself in dvh for a reason (screens/auth.css: on iOS, 100vh subtracts the
+   browser chrome from the wrong side and the primary action lands under the
+   keyboard). A 100vh ancestor silently defeats that: the child asks for the
+   visible viewport while the parent is sized to the larger one, so the document
+   root scrolls on top of the inner scroller and a band of --bgPage shows below the
+   surface. The two units have to agree, and dvh is the one that is right. */
+@supports (height: 100dvh) {
+  .app {
+    height: 100dvh;
+  }
+}
 .app.railexpanded {
   grid-template-columns: 250px 1fr;
 }
@@ -412,7 +424,7 @@
   height: 18px;
   border-radius: var(--r-full);
   background: var(--accent);
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   font-size: 10.5px;
   font-weight: 600;
   display: grid;
@@ -828,7 +840,7 @@
   cursor: pointer;
   display: grid;
   place-items: center;
-  color: var(--textOnAccent);
+  color: var(--textOnAccentControl);
   background: var(--accent);
   flex: none;
   font-family: var(--f-body);
@@ -1237,6 +1249,13 @@
   /* the bar floats over the content, so the scroll area ends above it */
   .scroll {
     padding-bottom: 68px;
+  }
+  /* Except where there is no bar. Rail-less surfaces (login, onboarding,
+     booking, the client frame) carry their own chrome and never render the
+     floating nav, so the lane above is 68px of dead space at the bottom of a
+     full-height card — enough to visibly push a centred one off centre. */
+  .app.railless .scroll {
+    padding-bottom: 0;
   }
   .topbar .searchhint {
     display: none;

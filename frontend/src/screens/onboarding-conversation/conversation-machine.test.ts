@@ -70,26 +70,28 @@ describe("conversationReducer happy path", () => {
 
     state = run(
       [
-        { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 6 },
+        {
+          type: "READ_TERMINAL",
+          readId: "r1",
+          status: "ready",
+        },
         { type: "REVIEW_READY" },
         { type: "COMPANY_CONFIRMED" },
       ],
       state,
     );
-    expect(state).toMatchObject({ act: "voice", phase: "vo.invite" });
+    expect(state).toMatchObject({ act: "voice", phase: "vo.collecting" });
+    // The read terminal appends nothing: it is silent success, and the
+    // outcome right after COMPANY_CONFIRMED proves no bubble sits between
+    // them.
     expect(state.thread.at(-1)).toMatchObject({
       kind: "outcome",
       i18nKey: "ob.conv.company.confirmed",
       tone: "success",
     });
-    const readOutcome = state.thread.find(
-      (entry) => entry.kind === "outcome" && entry.id.endsWith("read:ready"),
-    );
-    expect(readOutcome).toMatchObject({ params: { count: 6 } });
 
     state = run(
       [
-        { type: "VOICE_OPT_IN" },
         { type: "UPLOAD_ADDED", id: "u1", name: "call.vtt" },
         { type: "SPEAKER_NEEDED", question: speakerQuestion },
         {
@@ -116,11 +118,10 @@ describe("conversationReducer happy path", () => {
     state = run([{ type: "RESULTS_CONTINUE" }], state);
     expect(state).toMatchObject({ act: "results", phase: "re.recap" });
 
-    // LinkedIn comes between the recap and the inbox: the network is asked
-    // for before the mailbox, because it is what makes a brand-new CRM useful
-    // on day one.
+    // The recap opens straight into the connect screen: mail and LinkedIn
+    // sit on it together, so there is no separate network-ask act to visit.
     state = run([{ type: "RESULTS_CONTINUE" }], state);
-    expect(state).toMatchObject({ act: "linkedin", phase: "ln.why" });
+    expect(state).toMatchObject({ act: "connect", phase: "cn.consent" });
 
     state = run(
       [
@@ -128,10 +129,18 @@ describe("conversationReducer happy path", () => {
           type: "LINKEDIN_CONNECTED",
           profile: "https://www.linkedin.com/in/x",
         },
-        { type: "CONNECT_DONE" },
       ],
       state,
     );
+    // Resolving LinkedIn never moves the act — only mail's own consent gates
+    // CONNECT_DONE.
+    expect(state).toMatchObject({
+      act: "connect",
+      phase: "cn.consent",
+      linkedinStatus: "connected",
+    });
+
+    state = run([{ type: "CONNECT_DONE" }], state);
     expect(state).toMatchObject({ act: "done", phase: "cn.done" });
   });
 
@@ -139,7 +148,7 @@ describe("conversationReducer happy path", () => {
     let state = run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "failed", findings: 0 },
+      { type: "READ_TERMINAL", readId: "r1", status: "failed" },
     ]);
     expect(state.phase).toBe("co.reading");
     expect(state.thread.at(-1)).toMatchObject({
@@ -152,14 +161,14 @@ describe("conversationReducer happy path", () => {
       [{ type: "MANUAL_CHOSEN" }, { type: "COMPANY_CONFIRMED" }],
       state,
     );
-    expect(state).toMatchObject({ act: "voice", phase: "vo.invite" });
+    expect(state).toMatchObject({ act: "voice", phase: "vo.collecting" });
   });
 
   it("lets the voice act be skipped and still reach the recap", () => {
     const state = run([
       { type: "START", memberPath: false },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
       { type: "VOICE_SKIPPED" },
@@ -201,10 +210,10 @@ describe("restore normalization out of co.confirmed", () => {
     memberPath,
   });
 
-  it("routes a restored creator to the voice invite", () => {
+  it("routes a restored creator straight to voice collection", () => {
     expect(
       conversationReducer(restored(false), { type: "RESUME" }),
-    ).toMatchObject({ act: "voice", phase: "vo.invite" });
+    ).toMatchObject({ act: "voice", phase: "vo.collecting" });
   });
 
   it("routes a restored member to consent", () => {
@@ -286,29 +295,29 @@ describe("restore seeding through START", () => {
 });
 
 describe("member path", () => {
-  it("confirming company jumps to LinkedIn, skipping voice and results", () => {
+  it("confirming company jumps straight to connect, skipping voice and results", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
     // A member skips the creator acts but NOT the network ask: a colleague's
-    // LinkedIn is exactly the reach the workspace is missing.
-    expect(state).toMatchObject({ act: "linkedin", phase: "ln.why" });
+    // LinkedIn card sits right there on the connect screen, exactly the
+    // reach the workspace is missing.
+    expect(state).toMatchObject({ act: "connect", phase: "cn.consent" });
   });
 
   it("ignores every creator-only event", () => {
     const state = run([
       { type: "START", memberPath: true },
       { type: "READ_STARTED", readId: "r1" },
-      { type: "READ_TERMINAL", readId: "r1", status: "ready", findings: 1 },
+      { type: "READ_TERMINAL", readId: "r1", status: "ready" },
       { type: "REVIEW_READY" },
       { type: "COMPANY_CONFIRMED" },
     ]);
     const creatorOnly: ConversationEvent[] = [
-      { type: "VOICE_OPT_IN" },
       { type: "VOICE_SKIPPED" },
       { type: "UPLOAD_ADDED", id: "u1", name: "notes.txt" },
       { type: "SPEAKER_NEEDED", question: speakerQuestion },
@@ -334,7 +343,7 @@ describe("compile-time XOR contracts", () => {
     // @ts-expect-error labelKey and label are mutually exclusive
     const both: ConversationQuestion["options"][number] = {
       value: "y",
-      labelKey: "ob.conv.voice.optIn",
+      labelKey: "ob.conv.voice.skipped",
       label: "Yes",
     };
     // @ts-expect-error a user turn without i18nKey or text is unrepresentable

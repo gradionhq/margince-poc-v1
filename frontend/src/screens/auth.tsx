@@ -61,24 +61,83 @@ type View =
   | { kind: "reset"; token: string }
   | { kind: "reset-done" };
 
+/**
+ * The hash route the emailed reset link lands on. Minted by identity/reset.go.
+ * Exported so App.tsx can route this entry through the unauthenticated auth
+ * flow even when a session cookie is already live — an existing session must
+ * not hide the reset form behind the authenticated shell.
+ */
+export const RESET_ROUTE = "reset-password";
+
 // resetTokenFromLocation reads the emailed deep link
-// (/reset-password?token=…): the SPA serves every path, and the
-// unauthenticated gate renders this screen wherever the link lands. The
-// token is a live single-use credential, so it is scrubbed from the
-// address bar (and browser history) the moment it is read — it lives on
-// only in component state.
+// (/#/reset-password?token=…): the unauthenticated gate renders this screen
+// wherever the link lands, so no route table entry is needed. The token is a
+// live single-use credential, so it is scrubbed from the address bar (and
+// browser history) the moment it is read — it lives on only in component state.
 function resetTokenFromLocation(): string | null {
   if (typeof globalThis.location === "undefined") {
     return null;
   }
-  if (!globalThis.location.pathname.endsWith("/reset-password")) {
+  // The FRAGMENT, not the query string, and the whole point is that a fragment
+  // never leaves the browser: it is not sent to a server, so it cannot land in
+  // an access log or in a Referer header, and it is not part of a Cache Storage
+  // key, so the service worker cannot persist it to disk. The scrub below is
+  // still worth doing — it keeps the token out of the session's history entry —
+  // but it used to be the ONLY defence, and it ran after the first same-origin
+  // API call had already carried the token off the page.
+  //
+  // Parsed as the app's own hash route (`#/reset-password?token=…`) so the
+  // emailed link is a normal client route: `parseHash` strips a hash-local query
+  // before deriving the screen name, and any static host serves index.html for
+  // `/` without an SPA fallback.
+  const hash = globalThis.location.hash.replace(/^#\/?/, "");
+  const [route, query] = [
+    hash.split("?")[0],
+    hash.slice(hash.indexOf("?") + 1),
+  ];
+  if (route !== RESET_ROUTE || !hash.includes("?")) {
     return null;
   }
-  const token = new URLSearchParams(globalThis.location.search).get("token");
+  const token = new URLSearchParams(query).get("token");
   if (token) {
-    globalThis.history?.replaceState?.(null, "", globalThis.location.pathname);
+    // replaceState, not a hash assignment: assigning to location.hash fires
+    // hashchange and pushes an entry, which would put the token back in history
+    // — the exact thing this line exists to prevent.
+    // The QUERY is preserved. The token lives in the fragment, so nothing here
+    // needs the query gone — and rewriting it away threw out whatever else the
+    // URL was carrying. A reset link has no query of its own, so in the product
+    // this was invisible; in Storybook it silently discarded `?id=<story>` and a
+    // reload of the canvas landed on no story at all. A scrub should remove the
+    // one thing it is for.
+    globalThis.history?.replaceState?.(
+      null,
+      "",
+      `${globalThis.location.pathname}${globalThis.location.search}#/${RESET_ROUTE}`,
+    );
   }
   return token;
+}
+
+// clearResetHash drops a lingering `#/reset-password` from the address bar
+// once the reset entry is done with — the token itself is already scrubbed
+// by resetTokenFromLocation, but the bare route survives until this runs.
+// Left in place, it would make LoginForm's "restore the originally requested
+// route" check see a non-empty hash and skip the post-login redirect to
+// home, stranding a completed reset on a screen this app never routes to.
+// Guarded on the route so it is safe to call from every "back to login" exit,
+// including the ones that never touched the reset flow.
+function clearResetHash(): void {
+  if (typeof globalThis.location === "undefined") {
+    return;
+  }
+  const hash = globalThis.location.hash.replace(/^#\/?/, "").split("?")[0];
+  if (hash === RESET_ROUTE) {
+    globalThis.history?.replaceState?.(
+      null,
+      "",
+      `${globalThis.location.pathname}${globalThis.location.search}`,
+    );
+  }
 }
 
 export function AuthScreen({
@@ -134,6 +193,7 @@ export function AuthScreen({
   const setLoginView = () => {
     setAuthPhase("idle");
     setView({ kind: "login" });
+    clearResetHash();
   };
 
   return (
@@ -161,9 +221,17 @@ export function AuthScreen({
             /* The server's answer, passed through the ONE ui-preview override
                site. Off by default, in which case this is the identity
                function and the capability's real value reaches the form
-               verbatim. */
+               verbatim — the label callback included, which is never consulted
+               on a served provider. */
             providers={previewedOidcProviders(
               capabilities.data?.oidc_providers ?? [],
+              (providerKey) =>
+                t("auth.continueWith", {
+                  /* The key itself if we have no brand word for it: a preview
+                     that invents a company's name is worse than one that shows
+                     the operator's own identifier. */
+                  brand: providerBrandName(providerKey) ?? providerKey,
+                }),
             )}
             /* Empty in the product, always: the capability carries no
                availability field, so only the preview layer can mark a provider
@@ -587,7 +655,19 @@ function LoginForm({
             className="auth-input"
             type="email"
             required
+            /* A stable `name`, because `id` here cannot be one: useId() derives
+               its value from the component's position in the tree, and this
+               tree changes with the notice and the provider block. Chrome
+               autofills from the autocomplete token alone, but Firefox and
+               several password managers fall back to name/id to match a SAVED
+               credential to a rendered field — with neither stable, they have
+               nothing to match on. */
+            name="email"
             autoComplete="username"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -606,20 +686,10 @@ function LoginForm({
           }
           hint={capsLock ? t("auth.capsLock") : undefined}
           trailing={
-            <button
-              type="button"
-              className="auth-reveal"
-              aria-pressed={showPassword}
-              aria-label={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              title={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-            </button>
+            <PasswordReveal
+              shown={showPassword}
+              onToggle={() => setShowPassword((shown) => !shown)}
+            />
           }
         >
           <input
@@ -627,7 +697,10 @@ function LoginForm({
             className="auth-input"
             type={showPassword ? "text" : "password"}
             required
+            name="password"
             autoComplete="current-password"
+            autoCapitalize="none"
+            spellCheck={false}
             placeholder={t("auth.passwordPlaceholder")}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -651,6 +724,38 @@ function LoginForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * The reveal control. EVERY password field on this surface carries one, and the
+ * new-password field has the stronger claim on it: a mistyped credential on
+ * sign-in is refused by the server in one round trip, while a mistyped NEW
+ * password simply becomes the password — a 12-character minimum with no confirm
+ * field to disagree with it. Reading back what you are about to be locked out by
+ * is the point.
+ *
+ * One button with `aria-pressed` rather than two: the name says which way it will
+ * go, the state says where it is. `title` as well as `aria-label` because the
+ * control is an icon and a sighted mouse user gets no name otherwise.
+ */
+function PasswordReveal({
+  shown,
+  onToggle,
+}: Readonly<{ shown: boolean; onToggle: () => void }>) {
+  const t = useT();
+  const label = t(shown ? "auth.hidePassword" : "auth.showPassword");
+  return (
+    <button
+      type="button"
+      className="auth-reveal"
+      aria-pressed={shown}
+      aria-label={label}
+      title={label}
+      onClick={onToggle}
+    >
+      {shown ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+    </button>
   );
 }
 
@@ -695,7 +800,16 @@ function ForgotForm({
             id={emailId}
             className="auth-input"
             type="email"
-            autoComplete="username"
+            required
+            name="email"
+            /* "email", not "username": this form never accepts a password, and
+               labelling it username invites a manager to treat it as a sign-in
+               field and offer to fill a credential that has nowhere to go. */
+            autoComplete="email"
+            inputMode="email"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t("auth.emailPlaceholder")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
@@ -727,6 +841,50 @@ function ForgotForm({
 
 const MIN_PASSWORD = 12;
 
+/*
+ * Why a reset failure has to be classified at all.
+ *
+ * Every failure used to render one string: "That reset link is invalid, used, or
+ * expired", above a "Request a new link" button. For a spent token that is
+ * exactly right. For anything else it is false, and the offered remedy is
+ * actively harmful — minting a new link SUPERSEDES the outstanding token
+ * (identity/reset.go), so a user whose request merely hit a network blip is told
+ * their good link is dead and then invited to destroy it.
+ *
+ * `token` is the only failure where a new link is the answer. A refused password
+ * belongs to the field, a budget refusal is a wait, and a server or transport
+ * fault is neither the link's fault nor the user's.
+ */
+type ResetFailure = "token" | "password" | "rate-limited" | "server";
+
+class ResetError extends Error {
+  readonly failure: ResetFailure;
+  constructor(failure: ResetFailure) {
+    super(failure);
+    this.name = "ResetError";
+    this.failure = failure;
+  }
+}
+
+function resetFailureOf(status: number | undefined): ResetFailure {
+  // 401 is the ONLY token verdict, and it is deliberately one verdict: the
+  // server refuses to distinguish unknown from used from expired so a token
+  // cannot be probed. That is why the copy names all three.
+  if (status === 401) return "token";
+  if (status === 422) return "password";
+  if (status === 429) return "rate-limited";
+  return "server";
+}
+
+function resetErrorKey(failure: ResetFailure): MessageKey {
+  if (failure === "token") return "auth.resetFailed";
+  if (failure === "password") return "auth.resetRejectedPassword";
+  // NOT auth.errRateLimited: that one says "sign-in attempts", and this user is
+  // setting a password. Copy that names the wrong action reads as the wrong error.
+  if (failure === "rate-limited") return "auth.resetRateLimited";
+  return "auth.resetServerFailed";
+}
+
 function ResetForm({
   token,
   onDone,
@@ -735,18 +893,30 @@ function ResetForm({
   const t = useT();
   const passwordId = useId();
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const reset = useMutation({
     mutationFn: async () => {
-      const { error } = await api.POST("/auth/reset-password", {
-        body: { token, new_password: password },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
+      // `.catch(() => null)` for the same reason LoginForm does it: a rejected
+      // fetch (offline, DNS, CORS) is not an HTTP error and arrives as a thrown
+      // TypeError. Without this, a transport fault was indistinguishable from a
+      // dead token — and the remedy offered for a dead token destroys a live one.
+      const result = await api
+        .POST("/auth/reset-password", {
+          body: { token, new_password: password },
+        })
+        .catch(() => null);
+      if (!result) {
+        throw new ResetError("server");
+      }
+      if (result.error) {
+        throw new ResetError(resetFailureOf(result.response?.status));
       }
     },
     onSuccess: onDone,
   });
+  const failure =
+    reset.error instanceof ResetError ? reset.error.failure : "server";
 
   const ready = password.length >= MIN_PASSWORD;
   const submit = (event: FormEvent) => {
@@ -766,23 +936,40 @@ function ResetForm({
           label={t("auth.newPassword")}
           icon={<Lock aria-hidden />}
           hint={t("auth.passwordHint")}
+          trailing={
+            <PasswordReveal
+              shown={showPassword}
+              onToggle={() => setShowPassword((shown) => !shown)}
+            />
+          }
         >
           <input
             id={passwordId}
             className="auth-input"
-            type="password"
+            type={showPassword ? "text" : "password"}
+            required
+            minLength={MIN_PASSWORD}
+            name="new-password"
             autoComplete="new-password"
+            autoCapitalize="none"
+            spellCheck={false}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
           />
         </Field>
       </div>
       {reset.isError && (
-        <div className="auth-error">
-          <p className="ae-t">{t("auth.resetFailed")}</p>
-          <button type="button" className="auth-link" onClick={onRestart}>
-            {t("auth.requestNewLink")}
-          </button>
+        <div className="auth-error" role="alert">
+          <p className="ae-t">{t(resetErrorKey(failure))}</p>
+          {/* The new-link offer appears ONLY for a token verdict. Everywhere else
+              it is the one action that makes things worse: it invalidates the
+              token the user is still holding, which for a network blip or a
+              refused password is a working link thrown away. */}
+          {failure === "token" && (
+            <button type="button" className="auth-link" onClick={onRestart}>
+              {t("auth.requestNewLink")}
+            </button>
+          )}
         </div>
       )}
       <div className="auth-actions">

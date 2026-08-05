@@ -78,6 +78,7 @@ func (c *JobCensus) Validate() error {
 		c.everyDerivedTimeoutStillEqualsItsConstant(),
 		c.exactlyTheOperatorKindsSupplyTheirTimeout(),
 		c.everyArgsFieldIsDeclaredAndBack(),
+		c.everyFanOutChildCarriesItsUnitKey(),
 		c.everyArgsOwnedKindInsertsOnItsDeclaredQueue(),
 		c.noArgsTypeAnswersToASecondKind(),
 		c.everyDeclaredQueueIsBuiltWithItsDeclaredBound(),

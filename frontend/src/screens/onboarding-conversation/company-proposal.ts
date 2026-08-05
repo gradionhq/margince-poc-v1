@@ -17,6 +17,7 @@ type Resolution = components["schemas"]["CompanySiteReadResolution"];
 type ProposalField = components["schemas"]["OnboardingCompanyProposalField"];
 type LegalEntity = components["schemas"]["CompanySiteReadLegalEntity"];
 type ColdField = components["schemas"]["ColdStartField"];
+type SiteReadPage = components["schemas"]["CompanySiteReadPage"];
 
 export type ClarifyAnswer = {
   clarifyId: string;
@@ -165,28 +166,28 @@ export function resolutionsFromAnswers(
 }
 
 // Choosing an entity fills one intact legal block and keeps its website
-// provenance (the read grounded it; the human only chose which block). A
-// detail the notice left blank is cleared rather than inherited. Mirrors the
-// classic coordinator's entity pick so both shells stamp provenance alike.
+// provenance (the read grounded it; the human only chose which block). Two
+// things this never does: overwrite a field the human already typed into
+// (their edit wins, unconditionally), and invent a value for a detail this
+// particular candidate does not carry — an absent field is left exactly as
+// it was, never blanked. Mirrors the classic coordinator's entity pick so
+// both shells stamp provenance alike.
 export function draftWithLegalEntity(
   draft: CompanyDraft,
   entity: LegalEntity,
 ): CompanyDraft {
   const grounded = { ...draft.grounded };
-  const edited = new Set(draft.edited);
   const values = { ...draft.values };
-  const applied: Array<[ColdField["field"], string]> = [
+  const candidates: ReadonlyArray<[ColdField["field"], string | undefined]> = [
     ["legal_name", entity.name],
-    ["registered_address", entity.registered_address ?? ""],
-    ["register_vat", entity.register_number ?? ""],
+    ["registered_address", entity.registered_address],
+    ["register_vat", entity.register_number],
   ];
-  for (const [field, value] of applied) {
-    values[field] = value;
-    edited.delete(field);
-    if (value === "") {
-      delete grounded[field];
+  for (const [field, value] of candidates) {
+    if (draft.edited.has(field) || value === undefined || value.trim() === "") {
       continue;
     }
+    values[field] = value;
     grounded[field] = {
       field,
       value,
@@ -196,5 +197,38 @@ export function draftWithLegalEntity(
       confidence: 1,
     };
   }
-  return { values, grounded, edited };
+  return { values, grounded, edited: draft.edited };
+}
+
+// The three fields only a legal/imprint page can ground — the same trio
+// draftWithLegalEntity fills and the server's own legal gate governs. A
+// blank display_name or offer_summary carries no such page to have checked,
+// so this stays scoped to the trio rather than every empty field.
+const LEGAL_TRIO_FIELDS: ReadonlySet<CompanyFieldName> = new Set([
+  "legal_name",
+  "registered_address",
+  "register_vat",
+]);
+
+export type LegalFieldGap = "not-published" | "not-checked";
+
+// Why one of the legal trio is blank, from what the read's own crawl
+// actually saw — never a guess. "not-published" only fires once a page the
+// read classified as an imprint/legal notice was genuinely fetched: the
+// read looked and the site simply does not state it. Anything short of
+// that (no such page found, one found but skipped or failed to fetch) is
+// "not-checked" — the honest admission that nothing was there TO read, as
+// opposed to a claim that the site was searched and came up empty. A field
+// outside the trio, or one that already carries a value, has no gap to name.
+export function legalFieldGap(
+  field: CompanyFieldName,
+  pages: readonly SiteReadPage[] | undefined,
+): LegalFieldGap | null {
+  if (!LEGAL_TRIO_FIELDS.has(field)) {
+    return null;
+  }
+  const sawLegalPage = (pages ?? []).some(
+    (page) => page.kind === "impressum" && page.status === "fetched",
+  );
+  return sawLegalPage ? "not-published" : "not-checked";
 }

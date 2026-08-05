@@ -31,10 +31,14 @@ type seed struct {
 	Queue     string   // empty means "default"
 	State     string   // river_job_state
 	Workspace ids.UUID // the zero value writes NO workspace_id key at all — a dispatcher
-	Tags      []string
-	CreatedAt time.Time // the zero value means now
-	Scheduled time.Time // the zero value means CreatedAt
-	Attempt   int
+	// Connection is the fan-out unit of the three per-connection dispatchers.
+	// The zero value writes no connection_id key, which is what a
+	// workspace-grained child's args look like.
+	Connection ids.UUID
+	Tags       []string
+	CreatedAt  time.Time // the zero value means now
+	Scheduled  time.Time // the zero value means CreatedAt
+	Attempt    int
 }
 
 // finalizedStates are the states river_job's finalized_or_finalized_at_null
@@ -66,6 +70,9 @@ func seedJob(ctx context.Context, t *testing.T, pool *pgxpool.Pool, s seed) {
 	args := map[string]any{}
 	if s.Workspace != (ids.UUID{}) {
 		args["workspace_id"] = s.Workspace.String()
+	}
+	if s.Connection != (ids.UUID{}) {
+		args["connection_id"] = s.Connection.String()
 	}
 	encodedArgs, err := json.Marshal(args)
 	if err != nil {
@@ -118,6 +125,15 @@ func sweepFor(snap jobs.Snapshot, kind string) (jobs.SweepPass, bool) {
 		}
 	}
 	return jobs.SweepPass{}, false
+}
+
+func unitFor(snap jobs.Snapshot, kind string) (jobs.SweepUnit, bool) {
+	for _, u := range snap.Units {
+		if u.Kind == kind {
+			return u, true
+		}
+	}
+	return jobs.SweepUnit{}, false
 }
 
 // TestStatsCountsLiveWorkAndNamesTheWorkspaceThatOwnsIt proves the two
@@ -368,6 +384,105 @@ func TestSweepCountsEachWorkspacesLatestOutcomeAndSurvivesADeduplicatedRetry(t *
 		t.Errorf("Failed = %d, want 2: only B's LATEST outcome counts, and B succeeded "+
 			"before it died; D was cancelled, which is also work that did not happen",
 			pass.Failed)
+	}
+}
+
+// TestTheUnitPairSeesAFailedConnectionTheWorkspacePairMasks is the whole
+// reason the second pair exists, seeded as the exact shape that hides the
+// failure: ONE workspace, TWO connections, the broken one failing FIRST and
+// the healthy one completing after it.
+//
+// Read per workspace, that workspace's most recent child is the successful
+// one and the pass looks clean. Read per connection, one unit of two is dead.
+// Both readings are asserted here, not just the new one — the masking is a
+// documented property of the workspace pair, and a change that silently
+// "fixed" it there would break what that pair is for (a batch has no
+// identity in this table) while this test still passed on the new half alone.
+//
+// telegram_poll is used rather than a made-up kind because the unit read is
+// derived from the contract: only kinds a dispatcher declares it fans out to
+// per connection are read at all, so a fixture kind would prove a query that
+// never runs.
+func TestTheUnitPairSeesAFailedConnectionTheWorkspacePairMasks(t *testing.T) {
+	_, pool := migratedAppPool(t)
+	ctx := t.Context()
+	earlier, later := time.Now().Add(-2*time.Hour), time.Now().Add(-1*time.Hour)
+	ws := ids.NewV7()
+	broken, healthy := ids.NewV7(), ids.NewV7()
+
+	seedJob(ctx, t, pool, seed{
+		Kind: "telegram_poll", State: "discarded",
+		Workspace: ws, Connection: broken, Tags: []string{jobs.SweepTag}, CreatedAt: earlier,
+	})
+	seedJob(ctx, t, pool, seed{
+		Kind: "telegram_poll", State: "completed",
+		Workspace: ws, Connection: healthy, Tags: []string{jobs.SweepTag}, CreatedAt: later,
+	})
+
+	snap, err := jobs.Stats(ctx, pool)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+
+	pass, ok := sweepFor(snap, "telegram_poll")
+	if !ok {
+		t.Fatal("no per-workspace sweep reported for a tagged kind")
+	}
+	if pass.Workspaces != 1 || pass.Failed != 0 {
+		t.Errorf("workspace pair = %d/%d covered/failed, want 1/0 — this pair counts one workspace "+
+			"once and reads its LATEST child, which is why the failure is invisible here",
+			pass.Workspaces, pass.Failed)
+	}
+
+	unit, ok := unitFor(snap, "telegram_poll")
+	if !ok {
+		t.Fatal("no per-unit sweep reported for a kind whose dispatcher fans out per connection")
+	}
+	if unit.Unit != jobs.FanOutConnection {
+		t.Errorf("Unit = %d, want FanOutConnection — the label an alert reads the grain off", unit.Unit)
+	}
+	if unit.Units != 2 {
+		t.Errorf("Units = %d, want 2: one workspace holding two connections is two units", unit.Units)
+	}
+	if unit.Failed != 1 {
+		t.Errorf("Failed = %d, want 1 — the broken connection, which the workspace pair reported as zero", unit.Failed)
+	}
+}
+
+// TestTheUnitPairIgnoresAnUntaggedRowAndAWorkspaceGrainedKind holds the two
+// boundaries of the new read. An untagged row of a per-connection kind is a
+// job someone triggered by hand, not one connection's share of a fleet pass;
+// and a kind whose declared unit IS the workspace must not appear here at all,
+// or its number would be published twice and an operator summing the pairs
+// would double-count the fleet.
+func TestTheUnitPairIgnoresAnUntaggedRowAndAWorkspaceGrainedKind(t *testing.T) {
+	_, pool := migratedAppPool(t)
+	ctx := t.Context()
+	ws := ids.NewV7()
+
+	seedJob(ctx, t, pool, seed{
+		Kind: "telegram_poll", State: "discarded",
+		Workspace: ws, Connection: ids.NewV7(),
+	})
+	seedJob(ctx, t, pool, seed{
+		Kind: "capture_digest_workspace", State: "discarded",
+		Workspace: ws, Tags: []string{jobs.SweepTag},
+	})
+
+	snap, err := jobs.Stats(ctx, pool)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if unit, ok := unitFor(snap, "telegram_poll"); ok {
+		t.Errorf("an untagged row produced a unit series (%+v); a hand-triggered poll is not one "+
+			"connection's share of a fleet pass", unit)
+	}
+	if unit, ok := unitFor(snap, "capture_digest_workspace"); ok {
+		t.Errorf("a workspace-grained kind produced a unit series (%+v); it is already reported by "+
+			"the workspace pair, and two series for one number double-count", unit)
+	}
+	if pass, ok := sweepFor(snap, "capture_digest_workspace"); !ok || pass.Failed != 1 {
+		t.Errorf("the workspace-grained kind must still be reported by the workspace pair; got %+v (present=%t)", pass, ok)
 	}
 }
 

@@ -266,32 +266,15 @@ function stubApi(proposal: Proposal) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
 
+// The company act states what is waiting in its own thread narration and on
+// the review surface itself, so no floating bar ever rides above it.
 describe("the next-step bar in the company act", () => {
-  it("is absent while nothing blocks", async () => {
-    stubApi(proposalFor(readyRead));
-    render(<OnboardingScreen />);
-
-    await screen.findByText(/Where should I start reading\?/);
-    expect(document.querySelector(".ob-conv-nextstep")).toBeNull();
-  });
-
-  it("announces the ready review when the proposal has no open questions", async () => {
-    stubApi(proposalFor(readyRead));
-    render(<OnboardingScreen />);
-
-    await submitWebsite();
-
-    expect(
-      await screen.findByRole("button", { name: "Your review is ready" }),
-    ).toBeTruthy();
-  });
-
-  it("counts the pending question plus the proposal's other open one", async () => {
+  it("never renders, whatever the proposal still has open", async () => {
     stubApi({
       ...proposalFor(readyRead),
       open_questions: [
@@ -302,9 +285,8 @@ describe("the next-step bar in the company act", () => {
     render(<OnboardingScreen />);
 
     await submitWebsite();
+    await screen.findByRole("heading", { name: /Which legal entity/ });
 
-    expect(
-      await screen.findByRole("button", { name: "2 decisions open" }),
-    ).toBeTruthy();
+    expect(document.querySelector(".ob-conv-nextstep")).toBeNull();
   });
 });
