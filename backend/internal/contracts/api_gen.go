@@ -1587,6 +1587,33 @@ func (e CompanySiteReadStatusCode) Valid() bool {
 	}
 }
 
+// Defines values for CompanySiteReadStoppedReason.
+const (
+	CompanySiteReadStoppedReasonBudget   CompanySiteReadStoppedReason = "budget"
+	CompanySiteReadStoppedReasonByteCap  CompanySiteReadStoppedReason = "byte_cap"
+	CompanySiteReadStoppedReasonDeadline CompanySiteReadStoppedReason = "deadline"
+	CompanySiteReadStoppedReasonNull     CompanySiteReadStoppedReason = "<nil>"
+	CompanySiteReadStoppedReasonPageCap  CompanySiteReadStoppedReason = "page_cap"
+)
+
+// Valid indicates whether the value is a known member of the CompanySiteReadStoppedReason enum.
+func (e CompanySiteReadStoppedReason) Valid() bool {
+	switch e {
+	case CompanySiteReadStoppedReasonBudget:
+		return true
+	case CompanySiteReadStoppedReasonByteCap:
+		return true
+	case CompanySiteReadStoppedReasonDeadline:
+		return true
+	case CompanySiteReadStoppedReasonNull:
+		return true
+	case CompanySiteReadStoppedReasonPageCap:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanySiteReadTargetKind.
 const (
 	CompanySiteReadTargetKindOnboarding CompanySiteReadTargetKind = "onboarding"
@@ -9233,10 +9260,13 @@ type CompanySiteRead struct {
 	StatusCode     *CompanySiteReadStatusCode    `json:"status_code"`
 
 	// StatusDetail Safe guidance only; never provider payload, prompt, SQL, or stack data.
-	StatusDetail *string                   `json:"status_detail"`
-	TargetKind   CompanySiteReadTargetKind `json:"target_kind"`
-	UpdatedAt    time.Time                 `json:"updated_at"`
-	Warnings     []string                  `json:"warnings"`
+	StatusDetail *string `json:"status_detail"`
+
+	// StoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+	StoppedReason *CompanySiteReadStoppedReason `json:"stopped_reason,omitempty"`
+	TargetKind    CompanySiteReadTargetKind     `json:"target_kind"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
+	Warnings      []string                      `json:"warnings"`
 }
 
 // CompanySiteReadPhase defines model for CompanySiteRead.Phase.
@@ -9247,6 +9277,9 @@ type CompanySiteReadStatus string
 
 // CompanySiteReadStatusCode defines model for CompanySiteRead.StatusCode.
 type CompanySiteReadStatusCode string
+
+// CompanySiteReadStoppedReason Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+type CompanySiteReadStoppedReason string
 
 // CompanySiteReadTargetKind defines model for CompanySiteRead.TargetKind.
 type CompanySiteReadTargetKind string

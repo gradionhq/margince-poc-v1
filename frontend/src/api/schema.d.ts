@@ -10016,6 +10016,11 @@ export interface components {
             status_detail: string | null;
             /** Format: date-time */
             next_attempt_at: string | null;
+            /**
+             * @description Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.
+             * @enum {string|null}
+             */
+            stopped_reason?: "budget" | "page_cap" | "byte_cap" | "deadline" | null;
             /** @enum {string|null} */
             phase?: "crawling" | "extracting" | null;
             pages_read?: number;

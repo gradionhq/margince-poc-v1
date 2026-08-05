@@ -6,6 +6,7 @@ package compose
 import (
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
 
@@ -61,5 +62,29 @@ func TestCompanySiteReadCensusIsEmptyWhenNothingWasRead(t *testing.T) {
 	}
 	if len(*got.LegalEntities) != 0 {
 		t.Fatalf("no legal page read means no entities: %+v", *got.LegalEntities)
+	}
+}
+
+// A crawl that ran into a cap, the deadline or the budget ended by decision,
+// not by fault — and the cold start is the surface with the least context to
+// tell those apart. Without the reason on the wire, a thin-but-honest read
+// and a broken one are the same screen.
+func TestCompanySiteReadSaysWhyTheCrawlStopped(t *testing.T) {
+	stopped := "page_cap"
+	got := companySiteRead(people.SiteRead{
+		SeedURL: seedURL, Status: "partial", StoppedReason: &stopped,
+	}, nil, nil)
+	if got.StoppedReason == nil {
+		t.Fatal("a bounded read must be able to say what bounded it")
+	}
+	if *got.StoppedReason != crmcontracts.CompanySiteReadStoppedReasonPageCap {
+		t.Errorf("stopped_reason = %q, want the page cap the store recorded", *got.StoppedReason)
+	}
+
+	// Discovery ran out on its own: nothing stopped this read, so the wire
+	// says nothing rather than naming a cause that never fired.
+	exhausted := companySiteRead(people.SiteRead{SeedURL: seedURL, Status: "done"}, nil, nil)
+	if exhausted.StoppedReason != nil {
+		t.Errorf("a read that exhausted discovery stopped for no reason: %q", *exhausted.StoppedReason)
 	}
 }

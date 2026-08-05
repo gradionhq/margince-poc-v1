@@ -291,6 +291,13 @@ func attachCompanySiteReadOptionals(out *crmcontracts.CompanySiteRead, read peop
 		phase := crmcontracts.CompanySiteReadPhase(*read.Phase)
 		out.Phase = &phase
 	}
+	if read.StoppedReason != nil {
+		// A read that ended on a cap, a deadline or the budget stopped by
+		// decision, not by fault. Without the reason a bounded read and a
+		// broken one look alike, and the caller has nothing honest to say.
+		reason := crmcontracts.CompanySiteReadStoppedReason(*read.StoppedReason)
+		out.StoppedReason = &reason
+	}
 }
 
 func contractRunSummary(summary ai.RunSummary) crmcontracts.AiRunSummary {

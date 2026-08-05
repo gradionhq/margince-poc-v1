@@ -13984,6 +13984,11 @@ components:
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
         status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }
+        stopped_reason:
+          type: [string, 'null']
+          enum: [budget, page_cap, byte_cap, deadline, null]
+          x-enum-varnames: [CompanySiteReadStoppedReasonBudget, CompanySiteReadStoppedReasonPageCap, CompanySiteReadStoppedReasonByteCap, CompanySiteReadStoppedReasonDeadline, CompanySiteReadStoppedReasonNull]
+          description: 'Why the crawl ended early; null when it exhausted discovery. Same column and vocabulary as SiteReadReport — one deep-read engine serves onboarding and every organization.'
         phase: { type: [string, 'null'], enum: [crawling, extracting] }
         pages_read: { type: integer, minimum: 0 }
         pages:
