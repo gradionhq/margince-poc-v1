@@ -324,18 +324,30 @@ SBOM_DIR     := sboms
 SYFT_IMAGE   ?= anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 # v1.50.0
 GRANT_IMAGE  ?= anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 # v0.6.8
 COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738226498393e34e2f9ca83cb959e51c230e4ad7 # v2.4.3
-# Schema-conformance validators (sbom-validate). cyclonedx-cli is the first-party
-# CycloneDX validator and bundles its own spec schemas (1.7 support landed in
-# v0.30.0, so the pin must stay >= that). The SPDX formats have no maintained
-# validator image, so they validate against the pinned schemas in $(SBOM_SCHEMA_DIR)
-# with a generic JSON-schema CLI. Bump tag and digest together, same as above.
-CYCLONEDX_IMAGE  ?= cyclonedx/cyclonedx-cli@sha256:252c2e26f468c25fea1e63ecde1bc3198ad6e9dbb57f5ed3236bddcb2281b3a7 # v0.33.1
-JSONSCHEMA_IMAGE ?= ghcr.io/sourcemeta/jsonschema@sha256:a8931de12c23cb07a40318a9549beecf9ace73ac1af219ab61123ab46d3f1284 # v16.5.0
+# Per-format validators (sbom-validate). No single tool covers all three, so:
+# cyclonedx-cli is the first-party CycloneDX validator and bundles its own spec
+# schemas (1.7 support landed in v0.30.0, so the pin must stay >= that). SPDX 2.x
+# uses pyspdxtools (the canonical spdx/tools-python validator, structural AND
+# semantic) from the pinned Python image + the hash-pinned deps in
+# $(SBOM_SCHEMA_DIR); no maintained SPDX validator image exists to digest-pin
+# directly. SPDX 3.0 has no usable semantic validator (see that dir's README) and
+# validates structurally against the pinned schema with a generic JSON-schema CLI.
+# Bump tag and digest together, same as above.
+CYCLONEDX_IMAGE   ?= cyclonedx/cyclonedx-cli@sha256:252c2e26f468c25fea1e63ecde1bc3198ad6e9dbb57f5ed3236bddcb2281b3a7 # v0.33.1
+JSONSCHEMA_IMAGE  ?= ghcr.io/sourcemeta/jsonschema@sha256:a8931de12c23cb07a40318a9549beecf9ace73ac1af219ab61123ab46d3f1284 # v16.5.0
+SBOM_PYTHON_IMAGE ?= python@sha256:646fb0bca3dd3ea1bcc6feb72c17ed16eed6e10cffc732fcc1478bd3e7f02d7b # 3.12-slim
 DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
+# The validators only read; mount the tree read-only so a swapped image cannot
+# touch the working copy it validates — the same "the tools that read the repo
+# are pinned" posture this section already takes, one step further. pyspdxtools
+# installs into the container's own layer, not /src, so read-only holds there too.
+# linux/amd64 matches CI and fixes which wheel hashes the pinned deps resolve to.
+DOCKER_SBOM_RO := docker run --rm -v "$(CURDIR)":/src:ro -w /src
 SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
 GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
-CYCLONEDX    ?= $(DOCKER_SBOM) $(CYCLONEDX_IMAGE)
-JSONSCHEMA   ?= $(DOCKER_SBOM) $(JSONSCHEMA_IMAGE)
+CYCLONEDX    ?= $(DOCKER_SBOM_RO) $(CYCLONEDX_IMAGE)
+JSONSCHEMA   ?= $(DOCKER_SBOM_RO) $(JSONSCHEMA_IMAGE)
+PYSPDX       ?= $(DOCKER_SBOM_RO) --platform=linux/amd64 $(SBOM_PYTHON_IMAGE)
 # cosign's image defaults to uid 65532, which owns neither the bind-mounted
 # sboms/ dir nor a writable HOME — run it as the invoking user so the *.cosign.bundle
 # files it writes (mode 0600) are owned by that user and stay readable to whatever
@@ -355,9 +367,9 @@ SBOM_SRC     := .tmp/sbom-src
 # revision travels inside each SBOM, so cosign's signature covers it.
 SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse HEAD 2>/dev/null || echo unknown)")
 SBOM_FILES   := $(SBOM_DIR)/margince.cdx.json $(SBOM_DIR)/margince.spdx221.json $(SBOM_DIR)/margince.spdx300.json
-# Pinned upstream SPDX JSON schemas the SPDX validators check against (see the
-# directory README for provenance). Committed, so validation is offline and the
-# checked-against bytes cannot move under the gate.
+# Pinned validation inputs the SPDX validators consume: the SPDX 3.0 JSON schema
+# and the hash-pinned pyspdxtools dependency set (see the directory README).
+# Committed, so validation is reproducible and the inputs cannot move under the gate.
 SBOM_SCHEMA_DIR := sbom-schemas
 
 ## sbom — generate the source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0)
@@ -416,26 +428,32 @@ sbom-parity:
 	    echo "FAIL: SBOM file sets differ — see the diff above"; exit 1; \
 	  fi
 
-## sbom-validate — schema-conformance gate: each SBOM must validate against its own
-## format schema, so a syft bump, a config change, or a normalization filter that
-## emitted a structurally malformed document fails here rather than being signed and
-## shipped. sbom-parity proves the three agree with each other; this proves each is a
-## valid document of its format. CycloneDX goes through the first-party cyclonedx-cli,
-## which bundles the spec schema; --fail-on-errors is load-bearing — without it the CLI
-## prints "BOM is not valid" but still exits 0. The two SPDX formats have no maintained
-## validator image, so they validate against the pinned upstream schemas in
-## $(SBOM_SCHEMA_DIR) with a generic JSON-schema CLI (the SPDX project's own guidance for
-## SPDX 3.0). `make sbom` runs it after parity; CI runs `make sbom`, so every SBOM CI run
-## is gated, and sbom-sign re-runs it so only schema-valid bytes are signed.
+## sbom-validate — conformance gate: each SBOM must validate against its own format,
+## so a syft bump, a config change, or a normalization filter that emitted a malformed
+## document fails here rather than being signed and shipped. sbom-parity proves the
+## three agree with each other; this proves each is a valid document of its format.
+## CycloneDX goes through the first-party cyclonedx-cli (bundles the spec schema);
+## --fail-on-errors is load-bearing — without it the CLI prints "BOM is not valid" but
+## still exits 0. SPDX 2.x goes through pyspdxtools, which validates structure AND SPDX
+## semantics (e.g. dataLicense must be CC0-1.0, at least one creator); it also exits 0
+## on an invalid document, so the recipe fails the build on any diagnostic it prints.
+## SPDX 3.0 has no usable semantic validator yet ($(SBOM_SCHEMA_DIR)/README.md records
+## the finding) and validates structurally against the pinned schema. `make sbom` runs
+## this after parity; CI runs `make sbom`, so every SBOM CI run is gated, and sbom-sign
+## re-runs it so only valid bytes are signed.
 sbom-validate:
 	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
-	@echo "validating $(SBOM_DIR)/margince.cdx.json against CycloneDX schema"
+	@echo "validating $(SBOM_DIR)/margince.cdx.json (CycloneDX)"
 	@$(CYCLONEDX) validate --input-file $(SBOM_DIR)/margince.cdx.json --fail-on-errors
-	@echo "validating $(SBOM_DIR)/margince.spdx221.json against SPDX 2.2.1 schema"
-	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-2.2.1.schema.json $(SBOM_DIR)/margince.spdx221.json
-	@echo "validating $(SBOM_DIR)/margince.spdx300.json against SPDX 3.0.1 schema"
+	@echo "validating $(SBOM_DIR)/margince.spdx221.json (SPDX 2.x, pyspdxtools)"
+	@$(PYSPDX) bash -c '\
+	  pip install --require-hashes --quiet --no-cache-dir --disable-pip-version-check -r $(SBOM_SCHEMA_DIR)/spdx-tools-requirements.txt \
+	    || { echo "FAIL: could not install the pinned SPDX validator"; exit 1; }; \
+	  out=$$(pyspdxtools -i $(SBOM_DIR)/margince.spdx221.json 2>&1); rc=$$?; \
+	  if [ -n "$$out" ] || [ $$rc -ne 0 ]; then printf "%s\n" "$$out"; echo "FAIL: $(SBOM_DIR)/margince.spdx221.json is not a valid SPDX 2.x document"; exit 1; fi'
+	@echo "validating $(SBOM_DIR)/margince.spdx300.json (SPDX 3.0.1 schema)"
 	@$(JSONSCHEMA) validate $(SBOM_SCHEMA_DIR)/spdx-3.0.1.schema.json $(SBOM_DIR)/margince.spdx300.json
-	@echo "OK: three SBOMs valid against their format schemas"
+	@echo "OK: three SBOMs valid against their formats"
 
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
 ## Depends on parity + validate, not sbom: the signature must cover normalized,
