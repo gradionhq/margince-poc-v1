@@ -14,6 +14,21 @@ first. This page is the recipe that section is not.
 > [7. If it goes wrong](#7-if-it-goes-wrong) — so do not start step 2 until step 1's bundle is on
 > disk.
 
+The states you can be in, and the only ways out of each:
+
+```text
+   overlay (live)
+        │  preflight ── blocked ──▶ stays overlay, mirror UNSEALED (fix and retry)
+        ▼
+   preflight GREEN ──▶ mirror SEALED   ← writes refuse, sweeps skip this workspace
+        │                              ← there is NO cancel endpoint
+        ├── flip ─────────────▶ native (one-way, audited)
+        ├── flip refused on the fresh-sync path ──▶ unsealed, back to overlay
+        └── disconnect ──▶ mirror purged entirely (also clears the seal)
+```
+
+A green preflight **seals and stays sealed**, so do not run one until you intend to flip.
+
 Connecting an overlay in the first place is [connect-a-hubspot-overlay.md](connect-a-hubspot-overlay.md);
 exercising the whole lifecycle against an isolated HubSpot test account (the safe place to rehearse
 this page) is [test-overlay-locally.md](test-overlay-locally.md).

@@ -3,8 +3,8 @@
 The account page a rep opens on a company: who works there, what is open, what
 moved, what to do next, and a written brief over all of it. It is the largest
 composite surface in the product and it is assembled almost entirely in
-`internal/compose` — nine gated section reads inside one transaction, plus two
-cross-module orchestration groups that own view state of their own.
+`internal/compose` — thirteen gated section reads inside one transaction, plus
+two cross-module orchestration groups that own view state of their own.
 
 > **Name collision, worth clearing up once.**
 > [company-context.md](company-context.md) is about the **installation's own**
@@ -12,6 +12,28 @@ cross-module orchestration groups that own view state of their own.
 > about the company **record** page: any customer, prospect or partner
 > organization in the CRM. They share the word "company" and almost nothing
 > else.
+
+## The shape at a glance
+
+Six endpoints serve one screen. Which one owns which part:
+
+```text
+                    the company record screen (organizations.tsx)
+        ┌──────────────────────────────────────────────────────────┐
+        │  header · state strip · health          suggestions card │
+        │  contacts · deals · timeline            connections card │
+        │  "since your last visit"                account brief    │
+        └──────────────────────────────────────────────────────────┘
+             ▲                    ▲                    ▲
+ GET /organizations/{id}/360   GET …/graph        GET|POST …/brief
+   ONE tx, gated per section,    one-hop            per-viewer, cached on
+   a refused section is          node/edge set,     its inputs; POST …/ask
+   NAMED in sections_omitted     per-group grants   reuses the same machinery
+             │
+ POST …/view-ack             advance the visit baseline (explicit, human-only)
+ POST …/suggestions/dismiss  per-user, "not this, not now"
+ GET  …/logo                 resolved from the site read; monogram floor
+```
 
 ## One gated read
 
@@ -80,7 +102,7 @@ what this account is, where it stands, and what changed. It lives in
 **Assembled AS the caller.** The brief's input comes from running the 360
 itself, as the requesting principal, inside the normal gates — the `Assembler`
 seam is injected rather than imported, so the package composes one seam instead
-of re-deriving nine gated reads. A brief can therefore only describe records
+of re-deriving the gated reads itself. A brief can therefore only describe records
 that caller could open themselves, and `sections_omitted` rides into the input
 so the writer is told to stay silent about those subjects rather than inferring
 around the gap.
@@ -118,7 +140,9 @@ whichever wrote it. `generated_by` names which one it was, because a reader
 deciding how much to trust a sentence needs to know.
 
 The prompt treats every activity subject and body as **untrusted quoted data**
-behind a nonce fence — the same discipline the site-read prompts use. This text
+behind a nonce fence — quoted between one-time random delimiters, so text inside
+it cannot pose as part of the prompt; the same discipline the site-read prompts
+use. This text
 arrived from outside the workspace and must never be read as instruction. The
 model runtime behind it is [ai-runtime.md](ai-runtime.md).
 
@@ -390,7 +414,9 @@ list, approval, signal) and durably own no business entity. See
 | The connections card | `frontend/src/screens/connections.tsx` |
 | Header actions (new deal, tag, list) | `frontend/src/screens/companyactions.tsx` |
 
-**Related:** [relationship-graph.md](relationship-graph.md) (the graph beneath
+## Where to go next
+
+[relationship-graph.md](relationship-graph.md) (the graph beneath
 the connections card) · [company-context.md](company-context.md) (the
 *installation's* own company — a different subject with a similar name) ·
 [authorization.md](authorization.md) (the grants and row scopes every section

@@ -9,7 +9,7 @@ this way: [explanation/rbac-roles-and-teams.md](../explanation/rbac-roles-and-te
 
 The change spans **five places**, and skipping any one of them fails in a
 different way. Two of them are held by merge-blocking gates, so you will find out
-before you push. The third — the backfill migration — has **no compile-time or
+before you push. The migration (step 3) — the backfill — has **no compile-time or
 review-time signal at all** on a fresh database, and getting it wrong 403s every
 existing installation forever.
 

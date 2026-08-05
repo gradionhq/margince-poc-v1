@@ -170,7 +170,8 @@ unknown-outcome reason says the message will not be retried and to check the con
 ## Receipt before bookkeeping — key on the identity the provider stamped
 
 Gmail rewrites `Message-ID`. A message staged under the identity this system minted goes out under
-Google's, so bookkeeping keyed on the id we *requested* loses the receipt: the echo collapse, the reply
+Google's, so bookkeeping keyed on the id we *requested* loses the receipt: the echo collapse (the
+captured copy of our own sent mail folding onto the same activity instead of duplicating it), the reply
 join and the threading headers all key on a string the wire never carried.
 
 `Store.RecordSent` therefore does two things in **two transactions**, and which fact is in which is the
@@ -186,10 +187,10 @@ safety property:
 has accepted the message, so an obligation exists that nothing afterwards may revoke. Leaving the
 delivery pending sends it back to River, and the connector's prior-send lookup cannot see an identity
 the provider discarded — it finds nothing and **transmits again**. A single transaction with the re-key
-under a savepoint is *not* the same guarantee: a savepoint isolates a refused statement, not a failed
-RELEASE, a dropped connection, or a panic raised outside the guarded call — any of which leaves the
-receipt as an uncommitted UPDATE in a transaction that then fails to commit, and the double-send is
-back.
+under a savepoint is *not* the same guarantee. A savepoint isolates one refused statement. It does not
+survive a failed RELEASE, a dropped connection, or a panic raised outside the guarded call. Any of
+those leaves the receipt as an uncommitted UPDATE in a transaction that then fails to commit — and the
+double-send is back.
 
 So the whole reconcile is defensive by construction. It runs inside a `recover` boundary covering the
 transaction plumbing *and* the fault report, because a panic escaping it would unwind the dispatch
@@ -305,6 +306,10 @@ in. A reply is answered on the medium it arrived on, so a cross-medium match cou
 actionable anyway.
 
 ## Voice-bound drafts — how a draft binds to its send
+
+Margince learns each rep's writing voice from what they actually send. When the AI drafts an email for
+a human, the send is the moment we find out whether they sent that draft as-is or reworded it — and
+that judgement is captured here, on the send path, because nowhere else can see both texts.
 
 Drafting hands the caller an **opaque draft reference** for the text a model served. The send that
 carries that reference back is what says whether the human sent that text or reworded it first — the only

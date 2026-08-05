@@ -58,7 +58,9 @@ it, so a `?utm=…` never leaks into a screen name.
   verbatim from the design source of truth and pinned value-by-value by
   `tokens.test.ts`. `brand.css` is the DERIVED layer: every value there is a
   `color-mix()` of a canonical token, never a new hex. Then `atoms.tsx` (Button,
-  Badge, Avatar, Card, DataTable, Modal, …), `trust.tsx` (the §4 vocabulary:
+  Badge, Avatar, Card, DataTable, Modal, …), `trust.tsx` (the trust vocabulary
+  of §4 of the design language — `design/00-design-language.md` in the spec
+  repo, which the section numbers on this page all refer to:
   `AutonomyDot`, `EvidenceChip`, `ConfidenceMeter`, `ProvenanceTag`,
   `StagingCard`, `ApprovalGate`, `StagedProposal`, `FieldDiff`), the Margince
   Core (`margince-core*`), and `composed.tsx`, which builds on both
@@ -341,7 +343,9 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | Screens | `frontend/src/screens/` (one file per surface; `onboarding-conversation/` is the one state-machine directory) |
 | Catalogs / presentation edge | `frontend/src/i18n/`, `frontend/src/format/` |
 
-**Related:** [company-record-page.md](company-record-page.md) (the biggest
+## Where to go next
+
+[company-record-page.md](company-record-page.md) (the biggest
 screen this structure carries) ·
 [company-context.md](company-context.md) (the onboarding wizard and the
 company-profile screens) · [architecture.md](architecture.md) (the Go side of

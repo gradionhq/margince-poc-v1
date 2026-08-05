@@ -1,6 +1,9 @@
 # Add a background job
 
-A task checklist for adding a new River job kind. The job layer is declaration-first: you declare the
+A task checklist for adding a new background job — a River job kind, where
+[River](https://riverqueue.com) is the Postgres-backed queue this backend runs its background work on
+(see [explanation/job-fleet.md](../explanation/job-fleet.md) for what River gives us and why our own
+contract sits on top of it). The job layer is declaration-first: you declare the
 kind in `backend/api/jobs.yaml`, regenerate, then write the args type and the worker — a kind the
 file has never heard of does not compile. For *why* it works this way, see
 [explanation/job-fleet.md](../explanation/job-fleet.md); for the store mechanics a workspace pass

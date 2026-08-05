@@ -1,5 +1,15 @@
 # Supply chain — SBOMs, license gate, signatures
 
+An **SBOM** (software bill of materials) is a machine-readable inventory of
+everything the tree ships — every dependency, its version, and its license.
+Three tools run this lane, all as digest-pinned Docker images: **syft**
+generates the SBOMs, **grant** gates their licenses, and **cosign** signs them.
+
+```text
+git archive HEAD ─▶ syft ─▶ 3 SBOM docs ─▶ normalize ─▶ parity ─▶ grant (license gate)
+                                                            └─▶ cosign (main only)
+```
+
 The SBOM lane covers the whole repo (backend + frontend + extensions), so its
 targets live in the **root** `Makefile` rather than being delegated to
 `backend/`. It is **not** part of `make check`: CI runs it as its own workflow,

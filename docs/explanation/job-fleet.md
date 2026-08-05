@@ -1,9 +1,14 @@
 # The job fleet — the declaration, the dispatcher, and one row per tenant
 
-Every background pass in this backend is a **declared** River job kind, and every fleet-wide pass is
-**two** kinds: a dispatcher that enumerates the fleet and enqueues, and a workspace kind that carries
-exactly one tenant's work. The declaration lives in `backend/api/jobs.yaml`, and it is what the
-running system obeys — a worker cannot choose its own timeout, its own queue or its own attempt cap.
+Background work in this backend runs on [River](https://riverqueue.com), a Postgres-backed job queue:
+a job is a row in the `river_job` table, workers claim rows, and retries, timeouts and scheduling are
+River's to run. What this page describes is the contract we put **on top** of River.
+
+That contract has two halves. Every job kind is **declared** in `backend/api/jobs.yaml` before it
+exists in code — and the declaration is what the running system obeys, so a worker cannot choose its
+own timeout, its own queue or its own attempt cap. And every fleet-wide pass is **two** kinds: a
+dispatcher that enumerates the fleet (the "fleet" is every workspace on the installation) and
+enqueues, plus a workspace kind that carries exactly one tenant's work.
 
 This is the deep reference. To *add* a job, jump to [how-to/add-a-job.md](../how-to/add-a-job.md);
 for the operator's reading of the same fleet, see
@@ -62,7 +67,15 @@ Five fields are declared for **every** kind:
 | `go_type` | the compose args struct that returns this kind (`^[A-Z][A-Za-z0-9]*Args$`). Carried as data, not as an import, so a gate can assert the kind↔type pairing still holds |
 | `queue` | must name an entry in the file's own `queues:` block; every non-`default` queue owes a `reason` for having been split out of the default pool |
 | `timeout` | the whole-job wall clock — §3. There is **no default** |
-| `opts_owner` | who supplies River's insert options: `fan_out` (SUPPLIED — the helper reads the declared queue and cap), `args` (CHECKED — the args' own `InsertOpts()` owns them and the census compares), `caller` (DECLARED ONLY — the options live at scattered enqueue sites, and the declared queue is documentation rather than a governed value) |
+| `opts_owner` | who supplies River's insert options — one of three modes, below |
+
+`opts_owner` names *who* decides the queue and attempt cap River inserts a row with:
+
+| Mode | Who owns the options | What the contract does |
+|---|---|---|
+| `fan_out` | the fan-out helper | **supplied** — the helper reads the declared queue and cap and hands them to River |
+| `args` | the args type's own `InsertOpts()` | **checked** — the census compares the declaration against what that method returns |
+| `caller` | scattered enqueue sites | **declared only** — the queue in the file is documentation, not a governed value |
 
 Three more are **conditional on what the kind is**, and generation refuses the mismatch in both
 directions — a field owed and absent fails, and a field declared where it means nothing fails too:
@@ -103,7 +116,8 @@ posture, never a licence:
   wrong. A `fault` block with an empty rationale fails generation: *"an unstated waiver is a
   swallowed error with a heading"*.
 - **`args: {Field: id | {scalar: true, reason: …} | {reason: …}}`** — §5. An omitted field is not
-  waived; the census compares the declaration against the compiled struct.
+  waived; the **census** — the fitness test that lays the compiled wiring beside the contract and
+  fails on any disagreement (§8) — compares the declaration against the compiled struct.
 
 A kind may also carry a free-form `reason:` stating why its numbers are what they are. Nothing
 enforces it, and most non-obvious entries have one.
@@ -164,7 +178,7 @@ So `timeout` has no default and **absence is not one of its forms**. It takes ex
 | `2m` | a literal wall clock |
 | `{derived: c, value: 4h, reason: …}` | computed from a Go constant elsewhere in the tree. `value` is what `Govern` hands River, and the census proves the two still agree — so the declaration tracks the constant instead of freezing a copy. Used only where the constant is read by something other than the census's own lookup table, or the check compares the file against a private copy of itself |
 | `{operator: Field}` | computed at registration from a `JobRunnerConfig` dial; not knowable in the file at all (`site_deep_read` is the only one today) |
-| `{none: true, reason: …}` | a deliberate absence. `TimeoutPolicy.Duration` yields `-1`, which takes the row out of River's rescuer on purpose — the pass is bounded by a backlog rather than a wall clock |
+| `{none: true, reason: …}` | a deliberate absence. `TimeoutPolicy.Duration` yields `-1`, which takes the row out of River's rescuer (its stuck-job reaper) on purpose — the pass is bounded by a backlog rather than a wall clock |
 
 `declaredTimeoutSeconds` never publishes zero on `/metrics`: zero is River's silent minute wearing
 the digits of a deliberate absence, and telling those two apart is what the declaration is for. A
@@ -232,7 +246,8 @@ the role declaration a label *beside* the binding rather than the thing that gov
 `WorkspaceID()` is what keeps the declaration load-bearing: a worker cannot claim one workspace and
 work in another.
 
-The **zero id is refused rather than bound**. An unbound GUC does not fail here; it fails at the
+The **zero id is refused rather than bound**. An unbound GUC — the `app.workspace_id` session
+variable RLS reads, see [write-backbone.md](write-backbone.md) — does not fail here; it fails at the
 first tenant query, somewhere far less legible, and only after the job has already begun. A zero is
 also what an args type decodes to when a queued row predates a change to its wire key, so the refusal
 is the difference between a loud failure and a pass that quietly touches nothing.

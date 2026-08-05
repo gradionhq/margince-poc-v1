@@ -28,6 +28,31 @@ The agent surface asks the same questions through the same seams: `who_knows`, `
 records only through the row-scoped reads the HTTP surface uses — so a governed tool can never see
 further than the human driving it ([agent-surface.md](agent-surface.md)).
 
+## The shape at a glance
+
+Two write sources feed one participant table; one projection folds it; two surfaces read the fold.
+
+```text
+captured mail / calendar          hand-logged call or meeting
+ (capture, in the ingest tx)            (activities)
+        │                                   │
+        ▼                                   ▼
+   activity_participant  ── one row per party per role
+        │   user_id = ours · person_id = a contact · address = never became one
+        │   (people promotes address → person_id at the link chokepoint)
+        ▼
+   graph_interaction_edge  ── the PROJECTION: one row per (user, person)
+        │   counts + exact moments; no id, no audit, no event —
+        │   throw it away and rebuild at any time
+        │   maintained two ways, converging on one fold:
+        │     the cg:graph-edge consumer (incremental) · the nightly reconcile
+        ▼
+   read-time score = recency × frequency × reciprocity  (never stored)
+        │
+        ├── GET /people/{id}/network    who on our team knows this contact
+        └── GET /deals/{id}/coverage    who covers this deal, and what's wrong
+```
+
 ## Participants — the fact the schema could not previously state
 
 `activity_link` records which **records** an activity concerns. It has no user arm, so nothing anywhere

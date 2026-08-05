@@ -1,11 +1,18 @@
 # Search & retrieval — two arms, one row scope, two kinds of staleness
 
-How a query becomes ranked records: a lexical arm over the generated `search_tsv`
-columns, a vector arm over pgvector, fused by reciprocal rank fusion — and both
-arms carrying the caller's row-scope predicate *inside* the SQL, because a hit is
-a read. The second half of this page is the part that is easy to get wrong: an
-embedding store can be stale in two different ways, and only one of them is a
-human's decision. Where the embed lane's model comes from is
+Search is how a typed query becomes a ranked list of records — and, one seam
+deeper, how the AI layers ground their answers in the workspace's own data.
+
+Two independent rankings run per query: a **lexical** arm (Postgres full-text
+search over generated `search_tsv` columns) and a **vector** arm (semantic
+similarity over pgvector embeddings), fused into one list by reciprocal rank
+fusion. The rule that governs both: a search hit *is* a read, so the caller's
+row-scope authority is compiled **into** the query rather than applied to its
+results.
+
+The second half of this page is the part that is easy to get wrong: an embedding
+store can be stale in two different ways, and only one of them is a human's
+decision. Where the embed lane's model comes from is
 [ai-runtime.md](ai-runtime.md); who may see a row is
 [authorization.md](authorization.md); the who-knows-whom projection this page
 only borrows from is [relationship-graph.md](relationship-graph.md).
@@ -68,7 +75,8 @@ only borrows from is [relationship-graph.md](relationship-graph.md).
 
 **Two entry points, and they are not the same query.** `GET /v1/search` runs the
 **lexical arm alone** (`Store.Search`) — ranked, cursor-paged, every result
-stamped `trust_tier: authoritative`. The **fused** path (`Store.HybridSearch`) is
+stamped `trust_tier: authoritative` (the provenance grade the contract puts on
+natively-held records, as opposed to `external` mirror data). The **fused** path (`Store.HybridSearch`) is
 reached through the `shared/ports/retrieval` seam (`search.Retriever`), which is
 what the AI layers ground on: `cmd/api` wires it with the resolved model path's
 embedder for the offer-draft surface, `cmd/worker` wires it as the Surface-B
@@ -310,6 +318,23 @@ mechanism with its own maintenance rules — see
 | Agent access | `/v1/search` is a 🟢 `search_records` read under a passport; the context walk and all three reindex operations are `x-agent-access: human-only` |
 | Knobs (embed binding, `dimensions`, reindex operations, provider caveats) | [../reference/configuration.md](../reference/configuration.md) |
 
+## Rules of thumb
+
+- **A search hit is a read.** Authority is compiled into the query, never applied
+  to its results — so a denied entity type contributes no branch, and a row-scope
+  miss answers 404 rather than 403.
+- **Never rank across embed identities.** Every vector read filters to the
+  current `provider/model@dims`; a row from an older binding is hidden, not
+  served at the wrong width.
+- **The vector lane degrades, it does not error.** No embedder, an unbound
+  identity, or a zero query vector falls back to the lexical arm — a search that
+  returns fewer kinds of answer beats one that returns none.
+- **Drift heals itself; a binding change asks a human.** An entity pending under
+  the *current* identity is a lost event and the sweep re-embeds it unprompted. A
+  *changed* binding is a spend decision, so it keeps preview → confirm.
+- **Correctness never waits on a reindex.** A half-rebuilt store hides stale rows
+  rather than ranking them, so the system is always honest mid-rebuild.
+
 ## Where the code lives
 
 | | |
@@ -328,7 +353,9 @@ mechanism with its own maintenance rules — see
 | Retrieval seam | `internal/shared/ports/retrieval` ← `internal/modules/search/retriever.go` |
 | SPA surfaces | `frontend/src/app/embedreindexbanner.tsx` (advisory banner) · `frontend/src/screens/embedreindex.tsx` (settings card, preview/confirm/rebuild) |
 
-**Related:** [authorization.md](authorization.md) (the gate every branch calls) ·
+## Where to go next
+
+[authorization.md](authorization.md) (the gate every branch calls) ·
 [ai-runtime.md](ai-runtime.md) (where the embed lane's model comes from) ·
 [write-backbone.md](write-backbone.md) (the outbox the indexer consumes) ·
 [relationship-graph.md](relationship-graph.md) ·
