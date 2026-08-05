@@ -62,6 +62,7 @@ func TestToolValidate(t *testing.T) {
 		{"blank title", Tool{Name: "ping", Title: "   ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
 		{"framed title", Tool{Name: "ping", Title: " Ping it ", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
 		{"non-printable title", Tool{Name: "ping", Title: "Ping\tit", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
+		{"title that is not valid UTF-8", Tool{Name: "ping", Title: "Ping\xffit", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead}},
 		{"non-object input schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`"scalar"`)}},
 		{"input schema not type object", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, InputSchema: json.RawMessage(`{"type":"array"}`)}},
 		{"malformed output schema", Tool{Name: "ping", Version: "1.0.0", Tier: TierAutoExecute, RequestedScope: ScopeRead, OutputSchema: json.RawMessage(`{bad`)}},

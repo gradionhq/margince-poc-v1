@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ToolHandler runs a governed tool after admission. It is the extension's
@@ -185,6 +186,13 @@ func validateTitle(title string) error {
 	// shorter. Both are the same instruction to the author.
 	if strings.TrimSpace(title) != title {
 		return fmt.Errorf("title %q is blank or carries surrounding whitespace — a client renders it verbatim in place of the verb; omit Title to fall back to the verb", title)
+	}
+	// Before the rune check, not after: ranging a Go string decodes an invalid
+	// byte to U+FFFD, which IS printable — so a malformed title would pass the
+	// loop below and then be rendered by a client as replacement characters
+	// the declaration never wrote.
+	if !utf8.ValidString(title) {
+		return fmt.Errorf("title %q is not valid UTF-8", title)
 	}
 	for _, r := range title {
 		if !unicode.IsPrint(r) {

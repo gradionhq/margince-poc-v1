@@ -122,9 +122,10 @@ What the surface will and will not serve:
   [explanation/extensibility.md](../explanation/extensibility.md)) and a unit is added deliberately.
 - **`Title` is optional but not free-form-blank.** A whitespace-only or space-framed title is refused
   at generation; a unit that declares none is listed under its verb.
-- **`RequestedScope` is required** and comes from the closed passport vocabulary (`read`, `draft`,
-  `write`, `send`, `enrich`) — it is the cap a caller's passport must hold, so declare the one the
-  act actually spends.
+- **`RequestedScope` is required.** The vocabulary is the closed passport set (`read`, `draft`,
+  `write`, `send`, `enrich`); a **served** tool may request only `read`, `draft` or `write`, since the
+  two outbound caps are refused above. It is the cap a caller's passport must hold, so declare the one
+  the act actually spends.
 
 Your handler receives a `context.Context` and raw JSON, and nothing else — no pool, no provider, no
 record access. Validate arguments by decoding into a strict typed struct; `InputSchema` is
