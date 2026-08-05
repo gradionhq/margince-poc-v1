@@ -740,31 +740,32 @@ func (e AuditHistoryEntryActorType) Valid() bool {
 
 // Defines values for AuditLogEntryAction.
 const (
-	AuditLogEntryActionActivityRelink  AuditLogEntryAction = "activity_relink"
-	AuditLogEntryActionAdvancePhase    AuditLogEntryAction = "advance_phase"
-	AuditLogEntryActionAdvanceStage    AuditLogEntryAction = "advance_stage"
-	AuditLogEntryActionAnonymize       AuditLogEntryAction = "anonymize"
-	AuditLogEntryActionApprove         AuditLogEntryAction = "approve"
-	AuditLogEntryActionArchive         AuditLogEntryAction = "archive"
-	AuditLogEntryActionAssign          AuditLogEntryAction = "assign"
-	AuditLogEntryActionConsentGrant    AuditLogEntryAction = "consent_grant"
-	AuditLogEntryActionConsentWithdraw AuditLogEntryAction = "consent_withdraw"
-	AuditLogEntryActionCreate          AuditLogEntryAction = "create"
-	AuditLogEntryActionDemote          AuditLogEntryAction = "demote"
-	AuditLogEntryActionDisqualify      AuditLogEntryAction = "disqualify"
-	AuditLogEntryActionErase           AuditLogEntryAction = "erase"
-	AuditLogEntryActionExport          AuditLogEntryAction = "export"
-	AuditLogEntryActionImport          AuditLogEntryAction = "import"
-	AuditLogEntryActionImportUndo      AuditLogEntryAction = "import_undo"
-	AuditLogEntryActionMerge           AuditLogEntryAction = "merge"
-	AuditLogEntryActionPromote         AuditLogEntryAction = "promote"
-	AuditLogEntryActionRecordShare     AuditLogEntryAction = "record_share"
-	AuditLogEntryActionRecordUnshare   AuditLogEntryAction = "record_unshare"
-	AuditLogEntryActionReject          AuditLogEntryAction = "reject"
-	AuditLogEntryActionResetData       AuditLogEntryAction = "reset_data"
-	AuditLogEntryActionRestore         AuditLogEntryAction = "restore"
-	AuditLogEntryActionSendEmail       AuditLogEntryAction = "send_email"
-	AuditLogEntryActionUpdate          AuditLogEntryAction = "update"
+	AuditLogEntryActionActivityRelink     AuditLogEntryAction = "activity_relink"
+	AuditLogEntryActionAdvancePhase       AuditLogEntryAction = "advance_phase"
+	AuditLogEntryActionAdvanceStage       AuditLogEntryAction = "advance_stage"
+	AuditLogEntryActionAnonymize          AuditLogEntryAction = "anonymize"
+	AuditLogEntryActionApprove            AuditLogEntryAction = "approve"
+	AuditLogEntryActionArchive            AuditLogEntryAction = "archive"
+	AuditLogEntryActionAssign             AuditLogEntryAction = "assign"
+	AuditLogEntryActionConsentGrant       AuditLogEntryAction = "consent_grant"
+	AuditLogEntryActionConsentWithdraw    AuditLogEntryAction = "consent_withdraw"
+	AuditLogEntryActionCreate             AuditLogEntryAction = "create"
+	AuditLogEntryActionDemote             AuditLogEntryAction = "demote"
+	AuditLogEntryActionDisqualify         AuditLogEntryAction = "disqualify"
+	AuditLogEntryActionErase              AuditLogEntryAction = "erase"
+	AuditLogEntryActionExport             AuditLogEntryAction = "export"
+	AuditLogEntryActionImport             AuditLogEntryAction = "import"
+	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
+	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
+	AuditLogEntryActionPasswordLinkIssued AuditLogEntryAction = "password_link_issued"
+	AuditLogEntryActionPromote            AuditLogEntryAction = "promote"
+	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
+	AuditLogEntryActionRecordUnshare      AuditLogEntryAction = "record_unshare"
+	AuditLogEntryActionReject             AuditLogEntryAction = "reject"
+	AuditLogEntryActionResetData          AuditLogEntryAction = "reset_data"
+	AuditLogEntryActionRestore            AuditLogEntryAction = "restore"
+	AuditLogEntryActionSendEmail          AuditLogEntryAction = "send_email"
+	AuditLogEntryActionUpdate             AuditLogEntryAction = "update"
 )
 
 // Valid indicates whether the value is a known member of the AuditLogEntryAction enum.
@@ -803,6 +804,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionImportUndo:
 		return true
 	case AuditLogEntryActionMerge:
+		return true
+	case AuditLogEntryActionPasswordLinkIssued:
 		return true
 	case AuditLogEntryActionPromote:
 		return true
@@ -10537,6 +10540,15 @@ type IssuePassportResponse struct {
 	Token string `json:"token"`
 }
 
+// IssuePasswordLinkResponse A single-use set-password link, returned exactly once and never retrievable again. The server stores only the token's hash, so a lost link is re-issued, never recovered.
+type IssuePasswordLinkResponse struct {
+	// ExpiresAt When the token stops being redeemable (seven days from issue).
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// SetPasswordUrl The full link to hand to the member. The token rides in the URL FRAGMENT, which a browser never puts on the wire — keeping it out of access logs, `Referer` headers, and service-worker cache keys. Deliver it over a channel the member controls.
+	SetPasswordUrl string `json:"set_password_url"`
+}
+
 // JobFailure defines model for JobFailure.
 type JobFailure struct {
 	Attempt     int       `json:"attempt"`
@@ -10770,6 +10782,9 @@ type LoginRequest struct {
 
 // MeResponse defines model for MeResponse.
 type MeResponse struct {
+	// AdminPasswordLink Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1).
+	AdminPasswordLink *bool `json:"admin_password_link,omitempty"`
+
 	// Authorization What this principal may do, as the server itself computed it — never a client-side re-derivation from role keys, which drifts the moment an installation's stored grants differ from the compiled-in defaults.
 	// Two independent axes, both of which must permit an action: the licensing seat ceiling (A62/ADR-0047), checked BEFORE RBAC and clamped on HTTP method, and the object grants. A client that collapses them into one predicate will be wrong in both directions.
 	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
@@ -24270,6 +24285,9 @@ type ServerInterface interface {
 	// Deactivate a member and revoke their live access. Admin-only, human-only.
 	// (POST /users/{id}/deactivate)
 	DeactivateUser(w http.ResponseWriter, r *http.Request, id Id)
+	// Mint a single-use set-password link for a member. Admin-only, human-only.
+	// (POST /users/{id}/password-link)
+	IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, id Id)
 	// Reactivate a deactivated member. Admin-only, human-only.
 	// (POST /users/{id}/reactivate)
 	ReactivateUser(w http.ResponseWriter, r *http.Request, id Id)
@@ -25956,6 +25974,12 @@ func (_ Unimplemented) InviteUser(w http.ResponseWriter, r *http.Request) {
 // Deactivate a member and revoke their live access. Admin-only, human-only.
 // (POST /users/{id}/deactivate)
 func (_ Unimplemented) DeactivateUser(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Mint a single-use set-password link for a member. Admin-only, human-only.
+// (POST /users/{id}/password-link)
+func (_ Unimplemented) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -38465,6 +38489,40 @@ func (siw *ServerInterfaceWrapper) DeactivateUser(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// IssueUserPasswordLink operation middleware
+func (siw *ServerInterfaceWrapper) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.IssueUserPasswordLink(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReactivateUser operation middleware
 func (siw *ServerInterfaceWrapper) ReactivateUser(w http.ResponseWriter, r *http.Request) {
 
@@ -41091,6 +41149,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/users/{id}/deactivate", wrapper.DeactivateUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/{id}/password-link", wrapper.IssueUserPasswordLink)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/users/{id}/reactivate", wrapper.ReactivateUser)

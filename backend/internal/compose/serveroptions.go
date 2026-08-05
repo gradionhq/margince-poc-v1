@@ -36,14 +36,16 @@ import (
 // optioned keeps its safe default.
 type Option func(*Server, *pgxpool.Pool)
 
-// WithPasswordReset wires the A74 forgot-password flow onto the identity
-// surface: the operator's transactional mailer plus the public base URL
-// the emailed link points at. Without it the reset endpoints answer
-// their explicit 501 and the capabilities probe reports
-// password_reset=false (A107 — the login UI renders only what works).
-func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
+// WithPasswordReset wires the A74 forgot-password flow's transport onto
+// the identity surface: the operator's transactional mailer. Without it
+// forgot-password answers its explicit 501 and the capabilities probe
+// reports password_reset=false (A107 — the login UI renders only what
+// works). The link base is NOT wired here; it arrives through
+// WithPublicBaseURL, because an installation with no mailer still builds
+// set-password links (ADR-0061 Amendment 1).
+func WithPasswordReset(m mailer.Mailer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
+		s.authHandlers = s.WithPasswordReset(m)
 	}
 }
 
@@ -279,6 +281,11 @@ func WithNonProduction(env runtimeenv.Environment) Option {
 func WithPublicBaseURL(base string) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.PublicBaseURL = base
+		// The identity surface builds set-password deep links on the same
+		// canonical base, and for the same reason: the link carries a live
+		// single-use credential, so it must never be derived from a request
+		// Host an attacker controls.
+		s.authHandlers = s.WithPasswordLinkBase(base)
 		s.rebuildToolRegistry(pool)
 	}
 }

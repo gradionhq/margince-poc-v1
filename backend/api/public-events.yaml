@@ -81,6 +81,7 @@ components:
         - voice.version_changed
         - voice.draft_outcome_recorded
         - user.invited
+        - user.password_link_issued
         - user.deactivated
         - user.reactivated
         - role.changed
@@ -1730,6 +1731,42 @@ components:
           type: string
           format: uuid
           description: The admin who issued the invite.
+      additionalProperties: false
+
+    PublicEventUserPasswordLinkIssued:
+      type: object
+      x-event-type: user.password_link_issued
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for user.password_link_issued — on an installation with no
+        outbound-email channel, an admin minted a single-use set-password
+        link for a member and will deliver it out-of-band (ADR-0061
+        Amendment 1). Issuing supersedes the target's outstanding unused
+        tokens. The link may be minted for a member who already has a
+        password, which is an account takeover an admin is trusted to
+        perform; this event is the detective control that records it, so
+        `by` and `user_id` are both required and are the point of the
+        event. The token itself is NEVER a property here, and must never
+        be added — the raw value is returned to the issuing admin exactly
+        once, over the response body, and reaches no ledger, log, or bus.
+      required:
+        - user_id
+        - by
+        - expires_at
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: The member the link was minted for.
+        by:
+          type: string
+          format: uuid
+          description: The admin who issued the link.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the single-use token stops being redeemable.
       additionalProperties: false
 
     PublicEventUserDeactivated:

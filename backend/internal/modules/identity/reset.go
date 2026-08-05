@@ -4,14 +4,22 @@
 package identity
 
 // Account recovery (A74/ADR-0056, UI-gated by the A107 capabilities
-// probe): the forgot/reset password pair over the operator's
-// transactional-email channel. Enumeration-resistant end to end — the
-// request always answers 202, an invalid, used, or expired token is one
-// neutral refusal, and the reset email is the only place the raw token
-// ever appears. The surface exists only when a mailer is wired; without
-// one both operations answer their explicit 501 and the capabilities
-// probe reports password_reset=false, so the login UI never renders a
-// link this flow cannot honor.
+// probe): the forgot/reset password pair. Enumeration-resistant end to
+// end — the request always answers 202, and an invalid, used, or expired
+// token is one neutral refusal.
+//
+// The two halves are gated separately, because they are different
+// capabilities (ADR-0061 Amendment 1). ASKING for a reset needs the
+// outbound-email channel: without a mailer there is nothing to send, so
+// RequestPasswordReset answers 501 and the capabilities probe reports
+// password_reset=false — the login UI never renders a self-service link
+// this flow cannot honor. REDEEMING a token the holder already has needs
+// only that some channel could have delivered it, so ResetPassword also
+// serves an installation whose only channel is the admin-issued
+// set-password link.
+//
+// A raw token appears in exactly two places and nowhere else: the reset
+// mail, and the one response that hands an admin a link to pass on.
 
 import (
 	"context"
@@ -114,7 +122,7 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 		if rawToken == "" {
 			return
 		}
-		link := passwordLink(h.resetBaseURL, rawToken)
+		link := passwordLink(h.passwordLinkBaseURL, rawToken)
 		body := "Someone requested a password reset for your Margince account.\n\n" +
 			"Reset your password within one hour:\n\n  " + link + "\n\n" +
 			"If this wasn't you, ignore this email — your password is unchanged."
@@ -128,11 +136,16 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 // ResetPassword implements (POST /auth/reset-password): redeem the
 // single-use token, set the new password, and revoke every session of
 // the account.
+// Redemption carries NO delivery-configuration gate, and that is the whole
+// correction (ADR-0061 Amendment 1). Asking for a token by email needs a
+// mailer; redeeming one you already hold needs only the token, whose
+// possession IS the authority. Gating this on the mailer made an
+// admin-issued link unredeemable on exactly the installations it exists for.
+// Gating it on any current configuration would be the same mistake one step
+// removed: a token lives seven days, so an operator who changes the mail or
+// base-URL settings in that window would strand a credential already handed
+// to a human. A token nobody could have been given simply never verifies.
 func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
-		httperr.NotImplemented(w, r, "ResetPassword")
-		return
-	}
 	if !h.resetPerIP.Allow(httpserver.ClientIP(r)) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
@@ -187,9 +200,17 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 	minted := false
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var userID ids.UserID
+		// FOR UPDATE serializes this mint against every other issuer of the
+		// same member's set-password tokens — a concurrent forgot-password, or
+		// an admin issuing a link. Without it, two transactions at READ
+		// COMMITTED each miss the other's uncommitted insert and both leave a
+		// live token, so "one outstanding token" would hold only when nobody
+		// raced. The lock is on the member for the same reason IssuePasswordLink
+		// takes it there: the member is what both issuers contend over.
 		lookupErr := tx.QueryRow(ctx,
 			`SELECT id FROM app_user
-			 WHERE email = lower($1) AND status = 'active' AND archived_at IS NULL AND password_hash IS NOT NULL`,
+			 WHERE email = lower($1) AND status = 'active' AND archived_at IS NULL AND password_hash IS NOT NULL
+			 FOR UPDATE`,
 			email).Scan(&userID)
 		if errors.Is(lookupErr, pgx.ErrNoRows) {
 			return nil

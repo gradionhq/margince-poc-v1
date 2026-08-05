@@ -33,12 +33,19 @@ const SessionCookieName = "crm_session"
 // the contract plus the middleware that authenticates everything else.
 type Handlers struct {
 	svc *Service
-	// resetMailer + resetBaseURL wire the A74 forgot-password flow; nil
-	// mailer means the flow is absent — the endpoints answer 501 and the
-	// capabilities probe reports password_reset=false, so the login UI
-	// never renders a link this surface cannot honor (A107).
-	resetMailer  mailer.Mailer
-	resetBaseURL string
+	// resetMailer is the A74 outbound-email transport. Nil means the
+	// installation has no email channel: forgot-password is absent (its
+	// endpoint answers 501) and the capabilities probe reports
+	// password_reset=false, so the login UI never renders a self-service
+	// link this surface cannot honor (A107).
+	resetMailer mailer.Mailer
+	// passwordLinkBaseURL is the canonical external base every set-password
+	// deep link is built on — the mailed reset link AND the admin-issued one
+	// (ADR-0061 Amendment 1). It is a property of the INSTALLATION, not of
+	// the mail flow, which is why it arrives separately: an installation with
+	// no mailer still needs it, and that is exactly where the admin-issued
+	// link lives. Empty means no link of either kind can be built.
+	passwordLinkBaseURL string
 	// resetSendStarted is a test seam: the async reset send signals here
 	// when it finishes, so a test can wait for the captured mail without
 	// sleeping. Nil in production.
@@ -52,6 +59,18 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+
+	// Issuing a set-password link is authenticated and admin-only, so these
+	// two are not anti-anonymous-abuse throttles like the pair above — they
+	// bound what a STOLEN admin session can do. Each issue supersedes the
+	// target's outstanding token, which makes an unbounded operation a
+	// denial-of-recovery primitive: repeat it against one member and their
+	// link is invalidated as fast as an admin can hand it over. Per target
+	// as well as per actor, because a single compromised admin churning one
+	// member's credential is the case the per-actor bound alone still admits
+	// at full rate.
+	passwordLinkPerActor  *ratelimit.Limiter // 20/hour per admin
+	passwordLinkPerTarget *ratelimit.Limiter // 5/hour per member
 
 	// sorMode answers whether the caller's workspace reads from an
 	// incumbent overlay mirror, so /me can tell the client its
@@ -91,21 +110,33 @@ type Handlers struct {
 // NewHandlers builds the identity transport surface over its service.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{
-		svc:           svc,
-		loginFailures: ratelimit.New(10, time.Minute),
-		loginPerIP:    ratelimit.New(30, time.Minute),
-		resetPerEmail: ratelimit.New(3, time.Hour),
-		resetPerIP:    ratelimit.New(30, time.Hour),
+		svc:                   svc,
+		loginFailures:         ratelimit.New(10, time.Minute),
+		loginPerIP:            ratelimit.New(30, time.Minute),
+		resetPerEmail:         ratelimit.New(3, time.Hour),
+		resetPerIP:            ratelimit.New(30, time.Hour),
+		passwordLinkPerActor:  ratelimit.New(20, time.Hour),
+		passwordLinkPerTarget: ratelimit.New(5, time.Hour),
 	}
 }
 
-// WithPasswordReset wires the forgot-password flow: the outbound-email
-// transport and the public base the emailed link points at. Wired by
-// the composition root when (and only when) the operator configured
-// email — absent it the flow stays its explicit 501.
-func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handlers {
+// WithPasswordReset wires the forgot-password flow's outbound-email
+// transport. Wired by the composition root when (and only when) the
+// operator configured email — absent it the flow stays its explicit 501.
+// The link base arrives separately via WithPublicBaseURL, because an
+// installation without email still builds set-password links.
+func (h Handlers) WithPasswordReset(m mailer.Mailer) Handlers {
 	h.resetMailer = m
-	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
+	return h
+}
+
+// WithPasswordLinkBase injects the canonical external base set-password deep
+// links are built on — the installation's public base URL. The trailing slash
+// is trimmed HERE and only here: passwordLink concatenates onto this value and
+// documents that guarantee, so a base ending in "/" would otherwise produce
+// "//#/".
+func (h Handlers) WithPasswordLinkBase(publicBaseURL string) Handlers {
+	h.passwordLinkBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
 }
 
@@ -213,7 +244,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, token)
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
+	httperr.WriteJSON(w, http.StatusOK, h.meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
@@ -245,7 +276,7 @@ func (h Handlers) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
 	// else's capabilities, and a stored copy would survive the role change that
 	// revoked them.
 	w.Header().Set("Cache-Control", "private, no-store")
-	httperr.WriteJSON(w, http.StatusOK, meResponse(id, h.resolveSorMode(r.Context()), h.nonProduction))
+	httperr.WriteJSON(w, http.StatusOK, h.meResponse(id, h.resolveSorMode(r.Context())))
 }
 
 // serveAsAgent admits a passport bearer under the agent principal. ctx is
@@ -376,7 +407,27 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, nonProduction bool) crmcontracts.MeResponse {
+// canIssuePasswordLink reports whether THIS principal may issue member
+// set-password links, which is what /me advertises. It is a caller capability
+// and not a deployment-posture flag on purpose: /me answers every
+// authenticated member, so a bare posture boolean would tell every rep whether
+// the installation has an email channel. The three conditions are exactly the
+// ones IssueUserPasswordLink enforces, so the client never renders a control
+// that can only fail.
+func (h Handlers) canIssuePasswordLink(id Identity) bool {
+	return id.hasRole(roleAdmin) && h.resetMailer == nil && h.passwordLinkBaseURL != ""
+}
+
+// meResponse renders /me for one principal. It is a method rather than a
+// function because every posture it reports beyond the identity itself — the
+// deployment posture, whether this caller may issue set-password links — is
+// wiring the composition root injected onto Handlers, so passing them
+// alongside would be a row of anonymous booleans at each call site.
+func (h Handlers) meResponse(
+	id Identity,
+	sorMode crmcontracts.MeResponseSystemOfRecordMode,
+) crmcontracts.MeResponse {
+	adminPasswordLink := h.canIssuePasswordLink(id)
 	roles := id.Roles
 	if roles == nil {
 		roles = []string{}
@@ -399,7 +450,8 @@ func meResponse(id Identity, sorMode crmcontracts.MeResponseSystemOfRecordMode, 
 		SystemOfRecord: &struct {
 			Mode crmcontracts.MeResponseSystemOfRecordMode `json:"mode"`
 		}{Mode: sorMode},
-		NonProduction: nonProduction,
+		NonProduction:     h.nonProduction,
+		AdminPasswordLink: &adminPasswordLink,
 		Authorization: &crmcontracts.Authorization{
 			SeatType: contractSeatType(id.SeatType),
 			Objects:  contractObjectGrants(id.Permissions.Objects),

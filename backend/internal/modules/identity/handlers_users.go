@@ -4,6 +4,7 @@
 package identity
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
@@ -110,6 +112,78 @@ func (h Handlers) ReactivateUser(w http.ResponseWriter, r *http.Request, id crmc
 	h.writeUserByID(w, r, ids.UserID{UUID: ids.UUID(id)}, http.StatusOK)
 }
 
+// IssueUserPasswordLink (POST /users/{id}/password-link): mint a single-use
+// set-password link for a member and return it once, for the admin to deliver
+// out-of-band (ADR-0061 Amendment 1).
+func (h Handlers) IssueUserPasswordLink(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	// Set before any branch below can answer: the success body is a live
+	// credential, and the refusals disclose this installation's posture and
+	// this caller's standing. Neither belongs in a shared proxy's cache, and a
+	// header set on the success path alone would leave every error uncovered.
+	w.Header().Set("Cache-Control", "no-store")
+	actor, ok := h.actor(w, r)
+	if !ok {
+		return
+	}
+	// Authorization FIRST, ahead of both the configuration gates and the rate
+	// limiter. The service re-checks this and is the authority, but deferring
+	// to it here would let any authenticated non-admin spend another member's
+	// issuance budget — a denial-of-recovery primitive — and read the
+	// installation's email posture off the 409 code, both before ever being
+	// told they are not an admin.
+	if !actor.hasRole(roleAdmin) {
+		httperr.Write(w, r, apperrors.ErrPermissionDenied)
+		return
+	}
+	// A request this installation can never serve must not consume the budget
+	// that protects one it can, so the configuration gates precede the limiter.
+	if refusal := h.passwordLinkRefusal(); refusal != nil {
+		httperr.Write(w, r, refusal)
+		return
+	}
+	target := ids.UserID{UUID: ids.UUID(id)}
+	if !h.passwordLinkPerActor.Allow(actor.UserID.String()) || !h.passwordLinkPerTarget.Allow(target.String()) {
+		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
+		return
+	}
+	rawToken, expiresAt, err := h.svc.IssuePasswordLink(r.Context(), actor, target)
+	if err != nil {
+		if errors.Is(err, ErrMemberNotActive) {
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusConflict, Code: "member_not_active",
+				Detail: "this member is not active; reactivate them before issuing a set-password link",
+			})
+			return
+		}
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusCreated, crmcontracts.IssuePasswordLinkResponse{
+		SetPasswordUrl: passwordLink(h.passwordLinkBaseURL, rawToken),
+		ExpiresAt:      expiresAt,
+	})
+}
+
+// passwordLinkRefusal reports why this installation cannot issue set-password
+// links, or nil when it can. Both refusals are operator configuration states
+// rather than anything about the request, which is why they are decided before
+// the target is even resolved.
+func (h Handlers) passwordLinkRefusal() error {
+	if h.resetMailer != nil {
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "email_channel_configured",
+			Detail: "this installation delivers set-password links by email; invite the member instead",
+		}
+	}
+	if h.passwordLinkBaseURL == "" {
+		return &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "public_base_url_unset",
+			Detail: "no public base URL is configured, so no set-password link can be built; ask the operator to set it",
+		}
+	}
+	return nil
+}
+
 // actor resolves the acting Identity the middleware bound; on the (defensive,
 // middleware-guaranteed) miss it writes 401 and reports ok=false.
 func (h Handlers) actor(w http.ResponseWriter, r *http.Request) (Identity, bool) {
@@ -138,7 +212,7 @@ func (h Handlers) sendInvite(r *http.Request, email, rawToken string) {
 	if h.resetMailer == nil || rawToken == "" {
 		return
 	}
-	link := passwordLink(h.resetBaseURL, rawToken)
+	link := passwordLink(h.passwordLinkBaseURL, rawToken)
 	body := "You've been invited to Margince.\n\n" +
 		"Set your password within seven days to sign in:\n\n  " + link + "\n\n" +
 		"If you weren't expecting this, you can ignore this email."

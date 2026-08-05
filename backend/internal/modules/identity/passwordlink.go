@@ -27,7 +27,7 @@ package identity
 // `#token=…` would make the token itself the screen name.
 //
 // `baseURL` arrives with any trailing slash already trimmed (see
-// `Handlers.WithPasswordReset`), so this concatenation cannot produce `//#/`.
+// `Handlers.WithPublicBaseURL`), so this concatenation cannot produce `//#/`.
 func passwordLink(baseURL, rawToken string) string {
 	return baseURL + "/#/reset-password?token=" + rawToken
 }

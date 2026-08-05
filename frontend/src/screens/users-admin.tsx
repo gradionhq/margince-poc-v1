@@ -15,6 +15,7 @@ import { useT } from "../i18n";
 import { problemMessage, QueryGate, useMe } from "./common";
 import "./users-admin.css";
 import { isOption } from "../app/options";
+import { PasswordLinkDialog } from "./users-password-link";
 
 type User = components["schemas"]["User"];
 type Role = components["schemas"]["ChangeUserRoleRequest"]["role"];
@@ -48,6 +49,11 @@ export function UsersAdminCard() {
   const me = useMe();
   const isAdmin = (me.data?.roles ?? []).includes("admin");
   const members = useMembers(isAdmin);
+  // The server answers whether THIS caller can mint set-password links: admin,
+  // on an installation with no email channel and a configured base URL. Where
+  // email works, the invite mail carries the link and this action would only
+  // ever 409 — so it is not rendered at all.
+  const canIssueLink = me.data?.admin_password_link ?? false;
   return (
     <section className="card">
       <SectionHeader title={t("users.title")} sub={t("users.sub")} />
@@ -57,7 +63,7 @@ export function UsersAdminCard() {
         {() =>
           isAdmin ? (
             <>
-              <InviteForm />
+              <InviteForm canIssueLink={canIssueLink} />
               <QueryGate query={members}>
                 {(list) =>
                   list.length === 0 ? (
@@ -67,7 +73,11 @@ export function UsersAdminCard() {
                   ) : (
                     <ul className="users-list">
                       {list.map((u) => (
-                        <MemberRow key={u.id} member={u} />
+                        <MemberRow
+                          key={u.id}
+                          member={u}
+                          canIssueLink={canIssueLink}
+                        />
                       ))}
                     </ul>
                   )
@@ -85,29 +95,41 @@ export function UsersAdminCard() {
   );
 }
 
-function InviteForm() {
+function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("rep");
   const [error, setError] = useState<string | null>(null);
+  // Where no email channel exists the invite alone leaves a member who cannot
+  // sign in, so the dialog opens straight away and mints the link. The member
+  // row keeps its own action, which is what makes a dismissed dialog
+  // recoverable.
+  const [invited, setInvited] = useState<{ id: string; name: string } | null>(
+    null,
+  );
 
   const invite = useMutation({
-    mutationFn: async () => {
-      const { error: err } = await api.POST("/users", {
+    mutationFn: async (): Promise<string> => {
+      const { data, error: err } = await api.POST("/users", {
         body: { email: email.trim(), display_name: name.trim(), role },
       });
       if (err) {
         throw new Error(problemMessage(err));
       }
+      return data.id;
     },
-    onSuccess: () => {
+    onSuccess: (newUserId) => {
+      const invitedName = name.trim();
       setEmail("");
       setName("");
       setRole("rep");
       setError(null);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
+      if (canIssueLink) {
+        setInvited({ id: newUserId, name: invitedName });
+      }
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -161,15 +183,26 @@ function InviteForm() {
           {error}
         </p>
       )}
+      {invited && (
+        <PasswordLinkDialog
+          userId={invited.id}
+          memberName={invited.name}
+          onClose={() => setInvited(null)}
+        />
+      )}
     </form>
   );
 }
 
-function MemberRow({ member }: Readonly<{ member: User }>) {
+function MemberRow({
+  member,
+  canIssueLink,
+}: Readonly<{ member: User; canIssueLink: boolean }>) {
   const t = useT();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [confirmOff, setConfirmOff] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const refresh = () => {
     setError(null);
     qc.invalidateQueries({ queryKey: ["users-admin"] });
@@ -252,6 +285,14 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
           </option>
         ))}
       </select>
+      {/* Only an ACTIVE member can redeem a link — redemption updates an active
+          account and refuses otherwise — so offering one on a deactivated row
+          would hand the admin a link that is dead on arrival. */}
+      {canIssueLink && member.status === "active" && (
+        <Button small disabled={pending} onClick={() => setLinkOpen(true)}>
+          {t("users.link.action")}
+        </Button>
+      )}
       {member.status === "active" && (
         <Button small disabled={pending} onClick={() => setConfirmOff(true)}>
           {t("users.deactivate")}
@@ -279,6 +320,15 @@ function MemberRow({ member }: Readonly<{ member: User }>) {
       >
         <p className="t-small">{t("users.deactivateConfirmBody")}</p>
       </ConfirmModal>
+      {/* Mounted only while open, so closing discards the credential rather
+          than parking it behind a hidden dialog. */}
+      {linkOpen && (
+        <PasswordLinkDialog
+          userId={member.id}
+          memberName={member.display_name}
+          onClose={() => setLinkOpen(false)}
+        />
+      )}
     </li>
   );
 }

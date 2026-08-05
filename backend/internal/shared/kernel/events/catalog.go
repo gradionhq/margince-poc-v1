@@ -155,12 +155,13 @@ var catalog = map[string]struct {
 	// §5.6a: the access-revocation cascade (B-EP03.10) — user, role and
 	// passport are identity-owned facts, so all three ride the identity
 	// stream rather than gaining per-entity streams of their own.
-	"user.invited":             {identityStreamEntity, 1},
-	"user.deactivated":         {identityStreamEntity, 1},
-	"user.reactivated":         {identityStreamEntity, 1},
-	"role.changed":             {identityStreamEntity, 1},
-	"passport.revoked":         {identityStreamEntity, 1},
-	"onboarding.state_changed": {identityStreamEntity, 1},
+	"user.invited":              {identityStreamEntity, 1},
+	"user.password_link_issued": {identityStreamEntity, 1},
+	"user.deactivated":          {identityStreamEntity, 1},
+	"user.reactivated":          {identityStreamEntity, 1},
+	"role.changed":              {identityStreamEntity, 1},
+	"passport.revoked":          {identityStreamEntity, 1},
+	"onboarding.state_changed":  {identityStreamEntity, 1},
 
 	"voice.profile_created":        {voiceStreamEntity, 1},
 	"voice.profile_updated":        {voiceStreamEntity, 1},

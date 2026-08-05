@@ -41,7 +41,7 @@ const (
 // matching entry here. An action absent from the map (defensive only — the
 // CHECK already closes the set at the DB level) falls back to the raw
 // string, never an error: an unrenderable phrase is still honest history.
-var recordHistoryVerbs = map[string]string{
+var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and the English phrases they render as; "password_link_issued" names an action, and no value here is a secret
 	"create":           "created",
 	"update":           "updated",
 	actionArchive:      "archived",
@@ -69,6 +69,10 @@ var recordHistoryVerbs = map[string]string{
 	"anonymize":        "anonymized",
 	"send_email":       "sent an email for",
 	"reset_data":       "reset",
+	// Reads as "<admin> issued a set-password link for <member>" — the phrase
+	// names what was issued, because on a member's history "issued" alone
+	// would not distinguish a credential from anything else granted to them.
+	"password_link_issued": "issued a set-password link for",
 }
 
 // RecordHistoryFilter carries the validated query surface of

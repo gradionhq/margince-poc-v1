@@ -2697,6 +2697,8 @@ export const de = {
   "auth.resetRateLimited":
     "Zu viele Versuche. Warte einen Moment und speichere dein Passwort dann erneut.",
   "auth.requestNewLink": "Neuen Link anfordern",
+  "auth.askAdminForNewLink":
+    "Bitten Sie Ihre Administratorin oder Ihren Administrator um einen neuen Passwort-Link.",
   // "geändert", wie im Satz darunter: aktualisiert werden Daten, die veralten.
   "auth.resetDoneTitle": "Passwort geändert",
   // "beendet", nicht "abgemeldet": abmelden tut sich eine Person, eine Sitzung
@@ -3116,6 +3118,21 @@ export const de = {
   "users.role.rep": "Rep",
   "users.role.read_only": "Nur Lesen",
   "users.role.ops": "Ops",
+  "users.link.action": "Passwort-Link erstellen",
+  "users.link.title": "Passwort-Link für {name}",
+  "users.link.pending": "Link wird erstellt…",
+  "users.link.body":
+    "Senden Sie diesen Link über einen vertrauenswürdigen Kanal an das Mitglied. Er funktioniert einmal und wird nur jetzt angezeigt — nach dem Schließen können Sie in der Mitgliederzeile einen neuen erstellen.",
+  "users.link.urlLabel": "Passwort-Link",
+  "users.link.copy": "Link kopieren",
+  "users.link.copied": "Kopiert",
+  "users.link.copyFailed":
+    "Automatisches Kopieren nicht möglich — markieren Sie den Link und kopieren Sie ihn.",
+  "users.link.expires": "Gültig bis {when}.",
+  "users.link.failed":
+    "Das Mitglied wurde angelegt, der Link jedoch nicht. Ohne Link kann es sich nicht anmelden.",
+  "users.link.retry": "Erneut versuchen",
+  "users.link.done": "Fertig",
   "settings.companyKicker": "Firmenwissen",
   "settings.companyTitle": "Was Margince über dein Unternehmen weiß",
   "settings.companySub":
