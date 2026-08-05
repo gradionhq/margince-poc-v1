@@ -26,6 +26,7 @@ func New() extension.Extension {
 		Version: "1.0.0",
 		Tools: []extension.Tool{{
 			Name:           "yogi_quote",
+			Title:          "Yogi Berra quote",
 			Version:        "1.0.0",
 			Tier:           extension.TierAutoExecute,
 			RequestedScope: extension.ScopeRead,

@@ -125,7 +125,7 @@ exception to it.
 
 | Target | What it does |
 |---|---|
-| `craft-static` | Full deterministic craftsmanship sweep of `backend/`, **strict**: BLOCKER and MAJOR findings both fail it, MINOR is advisory. Green — the backlog was cleared to arm this bar. The pre-push hook runs the same bar diff-scoped, and CI's `craftsmanship` job runs this target as a required check. Size ceilings: 80 body lines / 500 file lines for product code, 160 / 1000 for `*_test.go` |
+| `craft-static` | Full deterministic craftsmanship sweep of `backend/`, `extensions/` and `fixtures/` (each a separate Go module, so `./...` never reaches the latter two), **strict**: BLOCKER and MAJOR findings both fail it, MINOR is advisory. Green — the backlog was cleared to arm this bar. The pre-push hook runs the same bar diff-scoped, and CI's `craftsmanship` job runs this target as a required check. Size ceilings: 80 body lines / 500 file lines for product code, 160 / 1000 for `*_test.go` |
 | `craft-residue` | Fail if any unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` review-loop marker is left in the backend tree. CI's `craft-residue` job runs it on **every** non-draft change, docs included |
 | `check-craft-doc` | Assert AGENTS.md still carries its `## Craftsmanship` section — a cheap doc floor so the gate's rules cannot be silently unpinned from the rulebook. A `check-backend` prerequisite |
 

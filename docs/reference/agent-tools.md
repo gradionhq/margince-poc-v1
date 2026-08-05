@@ -25,10 +25,15 @@ live surface differ from the table below:
   re-derived per call and can still refuse a tool the listing showed.
 - **Extensions register onto the same registry.** `registerComposedTools` runs
   last in `internal/compose/registry.go`, after the core registrars, so an
-  extension pack can add verbs (and a name that collides with a core verb fails
-  loudly at boot). The vanilla tree's one first-party pack, `extensions/de`,
-  registers no tools, so on a vanilla install the catalog below is the whole
-  surface.
+  extension unit can add verbs (and a name that collides with a core verb fails
+  loudly at boot). A served extension tool declares 🟢 and an inbound cap — the
+  boot refuses a handler-bearing confirm-first or `send`/`enrich` declaration,
+  because neither could be staged for the human this surface has no way to ask.
+  That governs what a unit may CLAIM; what its handler does is bounded by the
+  composed set being a trust boundary, not by the gate. The
+  vanilla tree ships two first-party units: `extensions/de` registers no tools,
+  and `extensions/yogi` adds `yogi_quote` (🟢/read), so on a vanilla install the
+  catalog below plus that one verb is the whole surface.
 
 **Where it is served:** `cmd/api` mounts the tool surface at `/mcp` over
 Streamable HTTP, on the same origin as `/oauth/*` and the discovery documents.
@@ -39,8 +44,11 @@ the credential: [how-to/mint-a-passport.md](../how-to/mint-a-passport.md).
 
 ## The catalog
 
-**26 tools**, listed in the order `Registry.Specs()` sorts them — which is the
-order `tools/list` returns.
+The **26 core tools**, listed in the order `Registry.Specs()` sorts them — which
+is the order `tools/list` returns. An enabled extension unit adds its own verbs
+to the same listing, so a vanilla install answers 27: these plus `yogi_quote`
+(🟢, `read`), which is not tabled here because the catalog tracks the core
+surface.
 
 Columns:
 
@@ -110,6 +118,9 @@ The passport vocabulary is closed: `read`, `draft`, `write`, `send`, `enrich`
 (`principal.Scope`). Effective authority is always the intersection of the
 passport's scopes and the granting human's live RBAC and seat — never the union,
 and never the passport alone.
+
+Counts are of the core catalog above; an enabled unit's verbs add to them
+(vanilla: `yogi_quote` makes `read` 13).
 
 | Scope | Tools it unlocks | What it means |
 |---|---|---|
