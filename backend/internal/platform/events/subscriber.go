@@ -115,6 +115,17 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			if ctx.Err() != nil {
 				break
 			}
+			// A missing group is recoverable and expected: a data reset deletes
+			// the stream keys, which destroys the groups with them. Re-declaring
+			// is idempotent (ensureGroups tolerates BUSYGROUP), and without it
+			// this loop would log the same error every second for the life of
+			// the process while delivering nothing.
+			if isNoGroup(err) {
+				if createErr := s.ensureGroups(ctx); createErr != nil {
+					s.log.Error("bus: re-creating a purged consumer group", "error", createErr)
+				}
+				continue
+			}
 			s.log.Error("bus: XREADGROUP failed; retrying", "error", err)
 			select {
 			case <-ctx.Done():
@@ -229,6 +240,12 @@ func decodeEnvelope(entry redis.XMessage) (kevents.Envelope, error) {
 // error code is stable, the human tail of the message is not.
 func isBusyGroup(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "BUSYGROUP")
+}
+
+// isNoGroup reports Redis's NOGROUP condition: the stream or the group no
+// longer exists.
+func isNoGroup(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "NOGROUP")
 }
 
 // ForWorkspace scopes a handler to one tenant: events for any other
