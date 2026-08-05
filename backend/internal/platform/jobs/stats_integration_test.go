@@ -612,6 +612,12 @@ func TestStatsOnAnEmptyJobTableIsAnEmptySnapshotNotAnError(t *testing.T) {
 // TestStatsFailsLoudlyWhenTheJobTableIsUnreachable — a read that could not
 // happen must say so rather than answering with an empty snapshot, which
 // downstream renders as a healthy idle fleet.
+//
+// Tagged because the migrated job table is the control: the point is that the
+// error comes from the cancelled read, and against an unmigrated database it
+// would come from a missing relation instead — the test would pass while
+// proving nothing. It issues no query of its own, so a query-counting check
+// will read it as infra-free; it is not.
 func TestStatsFailsLoudlyWhenTheJobTableIsUnreachable(t *testing.T) {
 	_, pool := migratedAppPool(t)
 

@@ -48,6 +48,22 @@ invariant a change touches (rule 1: fix the invariant, not the one call site).
 - **Tests as specs (T11)** — assertions present; no `time.Sleep`/real-clock/real-network;
   no over-mocking of non-boundaries; the honest hard cases handled (empty page, version
   skew, cross-tenant, GUC-unset).
+- **Lane placement** — a test earns `//go:build integration` by what it ASSERTS, not by what its
+  fixture dials. Trace the act to the first chokepoint that answers: a refusal above the tx
+  boundary — `auth.Require`/`RequireHuman`/`RequireAdmin` (`platform/auth/rbac.go`),
+  `database.WithWorkspaceTx` returning `ErrNoWorkspace` before `pool.Begin`,
+  `connector.Recipient.Validate`, a `params.*.Valid()` guard, a zero-value handler answering
+  501 — belongs in the unit lane, and moving it with a nil pool *proves* the refusal precedes
+  the query instead of assuming it. It stays tagged when the live fixture is the control the
+  claim needs: a deny arm paired with its allow arm, a hand-built grant map re-proved against
+  real role grants, a migrated table proving the error came from the cancelled read and not a
+  missing relation, an assertion that counts rows or secrets NOT written, or a dial as the
+  subject. SPLIT only when the pure arm and the DB arm are separate claims — never the two
+  halves of one. If the pure arm is already owned downstairs (`connector/recipient_test.go`
+  owns the recipient shape table), the tagged copy keeps only what its own layer adds, or goes.
+  Never fake a boundary to win the move: a nil pool that would panic instead of failing is a
+  fixture that lies. A tagged file is named `*_integration_test.go`; a tagged file that is not
+  is why misplacement goes unnoticed.
 - **Smallest diff that does the job** — no dead/speculative code, no abstraction without
   a second concrete caller today, no `TODO` without an issue ref.
 

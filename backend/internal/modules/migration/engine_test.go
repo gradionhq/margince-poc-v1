@@ -11,7 +11,30 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// Every RunStore entry point admits on the import_run object BEFORE it
+// opens a transaction, so an ungranted actor is refused without a
+// database: the nil pool proves no connection is ever consulted.
+func TestRunStoreRefusesUngrantedRole(t *testing.T) {
+	ctx := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:ungranted",
+		SeatType: principal.SeatFull,
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{importRunObject: {Read: false}}, // a rep: no import_run grant at all
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	s := NewRunStore(nil)
+
+	if _, err := s.Create(ctx, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("ungranted Create err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := s.Latest(ctx, ConnectorMirror); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("ungranted Latest err = %v, want ErrPermissionDenied", err)
+	}
+}
 
 // fakeSource serves a fixed estate in a stable order.
 type fakeSource struct {

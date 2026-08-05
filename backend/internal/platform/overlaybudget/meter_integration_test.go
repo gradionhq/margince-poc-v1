@@ -209,6 +209,13 @@ func TestBandCrossesWarnAndShed(t *testing.T) {
 	}
 }
 
+// TestFailClosed is tagged because the healthy Redis is the control, not the
+// subject. Every arm here asserts a refusal decided before any command reaches
+// the client — no workspace bound, an unconfigured incumbent, a nil client — and
+// a live backend is what proves shed is the meter's own decision rather than an
+// artifact of a dead one. Against no Redis at all these assertions would pass
+// for the wrong reason, so the dependency is provisioned precisely to prove the
+// refusal does not depend on its absence.
 func TestFailClosed(t *testing.T) {
 	rdb := budgettest.Client(t)
 	cfg := testCfg()

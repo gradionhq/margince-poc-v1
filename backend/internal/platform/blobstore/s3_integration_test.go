@@ -40,6 +40,10 @@ func newS3Store(t *testing.T) blobstore.Store {
 	return store
 }
 
+// TestNewFailsWhenStoreUnreachable is tagged because its subject IS a dial. It
+// reaches a dead port rather than MinIO, so it touches no bucket — but the unit
+// lane's promise, enforced by scripts/check-test-lanes.sh, is that no test there
+// opens a real connection at all. A dial belongs in the dialing lane.
 func TestNewFailsWhenStoreUnreachable(t *testing.T) {
 	// A store that never comes up must fail the boot, not hang: the connect
 	// retry is bounded by the context deadline.

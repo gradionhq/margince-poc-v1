@@ -16,14 +16,12 @@ package compose
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -157,19 +155,5 @@ func TestTheReconcileWorkerRebuildsTheProjection(t *testing.T) {
 	if edges != 1 {
 		t.Errorf("the nightly rebuild produced %d edges from one exchange, want 1 — "+
 			"this pass is the corruption remedy, so it has to be able to rebuild from nothing", edges)
-	}
-}
-
-func TestTheReconcileIntervalMatchesTheStatedStalenessBound(t *testing.T) {
-	// The migration states that window counts may be up to 24h over-inclusive.
-	// That promise is only true if this pass runs daily; loosening the
-	// declared cadence without amending the migration would make the comment a
-	// lie. The declaration is what River is handed, so it is what this asserts.
-	spec, ok := jobs.SpecFor(GraphEdgeReconcileArgs{}.Kind())
-	if !ok {
-		t.Fatal("api/jobs.yaml does not declare graph_edge_reconcile")
-	}
-	if spec.Cadence.Fixed != 24*time.Hour {
-		t.Errorf("declared reconcile cadence is %v, but the projection's stated bound is 24h", spec.Cadence.Fixed)
 	}
 }

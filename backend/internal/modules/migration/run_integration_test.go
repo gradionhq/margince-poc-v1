@@ -210,20 +210,6 @@ func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
 	}
 }
 
-func TestRunStoreRefusesUngrantedRole(t *testing.T) {
-	ctx, pool := testWorkspaceCtx(t, map[string]principal.ObjectGrant{
-		importRunObject: {Read: false}, // a rep: no import_run grant at all
-	})
-	s := NewRunStore(pool)
-
-	if _, err := s.Create(ctx, CreateRunInput{Connector: ConnectorMirror, SourceRef: "x", Source: "t"}); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("ungranted Create err = %v, want ErrPermissionDenied", err)
-	}
-	if _, err := s.Latest(ctx, ConnectorMirror); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("ungranted Latest err = %v, want ErrPermissionDenied", err)
-	}
-}
-
 func TestRunStoreForeignWorkspaceReadsNotFound(t *testing.T) {
 	ctxA, pool := testWorkspaceCtx(t, adminImportRunGrant())
 	s := NewRunStore(pool)
