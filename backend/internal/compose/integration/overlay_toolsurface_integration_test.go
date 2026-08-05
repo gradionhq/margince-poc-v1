@@ -71,18 +71,23 @@ func nativeOnlyAgentTools(anchor ids.UUID) map[string]string {
 	}
 }
 
-// nativeToolReaderPerms is overlayReaderPerms plus the `pipeline` object.
-// list_pipelines rides the deals module's own config read, which is RBAC-gated
-// on `pipeline` — so a reader without that grant is refused for a reason that
-// has nothing to do with system-of-record mode, and the native half of this
-// suite would be asserting the wrong thing.
+// nativeToolReaderPerms is overlayReaderPerms plus the two objects the guarded
+// set needs beyond reading records. list_pipelines rides the deals module's own
+// config read, RBAC-gated on `pipeline`; disqualify_lead is a WRITE, gated on
+// `lead:delete`. Without either grant the tool is refused for a reason that has
+// nothing to do with system-of-record mode, and both halves of this suite would
+// be asserting the wrong thing — the overlay half would pass on a permission
+// denial that proves no guard exists.
 func nativeToolReaderPerms() principal.Permissions {
 	perms := overlayReaderPerms
-	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+1)
+	objects := make(map[string]principal.ObjectGrant, len(perms.Objects)+2)
 	for object, grant := range perms.Objects {
 		objects[object] = grant
 	}
 	objects["pipeline"] = principal.ObjectGrant{Read: true}
+	lead := objects["lead"]
+	lead.Read, lead.Delete = true, true
+	objects["lead"] = lead
 	perms.Objects = objects
 	return perms
 }
@@ -349,6 +354,8 @@ func TestNativeAgentToolsAreNotRefusedByTheSoRModeGuard(t *testing.T) {
 	// didn't say unsupported_by_sor".
 	anchored := map[string]bool{
 		"catch_me_up_on": true, "prep_for_meeting": true, "intro_path_to": true,
+		// A write against a minted lead id: not-found IS the served answer.
+		"disqualify_lead": true,
 	}
 
 	for name, args := range nativeOnlyAgentTools(ids.NewV7()) {

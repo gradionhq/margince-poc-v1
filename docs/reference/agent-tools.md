@@ -74,13 +74,13 @@ Columns:
 | `account_coverage` | 🟢 | `read` | — | Native relationship read; carries no mode guard |
 | `advance_deal` | dynamic | `write` | — | `unsupported_by_sor` (no incumbent stage map) |
 | `archive_record` | 🟡 | `write` | — | Seam-routed: write-back through the incumbent |
-| `advance_project_phase` | 🟡 | `write` | — | `unsupported_by_sor` (projects are native-only) |
+| `advance_project_phase` | 🟡 | `write` | — | Runs: a project is native-only, so its table is the live one in either mode |
 | `at_risk_relationships` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `book_meeting` | 🟡 | `send` | yes | Staging refuses a mirror-held link |
 | `catch_me_up_on` | 🟢 | `read` | — | `unsupported_by_sor` (native-only guard) |
 | `check_availability` | 🟢 | `read` | — | Calendar seam; not mode-routed |
 | `create_record` | 🟢 | `write` | — | Seam-routed: write-back through the incumbent |
-| `disqualify_lead` | 🟡 | `write` | — | `unsupported_by_sor` (leads are native-only) |
+| `disqualify_lead` | 🟡 | `write` | — | `unsupported_by_sor`: a lead is mirrored and the provider cannot serve this write, so the native table is empty |
 | `draft_email` | 🟢 | `draft` | — | Activities seam; not mode-routed |
 | `draft_follow_ups_for` | 🟢 | `draft` | — | `unsupported_by_sor` (native-only guard) |
 | `enrich` | 🟡 | `enrich` | yes | Reads the company's own website, not a record store; the write-back is seam-routed |
@@ -93,7 +93,7 @@ Columns:
 | `promote_lead` | 🟡 | `write` | — | `unsupported_by_sor` (no atomic incumbent projection) |
 | `qualify_lead` | 🟢 | `write` | — | Seam-routed: read + patch through the provider |
 | `read_record` | 🟢 | `read` | — | Mirror-backed; result carries `trust_tier: external` |
-| `relink_activity` | 🟢 | `write` | — | Seam-routed: the activity's links are native rows |
+| `relink_activity` | 🟢 | `write` | — | Runs: a link row is not an SoR record write, so it is available in either mode |
 | `run_report` | 🟢 | `read` | — | `unsupported_by_sor` (no incumbent analogue) |
 | `search_records` | 🟢 | `read` | — | Mirror-backed; results carry `trust_tier: external` |
 | `send_email` | 🟡 | `send` | yes | Staging refuses a mirror-held anchor |
