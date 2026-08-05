@@ -4328,7 +4328,7 @@ paths:
         NOTHING is written to real records — this is a 🟡 staging surface; the user accepts via /approvals.
         A `self_description` field is "grounded" in the user's own words (source_kind=self_description) —
         that is honest grounding, not fabrication, and it still stages 🟡.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
       requestBody:
         required: true
         content:
@@ -4402,7 +4402,7 @@ paths:
         Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
         non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
         is returned as an omission for the human to fill in by hand, never as a guess.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required, scope: enrich }
+      x-agent-access: human-only   # onboarding: creates the organization, so there is no record to target
       requestBody:
         required: true
         content:
@@ -6238,7 +6238,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # no tool: the grant verbs reject any non-human principal
       requestBody:
         required: true
         content:
@@ -6278,7 +6278,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/ApprovalToken'
         - $ref: '#/components/parameters/IfMatch'
-      x-mcp-tool: { verb: share_record, record_type: record_grant, tier: confirmation_required, scope: write }
+      x-agent-access: human-only   # no tool: the grant verbs reject any non-human principal
       responses:
         '204': { description: Revoked. }
         '403':
@@ -7448,7 +7448,7 @@ paths:
         emits `offer.sent`. Sending leaves the workspace, so an AGENT principal is refused with
         `ErrRequiresApproval` and the call is staged to the approval inbox; the approved retry
         redeems with the X-Approval-Token header (ADR-0036).
-      x-mcp-tool: { verb: send_offer, record_type: offer, tier: confirmation_required, scope: send }
+      x-agent-access: human-only   # no tool: the contract promises a delivery no code performs
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/ApprovalToken'
@@ -7529,7 +7529,7 @@ paths:
         `diff_from_previous` line-item summary versus the prior revision; a mechanical
         regenerate (no AI context available) still works and returns `ai_generated=false`. The
         produced draft still cannot leave without the 🟡 send gate.
-      x-mcp-tool: { verb: draft_offer, record_type: offer, tier: auto_execute, scope: write }
+      x-agent-access: human-only   # no tool
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -7557,7 +7557,7 @@ paths:
         WP7, data-model §12.6). The rendered totals equal the server-computed totals — the PDF
         never recomputes money (P11). Not itself an outbound or irreversible act — `send` is
         the 🟡 gated step that leaves the workspace — so render stays 🟢.
-      x-mcp-tool: { verb: render_offer, record_type: offer, tier: auto_execute, scope: write }
+      x-agent-access: human-only   # no tool
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
@@ -8811,11 +8811,7 @@ paths:
       tags: [Overlay]
       operationId: connectOverlay
       summary: Connect the workspace's overlay incumbent (HubSpot).
-      x-mcp-tool:
-        verb: connect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: seals a credential and flips the system of record
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnectRequest' } } } }
       responses:
         '201': { description: Connected, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayConnection' } } } }
@@ -8824,11 +8820,7 @@ paths:
       tags: [Overlay]
       operationId: disconnectOverlay
       summary: Disconnect the overlay incumbent and queue mirror teardown.
-      x-mcp-tool:
-        verb: disconnect_incumbent
-        record_type: overlay_connection
-        tier: confirmation_required
-        scope: write
+      x-agent-access: human-only   # no tool: purges the mirror and flips the system of record
       responses:
         '202': { description: Teardown queued }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -8846,11 +8838,7 @@ paths:
       tags: [Overlay]
       operationId: reconcileOverlay
       summary: Queue an out-of-band mirror reconciliation sweep.
-      x-mcp-tool:
-        verb: reconcile_overlay
-        record_type: overlay_connection
-        tier: auto_execute
-        scope: enrich
+      x-agent-access: human-only   # no tool
       responses:
         '202': { description: Sweep queued }
 
