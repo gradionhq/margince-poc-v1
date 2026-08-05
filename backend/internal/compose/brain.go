@@ -21,6 +21,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -80,6 +81,11 @@ type ModelPath struct {
 	// its evaluation drafts ride the same task label and budget.
 	VoiceBuild completer
 	Embedder   search.Embedder // the retrieval embed lane — the router itself, not a task lane
+	// InvalidateCache drops one workspace's cached completions. The data reset
+	// calls it: a cached answer keyed by a workspace that was just wiped would
+	// otherwise be served against the reseeded install for the rest of the
+	// TTL. Nil in a role that built no router.
+	InvalidateCache func(ids.WorkspaceID)
 }
 
 // SetCompanyContextEnabled applies the operator's ordered task-rollout stage
@@ -194,6 +200,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		Enrich:                     brain(ai.TaskEnrich),
 		VoiceBuild:                 brain(ai.TaskVoiceBuild),
 		Embedder:                   router,
+		InvalidateCache:            router.Invalidate,
 	}
 }
 
