@@ -210,26 +210,27 @@ func (fc *fileContext) markCommentOnlyLines(src []byte) {
 	for _, group := range fc.file.Comments {
 		for _, c := range group.List {
 			start, end := fc.fset.Position(c.Slash), fc.fset.Position(c.End())
-			// The interior of a multi-line block holds nothing but the comment, so
-			// it is discounted whatever sits on the boundaries. Each boundary is
-			// then judged on its own: `x := f( /* open` and `*/ x++` each keep
-			// their own line as code without costing the prose between them.
+			opensClean := strings.TrimSpace(lineText(start.Line)[:start.Column-1]) == ""
+			endsClean := strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == ""
+
+			// Three independent questions, and no early exit between them: code on
+			// one boundary says nothing about the other, or about the interior.
+			// `x++ /*` keeps its own line as code while the prose below it and the
+			// closing `*/` are still prose.
 			for n := start.Line + 1; n < end.Line; n++ {
-				fc.commentOnly[n] = true
-			}
-			if strings.TrimSpace(lineText(start.Line)[:start.Column-1]) != "" {
-				continue // code precedes it: a code line that happens to be annotated
+				fc.commentOnly[n] = true // interior: nothing but the comment can be here
 			}
 			if start.Line == end.Line {
-				// One line, so the same line must also end clean — `/* x */ y := 1`
-				// is code.
-				if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == "" {
+				// One line, so it is prose only if the comment is the whole of it.
+				if opensClean && endsClean {
 					fc.commentOnly[start.Line] = true
 				}
 				continue
 			}
-			fc.commentOnly[start.Line] = true
-			if strings.TrimSpace(lineText(end.Line)[end.Column-1:]) == "" {
+			if opensClean {
+				fc.commentOnly[start.Line] = true
+			}
+			if endsClean {
 				fc.commentOnly[end.Line] = true
 			}
 		}

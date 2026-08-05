@@ -265,6 +265,25 @@ func TestLongFunc_blockCommentBoundariesAreJudgedIndependently(t *testing.T) {
 	if got := counts(lintSource(t, "p.go", openLine.String()), "long-func"); got != 0 {
 		t.Errorf("code on the OPENING line: long-func = %d, want 0 — the prose below it is not code", got)
 	}
+
+	// The closing line of that same shape is pure prose and must be discounted
+	// too: code on the OPENING boundary says nothing about the CLOSING one. Sized
+	// so the run only fits under the ceiling if `*/` is not counted.
+	var closeLineCounts strings.Builder
+	closeLineCounts.WriteString("package p\n\nvar x int\n\nfunc run() {\n\tx++ /*\n")
+	for range 10 {
+		closeLineCounts.WriteString("\t   prose\n")
+	}
+	closeLineCounts.WriteString("\t*/\n")
+	for range 79 {
+		closeLineCounts.WriteString("\tx++\n")
+	}
+	closeLineCounts.WriteString("}\n")
+	// 79 plain + the `x++ /*` line = 80 code lines exactly, at the ceiling. One
+	// more — the closing `*/` counted as code — puts it over.
+	if got := counts(lintSource(t, "p.go", closeLineCounts.String()), "long-func"); got != 0 {
+		t.Errorf("a clean closing line after a code-carrying opening: long-func = %d, want 0", got)
+	}
 }
 
 // A one-line block comment with code after it is a code line, not prose.
