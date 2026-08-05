@@ -122,15 +122,18 @@ func (s *Subscriber) Run(ctx context.Context) error {
 			// the process while delivering nothing.
 			if isNoGroup(err) {
 				if createErr := s.ensureGroups(ctx); createErr != nil {
+					// A create that keeps failing (ACL denial, read-only
+					// replica, quota) is not the transient case this branch
+					// exists for; without a pause it spins XAUTOCLAIM,
+					// XGROUP CREATE and XREADGROUP against a degraded Redis
+					// as fast as the process can loop.
 					s.log.Error("bus: re-creating a purged consumer group", "error", createErr)
+					s.backoff(ctx)
 				}
 				continue
 			}
 			s.log.Error("bus: XREADGROUP failed; retrying", "error", err)
-			select {
-			case <-ctx.Done():
-			case <-time.After(time.Second):
-			}
+			s.backoff(ctx)
 			continue
 		}
 
@@ -141,6 +144,15 @@ func (s *Subscriber) Run(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// backoff pauses briefly for a retryable transport failure, or returns
+// immediately once ctx is done.
+func (s *Subscriber) backoff(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+	}
 }
 
 // ensureGroups creates the consumer group on every subscribed stream,
