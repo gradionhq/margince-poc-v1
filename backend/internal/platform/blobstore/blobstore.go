@@ -38,6 +38,13 @@ type Store interface {
 	// with no object is not an error, so a crash-retry is safe.
 	Delete(ctx context.Context, key string) error
 
+	// DeletePrefix removes every object whose key starts with prefix,
+	// returning how many were deleted. It exists for the tenant-wide sweep a
+	// data reset performs: the rows that named these objects are gone, so the
+	// bytes must go with them rather than outliving their only reference.
+	// Idempotent, like Delete — a prefix with no objects reports zero.
+	DeletePrefix(ctx context.Context, prefix string) (int, error)
+
 	// Health reports whether the backing store is reachable, feeding the
 	// /readyz probe. A nil error means ready.
 	Health(ctx context.Context) error

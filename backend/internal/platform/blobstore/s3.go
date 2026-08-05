@@ -139,6 +139,26 @@ func (s *s3Store) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// DeletePrefix lists the prefix recursively and removes objects one at a
+// time so a single failure is attributable to the key that caused it, rather
+// than a batch call obscuring which object failed mid-sweep.
+func (s *s3Store) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	deleted := 0
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    prefix,
+		Recursive: true,
+	}) {
+		if obj.Err != nil {
+			return deleted, fmt.Errorf("blobstore: listing %s: %w", prefix, obj.Err)
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}); err != nil {
+			return deleted, fmt.Errorf("blobstore: removing %s: %w", obj.Key, err)
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (s *s3Store) Health(ctx context.Context) error {
 	exists, err := s.client.BucketExists(ctx, s.bucket)
 	if err != nil {

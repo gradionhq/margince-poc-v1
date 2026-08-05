@@ -5,6 +5,7 @@ package blobstore_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"testing"
@@ -123,6 +124,49 @@ func TestMemoryStoreHealthIsAlwaysHealthy(t *testing.T) {
 	// it feeds is always healthy — dev without MinIO is still "ready".
 	if err := blobstore.NewMemory().Health(t.Context()); err != nil {
 		t.Fatalf("Health: %v", err)
+	}
+}
+
+// put writes body at key, failing the test on error — the common setup step
+// every DeletePrefix case needs before it can assert on what survived.
+func put(t *testing.T, ctx context.Context, store blobstore.Store, key, body string) {
+	t.Helper()
+	if err := store.Put(ctx, key, bytes.NewReader([]byte(body)), int64(len(body)), ""); err != nil {
+		t.Fatalf("Put %q: %v", key, err)
+	}
+}
+
+func TestDeletePrefixRemovesOnlyThatPrefix(t *testing.T) {
+	ctx := context.Background()
+	store := blobstore.NewMemory()
+	// Keys are opaque to the store (WorkspaceKey only builds them), so literals
+	// keep this test independent of how a workspace id renders.
+	const mine = "ws-a/attachment/a1"
+	put(t, ctx, store, mine, "mine")
+	put(t, ctx, store, "ws-b/attachment/a2", "theirs")
+
+	deleted, err := store.DeletePrefix(ctx, "ws-a/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 1 {
+		t.Errorf("deleted = %d, want 1", deleted)
+	}
+	if _, _, err := store.Get(ctx, mine); !errors.Is(err, blobstore.ErrNotFound) {
+		t.Errorf("the prefixed object survived: %v", err)
+	}
+	if _, _, err := store.Get(ctx, "ws-b/attachment/a2"); err != nil {
+		t.Errorf("an object outside the prefix was deleted: %v", err)
+	}
+}
+
+func TestDeletePrefixOnAnEmptyStoreReportsZero(t *testing.T) {
+	deleted, err := blobstore.NewMemory().DeletePrefix(context.Background(), "any/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if deleted != 0 {
+		t.Errorf("deleted = %d, want 0", deleted)
 	}
 }
 
