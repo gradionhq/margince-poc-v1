@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -11,6 +11,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Field,
   SectionHeader,
   Select,
   TextInput,
@@ -197,7 +198,6 @@ function PartnerForm({
   submitLabel: MessageKey;
 }>) {
   const t = useT();
-  const formId = useId();
   // This form only mounts while editing (PartnerDetail/PartnerTab remount it
   // fresh each time `editing` flips true), so the lazy initializer is the
   // only seeding this needs — a re-sync effect keyed on `partner` would
@@ -232,136 +232,128 @@ function PartnerForm({
       }}
       style={{ display: "flex", flexDirection: "column", gap: 10 }}
     >
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-role`}>
-          {t("partner.role")} *
-        </label>
-        <Select
-          id={`${formId}-role`}
-          required
-          value={values.partner_role}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              partner_role:
-                asPartnerRole(event.target.value) ?? values.partner_role,
-            })
-          }
-        >
-          {PARTNER_ROLES.map((role) => (
-            <option key={role} value={role}>
-              {t(ROLE_LABELS[role])}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-cert`}>
-          {t("partner.certStatus")}
-        </label>
-        <Select
-          id={`${formId}-cert`}
-          value={values.cert_status}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              cert_status:
-                asCertStatus(event.target.value) ?? values.cert_status,
-            })
-          }
-        >
-          {CERT_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {t(CERT_LABELS[status])}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-tier`}>
-          {t("partner.marginTier")}
-        </label>
-        <Select
-          id={`${formId}-tier`}
-          value={values.margin_tier}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              margin_tier: event.target.value
-                ? (asMarginTier(event.target.value) ?? values.margin_tier)
-                : "",
-            })
-          }
-        >
-          <option value="" />
-          {MARGIN_TIERS.map((tier) => (
-            <option key={tier} value={tier}>
-              {t(MARGIN_TIER_LABELS[tier])}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-stage`}>
-          {t("partner.stage")}
-        </label>
-        <Select
-          id={`${formId}-stage`}
-          value={values.relationship_stage}
-          onChange={(event) =>
-            setValues({
-              ...values,
-              relationship_stage:
-                asRelationshipStage(event.target.value) ??
-                values.relationship_stage,
-            })
-          }
-        >
-          {RELATIONSHIP_STAGES.map((stage) => (
-            <option key={stage} value={stage}>
-              {t(STAGE_LABELS[stage])}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-next-step`}>
-          {t("partner.nextStep")}
-        </label>
-        <TextInput
-          id={`${formId}-next-step`}
-          value={values.next_step}
-          onChange={(event) =>
-            setValues({ ...values, next_step: event.target.value })
-          }
-        />
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-next-step-due`}>
-          {t("partner.nextStepDue")}
-        </label>
-        <TextInput
-          id={`${formId}-next-step-due`}
-          type="date"
-          value={values.next_step_due_at}
-          onChange={(event) =>
-            setValues({ ...values, next_step_due_at: event.target.value })
-          }
-        />
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor={`${formId}-segments`}>
-          {t("partner.servedSegments")}
-        </label>
-        <TextInput
-          id={`${formId}-segments`}
-          value={values.served_segments}
-          placeholder={t("partner.servedSegmentsHint")}
-          onChange={(event) =>
-            setValues({ ...values, served_segments: event.target.value })
-          }
-        />
-      </div>
+      <Field label={t("partner.role")} required>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.partner_role}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                partner_role:
+                  asPartnerRole(event.target.value) ?? values.partner_role,
+              })
+            }
+          >
+            {PARTNER_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {t(ROLE_LABELS[role])}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("partner.certStatus")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.cert_status}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                cert_status:
+                  asCertStatus(event.target.value) ?? values.cert_status,
+              })
+            }
+          >
+            {CERT_STATUSES.map((status) => (
+              <option key={status} value={status}>
+                {t(CERT_LABELS[status])}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("partner.marginTier")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.margin_tier}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                margin_tier: event.target.value
+                  ? (asMarginTier(event.target.value) ?? values.margin_tier)
+                  : "",
+              })
+            }
+          >
+            <option value="" />
+            {MARGIN_TIERS.map((tier) => (
+              <option key={tier} value={tier}>
+                {t(MARGIN_TIER_LABELS[tier])}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("partner.stage")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={values.relationship_stage}
+            onChange={(event) =>
+              setValues({
+                ...values,
+                relationship_stage:
+                  asRelationshipStage(event.target.value) ??
+                  values.relationship_stage,
+              })
+            }
+          >
+            {RELATIONSHIP_STAGES.map((stage) => (
+              <option key={stage} value={stage}>
+                {t(STAGE_LABELS[stage])}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("partner.nextStep")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={values.next_step}
+            onChange={(event) =>
+              setValues({ ...values, next_step: event.target.value })
+            }
+          />
+        )}
+      </Field>
+      <Field label={t("partner.nextStepDue")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="date"
+            value={values.next_step_due_at}
+            onChange={(event) =>
+              setValues({ ...values, next_step_due_at: event.target.value })
+            }
+          />
+        )}
+      </Field>
+      <Field label={t("partner.servedSegments")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={values.served_segments}
+            placeholder={t("partner.servedSegmentsHint")}
+            onChange={(event) =>
+              setValues({ ...values, served_segments: event.target.value })
+            }
+          />
+        )}
+      </Field>
       {mutation.isError && (
         <p className="t-caption" style={{ color: "var(--danger)" }}>
           {mutation.error instanceof Error ? mutation.error.message : null}

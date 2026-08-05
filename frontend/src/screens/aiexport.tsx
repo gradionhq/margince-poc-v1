@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import type { components } from "../api/schema";
-import { Button, Modal, TextInput } from "../design-system/atoms";
+import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import "./aiexport.css";
 
@@ -132,16 +132,15 @@ export function ExportScenarioDialog({
         {t("aiexport.title")}
       </h2>
       <div className="form-stack">
-        <div className="field">
-          <label className="t-label" htmlFor="cert-scenario-name">
-            {t("aiexport.nameLabel")}
-          </label>
-          <TextInput
-            id="cert-scenario-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
+        <Field label={t("aiexport.nameLabel")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          )}
+        </Field>
         <div className="aiexport-callout">
           <input
             id="cert-pii-ack"

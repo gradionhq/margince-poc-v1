@@ -19,7 +19,7 @@ function admin() {
 }
 
 const meta: Meta<typeof LogActivity> = {
-  title: "screens/log-activity",
+  title: "Screens/log-activity",
   component: LogActivity,
 };
 export default meta;

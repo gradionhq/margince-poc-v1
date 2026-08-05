@@ -13,6 +13,7 @@ import {
   Button,
   Card,
   EmptyState,
+  Field,
   SectionHeader,
   Select,
   TextInput,
@@ -106,39 +107,36 @@ function OverlayConnectForm({
         onRequestConfirm(region, token);
       }}
     >
-      <div className="field">
-        <label className="t-label" htmlFor="overlay-region">
-          {t("overlay.region")}
-        </label>
-        <Select
-          id="overlay-region"
-          value={region}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (isOption(value, REGIONS)) setRegion(value);
-          }}
-        >
-          {REGIONS.map((r) => (
-            <option key={r} value={r}>
-              {t(regionLabel[r])}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field">
-        <label className="t-label" htmlFor="overlay-token">
-          {t("overlay.token")}
-        </label>
-        <TextInput
-          id="overlay-token"
-          type="password"
-          autoComplete="off"
-          value={token}
-          required
-          onChange={(event) => setToken(event.target.value)}
-        />
-        <p className="t-caption">{t("overlay.tokenHint")}</p>
-      </div>
+      <Field label={t("overlay.region")}>
+        {(control) => (
+          <Select
+            {...control}
+            value={region}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (isOption(value, REGIONS)) setRegion(value);
+            }}
+          >
+            {REGIONS.map((r) => (
+              <option key={r} value={r}>
+                {t(regionLabel[r])}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("overlay.token")} hint={t("overlay.tokenHint")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            autoComplete="off"
+            value={token}
+            required
+            onChange={(event) => setToken(event.target.value)}
+          />
+        )}
+      </Field>
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button small variant="primary" type="submit" disabled={!ready}>
           <Plug aria-hidden />{" "}

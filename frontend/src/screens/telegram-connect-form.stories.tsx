@@ -30,7 +30,7 @@ const connectedConnection: ChannelConnection = {
 };
 
 const meta: Meta<typeof TelegramConnectForm> = {
-  title: "screens/telegram-connect-form",
+  title: "Screens/telegram-connect-form",
   component: TelegramConnectForm,
 };
 export default meta;

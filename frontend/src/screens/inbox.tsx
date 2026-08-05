@@ -15,6 +15,7 @@ import {
 import {
   Badge,
   Button,
+  Field,
   Modal,
   SectionHeader,
   SegmentedControl,
@@ -646,50 +647,49 @@ export function ApprovalRow({
             }}
           >
             {strings.map((entry) => (
-              <div className="field" key={entry.field}>
-                <span
-                  className="t-label"
-                  id={`edit-${approval.id}-${entry.field}`}
-                >
-                  {entry.label ? t(entry.label) : entry.field}
-                </span>
-                {entry.as === "choice" ? (
-                  <Select
-                    aria-labelledby={`edit-${approval.id}-${entry.field}`}
-                    value={draft[entry.field] ?? ""}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [entry.field]: event.target.value,
-                      }))
-                    }
-                  >
-                    {entry.options.map((option) => {
-                      // The VALUE stays the wire enum — it is what gets
-                      // submitted. Only what the reader sees is translated,
-                      // and an option the kind declared no label for degrades
-                      // to its own words rather than to an identifier.
-                      const label = entry.optionLabels?.[option];
-                      return (
-                        <option key={option} value={option}>
-                          {label ? t(label) : humanizeKind(option)}
-                        </option>
-                      );
-                    })}
-                  </Select>
-                ) : (
-                  <TextInput
-                    aria-labelledby={`edit-${approval.id}-${entry.field}`}
-                    value={draft[entry.field] ?? ""}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        [entry.field]: event.target.value,
-                      }))
-                    }
-                  />
-                )}
-              </div>
+              <Field
+                key={entry.field}
+                label={entry.label ? t(entry.label) : entry.field}
+              >
+                {(control) =>
+                  entry.as === "choice" ? (
+                    <Select
+                      {...control}
+                      value={draft[entry.field] ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [entry.field]: event.target.value,
+                        }))
+                      }
+                    >
+                      {entry.options.map((option) => {
+                        // The VALUE stays the wire enum — it is what gets
+                        // submitted. Only what the reader sees is translated,
+                        // and an option the kind declared no label for degrades
+                        // to its own words rather than to an identifier.
+                        const label = entry.optionLabels?.[option];
+                        return (
+                          <option key={option} value={option}>
+                            {label ? t(label) : humanizeKind(option)}
+                          </option>
+                        );
+                      })}
+                    </Select>
+                  ) : (
+                    <TextInput
+                      {...control}
+                      value={draft[entry.field] ?? ""}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [entry.field]: event.target.value,
+                        }))
+                      }
+                    />
+                  )
+                }
+              </Field>
             ))}
             <div className="approval-gate">
               <Button variant="primary" small onClick={approveEdited}>
@@ -739,17 +739,18 @@ export function ApprovalRow({
         pending={decide.isPending}
         onConfirm={confirmReject}
       >
-        <div className="field">
-          <label className="t-label" htmlFor={`reject-reason-${approval.id}`}>
-            {t("inbox.rejectReason")}
-          </label>
-          <Textarea
-            id={`reject-reason-${approval.id}`}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-          <p className="t-caption">{t("inbox.rejectReasonHint")}</p>
-        </div>
+        <Field
+          label={t("inbox.rejectReason")}
+          hint={t("inbox.rejectReasonHint")}
+        >
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          )}
+        </Field>
       </ConfirmModal>
       <ApprovalDetailModal
         approvalId={approval.id}

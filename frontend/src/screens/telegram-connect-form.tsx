@@ -5,7 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
+import { Badge, Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { ProblemError, problemMessage, throwProblem } from "./common";
 import { statusLabel, statusTone } from "./connector-status";
@@ -164,19 +164,18 @@ export function TelegramConnectForm({
               </Badge>
             </div>
           )}
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-token`}>
-              {t("connectors.telegramBotToken")}
-            </label>
-            <TextInput
-              id={`${headingId}-token`}
-              type="password"
-              autoComplete="off"
-              value={botToken}
-              required
-              onChange={(event) => setBotToken(event.target.value)}
-            />
-          </div>
+          <Field label={t("connectors.telegramBotToken")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                type="password"
+                autoComplete="off"
+                value={botToken}
+                required
+                onChange={(event) => setBotToken(event.target.value)}
+              />
+            )}
+          </Field>
           <p className="t-caption">{t("connectors.telegramBotTokenHint")}</p>
           {errorMessage && (
             <p

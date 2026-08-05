@@ -8,6 +8,7 @@ import {
   Badge,
   Button,
   DataTable,
+  Field,
   Modal,
   SectionHeader,
   Select,
@@ -191,99 +192,103 @@ function EditOfferHeaderModal({
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {t("offer.edit")}
       </h2>
-      <div className="field">
-        <span className="t-label" id="offer-currency-label">
-          {t("offer.currency")}
-        </span>
-        <Select
-          aria-labelledby="offer-currency-label"
-          value={values.currency}
-          onChange={(event) =>
-            setValues((prev) => ({ ...prev, currency: event.target.value }))
-          }
-        >
-          {["EUR", "USD", "GBP", "CHF"].map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span className="t-label" id="offer-valid-until-label">
-          {t("offer.validUntil")}
-        </span>
-        <TextInput
-          type="date"
-          aria-labelledby="offer-valid-until-label"
-          value={values.valid_until}
-          onChange={(event) =>
-            setValues((prev) => ({ ...prev, valid_until: event.target.value }))
-          }
-        />
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span className="t-label">{t("offer.buyerOrg")}</span>
-        <RecordPicker
-          label={t("offer.buyerOrg")}
-          searchTargets={searchOrganizationCandidates}
-          selected={buyerOrg}
-          onPick={(candidate) => {
-            setBuyerOrgOverride(candidate);
-            setValues((prev) => ({ ...prev, buyer_org_id: candidate.id }));
-          }}
-        />
-        {buyerOrg && (
-          <p className="t-caption">
-            {t("offer.buyerOrgConfirm", { name: buyerOrg.name })}
-          </p>
-        )}
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span className="t-label" id="offer-template-label">
-          {t("offer.template")}
-        </span>
-        <Select
-          aria-labelledby="offer-template-label"
-          value={values.template_id ?? ""}
-          onChange={(event) =>
-            setValues((prev) => ({
-              ...prev,
-              template_id: event.target.value || null,
-            }))
-          }
-        >
-          <option value="">—</option>
-          {(templatesQuery.data ?? []).map((template: OfferTemplate) => (
-            <option key={template.id} value={template.id}>
-              {template.name}
-            </option>
-          ))}
-        </Select>
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span className="t-label" id="offer-intro-label">
-          {t("offer.introText")}
-        </span>
-        <TextInput
-          aria-labelledby="offer-intro-label"
-          value={values.intro_text}
-          onChange={(event) =>
-            setValues((prev) => ({ ...prev, intro_text: event.target.value }))
-          }
-        />
-      </div>
-      <div className="field" style={{ marginTop: 10 }}>
-        <span className="t-label" id="offer-terms-label">
-          {t("offer.termsText")}
-        </span>
-        <TextInput
-          aria-labelledby="offer-terms-label"
-          value={values.terms_text}
-          onChange={(event) =>
-            setValues((prev) => ({ ...prev, terms_text: event.target.value }))
-          }
-        />
+      <div className="form-stack">
+        <Field label={t("offer.currency")}>
+          {(control) => (
+            <Select
+              {...control}
+              value={values.currency}
+              onChange={(event) =>
+                setValues((prev) => ({ ...prev, currency: event.target.value }))
+              }
+            >
+              {["EUR", "USD", "GBP", "CHF"].map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <div className="field">
+          <span className="t-label" id="offer-valid-until-label">
+            {t("offer.validUntil")}
+          </span>
+          <TextInput
+            type="date"
+            aria-labelledby="offer-valid-until-label"
+            value={values.valid_until}
+            onChange={(event) =>
+              setValues((prev) => ({
+                ...prev,
+                valid_until: event.target.value,
+              }))
+            }
+          />
+        </div>
+        <div className="field">
+          <span className="t-label">{t("offer.buyerOrg")}</span>
+          <RecordPicker
+            label={t("offer.buyerOrg")}
+            searchTargets={searchOrganizationCandidates}
+            selected={buyerOrg}
+            onPick={(candidate) => {
+              setBuyerOrgOverride(candidate);
+              setValues((prev) => ({ ...prev, buyer_org_id: candidate.id }));
+            }}
+          />
+          {buyerOrg && (
+            <p className="t-caption">
+              {t("offer.buyerOrgConfirm", { name: buyerOrg.name })}
+            </p>
+          )}
+        </div>
+        <div className="field">
+          <span className="t-label" id="offer-template-label">
+            {t("offer.template")}
+          </span>
+          <Select
+            aria-labelledby="offer-template-label"
+            value={values.template_id ?? ""}
+            onChange={(event) =>
+              setValues((prev) => ({
+                ...prev,
+                template_id: event.target.value || null,
+              }))
+            }
+          >
+            <option value="">—</option>
+            {(templatesQuery.data ?? []).map((template: OfferTemplate) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="field">
+          <span className="t-label" id="offer-intro-label">
+            {t("offer.introText")}
+          </span>
+          <TextInput
+            aria-labelledby="offer-intro-label"
+            value={values.intro_text}
+            onChange={(event) =>
+              setValues((prev) => ({ ...prev, intro_text: event.target.value }))
+            }
+          />
+        </div>
+        <div className="field">
+          <span className="t-label" id="offer-terms-label">
+            {t("offer.termsText")}
+          </span>
+          <TextInput
+            aria-labelledby="offer-terms-label"
+            value={values.terms_text}
+            onChange={(event) =>
+              setValues((prev) => ({ ...prev, terms_text: event.target.value }))
+            }
+          />
+        </div>
       </div>
       {errorMessage && (
         <p
@@ -667,111 +672,105 @@ function OfferLineEditor({ offer }: Readonly<{ offer: Offer }>) {
             marginTop: 8,
           }}
         >
-          <div className="field">
-            <span className="t-label" id="new-line-description-label">
-              {t("offer.description")}
-            </span>
-            <TextInput
-              aria-labelledby="new-line-description-label"
-              data-testid="new-line-description"
-              style={{ width: 180 }}
-              value={newLine.description}
-              onChange={(event) =>
-                setNewLine((prev) => ({
-                  ...prev,
-                  description: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <span className="t-label" id="new-line-unit-label">
-              {t("offer.unit")}
-            </span>
-            <TextInput
-              aria-labelledby="new-line-unit-label"
-              data-testid="new-line-unit"
-              style={{ width: 70 }}
-              value={newLine.unit}
-              onChange={(event) =>
-                setNewLine((prev) => ({ ...prev, unit: event.target.value }))
-              }
-            />
-          </div>
-          <div className="field">
-            <span className="t-label" id="new-line-quantity-label">
-              {t("offer.quantity")}
-            </span>
-            <input
-              aria-labelledby="new-line-quantity-label"
-              data-testid="new-line-quantity"
-              type="number"
-              step="0.001"
-              className="input"
-              style={{ width: 90 }}
-              value={newLine.quantity}
-              onChange={(event) =>
-                setNewLine((prev) => ({
-                  ...prev,
-                  quantity: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <span className="t-label" id="new-line-price-label">
-              {t("offer.unitPrice")}
-            </span>
-            <MoneyInput
-              aria-labelledby="new-line-price-label"
-              data-testid="new-line-unit-price"
-              valueMinor={newLine.unit_price_minor}
-              onChangeMinor={(minor) => {
-                setPriceTouched(true);
-                setNewLine((prev) => ({ ...prev, unit_price_minor: minor }));
-              }}
-            />
-          </div>
-          <div className="field">
-            <span className="t-label" id="new-line-discount-label">
-              {t("offer.discountPct")}
-            </span>
-            <input
-              aria-labelledby="new-line-discount-label"
-              data-testid="new-line-discount"
-              type="number"
-              step="0.01"
-              className="input"
-              style={{ width: 90 }}
-              value={newLine.discount_pct}
-              onChange={(event) =>
-                setNewLine((prev) => ({
-                  ...prev,
-                  discount_pct: event.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <span className="t-label" id="new-line-tax-label">
-              {t("offer.taxRate")}
-            </span>
-            <input
-              aria-labelledby="new-line-tax-label"
-              data-testid="new-line-tax"
-              type="number"
-              step="0.01"
-              className="input"
-              style={{ width: 90 }}
-              value={newLine.tax_rate}
-              onChange={(event) =>
-                setNewLine((prev) => ({
-                  ...prev,
-                  tax_rate: event.target.value,
-                }))
-              }
-            />
-          </div>
+          <Field label={t("offer.description")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                data-testid="new-line-description"
+                style={{ width: 180 }}
+                value={newLine.description}
+                onChange={(event) =>
+                  setNewLine((prev) => ({
+                    ...prev,
+                    description: event.target.value,
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label={t("offer.unit")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                data-testid="new-line-unit"
+                style={{ width: 70 }}
+                value={newLine.unit}
+                onChange={(event) =>
+                  setNewLine((prev) => ({ ...prev, unit: event.target.value }))
+                }
+              />
+            )}
+          </Field>
+          <Field label={t("offer.quantity")}>
+            {(control) => (
+              <input
+                {...control}
+                data-testid="new-line-quantity"
+                type="number"
+                step="0.001"
+                className="input"
+                style={{ width: 90 }}
+                value={newLine.quantity}
+                onChange={(event) =>
+                  setNewLine((prev) => ({
+                    ...prev,
+                    quantity: event.target.value,
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label={t("offer.unitPrice")}>
+            {(control) => (
+              <MoneyInput
+                {...control}
+                data-testid="new-line-unit-price"
+                valueMinor={newLine.unit_price_minor}
+                onChangeMinor={(minor) => {
+                  setPriceTouched(true);
+                  setNewLine((prev) => ({ ...prev, unit_price_minor: minor }));
+                }}
+              />
+            )}
+          </Field>
+          <Field label={t("offer.discountPct")}>
+            {(control) => (
+              <input
+                {...control}
+                data-testid="new-line-discount"
+                type="number"
+                step="0.01"
+                className="input"
+                style={{ width: 90 }}
+                value={newLine.discount_pct}
+                onChange={(event) =>
+                  setNewLine((prev) => ({
+                    ...prev,
+                    discount_pct: event.target.value,
+                  }))
+                }
+              />
+            )}
+          </Field>
+          <Field label={t("offer.taxRate")}>
+            {(control) => (
+              <input
+                {...control}
+                data-testid="new-line-tax"
+                type="number"
+                step="0.01"
+                className="input"
+                style={{ width: 90 }}
+                value={newLine.tax_rate}
+                onChange={(event) =>
+                  setNewLine((prev) => ({
+                    ...prev,
+                    tax_rate: event.target.value,
+                  }))
+                }
+              />
+            )}
+          </Field>
         </div>
         <div
           style={{
@@ -1022,17 +1021,16 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
         pending={mutation.isPending}
         error={errorMessage}
       >
-        <div className="field">
-          <span className="t-label" id="reject-reason-label">
-            {t("offer.rejectReason")}
-          </span>
-          <TextInput
-            aria-labelledby="reject-reason-label"
-            data-testid="reject-reason"
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-          />
-        </div>
+        <Field label={t("offer.rejectReason")}>
+          {(control) => (
+            <TextInput
+              {...control}
+              data-testid="reject-reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          )}
+        </Field>
       </ConfirmModal>
     </>
   );

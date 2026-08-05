@@ -89,6 +89,14 @@
   font-weight: 600;
   color: var(--textPrimary);
 }
+/* The step between a heading and body text, which StatCard's reading has asked
+   for since it was written — the class was named there but never declared, so
+   the figure a tile exists to show was rendering at body size. */
+.t-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--textPrimary);
+}
 .t-label {
   font-size: 12.5px;
   font-weight: 600;

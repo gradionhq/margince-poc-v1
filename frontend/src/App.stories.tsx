@@ -4,7 +4,7 @@ import { App } from "./App";
 import { LocaleProvider } from "./i18n";
 
 const meta: Meta = {
-  title: "App/Shell",
+  title: "App/Application",
   parameters: { layout: "fullscreen" },
 };
 export default meta;

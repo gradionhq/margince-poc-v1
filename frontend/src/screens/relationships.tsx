@@ -13,6 +13,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  Field,
   Modal,
   SearchField,
   SectionHeader,
@@ -365,47 +366,44 @@ function AddRelationshipAction({
           {t("rel.add")}
         </h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-kind`}>
-              {t("rel.kind")}
-            </label>
-            <Select
-              id={`${headingId}-kind`}
-              value={kind}
-              onChange={(event) => {
-                const value = event.target.value;
-                const kinds = options.map((o) => o.kind);
-                if (isOption(value, kinds)) selectKind(value);
-              }}
-            >
-              {options.map((option) => (
-                <option key={option.kind} value={option.kind}>
-                  {t(KIND_LABELS[option.kind])}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-role`}>
-              {t("rel.role")}
-            </label>
-            <TextInput
-              id={`${headingId}-role`}
-              value={role}
-              onChange={(event) => setRole(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label className="t-label" htmlFor={`${headingId}-started`}>
-              {t("rel.startedAt")}
-            </label>
-            <TextInput
-              id={`${headingId}-started`}
-              type="date"
-              value={startedAt}
-              onChange={(event) => setStartedAt(event.target.value)}
-            />
-          </div>
+          <Field label={t("rel.kind")}>
+            {(control) => (
+              <Select
+                {...control}
+                value={kind}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const kinds = options.map((o) => o.kind);
+                  if (isOption(value, kinds)) selectKind(value);
+                }}
+              >
+                {options.map((option) => (
+                  <option key={option.kind} value={option.kind}>
+                    {t(KIND_LABELS[option.kind])}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label={t("rel.role")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("rel.startedAt")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                type="date"
+                value={startedAt}
+                onChange={(event) => setStartedAt(event.target.value)}
+              />
+            )}
+          </Field>
           <p className="t-caption">{t("rel.pickCounterparty")}</p>
           <SearchField
             placeholder={t("merge.searchPlaceholder")}

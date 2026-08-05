@@ -1,21 +1,36 @@
 #!/usr/bin/env bash
 # Design-system spacing gate: NEW code should not hand-set vertical rhythm with
-# raw pixel literals in inline React styles. Use the --space-* scale
-# (src/design-system/tokens.css) or a layout class (.filter-tabs, .form-stack,
-# .card, …) so the same gap reads the same everywhere — the drift this catches
-# is the recurring "spacing not good" report (10 vs 12 vs 14 vs 16 for the same
-# separator), and the boundary rules in atoms.css that own header/tab/card
-# seams.
+# raw pixel literals. Use the --space-* scale (src/design-system/tokens.css) or
+# a layout class (.filter-tabs, .form-stack, .card, …) so the same gap reads the
+# same everywhere — the drift this catches is the recurring "spacing not good"
+# report (10 vs 12 vs 14 vs 16 for the same separator), and the boundary rules
+# in atoms.css that own header/tab/card seams.
 #
-# DIFF-SCOPED, by design: it inspects only the lines THIS branch adds to
-# frontend/src/**/*.tsx versus the merge-base with origin/main. The large
-# pre-existing backlog of inline px is NOT gated — write it right the first
-# time, exactly like the craft pre-push hook. A genuine one-off is waived
-# in-line with a reason: add `// ds:ignore <reason>` on the offending line.
+# Two arms, one bar:
+#   *.tsx — inline React style props set to a bare non-zero number:
+#           margin* / padding* / gap / rowGap / columnGap : <n>
+#           String values ("0", "var(--space-3)") and a bare 0 reset are fine.
+#   *.css — declarations of padding, padding-*, margin, margin-*, gap, row-gap
+#           and column-gap whose value carries a raw non-zero px. 0 is fine, a
+#           token is fine (including mixed values like `var(--space-2) 0`), and
+#           a calc() built on a token is fine — the offset inside it is
+#           arithmetic on the scale, not a rhythm value of its own. Every other
+#           property that legitimately measures in px (border, border-radius,
+#           min-height, top/left, font-size, box-shadow, …) is untouched: this
+#           gate is about rhythm, not about px.
 #
-# Flags, on ADDED *.tsx lines only, inline-style props set to a bare non-zero
-# number:  margin* / padding* / gap / rowGap / columnGap : <n>
-# Never flags string values ("0", "var(--space-3)") or a bare 0 reset.
+# src/design-system/ is EXEMPT from the *.css arm because that tier DEFINES the
+# scale rather than consuming it: an atom's optical values (.input and .textarea
+# carry `padding: 9px 11px` so the text sits on the same baseline as the label
+# beside it) are deliberately off the 4/8/12/16/24 steps, and rounding them onto
+# the scale would be the regression. Screens consume the scale, so src/screens/
+# and src/app/ are what this gates.
+#
+# DIFF-SCOPED, by design: it inspects only the lines THIS branch adds versus the
+# merge-base with origin/main. The large pre-existing backlog of raw px is NOT
+# gated — write it right the first time, exactly like the craft pre-push hook.
+# A genuine one-off is waived in-line with a reason, in the file's own comment
+# syntax: `// ds:ignore <reason>` in .tsx, `/* ds:ignore <reason> */` in .css.
 #
 # Usage: frontend/scripts/check-ds-spacing.sh   (wired into `make frontend-check`)
 
@@ -42,37 +57,70 @@ if [[ -z "$BASE" ]]; then
   exit 0
 fi
 
+# A brand-new file is the strictest case there is — all of it is new code — yet
+# `git diff` cannot see one until it is tracked, so an untracked file would slip
+# the gate entirely. Listing it here and diffing it against /dev/null below
+# renders it as a full-file addition, which the same awk pass then reads without
+# a special case.
+untracked() {
+  git -C "$REPO_ROOT" ls-files --others --exclude-standard -- "$@" 2>/dev/null || true
+}
+
 # Read-loop rather than mapfile — the CI/dev host ships bash 3.2 (no mapfile),
 # same portability constraint as check-ds-purity.sh.
-CHANGED=()
+CHANGED_TSX=()
 while IFS= read -r f; do
-  [[ -n "$f" ]] && CHANGED+=("$f")
+  [[ -n "$f" ]] && CHANGED_TSX+=("$f")
 done < <(
   git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 2>/dev/null || true
+  untracked 'frontend/src/**/*.tsx' 'frontend/src/*.tsx'
 )
 
-if [[ "${#CHANGED[@]}" -eq 0 ]]; then
-  echo "==> DS spacing check: no changed frontend *.tsx — nothing to gate"
+CHANGED_CSS=()
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  [[ "$f" == frontend/src/design-system/* ]] && continue
+  CHANGED_CSS+=("$f")
+done < <(
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.css' 'frontend/src/*.css' 2>/dev/null || true
+  untracked 'frontend/src/**/*.css' 'frontend/src/*.css'
+)
+
+# The added-lines diff for one file, tracked or not. `--no-index` exits non-zero
+# when the two sides differ, which is the normal case here, so the status is
+# deliberately discarded.
+added_diff() {
+  local f="$1"
+  if git -C "$REPO_ROOT" ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" diff --unified=0 "$BASE" -- "$f" 2>/dev/null || true
+  else
+    git -C "$REPO_ROOT" diff --no-index --unified=0 -- /dev/null "$f" 2>/dev/null || true
+  fi
+}
+
+if [[ "${#CHANGED_TSX[@]}" -eq 0 && "${#CHANGED_CSS[@]}" -eq 0 ]]; then
+  echo "==> DS spacing check: no changed frontend *.tsx or *.css — nothing to gate"
   exit 0
 fi
 
-echo "==> DS spacing check (${#CHANGED[@]} changed *.tsx vs ${BASE:0:12})"
-
-# margin*/padding*/gap/rowGap/columnGap : <non-zero number>. camelCase only —
-# that is how inline React styles spell it; CSS files are out of scope.
-PATTERN='\b(margin|padding)([A-Z][A-Za-z]*)?[[:space:]]*:[[:space:]]*[1-9]|\b(gap|rowGap|columnGap)[[:space:]]*:[[:space:]]*[1-9]'
+echo "==> DS spacing check (${#CHANGED_TSX[@]} changed *.tsx, ${#CHANGED_CSS[@]} changed *.css vs ${BASE:0:12})"
 
 EXIT=0
-for f in "${CHANGED[@]}"; do
-  # Only the ADDED lines (leading '+', not the '+++' file header), with their
-  # new line numbers, so the message points at the author's own change.
+TSX_HEADER_DONE=0
+CSS_HEADER_DONE=0
+
+# Both arms walk `git diff --unified=0` and track the NEW-file line number, so
+# the message points at the author's own change: a hunk header resets the
+# counter, an added line consumes one, and a removed line consumes none because
+# it does not exist in the new file.
+for f in ${CHANGED_TSX[@]+"${CHANGED_TSX[@]}"}; do
   hits=$(
-    git -C "$REPO_ROOT" diff --unified=0 "$BASE" -- "$f" \
+    added_diff "$f" \
       | awk '
           /^@@/ {
             match($0, /\+[0-9]+/); ln = substr($0, RSTART + 1, RLENGTH - 1) + 0; next
           }
-          /^\+\+\+/ { next }
+          /^\+\+\+/ || /^-/ || /^\\/ { next }
           /^\+/ {
             line = substr($0, 2)
             if (line !~ /ds:ignore/ && line ~ /(margin|padding)([A-Z][A-Za-z]*)?[[:space:]]*:[[:space:]]*[1-9]|(gap|rowGap|columnGap)[[:space:]]*:[[:space:]]*[1-9]/)
@@ -84,9 +132,109 @@ for f in "${CHANGED[@]}"; do
         ' FILENAME="$f"
   )
   if [[ -n "$hits" ]]; then
-    if [[ "$EXIT" -eq 0 ]]; then
+    if [[ "$TSX_HEADER_DONE" -eq 0 ]]; then
       echo ""
       echo "FAIL: raw-px spacing in inline styles (new code)"
+      TSX_HEADER_DONE=1
+    fi
+    echo "$hits"
+    EXIT=1
+  fi
+done
+
+for f in ${CHANGED_CSS[@]+"${CHANGED_CSS[@]}"}; do
+  # The diff supplies WHICH lines are new; the file itself supplies their
+  # content, so a /* */ block spanning several lines is tracked honestly
+  # instead of guessed at from one diff line in isolation. Skipped when the
+  # diff carries no hunks (a mode-only change), which also keeps awk's
+  # first-file test from mistaking the stylesheet for the diff.
+  diff_out=$(added_diff "$f")
+  [[ -n "$diff_out" ]] || continue
+
+  hits=$(
+    printf '%s\n' "$diff_out" \
+      | awk '
+          # Strips commented-out regions, carrying the open-block state across
+          # lines. Returns the code part of the line, lowercased by the caller.
+          function decomment(line,   out, p) {
+            out = ""
+            while (length(line) > 0) {
+              if (incomment) {
+                p = index(line, "*/")
+                if (p == 0) return out
+                line = substr(line, p + 2)
+                incomment = 0
+              } else {
+                p = index(line, "/*")
+                if (p == 0) return out line
+                out = out substr(line, 1, p - 1)
+                line = substr(line, p + 2)
+                incomment = 1
+              }
+            }
+            return out
+          }
+
+          # True when the value carries a px length other than zero. A calc()
+          # over a token is exempt: its offset is arithmetic on the scale.
+          function raw_px(value,   rest, n) {
+            if (index(value, "calc(") > 0 && index(value, "var(") > 0) return 0
+            rest = value
+            while (match(rest, /([0-9]+(\.[0-9]+)?|\.[0-9]+)px/)) {
+              n = substr(rest, RSTART, RLENGTH - 2) + 0
+              if (n != 0) return 1
+              rest = substr(rest, RSTART + RLENGTH)
+            }
+            return 0
+          }
+
+          # The seven spacing properties, and only those. A leading letter or
+          # dash rules out both a custom property (--gap) and a different
+          # property that merely ends the same way (grid-gap, scroll-padding).
+          function spacing_prop(name) {
+            return name ~ /^(padding|margin)(-[a-z]+)*$/ || name ~ /^(gap|row-gap|column-gap)$/
+          }
+
+          function scan(line,   code, n, i, chunk, c, prop, value) {
+            code = decomment(line)
+            gsub(/[{}]/, ";", code)
+            n = split(tolower(code), chunk, ";")
+            for (i = 1; i <= n; i++) {
+              c = chunk[i]
+              if (index(c, ":") == 0) continue
+              prop = substr(c, 1, index(c, ":") - 1)
+              value = substr(c, index(c, ":") + 1)
+              sub(/^[ \t]+/, "", prop); sub(/[ \t]+$/, "", prop)
+              if (spacing_prop(prop) && raw_px(value)) return 1
+            }
+            return 0
+          }
+
+          # Pass 1: the diff — which NEW line numbers this branch adds.
+          FNR == NR {
+            if (/^@@/) {
+              match($0, /\+[0-9]+/); ln = substr($0, RSTART + 1, RLENGTH - 1) + 0; next
+            }
+            if (/^\+\+\+/ || /^-/ || /^\\/) next
+            if (/^\+/) { added[ln++] = 1; next }
+            ln++
+            next
+          }
+
+          # Pass 2: the stylesheet. Every line feeds scan() so the comment state
+          # stays correct; only the added ones can be reported.
+          {
+            hit = scan($0)
+            if (hit && (FNR in added) && $0 !~ /ds:ignore/)
+              printf "  %s:%d: %s\n", target, FNR, $0
+          }
+        ' target="$f" - "$REPO_ROOT/$f"
+  )
+  if [[ -n "$hits" ]]; then
+    if [[ "$CSS_HEADER_DONE" -eq 0 ]]; then
+      echo ""
+      echo "FAIL: raw-px spacing in stylesheets (new code)"
+      CSS_HEADER_DONE=1
     fi
     echo "$hits"
     EXIT=1
@@ -94,13 +242,15 @@ for f in "${CHANGED[@]}"; do
 done
 
 if [[ "$EXIT" == "0" ]]; then
-  echo "PASS — no new inline-px spacing"
+  echo "PASS — no new raw-px spacing"
 else
   echo ""
   echo "Use the --space-* scale (tokens.css) or a layout class instead of a raw"
-  echo "px margin/padding/gap in inline styles — e.g. className=\"filter-tabs\","
-  echo "the .card/.form-stack rhythm, or style={{ marginTop: 'var(--space-3)' }}."
-  echo "A genuine one-off is waived in-line: // ds:ignore <reason>"
+  echo "px margin/padding/gap — e.g. className=\"filter-tabs\", the .card/.form-stack"
+  echo "rhythm, style={{ marginTop: 'var(--space-3)' }}, or gap: var(--space-2)."
+  echo "A genuine one-off is waived in-line, with a reason, on the offending line:"
+  echo "  // ds:ignore <reason>      (.tsx)"
+  echo "  /* ds:ignore <reason> */   (.css)"
 fi
 
 exit $EXIT

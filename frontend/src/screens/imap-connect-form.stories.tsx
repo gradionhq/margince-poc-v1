@@ -12,7 +12,7 @@ import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 // screenshot shows the actual error sentence, not just the empty form.
 
 const meta: Meta<typeof ImapConnectForm> = {
-  title: "screens/imap-connect-form",
+  title: "Screens/imap-connect-form",
   component: ImapConnectForm,
 };
 export default meta;
