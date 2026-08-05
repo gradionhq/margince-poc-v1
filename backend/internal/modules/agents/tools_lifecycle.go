@@ -66,7 +66,11 @@ type ProjectPhaseAdvancer interface {
 // relinkTargets is the link-target vocabulary, mirroring the contract enum so a
 // target the store would refuse is refused before it reaches the store.
 var relinkTargets = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, "project": true,
+	string(datasource.EntityPerson):       true,
+	string(datasource.EntityOrganization): true,
+	string(datasource.EntityDeal):         true,
+	string(datasource.EntityLead):         true,
+	string(datasource.EntityProject):      true,
 }
 
 type relinkActivityArgs struct {
@@ -144,7 +148,7 @@ func (t disqualifyLead) StageInfo(ctx context.Context, in json.RawMessage) (Stag
 		return StageInfo{}, err
 	}
 	return StageInfo{
-		TargetType: "lead", TargetID: args.LeadID, TargetVersion: &rec.Version,
+		TargetType: string(datasource.EntityLead), TargetID: args.LeadID, TargetVersion: &rec.Version,
 		Summary: fmt.Sprintf("Disqualify lead %s", recordLabel(rec)),
 	}, nil
 }
@@ -205,7 +209,7 @@ func (t advanceProjectPhase) StageInfo(ctx context.Context, in json.RawMessage) 
 		return StageInfo{}, err
 	}
 	return StageInfo{
-		TargetType: "project", TargetID: args.ProjectID, TargetVersion: &rec.Version,
+		TargetType: string(datasource.EntityProject), TargetID: args.ProjectID, TargetVersion: &rec.Version,
 		Summary: fmt.Sprintf("Move project %s to %s", recordLabel(rec), args.ToPhase),
 	}, nil
 }

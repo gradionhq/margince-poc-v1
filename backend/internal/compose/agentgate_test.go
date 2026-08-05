@@ -140,11 +140,6 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 	if _, ok := operationSpec(agentPolicy{Op: "phantom", Access: accessTool, Tool: "no_such_tool", Tier: tierDynamic}, registry); ok {
 		t.Fatal("dynamic annotation without a registered dynamic tool must fail closed")
 	}
-
-	spec, ok = operationSpec(agentPolicy{Op: "sendEmail", Access: accessTool, Tool: "send_email", Tier: tierConfirmationRequired}, registry)
-	if !ok || spec.Tier != mcp.TierConfirmationRequired {
-		t.Fatalf("unregistered verb admits at the annotation tier, got %v ok=%v", spec.Tier, ok)
-	}
 }
 
 // The redemption key is content, not serialization: key order and

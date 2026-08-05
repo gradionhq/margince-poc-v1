@@ -36,7 +36,12 @@ import (
 // around it (outermost last — see the wrap-order note inline).
 func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) http.Handler {
 	gate := auth.NewGate(identitySvc)
-	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send)
+	// This registry admits REST calls; it never INVOKES a tool — a REST enrich
+	// runs scrapeHandlers, not the tool — so the enricher here supplies only the
+	// spec's cap and tier. Hence the address of the parameter rather than the
+	// live server: nothing reads through it. The MCP transport invokes tools
+	// through srv.toolRegistry, which holds the server itself.
+	registry := registryWithGate(pool, gate, srv.replyDrafter, srv.resolveOverlayIncumbent(pool), srv.send, companyEnricher{srv: &srv})
 	// The ADR-0055 admission layer and the MCP tool surface share one
 	// provider seam: agentGate's StageResolver dispatches per workspace
 	// exactly like the MCP registry's tools do — and the overlay-mode

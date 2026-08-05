@@ -31,7 +31,7 @@ import (
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
 func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send, companyEnricher{})
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -39,17 +39,17 @@ func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{})
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
+		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{})
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{})
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -76,6 +76,9 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// module's entry point, which is what the REST route calls too.
 	relinker, disqualifier, advancer := lifecycleSeams(pool)
 	agents.RegisterLifecycleTools(registry, provider, relinker, disqualifier, advancer)
+	// enrich rides the site-read seam rather than the datasource one: it reads
+	// the company's OWN website, which no record provider can answer.
+	agents.RegisterEnrichTool(registry, provider, enricher)
 	// Pipeline config, and it registers next to the core CRUD set because it is
 	// what makes two of those verbs reachable: create_record for a deal and
 	// advance_deal both name ids no other tool yields. Config is not a record,

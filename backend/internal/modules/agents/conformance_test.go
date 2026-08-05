@@ -134,7 +134,30 @@ func fullRegistry(t *testing.T) *Registry {
 		func(context.Context, ids.UUID) ([]IntroRoute, bool, error) { return nil, false, nil },
 		func(context.Context) (AtRiskReport, error) { return AtRiskReport{}, nil })
 	RegisterCommsTools(r, &recordingComms{}, &multiLinkProvider{})
+	RegisterLifecycleTools(r, nil, inertLifecycle{}, inertLifecycle{}, inertLifecycle{})
+	RegisterEnrichTool(r, nil, inertLifecycle{})
 	return r
+}
+
+// inertLifecycle satisfies the three lifecycle seams and the enrich seam for the
+// walks that only need a tool's SPEC and argument shape: they never reach a
+// handler, so a seam that answers nothing is the honest stand-in.
+type inertLifecycle struct{}
+
+func (inertLifecycle) RelinkActivity(context.Context, ids.UUID, string, ids.UUID, bool) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) DisqualifyLead(context.Context, ids.UUID) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) AdvanceProjectPhase(context.Context, ids.UUID, string, *string, *int64) (json.RawMessage, error) {
+	return nil, nil
+}
+
+func (inertLifecycle) EnrichCompany(context.Context, ids.UUID, string, string) (json.RawMessage, error) {
+	return nil, nil
 }
 
 // The MUST: a declared outputSchema obliges structured results. The text block

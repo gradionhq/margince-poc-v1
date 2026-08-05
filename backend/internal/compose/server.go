@@ -363,7 +363,7 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 	// The closure captures s and reads s.vault LAZILY at request time, so
 	// rebuilding before WithKeyvault installs the vault is fine.
 	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
-		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send, companyEnricher{srv: s})
 }
 
 // signalStrength bridges people's §4 relationship-strength computation to

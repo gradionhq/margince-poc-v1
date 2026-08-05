@@ -309,26 +309,20 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 // contract annotation may only TIGHTEN the tool's declared tier (the
 // A34/ADR-0026 tighten-only rule): an op annotated 🟡 stays 🟡 even where
 // the verb's base tier is 🟢 (archive-by-DELETE over update_record). A
-// verb with no registered tool is admitted at the annotation's static
-// tier under the cap the contract declares for it; a dynamic annotation
-// without a registered dynamic tool is unresolvable → fail closed.
+// verb with no registered tool is REFUSED, and a dynamic annotation without
+// a registered dynamic tool likewise → fail closed.
+//
+// This function used to synthesize a spec for an unregistered verb, and that
+// invention was the defect: it had to guess a cap, and the guess was `write`,
+// so verbs that fetch the web or deliver to a counterparty ran on internal
+// authority. There is nothing left to guess. Every verb the contract declares
+// has a registered tool — TestEveryDeclaredToolVerbIsRegistered fails the build
+// otherwise — so reaching this branch means the registry and the contract
+// disagree at runtime, and refusing is the only honest answer to that.
 func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	spec, registered := reg.Spec(pol.Tool)
 	if !registered {
-		if pol.Tier == tierDynamic {
-			return mcp.ToolSpec{}, false
-		}
-		tier := mcp.TierAutoExecute
-		if pol.Tier == tierConfirmationRequired {
-			tier = mcp.TierConfirmationRequired
-		}
-		// The scope is the contract's, not this function's. A default here
-		// is how a verb that fetches the web came to spend the write cap:
-		// every verb looked internal because nothing said otherwise.
-		scope := principal.Scope(pol.Scope)
-		return mcp.ToolSpec{
-			Name: pol.Tool, RequiredScope: scope, Tier: tier, Egress: scope.Egresses(),
-		}, true
+		return mcp.ToolSpec{}, false
 	}
 	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
 		return mcp.ToolSpec{}, false

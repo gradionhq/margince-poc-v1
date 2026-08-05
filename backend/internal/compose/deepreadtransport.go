@@ -78,32 +78,47 @@ type deepReadEngine struct {
 // creates or joins the dossier, and — only for a fresh dossier — enqueues
 // the crawl job. 202 either way: the read to poll is the answer.
 func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
-	orgID := ids.From[ids.OrganizationKind](ids.UUID(id))
 	override, ok := decodeSeedOverride(w, r)
 	if !ok {
 		return
 	}
+	started, err := e.startSiteRead(r.Context(), ids.UUID(id), override)
+	if err != nil {
+		// EnsureVisible's existence-hiding 404, the no-website 422 and the rest
+		// all ride the sentinel/DetailedError mapping.
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusAccepted, started)
+}
+
+// startSiteRead is the deep read itself, with no transport in it: resolve the
+// seed URL, queue the crawl, and say how the request landed. The HTTP route and
+// the `enrich` tool both call this, so a deep read means one thing on both
+// wires — the contract declares one verb, and a second implementation of it
+// would be a second answer to the same question.
+//
+// The no-website case returns its DetailedError rather than writing one, so
+// either transport renders the same 422 from the same decision.
+func (e *deepReadEngine) startSiteRead(ctx context.Context, id ids.UUID, override string) (crmcontracts.SiteReadStarted, error) {
+	orgID := ids.From[ids.OrganizationKind](id)
 	seedURL := override
 	if seedURL == "" {
-		resolved, err := e.people.EnrichTargetURL(r.Context(), orgID)
+		resolved, err := e.people.EnrichTargetURL(ctx, orgID)
 		if errors.Is(err, people.ErrNoEnrichTarget) {
-			httperr.Write(w, r, &httperr.DetailedError{
+			return crmcontracts.SiteReadStarted{}, &httperr.DetailedError{
 				Status: http.StatusUnprocessableEntity,
 				Code:   companyUnreadable,
 				Detail: "This company has no website on file. Add a URL to read from.",
-			})
-			return
+			}
 		}
 		if err != nil {
-			// EnsureVisible's existence-hiding 404 and the rest ride the
-			// sentinel mapping.
-			httperr.Write(w, r, err)
-			return
+			return crmcontracts.SiteReadStarted{}, err
 		}
 		seedURL = resolved
 	}
 
-	read, joined, err := e.people.StartSiteReadQueued(r.Context(), orgID, seedURL, requestedBy(r.Context()),
+	read, joined, err := e.people.StartSiteReadQueued(ctx, orgID, seedURL, requestedBy(ctx),
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			return e.enqueue.EnqueueTx(ctx, tx, SiteDeepReadArgs{
 				Workspace:      storekit.MustWorkspace(ctx),
@@ -113,8 +128,7 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 			}, siteDeepReadInsertOpts())
 		})
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return crmcontracts.SiteReadStarted{}, err
 	}
 	status := crmcontracts.SiteReadStartedStatusQueued
 	if joined {
@@ -123,10 +137,10 @@ func (e *deepReadEngine) start(w http.ResponseWriter, r *http.Request, id openap
 			status = crmcontracts.SiteReadStartedStatusDeferred
 		}
 	}
-	httperr.WriteJSON(w, http.StatusAccepted, crmcontracts.SiteReadStarted{
+	return crmcontracts.SiteReadStarted{
 		ReadId: openapi_types.UUID(read.ID),
 		Status: status,
-	})
+	}, nil
 }
 
 // report answers the SPA's poll with the dossier as it stands.
