@@ -316,6 +316,100 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-08-05 (form controls get one spelling, and the design gates widen, branch `feat/streamline-ui-elements`, draft PR #469)
+
+**The frontend's form controls are now atoms rather than a convention.**
+`Select`, `Textarea`, `Checkbox`, `Radio` and `Field` joined
+`design-system/atoms.tsx`, and the roughly 100 hand-rolled controls the screens
+had grown moved onto them. The fragmentation this removes was measured before it
+was fixed: a dropdown was a bare `<select className="input">` repeated across
+nineteen files, a textarea was one of three different classes, a checkbox row
+carried its own wrapper class with its own gap — six different values for the
+same control-and-label row — and 46 field rows threaded their own id through a
+label and a control by hand.
+
+What the atoms decide, rather than each call site deciding for itself:
+
+- **The control's surface.** One `.input` / `.textarea` spelling, so a dropdown
+  in a create form and one in settings cannot drift. `.textarea` also gained
+  `width: 100%` and took `.input`'s type size and padding: it had neither, so
+  five callers re-added the width locally and the three that did not rendered a
+  short box in a wide field.
+- **The label pairing.** `Field` mints the id with `useId`, so the typo that
+  silently unlabels a control has nowhere to live. Eleven rows had drawn the
+  label with a `<span>` and pointed at it with `aria-labelledby` — announced
+  correctly, but not a label, so clicking the words focused nothing. A twelfth
+  aimed a `<label for>` at a `<div>`, which cannot be labelled at all.
+- **The required marker.** One prop marks the label and the control. The
+  asterisk is `aria-hidden`, because the control's own `required` already
+  announces the state.
+
+**Two gates widened to cover the surface where the drift actually accumulates.**
+`check-ds-spacing` read only inline React styles — 9% of the CSS surface — and
+explicitly skipped `*.css`, where 71% of it lives; it now reads both, exempting
+`src/design-system` because that tier defines the scale rather than consuming it
+(an atom's optical `padding: 9px 11px` is deliberately off the 4/8/12/16/24
+steps). It also reads untracked files, which `git diff` cannot see and which are
+the strictest case there is — a whole new file was slipping the gate. It caught
+three real violations in its first hour, two of them in code written the same
+afternoon.
+
+`fe-uat` mapped a component to a story by matching filenames, so a component
+covered by a story under another name was reported as a coverage gap forever —
+`trust.tsx` was the standing example. It now maps a component to every story
+that imports it.
+
+**The design-system catalog stopped being a screen catalog.** Nine stories cover
+the twelve previously unstoried atoms, `trust.stories.tsx` covers that module
+whole (the old `fielddiff.stories.tsx` folded into it), and Storybook's sidebar
+reads as three roots instead of five.
+
+### Open here
+
+- **The type scale gained `.t-h3` at 16px/600, and that is a visible change.**
+  `StatCard`'s value had named the class since it was written and no stylesheet
+  declared it, so the figure a stat tile exists to show was rendering at body
+  size. 16px fills the one gap between `.t-h2` (18) and `.t-body` (14).
+  Whether a stat reading wants that step or the louder `.t-display` (22) is a
+  design call, not a defect — the defect was that it had none.
+- **About six `Field` sites remain unmigrated** in `automations.tsx` and
+  `deals.tsx`, each blocked by an inline `style` on the wrapper. `Field` takes a
+  `className`, not a `style`, on purpose; these need the margin moved to a class
+  first, which is a layout decision rather than a mechanical migration.
+  `onboarding-company-form.tsx`'s provenance-bearing label is now unblocked —
+  `Field`'s `label` widened to `ReactNode` — but nobody has moved it.
+- **Ten controls stay raw deliberately**, and should not be swept later without
+  reading why: the two faux-disc pickers (a visually-hidden native input plus a
+  styled disc), the rich settings toggle, the warning callout, the consent line,
+  and the four onboarding textareas that carry the assistant surface's own
+  treatment rather than the form surface's.
+
+### Filed, not fixed
+
+- **#476** — seven Storybook stories do not survive a headless render, and fail
+  identically on `main`. The whole `compose` group renders an empty root, so
+  `ComposeModal` has no working catalog entry. Verified against a clean `main`
+  worktree, so none of it is regression from this branch; the improved `fe-uat`
+  mapping is simply the first thing to render them. Carries the related
+  question of whether an empty `#storybook-root` should fail the gate on its
+  own — today only a throwing `play` fails, which is how the group sat broken.
+- **#477** — the `aicalls` task filter is the one control in the tree with no
+  accessible name of any kind, and its options omit `value`, so the wire value
+  is the option's text. It works only while the label and the value are the
+  same string.
+- **#478** — `fe-uat`'s fan-out. Touching `atoms.tsx` or `i18n/index.tsx` now
+  pulls in most of the catalog: 165 stories, about seven minutes. Fine for a
+  coordinator lane, which is what it is; it needs a stated cap before the lane
+  is ever made required, and a cap must log what it dropped.
+
+### Fixed on the way, worth knowing
+
+`company-act.test.tsx`'s rail-review block counted `.ob-conv-attention li`
+against the global `document` rather than its own render container, so a
+leftover render under suite load made it fail intermittently. It counts its own
+render now. This was a pre-existing flake, and it is the reason to distrust a
+single green suite run: it took a full-suite run under load to show at all.
+
 ## Session pickup — 2026-08-04 (a job kind is declared before it is written, branch `feat/job-contract`)
 
 **`backend/api/jobs.yaml` is now the declaration every River job kind is built
