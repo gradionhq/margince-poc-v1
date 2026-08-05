@@ -22,34 +22,25 @@ import (
 func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 	registry := NewRegistry(nil, SendPath{})
 
-	// The outbound universe: every verb still pinned as a hole, plus every
-	// registered tool that declares egress. Deriving it is what makes closing a
-	// hole at the wrong scope fail here rather than pass quietly.
-	outbound := map[string]bool{}
-	for _, verb := range outboundHoles.Subjects() {
-		outbound[verb] = true
-	}
-	for _, spec := range NewRegistry(nil, SendPath{}).Specs() {
+	// The outbound universe: every registered tool that declares egress.
+	// Deriving it from the registry rather than listing it is what makes a new
+	// delivery tool land under this assertion the day it is written.
+	delivers := map[string]bool{}
+	for _, spec := range registry.Specs() {
 		if spec.Egress {
-			outbound[spec.Name] = true
+			delivers[spec.Name] = true
 		}
+	}
+	if len(delivers) == 0 {
+		t.Fatal("no registered tool declares egress — this sweep asserted nothing")
 	}
 
-	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || !outbound[pol.Tool] {
+	checked := 0
+	for _, pol := range agentPolicies {
+		if pol.Access != accessTool || !delivers[pol.Tool] {
 			continue
 		}
-		if _, registered := registry.Spec(pol.Tool); !registered {
-			// A pinned hole is known-wrong — outboundHoles names the debt,
-			// not a passing grade — so it must not be asserted against
-			// ScopeSend here. TestThePinsDescribeVerbsThatStillExist covers
-			// the other half: it fails the moment the verb gains a tool,
-			// which is when this branch starts asserting on it instead.
-			if !outboundHoles.Waived(t, pol.Tool) {
-				t.Errorf("%s (%s) is derived as outbound but is neither registered nor a pinned hole", pol.Tool, route)
-			}
-			continue
-		}
+		checked++
 		spec, ok := operationSpec(pol, registry)
 		if !ok {
 			t.Fatalf("%s: the gate cannot resolve a spec for it", pol.Tool)
@@ -63,6 +54,88 @@ func TestOutboundVerbsRequireTheSendScope(t *testing.T) {
 		}
 		if !spec.Egress {
 			t.Errorf("%s does not declare egress; it leaves the workspace", pol.Tool)
+		}
+	}
+	// A registered egress tool with no route in the table would leave the loop
+	// above asserting nothing while `delivers` was happily non-empty.
+	if checked == 0 {
+		t.Fatal("no contract route resolves to a registered egress tool — this sweep asserted nothing")
+	}
+}
+
+// egressingSynthesizedVerbs states which verbs WITHOUT a registered tool reach
+// outside the workspace, and the cap each one spends.
+//
+// Egress is a fact about the world, not something this code can derive. For a
+// synthesized verb the spec's Egress flag is computed FROM its scope, so a scope
+// silently weakened to `write` would simply make Egresses() report false and
+// agree with itself. Nothing would fail. The fact therefore has to be written
+// down once, here, and the contract held to it.
+//
+// The cap is the one the act's PURPOSE spends, not merely whether packets leave.
+// That is why connect_incumbent is `write`: it does call the incumbent, but what
+// it durably does is seal a credential and flip the workspace's system of
+// record, and scopes are a flat set — `enrich` would admit an enrich-only
+// passport to both.
+var egressingSynthesizedVerbs = map[string]struct {
+	scope  agentScope
+	reason string
+}{
+	"enrich":            {scopeEnrich, "fetches the target's own website through the web-read seam"},
+	"reconcile_overlay": {scopeEnrich, "the sweep it queues calls the incumbent's API and spends its budget"},
+	"send_offer":        {scopeSend, "the contract promises this send leaves the workspace"},
+	"connect_incumbent": {scopeWrite, "calls the incumbent, but its purpose is sealing a credential and flipping x_sor_mode"},
+}
+
+// The pin above is the only thing holding an outbound synthesized verb off the
+// write cap, so it is worth as much as the gate itself.
+func TestEgressingSynthesizedVerbsSpendTheCapTheyArePinnedTo(t *testing.T) {
+	registry := NewRegistry(nil, SendPath{})
+
+	seen := map[string]bool{}
+	for route, pol := range agentPolicies {
+		if pol.Access != accessTool {
+			continue
+		}
+		want, pinned := egressingSynthesizedVerbs[pol.Tool]
+		if !pinned {
+			continue
+		}
+		seen[pol.Tool] = true
+		if _, registered := registry.Spec(pol.Tool); registered {
+			t.Errorf("%s now has a registered tool, so its spec is no longer synthesized — delete its "+
+				"egressingSynthesizedVerbs pin and let the registry parity sweep own it", pol.Tool)
+			continue
+		}
+		if pol.Scope != want.scope {
+			t.Errorf("%s (%s) is declared scope %q but reaches outside the workspace on the %q cap "+
+				"(%s) — either the contract weakened an outbound verb, or the act changed and this pin is stale",
+				pol.Tool, route, pol.Scope, want.scope, want.reason)
+		}
+	}
+	for verb := range egressingSynthesizedVerbs {
+		if !seen[verb] {
+			t.Errorf("%s is pinned as an egressing synthesized verb but no longer appears in the policy "+
+				"table; delete the pin", verb)
+		}
+	}
+}
+
+// A spec's Egress flag is what tells an operator the act leaves the
+// workspace; its scope is what the passport pays for it. The two are one
+// fact, so a spec may not report them differently — `send` and `enrich` both
+// put a request on the wire, and a spec claiming either while declaring
+// itself workspace-local would be governed correctly and described wrongly.
+func TestEverySpecsEgressAgreesWithItsScope(t *testing.T) {
+	specs := NewRegistry(nil, SendPath{}).Specs()
+	if len(specs) == 0 {
+		t.Fatal("the registry has no tools — this sweep checked nothing")
+	}
+	for _, spec := range specs {
+		if want := spec.RequiredScope.Egresses(); spec.Egress != want {
+			t.Errorf("%s declares Egress=%v but spends the %q cap, whose egress is %v — "+
+				"an operator reading the tool surface would be told the wrong thing about where this act goes",
+				spec.Name, spec.Egress, spec.RequiredScope, want)
 		}
 	}
 }

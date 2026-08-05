@@ -96,9 +96,10 @@ func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 					Tier:          tier,
 					InputSchema:   input,
 					OutputSchema:  tool.OutputSchema,
-					// A tool requesting the send scope reaches outside the
-					// workspace — surface that in the operator inventory.
-					Egress: scope == principal.ScopeSend,
+					// A tool whose cap leaves the workspace — delivering under
+					// `send`, fetching under `enrich` — is surfaced as such in
+					// the operator inventory.
+					Egress: scope.Egresses(),
 				},
 				handle: tool.Handle,
 			})

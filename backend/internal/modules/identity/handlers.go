@@ -290,8 +290,8 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 
 	// The seat ceiling is a licensing cap enforced before RBAC
 	// (A62/ADR-0047): a read seat may read but never mutate over REST,
-	// whatever its role grants. Method-based, matching restScope — the
-	// contract has no mutating GET.
+	// whatever its role grants. Method-based — the contract has no
+	// mutating GET.
 	if id.SeatType == string(principal.SeatRead) && isMutating(r.Method) {
 		httperr.Write(w, r, apperrors.ErrSeatTierInsufficient)
 		return
@@ -348,25 +348,18 @@ func (h Handlers) serveAsOptionalHuman(ctx context.Context, w http.ResponseWrite
 	next.ServeHTTP(w, r.WithContext(withHumanPrincipal(ctx, id)))
 }
 
-// restScope maps an HTTP method onto the passport verb it exercises on
-// the REST surface: reads need `read`, everything mutating needs `write`.
-// (send/enrich guard their own tools on the MCP surface; no REST path
-// sends email today.)
-func restScope(method string) principal.Scope {
-	switch method {
-	case http.MethodGet, http.MethodHead:
-		return principal.ScopeRead
-	default:
-		return principal.ScopeWrite
-	}
-}
-
 // isMutating is the transport-level write test the agent and read-seat
 // ceilings share: everything that is not a safe read method mutates. The
 // contract exposes no read-over-POST endpoint (searches are GET), so the
 // method alone is authoritative here.
+//
+// The method decides only whether a call mutates, never WHICH cap it
+// spends: a mutation's cap is declared per operation in the contract
+// (`x-mcp-tool.scope`) and admitted in the ADR-0055 gate, so a `send` or
+// an `enrich` over REST is not reachable on `write` just because it
+// arrived as a POST.
 func isMutating(method string) bool {
-	return restScope(method) != principal.ScopeRead
+	return method != http.MethodGet && method != http.MethodHead
 }
 
 func setSessionCookie(w http.ResponseWriter, token string) {

@@ -30,7 +30,7 @@ var passportScopeVocabulary = map[principal.Scope]bool{
 	principal.ScopeEnrich: true,
 }
 
-func TestEveryToolScopeIsGrantableAndEgressNeedsSend(t *testing.T) {
+func TestEveryToolScopeIsGrantableAndEgressNeedsAnOutboundCap(t *testing.T) {
 	registry := NewRegistry(nil, nil)
 	RegisterCoreTools(registry, nil, nil, nil, nil)
 
@@ -39,9 +39,11 @@ func TestEveryToolScopeIsGrantableAndEgressNeedsSend(t *testing.T) {
 			t.Errorf("tool %q requires scope %q outside the passport vocabulary — no passport could admit it",
 				spec.Name, spec.RequiredScope)
 		}
-		if spec.Egress && spec.RequiredScope != principal.ScopeSend {
-			t.Errorf("egress tool %q requires scope %q — outbound egress must be gated on %q, not %q, so a write passport is not implicitly a send passport",
-				spec.Name, spec.RequiredScope, principal.ScopeSend, principal.ScopeWrite)
+		if spec.Egress && !spec.RequiredScope.Egresses() {
+			t.Errorf("egress tool %q requires scope %q, which does not leave the workspace — a tool that "+
+				"reaches outside must spend a cap that says so (%q to deliver, %q to fetch), or a write "+
+				"passport becomes implicitly an outbound one",
+				spec.Name, spec.RequiredScope, principal.ScopeSend, principal.ScopeEnrich)
 		}
 	}
 }
