@@ -129,11 +129,33 @@ for d in "${GO_DIRS[@]}"; do
       done
 done > "$CANDIDATES"
 
-WORK="$(mktemp)"
+LANEPKGS="$(mktemp)" WORK="$(mktemp)"
 DISCOVERY="$(mktemp)" ASSIGNED="$(mktemp)" RAN="$(mktemp)" UNTAGGED="$(mktemp)"
 TIMING="$(mktemp)"
 OUTDIR="$(mktemp -d)"
-trap 'rm -f "$CANDIDATES" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+trap 'rm -f "$CANDIDATES" "$LANEPKGS" "$WORK" "$DISCOVERY" "$ASSIGNED" "$RAN" "$UNTAGGED" "$TIMING"; rm -rf "$OUTDIR" ${REGEX_DIR:+"$REGEX_DIR"}' EXIT
+
+# Which candidate packages does this lane own? A package is one when at least
+# one of its test files names `integration` in its build-constraint region.
+#
+# This pass exists to bound the strict constraint check below. That check fails
+# the whole lane on a constraint it cannot decide, because in a package this lane
+# RUNS, a satisfied built-in tag (linux, amd64, cgo, …) would compile under
+# `go test` yet land in no slice — a silently thinner lane. In a package the lane
+# never runs, the same tag is simply none of its business, and failing on it would
+# stop the lane over a file it was never going to execute.
+while IFS='|' read -r d rel; do
+  pkgdir="$d/${rel#./}"; [[ "$rel" = "." ]] && pkgdir="$d"
+  for f in "$pkgdir"/*_test.go; do
+    [[ -e "$f" ]] || continue
+    if sed -n '/^package /q;p' "$f" \
+      | sed -nE 's|^//go:build ||p; s|^// \+build ||p' \
+      | grep -qw 'integration'; then
+      echo "$d|$rel"
+      break
+    fi
+  done
+done < "$CANDIDATES" | LC_ALL=C sort -u > "$LANEPKGS"
 
 # Static discovery: every top-level Test function of every integration-TAGGED
 # file, as "module_dir|rel|TestName". TestMain is a fixture, not a test;
@@ -194,7 +216,7 @@ while IFS='|' read -r d rel; do
           echo "$d|$rel|$name"
         done
   done
-done < "$CANDIDATES" | LC_ALL=C sort > "$DISCOVERY"
+done < "$LANEPKGS" | LC_ALL=C sort > "$DISCOVERY"
 
 NTESTS=$(wc -l < "$DISCOVERY" | tr -d ' ')
 
@@ -320,17 +342,25 @@ for base in $(cd "$OUTDIR" && ls -1 -- *.log 2>/dev/null | sort -n); do
   grep -q "^EXIT 0$" "$log" || fail=1
   # Top-level results only (subtest lines are indented): "rel|TestName" per
   # the package this log belongs to, for the ran==assigned check below.
+  #
+  # SKIP counts as run. A skipped test still executed, and this lane forbids
+  # skipping outright a few lines down — omitting it here would report it as
+  # "assigned but not run" instead, which names the reconciliation rather than
+  # the skip and sends the reader looking for a dead worker.
   idx="${base%.log}"
   line="$(sed -n "${idx}p" "$WORK")"
   d="${line%%|*}" rest="${line#*|}"
   rel="${rest%%|*}"
-  grep -E '^--- (PASS|FAIL): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
+  grep -E '^--- (PASS|FAIL|SKIP): ' "$log" | awk -v p="$d|$rel|" '{print p $3}' >> "$RAN" || true
   # Cost, taken from `go test`'s own trailing "ok <pkg> <n>s" — millisecond
   # precision already in the log, and it excludes the clone provisioning around
   # it, so what it prices is the tests themselves.
+  # The duration field is matched, not the line end: a covered shard appends
+  # "coverage: NN.N% of statements" after it, and anchoring on s$ would have
+  # priced every CI package at nothing — shard mode always sets COVERDIR.
   awk -v rel="$rel" '
-    /^(ok|FAIL)[ \t]+[^ \t]+[ \t]+[0-9.]+s$/ { secs = $3; sub(/s$/, "", secs) }
-    /^--- (PASS|FAIL): / { n++ }
+    /^(ok|FAIL)[ \t]+[^ \t]+[ \t]+[0-9.]+s([ \t]|$)/ { secs = $3; sub(/s$/, "", secs) }
+    /^--- (PASS|FAIL|SKIP): / { n++ }
     END { if (secs != "") printf "%s|%s|%d\n", rel, secs, n + 0 }
   ' "$log" >> "$TIMING" || true
 done
@@ -366,7 +396,9 @@ if [[ "$NPKGS_DISCOVERED" -eq 0 ]]; then
   echo "FAIL: no integration packages discovered — the build-constraint scan admitted no tagged file (regression?)"
   fail=1
 elif [[ "$ran" -ne "$NPKGS" ]]; then
-  echo "FAIL: ran $ran package log(s) but discovered $NPKGS — a worker did not report; treating as red"
+  # $NPKGS is THIS run's package count — the shard's slice, not the lane total —
+  # so it is the number a missing worker has to be counted against.
+  echo "FAIL: ran $ran package log(s) but this run has $NPKGS package(s) — a worker did not report; treating as red"
   fail=1
 fi
 

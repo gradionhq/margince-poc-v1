@@ -25,9 +25,14 @@ import (
 // river_migration's applied-version ledger while leaving the tables standing.
 // The migrator is itself idempotent, but River reads that emptied ledger and
 // would replay its first migration against tables that still exist, failing on
-// SQLSTATE 42P07 — so the table, not the ledger, is what must be probed. Tests in
-// these packages run sequentially (no t.Parallel), which is what makes the
-// check-then-migrate window safe.
+// SQLSTATE 42P07 — so the table, not the ledger, is what must be probed.
+//
+// The check-then-migrate window needs no lock because nothing else can be in it.
+// Each package worker owns a private clone database for its whole run, and within
+// that process the lane runs `go test -p 1` with no t.Parallel, so the probe and
+// the migration are the only things touching that schema. The shared template is
+// finished before any worker starts — the runner builds it, then fans out — so a
+// worker never observes a half-prepared one.
 //
 // migrate arrives as a parameter rather than an import: the River migrator lives
 // in platform/jobs, and a testdb that reached for it would make the lane's schema

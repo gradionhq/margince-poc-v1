@@ -210,12 +210,12 @@ func TestBandCrossesWarnAndShed(t *testing.T) {
 }
 
 // TestFailClosed is tagged because the healthy Redis is the control, not the
-// subject. Every arm here asserts a refusal decided before any command reaches
-// the client — no workspace bound, an unconfigured incumbent, a nil client — and
-// a live backend is what proves shed is the meter's own decision rather than an
-// artifact of a dead one. Against no Redis at all these assertions would pass
-// for the wrong reason, so the dependency is provisioned precisely to prove the
-// refusal does not depend on its absence.
+// subject. What is asserted are the RESULTS — shed, declined, nothing recorded —
+// for an unbound workspace, an unconfigured incumbent and a nil client. Against
+// no Redis at all those same results would arrive for the wrong reason, so a
+// live backend is what makes them mean the meter decided rather than that the
+// backend was missing. It says nothing about command ordering: no command is
+// counted here, only the answer.
 func TestFailClosed(t *testing.T) {
 	rdb := budgettest.Client(t)
 	cfg := testCfg()

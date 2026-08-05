@@ -30,6 +30,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -102,10 +103,24 @@ func TestIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 	inlineMigrators.AssertAllMatched(t)
 }
 
+// dbmigratePath is the migrate entry point's package, matched by import path
+// rather than by the identifier a file happens to bind it to.
+const dbmigratePath = "github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+
 // callsInlineMigrate reports whether the file calls dbmigrate.Up — the migrate
 // entry point. A call, not a mention: the selector has to be applied, so the
 // function named in a comment or a report string is not a migration.
+//
+// The qualifier is resolved through the file's own imports, because the name is
+// the caller's choice: `import dm ".../dbmigrate"` then `dm.Up(...)`, or a
+// dot-import then a bare `Up(...)`, migrate exactly as much as the canonical
+// spelling does. Comparing the identifier alone would let a rename walk past the
+// one gate this whole lane's cost model rests on.
 func callsInlineMigrate(file *ast.File) bool {
+	qualifier, dotImported := dbmigrateName(file)
+	if qualifier == "" && !dotImported {
+		return false
+	}
 	found := false
 	ast.Inspect(file, func(n ast.Node) bool {
 		if found {
@@ -115,16 +130,47 @@ func callsInlineMigrate(file *ast.File) bool {
 		if !ok {
 			return true
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel == nil || sel.Sel.Name != "Up" {
-			return true
-		}
-		pkg, ok := sel.X.(*ast.Ident)
-		if ok && pkg.Name == "dbmigrate" {
-			found = true
-			return false
+		switch fun := call.Fun.(type) {
+		case *ast.SelectorExpr:
+			if fun.Sel == nil || fun.Sel.Name != "Up" || qualifier == "" {
+				return true
+			}
+			if pkg, ok := fun.X.(*ast.Ident); ok && pkg.Name == qualifier {
+				found = true
+				return false
+			}
+		case *ast.Ident:
+			// Only reachable under a dot-import, where Up is unqualified.
+			if dotImported && fun.Name == "Up" {
+				found = true
+				return false
+			}
 		}
 		return true
 	})
 	return found
+}
+
+// dbmigrateName returns the identifier this file binds the migrate package to,
+// and whether it was dot-imported. Both are empty/false when the file does not
+// import it at all, which is the cheap way to skip most of the tree.
+func dbmigrateName(file *ast.File) (qualifier string, dotImported bool) {
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || path != dbmigratePath {
+			continue
+		}
+		switch {
+		case spec.Name == nil:
+			return "dbmigrate", false
+		case spec.Name.Name == ".":
+			return "", true
+		case spec.Name.Name == "_":
+			// Imported for side effects only; it cannot be called through.
+			return "", false
+		default:
+			return spec.Name.Name, false
+		}
+	}
+	return "", false
 }
