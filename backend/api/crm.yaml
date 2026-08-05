@@ -352,8 +352,10 @@ paths:
       description: >
         Non-production only. Wipes workspace domain + seeded-config data back to the
         bootstrapped state, preserving the organization and users so login still works,
-        then re-seeds module defaults. Requires the organization name as a typed
-        confirmation. In production this endpoint does not exist (404).
+        then re-seeds module defaults. Also clears the job queue, the event bus, the
+        Redis counters and the object bytes — not only table rows. Requires the
+        organization name as a typed confirmation. In production this endpoint does
+        not exist (404).
       requestBody:
         required: true
         content:
@@ -375,10 +377,28 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [status, tables_cleared]
+                required: [status, tables_cleared, jobs_cancelled, streams_purged, cache_keys_deleted, objects_deleted, drain_timed_out]
                 properties:
                   status: { type: string, example: reset }
                   tables_cleared: { type: integer }
+                  jobs_cancelled:
+                    type: integer
+                    description: Queued, scheduled, running and retryable job rows deleted — this workspace's work plus the fleet dispatchers the periodic ticks re-insert.
+                  streams_purged:
+                    type: integer
+                    description: Event-bus stream KEYS deleted (their consumer groups are re-created empty), not entries.
+                  cache_keys_deleted:
+                    type: integer
+                    description: Redis keys unlinked — processed-event dedupe marks plus this workspace's overlay budget counters.
+                  objects_deleted:
+                    type: integer
+                    description: Objects removed from the blob store under this workspace's key prefix.
+                  drain_timed_out:
+                    type: boolean
+                    description: >
+                      True when a job was still running when the bounded drain window expired. The reset
+                      proceeded — a long pass must not make an installation unresettable — and the surviving
+                      job's completion write will fail against rows that no longer exist.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403':
           description: >
