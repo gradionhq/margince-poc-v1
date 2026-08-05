@@ -32,7 +32,7 @@ RBAC**:
 |---|---|---|
 | A **human** | web app / HTTP | the `crm_session` cookie (from `POST /v1/auth/login`) |
 | An **agent** | REST | `Authorization: Bearer mgp_…` (a passport) |
-| An **agent** | MCP (stdio or hosted HTTP) | a passport (`MARGINCE_PASSPORT_TOKEN`, or an OAuth-minted bearer) |
+| An **agent** | MCP (`/mcp`, Streamable HTTP) | `Authorization: Bearer mgp_…` — a passport minted directly, or one the OAuth handshake issued when a human lent theirs |
 
 (No request names a tenant: one installation serves one organization, and the
 admission middleware binds that singleton workspace itself before any handler runs.)

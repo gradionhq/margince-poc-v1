@@ -1,6 +1,6 @@
 # Add an extension (a stable-tier unit)
 
-For shipping a bounded add-on — today a **jurisdiction pack** — as a named, versioned unit under
+For shipping a bounded add-on — today a **jurisdiction pack** or a **governed agent tool** — as a named, versioned unit under
 `extensions/<name>/`, without editing any upstream-owned file. For *why* the seam is a compile-time
 declaration and what the surface guarantees, read
 [explanation/extensibility.md](../explanation/extensibility.md) first. For a country pack
@@ -8,8 +8,8 @@ specifically, the live capability is retention floors; the running example below
 
 An extension is its own Go module reaching the core through only the marker-allowlisted
 `backend/pkg/**` surface. **Presence under `extensions/` is the enablement** — there is no flag to
-flip. `extensions/de` (Germany) and `fixtures/extensions/crm-hello` (the walking-skeleton reference)
-are the two units to copy from.
+flip. `extensions/de` (Germany), `extensions/yogi` (one served agent tool) and
+`fixtures/extensions/crm-hello` (the walking-skeleton reference) are the units to copy from.
 
 ## Scaffold the unit
 
@@ -90,10 +90,53 @@ the values you declare must be ones a core engine already understands:
 
 Get the statutory content right — it's legal content, not a default. Pin it with a test (below).
 
+## Declare a governed agent tool (optional)
+
+A unit may also contribute **agent tools** — named verbs the MCP surface serves alongside the core
+ones. `extensions/yogi` is the first-party worked example; copy its shape:
+
+```go
+Tools: []extension.Tool{{
+	Name:           "yogi_quote",        // lower snake_case, unique across the composed set
+	Title:          "Yogi Berra quote",  // optional; what tools/list DISPLAYS, so write a label
+	Version:        "1.0.0",
+	Tier:           extension.TierAutoExecute,
+	RequestedScope: extension.ScopeRead,
+	InputSchema:    json.RawMessage(`{"type":"object"}`),
+	Handle:         quote,
+}}
+```
+
+What the surface will and will not serve:
+
+- **`Handle` decides whether the tool runs.** Omit it and the declaration is a manifest request and
+  nothing more — inert. Supply it and the tool is registered at boot into the same registry and
+  admission gate the core tools ride, so its tier and scope are enforced on every call.
+- **A served tool is 🟢 only.** `TierConfirmationRequired` is refused for a handler-bearing tool: this
+  surface cannot stage an approval, so a confirm-first extension tool would be refused on every call.
+- **A served tool may not DECLARE an outbound cap.** `ScopeSend` and `ScopeEnrich` are refused for a
+  handler-bearing tool, because outbound work is confirm-first everywhere else in the product and a
+  🟢 outbound verb would reach a destination nobody approved. This binds the declaration, not the
+  handler: a handler is ordinary Go and could open a socket regardless, which is why the composed set
+  is itself the trust boundary (see
+  [explanation/extensibility.md](../explanation/extensibility.md)) and a unit is added deliberately.
+- **`Title` is optional but not free-form-blank.** A whitespace-only or space-framed title is refused
+  at generation; a unit that declares none is listed under its verb.
+- **`RequestedScope` is required.** The vocabulary is the closed passport set (`read`, `draft`,
+  `write`, `send`, `enrich`); a **served** tool may request only `read`, `draft` or `write`, since the
+  two outbound caps are refused above. It is the cap a caller's passport must hold, so declare the one
+  the act actually spends.
+
+Your handler receives a `context.Context` and raw JSON, and nothing else — no pool, no provider, no
+record access. Validate arguments by decoding into a strict typed struct; `InputSchema` is
+client-facing documentation, not a validator.
+
 ## Write the unit's own test
 
 Each unit is its own Go module, so the backend's `./...` never reaches it — it carries its own tests,
-run by `make test-extensions` on the composed workspace. Pin the statutory content so a changed span
+run by `make test-extensions` on the composed workspace. Its Go files sit under the same
+craftsmanship and license-header gates as `backend/` — `make craft-static` sweeps `extensions/`, and
+the pre-push hook checks the extension files a push changes. Pin the statutory content so a changed span
 or class name is a deliberate, reviewed edit (copy the shape from `extensions/de/de_test.go`):
 
 ```go

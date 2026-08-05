@@ -28,11 +28,10 @@ license:
 # claims. syft's default selection ("owned-by-package") only hashes files
 # attributed to a discovered package, leaving first-party source
 # (backend/**, frontend/src/**, migrations, config templates) with no
-# checksum. "all" hashes the whole export — the same clean `git archive HEAD`
-# content, minus the exclude globs below — so the SBOM records a verifiable
-# digest for every shipped local file. SHA1 is kept because SPDX file entries
-# historically key on it; SHA256 and SHA512 are the modern integrity checks
-# consumers verify against.
+# checksum. "all" hashes the whole export — the entire clean `git archive HEAD`
+# content — so the SBOM records a verifiable digest for every committed file.
+# SHA1 is kept because SPDX file entries historically key on it; SHA256 and
+# SHA512 are the modern integrity checks consumers verify against.
 file:
   metadata:
     selection: all
@@ -41,16 +40,10 @@ file:
       - sha256
       - sha512
 
-# Committed trees that are agent/CI/build-tooling/test state, not shipped
-# product source or dependency manifests. The clean export already drops
-# uncommitted host state (node_modules, build output, .env); these drop the
-# committed non-product trees the scan would otherwise catalog as components.
-exclude:
-  - ./.claude/**
-  - ./.github/** # CI workflows — syft catalogs the referenced Actions as packages, but they are build infra, not shipped product
-  - ./.githooks/**
-  - ./.pnpm-store/**
-  - ./scratchpad/**
-  - ./cli/craft/** # code-craftsmanship gate (ADR-0045), a pre-push build tool — not shipped
-  - ./fixtures/** # test fixtures (e.g. the crm-hello extension module) — not shipped
-  - ./sbom-schemas/** # vendored upstream SPDX schemas for sbom-validate — build tooling, not shipped
+# No `exclude:` list on purpose. The constellation dist release gate rejects a
+# release unless the SBOM attests every file the release patch adds or modifies,
+# and the patch (create-patch) is a full committed-tree diff with no excludes. So
+# the SBOM file set must equal the whole committed tree: excluding any committed
+# tree here (CI workflows, cli/craft, fixtures, sbom-schemas, …) makes a commit
+# that touches it fail the gate. Uncommitted host state (node_modules, build
+# output, .env) is already absent — the scan runs on `git archive HEAD`.
