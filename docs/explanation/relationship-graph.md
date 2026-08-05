@@ -258,10 +258,15 @@ engaged contacts — then folds the gathered facts with a pure function against 
 
 **Engaged means a real two-way exchange**, not a seat on a list: both an inbound *and* an outbound
 qualifying interaction inside a 90-day window (`deals.EngagementWindowDays`). A one-way broadcast
-target is not engaged however many messages we sent them. It is the **same** `deals.EngagedStakeholders`
-the deal-health composite reads — one definition, so two screens cannot disagree about the same deal,
-which is precisely what a reconcilable flag requires. (The engagement test walks the deal's
+target is not engaged however many messages we sent them. (The engagement test walks the deal's
 stakeholders' linked activities directly; it does not read the interaction projection.)
+
+Coverage answers this with `deals.EngagedStakeholders`. The deal-health composite asks the same
+question, but with **its own inline copy** of the query (`healthActivityEvidence` in
+`deals/health.go`) rather than by calling that helper. So the two screens agree about a deal because
+the window and the two-way test currently match, not because one definition serves both — a
+reconcilable flag deserves the shared definition it does not yet have, and a change to either side
+has to be made to the other by hand.
 
 Every rule is a **pipeline** rule: a coverage view whose deal is not `open` folds to no findings at
 all. Telling a rep their delivered business is single-threaded is how a flag stops being read.
