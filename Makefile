@@ -7,7 +7,7 @@
 # one target here that invokes the compiler directly instead of delegating.
 GO ?= go
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -387,9 +387,27 @@ sbom:
 	    -o spdx-json@2.2=$(SBOM_DIR)/margince.spdx221.json \
 	    -o spdx-json@3.0=$(SBOM_DIR)/margince.spdx300.json
 	@$(MAKE) sbom-normalize
+	@$(MAKE) sbom-supplement
 	@$(MAKE) sbom-parity
 	@$(MAKE) sbom-validate
 	@echo "wrote $(SBOM_FILES)"
+
+## sbom-supplement — fill in licenses syft cannot resolve. syft leaves GitHub
+## Actions unlicensed (anchore/syft#4209) and passes PyPI's ambiguous "BSD"
+## through for a couple of build-tooling deps, so the license gate would deny
+## them though their real licenses are permissive. This curated purl->SPDX map
+## (key = purl without version, so every pinned action version matches) sets the
+## license on the CycloneDX doc the gate reads and on the SPDX 2.2 doc, so both
+## license-bearing SBOMs agree; syft v1.50 emits no per-package license in SPDX
+## 3.0, so there is nothing to supplement there. SonarSource's action is left
+## unset on purpose — it is LGPL-3.0-only and ignored in .grant.yaml, not shipped.
+## Idempotent; keep the map in step with the workflows and the SPDX-tools deps.
+sbom-supplement:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@set -e; cdx=$(SBOM_DIR)/margince.cdx.json; s22=$(SBOM_DIR)/margince.spdx221.json; \
+	  map='{"pkg:github/actions/checkout":"MIT","pkg:github/actions/cache":"MIT","pkg:github/actions/setup-go":"MIT","pkg:github/actions/setup-node":"MIT","pkg:github/actions/upload-artifact":"MIT","pkg:github/actions/download-artifact":"MIT","pkg:github/dorny/paths-filter":"MIT","pkg:github/pnpm/action-setup":"MIT","pkg:pypi/ply":"BSD-3-Clause","pkg:pypi/semantic-version":"BSD-2-Clause"}'; \
+	  jq --argjson m "$$map" '.components |= map(((.purl // "") | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then .licenses = [{"license": {"id": $$m[$$k]}}] else . end)' "$$cdx" > "$$cdx.tmp" && mv "$$cdx.tmp" "$$cdx"; \
+	  jq --argjson m "$$map" '.packages |= map((([.externalRefs[]? | select(.referenceType == "purl") | .referenceLocator] | (.[0] // "")) | sub("@[^@]*$$"; "")) as $$k | if $$m[$$k] != null then (.licenseConcluded = $$m[$$k] | .licenseDeclared = $$m[$$k]) else . end)' "$$s22" > "$$s22.tmp" && mv "$$s22.tmp" "$$s22"
 
 ## sbom-normalize — reconcile syft's three writers so all three SBOMs describe one
 ## tree, the invariant the constellation dist gate enforces. syft scans the export
