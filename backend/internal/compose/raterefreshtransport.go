@@ -60,9 +60,11 @@ func (h rateRefreshHandlers) enqueueRefresh(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	ctx := r.Context()
-	// Gate on Create — the same authority word the staged effect's write
-	// (SetFxRate/SetModelRate) and its decision grant use; admin/ops hold it.
-	if err := auth.Require(ctx, object, principal.ActionCreate); err != nil {
+	// The same admission the staged effect's write (SetFxRate/SetModelRate)
+	// opens with: a refresh proposes both new rows and corrections to today's,
+	// so either write grant admits proposing one. Which grant the apply
+	// actually needs is settled inside that write, against the sheet.
+	if err := auth.RequireAny(ctx, object, principal.ActionCreate, principal.ActionUpdate); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

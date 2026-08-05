@@ -62,7 +62,7 @@ const (
 
 // linkTargetTables names every record type an activity_link points at, in
 // the order the disjunction below walks them. Both this projection and the
-// activity gate in rbac.go decide whether they may skip their clause by
+// activity gate in rowscope.go decide whether they may skip their clause by
 // asking UnboundedFor over this set, so a record type that gains capture
 // privacy tightens both at once.
 var linkTargetTables = []string{tablePerson, tableOrganization, tableDeal, tableLead, tableProject}

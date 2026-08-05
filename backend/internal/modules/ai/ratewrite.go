@@ -5,6 +5,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -122,8 +123,18 @@ type preparedModelRate struct {
 // prepareModelRate runs the connection-free, clock-free gates — RBAC admission,
 // provider/model presence, and the USD→µUSD range conversion — returning the
 // shape-validated write.
+//
+// TWO CHECKS WITH ONE PURPOSE. One endpoint sets a price, and which grant that
+// needs — create for a new (provider, model, day), update when it replaces an
+// existing price — is only knowable from the sheet. So admission splits: this
+// half asks the cheap question a caller can be refused on without a pool
+// connection ("may this principal write the sheet AT ALL"), and writeModelRate
+// demands the specific grant once it has read the row. Neither half is
+// redundant: drop this one and an unauthorized caller costs a connection and a
+// transaction; drop the other and `update` is granted by holding `create`.
+// The fx_rate sheet carries the identical pair.
 func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) (preparedModelRate, error) {
-	if err := auth.Require(ctx, "ai_model_rate", principal.ActionCreate); err != nil {
+	if err := auth.RequireAny(ctx, "ai_model_rate", principal.ActionCreate, principal.ActionUpdate); err != nil {
 		return preparedModelRate{}, err
 	}
 	provider := strings.TrimSpace(in.Provider)
@@ -144,11 +155,50 @@ func (s *RateStore) prepareModelRate(ctx context.Context, in SetModelRateInput) 
 	}, nil
 }
 
+// replacedModelRate reads the price this write would overwrite, if any: the
+// second admission check needs insert-vs-overwrite, and an overwrite's audit
+// owes the ledger the prices it displaced. The before image mirrors the after
+// image's shape key for key, so the two diff to exactly the buckets that moved.
+// Called under the model's write-identity lock, so no concurrent writer can
+// insert the row between this read and the upsert that follows.
+func replacedModelRate(ctx context.Context, tx pgx.Tx, p preparedModelRate, effDate time.Time) (before map[string]any, replacing bool, err error) {
+	var in, out, cacheRead, cacheWrite int64
+	err = tx.QueryRow(ctx, `
+		SELECT input_per_mtok_microusd, output_per_mtok_microusd,
+		       cache_read_per_mtok_microusd, cache_write_per_mtok_microusd
+		FROM ai_model_rate
+		WHERE provider = $1 AND model_id = $2 AND effective_date = $3`,
+		p.provider, p.modelID, effDate).Scan(&in, &out, &cacheRead, &cacheWrite)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read replaced ai_model_rate: %w", err)
+	}
+	prior := preparedModelRate{
+		provider: p.provider, modelID: p.modelID,
+		input: in, output: out, cacheRead: cacheRead, cacheWrite: cacheWrite,
+	}
+	return modelRateImage(prior, effDate), true, nil
+}
+
+// modelRateImage renders one audit image of a price row. Before and after
+// share it, so the pair diffs to exactly the buckets that moved rather than to
+// a difference in how each side was spelled.
+func modelRateImage(r preparedModelRate, effDate time.Time) map[string]any {
+	return map[string]any{
+		"provider": r.provider, "model_id": r.modelID,
+		"input_microusd": r.input, "output_microusd": r.output,
+		"cache_read_microusd": r.cacheRead, "cache_write_microusd": r.cacheWrite,
+		"date": effDate,
+	}
+}
+
 // writeModelRate does the transactional body: resolve and guard the effective
 // day against a clock sampled INSIDE the tx (so a write that waited for the pool
 // across UTC midnight is stored against the day it commits — append-forward
-// stays true at write time), then upsert the append-forward row and audit — all
-// in the caller-owned tx.
+// stays true at write time), require the grant the upsert turns out to need,
+// then upsert the append-forward row and audit — all in the caller-owned tx.
 func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedModelRate, effectiveDate time.Time) (ModelRateRow, error) {
 	// Serialize writers of this model's sheet identity BEFORE sampling the
 	// clock: a write that waited here for a precondition-holding transaction
@@ -163,6 +213,16 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 	effDate := effectiveDate.UTC().Truncate(24 * time.Hour)
 	if effDate.Before(today) {
 		return ModelRateRow{}, rateInvalid("effective_date", "rate_past", "effective_date cannot be in the past")
+	}
+	before, replacing, err := replacedModelRate(ctx, tx, p, effDate)
+	if err != nil {
+		return ModelRateRow{}, err
+	}
+	// The specific half of the admission pair prepareModelRate opened: now that
+	// insert-vs-overwrite is known, demand the grant this write really needs.
+	action := auth.UpsertAction(replacing)
+	if err := auth.Require(ctx, "ai_model_rate", action); err != nil {
+		return ModelRateRow{}, err
 	}
 	var (
 		out                                 ModelRateRow
@@ -199,14 +259,12 @@ func (s *RateStore) writeModelRate(ctx context.Context, tx pgx.Tx, p preparedMod
 	}
 	// Audit the UTC-truncated day actually stored, not the caller's raw
 	// timestamp, so the ledger is faithful to the persisted rate (matches the
-	// fx_rate sibling).
-	if _, err := storekit.Audit(ctx, tx, "create", "ai_model_rate", id, nil, map[string]any{
-		"provider": p.provider, "model_id": p.modelID,
-		"input_microusd": p.input, "output_microusd": p.output,
-		"cache_read_microusd": p.cacheRead, "cache_write_microusd": p.cacheWrite,
-		"date": effDate,
-	}); err != nil {
-		return ModelRateRow{}, fmt.Errorf("audit ai_model_rate create: %w", err)
+	// fx_rate sibling). The verb is the SAME word the gate above demanded, so
+	// authorization_rule attributes the grant that actually admitted the write
+	// rather than a plausible-looking one.
+	if _, err := storekit.Audit(ctx, tx, string(action), "ai_model_rate", id, before,
+		modelRateImage(p, effDate)); err != nil {
+		return ModelRateRow{}, fmt.Errorf("audit ai_model_rate %s: %w", action, err)
 	}
 	return out, nil
 }

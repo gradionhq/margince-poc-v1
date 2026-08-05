@@ -160,3 +160,100 @@ func TestModelRateCrossWorkspaceIsolation(t *testing.T) {
 		t.Fatalf("workspace B sees %d rows, want 0 (RLS leak)", n)
 	}
 }
+
+// modelRatePerms is a config-editing principal narrowed to ONE ai_model_rate
+// grant row. The matrix distinguishes inserting a new (provider, model, day)
+// from overwriting an existing one; only a principal missing one of the two
+// grants can prove that the endpoint actually asks for the right one.
+func modelRatePerms(g principal.ObjectGrant) principal.Permissions {
+	return principal.Permissions{
+		RoleKeys: []string{"ops"},
+		Objects:  map[string]principal.ObjectGrant{"ai_model_rate": g},
+		RowScope: principal.RowScopeAll,
+	}
+}
+
+// One endpoint, two grants: it inserts under `create` and overwrites under
+// `update`, and neither grant substitutes for the other. Every refusal is the
+// 403 sentinel, and a refused write leaves the sheet untouched. The fx_rate
+// sheet carries the identical pair.
+func TestModelRateCreateAndUpdateGrantsGateSeparately(t *testing.T) {
+	e := Setup(t)
+	store := ai.NewRateStore(e.Pool)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	setOn := func(ctx context.Context, input string, day time.Time) error {
+		_, err := store.SetModelRate(ctx, ai.SetModelRateInput{
+			Provider: "anthropic", ModelID: "m",
+			InputUsd: input, OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0",
+			EffectiveDate: day,
+		})
+		return err
+	}
+	creator := e.As(e.Rep1, nil, modelRatePerms(principal.ObjectGrant{Create: true, Read: true}))
+	updater := e.As(e.Rep1, nil, modelRatePerms(principal.ObjectGrant{Update: true, Read: true}))
+
+	// Nothing on the sheet for (anthropic/m, today): there is no price to
+	// update, so the update-only principal is refused the insert.
+	if err := setOn(updater, "1", today); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("update-only insert = %v, want ErrPermissionDenied", err)
+	}
+	if err := setOn(creator, "2", today); err != nil {
+		t.Fatalf("create-only insert: %v", err)
+	}
+	// The row exists now, so the SAME call is an overwrite — which holding
+	// create alone must not buy.
+	if err := setOn(creator, "3", today); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("create-only overwrite = %v, want ErrPermissionDenied", err)
+	}
+	if err := setOn(updater, "4", today); err != nil {
+		t.Fatalf("update-only overwrite: %v", err)
+	}
+
+	hist, err := store.ModelRateHistory(e.Admin(), "anthropic", "m")
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(hist) != 1 || hist[0].InputUsd != "4" {
+		t.Fatalf("sheet = %+v, want one row at 4 USD/MTok (the refused writes wrote nothing)", hist)
+	}
+
+	// Holding both does both halves: a new day inserts, the same day overwrites.
+	both := e.As(e.Rep1, nil, modelRatePerms(principal.ObjectGrant{Create: true, Read: true, Update: true}))
+	if err := setOn(both, "5", today.AddDate(0, 0, 1)); err != nil {
+		t.Fatalf("both-grants insert on a new day: %v", err)
+	}
+	if err := setOn(both, "6", today); err != nil {
+		t.Fatalf("both-grants overwrite: %v", err)
+	}
+}
+
+// An overwrite is audited as the verb that admitted it, so
+// audit_log.authorization_rule attributes the update grant rather than the
+// create grant the insert used.
+func TestModelRateOverwriteAuditsAsUpdate(t *testing.T) {
+	e := Setup(t)
+	store := ai.NewRateStore(e.Pool)
+	ctx := e.Admin()
+	for _, price := range []string{"1", "2"} {
+		if _, err := store.SetModelRate(ctx, ai.SetModelRateInput{
+			Provider: "anthropic", ModelID: "m",
+			InputUsd: price, OutputUsd: "1", CacheReadUsd: "0", CacheWriteUsd: "0",
+			EffectiveDate: time.Now().UTC(),
+		}); err != nil {
+			t.Fatalf("set %s: %v", price, err)
+		}
+	}
+	for action, want := range map[string]int{"create": 1, "update": 1} {
+		if n := e.WsCount(t, `SELECT count(*) FROM audit_log
+			WHERE entity_type='ai_model_rate' AND action='`+action+`'`); n != want {
+			t.Fatalf("audit rows for %s = %d, want %d", action, n, want)
+		}
+	}
+	// The update audit carries what it displaced — an overwrite whose before
+	// image is null is an unusable ledger entry.
+	if n := e.WsCount(t, `SELECT count(*) FROM audit_log
+		WHERE entity_type='ai_model_rate' AND action='update'
+		  AND (before->>'input_microusd')::bigint = 1000000`); n != 1 {
+		t.Fatalf("update audit rows carrying the displaced price = %d, want 1", n)
+	}
+}
