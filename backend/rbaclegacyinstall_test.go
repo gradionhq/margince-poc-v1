@@ -221,7 +221,10 @@ func runGit(t *testing.T, args ...string) []byte {
 			detail = strings.TrimSpace(string(exit.Stderr))
 		}
 		t.Fatalf("git %s: %v\nThe cohort the migration replay seeds is derived from commit %s, so this "+
-			"gate needs full history. If this is a shallow checkout, deepen it — do not weaken the gate.",
+			"gate needs FULL history. If this is CI, the job running the backend unit lane checks out "+
+			"shallow — give it `fetch-depth: 0`, as deterministic-gates already has. Deepen the "+
+			"checkout; do not weaken the gate, because a cohort that silently shrinks makes every "+
+			"object look as though it needs no backfill.",
 			strings.Join(args, " "), detail, legacyCommit)
 	}
 	return out
